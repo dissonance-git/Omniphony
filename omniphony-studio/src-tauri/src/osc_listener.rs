@@ -1320,20 +1320,6 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 )
             }
 
-            OscEvent::StateRoomRatio { .. }
-            | OscEvent::StateRoomRatioRear { .. }
-            | OscEvent::StateRoomRatioLower { .. }
-            | OscEvent::StateRoomRatioCenterBlend { .. }
-            | OscEvent::StateLayoutRadiusM { .. }
-            | OscEvent::StateSpreadMin { .. }
-            | OscEvent::StateSpreadMax { .. }
-            | OscEvent::StateSpreadFromDistance { .. }
-            | OscEvent::StateSpreadDistanceRange { .. }
-            | OscEvent::StateSpreadDistanceCurve { .. }
-            | OscEvent::StateDistanceModel { .. }
-            | OscEvent::StateRenderBackend { .. }
-            | OscEvent::StateRenderBackendEffective { .. }
-            | OscEvent::StateRenderBackendState { .. } => (None, removed_ids),
             OscEvent::StateCapabilities { value } => {
                 s.producer_capabilities = serde_json::from_str(&value).ok();
                 (None, removed_ids)
@@ -1417,9 +1403,6 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 s.producer_session = serde_json::from_str(&value).ok();
                 (None, removed_ids)
             }
-            OscEvent::StateRenderEvaluationMode { .. }
-            | OscEvent::StateRenderEvaluationModeEffective { .. } => (None, removed_ids),
-
             OscEvent::StateDebugSpeakerHeatmapMeta { value } => (
                 Some((
                     "speaker_heatmap:meta",
@@ -1474,10 +1457,6 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 (Some(("state:snapshot_ready", snapshot)), removed_ids)
             }
 
-            OscEvent::StateLoudness { .. }
-            | OscEvent::StateLoudnessSource { .. }
-            | OscEvent::StateLoudnessGain { .. }
-            | OscEvent::StateMasterGain { .. } => (None, removed_ids),
             OscEvent::StateRealtimeMasterGain { value, .. } => {
                 s.master_gain = Some(value);
                 (
@@ -1584,24 +1563,6 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     removed_ids,
                 )
             }
-            OscEvent::StateAudioSampleRate { .. }
-            | OscEvent::StateRampMode { .. }
-            | OscEvent::StateAudioOutputDevice { .. }
-            | OscEvent::StateAudioOutputDeviceRequested { .. }
-            | OscEvent::StateAudioOutputDeviceEffective { .. }
-            | OscEvent::StateAudioOutputDevices { .. }
-            | OscEvent::StateAudioSampleFormat { .. }
-            | OscEvent::StateAudioError { .. }
-            | OscEvent::StateInputMode { .. }
-            | OscEvent::StateInputActiveMode { .. }
-            | OscEvent::StateInputApplyPending { .. }
-            | OscEvent::StateInputBackend { .. }
-            | OscEvent::StateInputChannels { .. }
-            | OscEvent::StateInputSampleRate { .. }
-            | OscEvent::StateInputNode { .. }
-            | OscEvent::StateInputDescription { .. }
-            | OscEvent::StateInputStreamFormat { .. }
-            | OscEvent::StateInputError { .. } => (None, removed_ids),
             OscEvent::StateRenderBridgePath { value } => {
                 s.render_bridge_path = if value.trim().is_empty() {
                     None
@@ -1613,16 +1574,6 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     removed_ids,
                 )
             }
-            OscEvent::StateInputLiveBackend { .. }
-            | OscEvent::StateInputLiveNode { .. }
-            | OscEvent::StateInputLiveDescription { .. }
-            | OscEvent::StateInputLiveLayout { .. }
-            | OscEvent::StateInputLiveClockMode { .. }
-            | OscEvent::StateInputLiveChannels { .. }
-            | OscEvent::StateInputLiveSampleRate { .. }
-            | OscEvent::StateInputLiveFormat { .. }
-            | OscEvent::StateInputLiveMap { .. }
-            | OscEvent::StateInputLiveLfeMode { .. } => (None, removed_ids),
             OscEvent::StateInputPipe { value } => {
                 s.orender_input_pipe = if value.trim().is_empty() {
                     None
@@ -1651,38 +1602,6 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 removed_ids,
             ),
 
-            OscEvent::StateDistanceDiffuseEnabled { enabled } => {
-                s.distance_diffuse.enabled = Some(enabled);
-                (
-                    Some((
-                        "distance_diffuse:enabled",
-                        serde_json::json!({ "enabled": enabled }),
-                    )),
-                    removed_ids,
-                )
-            }
-
-            OscEvent::StateDistanceDiffuseThreshold { value } => {
-                s.distance_diffuse.threshold = Some(value);
-                (
-                    Some((
-                        "distance_diffuse:threshold",
-                        serde_json::json!({ "value": value }),
-                    )),
-                    removed_ids,
-                )
-            }
-
-            OscEvent::StateDistanceDiffuseCurve { value } => {
-                s.distance_diffuse.curve = Some(value);
-                (
-                    Some((
-                        "distance_diffuse:curve",
-                        serde_json::json!({ "value": value }),
-                    )),
-                    removed_ids,
-                )
-            }
             OscEvent::StateRenderEvaluationCartesianXSize { value } => {
                 s.vbap_cartesian.x_size = Some(value);
                 (

@@ -1697,7 +1697,7 @@ pub fn apply_simple_osc_control(
     }
 
     macro_rules! layout_float_with_recompute {
-        ($path:literal, $field:ident, $state:literal) => {
+        ($path:literal, $field:ident) => {
             if addr == $path {
                 if let Some(value) = parse_f32_arg(msg.args.first()) {
                     ctx.renderer.live.write().unwrap().$field = value;
@@ -1709,25 +1709,15 @@ pub fn apply_simple_osc_control(
         };
     }
 
-    layout_float_with_recompute!(
-        "/omniphony/control/spread/min",
-        spread_min,
-        "/omniphony/state/spread/min"
-    );
-    layout_float_with_recompute!(
-        "/omniphony/control/spread/max",
-        spread_max,
-        "/omniphony/state/spread/max"
-    );
+    layout_float_with_recompute!("/omniphony/control/spread/min", spread_min);
+    layout_float_with_recompute!("/omniphony/control/spread/max", spread_max);
     layout_float_with_recompute!(
         "/omniphony/control/spread/distance_range",
-        spread_distance_range,
-        "/omniphony/state/spread/distance_range"
+        spread_distance_range
     );
     layout_float_with_recompute!(
         "/omniphony/control/spread/distance_curve",
-        spread_distance_curve,
-        "/omniphony/state/spread/distance_curve"
+        spread_distance_curve
     );
 
     if addr == "/omniphony/control/spread/from_distance" {
