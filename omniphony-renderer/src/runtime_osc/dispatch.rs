@@ -8,10 +8,7 @@ use renderer::live_params::RendererControl;
 use rosc::{OscMessage, OscType};
 use runtime_control::command::{RuntimeCommand, parse_process_command};
 use runtime_control::context::RuntimeControlContext;
-use runtime_control::osc::{
-    BroadcastValue, ControlEffects, SpeakerPatch, apply_simple_osc_control,
-    apply_speaker_osc_control,
-};
+use runtime_control::osc::{BroadcastValue, ControlEffects, apply_simple_osc_control};
 
 use super::client_registry::OscClientRegistry;
 use super::export::{build_live_state_bundle, export_current_layout, save_live_config};
@@ -34,7 +31,6 @@ pub(crate) fn handle_control_message(
     control: &Arc<RendererControl>,
     audio_control: Option<&Arc<AudioControl>>,
     input_control: Option<&Arc<InputControl>>,
-    pending_speakers: &mut HashMap<usize, SpeakerPatch>,
     realtime_seq: &mut RealtimeSeqState,
     socket: &Arc<UdpSocket>,
     clients: &Arc<OscClientRegistry>,
@@ -287,18 +283,6 @@ pub(crate) fn handle_control_message(
     }
 
     if let Some(effects) = apply_simple_osc_control(msg, &runtime_ctx) {
-        apply_control_effects(
-            effects,
-            control,
-            audio_control,
-            input_control,
-            socket,
-            clients,
-        );
-        return;
-    }
-
-    if let Some(effects) = apply_speaker_osc_control(msg, &runtime_ctx, pending_speakers) {
         apply_control_effects(
             effects,
             control,

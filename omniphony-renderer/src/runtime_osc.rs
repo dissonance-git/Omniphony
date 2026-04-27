@@ -2,8 +2,6 @@ use anyhow::Result;
 use audio_input::InputControl;
 use audio_output::AudioControl;
 use rosc::{OscMessage, OscPacket};
-use runtime_control::osc::SpeakerPatch;
-use std::collections::HashMap;
 use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -184,10 +182,6 @@ impl OscSender {
                 let _ = rx_socket.set_read_timeout(Some(Duration::from_millis(200)));
                 log::info!("OSC listener ready on port {}", rx_port);
 
-                // Pending speaker patches staged by
-                // /control/speaker/{idx}/{az|el|distance|spatialize}.
-                // Applied atomically by /control/speakers/apply.
-                let mut pending_speakers: HashMap<usize, SpeakerPatch> = HashMap::new();
                 let mut realtime_seq = RealtimeSeqState::default();
                 let mut last_log_seq = sys::live_log::records_since(0)
                     .last()
@@ -290,7 +284,6 @@ impl OscSender {
                                             ctrl,
                                             audio_control.as_ref(),
                                             input_control.as_ref(),
-                                            &mut pending_speakers,
                                             &mut realtime_seq,
                                             &socket,
                                             &clients,

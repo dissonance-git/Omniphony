@@ -119,6 +119,25 @@ import {
   updateMeterUI
 } from './mute-solo.js';
 
+function sendLayoutPatch(payload) {
+  invoke('control_layout_config', { payload });
+}
+
+function applyLayoutPatch() {
+  invoke('control_layout_config_apply');
+}
+
+export function sendSpeakersPatch(payload) {
+  invoke('control_speakers_config', { payload });
+}
+
+export function updateSpeakerLayoutPatch(index, patch, { apply = false } = {}) {
+  sendLayoutPatch({ speakerEdits: [{ id: index, ...patch }] });
+  if (apply) {
+    applyLayoutPatch();
+  }
+}
+
 import {
   applySpeakerLevel,
   applySourceLevel,
@@ -301,7 +320,13 @@ export function computeAndApplySpeakerDelays() {
     const rounded = Math.round(delayMs * 1000) / 1000;
     const id = String(index);
     speakerDelays.set(id, rounded);
-    invoke('control_speaker_delay', { id: index, delayMs: rounded });
+  });
+  sendSpeakersPatch({
+    speakerEdits: distances.map((distance, index) => {
+      const delayMs = Math.max(0, ((maxDistance - distance) / SPEED_OF_SOUND_M_S) * 1000);
+      const rounded = Math.round(delayMs * 1000) / 1000;
+      return { id: index, delayMs: rounded };
+    })
   });
 
   renderSpeakerEditor();
@@ -338,12 +363,15 @@ export function adjustSpeakerDistancesFromDelays() {
     );
   });
 
-  currentLayoutSpeakers.forEach((speaker, index) => {
-    invoke('control_speaker_az', { id: index, value: Number(speaker.azimuthDeg) || 0 });
-    invoke('control_speaker_el', { id: index, value: Number(speaker.elevationDeg) || 0 });
-    invoke('control_speaker_distance', { id: index, value: Number(speaker.distanceM) || 1 });
+  sendLayoutPatch({
+    speakerEdits: currentLayoutSpeakers.map((speaker, index) => ({
+      id: index,
+      azimuth: Number(speaker.azimuthDeg) || 0,
+      elevation: Number(speaker.elevationDeg) || 0,
+      distance: Number(speaker.distanceM) || 1
+    }))
   });
-  invoke('control_speakers_apply');
+  applyLayoutPatch();
   renderSpeakerEditor();
 }
 
@@ -358,14 +386,15 @@ export function setSpeakerCoordMode(index, mode) {
   if (!speaker) return;
   speaker.coordMode = mode === 'cartesian' ? 'cartesian' : 'polar';
   hydrateSpeakerCoordinateState(speaker);
-  invoke('control_speaker_coord_mode', { id: index, value: speaker.coordMode });
-  invoke('control_speaker_x', { id: index, value: speaker.x });
-  invoke('control_speaker_y', { id: index, value: speaker.y });
-  invoke('control_speaker_z', { id: index, value: speaker.z });
-  invoke('control_speaker_az', { id: index, value: speaker.azimuthDeg });
-  invoke('control_speaker_el', { id: index, value: speaker.elevationDeg });
-  invoke('control_speaker_distance', { id: index, value: speaker.distanceM });
-  invoke('control_speakers_apply');
+  updateSpeakerLayoutPatch(index, {
+    coordMode: speaker.coordMode,
+    x: speaker.x,
+    y: speaker.y,
+    z: speaker.z,
+    azimuth: speaker.azimuthDeg,
+    elevation: speaker.elevationDeg,
+    distance: speaker.distanceM
+  }, { apply: true });
   updateSpeakerVisualsFromState(index);
   renderSpeakerEditor();
 }
@@ -522,8 +551,7 @@ export function createSpeakerItem(id, speaker) {
     if (app.draggedSpeakerInitialIndex !== null && app.draggedSpeakerIndex !== null) {
       if (app.draggedSpeakerDidDrop) {
         if (app.draggedSpeakerInitialIndex !== app.draggedSpeakerIndex) {
-          invoke('control_speakers_move', { from: app.draggedSpeakerInitialIndex, to: app.draggedSpeakerIndex });
-          requestMoveSpeakerTo(app.draggedSpeakerInitialIndex, app.draggedSpeakerIndex, false);
+          requestMoveSpeakerTo(app.draggedSpeakerInitialIndex, app.draggedSpeakerIndex, true);
         }
       } else {
         // Drag cancelled: restore current logical order.
@@ -758,14 +786,15 @@ export function applySpeakerSceneCartesianEdit(index, x, y, z, sendOsc = true) {
   updateSpeakerVisualsFromState(index);
 
   if (sendOsc) {
-    invoke('control_speaker_coord_mode', { id: index, value: getSpeakerCoordMode(speaker) });
-    invoke('control_speaker_x', { id: index, value: speaker.x });
-    invoke('control_speaker_y', { id: index, value: speaker.y });
-    invoke('control_speaker_z', { id: index, value: speaker.z });
-    invoke('control_speaker_az', { id: index, value: speaker.azimuthDeg });
-    invoke('control_speaker_el', { id: index, value: speaker.elevationDeg });
-    invoke('control_speaker_distance', { id: index, value: speaker.distanceM });
-    invoke('control_speakers_apply');
+    updateSpeakerLayoutPatch(index, {
+      coordMode: getSpeakerCoordMode(speaker),
+      x: speaker.x,
+      y: speaker.y,
+      z: speaker.z,
+      azimuth: speaker.azimuthDeg,
+      elevation: speaker.elevationDeg,
+      distance: speaker.distanceM
+    }, { apply: true });
   }
 
   renderSpeakerEditor();
@@ -1467,14 +1496,17 @@ export function requestAddSpeaker() {
   layout.speakers.push(speaker);
   renderLayout(get_currentLayoutKey());
   setSelectedSpeaker(layout.speakers.length - 1);
-  invoke('control_speakers_add', {
-    name: speaker.id,
-    azimuth: Number(speaker.azimuthDeg) || 0,
-    elevation: Number(speaker.elevationDeg) || 0,
-    distance: Math.max(0.01, Number(speaker.distanceM) || 1),
-    spatialize: Number(speaker.spatialize) ? 1 : 0,
-    delayMs: Math.max(0, Number(speaker.delay_ms) || 0)
+  sendLayoutPatch({
+    addSpeaker: {
+      name: speaker.id,
+      azimuth: Number(speaker.azimuthDeg) || 0,
+      elevation: Number(speaker.elevationDeg) || 0,
+      distance: Math.max(0.01, Number(speaker.distanceM) || 1),
+      spatialize: Number(speaker.spatialize) !== 0,
+      delayMs: Math.max(0, Number(speaker.delay_ms) || 0)
+    }
   });
+  applyLayoutPatch();
 }
 
 export function requestRemoveSpeaker() {
@@ -1488,7 +1520,8 @@ export function requestRemoveSpeaker() {
   renderLayout(get_currentLayoutKey());
   const next = layout.speakers.length ? Math.max(0, idx - 1) : null;
   setSelectedSpeaker(next);
-  invoke('control_speakers_remove', { index: idx });
+  sendLayoutPatch({ removeSpeaker: idx });
+  applyLayoutPatch();
 }
 
 export function requestMoveSpeaker(delta) {
@@ -1578,7 +1611,8 @@ export function requestMoveSpeakerTo(from, to, sendOsc = true) {
   renderLayout(get_currentLayoutKey());
   setSelectedSpeaker(nextSelected);
   if (sendOsc) {
-    invoke('control_speakers_move', { from, to });
+    sendLayoutPatch({ moveSpeaker: { from, to } });
+    applyLayoutPatch();
   }
   markDraggedSpeakerItem();
 }

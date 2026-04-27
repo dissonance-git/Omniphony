@@ -955,6 +955,26 @@ fn control_layout_radius_m(state: State<SharedState>, value: f32) {
 }
 
 #[tauri::command]
+fn control_layout_config(state: State<SharedState>, payload: serde_json::Value) {
+    send_json_control(&state.osc_tx, "/omniphony/control/config/layout", payload);
+}
+
+#[tauri::command]
+fn control_layout_config_apply(state: State<SharedState>) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendNoArgs {
+            address: "/omniphony/control/config/layout/apply".to_string(),
+        },
+    );
+}
+
+#[tauri::command]
+fn control_speakers_config(state: State<SharedState>, payload: serde_json::Value) {
+    send_json_control(&state.osc_tx, "/omniphony/control/config/speakers", payload);
+}
+
+#[tauri::command]
 fn control_speaker_az(state: State<SharedState>, id: i32, value: f32) {
     send_json_control(
         &state.osc_tx,
@@ -2309,6 +2329,9 @@ fn main() {
             control_room_ratio_lower,
             control_room_ratio_center_blend,
             control_layout_radius_m,
+            control_layout_config,
+            control_layout_config_apply,
+            control_speakers_config,
             control_speaker_az,
             control_speaker_el,
             control_speaker_distance,
