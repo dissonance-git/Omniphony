@@ -117,7 +117,8 @@ fn maybe_save_effective_config(
         anyhow::anyhow!("Cannot determine config path; use --config to specify one")
     })?;
 
-    let config = effective_to_config(args, cli)?;
+    let existing_render_cfg = renderer::config::Config::load_or_default(&path).render;
+    let config = effective_to_config(args, cli, existing_render_cfg.as_ref())?;
     config.save(&path)?;
     log::info!("Config written to: {}", path.display());
     Ok(true)

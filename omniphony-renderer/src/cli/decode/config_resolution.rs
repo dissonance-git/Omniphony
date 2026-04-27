@@ -263,6 +263,7 @@ pub(super) fn merge_render_config(
 pub(super) fn effective_to_config(
     args: &RenderArgs,
     cli: &Cli,
+    existing_render_cfg: Option<&renderer::config::RenderConfig>,
 ) -> Result<renderer::config::Config> {
     use renderer::config::{Config, GlobalConfig, RenderConfig};
     use renderer::speaker_layout::SpeakerLayout;
@@ -443,18 +444,29 @@ pub(super) fn effective_to_config(
         } else {
             None
         },
-        adaptive_resampling_enable_far_mode: None,
-        adaptive_resampling_force_silence_in_far_mode: None,
-        adaptive_resampling_hard_recover_high_in_far_mode: None,
-        adaptive_resampling_hard_recover_low_in_far_mode: None,
-        adaptive_resampling_far_mode_return_fade_in_ms: None,
-        adaptive_resampling_kp_near: None,
-        adaptive_resampling_ki: None,
-        adaptive_resampling_integral_discharge_ratio: None,
-        adaptive_resampling_max_adjust: None,
+        // These adaptive tuning fields currently have no CLI surface, so a `save`
+        // round-trip must preserve whatever the active config already carries.
+        adaptive_resampling_enable_far_mode: existing_render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_enable_far_mode),
+        adaptive_resampling_force_silence_in_far_mode: existing_render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_force_silence_in_far_mode),
+        adaptive_resampling_hard_recover_high_in_far_mode: existing_render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_hard_recover_high_in_far_mode),
+        adaptive_resampling_hard_recover_low_in_far_mode: existing_render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_hard_recover_low_in_far_mode),
+        adaptive_resampling_far_mode_return_fade_in_ms: existing_render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_far_mode_return_fade_in_ms),
+        adaptive_resampling_kp_near: existing_render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_kp_near),
+        adaptive_resampling_ki: existing_render_cfg.and_then(|cfg| cfg.adaptive_resampling_ki),
+        adaptive_resampling_integral_discharge_ratio: existing_render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_integral_discharge_ratio),
+        adaptive_resampling_max_adjust: existing_render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_max_adjust),
         adaptive_resampling_update_interval_callbacks: args
             .adaptive_resampling_update_interval_callbacks,
-        adaptive_resampling_near_far_threshold_ms: None,
+        adaptive_resampling_near_far_threshold_ms: existing_render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_near_far_threshold_ms),
         output_sample_rate: args.output_sample_rate,
         ramp_mode: if args.ramp_mode != RampModeArg::Sample {
             Some(match args.ramp_mode {
