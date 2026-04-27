@@ -246,7 +246,7 @@ pub fn build_live_state_bundle(
             args: vec![OscType::String(speakers_state_json)],
         }),
         OscPacket::Message(OscMessage {
-            addr: "/omniphony/state/loudness/domain".to_string(),
+            addr: "/omniphony/state/loudness".to_string(),
             args: vec![OscType::String(
                 json!({
                     "enabled": live.use_loudness,

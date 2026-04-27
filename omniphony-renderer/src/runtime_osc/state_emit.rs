@@ -38,12 +38,7 @@ impl OscSender {
             "gain": gain_linear
         })
         .to_string();
-        super::transport::broadcast_string(
-            socket,
-            clients,
-            "/omniphony/state/loudness/domain",
-            &payload,
-        );
+        super::transport::broadcast_string(socket, clients, "/omniphony/state/loudness", &payload);
     }
 
     pub fn send_meter_bundle(

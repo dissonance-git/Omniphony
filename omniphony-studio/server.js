@@ -404,7 +404,7 @@ function handleParsedOsc(parsed) {
     applySpeakersDomainState(parsed.value);
   }
 
-  if (parsed.type === 'state:loudness:domain') {
+  if (parsed.type === 'state:loudness') {
     applyLoudnessDomainState(parsed.value);
   }
 

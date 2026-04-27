@@ -185,19 +185,19 @@ pub enum OscEvent {
     #[serde(rename = "state:capabilities")]
     StateCapabilities { value: String },
     #[serde(rename = "state:renderer")]
-    StateRendererDomain { value: String },
+    StateRenderer { value: String },
     #[serde(rename = "state:audio")]
-    StateAudioDomain { value: String },
+    StateAudio { value: String },
     #[serde(rename = "state:layout")]
-    StateLayoutDomain { value: String },
+    StateLayout { value: String },
     #[serde(rename = "state:speakers")]
-    StateSpeakersDomain { value: String },
+    StateSpeakers { value: String },
     #[serde(rename = "state:input")]
-    StateInputDomain { value: String },
-    #[serde(rename = "state:loudness:domain")]
-    StateLoudnessDomain { value: String },
+    StateInput { value: String },
+    #[serde(rename = "state:loudness")]
+    StateLoudness { value: String },
     #[serde(rename = "state:session")]
-    StateSessionDomain { value: String },
+    StateSession { value: String },
     #[serde(rename = "state:debug:speaker_heatmap:meta")]
     StateDebugSpeakerHeatmapMeta { value: String },
     #[serde(rename = "state:debug:speaker_heatmap:slice_xy")]
@@ -507,36 +507,28 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
         (3, "capabilities") => Some(OscEvent::StateCapabilities {
             value: raw_args.first().and_then(unwrap_string)?,
         }),
-        (3, "renderer") => Some(OscEvent::StateRendererDomain {
+        (3, "renderer") => Some(OscEvent::StateRenderer {
             value: raw_args.first().and_then(unwrap_string)?,
         }),
-        (3, "audio") => Some(OscEvent::StateAudioDomain {
+        (3, "audio") => Some(OscEvent::StateAudio {
             value: raw_args.first().and_then(unwrap_string)?,
         }),
-        (3, "layout") => Some(OscEvent::StateLayoutDomain {
+        (3, "layout") => Some(OscEvent::StateLayout {
             value: raw_args.first().and_then(unwrap_string)?,
         }),
-        (3, "speakers") => Some(OscEvent::StateSpeakersDomain {
+        (3, "speakers") => Some(OscEvent::StateSpeakers {
             value: raw_args.first().and_then(unwrap_string)?,
         }),
-        (3, "input") => Some(OscEvent::StateInputDomain {
+        (3, "input") => Some(OscEvent::StateInput {
             value: raw_args.first().and_then(unwrap_string)?,
         }),
-        (3, "session") => Some(OscEvent::StateSessionDomain {
+        (3, "session") => Some(OscEvent::StateSession {
             value: raw_args.first().and_then(unwrap_string)?,
         }),
         (3, "snapshot_complete") => Some(OscEvent::StateSnapshotComplete),
-        (4, "loudness") => {
-            let Some(first_raw) = raw_args.first() else {
-                return None;
-            };
-            if parts[3] == "domain" {
-                return Some(OscEvent::StateLoudnessDomain {
-                    value: unwrap_string(first_raw)?,
-                });
-            }
-            None
-        }
+        (3, "loudness") => Some(OscEvent::StateLoudness {
+            value: raw_args.first().and_then(unwrap_string)?,
+        }),
         (4, "realtime") => match parts[3] {
             "master_gain" => Some(OscEvent::StateRealtimeMasterGain {
                 value: to_number(args.first().copied()?)?,

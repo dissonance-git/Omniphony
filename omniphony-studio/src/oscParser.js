@@ -237,9 +237,9 @@ function parseOmniphonyDomainState(parts, args) {
     }
   }
 
-  if (parts.length === 4 && parts[2] === 'loudness' && parts[3] === 'domain') {
+  if (parts.length === 3 && parts[2] === 'loudness') {
     const value = parseJsonString(raw);
-    return value ? { type: 'state:loudness:domain', value } : null;
+    return value ? { type: 'state:loudness', value } : null;
   }
 
   return null;

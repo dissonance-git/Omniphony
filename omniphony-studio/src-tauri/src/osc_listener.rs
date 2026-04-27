@@ -1324,7 +1324,7 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 s.producer_capabilities = serde_json::from_str(&value).ok();
                 (None, removed_ids)
             }
-            OscEvent::StateRendererDomain { value } => {
+            OscEvent::StateRenderer { value } => {
                 if apply_renderer_domain_state(&mut s, &value) {
                     (
                         Some((
@@ -1337,7 +1337,7 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     (None, removed_ids)
                 }
             }
-            OscEvent::StateAudioDomain { value } => {
+            OscEvent::StateAudio { value } => {
                 if apply_audio_domain_state(&mut s, &value) {
                     (
                         Some((
@@ -1350,7 +1350,7 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     (None, removed_ids)
                 }
             }
-            OscEvent::StateLayoutDomain { value } => {
+            OscEvent::StateLayout { value } => {
                 if apply_layout_domain_state(&mut s, &value) {
                     (
                         Some(("layouts:update", layout_update_payload(&s))),
@@ -1360,7 +1360,7 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     (None, removed_ids)
                 }
             }
-            OscEvent::StateSpeakersDomain { value } => {
+            OscEvent::StateSpeakers { value } => {
                 if apply_speakers_domain_state(&mut s, &value) {
                     (
                         Some((
@@ -1373,7 +1373,7 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     (None, removed_ids)
                 }
             }
-            OscEvent::StateInputDomain { value } => {
+            OscEvent::StateInput { value } => {
                 if apply_input_domain_state(&mut s, &value) {
                     (
                         Some((
@@ -1386,7 +1386,7 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     (None, removed_ids)
                 }
             }
-            OscEvent::StateLoudnessDomain { value } => {
+            OscEvent::StateLoudness { value } => {
                 if apply_loudness_domain_state(&mut s, &value) {
                     (
                         Some((
@@ -1399,7 +1399,7 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     (None, removed_ids)
                 }
             }
-            OscEvent::StateSessionDomain { value } => {
+            OscEvent::StateSession { value } => {
                 s.producer_session = serde_json::from_str(&value).ok();
                 (None, removed_ids)
             }

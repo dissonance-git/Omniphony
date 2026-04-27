@@ -167,11 +167,11 @@ test('parses serialized renderer and loudness domains', () => {
   );
 
   assert.deepEqual(
-    parseOscMessage(msg('/omniphony/state/loudness/domain', [
+    parseOscMessage(msg('/omniphony/state/loudness', [
       JSON.stringify({ enabled: true, source: -24, gain: 0.8 })
     ])),
     {
-      type: 'state:loudness:domain',
+      type: 'state:loudness',
       value: { enabled: true, source: -24, gain: 0.8 }
     }
   );

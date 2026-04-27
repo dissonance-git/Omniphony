@@ -134,7 +134,7 @@ Canonical serialized domain messages:
 - `/omniphony/state/audio s <json>`
 - `/omniphony/state/layout s <json>`
 - `/omniphony/state/input s <json>`
-- `/omniphony/state/loudness/domain s <json>`
+- `/omniphony/state/loudness s <json>`
 - `/omniphony/state/session s <json>` for metadata-oriented producers such as `adm-player`
 
 Common addresses include:
