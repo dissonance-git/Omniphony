@@ -81,14 +81,6 @@ const state = {
   speakerGains: {},
   objectMutes: {},
   speakerMutes: {},
-  roomRatio: { width: 1, length: 2, height: 1 },
-  spread: { min: null, max: null },
-  distanceModel: null,
-  loudness: null,
-  loudnessSource: null,
-  loudnessGain: null,
-  masterGain: null,
-  distanceDiffuse: { enabled: null, threshold: null, curve: null },
   configSaved: null,
   latencyMs: null,
   resampleRatio: null,
@@ -216,89 +208,6 @@ function handleParsedOsc(parsed) {
       id: parsed.id,
       muted: parsed.muted ? 1 : 0
     });
-  }
-
-  if (parsed.type === 'state:room_ratio') {
-    state.roomRatio = {
-      width: parsed.width,
-      length: parsed.length,
-      height: parsed.height
-    };
-    broadcast({
-      type: 'room_ratio',
-      roomRatio: state.roomRatio
-    });
-  }
-
-  if (parsed.type === 'state:spread:min') {
-    state.spread.min = parsed.value;
-    broadcast({
-      type: 'spread:min',
-      value: parsed.value
-    });
-  }
-
-  if (parsed.type === 'state:spread:max') {
-    state.spread.max = parsed.value;
-    broadcast({
-      type: 'spread:max',
-      value: parsed.value
-    });
-  }
-
-  if (parsed.type === 'state:distance_model') {
-    state.distanceModel = parsed.value;
-    broadcast({
-      type: 'distance_model',
-      value: parsed.value
-    });
-  }
-
-  if (parsed.type === 'state:loudness') {
-    state.loudness = parsed.enabled ? 1 : 0;
-    broadcast({
-      type: 'loudness',
-      enabled: state.loudness
-    });
-  }
-
-  if (parsed.type === 'state:loudness:source') {
-    state.loudnessSource = parsed.value;
-    broadcast({
-      type: 'loudness:source',
-      value: parsed.value
-    });
-  }
-
-  if (parsed.type === 'state:loudness:gain') {
-    state.loudnessGain = parsed.value;
-    broadcast({
-      type: 'loudness:gain',
-      value: parsed.value
-    });
-  }
-
-  if (parsed.type === 'state:master:gain') {
-    state.masterGain = parsed.value;
-    broadcast({
-      type: 'master:gain',
-      value: parsed.value
-    });
-  }
-
-  if (parsed.type === 'state:distance_diffuse:enabled') {
-    state.distanceDiffuse.enabled = parsed.enabled;
-    broadcast({ type: 'distance_diffuse:enabled', enabled: parsed.enabled });
-  }
-
-  if (parsed.type === 'state:distance_diffuse:threshold') {
-    state.distanceDiffuse.threshold = parsed.value;
-    broadcast({ type: 'distance_diffuse:threshold', value: parsed.value });
-  }
-
-  if (parsed.type === 'state:distance_diffuse:curve') {
-    state.distanceDiffuse.curve = parsed.value;
-    broadcast({ type: 'distance_diffuse:curve', value: parsed.value });
   }
 
   if (parsed.type === 'state:config:saved') {
@@ -638,14 +547,6 @@ wss.on('connection', (ws) => {
       speakerGains: state.speakerGains,
       objectMutes: state.objectMutes,
       speakerMutes: state.speakerMutes,
-      roomRatio: state.roomRatio,
-      spread: state.spread,
-      distanceModel: state.distanceModel,
-      loudness: state.loudness,
-      loudnessSource: state.loudnessSource,
-      loudnessGain: state.loudnessGain,
-      masterGain: state.masterGain,
-      distanceDiffuse: state.distanceDiffuse,
       configSaved: state.configSaved,
       latencyMs: state.latencyMs,
       resampleRatio: state.resampleRatio,
