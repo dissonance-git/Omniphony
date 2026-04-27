@@ -104,21 +104,6 @@ test('clamps meter values to [-100, 0]', () => {
   });
 });
 
-test('parses omniphony config messages', () => {
-  const count = parseOscMessage(msg('/omniphony/config/speakers', [4]));
-  assert.deepEqual(count, { type: 'config:speakers:count', count: 4 });
-
-  const speaker = parseOscMessage(msg('/omniphony/config/speaker/2', ['L', 30, 10, 1.5, 0]));
-  assert.equal(speaker.type, 'config:speaker');
-  assert.equal(speaker.index, 2);
-  assert.equal(speaker.name, 'L');
-  assert.equal(speaker.azimuthDeg, 30);
-  assert.equal(speaker.elevationDeg, 10);
-  assert.equal(speaker.distanceM, 1.5);
-  assert.equal(speaker.spatialize, 0);
-  assert.ok(typeof speaker.position.x === 'number');
-});
-
 test('parses omniphony object xyz mapping', () => {
   const parsed = parseOscMessage(msg('/omniphony/object/7/xyz', [0.2, 0.3, 0.4]));
   assert.deepEqual(parsed, {

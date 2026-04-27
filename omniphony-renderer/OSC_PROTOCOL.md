@@ -37,8 +37,7 @@ Arguments:
 
 After registration, `orender` sends:
 
-1. a config bundle with the speaker layout
-2. a state bundle with the current live renderer state
+1. a state bundle with the current live renderer state, including `state/layout` and `state/speakers`
 
 ### `/omniphony/heartbeat`
 
@@ -57,23 +56,15 @@ Dynamic clients should send heartbeats periodically to stay registered.
 
 ## Messages Sent by orender
 
-### Initial Configuration
+### Serialized State
 
-#### `/omniphony/config/speakers`
+#### `/omniphony/state/layout`
 
-| Argument | Type | Description |
-|---|---|---|
-| `count` | `i32` | Total speaker count |
+Serialized JSON layout snapshot with speaker geometry and static metadata.
 
-#### `/omniphony/config/speaker/{idx}`
+#### `/omniphony/state/speakers`
 
-| Argument | Type | Description |
-|---|---|---|
-| `name` | `string` | Speaker name, for example `FL`, `TFR`, `LFE` |
-| `azimuth` | `f32` | Degrees |
-| `elevation` | `f32` | Degrees |
-| `distance` | `f32` | Metres, for visualization and UI |
-| `spatialize` | `i32` | `1` if the speaker participates in VBAP, `0` otherwise |
+Serialized JSON speaker runtime/config snapshot with per-speaker `gain`, `delayMs`, and `muted`.
 
 ### Spatial Metadata
 

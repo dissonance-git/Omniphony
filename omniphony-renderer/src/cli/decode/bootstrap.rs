@@ -1,6 +1,6 @@
 use super::handler::DecodeHandler;
 use crate::cli::command::{EvaluationModeArg, OutputBackend, RenderArgs};
-use crate::runtime_osc::{OscSender, build_speaker_config_bundle};
+use crate::runtime_osc::OscSender;
 use anyhow::Result;
 use audio_input::{
     InputBackend, InputClockMode, InputControl, InputLfeMode, InputMapMode, InputMode,
@@ -604,12 +604,10 @@ fn init_osc_runtime(
         }
     }
 
-    if let (Some(renderer), Some(sender)) =
+    if let (Some(_renderer), Some(sender)) =
         (&handler.spatial_renderer, &mut handler.telemetry.osc_sender)
     {
-        let layout = renderer.speaker_layout();
-        let config_bytes = build_speaker_config_bundle(&layout)?;
-        sender.start_listener(args.osc_rx_port, config_bytes)?;
+        sender.start_listener(args.osc_rx_port)?;
     }
 
     Ok(())

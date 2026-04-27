@@ -17,8 +17,8 @@ use super::client_registry::OscClientRegistry;
 use super::export::{build_live_state_bundle, export_current_layout, save_live_config};
 use super::recompute::trigger_layout_recompute;
 use super::transport::{
-    broadcast_fff, broadcast_float, broadcast_int, broadcast_speaker_config, broadcast_string,
-    resolve_register_addr, send_metering_state,
+    broadcast_fff, broadcast_float, broadcast_int, broadcast_string, resolve_register_addr,
+    send_metering_state,
 };
 
 #[derive(Default)]
@@ -337,9 +337,6 @@ fn apply_control_effects(
         set_dirty(control, socket, clients);
         let state_bytes = build_live_state_bundle(control, audio_control, input_control);
         super::transport::send_raw(socket, clients, &state_bytes);
-    }
-    if let Some(layout) = effects.speaker_layout_broadcast.as_ref() {
-        broadcast_speaker_config(socket, clients, layout);
     }
     for update in effects.broadcasts {
         match update.value {

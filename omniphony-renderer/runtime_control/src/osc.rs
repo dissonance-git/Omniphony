@@ -44,7 +44,6 @@ pub struct BroadcastUpdate {
 pub struct ControlEffects {
     pub mark_dirty: bool,
     pub trigger_layout_recompute: bool,
-    pub speaker_layout_broadcast: Option<renderer::speaker_layout::SpeakerLayout>,
     pub broadcasts: Vec<BroadcastUpdate>,
     pub log_message: Option<String>,
 }
@@ -1850,7 +1849,7 @@ pub fn apply_speaker_osc_control(
         let distance = parse_f32_arg(msg.args.get(3)).unwrap_or(1.0).max(0.01);
         let spatialize = parse_bool_arg(msg.args.get(4)).unwrap_or(true);
         let delay_ms = parse_f32_arg(msg.args.get(5)).unwrap_or(0.0).max(0.0);
-        let layout = ctx.renderer.with_editable_layout(|layout| {
+        ctx.renderer.with_editable_layout(|layout| {
             layout
                 .speakers
                 .push(renderer::speaker_layout::Speaker::from_polar(
@@ -1876,7 +1875,6 @@ pub fn apply_speaker_osc_control(
         }
         effects.mark_dirty = true;
         effects.trigger_layout_recompute = true;
-        effects.speaker_layout_broadcast = Some(layout);
         return Some(effects);
     }
 
@@ -1887,7 +1885,7 @@ pub fn apply_speaker_osc_control(
             Some(OscType::Float(v)) if *v >= 0.0 => *v as usize,
             _ => return Some(effects),
         };
-        let Some(layout) = ctx.renderer.with_editable_layout(|layout| {
+        let Some(_) = ctx.renderer.with_editable_layout(|layout| {
             if remove_idx >= layout.speakers.len() {
                 return None;
             }
@@ -1903,7 +1901,6 @@ pub fn apply_speaker_osc_control(
         ctx.renderer.mark_speaker_params_dirty();
         effects.mark_dirty = true;
         effects.trigger_layout_recompute = true;
-        effects.speaker_layout_broadcast = Some(layout);
         return Some(effects);
     }
 
@@ -1919,7 +1916,7 @@ pub fn apply_speaker_osc_control(
             Some(OscType::Float(v)) if *v >= 0.0 => *v as usize,
             _ => return Some(effects),
         };
-        let Some(layout) = ctx.renderer.with_editable_layout(|layout| {
+        let Some(_) = ctx.renderer.with_editable_layout(|layout| {
             let len = layout.speakers.len();
             if from_idx >= len || to_idx >= len || from_idx == to_idx {
                 return None;
@@ -1937,7 +1934,6 @@ pub fn apply_speaker_osc_control(
         ctx.renderer.mark_speaker_params_dirty();
         effects.mark_dirty = true;
         effects.trigger_layout_recompute = true;
-        effects.speaker_layout_broadcast = Some(layout);
         return Some(effects);
     }
 
@@ -2053,10 +2049,9 @@ pub fn apply_speaker_osc_control(
     }
 
     if addr == "/omniphony/control/speakers/apply" {
-        let layout = apply_pending_speakers(pending_speakers, ctx);
+        apply_pending_speakers(pending_speakers, ctx);
         effects.mark_dirty = true;
         effects.trigger_layout_recompute = true;
-        effects.speaker_layout_broadcast = Some(layout);
         return Some(effects);
     }
 

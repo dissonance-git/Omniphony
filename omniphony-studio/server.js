@@ -106,37 +106,6 @@ function broadcast(payload) {
   });
 }
 
-function buildLiveLayoutFromSpeakers(speakers) {
-  return {
-    key: 'omniphony-live',
-    name: 'omniphony (live)',
-    speakers: speakers.map((speaker) => ({
-      id: speaker.name || `spk-${speaker.index}`,
-      x: speaker.position.x,
-      y: speaker.position.y,
-      z: speaker.position.z,
-      spatialize: speaker.spatialize
-    }))
-  };
-}
-
-function applyOmniphonySpeakerConfig(speakers) {
-  if (!Array.isArray(speakers) || speakers.length === 0) {
-    return;
-  }
-
-  const liveLayout = buildLiveLayoutFromSpeakers(speakers);
-  const withoutLive = state.layouts.filter((layout) => layout.key !== liveLayout.key);
-  state.layouts = [liveLayout, ...withoutLive];
-  state.selectedLayoutKey = liveLayout.key;
-
-  broadcast({
-    type: 'layouts:update',
-    layouts: state.layouts,
-    selectedLayoutKey: state.selectedLayoutKey
-  });
-}
-
 function handleParsedOsc(parsed) {
   if (!parsed) {
     return;
@@ -367,7 +336,6 @@ function handleOscMessage(oscMsg) {
 
 function handleOscBundle(bundle) {
   const packets = Array.isArray(bundle?.packets) ? bundle.packets : [];
-  const configPackets = [];
 
   packets.forEach((packet) => {
     if (!packet?.address) {
@@ -383,29 +351,8 @@ function handleOscBundle(bundle) {
       return;
     }
 
-    if (parsed.type.startsWith('config:')) {
-      configPackets.push(parsed);
-      return;
-    }
-
     handleParsedOsc(parsed);
   });
-
-  if (configPackets.length === 0) {
-    return;
-  }
-
-  const countMessage = configPackets.find((packet) => packet.type === 'config:speakers:count');
-  const speakerPackets = configPackets
-    .filter((packet) => packet.type === 'config:speaker')
-    .sort((a, b) => a.index - b.index);
-
-  const count = countMessage?.count;
-  if (typeof count === 'number' && speakerPackets.length !== count) {
-    console.warn(`[osc] omniphony speaker config count mismatch: expected ${count}, got ${speakerPackets.length}`);
-  }
-
-  applyOmniphonySpeakerConfig(speakerPackets);
 }
 
 const oscUdpPort = new osc.UDPPort({

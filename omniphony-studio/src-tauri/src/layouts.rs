@@ -610,66 +610,6 @@ pub fn save_layout_file(path: &Path, layout: &Layout) -> Result<(), String> {
     Ok(())
 }
 
-pub fn build_live_layout_from_cache(
-    speakers: &std::collections::BTreeMap<u32, crate::app_state::LiveSpeakerConfig>,
-    expected_count: Option<u32>,
-    radius_m: f64,
-) -> Option<Layout> {
-    if speakers.is_empty() {
-        return None;
-    }
-
-    if let Some(count) = expected_count {
-        if count == 0 {
-            return None;
-        }
-        for index in 0..count {
-            if !speakers.contains_key(&index) {
-                return None;
-            }
-        }
-    }
-
-    let max_index = expected_count
-        .map(|count| count.saturating_sub(1))
-        .or_else(|| speakers.keys().next_back().copied())
-        .unwrap_or(0);
-
-    let spk_list = (0..=max_index)
-        .filter_map(|index| {
-            speakers.get(&index).map(|speaker| Speaker {
-                id: speaker.name.clone(),
-                x: clamp(speaker.x, -1.0, 1.0),
-                y: clamp(speaker.y, -1.0, 1.0),
-                z: clamp(speaker.z, -1.0, 1.0),
-                azimuth_deg: speaker.azimuth_deg,
-                elevation_deg: speaker.elevation_deg,
-                distance_m: speaker.distance_m.max(0.01),
-                coord_mode: if speaker.coord_mode.eq_ignore_ascii_case("cartesian") {
-                    "cartesian".to_string()
-                } else {
-                    "polar".to_string()
-                },
-                spatialize: speaker.spatialize,
-                delay_ms: speaker.delay_ms,
-                freq_low: speaker.freq_low,
-                freq_high: speaker.freq_high,
-            })
-        })
-        .collect::<Vec<_>>();
-
-    if spk_list.is_empty() {
-        return None;
-    }
-
-    Some(Layout {
-        key: "omniphony-live".to_string(),
-        name: "omniphony (live)".to_string(),
-        speakers: spk_list,
-        radius_m: radius_m.max(0.01),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::{normalize_speaker, parse_yaml_layout, RawSpeaker};

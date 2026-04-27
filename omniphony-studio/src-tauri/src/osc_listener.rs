@@ -9,7 +9,7 @@ use crate::app_state::OutputDeviceOption;
 use crate::app_state::{
     AppState, DistanceDiffuse, Meter, RenderBackendState, RoomRatio, SpreadState,
 };
-use crate::layouts::{build_live_layout_from_cache, Layout, Speaker};
+use crate::layouts::{Layout, Speaker};
 use crate::osc_parser::{
     is_heartbeat_address, parse_osc_message, CoordinateFormat, HeartbeatResponse, LogEntry,
     OscEvent,
@@ -972,8 +972,6 @@ fn handle_packet(
             }
         }
         OscPacket::Bundle(bundle) => {
-            let mut config_events: Vec<OscEvent> = Vec::new();
-
             for pkt in bundle.content {
                 match pkt {
                     OscPacket::Message(msg) => {
@@ -1014,16 +1012,7 @@ fn handle_packet(
                                 *is_connected = true;
                                 emit_osc_status(app, state, "connected");
                             }
-                            let is_config = matches!(
-                                &ev,
-                                OscEvent::ConfigSpeakersCount { .. }
-                                    | OscEvent::ConfigSpeaker { .. }
-                            );
-                            if is_config {
-                                config_events.push(ev);
-                            } else {
-                                handle_event(ev, app, state);
-                            }
+                            handle_event(ev, app, state);
                         }
                     }
                     OscPacket::Bundle(inner) => {
@@ -1052,81 +1041,8 @@ fn handle_packet(
                     }
                 }
             }
-
-            if !config_events.is_empty() {
-                apply_speaker_config(config_events, app, state);
-            }
         }
     }
-}
-
-fn apply_speaker_config(events: Vec<OscEvent>, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
-    let payload = {
-        let mut s = state.lock().unwrap();
-        let live_radius_m = s
-            .layouts
-            .iter()
-            .find(|layout| layout.key == "omniphony-live")
-            .map(|layout| layout.radius_m)
-            .unwrap_or(1.0);
-
-        for event in events {
-            match event {
-                OscEvent::ConfigSpeakersCount { count } => {
-                    s.live_speaker_count = Some(count);
-                    s.live_speakers.retain(|idx, _| *idx < count);
-                }
-                OscEvent::ConfigSpeaker {
-                    index,
-                    name,
-                    coord_mode,
-                    x,
-                    y,
-                    z,
-                    azimuth_deg,
-                    elevation_deg,
-                    distance_m,
-                    delay_ms,
-                    spatialize,
-                    freq_low,
-                    freq_high,
-                    position: _,
-                    ..
-                } => {
-                    s.live_speakers.insert(
-                        index,
-                        crate::app_state::LiveSpeakerConfig {
-                            name,
-                            delay_ms,
-                            spatialize,
-                            freq_low,
-                            freq_high,
-                            coord_mode,
-                            x,
-                            y,
-                            z,
-                            azimuth_deg,
-                            elevation_deg,
-                            distance_m,
-                        },
-                    );
-                }
-                _ => {}
-            }
-        }
-
-        s.layouts.retain(|l| l.key != "omniphony-live");
-        if let Some(live) =
-            build_live_layout_from_cache(&s.live_speakers, s.live_speaker_count, live_radius_m)
-        {
-            s.layouts.insert(0, live.clone());
-            s.selected_layout_key = Some(live.key.clone());
-        }
-
-        layout_update_payload(&s)
-    }; // mutex released here
-
-    let _ = app.emit("layouts:update", payload);
 }
 
 fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
@@ -2122,11 +2038,6 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     )),
                     removed_ids,
                 )
-            }
-
-            OscEvent::ConfigSpeakersCount { .. } | OscEvent::ConfigSpeaker { .. } => {
-                // handled in bundle context via apply_speaker_config
-                (None, removed_ids)
             }
         }
     }; // mutex released here, before any emit

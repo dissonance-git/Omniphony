@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use crate::layouts::Layout;
 
@@ -260,22 +260,6 @@ pub struct LiveInputState {
     pub lfe_mode: Option<String>,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct LiveSpeakerConfig {
-    pub name: String,
-    pub delay_ms: f64,
-    pub spatialize: u8,
-    pub freq_low: Option<f32>,
-    pub freq_high: Option<f32>,
-    pub coord_mode: String,
-    pub x: f64,
-    pub y: f64,
-    pub z: f64,
-    pub azimuth_deg: f64,
-    pub elevation_deg: f64,
-    pub distance_m: f64,
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppState {
     pub sources: HashMap<String, SourcePosition>,
@@ -408,10 +392,6 @@ pub struct AppState {
     pub last_spatial_sample_pos: Option<i64>,
     #[serde(skip)]
     pub current_content_generation: Option<u64>,
-    #[serde(skip)]
-    pub live_speaker_count: Option<u32>,
-    #[serde(skip)]
-    pub live_speakers: BTreeMap<u32, LiveSpeakerConfig>,
     #[serde(skip)]
     pub object_band_gains: HashMap<String, Vec<Vec<f64>>>,
     #[serde(rename = "currentCoordinateFormat")]
@@ -583,8 +563,6 @@ impl Default for AppState {
             log_level: Some("info".to_string()),
             last_spatial_sample_pos: None,
             current_content_generation: None,
-            live_speaker_count: None,
-            live_speakers: BTreeMap::new(),
             object_band_gains: HashMap::new(),
             current_coordinate_format: 0,
             layouts: Vec::new(),

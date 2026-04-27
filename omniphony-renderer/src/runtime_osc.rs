@@ -23,7 +23,6 @@ mod transport;
 use self::client_registry::OscClientRegistry;
 use self::dispatch::{RealtimeSeqState, handle_control_message};
 use self::export::build_live_state_bundle;
-pub(crate) use self::transport::build_speaker_config_bundle;
 use self::transport::{
     flush_pending_logs, resolve_register_addr, send_buffered_logs_to_client, send_metering_state,
     send_raw_filtered,
@@ -156,12 +155,10 @@ impl OscSender {
     /// Clients send `/omniphony/register [i listen_port?]` from their listening socket.
     /// If the optional `Int` arg is present it overrides the source port (useful when
     /// the client's send and receive ports differ).
-    /// On registration the client immediately receives `config_bundle_bytes`
-    /// (pre-encoded speaker layout bundle) and the current live-parameter state.
-    pub fn start_listener(&mut self, rx_port: u16, config_bundle_bytes: Vec<u8>) -> Result<()> {
+    /// On registration the client immediately receives the current live-state bundle.
+    pub fn start_listener(&mut self, rx_port: u16) -> Result<()> {
         let socket = Arc::clone(&self.socket);
         let clients = Arc::clone(&self.clients);
-        let config = Arc::new(config_bundle_bytes);
         let control = self.control.clone();
         let audio_control = self.audio_control.clone();
         let input_control = self.input_control.clone();
@@ -233,11 +230,7 @@ impl OscSender {
                                     }
                                     // A new/reconnected client needs a complete object snapshot.
                                     force_full_next.store(true, Ordering::Relaxed);
-                                    // Send speaker config bundle.
-                                    if let Err(e) = socket.send_to(&config, client) {
-                                        log::warn!("Failed to send config to {}: {}", client, e);
-                                    }
-                                    // Send live-state bundle (gain, spread, etc.).
+                                    // Send the current state bundle, including layout and speakers.
                                     if let Some(ref ctrl) = control {
                                         let state_bytes = build_live_state_bundle(
                                             ctrl,
