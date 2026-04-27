@@ -143,6 +143,85 @@ test('parses omniphony object aed in polar mode', () => {
   });
 });
 
+test('parses serialized renderer and loudness domains', () => {
+  assert.deepEqual(
+    parseOscMessage(msg('/omniphony/state/renderer', [
+      JSON.stringify({
+        masterGain: 0.75,
+        distanceModel: 'inverse-square',
+        roomRatio: { width: 1, length: 2, height: 3 },
+        spread: { min: 0.1, max: 0.9 },
+        distanceDiffuse: { enabled: true, threshold: 0.5, curve: 1.2 }
+      })
+    ])),
+    {
+      type: 'state:renderer',
+      value: {
+        masterGain: 0.75,
+        distanceModel: 'inverse-square',
+        roomRatio: { width: 1, length: 2, height: 3 },
+        spread: { min: 0.1, max: 0.9 },
+        distanceDiffuse: { enabled: true, threshold: 0.5, curve: 1.2 }
+      }
+    }
+  );
+
+  assert.deepEqual(
+    parseOscMessage(msg('/omniphony/state/loudness/domain', [
+      JSON.stringify({ enabled: true, source: -24, gain: 0.8 })
+    ])),
+    {
+      type: 'state:loudness:domain',
+      value: { enabled: true, source: -24, gain: 0.8 }
+    }
+  );
+});
+
+test('parses serialized layout and speakers domains', () => {
+  assert.deepEqual(
+    parseOscMessage(msg('/omniphony/state/layout', [
+      JSON.stringify({
+        radius_m: 1.5,
+        speakers: [{ id: 0, name: 'L', azimuth: 30, elevation: 0, distance: 1, spatialize: true }]
+      })
+    ])),
+    {
+      type: 'state:layout',
+      value: {
+        radius_m: 1.5,
+        speakers: [{ id: 0, name: 'L', azimuth: 30, elevation: 0, distance: 1, spatialize: true }]
+      }
+    }
+  );
+
+  assert.deepEqual(
+    parseOscMessage(msg('/omniphony/state/speakers', [
+      JSON.stringify({ speakers: [{ id: 0, gain: 0.7, delayMs: 2.5, muted: true }] })
+    ])),
+    {
+      type: 'state:speakers',
+      value: { speakers: [{ id: 0, gain: 0.7, delayMs: 2.5, muted: true }] }
+    }
+  );
+});
+
+test('parses realtime gain acknowledgements', () => {
+  assert.deepEqual(
+    parseOscMessage(msg('/omniphony/state/realtime/master_gain', [0.9, 12])),
+    { type: 'state:realtime:master_gain', value: 0.9, seq: 12 }
+  );
+
+  assert.deepEqual(
+    parseOscMessage(msg('/omniphony/state/realtime/speaker_gain', [6, 0.7, 3])),
+    { type: 'state:realtime:speaker_gain', id: '6', value: 0.7, seq: 3 }
+  );
+
+  assert.deepEqual(
+    parseOscMessage(msg('/omniphony/state/realtime/object_gain', ['7', 1.2, 5])),
+    { type: 'state:realtime:object_gain', id: '7', value: 1.2, seq: 5 }
+  );
+});
+
 test('parses omniphony state messages', () => {
   assert.deepEqual(
     parseOscMessage(msg('/omniphony/state/latency', [12.5])),
