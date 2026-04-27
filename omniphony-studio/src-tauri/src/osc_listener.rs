@@ -554,18 +554,6 @@ pub enum OscControlMsg {
         address: String,
         args: Vec<OscType>,
     },
-    SendSpeakerAdd {
-        name: String,
-        azimuth: f32,
-        elevation: f32,
-        distance: f32,
-        spatialize: i32,
-        delay_ms: f32,
-    },
-    SendSpeakersMove {
-        from: i32,
-        to: i32,
-    },
     Reconnect {
         host: String,
         rx_port: u16,
@@ -646,45 +634,6 @@ fn send_osc_args(socket: &UdpSocket, addr: &str, host: &str, rx_port: u16, args:
     let msg = OscPacket::Message(OscMessage {
         addr: addr.to_string(),
         args,
-    });
-    if let Ok(data) = encoder::encode(&msg) {
-        let _ = socket.send_to(&data, format!("{host}:{rx_port}"));
-    }
-}
-
-fn send_osc_speaker_add(
-    socket: &UdpSocket,
-    host: &str,
-    rx_port: u16,
-    name: &str,
-    azimuth: f32,
-    elevation: f32,
-    distance: f32,
-    spatialize: i32,
-    delay_ms: f32,
-) {
-    use rosc::{encoder, OscMessage, OscType};
-    let msg = OscPacket::Message(OscMessage {
-        addr: "/omniphony/control/speakers/add".to_string(),
-        args: vec![
-            OscType::String(name.to_string()),
-            OscType::Float(azimuth),
-            OscType::Float(elevation),
-            OscType::Float(distance),
-            OscType::Int(if spatialize != 0 { 1 } else { 0 }),
-            OscType::Float(delay_ms),
-        ],
-    });
-    if let Ok(data) = encoder::encode(&msg) {
-        let _ = socket.send_to(&data, format!("{host}:{rx_port}"));
-    }
-}
-
-fn send_osc_speakers_move(socket: &UdpSocket, host: &str, rx_port: u16, from: i32, to: i32) {
-    use rosc::{encoder, OscMessage, OscType};
-    let msg = OscPacket::Message(OscMessage {
-        addr: "/omniphony/control/speakers/move".to_string(),
-        args: vec![OscType::Int(from.max(0)), OscType::Int(to.max(0))],
     });
     if let Ok(data) = encoder::encode(&msg) {
         let _ = socket.send_to(&data, format!("{host}:{rx_port}"));
@@ -816,29 +765,6 @@ fn osc_thread(
                     }
                     OscControlMsg::SendArgs { address, args } => {
                         send_osc_args(&socket, &address, &host, osc_rx_port, args);
-                    }
-                    OscControlMsg::SendSpeakerAdd {
-                        name,
-                        azimuth,
-                        elevation,
-                        distance,
-                        spatialize,
-                        delay_ms,
-                    } => {
-                        send_osc_speaker_add(
-                            &socket,
-                            &host,
-                            osc_rx_port,
-                            &name,
-                            azimuth,
-                            elevation,
-                            distance,
-                            spatialize,
-                            delay_ms,
-                        );
-                    }
-                    OscControlMsg::SendSpeakersMove { from, to } => {
-                        send_osc_speakers_move(&socket, &host, osc_rx_port, from, to);
                     }
                     OscControlMsg::Reconnect {
                         host: h,

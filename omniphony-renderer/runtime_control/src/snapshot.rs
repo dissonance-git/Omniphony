@@ -183,7 +183,7 @@ fn build_renderer_capabilities_json() -> String {
         "realtime": ["master_gain", "speaker_gain", "object_gain"],
         "spatial": true,
         "metering": true,
-        "controlConfig": ["audio", "input", "adaptive_resampling", "layout"]
+        "controlConfig": ["audio", "input", "adaptive_resampling", "layout", "speakers"]
     })
     .to_string()
 }

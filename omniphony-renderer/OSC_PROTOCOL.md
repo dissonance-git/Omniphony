@@ -204,6 +204,9 @@ Serialized config-domain controls use JSON patches:
 - `/omniphony/control/config/audio/apply`
 - `/omniphony/control/config/input s <json>`
 - `/omniphony/control/config/input/apply`
+- `/omniphony/control/config/layout s <json>`
+- `/omniphony/control/config/layout/apply`
+- `/omniphony/control/config/speakers s <json>`
 
 Canonical acknowledgements:
 
@@ -229,7 +232,6 @@ Common control addresses include:
 - `/omniphony/control/gain`
 - `/omniphony/control/object/{idx}/mute`
 - `/omniphony/control/speaker/{idx}/gain`
-- `/omniphony/control/speaker/{idx}/mute`
 - `/omniphony/control/spread/min`
 - `/omniphony/control/spread/max`
 - `/omniphony/control/spread/from_distance`
@@ -238,16 +240,14 @@ Common control addresses include:
 - `/omniphony/control/loudness`
 - `/omniphony/control/room_ratio`
 - `/omniphony/control/render_evaluation_mode`
-- `/omniphony/control/speaker/{idx}/az`
-- `/omniphony/control/speaker/{idx}/el`
-- `/omniphony/control/speaker/{idx}/distance`
-- `/omniphony/control/speaker/{idx}/spatialize`
-- `/omniphony/control/speakers/apply`
-- `/omniphony/control/speakers/reset`
 - `/omniphony/control/save_config`
 - `/omniphony/control/reload_config`
 - `/omniphony/control/log_level`
 - `/omniphony/control/ramp_mode`
+
+Speaker topology and metadata edits should use `control/config/layout`.
+Speaker runtime edits such as `mute` and `delayMs` should use `control/config/speakers`.
+Fast speaker gain drags should use `control/realtime/speaker_gain`.
 
 `/omniphony/control/reload_config` requests a full render restart so `orender` re-resolves
 its effective options from the config file and restarts the current stream with

@@ -144,6 +144,75 @@ struct InputConfigPatch {
     live_input: Option<LiveInputPatch>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct LayoutSpeakerPatch {
+    id: usize,
+    name: Option<String>,
+    coord_mode: Option<String>,
+    x: Option<f32>,
+    y: Option<f32>,
+    z: Option<f32>,
+    azimuth: Option<f32>,
+    elevation: Option<f32>,
+    distance: Option<f32>,
+    spatialize: Option<bool>,
+    #[serde(default)]
+    freq_low: Option<Option<f32>>,
+    #[serde(default)]
+    freq_high: Option<Option<f32>>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct LayoutAddSpeakerPatch {
+    name: Option<String>,
+    coord_mode: Option<String>,
+    x: Option<f32>,
+    y: Option<f32>,
+    z: Option<f32>,
+    azimuth: Option<f32>,
+    elevation: Option<f32>,
+    distance: Option<f32>,
+    spatialize: Option<bool>,
+    delay_ms: Option<f32>,
+    #[serde(default)]
+    freq_low: Option<Option<f32>>,
+    #[serde(default)]
+    freq_high: Option<Option<f32>>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct LayoutMoveSpeakerPatch {
+    from: usize,
+    to: usize,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct LayoutConfigPatch {
+    radius_m: Option<f32>,
+    speaker_edits: Option<Vec<LayoutSpeakerPatch>>,
+    add_speaker: Option<LayoutAddSpeakerPatch>,
+    remove_speaker: Option<usize>,
+    move_speaker: Option<LayoutMoveSpeakerPatch>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct SpeakersRuntimePatch {
+    id: usize,
+    muted: Option<bool>,
+    delay_ms: Option<f32>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct SpeakersConfigPatch {
+    speaker_edits: Option<Vec<SpeakersRuntimePatch>>,
+}
+
 fn build_constant_slices_from_reference(
     reference: CartesianSpeakerHeatmapSlices,
     value: f32,
@@ -272,6 +341,27 @@ fn parse_input_layout_arg(
 ) -> Option<renderer::speaker_layout::SpeakerLayout> {
     let raw = parse_string_arg(arg)?;
     serde_yaml_ng::from_str::<renderer::speaker_layout::SpeakerLayout>(&raw).ok()
+}
+
+fn spherical_to_cartesian(azimuth: f32, elevation: f32, distance: f32) -> (f32, f32, f32) {
+    let az = azimuth.to_radians();
+    let el = elevation.to_radians();
+    let horizontal = distance * el.cos();
+    let x = horizontal * az.sin();
+    let y = horizontal * az.cos();
+    let z = distance * el.sin();
+    (x.clamp(-1.0, 1.0), y.clamp(-1.0, 1.0), z.clamp(-1.0, 1.0))
+}
+
+fn cartesian_to_spherical(x: f32, y: f32, z: f32) -> (f32, f32, f32) {
+    let dist = (x * x + y * y + z * z).sqrt();
+    let az = x.atan2(y).to_degrees();
+    let el = if dist > 0.0 {
+        z.atan2((x * x + y * y).sqrt()).to_degrees()
+    } else {
+        0.0
+    };
+    (az, el, dist.max(0.01))
 }
 
 fn remap_live_speakers_remove(
@@ -468,6 +558,158 @@ fn apply_pending_speakers(
     layout
 }
 
+fn normalize_coord_mode(mode: Option<&str>) -> &'static str {
+    if mode.is_some_and(|value| value.eq_ignore_ascii_case("cartesian")) {
+        "cartesian"
+    } else {
+        "polar"
+    }
+}
+
+fn apply_layout_speaker_patch(
+    speaker: &mut renderer::speaker_layout::Speaker,
+    patch: &LayoutSpeakerPatch,
+) -> bool {
+    let mut changed = false;
+    if let Some(name) = patch
+        .name
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        if speaker.name != name {
+            speaker.name = name.to_string();
+            changed = true;
+        }
+    }
+    if let Some(spatialize) = patch.spatialize {
+        if speaker.spatialize != spatialize {
+            speaker.spatialize = spatialize;
+            changed = true;
+        }
+    }
+    if let Some(freq_low) = patch.freq_low {
+        let next = freq_low.filter(|value| *value > 0.0);
+        if speaker.freq_low != next {
+            speaker.freq_low = next;
+            changed = true;
+        }
+    }
+    if let Some(freq_high) = patch.freq_high {
+        let next = freq_high.filter(|value| *value > 0.0);
+        if speaker.freq_high != next {
+            speaker.freq_high = next;
+            changed = true;
+        }
+    }
+    if let Some(coord_mode) = patch.coord_mode.as_deref() {
+        let normalized = normalize_coord_mode(Some(coord_mode)).to_string();
+        if speaker.coord_mode != normalized {
+            speaker.coord_mode = normalized;
+            changed = true;
+        }
+    }
+
+    let has_cartesian = patch.x.is_some() || patch.y.is_some() || patch.z.is_some();
+    if has_cartesian {
+        let x = patch.x.unwrap_or(speaker.x).clamp(-1.0, 1.0);
+        let y = patch.y.unwrap_or(speaker.y).clamp(-1.0, 1.0);
+        let z = patch.z.unwrap_or(speaker.z).clamp(-1.0, 1.0);
+        let (azimuth, elevation, distance) = cartesian_to_spherical(x, y, z);
+        if speaker.x != x
+            || speaker.y != y
+            || speaker.z != z
+            || speaker.azimuth != azimuth
+            || speaker.elevation != elevation
+            || speaker.distance != distance
+        {
+            speaker.x = x;
+            speaker.y = y;
+            speaker.z = z;
+            speaker.azimuth = azimuth;
+            speaker.elevation = elevation;
+            speaker.distance = distance;
+            changed = true;
+        }
+    }
+
+    let has_polar =
+        patch.azimuth.is_some() || patch.elevation.is_some() || patch.distance.is_some();
+    if has_polar {
+        let azimuth = patch
+            .azimuth
+            .unwrap_or(speaker.azimuth)
+            .clamp(-180.0, 180.0);
+        let elevation = patch
+            .elevation
+            .unwrap_or(speaker.elevation)
+            .clamp(-90.0, 90.0);
+        let distance = patch.distance.unwrap_or(speaker.distance).max(0.01);
+        let (x, y, z) = spherical_to_cartesian(azimuth, elevation, distance);
+        if speaker.azimuth != azimuth
+            || speaker.elevation != elevation
+            || speaker.distance != distance
+            || speaker.x != x
+            || speaker.y != y
+            || speaker.z != z
+        {
+            speaker.azimuth = azimuth;
+            speaker.elevation = elevation;
+            speaker.distance = distance;
+            speaker.x = x;
+            speaker.y = y;
+            speaker.z = z;
+            changed = true;
+        }
+    }
+    changed
+}
+
+fn build_layout_speaker_from_patch(
+    patch: LayoutAddSpeakerPatch,
+    default_name: String,
+) -> renderer::speaker_layout::Speaker {
+    let name = patch
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default_name.as_str())
+        .to_string();
+    let spatialize = patch.spatialize.unwrap_or(true);
+    let delay_ms = patch.delay_ms.unwrap_or(0.0).max(0.0);
+    let mut speaker = renderer::speaker_layout::Speaker::from_polar(
+        name,
+        patch.azimuth.unwrap_or(0.0).clamp(-180.0, 180.0),
+        patch.elevation.unwrap_or(0.0).clamp(-90.0, 90.0),
+        patch.distance.unwrap_or(1.0).max(0.01),
+        spatialize,
+        delay_ms,
+    );
+    if let Some(freq_low) = patch.freq_low {
+        speaker.freq_low = freq_low.filter(|value| *value > 0.0);
+    }
+    if let Some(freq_high) = patch.freq_high {
+        speaker.freq_high = freq_high.filter(|value| *value > 0.0);
+    }
+    if patch.coord_mode.as_deref().is_some() {
+        speaker.coord_mode = normalize_coord_mode(patch.coord_mode.as_deref()).to_string();
+    }
+    if patch.x.is_some() || patch.y.is_some() || patch.z.is_some() {
+        let x = patch.x.unwrap_or(speaker.x).clamp(-1.0, 1.0);
+        let y = patch.y.unwrap_or(speaker.y).clamp(-1.0, 1.0);
+        let z = patch.z.unwrap_or(speaker.z).clamp(-1.0, 1.0);
+        let (azimuth, elevation, distance) = cartesian_to_spherical(x, y, z);
+        speaker.x = x;
+        speaker.y = y;
+        speaker.z = z;
+        speaker.azimuth = azimuth;
+        speaker.elevation = elevation;
+        speaker.distance = distance;
+    }
+    speaker
+}
+
 pub fn apply_simple_osc_control(
     msg: &OscMessage,
     ctx: &RuntimeControlContext,
@@ -627,6 +869,161 @@ pub fn apply_simple_osc_control(
             effects.mark_dirty = true;
             push_input_domain_broadcasts(&mut effects, input, false);
             effects.log_message = Some("OSC: input config apply requested".to_string());
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/config/layout" {
+        let patch = parse_json_string_arg::<LayoutConfigPatch>(msg.args.first());
+        if let Some(patch) = patch {
+            let mut changed = false;
+
+            if let Some(radius_m) = patch.radius_m {
+                let radius_m = radius_m.max(0.01);
+                changed |= ctx.renderer.with_editable_layout(|layout| {
+                    if (layout.radius_m - radius_m).abs() > f32::EPSILON {
+                        layout.radius_m = radius_m;
+                        true
+                    } else {
+                        false
+                    }
+                });
+            }
+
+            if let Some(add_speaker) = patch.add_speaker {
+                let idx = ctx.renderer.editable_layout().speakers.len();
+                let speaker = build_layout_speaker_from_patch(add_speaker, format!("spk-{idx}"));
+                let delay_ms = speaker.delay_ms;
+                ctx.renderer.with_editable_layout(|layout| {
+                    layout.speakers.push(speaker);
+                });
+                if delay_ms > 0.0 {
+                    ctx.renderer
+                        .live
+                        .write()
+                        .unwrap()
+                        .speakers
+                        .entry(idx)
+                        .or_default()
+                        .delay_ms = delay_ms;
+                    ctx.renderer.mark_speaker_params_dirty();
+                }
+                changed = true;
+            }
+
+            if let Some(remove_idx) = patch.remove_speaker {
+                let removed = ctx.renderer.with_editable_layout(|layout| {
+                    if remove_idx >= layout.speakers.len() {
+                        false
+                    } else {
+                        layout.speakers.remove(remove_idx);
+                        true
+                    }
+                });
+                if removed {
+                    {
+                        let mut live = ctx.renderer.live.write().unwrap();
+                        remap_live_speakers_remove(&mut live.speakers, remove_idx);
+                    }
+                    ctx.renderer.mark_speaker_params_dirty();
+                    changed = true;
+                }
+            }
+
+            if let Some(move_speaker) = patch.move_speaker {
+                let moved = ctx.renderer.with_editable_layout(|layout| {
+                    let len = layout.speakers.len();
+                    if move_speaker.from >= len
+                        || move_speaker.to >= len
+                        || move_speaker.from == move_speaker.to
+                    {
+                        false
+                    } else {
+                        let speaker = layout.speakers.remove(move_speaker.from);
+                        layout.speakers.insert(move_speaker.to, speaker);
+                        true
+                    }
+                });
+                if moved {
+                    {
+                        let mut live = ctx.renderer.live.write().unwrap();
+                        remap_live_speakers_move(
+                            &mut live.speakers,
+                            move_speaker.from,
+                            move_speaker.to,
+                        );
+                    }
+                    ctx.renderer.mark_speaker_params_dirty();
+                    changed = true;
+                }
+            }
+
+            if let Some(speaker_edits) = patch.speaker_edits {
+                changed |= ctx.renderer.with_editable_layout(|layout| {
+                    let mut any = false;
+                    for speaker_patch in &speaker_edits {
+                        if let Some(speaker) = layout.speakers.get_mut(speaker_patch.id) {
+                            any |= apply_layout_speaker_patch(speaker, speaker_patch);
+                        }
+                    }
+                    any
+                });
+            }
+
+            if changed {
+                effects.mark_dirty = true;
+            }
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/config/layout/apply" {
+        effects.mark_dirty = true;
+        effects.trigger_layout_recompute = true;
+        effects.log_message = Some("OSC: layout config apply".to_string());
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/config/speakers" {
+        let patch = parse_json_string_arg::<SpeakersConfigPatch>(msg.args.first());
+        if let Some(patch) = patch {
+            let mut changed = false;
+            if let Some(speaker_edits) = patch.speaker_edits {
+                for speaker_patch in speaker_edits {
+                    if let Some(delay_ms) = speaker_patch.delay_ms.map(|value| value.max(0.0)) {
+                        ctx.renderer
+                            .live
+                            .write()
+                            .unwrap()
+                            .speakers
+                            .entry(speaker_patch.id)
+                            .or_default()
+                            .delay_ms = delay_ms;
+                        ctx.renderer.with_editable_layout(|layout| {
+                            if let Some(speaker) = layout.speakers.get_mut(speaker_patch.id) {
+                                speaker.delay_ms = delay_ms;
+                            }
+                        });
+                        ctx.renderer.mark_speaker_params_dirty();
+                        changed = true;
+                    }
+                    if let Some(muted) = speaker_patch.muted {
+                        ctx.renderer
+                            .live
+                            .write()
+                            .unwrap()
+                            .speakers
+                            .entry(speaker_patch.id)
+                            .or_default()
+                            .muted = muted;
+                        ctx.renderer.mark_speaker_params_dirty();
+                        changed = true;
+                    }
+                }
+            }
+            if changed {
+                effects.mark_dirty = true;
+            }
         }
         return Some(effects);
     }
