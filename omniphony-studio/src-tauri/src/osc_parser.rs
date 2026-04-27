@@ -208,6 +208,8 @@ pub enum OscEvent {
 
     #[serde(rename = "state:speaker:gain")]
     StateSpeakerGain { id: String, gain: f64 },
+    #[serde(rename = "state:object:gain")]
+    StateObjectGain { id: String, gain: f64 },
     #[serde(rename = "state:speaker:delay")]
     StateSpeakerDelay { id: String, delay_ms: f64 },
     #[serde(rename = "state:object:mute")]
@@ -257,6 +259,22 @@ pub enum OscEvent {
     StateRenderBackendEffective { value: String },
     #[serde(rename = "state:render_backend:state")]
     StateRenderBackendState { value: String },
+    #[serde(rename = "state:capabilities")]
+    StateCapabilities { value: String },
+    #[serde(rename = "state:renderer")]
+    StateRendererDomain { value: String },
+    #[serde(rename = "state:audio")]
+    StateAudioDomain { value: String },
+    #[serde(rename = "state:layout")]
+    StateLayoutDomain { value: String },
+    #[serde(rename = "state:speakers")]
+    StateSpeakersDomain { value: String },
+    #[serde(rename = "state:input")]
+    StateInputDomain { value: String },
+    #[serde(rename = "state:loudness:domain")]
+    StateLoudnessDomain { value: String },
+    #[serde(rename = "state:session")]
+    StateSessionDomain { value: String },
     #[serde(rename = "state:render_evaluation_mode")]
     StateRenderEvaluationMode { value: String },
     #[serde(rename = "state:render_evaluation_mode:effective")]
@@ -283,6 +301,12 @@ pub enum OscEvent {
     StateLoudnessGain { value: f64 },
     #[serde(rename = "state:master:gain")]
     StateMasterGain { value: f64 },
+    #[serde(rename = "state:realtime:master_gain")]
+    StateRealtimeMasterGain { value: f64, seq: i32 },
+    #[serde(rename = "state:realtime:speaker_gain")]
+    StateRealtimeSpeakerGain { id: String, value: f64, seq: i32 },
+    #[serde(rename = "state:realtime:object_gain")]
+    StateRealtimeObjectGain { id: String, value: f64, seq: i32 },
     #[serde(rename = "state:latency")]
     StateLatency { value: f64 },
     #[serde(rename = "state:latency:instant")]
@@ -736,6 +760,27 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
         (3, "log_level") => Some(OscEvent::StateLogLevel {
             value: raw_args.first().and_then(unwrap_string)?,
         }),
+        (3, "capabilities") => Some(OscEvent::StateCapabilities {
+            value: raw_args.first().and_then(unwrap_string)?,
+        }),
+        (3, "renderer") => Some(OscEvent::StateRendererDomain {
+            value: raw_args.first().and_then(unwrap_string)?,
+        }),
+        (3, "audio") => Some(OscEvent::StateAudioDomain {
+            value: raw_args.first().and_then(unwrap_string)?,
+        }),
+        (3, "layout") => Some(OscEvent::StateLayoutDomain {
+            value: raw_args.first().and_then(unwrap_string)?,
+        }),
+        (3, "speakers") => Some(OscEvent::StateSpeakersDomain {
+            value: raw_args.first().and_then(unwrap_string)?,
+        }),
+        (3, "input") => Some(OscEvent::StateInputDomain {
+            value: raw_args.first().and_then(unwrap_string)?,
+        }),
+        (3, "session") => Some(OscEvent::StateSessionDomain {
+            value: raw_args.first().and_then(unwrap_string)?,
+        }),
         (3, "ramp_mode") => Some(OscEvent::StateRampMode {
             value: raw_args.first().and_then(unwrap_string)?,
         }),
@@ -778,6 +823,14 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
             value: to_number(args[0])?,
         }),
         (4, "loudness") => {
+            let Some(first_raw) = raw_args.first() else {
+                return None;
+            };
+            if parts[3] == "domain" {
+                return Some(OscEvent::StateLoudnessDomain {
+                    value: unwrap_string(first_raw)?,
+                });
+            }
             let value = to_number(args[0])?;
             match parts[3] {
                 "source" => Some(OscEvent::StateLoudnessSource { value }),
@@ -785,6 +838,23 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
                 _ => None,
             }
         }
+        (4, "realtime") => match parts[3] {
+            "master_gain" => Some(OscEvent::StateRealtimeMasterGain {
+                value: to_number(args.first().copied()?)?,
+                seq: to_number(args.get(1).copied()?)? as i32,
+            }),
+            "speaker_gain" => Some(OscEvent::StateRealtimeSpeakerGain {
+                id: to_number(args.first().copied()?)?.round().to_string(),
+                value: to_number(args.get(1).copied()?)?,
+                seq: to_number(args.get(2).copied()?)? as i32,
+            }),
+            "object_gain" => Some(OscEvent::StateRealtimeObjectGain {
+                id: raw_args.first().and_then(unwrap_string)?,
+                value: to_number(args.get(1).copied()?)?,
+                seq: to_number(args.get(2).copied()?)? as i32,
+            }),
+            _ => None,
+        },
         (4, "render_backend") if parts[3] == "effective" => {
             Some(OscEvent::StateRenderBackendEffective {
                 value: raw_args.first().and_then(unwrap_string)?,
@@ -1046,6 +1116,11 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
             enabled: to_number(args[0])? != 0.0,
         }),
         (5, kind) if kind == "object" || kind == "speaker" => match parts[4] {
+            "gain" if kind == "object" => {
+                let id = parts[3].to_string();
+                let gain = clamp(to_number(args[0])?, 0.0, 2.0);
+                Some(OscEvent::StateObjectGain { id, gain })
+            }
             "gain" if kind == "speaker" => {
                 let id = parts[3].parse::<u32>().ok()?.to_string();
                 let gain = clamp(to_number(args[0])?, 0.0, 2.0);

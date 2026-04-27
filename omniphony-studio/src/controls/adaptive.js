@@ -4,7 +4,7 @@
  * Extracted from app.js (lines 3899-4040).
  */
 
-import { app, dirty } from '../state.js';
+import { app, dirty, hasProducerDomain } from '../state.js';
 import { formatNumber } from '../coordinates.js';
 import { scheduleUIFlush } from '../flush.js';
 import { t } from '../i18n.js';
@@ -67,20 +67,25 @@ export function renderAdaptiveResamplingUI() {
   const adaptivePauseBtnEl = getAdaptivePauseBtnEl();
   const adaptiveRatioResetBtnEl = getAdaptiveRatioResetBtnEl();
   if (!adaptiveResamplingToggleEl) return;
+  const hasAudioDomain = hasProducerDomain('audio');
   const farModeEnabled =
     app.adaptiveResamplingHardRecoverHighInFarMode === true
     || app.adaptiveResamplingHardRecoverLowInFarMode === true
     || app.adaptiveResamplingForceSilenceInFarMode === true;
-  const adaptiveEnabled = app.adaptiveResamplingEnabled === true;
+  const adaptiveEnabled = hasAudioDomain && app.adaptiveResamplingEnabled === true;
   adaptiveResamplingToggleEl.checked = app.adaptiveResamplingEnabled === true;
+  adaptiveResamplingToggleEl.disabled = !hasAudioDomain;
   if (adaptiveFarHardRecoverHighToggleEl) {
     adaptiveFarHardRecoverHighToggleEl.checked = app.adaptiveResamplingHardRecoverHighInFarMode === true;
+    adaptiveFarHardRecoverHighToggleEl.disabled = !hasAudioDomain;
   }
   if (adaptiveFarHardRecoverLowToggleEl) {
     adaptiveFarHardRecoverLowToggleEl.checked = app.adaptiveResamplingHardRecoverLowInFarMode === true;
+    adaptiveFarHardRecoverLowToggleEl.disabled = !hasAudioDomain;
   }
   if (adaptiveFarSilenceToggleEl) {
     adaptiveFarSilenceToggleEl.checked = app.adaptiveResamplingForceSilenceInFarMode === true;
+    adaptiveFarSilenceToggleEl.disabled = !hasAudioDomain;
   }
   if (adaptiveFarSilenceRowEl) {
     adaptiveFarSilenceRowEl.classList.toggle('adaptive-param-disabled', false);

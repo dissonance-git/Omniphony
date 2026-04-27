@@ -613,6 +613,7 @@ pub fn save_layout_file(path: &Path, layout: &Layout) -> Result<(), String> {
 pub fn build_live_layout_from_cache(
     speakers: &std::collections::BTreeMap<u32, crate::app_state::LiveSpeakerConfig>,
     expected_count: Option<u32>,
+    radius_m: f64,
 ) -> Option<Layout> {
     if speakers.is_empty() {
         return None;
@@ -665,7 +666,7 @@ pub fn build_live_layout_from_cache(
         key: "omniphony-live".to_string(),
         name: "omniphony (live)".to_string(),
         speakers: spk_list,
-        radius_m: 1.0,
+        radius_m: radius_m.max(0.01),
     })
 }
 

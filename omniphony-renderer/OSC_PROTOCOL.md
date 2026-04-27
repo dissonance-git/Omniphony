@@ -1,7 +1,7 @@
 # OSC Protocol
 
-This document describes the OSC messages exchanged between `orender` and a visualizer
-or control client.
+This document describes the OSC messages exchanged between `orender`, `omniphony-studio`,
+and compatible metadata producers such as `adm-player`.
 
 ## Overview
 
@@ -136,6 +136,16 @@ Variable-length list of linear gains, one value per output speaker.
 These messages are broadcast whenever a live parameter changes, and are also sent
 to newly registered clients as part of the initial state bundle.
 
+Canonical serialized domain messages:
+
+- `/omniphony/state/capabilities s <json>`
+- `/omniphony/state/renderer s <json>`
+- `/omniphony/state/audio s <json>`
+- `/omniphony/state/layout s <json>`
+- `/omniphony/state/input s <json>`
+- `/omniphony/state/loudness/domain s <json>`
+- `/omniphony/state/session s <json>` for metadata-oriented producers such as `adm-player`
+
 Common addresses include:
 
 - `/omniphony/state/gain`
@@ -190,6 +200,25 @@ Common addresses include:
 ## Messages Sent to orender
 
 All control messages are sent to `--osc-rx-port`.
+
+Sequenced realtime controls use `latest-wins` semantics:
+
+- `/omniphony/control/realtime/master_gain [f32 value, i32 seq]`
+- `/omniphony/control/realtime/speaker_gain [i32 id, f32 value, i32 seq]`
+- `/omniphony/control/realtime/object_gain [s id, f32 value, i32 seq]`
+
+Serialized config-domain controls use JSON patches:
+
+- `/omniphony/control/config/audio s <json>`
+- `/omniphony/control/config/audio/apply`
+- `/omniphony/control/config/input s <json>`
+- `/omniphony/control/config/input/apply`
+
+Canonical acknowledgements:
+
+- `/omniphony/state/realtime/master_gain [f32 value, i32 seq]`
+- `/omniphony/state/realtime/speaker_gain [i32 id, f32 value, i32 seq]`
+- `/omniphony/state/realtime/object_gain [s id, f32 value, i32 seq]`
 
 Common control addresses include:
 

@@ -21,7 +21,7 @@ mod state_emit;
 mod transport;
 
 use self::client_registry::OscClientRegistry;
-use self::dispatch::handle_control_message;
+use self::dispatch::{RealtimeSeqState, handle_control_message};
 use self::export::build_live_state_bundle;
 pub(crate) use self::transport::build_speaker_config_bundle;
 use self::transport::{
@@ -191,6 +191,7 @@ impl OscSender {
                 // /control/speaker/{idx}/{az|el|distance|spatialize}.
                 // Applied atomically by /control/speakers/apply.
                 let mut pending_speakers: HashMap<usize, SpeakerPatch> = HashMap::new();
+                let mut realtime_seq = RealtimeSeqState::default();
                 let mut last_log_seq = sys::live_log::records_since(0)
                     .last()
                     .map(|record| record.seq)
@@ -297,6 +298,7 @@ impl OscSender {
                                             audio_control.as_ref(),
                                             input_control.as_ref(),
                                             &mut pending_speakers,
+                                            &mut realtime_seq,
                                             &socket,
                                             &clients,
                                         );

@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { app } from '../state.js';
 import { tf } from '../i18n.js';
 import { pushLog, normalizeLogError } from '../log.js';
-import { updateInputControlUI, persistInputPipeNow } from '../controls/input.js';
+import { updateInputControlUI, persistInputPipeNow, sendInputConfig } from '../controls/input.js';
 
 export function setupInputPanelListeners() {
   const inputModeSelectEl = document.getElementById('inputModeSelect');
@@ -29,7 +29,7 @@ export function setupInputPanelListeners() {
         : 'pipe_bridge';
       app.inputMode = value;
       updateInputControlUI();
-      invoke('control_input_mode', { value });
+      sendInputConfig();
     });
   }
 
@@ -71,7 +71,7 @@ export function setupInputPanelListeners() {
       const value = inputBackendSelectEl.value === 'asio' ? 'asio' : 'pipewire';
       app.liveInput.backend = value;
       updateInputControlUI();
-      invoke('control_input_live_backend', { value });
+      sendInputConfig();
     });
   }
 
@@ -80,7 +80,7 @@ export function setupInputPanelListeners() {
       const value = String(inputNodeInputEl.value || '');
       app.liveInput.node = value;
       updateInputControlUI();
-      invoke('control_input_live_node', { value });
+      sendInputConfig();
     });
   }
 
@@ -89,7 +89,7 @@ export function setupInputPanelListeners() {
       const value = String(inputDescriptionInputEl.value || '');
       app.liveInput.description = value;
       updateInputControlUI();
-      invoke('control_input_live_description', { value });
+      sendInputConfig();
     });
   }
 
@@ -100,7 +100,7 @@ export function setupInputPanelListeners() {
         : 'dac';
       app.liveInput.clockMode = value;
       updateInputControlUI();
-      invoke('control_input_live_clock_mode', { value });
+      sendInputConfig();
     });
   }
 
@@ -116,6 +116,7 @@ export function setupInputPanelListeners() {
               const importedPath = String(payload?.path || trimmed);
               app.liveInput.layout = importedPath;
               updateInputControlUI();
+              sendInputConfig();
               pushLog('info', tf('log.layoutImported', { path: importedPath }));
             });
         })
@@ -131,7 +132,7 @@ export function setupInputPanelListeners() {
       const value = Math.max(1, Math.round(Number(inputChannelsInputEl.value) || 8));
       app.liveInput.channels = value;
       updateInputControlUI();
-      invoke('control_input_live_channels', { value });
+      sendInputConfig();
     });
   }
 
@@ -140,7 +141,7 @@ export function setupInputPanelListeners() {
       const value = Math.max(1, Math.round(Number(inputSampleRateInputEl.value) || 48000));
       app.liveInput.sampleRate = value;
       updateInputControlUI();
-      invoke('control_input_live_sample_rate', { value });
+      sendInputConfig();
     });
   }
 
@@ -149,7 +150,7 @@ export function setupInputPanelListeners() {
       const value = inputFormatSelectEl.value === 's16' ? 's16' : 'f32';
       app.liveInput.format = value;
       updateInputControlUI();
-      invoke('control_input_live_format', { value });
+      sendInputConfig();
     });
   }
 
@@ -158,7 +159,7 @@ export function setupInputPanelListeners() {
       const value = '7.1-fixed';
       app.liveInput.map = value;
       updateInputControlUI();
-      invoke('control_input_live_map', { value });
+      sendInputConfig();
     });
   }
 
@@ -168,7 +169,7 @@ export function setupInputPanelListeners() {
       const value = ['object', 'direct', 'drop'].includes(raw) ? raw : 'object';
       app.liveInput.lfeMode = value;
       updateInputControlUI();
-      invoke('control_input_live_lfe_mode', { value });
+      sendInputConfig();
     });
   }
 
@@ -192,7 +193,7 @@ export function setupInputPanelListeners() {
       }
       app.inputApplyPending = true;
       updateInputControlUI();
-      invoke('control_input_apply');
+      sendInputConfig({ apply: true });
     });
   }
 

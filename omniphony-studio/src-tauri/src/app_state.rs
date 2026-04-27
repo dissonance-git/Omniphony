@@ -285,6 +285,8 @@ pub struct AppState {
     pub speaker_levels: HashMap<String, Meter>,
     #[serde(rename = "objectSpeakerGains")]
     pub object_speaker_gains: HashMap<String, Vec<f64>>,
+    #[serde(rename = "objectGains")]
+    pub object_gains: HashMap<String, f64>,
     #[serde(rename = "speakerGains")]
     pub speaker_gains: HashMap<String, f64>,
     #[serde(rename = "objectMutes")]
@@ -394,6 +396,10 @@ pub struct AppState {
     pub orender_input_pipe: Option<String>,
     #[serde(rename = "oscStatus")]
     pub osc_status: Option<String>,
+    #[serde(rename = "producerCapabilities")]
+    pub producer_capabilities: Option<serde_json::Value>,
+    #[serde(rename = "producerSession")]
+    pub producer_session: Option<serde_json::Value>,
     #[serde(rename = "oscMeteringEnabled")]
     pub osc_metering_enabled: Option<u8>,
     #[serde(rename = "logLevel")]
@@ -512,6 +518,7 @@ impl Default for AppState {
             source_levels: HashMap::new(),
             speaker_levels: HashMap::new(),
             object_speaker_gains: HashMap::new(),
+            object_gains: HashMap::new(),
             speaker_gains: HashMap::new(),
             object_mutes: HashMap::new(),
             speaker_mutes: HashMap::new(),
@@ -570,6 +577,8 @@ impl Default for AppState {
             live_input: LiveInputState::default(),
             orender_input_pipe: None,
             osc_status: Some("initializing".to_string()),
+            producer_capabilities: None,
+            producer_session: None,
             osc_metering_enabled: Some(0),
             log_level: Some("info".to_string()),
             last_spatial_sample_pos: None,

@@ -8,6 +8,7 @@ mod osc_listener;
 mod osc_parser;
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{fs, fs::File, process::Command as ProcessCommand, process::Stdio};
 
@@ -26,6 +27,7 @@ struct SharedState {
     osc_tx: Arc<Mutex<Option<UnboundedSender<OscControlMsg>>>>,
     config_dir: PathBuf,
     listen_port: Arc<Mutex<u16>>,
+    realtime_seq: AtomicI32,
 }
 
 // ── helper ────────────────────────────────────────────────────────────────
@@ -250,11 +252,16 @@ fn export_layout_to_path(path: String, layout: Layout) -> Result<(), String> {
 #[tauri::command]
 fn control_speaker_gain(state: State<SharedState>, id: i32, gain: f32) {
     let clamped = gain.max(0.0).min(2.0);
+    let seq = state.realtime_seq.fetch_add(1, Ordering::Relaxed) + 1;
     send_control(
         &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: format!("/omniphony/control/speaker/{id}/gain"),
-            value: clamped,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/realtime/speaker_gain".to_string(),
+            args: vec![
+                rosc::OscType::Int(id),
+                rosc::OscType::Float(clamped),
+                rosc::OscType::Int(seq),
+            ],
         },
     );
 }
@@ -266,6 +273,23 @@ fn control_object_mute(state: State<SharedState>, id: i32, muted: i32) {
         OscControlMsg::SendInt {
             address: format!("/omniphony/control/object/{id}/mute"),
             value: if muted != 0 { 1 } else { 0 },
+        },
+    );
+}
+
+#[tauri::command]
+fn control_object_gain(state: State<SharedState>, id: String, gain: f32) {
+    let clamped = gain.clamp(0.0, 2.0);
+    let seq = state.realtime_seq.fetch_add(1, Ordering::Relaxed) + 1;
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/realtime/object_gain".to_string(),
+            args: vec![
+                rosc::OscType::String(id),
+                rosc::OscType::Float(clamped),
+                rosc::OscType::Int(seq),
+            ],
         },
     );
 }
@@ -284,11 +308,12 @@ fn control_speaker_mute(state: State<SharedState>, id: i32, muted: i32) {
 #[tauri::command]
 fn control_master_gain(state: State<SharedState>, gain: f32) {
     let clamped = gain.max(0.0).min(2.0);
+    let seq = state.realtime_seq.fetch_add(1, Ordering::Relaxed) + 1;
     send_control(
         &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: "/omniphony/control/gain".to_string(),
-            value: clamped,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/realtime/master_gain".to_string(),
+            args: vec![rosc::OscType::Float(clamped), rosc::OscType::Int(seq)],
         },
     );
 }
@@ -1195,6 +1220,31 @@ fn control_audio_sample_rate(state: State<SharedState>, sample_rate: i32) {
 }
 
 #[tauri::command]
+fn control_audio_config(state: State<SharedState>, payload: serde_json::Value) {
+    let text = match serde_json::to_string(&payload) {
+        Ok(text) => text,
+        Err(_) => return,
+    };
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/config/audio".to_string(),
+            value: text,
+        },
+    );
+}
+
+#[tauri::command]
+fn control_audio_config_apply(state: State<SharedState>) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendNoArgs {
+            address: "/omniphony/control/config/audio/apply".to_string(),
+        },
+    );
+}
+
+#[tauri::command]
 fn control_audio_output_device(state: State<SharedState>, output_device: String) {
     send_control(
         &state.osc_tx,
@@ -1211,6 +1261,31 @@ fn refresh_output_devices(state: State<SharedState>) {
         &state.osc_tx,
         OscControlMsg::SendNoArgs {
             address: "/omniphony/control/audio/output_devices/refresh".to_string(),
+        },
+    );
+}
+
+#[tauri::command]
+fn control_input_config(state: State<SharedState>, payload: serde_json::Value) {
+    let text = match serde_json::to_string(&payload) {
+        Ok(text) => text,
+        Err(_) => return,
+    };
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/config/input".to_string(),
+            value: text,
+        },
+    );
+}
+
+#[tauri::command]
+fn control_input_config_apply(state: State<SharedState>) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendNoArgs {
+            address: "/omniphony/control/config/input/apply".to_string(),
         },
     );
 }
@@ -2127,6 +2202,7 @@ fn main() {
                 osc_tx: osc_tx.clone(),
                 config_dir,
                 listen_port: listen_port.clone(),
+                realtime_seq: AtomicI32::new(0),
             };
             app.manage(shared);
 
@@ -2168,6 +2244,7 @@ fn main() {
             export_layout_to_path,
             control_speaker_gain,
             control_object_mute,
+            control_object_gain,
             control_speaker_mute,
             control_master_gain,
             control_loudness,
@@ -2240,8 +2317,12 @@ fn main() {
             control_reload_config,
             control_log_level,
             control_ramp_mode,
+            control_audio_config,
+            control_audio_config_apply,
             control_audio_output_device,
             refresh_output_devices,
+            control_input_config,
+            control_input_config_apply,
             control_input_mode,
             control_input_live_backend,
             control_input_live_node,

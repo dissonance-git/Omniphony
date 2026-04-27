@@ -4,7 +4,13 @@
  * Extracted from app.js (lines 4547-4590).
  */
 
-import { app, dirty, speakerMeshes, speakerLevels } from '../state.js';
+import {
+  app,
+  dirty,
+  speakerMeshes,
+  speakerLevels,
+  supportsRealtimeKey
+} from '../state.js';
 import { t, tf } from '../i18n.js';
 import { formatNumber } from '../coordinates.js';
 import { linearToDb, dbToLinear } from '../mute-solo.js';
@@ -22,9 +28,10 @@ function getDistanceModelSelectEl() { return inRendererPanel('distanceModelSelec
 export function renderMasterGainUI() {
   const masterGainSliderEl = getMasterGainSliderEl();
   const masterGainBoxEl = getMasterGainBoxEl();
+  const canControlMasterGain = supportsRealtimeKey('master_gain');
   if (masterGainSliderEl) {
     const hasValue = Number.isFinite(app.masterGain) && app.masterGain > 0;
-    masterGainSliderEl.disabled = !app.oscSnapshotReady || !hasValue;
+    masterGainSliderEl.disabled = !app.oscSnapshotReady || !hasValue || !canControlMasterGain;
     masterGainSliderEl.value = String(hasValue ? app.masterGain : 1);
   }
   if (masterGainBoxEl) {
