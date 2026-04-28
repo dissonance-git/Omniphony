@@ -12,8 +12,9 @@ function getSaveConfigBtnEl() { return inSaveFooter('saveConfigBtn'); }
 export function renderConfigSavedUI() {
   const configSavedIndicatorEl = getConfigSavedIndicatorEl();
   const saveConfigBtnEl = getSaveConfigBtnEl();
-  if (!configSavedIndicatorEl) return;
-  configSavedIndicatorEl.textContent = '';
+  if (configSavedIndicatorEl) {
+    configSavedIndicatorEl.textContent = '';
+  }
   if (saveConfigBtnEl) {
     const alreadySaved = app.configSaved === true;
     saveConfigBtnEl.disabled = alreadySaved;
