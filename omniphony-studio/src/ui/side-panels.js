@@ -7,9 +7,15 @@
  * --panel-width-right) so that the log overlay can be positioned accordingly.
  */
 
-const STORAGE_KEY = 'spatialviz.side_panels';
-const MIN_WIDTH = 220;
-const DEFAULT_WIDTH = 440;
+import {
+  getOverlayLayoutState,
+  initOverlayLayoutState,
+  resetOverlayPanelWidth,
+  setOverlayPanelCollapsed,
+  setOverlayPanelWidth,
+  subscribeOverlayLayout
+} from './layout/overlay-layout-state.js';
+
 const COLLAPSED_WIDTH_REM = 1.8;
 
 const HAMBURGER_SVG = '<svg width="14" height="14" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none" aria-hidden="true"><path d="M3 5h10M3 8h10M3 11h10"/></svg>';
@@ -34,49 +40,12 @@ const SIDES = {
   }
 };
 
-const state = {
-  left: { width: DEFAULT_WIDTH, collapsed: false },
-  right: { width: DEFAULT_WIDTH, collapsed: false }
-};
-
-function loadState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    for (const side of ['left', 'right']) {
-      const entry = parsed?.[side];
-      if (!entry) continue;
-      const w = Number(entry.width);
-      if (Number.isFinite(w) && w >= MIN_WIDTH) {
-        state[side].width = clampWidth(w);
-      }
-      state[side].collapsed = !!entry.collapsed;
-    }
-  } catch (_e) {
-    // ignore (private mode, quota, etc.)
-  }
-}
-
-function persistState() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (_e) {
-    // ignore
-  }
-}
-
-function clampWidth(w) {
-  const max = Math.max(MIN_WIDTH, Math.floor(window.innerWidth - 200));
-  return Math.min(Math.max(w, MIN_WIDTH), max);
-}
-
 function collapsedPx() {
   const fontSize = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
   return COLLAPSED_WIDTH_REM * fontSize;
 }
 
-function applyToDom() {
+function applyToDom(state) {
   const root = document.documentElement;
   for (const side of ['left', 'right']) {
     const cfg = SIDES[side];
@@ -113,8 +82,7 @@ function makeResizeHandle(side) {
   const onPointerMove = (ev) => {
     const dx = ev.clientX - startX;
     const proposed = startWidth + cfg.direction * dx;
-    state[side].width = clampWidth(proposed);
-    applyToDom();
+    setOverlayPanelWidth(side, proposed);
   };
 
   const onPointerUp = (ev) => {
@@ -127,10 +95,10 @@ function makeResizeHandle(side) {
     window.removeEventListener('pointermove', onPointerMove);
     window.removeEventListener('pointerup', onPointerUp);
     window.removeEventListener('pointercancel', onPointerUp);
-    persistState();
   };
 
   handle.addEventListener('pointerdown', (ev) => {
+    const state = getOverlayLayoutState();
     if (state[side].collapsed) return;
     ev.preventDefault();
     startX = ev.clientX;
@@ -145,16 +113,8 @@ function makeResizeHandle(side) {
   });
 
   handle.addEventListener('dblclick', () => {
-    state[side].width = DEFAULT_WIDTH;
-    applyToDom();
-    persistState();
+    resetOverlayPanelWidth(side);
   });
-}
-
-function setCollapsed(side, value) {
-  state[side].collapsed = !!value;
-  applyToDom();
-  persistState();
 }
 
 function makeCollapseButton(side) {
@@ -174,30 +134,26 @@ function makeCollapseButton(side) {
   btn.addEventListener('click', (ev) => {
     ev.preventDefault();
     ev.stopPropagation();
-    setCollapsed(side, !state[side].collapsed);
+    const state = getOverlayLayoutState();
+    setOverlayPanelCollapsed(side, !state[side].collapsed);
   });
 
   // Body fallback: clicking anywhere on the collapsed strip (outside the
   // button and the resize handle) re-expands the panel.
   panel.addEventListener('click', (ev) => {
+    const state = getOverlayLayoutState();
     if (!state[side].collapsed) return;
     if (ev.target.closest('.panel-resize-handle')) return;
     if (ev.target.closest(`#${cfg.collapseBtnId}`)) return;
-    setCollapsed(side, false);
+    setOverlayPanelCollapsed(side, false);
   });
 }
 
 export function initSidePanels() {
-  loadState();
+  initOverlayLayoutState();
   for (const side of ['left', 'right']) {
     makeResizeHandle(side);
     makeCollapseButton(side);
   }
-  applyToDom();
-
-  window.addEventListener('resize', () => {
-    state.left.width = clampWidth(state.left.width);
-    state.right.width = clampWidth(state.right.width);
-    applyToDom();
-  });
+  subscribeOverlayLayout(applyToDom);
 }

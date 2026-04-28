@@ -7,6 +7,7 @@ import { normalizeAngleDeg, snapAngleDeg, sphericalToCartesianDeg, normalizedOmn
 import { applySpeakerPolarEdit, applySpeakerCartesianEdit, applySpeakerSceneCartesianEdit, setSelectedSpeaker, renderSpeakerEditor } from './speakers.js';
 import { setSelectedSource } from './sources.js';
 import { projectRayOntoAxis } from './input.js';
+import { getCanvasClientRect, pointerEventToNdc as projectPointerEventToNdc } from './core/render/projection-service.js';
 
 let boundCanvas = null;
 
@@ -116,9 +117,7 @@ function updateControlsForEditMode() {
 }
 
 export function pointerEventToNdc(event) {
-  const rect = renderer.domElement.getBoundingClientRect();
-  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  projectPointerEventToNdc(event, getCanvasClientRect(renderer.domElement), pointer);
 }
 
 export function getPickableSceneTargets() {
