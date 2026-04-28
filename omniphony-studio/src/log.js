@@ -4,12 +4,12 @@
 
 import { t, tf, i18nState } from './i18n.js';
 
-const logOverlayEl = document.getElementById('logOverlay');
-const logSummaryEl = document.getElementById('logSummary');
-const logEntriesEl = document.getElementById('logEntries');
-const logEmptyStateEl = document.getElementById('logEmptyState');
-const logToggleBtnEl = document.getElementById('logToggleBtn');
-const logLevelSelectEl = document.getElementById('logLevelSelect');
+function getLogOverlayEl() { return document.getElementById('logOverlay'); }
+function getLogSummaryEl() { return document.getElementById('logSummary'); }
+function getLogEntriesEl() { return document.getElementById('logEntries'); }
+function getLogEmptyStateEl() { return document.getElementById('logEmptyState'); }
+function getLogToggleBtnEl() { return document.getElementById('logToggleBtn'); }
+function getLogLevelSelectEl() { return document.getElementById('logLevelSelect'); }
 
 const LOG_ENTRY_LIMIT = 120;
 export const LOG_LEVEL_VALUES = ['off', 'error', 'warn', 'info', 'debug', 'trace'];
@@ -70,6 +70,7 @@ export function pushLog(level, message) {
 }
 
 export function renderLogLevelControl() {
+  const logLevelSelectEl = getLogLevelSelectEl();
   if (!logLevelSelectEl) return;
   const value = normalizeLogLevel(logState.backendLogLevel);
   if (logLevelSelectEl.value !== value) {
@@ -78,6 +79,11 @@ export function renderLogLevelControl() {
 }
 
 export function renderLogPanel() {
+  const logOverlayEl = getLogOverlayEl();
+  const logSummaryEl = getLogSummaryEl();
+  const logEntriesEl = getLogEntriesEl();
+  const logEmptyStateEl = getLogEmptyStateEl();
+  const logToggleBtnEl = getLogToggleBtnEl();
   if (!logOverlayEl || !logSummaryEl || !logEntriesEl || !logEmptyStateEl || !logToggleBtnEl) return;
   const latest = logState.entries[logState.entries.length - 1];
   logOverlayEl.classList.toggle('expanded', logState.expanded);

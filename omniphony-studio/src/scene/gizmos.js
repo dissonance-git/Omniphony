@@ -135,11 +135,10 @@ export function updateVbapCartesianFaceGrid() {
   syncVbapCartesianFaceGridVisibility();
 }
 
-const vbapCartesianGridToggleBtnEl = document.getElementById('vbapCartesianGridToggleBtn');
-
 export function renderVbapCartesianGridToggle() {
-  if (!vbapCartesianGridToggleBtnEl) return;
-  vbapCartesianGridToggleBtnEl.checked = app.vbapCartesianFaceGridEnabled;
+  const el = document.getElementById('vbapCartesianGridToggleBtn');
+  if (!el) return;
+  el.checked = app.vbapCartesianFaceGridEnabled;
 }
 
 // ---------------------------------------------------------------------------
