@@ -5,7 +5,7 @@ import { updateMasterGainUI, updateLoudnessDisplay } from '../controls/master.js
 import { updateAdaptiveResamplingUI, resetAdaptiveResamplingAdvancedDirtyState } from '../controls/adaptive.js';
 import {
   closeAudioSampleRateMenu, openAudioSampleRateMenu, updateAudioFormatDisplay,
-  applyAudioSampleRateNow, applyAudioOutputDeviceNow, applyRampModeNow
+  applyAudioSampleRateNow, applyAudioOutputDeviceNow, applyRampModeNow, sendAudioConfig
 } from '../controls/audio.js';
 import { applyLatencyTargetNow, updateLatencyDisplay } from '../controls/latency.js';
 
@@ -77,7 +77,7 @@ export function setupAudioPanelListeners() {
       const enabled = adaptiveResamplingToggleEl.checked ? 1 : 0;
       app.adaptiveResamplingEnabled = enabled === 1;
       updateAdaptiveResamplingUI();
-      invoke('control_adaptive_resampling', { enable: enabled });
+      sendAudioConfig();
     });
   }
 
@@ -90,7 +90,6 @@ export function setupAudioPanelListeners() {
       return;
     }
     app.adaptiveResamplingEnableFarMode = enableFarMode;
-    invoke('control_adaptive_resampling_enable_far_mode', { enable: enableFarMode ? 1 : 0 });
   }
 
   if (adaptiveFarHardRecoverHighToggleEl) {
@@ -99,7 +98,7 @@ export function setupAudioPanelListeners() {
       app.adaptiveResamplingHardRecoverHighInFarMode = enable === 1;
       syncAdaptiveFarModeDerived();
       updateAdaptiveResamplingUI();
-      invoke('control_adaptive_resampling_hard_recover_high_in_far_mode', { enable });
+      sendAudioConfig();
     });
   }
 
@@ -109,7 +108,7 @@ export function setupAudioPanelListeners() {
       app.adaptiveResamplingHardRecoverLowInFarMode = enable === 1;
       syncAdaptiveFarModeDerived();
       updateAdaptiveResamplingUI();
-      invoke('control_adaptive_resampling_hard_recover_low_in_far_mode', { enable });
+      sendAudioConfig();
     });
   }
 
@@ -119,7 +118,7 @@ export function setupAudioPanelListeners() {
       app.adaptiveResamplingForceSilenceInFarMode = enable === 1;
       syncAdaptiveFarModeDerived();
       updateAdaptiveResamplingUI();
-      invoke('control_adaptive_resampling_force_silence_in_far_mode', { enable });
+      sendAudioConfig();
     });
   }
 
@@ -167,14 +166,7 @@ export function setupAudioPanelListeners() {
       app.adaptiveResamplingUpdateIntervalCallbacks = updateIntervalCallbacks;
       app.adaptiveResamplingFarModeReturnFadeInMs = farModeReturnFadeInMs;
       updateAdaptiveResamplingUI();
-
-      invoke('control_adaptive_resampling_kp_near', { value: kpNear });
-      invoke('control_adaptive_resampling_ki', { value: ki });
-      invoke('control_adaptive_resampling_integral_discharge_ratio', { value: integralDischargeRatio });
-      invoke('control_adaptive_resampling_max_adjust', { value: maxAdjust });
-      invoke('control_adaptive_resampling_near_far_threshold_ms', { value: nearFarThresholdMs });
-      invoke('control_adaptive_resampling_update_interval_callbacks', { value: updateIntervalCallbacks });
-      invoke('control_adaptive_resampling_far_mode_return_fade_in_ms', { value: farModeReturnFadeInMs });
+      sendAudioConfig();
 
       resetAdaptiveResamplingAdvancedDirtyState();
       updateAdaptiveResamplingUI();
@@ -194,7 +186,7 @@ export function setupAudioPanelListeners() {
       const enable = app.adaptiveResamplingPaused ? 0 : 1;
       app.adaptiveResamplingPaused = enable === 1;
       updateAdaptiveResamplingUI();
-      invoke('control_adaptive_resampling_pause', { enable });
+      sendAudioConfig();
     });
   }
 

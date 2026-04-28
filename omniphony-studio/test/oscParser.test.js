@@ -104,21 +104,6 @@ test('clamps meter values to [-100, 0]', () => {
   });
 });
 
-test('parses omniphony config messages', () => {
-  const count = parseOscMessage(msg('/omniphony/config/speakers', [4]));
-  assert.deepEqual(count, { type: 'config:speakers:count', count: 4 });
-
-  const speaker = parseOscMessage(msg('/omniphony/config/speaker/2', ['L', 30, 10, 1.5, 0]));
-  assert.equal(speaker.type, 'config:speaker');
-  assert.equal(speaker.index, 2);
-  assert.equal(speaker.name, 'L');
-  assert.equal(speaker.azimuthDeg, 30);
-  assert.equal(speaker.elevationDeg, 10);
-  assert.equal(speaker.distanceM, 1.5);
-  assert.equal(speaker.spatialize, 0);
-  assert.ok(typeof speaker.position.x === 'number');
-});
-
 test('parses omniphony object xyz mapping', () => {
   const parsed = parseOscMessage(msg('/omniphony/object/7/xyz', [0.2, 0.3, 0.4]));
   assert.deepEqual(parsed, {
@@ -158,6 +143,85 @@ test('parses omniphony object aed in polar mode', () => {
   });
 });
 
+test('parses serialized renderer and loudness domains', () => {
+  assert.deepEqual(
+    parseOscMessage(msg('/omniphony/state/renderer', [
+      JSON.stringify({
+        masterGain: 0.75,
+        distanceModel: 'inverse-square',
+        roomRatio: { width: 1, length: 2, height: 3 },
+        spread: { min: 0.1, max: 0.9 },
+        distanceDiffuse: { enabled: true, threshold: 0.5, curve: 1.2 }
+      })
+    ])),
+    {
+      type: 'state:renderer',
+      value: {
+        masterGain: 0.75,
+        distanceModel: 'inverse-square',
+        roomRatio: { width: 1, length: 2, height: 3 },
+        spread: { min: 0.1, max: 0.9 },
+        distanceDiffuse: { enabled: true, threshold: 0.5, curve: 1.2 }
+      }
+    }
+  );
+
+  assert.deepEqual(
+    parseOscMessage(msg('/omniphony/state/loudness', [
+      JSON.stringify({ enabled: true, source: -24, gain: 0.8 })
+    ])),
+    {
+      type: 'state:loudness',
+      value: { enabled: true, source: -24, gain: 0.8 }
+    }
+  );
+});
+
+test('parses serialized layout and speakers domains', () => {
+  assert.deepEqual(
+    parseOscMessage(msg('/omniphony/state/layout', [
+      JSON.stringify({
+        radius_m: 1.5,
+        speakers: [{ id: 0, name: 'L', azimuth: 30, elevation: 0, distance: 1, spatialize: true }]
+      })
+    ])),
+    {
+      type: 'state:layout',
+      value: {
+        radius_m: 1.5,
+        speakers: [{ id: 0, name: 'L', azimuth: 30, elevation: 0, distance: 1, spatialize: true }]
+      }
+    }
+  );
+
+  assert.deepEqual(
+    parseOscMessage(msg('/omniphony/state/speakers', [
+      JSON.stringify({ speakers: [{ id: 0, gain: 0.7, delayMs: 2.5, muted: true }] })
+    ])),
+    {
+      type: 'state:speakers',
+      value: { speakers: [{ id: 0, gain: 0.7, delayMs: 2.5, muted: true }] }
+    }
+  );
+});
+
+test('parses realtime gain acknowledgements', () => {
+  assert.deepEqual(
+    parseOscMessage(msg('/omniphony/state/realtime/master_gain', [0.9, 12])),
+    { type: 'state:realtime:master_gain', value: 0.9, seq: 12 }
+  );
+
+  assert.deepEqual(
+    parseOscMessage(msg('/omniphony/state/realtime/speaker_gain', [6, 0.7, 3])),
+    { type: 'state:realtime:speaker_gain', id: '6', value: 0.7, seq: 3 }
+  );
+
+  assert.deepEqual(
+    parseOscMessage(msg('/omniphony/state/realtime/object_gain', ['7', 1.2, 5])),
+    { type: 'state:realtime:object_gain', id: '7', value: 1.2, seq: 5 }
+  );
+});
+
 test('parses omniphony state messages', () => {
   assert.deepEqual(
     parseOscMessage(msg('/omniphony/state/latency', [12.5])),
@@ -167,41 +231,6 @@ test('parses omniphony state messages', () => {
   assert.deepEqual(
     parseOscMessage(msg('/omniphony/state/resample_ratio', [0.999])),
     { type: 'state:resample_ratio', value: 0.999 }
-  );
-
-  assert.deepEqual(
-    parseOscMessage(msg('/omniphony/state/gain', [1.2])),
-    { type: 'state:master:gain', value: 1.2 }
-  );
-
-  assert.deepEqual(
-    parseOscMessage(msg('/omniphony/state/loudness', [1])),
-    { type: 'state:loudness', enabled: true }
-  );
-
-  assert.deepEqual(
-    parseOscMessage(msg('/omniphony/state/loudness/source', [-24])),
-    { type: 'state:loudness:source', value: -24 }
-  );
-
-  assert.deepEqual(
-    parseOscMessage(msg('/omniphony/state/loudness/gain', [0.8])),
-    { type: 'state:loudness:gain', value: 0.8 }
-  );
-
-  assert.deepEqual(
-    parseOscMessage(msg('/omniphony/state/spread/min', [0.2])),
-    { type: 'state:spread:min', value: 0.2 }
-  );
-
-  assert.deepEqual(
-    parseOscMessage(msg('/omniphony/state/spread/max', [0.9])),
-    { type: 'state:spread:max', value: 0.9 }
-  );
-
-  assert.deepEqual(
-    parseOscMessage(msg('/omniphony/state/room_ratio', [1, 2, 3])),
-    { type: 'state:room_ratio', width: 1, length: 2, height: 3 }
   );
 
   assert.deepEqual(
@@ -227,21 +256,6 @@ test('parses omniphony state messages', () => {
   assert.deepEqual(
     parseOscMessage(msg('/omniphony/state/speaker/6/mute', [0])),
     { type: 'state:speaker:mute', id: '6', muted: false }
-  );
-
-  assert.deepEqual(
-    parseOscMessage(msg('/omniphony/state/distance_diffuse/enabled', [1])),
-    { type: 'state:distance_diffuse:enabled', enabled: true }
-  );
-
-  assert.deepEqual(
-    parseOscMessage(msg('/omniphony/state/distance_diffuse/threshold', [0.6])),
-    { type: 'state:distance_diffuse:threshold', value: 0.6 }
-  );
-
-  assert.deepEqual(
-    parseOscMessage(msg('/omniphony/state/distance_diffuse/curve', [1.2])),
-    { type: 'state:distance_diffuse:curve', value: 1.2 }
   );
 
   assert.deepEqual(

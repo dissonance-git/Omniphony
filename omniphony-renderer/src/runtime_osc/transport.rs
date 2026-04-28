@@ -1,57 +1,8 @@
 use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
 
-use anyhow::Result;
-use rosc::{OscBundle, OscMessage, OscPacket, OscTime, OscType};
+use rosc::{OscMessage, OscPacket, OscType};
 
 use super::client_registry::OscClientRegistry;
-
-pub(crate) fn build_speaker_config_bundle(
-    layout: &renderer::speaker_layout::SpeakerLayout,
-) -> Result<Vec<u8>> {
-    let mut messages = Vec::with_capacity(1 + layout.num_speakers());
-    messages.push(OscPacket::Message(OscMessage {
-        addr: "/omniphony/config/speakers".to_string(),
-        args: vec![OscType::Int(layout.num_speakers() as i32)],
-    }));
-    for (idx, speaker) in layout.speakers.iter().enumerate() {
-        messages.push(OscPacket::Message(OscMessage {
-            addr: format!("/omniphony/config/speaker/{}", idx),
-            args: vec![
-                OscType::String(speaker.name.clone()),
-                OscType::Float(speaker.azimuth),
-                OscType::Float(speaker.elevation),
-                OscType::Float(speaker.distance),
-                OscType::Int(if speaker.spatialize { 1 } else { 0 }),
-                OscType::Float(speaker.delay_ms),
-                OscType::String(speaker.coord_mode.clone()),
-                OscType::Float(speaker.x),
-                OscType::Float(speaker.y),
-                OscType::Float(speaker.z),
-                OscType::Float(speaker.freq_low.unwrap_or(0.0)),
-                OscType::Float(speaker.freq_high.unwrap_or(0.0)),
-            ],
-        }));
-    }
-    let bundle = OscPacket::Bundle(OscBundle {
-        timetag: OscTime {
-            seconds: 0,
-            fractional: 1,
-        },
-        content: messages,
-    });
-    Ok(rosc::encoder::encode(&bundle)?)
-}
-
-pub(crate) fn broadcast_speaker_config(
-    socket: &UdpSocket,
-    clients: &OscClientRegistry,
-    layout: &renderer::speaker_layout::SpeakerLayout,
-) {
-    match build_speaker_config_bundle(layout) {
-        Ok(bytes) => send_raw(socket, clients, &bytes),
-        Err(e) => log::warn!("OSC: failed to broadcast speaker config: {}", e),
-    }
-}
 
 pub(crate) fn broadcast_float(
     socket: &UdpSocket,

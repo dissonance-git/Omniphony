@@ -46,10 +46,19 @@ import { syncRuntimeConnectionLock } from './runtime-connection.js';
 import { setInputSectionOpen } from './modals.js';
 
 export function applyInitState(payload) {
+  app.producerCapabilities =
+    payload?.producerCapabilities && typeof payload.producerCapabilities === 'object'
+      ? payload.producerCapabilities
+      : null;
+  app.producerSession =
+    payload?.producerSession && typeof payload.producerSession === 'object'
+      ? payload.producerSession
+      : null;
   if (typeof payload.oscSnapshotReady === 'boolean') {
     app.oscSnapshotReady = payload.oscSnapshotReady;
     syncRuntimeConnectionLock();
   }
+  speakerGainCache.clear();
   speakerMuted.clear();
   objectMuted.clear();
   speakerManualMuted.clear();

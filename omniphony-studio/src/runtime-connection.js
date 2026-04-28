@@ -36,7 +36,16 @@ const PANEL_TOGGLE_IDS = [
   'rendererSectionToggleBtn'
 ];
 
-const EXEMPT_CONTROL_IDS = new Set([...OSC_CONTROL_IDS, ...PANEL_TOGGLE_IDS]);
+const PANEL_COLLAPSE_IDS = [
+  'leftPanelCollapseBtn',
+  'rightPanelCollapseBtn'
+];
+
+const EXEMPT_CONTROL_IDS = new Set([
+  ...OSC_CONTROL_IDS,
+  ...PANEL_TOGGLE_IDS,
+  ...PANEL_COLLAPSE_IDS
+]);
 
 function runtimeConnected() {
   return app.oscStatusState === 'connected';

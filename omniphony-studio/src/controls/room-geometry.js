@@ -15,6 +15,7 @@ import { updateVbapCartesianFaceGrid } from '../scene/gizmos.js';
 import { updateSourceDecorations } from '../sources.js';
 import { rebuildTrailGeometry } from '../trails.js';
 import { renderSpeakerEditor } from '../speakers.js';
+import { emitOverlayLayoutChanged } from '../ui/layout/overlay-layout-state.js';
 import { inDisplayPanel, inRoomGeometryPanel, roomGeometryPanelQueryAll } from '../ui/panel-roots.js';
 import { syncSpeakerHeatmapBandSelect } from '../scene/speaker-heatmap.js';
 
@@ -762,11 +763,7 @@ export function setRoomGeometryExpanded(expanded) {
     roomGeometryToggleBtnEl.textContent = app.roomGeometryExpanded ? '\u25be' : '\u25b8';
   }
   roomDimensionGroup.visible = false;
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('omniphony:overlay-layout-changed', {
-      detail: { reason: 'room-geometry-toggle' }
-    }));
-  }
+  emitOverlayLayoutChanged('room-geometry-toggle');
 }
 
 // ---------------------------------------------------------------------------

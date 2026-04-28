@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { getWindowViewport } from '../core/viewport/window-viewport.js';
 
 // ---------------------------------------------------------------------------
 // Mutable scene state
@@ -11,15 +12,18 @@ export const sceneState = { metersPerUnit: 1.0 };
 // Scene, camera, renderer, controls
 // ---------------------------------------------------------------------------
 
+const initialViewport = getWindowViewport();
+
 export const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0b10);
 
-export const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 100);
+export const camera = new THREE.PerspectiveCamera(65, initialViewport.width / initialViewport.height, 0.1, 100);
 camera.position.set(-3.8, 1.1, 0.0);
 camera.lookAt(0, 0.25, 0);
 
 function configureRenderer(nextRenderer) {
-  nextRenderer.setSize(window.innerWidth, window.innerHeight);
+  const viewport = getWindowViewport();
+  nextRenderer.setSize(viewport.width, viewport.height);
   nextRenderer.domElement.dataset.omniphonyRenderer = 'true';
   attachRendererCanvas(nextRenderer.domElement);
   return nextRenderer;

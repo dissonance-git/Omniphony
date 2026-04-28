@@ -1,10 +1,9 @@
 use anyhow::Result;
 use rosc::{OscBundle, OscMessage, OscPacket, OscTime, OscType};
+use serde_json::json;
 
 use super::OscSender;
 use super::export::build_live_state_bundle;
-use super::transport::{broadcast_float, broadcast_int};
-
 impl OscSender {
     pub fn send_live_state_bundle(&self) -> Result<()> {
         let control = match self.control {
@@ -29,25 +28,17 @@ impl OscSender {
         let socket = &self.socket;
         let clients = &self.clients;
 
-        if let Some(dl) = live.dialogue_level {
-            broadcast_int(
-                socket,
-                clients,
-                "/omniphony/state/loudness/source",
-                dl as i32,
-            );
-        }
-
         let gain_linear: f32 = match (live.use_loudness, live.dialogue_level) {
             (true, Some(dl)) => 10.0_f32.powf((-31 - dl as i32) as f32 / 20.0),
             _ => 1.0,
         };
-        broadcast_float(
-            socket,
-            clients,
-            "/omniphony/state/loudness/gain",
-            gain_linear,
-        );
+        let payload = json!({
+            "enabled": live.use_loudness,
+            "source": live.dialogue_level,
+            "gain": gain_linear
+        })
+        .to_string();
+        super::transport::broadcast_string(socket, clients, "/omniphony/state/loudness", &payload);
     }
 
     pub fn send_meter_bundle(
@@ -92,12 +83,6 @@ impl OscSender {
         let mut messages = Vec::with_capacity(
             snapshot.object_levels.len() * 2 + snapshot.speaker_levels.len() + 1,
         );
-        let requested_latency_target_ms = self
-            .audio_control
-            .as_ref()
-            .and_then(|control| control.requested_latency_target_ms())
-            .map(|ms| ms as f32);
-
         if let Some(ms) = latency_target_ms.or(latency_instant_ms) {
             messages.push(OscPacket::Message(OscMessage {
                 addr: "/omniphony/state/latency".to_string(),
@@ -146,18 +131,6 @@ impl OscSender {
                 args: vec![OscType::Float(ms)],
             }));
         }
-        if let Some(ms) = latency_target_ms {
-            messages.push(OscPacket::Message(OscMessage {
-                addr: "/omniphony/state/latency_target".to_string(),
-                args: vec![OscType::Float(ms)],
-            }));
-        }
-        if let Some(ms) = requested_latency_target_ms.or(latency_target_ms) {
-            messages.push(OscPacket::Message(OscMessage {
-                addr: "/omniphony/state/latency_target_requested".to_string(),
-                args: vec![OscType::Float(ms)],
-            }));
-        }
         if let Some(ratio) = resample_ratio {
             messages.push(OscPacket::Message(OscMessage {
                 addr: "/omniphony/state/resample_ratio".to_string(),
@@ -175,57 +148,6 @@ impl OscSender {
                 addr: "/omniphony/state/adaptive_resampling/state".to_string(),
                 args: vec![OscType::String(state.to_string())],
             }));
-        }
-
-        if let Some(ref control) = self.audio_control {
-            let (current_rate_opt, fmt) = control.audio_state();
-            let rate_opt = current_rate_opt.or_else(|| control.requested_output_sample_rate());
-            let requested_output_device = control.requested_output_device().unwrap_or_default();
-            let effective_output_device = control.effective_output_device().unwrap_or_default();
-            messages.push(OscPacket::Message(OscMessage {
-                addr: "/omniphony/state/audio/output_device".to_string(),
-                args: vec![OscType::String(requested_output_device.clone())],
-            }));
-            messages.push(OscPacket::Message(OscMessage {
-                addr: "/omniphony/state/audio/output_device/requested".to_string(),
-                args: vec![OscType::String(requested_output_device)],
-            }));
-            messages.push(OscPacket::Message(OscMessage {
-                addr: "/omniphony/state/audio/output_device/effective".to_string(),
-                args: vec![OscType::String(effective_output_device)],
-            }));
-            if let Some(rate) = rate_opt {
-                messages.push(OscPacket::Message(OscMessage {
-                    addr: "/omniphony/state/audio/sample_rate".to_string(),
-                    args: vec![OscType::Int(rate as i32)],
-                }));
-            }
-            if !fmt.is_empty() {
-                messages.push(OscPacket::Message(OscMessage {
-                    addr: "/omniphony/state/audio/sample_format".to_string(),
-                    args: vec![OscType::String(fmt)],
-                }));
-            }
-            if let Some(error) = control.audio_error() {
-                messages.push(OscPacket::Message(OscMessage {
-                    addr: "/omniphony/state/audio/error".to_string(),
-                    args: vec![OscType::String(error)],
-                }));
-            }
-            if let Some(ms) = control.requested_latency_target_ms() {
-                messages.push(OscPacket::Message(OscMessage {
-                    addr: "/omniphony/state/latency".to_string(),
-                    args: vec![OscType::Float(ms as f32)],
-                }));
-                messages.push(OscPacket::Message(OscMessage {
-                    addr: "/omniphony/state/latency_target".to_string(),
-                    args: vec![OscType::Float(ms as f32)],
-                }));
-                messages.push(OscPacket::Message(OscMessage {
-                    addr: "/omniphony/state/latency_target_requested".to_string(),
-                    args: vec![OscType::Float(ms as f32)],
-                }));
-            }
         }
 
         for &(id, peak, rms) in &snapshot.object_levels {
@@ -306,79 +228,46 @@ impl OscSender {
     }
 
     pub fn send_audio_state(&self, sample_rate_hz: u32, sample_format: &str) -> Result<()> {
-        let requested_output_device = self
+        let output_device = self
             .audio_control
             .as_ref()
-            .and_then(|control| control.requested_output_device())
-            .unwrap_or_default();
-        let effective_output_device = self
+            .and_then(|control| control.requested_output_device());
+        let output_device_effective = self
             .audio_control
             .as_ref()
-            .and_then(|control| control.effective_output_device())
-            .unwrap_or_default();
+            .and_then(|control| control.effective_output_device());
         let audio_error = self
             .audio_control
             .as_ref()
-            .and_then(|control| control.audio_error())
+            .and_then(|control| control.audio_error());
+        let output_devices = self
+            .audio_control
+            .as_ref()
+            .map(|control| control.available_output_devices())
             .unwrap_or_default();
         let requested_latency_target_ms = self
             .audio_control
             .as_ref()
             .and_then(|control| control.requested_latency_target_ms());
-        let output_devices_json = self
-            .audio_control
-            .as_ref()
-            .and_then(|control| serde_json::to_string(&control.available_output_devices()).ok())
-            .unwrap_or_else(|| "[]".to_string());
         let announced_rate = self
             .audio_control
             .as_ref()
             .and_then(|control| control.requested_output_sample_rate())
             .unwrap_or(sample_rate_hz);
-        let mut content = vec![
-            OscPacket::Message(OscMessage {
-                addr: "/omniphony/state/audio/output_devices".to_string(),
-                args: vec![OscType::String(output_devices_json)],
-            }),
-            OscPacket::Message(OscMessage {
-                addr: "/omniphony/state/audio/output_device".to_string(),
-                args: vec![OscType::String(requested_output_device.clone())],
-            }),
-            OscPacket::Message(OscMessage {
-                addr: "/omniphony/state/audio/output_device/requested".to_string(),
-                args: vec![OscType::String(requested_output_device)],
-            }),
-            OscPacket::Message(OscMessage {
-                addr: "/omniphony/state/audio/output_device/effective".to_string(),
-                args: vec![OscType::String(effective_output_device)],
-            }),
-            OscPacket::Message(OscMessage {
-                addr: "/omniphony/state/audio/sample_rate".to_string(),
-                args: vec![OscType::Int(announced_rate as i32)],
-            }),
-            OscPacket::Message(OscMessage {
-                addr: "/omniphony/state/audio/sample_format".to_string(),
-                args: vec![OscType::String(sample_format.to_string())],
-            }),
-            OscPacket::Message(OscMessage {
-                addr: "/omniphony/state/audio/error".to_string(),
-                args: vec![OscType::String(audio_error)],
-            }),
-        ];
-        if let Some(ms) = requested_latency_target_ms {
-            content.push(OscPacket::Message(OscMessage {
-                addr: "/omniphony/state/latency".to_string(),
-                args: vec![OscType::Float(ms as f32)],
-            }));
-            content.push(OscPacket::Message(OscMessage {
-                addr: "/omniphony/state/latency_target".to_string(),
-                args: vec![OscType::Float(ms as f32)],
-            }));
-            content.push(OscPacket::Message(OscMessage {
-                addr: "/omniphony/state/latency_target_requested".to_string(),
-                args: vec![OscType::Float(ms as f32)],
-            }));
-        }
+        let payload = json!({
+            "outputDevices": output_devices,
+            "outputDevice": output_device,
+            "outputDeviceEffective": output_device_effective,
+            "sampleRate": announced_rate,
+            "sampleFormat": sample_format,
+            "error": audio_error,
+            "latencyTargetMs": requested_latency_target_ms
+        })
+        .to_string();
+        let content = vec![OscPacket::Message(OscMessage {
+            addr: "/omniphony/state/audio".to_string(),
+            args: vec![OscType::String(payload)],
+        })];
         let bundle = OscPacket::Bundle(OscBundle {
             timetag: OscTime {
                 seconds: 0,

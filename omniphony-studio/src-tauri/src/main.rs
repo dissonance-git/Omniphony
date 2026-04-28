@@ -8,6 +8,7 @@ mod osc_listener;
 mod osc_parser;
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{fs, fs::File, process::Command as ProcessCommand, process::Stdio};
 
@@ -26,6 +27,7 @@ struct SharedState {
     osc_tx: Arc<Mutex<Option<UnboundedSender<OscControlMsg>>>>,
     config_dir: PathBuf,
     listen_port: Arc<Mutex<u16>>,
+    realtime_seq: AtomicI32,
 }
 
 // ── helper ────────────────────────────────────────────────────────────────
@@ -34,6 +36,23 @@ fn send_control(tx: &Arc<Mutex<Option<UnboundedSender<OscControlMsg>>>>, msg: Os
     if let Some(tx) = tx.lock().unwrap().as_ref() {
         let _ = tx.send(msg);
     }
+}
+
+fn send_json_control(
+    tx: &Arc<Mutex<Option<UnboundedSender<OscControlMsg>>>>,
+    address: &str,
+    payload: serde_json::Value,
+) {
+    let Ok(value) = serde_json::to_string(&payload) else {
+        return;
+    };
+    send_control(
+        tx,
+        OscControlMsg::SendString {
+            address: address.to_string(),
+            value,
+        },
+    );
 }
 
 #[derive(serde::Serialize)]
@@ -250,11 +269,16 @@ fn export_layout_to_path(path: String, layout: Layout) -> Result<(), String> {
 #[tauri::command]
 fn control_speaker_gain(state: State<SharedState>, id: i32, gain: f32) {
     let clamped = gain.max(0.0).min(2.0);
+    let seq = state.realtime_seq.fetch_add(1, Ordering::Relaxed) + 1;
     send_control(
         &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: format!("/omniphony/control/speaker/{id}/gain"),
-            value: clamped,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/realtime/speaker_gain".to_string(),
+            args: vec![
+                rosc::OscType::Int(id),
+                rosc::OscType::Float(clamped),
+                rosc::OscType::Int(seq),
+            ],
         },
     );
 }
@@ -271,24 +295,45 @@ fn control_object_mute(state: State<SharedState>, id: i32, muted: i32) {
 }
 
 #[tauri::command]
-fn control_speaker_mute(state: State<SharedState>, id: i32, muted: i32) {
+fn control_object_gain(state: State<SharedState>, id: String, gain: f32) {
+    let clamped = gain.clamp(0.0, 2.0);
+    let seq = state.realtime_seq.fetch_add(1, Ordering::Relaxed) + 1;
     send_control(
         &state.osc_tx,
-        OscControlMsg::SendInt {
-            address: format!("/omniphony/control/speaker/{id}/mute"),
-            value: if muted != 0 { 1 } else { 0 },
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/realtime/object_gain".to_string(),
+            args: vec![
+                rosc::OscType::String(id),
+                rosc::OscType::Float(clamped),
+                rosc::OscType::Int(seq),
+            ],
         },
+    );
+}
+
+#[tauri::command]
+fn control_speaker_mute(state: State<SharedState>, id: i32, muted: i32) {
+    send_json_control(
+        &state.osc_tx,
+        "/omniphony/control/config/speakers",
+        serde_json::json!({
+            "speakerEdits": [{
+                "id": id.max(0),
+                "muted": muted != 0
+            }]
+        }),
     );
 }
 
 #[tauri::command]
 fn control_master_gain(state: State<SharedState>, gain: f32) {
     let clamped = gain.max(0.0).min(2.0);
+    let seq = state.realtime_seq.fetch_add(1, Ordering::Relaxed) + 1;
     send_control(
         &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: "/omniphony/control/gain".to_string(),
-            value: clamped,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/realtime/master_gain".to_string(),
+            args: vec![rosc::OscType::Float(clamped), rosc::OscType::Int(seq)],
         },
     );
 }
@@ -902,78 +947,84 @@ fn control_room_ratio_center_blend(state: State<SharedState>, value: f32) {
 #[tauri::command]
 fn control_layout_radius_m(state: State<SharedState>, value: f32) {
     let v = value.max(0.01);
+    send_json_control(
+        &state.osc_tx,
+        "/omniphony/control/config/layout",
+        serde_json::json!({ "radiusM": v }),
+    );
+}
+
+#[tauri::command]
+fn control_layout_config(state: State<SharedState>, payload: serde_json::Value) {
+    send_json_control(&state.osc_tx, "/omniphony/control/config/layout", payload);
+}
+
+#[tauri::command]
+fn control_layout_config_apply(state: State<SharedState>) {
     send_control(
         &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: "/omniphony/control/layout/radius_m".to_string(),
-            value: v,
+        OscControlMsg::SendNoArgs {
+            address: "/omniphony/control/config/layout/apply".to_string(),
         },
     );
 }
 
 #[tauri::command]
+fn control_speakers_config(state: State<SharedState>, payload: serde_json::Value) {
+    send_json_control(&state.osc_tx, "/omniphony/control/config/speakers", payload);
+}
+
+#[tauri::command]
 fn control_speaker_az(state: State<SharedState>, id: i32, value: f32) {
-    send_control(
+    send_json_control(
         &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: format!("/omniphony/control/speaker/{id}/az"),
-            value,
-        },
+        "/omniphony/control/config/layout",
+        serde_json::json!({ "speakerEdits": [{ "id": id.max(0), "azimuth": value }] }),
     );
 }
 
 #[tauri::command]
 fn control_speaker_el(state: State<SharedState>, id: i32, value: f32) {
-    send_control(
+    send_json_control(
         &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: format!("/omniphony/control/speaker/{id}/el"),
-            value,
-        },
+        "/omniphony/control/config/layout",
+        serde_json::json!({ "speakerEdits": [{ "id": id.max(0), "elevation": value }] }),
     );
 }
 
 #[tauri::command]
 fn control_speaker_distance(state: State<SharedState>, id: i32, value: f32) {
-    send_control(
+    send_json_control(
         &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: format!("/omniphony/control/speaker/{id}/distance"),
-            value,
-        },
+        "/omniphony/control/config/layout",
+        serde_json::json!({ "speakerEdits": [{ "id": id.max(0), "distance": value.max(0.01) }] }),
     );
 }
 
 #[tauri::command]
 fn control_speaker_x(state: State<SharedState>, id: i32, value: f32) {
-    send_control(
+    send_json_control(
         &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: format!("/omniphony/control/speaker/{id}/x"),
-            value: value.clamp(-1.0, 1.0),
-        },
+        "/omniphony/control/config/layout",
+        serde_json::json!({ "speakerEdits": [{ "id": id.max(0), "x": value.clamp(-1.0, 1.0) }] }),
     );
 }
 
 #[tauri::command]
 fn control_speaker_y(state: State<SharedState>, id: i32, value: f32) {
-    send_control(
+    send_json_control(
         &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: format!("/omniphony/control/speaker/{id}/y"),
-            value: value.clamp(-1.0, 1.0),
-        },
+        "/omniphony/control/config/layout",
+        serde_json::json!({ "speakerEdits": [{ "id": id.max(0), "y": value.clamp(-1.0, 1.0) }] }),
     );
 }
 
 #[tauri::command]
 fn control_speaker_z(state: State<SharedState>, id: i32, value: f32) {
-    send_control(
+    send_json_control(
         &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: format!("/omniphony/control/speaker/{id}/z"),
-            value: value.clamp(-1.0, 1.0),
-        },
+        "/omniphony/control/config/layout",
+        serde_json::json!({ "speakerEdits": [{ "id": id.max(0), "z": value.clamp(-1.0, 1.0) }] }),
     );
 }
 
@@ -984,35 +1035,29 @@ fn control_speaker_coord_mode(state: State<SharedState>, id: i32, value: String)
     } else {
         "polar"
     };
-    send_control(
+    send_json_control(
         &state.osc_tx,
-        OscControlMsg::SendString {
-            address: format!("/omniphony/control/speaker/{id}/coord_mode"),
-            value: normalized.to_string(),
-        },
+        "/omniphony/control/config/layout",
+        serde_json::json!({ "speakerEdits": [{ "id": id.max(0), "coordMode": normalized }] }),
     );
 }
 
 #[tauri::command]
 fn control_speaker_delay(state: State<SharedState>, id: i32, delay_ms: f32) {
     let v = delay_ms.max(0.0);
-    send_control(
+    send_json_control(
         &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: format!("/omniphony/control/speaker/{id}/delay"),
-            value: v,
-        },
+        "/omniphony/control/config/speakers",
+        serde_json::json!({ "speakerEdits": [{ "id": id.max(0), "delayMs": v }] }),
     );
 }
 
 #[tauri::command]
 fn control_speaker_spatialize(state: State<SharedState>, id: i32, spatialize: i32) {
-    send_control(
+    send_json_control(
         &state.osc_tx,
-        OscControlMsg::SendInt {
-            address: format!("/omniphony/control/speaker/{id}/spatialize"),
-            value: if spatialize != 0 { 1 } else { 0 },
-        },
+        "/omniphony/control/config/layout",
+        serde_json::json!({ "speakerEdits": [{ "id": id.max(0), "spatialize": spatialize != 0 }] }),
     );
 }
 
@@ -1022,34 +1067,38 @@ fn control_speaker_name(state: State<SharedState>, id: i32, name: String) {
     if trimmed.is_empty() {
         return;
     }
-    send_control(
+    send_json_control(
         &state.osc_tx,
-        OscControlMsg::SendString {
-            address: format!("/omniphony/control/speaker/{id}/name"),
-            value: trimmed.to_string(),
-        },
+        "/omniphony/control/config/layout",
+        serde_json::json!({ "speakerEdits": [{ "id": id.max(0), "name": trimmed }] }),
     );
 }
 
 #[tauri::command]
 fn control_speaker_freq_low(state: State<SharedState>, id: i32, freq_low: f32) {
-    send_control(
+    let value = if freq_low > 0.0 {
+        serde_json::Value::from(freq_low)
+    } else {
+        serde_json::Value::Null
+    };
+    send_json_control(
         &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: format!("/omniphony/control/speaker/{id}/freq_low"),
-            value: freq_low.max(0.0),
-        },
+        "/omniphony/control/config/layout",
+        serde_json::json!({ "speakerEdits": [{ "id": id.max(0), "freqLow": value }] }),
     );
 }
 
 #[tauri::command]
 fn control_speaker_freq_high(state: State<SharedState>, id: i32, freq_high: f32) {
-    send_control(
+    let value = if freq_high > 0.0 {
+        serde_json::Value::from(freq_high)
+    } else {
+        serde_json::Value::Null
+    };
+    send_json_control(
         &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: format!("/omniphony/control/speaker/{id}/freq_high"),
-            value: freq_high.max(0.0),
-        },
+        "/omniphony/control/config/layout",
+        serde_json::json!({ "speakerEdits": [{ "id": id.max(0), "freqHigh": value }] }),
     );
 }
 
@@ -1058,7 +1107,7 @@ fn control_speakers_apply(state: State<SharedState>) {
     send_control(
         &state.osc_tx,
         OscControlMsg::SendNoArgs {
-            address: "/omniphony/control/speakers/apply".to_string(),
+            address: "/omniphony/control/config/layout/apply".to_string(),
         },
     );
 }
@@ -1078,33 +1127,41 @@ fn control_speakers_add(
     } else {
         name.trim()
     };
-    send_control(
+    send_json_control(
         &state.osc_tx,
-        OscControlMsg::SendSpeakerAdd {
-            name: n.to_string(),
-            azimuth,
-            elevation,
-            distance: distance.max(0.01),
-            spatialize: if spatialize != 0 { 1 } else { 0 },
-            delay_ms: delay_ms.max(0.0),
-        },
+        "/omniphony/control/config/layout",
+        serde_json::json!({
+            "addSpeaker": {
+                "name": n,
+                "azimuth": azimuth,
+                "elevation": elevation,
+                "distance": distance.max(0.01),
+                "spatialize": spatialize != 0,
+                "delayMs": delay_ms.max(0.0)
+            }
+        }),
     );
+    control_speakers_apply(state);
 }
 
 #[tauri::command]
 fn control_speakers_remove(state: State<SharedState>, index: i32) {
-    send_control(
+    send_json_control(
         &state.osc_tx,
-        OscControlMsg::SendInt {
-            address: "/omniphony/control/speakers/remove".to_string(),
-            value: index.max(0),
-        },
+        "/omniphony/control/config/layout",
+        serde_json::json!({ "removeSpeaker": index.max(0) }),
     );
+    control_speakers_apply(state);
 }
 
 #[tauri::command]
 fn control_speakers_move(state: State<SharedState>, from: i32, to: i32) {
-    send_control(&state.osc_tx, OscControlMsg::SendSpeakersMove { from, to });
+    send_json_control(
+        &state.osc_tx,
+        "/omniphony/control/config/layout",
+        serde_json::json!({ "moveSpeaker": { "from": from.max(0), "to": to.max(0) } }),
+    );
+    control_speakers_apply(state);
 }
 
 #[tauri::command]
@@ -1195,6 +1252,31 @@ fn control_audio_sample_rate(state: State<SharedState>, sample_rate: i32) {
 }
 
 #[tauri::command]
+fn control_audio_config(state: State<SharedState>, payload: serde_json::Value) {
+    let text = match serde_json::to_string(&payload) {
+        Ok(text) => text,
+        Err(_) => return,
+    };
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/config/audio".to_string(),
+            value: text,
+        },
+    );
+}
+
+#[tauri::command]
+fn control_audio_config_apply(state: State<SharedState>) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendNoArgs {
+            address: "/omniphony/control/config/audio/apply".to_string(),
+        },
+    );
+}
+
+#[tauri::command]
 fn control_audio_output_device(state: State<SharedState>, output_device: String) {
     send_control(
         &state.osc_tx,
@@ -1211,6 +1293,31 @@ fn refresh_output_devices(state: State<SharedState>) {
         &state.osc_tx,
         OscControlMsg::SendNoArgs {
             address: "/omniphony/control/audio/output_devices/refresh".to_string(),
+        },
+    );
+}
+
+#[tauri::command]
+fn control_input_config(state: State<SharedState>, payload: serde_json::Value) {
+    let text = match serde_json::to_string(&payload) {
+        Ok(text) => text,
+        Err(_) => return,
+    };
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/config/input".to_string(),
+            value: text,
+        },
+    );
+}
+
+#[tauri::command]
+fn control_input_config_apply(state: State<SharedState>) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendNoArgs {
+            address: "/omniphony/control/config/input/apply".to_string(),
         },
     );
 }
@@ -2127,6 +2234,7 @@ fn main() {
                 osc_tx: osc_tx.clone(),
                 config_dir,
                 listen_port: listen_port.clone(),
+                realtime_seq: AtomicI32::new(0),
             };
             app.manage(shared);
 
@@ -2168,6 +2276,7 @@ fn main() {
             export_layout_to_path,
             control_speaker_gain,
             control_object_mute,
+            control_object_gain,
             control_speaker_mute,
             control_master_gain,
             control_loudness,
@@ -2220,6 +2329,9 @@ fn main() {
             control_room_ratio_lower,
             control_room_ratio_center_blend,
             control_layout_radius_m,
+            control_layout_config,
+            control_layout_config_apply,
+            control_speakers_config,
             control_speaker_az,
             control_speaker_el,
             control_speaker_distance,
@@ -2240,8 +2352,12 @@ fn main() {
             control_reload_config,
             control_log_level,
             control_ramp_mode,
+            control_audio_config,
+            control_audio_config_apply,
             control_audio_output_device,
             refresh_output_devices,
+            control_input_config,
+            control_input_config_apply,
             control_input_mode,
             control_input_live_backend,
             control_input_live_node,

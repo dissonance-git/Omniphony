@@ -18,7 +18,8 @@ import {
   objectManualMuted,
   speakerGainCache,
   speakerDelays,
-  layoutsByKey
+  layoutsByKey,
+  usesNumericSpatialPlaceholders
 } from './state.js';
 
 import { updateSource, updateSourceLevel, updateSourceGains, updateSourceBandGains, updateSourceTag, removeSource } from './sources.js';
@@ -103,17 +104,6 @@ export function setupTauriBridge() {
     }
   });
 
-  listen('layout:radius_m', ({ payload }) => {
-    const value = Math.max(0.01, Number(payload?.value) || 1.0);
-    app.metersPerUnit = value;
-    const layout = app.currentLayoutKey ? layoutsByKey.get(app.currentLayoutKey) : null;
-    if (layout) {
-      layout.radius_m = value;
-    }
-    updateRoomRatioDisplay();
-    renderSpeakerEditor();
-  });
-
   // -----------------------------------------------------------------------
   // Sources
   // -----------------------------------------------------------------------
@@ -150,19 +140,21 @@ export function setupTauriBridge() {
       }
     }
 
-    // Ensure IDs [0..objectCount-1] exist, even if omniphony sends only deltas.
-    for (let i = 0; i < objectCount; i += 1) {
-      const id = String(i);
-      if (!sourceMeshes.has(id)) {
-        updateSource(id, { x: 0, y: 0, z: 0, name: `Object_${i}`, _noTrail: true });
+    if (usesNumericSpatialPlaceholders()) {
+      // Ensure IDs [0..objectCount-1] exist for renderer snapshots that use numeric IDs.
+      for (let i = 0; i < objectCount; i += 1) {
+        const id = String(i);
+        if (!sourceMeshes.has(id)) {
+          updateSource(id, { x: 0, y: 0, z: 0, name: `Object_${i}`, _noTrail: true });
+        }
       }
-    }
 
-    // Safety purge in case stale objects remain locally.
-    for (const id of Array.from(sourceMeshes.keys())) {
-      const idx = Number(id);
-      if (Number.isInteger(idx) && idx >= objectCount) {
-        removeSource(id);
+      // Safety purge in case stale objects remain locally.
+      for (const id of Array.from(sourceMeshes.keys())) {
+        const idx = Number(id);
+        if (Number.isInteger(idx) && idx >= objectCount) {
+          removeSource(id);
+        }
       }
     }
   });
@@ -292,125 +284,8 @@ export function setupTauriBridge() {
   // Audio input
   // -----------------------------------------------------------------------
 
-  listen('input:mode', ({ payload }) => {
-    const value = String(payload?.value ?? '').trim().toLowerCase();
-    if (value === 'bridge' || value === 'pipe_bridge' || value === 'live' || value === 'pipewire' || value === 'pipewire_bridge') {
-      app.inputMode = value === 'bridge' ? 'pipe_bridge' : (value === 'live' ? 'pipewire' : value);
-      updateInputControlUI();
-    }
-  });
-
-  listen('input:active_mode', ({ payload }) => {
-    const value = String(payload?.value ?? '').trim().toLowerCase();
-    if (value === 'bridge' || value === 'pipe_bridge' || value === 'live' || value === 'pipewire' || value === 'pipewire_bridge') {
-      app.inputActiveMode = value === 'bridge' ? 'pipe_bridge' : (value === 'live' ? 'pipewire' : value);
-      updateInputControlUI();
-    }
-  });
-
-  listen('input:apply_pending', ({ payload }) => {
-    app.inputApplyPending = Number(payload?.enabled) !== 0;
-    updateInputControlUI();
-  });
-
-  listen('input:backend', ({ payload }) => {
-    app.inputBackend = String(payload?.value ?? '').trim() || null;
-    updateInputControlUI();
-  });
-
-  listen('input:channels', ({ payload }) => {
-    const value = Number(payload?.value);
-    app.inputChannels = Number.isFinite(value) && value > 0 ? value : null;
-    updateInputControlUI();
-  });
-
-  listen('input:sample_rate', ({ payload }) => {
-    const value = Number(payload?.value);
-    app.inputSampleRate = Number.isFinite(value) && value > 0 ? value : null;
-    updateInputControlUI();
-  });
-
-  listen('input:node', ({ payload }) => {
-    app.inputNode = String(payload?.value ?? '').trim() || null;
-    updateInputControlUI();
-  });
-
-  listen('input:description', ({ payload }) => {
-    app.inputDescription = String(payload?.value ?? '').trim() || null;
-    updateInputControlUI();
-  });
-
-  listen('input:stream_format', ({ payload }) => {
-    app.inputStreamFormat = String(payload?.value ?? '').trim() || null;
-    updateInputControlUI();
-  });
-
-  listen('input:error', ({ payload }) => {
-    app.inputError = String(payload?.value ?? '').trim() || null;
-    updateInputControlUI();
-    if (app.inputError && /bridge path missing|no bridge plugin found|render\.bridge_path/i.test(app.inputError)) {
-      setInputSectionOpen(true);
-    }
-  });
-
   listen('render:bridge_path', ({ payload }) => {
     app.renderBridgePath = String(payload?.value ?? '').trim() || null;
-    updateInputControlUI();
-  });
-
-  listen('input:live:backend', ({ payload }) => {
-    app.liveInput.backend = String(payload?.value ?? '').trim().toLowerCase() || app.liveInput.backend;
-    updateInputControlUI();
-  });
-
-  listen('input:live:node', ({ payload }) => {
-    app.liveInput.node = String(payload?.value ?? '');
-    updateInputControlUI();
-  });
-
-  listen('input:live:description', ({ payload }) => {
-    app.liveInput.description = String(payload?.value ?? '');
-    updateInputControlUI();
-  });
-
-  listen('input:live:layout', ({ payload }) => {
-    app.liveInput.layout = String(payload?.value ?? '');
-    updateInputControlUI();
-  });
-
-  listen('input:live:clock_mode', ({ payload }) => {
-    app.liveInput.clockMode = String(payload?.value ?? '').trim().toLowerCase() || app.liveInput.clockMode;
-    updateInputControlUI();
-  });
-
-  listen('input:live:channels', ({ payload }) => {
-    const value = Number(payload?.value);
-    if (Number.isFinite(value) && value > 0) {
-      app.liveInput.channels = value;
-    }
-    updateInputControlUI();
-  });
-
-  listen('input:live:sample_rate', ({ payload }) => {
-    const value = Number(payload?.value);
-    if (Number.isFinite(value) && value > 0) {
-      app.liveInput.sampleRate = value;
-    }
-    updateInputControlUI();
-  });
-
-  listen('input:live:format', ({ payload }) => {
-    app.liveInput.format = String(payload?.value ?? '').trim().toLowerCase() || app.liveInput.format;
-    updateInputControlUI();
-  });
-
-  listen('input:live:map', ({ payload }) => {
-    app.liveInput.map = String(payload?.value ?? '').trim().toLowerCase() || app.liveInput.map;
-    updateInputControlUI();
-  });
-
-  listen('input:live:lfe_mode', ({ payload }) => {
-    app.liveInput.lfeMode = String(payload?.value ?? '').trim().toLowerCase() || app.liveInput.lfeMode;
     updateInputControlUI();
   });
 
@@ -418,137 +293,9 @@ export function setupTauriBridge() {
   // Room ratio
   // -----------------------------------------------------------------------
 
-  listen('room_ratio', ({ payload }) => {
-    if (payload.roomRatio) {
-      applyRoomRatio(payload.roomRatio);
-    }
-  });
-
-  // -----------------------------------------------------------------------
-  // Spread
-  // -----------------------------------------------------------------------
-
-  listen('spread:min', ({ payload }) => {
-    app.spreadState.min = Number(payload.value);
-    updateSpreadDisplay();
-  });
-
-  listen('spread:max', ({ payload }) => {
-    app.spreadState.max = Number(payload.value);
-    updateSpreadDisplay();
-  });
-
-  listen('spread:from_distance', ({ payload }) => {
-    app.spreadState.fromDistance = payload.enabled === true;
-    updateSpreadDisplay();
-  });
-
-  listen('spread:distance_range', ({ payload }) => {
-    app.spreadState.distanceRange = Number(payload.value);
-    updateSpreadDisplay();
-  });
-
-  listen('spread:distance_curve', ({ payload }) => {
-    app.spreadState.distanceCurve = Number(payload.value);
-    updateSpreadDisplay();
-  });
-
   // -----------------------------------------------------------------------
   // VBAP
   // -----------------------------------------------------------------------
-
-  listen('render_backend:state', ({ payload }) => {
-    const selection = String(payload?.selection ?? '').trim().toLowerCase();
-    const effective = String(payload?.effective ?? '').trim().toLowerCase();
-    const effectiveLabel = String(payload?.effectiveLabel ?? '').trim();
-    app.renderBackendState.selection = selection || null;
-    app.renderBackendState.effective = effective || null;
-    app.renderBackendState.effectiveLabel = effectiveLabel || null;
-    app.renderBackendState.capabilities = payload?.capabilities && typeof payload.capabilities === 'object'
-      ? payload.capabilities
-      : null;
-    app.renderBackendState.allowedEvaluationModes = Array.isArray(payload?.allowedEvaluationModes)
-      ? payload.allowedEvaluationModes
-        .map((value) => String(value ?? '').trim().toLowerCase())
-        .filter((value) => value.length > 0)
-      : [];
-    app.renderBackendState.frozenRoomRatio = payload?.frozenRoomRatio === true;
-    app.renderBackendState.frozenSpeakers = payload?.frozenSpeakers === true;
-    app.renderBackendState.restoreBackendAvailable = payload?.restoreBackendAvailable === true;
-    app.renderBackendState.experimentalDistance = payload?.experimentalDistance && typeof payload.experimentalDistance === 'object'
-      ? {
-        distanceFloor: typeof payload.experimentalDistance.distanceFloor === 'number' ? payload.experimentalDistance.distanceFloor : null,
-        minActiveSpeakers: typeof payload.experimentalDistance.minActiveSpeakers === 'number' ? payload.experimentalDistance.minActiveSpeakers : null,
-        maxActiveSpeakers: typeof payload.experimentalDistance.maxActiveSpeakers === 'number' ? payload.experimentalDistance.maxActiveSpeakers : null,
-        positionErrorFloor: typeof payload.experimentalDistance.positionErrorFloor === 'number' ? payload.experimentalDistance.positionErrorFloor : null,
-        positionErrorNearestScale: typeof payload.experimentalDistance.positionErrorNearestScale === 'number' ? payload.experimentalDistance.positionErrorNearestScale : null,
-        positionErrorSpanScale: typeof payload.experimentalDistance.positionErrorSpanScale === 'number' ? payload.experimentalDistance.positionErrorSpanScale : null
-      }
-      : {
-        distanceFloor: null,
-        minActiveSpeakers: null,
-        maxActiveSpeakers: null,
-        positionErrorFloor: null,
-        positionErrorNearestScale: null,
-        positionErrorSpanScale: null
-      };
-    if (!app.renderBackendState.allowedEvaluationModes.includes(app.evaluationModeState.selection || '')) {
-      app.evaluationModeState.selection = app.renderBackendState.allowedEvaluationModes[0] || 'auto';
-    }
-    if (!['realtime', 'precomputed_polar', 'precomputed_cartesian'].includes(app.evaluationModeState.effective)) {
-      app.evaluationModeState.effective = null;
-    }
-    updateRenderBackend();
-    updateEvaluationMode();
-    updateRoomRatioDisplay();
-    renderSpeakerEditor();
-    requestSpeakerHeatmapIfNeeded();
-  });
-
-  listen('render_backend', ({ payload }) => {
-    const value = String(payload?.value ?? '').trim().toLowerCase();
-    app.renderBackendState.selection = value || null;
-    if (
-      app.renderBackendState.allowedEvaluationModes.length > 0
-      && !app.renderBackendState.allowedEvaluationModes.includes(app.evaluationModeState.selection || '')
-    ) {
-      app.evaluationModeState.selection = app.renderBackendState.allowedEvaluationModes[0] || 'auto';
-    }
-    updateRenderBackend();
-    updateRoomRatioDisplay();
-    renderSpeakerEditor();
-  });
-
-  listen('render_backend:effective', ({ payload }) => {
-    const value = String(payload?.value ?? '').trim().toLowerCase();
-    app.renderBackendState.effective = value || null;
-    if (!['realtime', 'precomputed_polar', 'precomputed_cartesian'].includes(app.evaluationModeState.effective)) {
-      app.evaluationModeState.effective = null;
-    }
-    app.vbapRecomputing = false;
-    renderVbapStatus();
-    updateRenderBackend();
-    updateRoomRatioDisplay();
-    renderSpeakerEditor();
-    requestSpeakerHeatmapIfNeeded();
-  });
-
-  listen('render_evaluation_mode', ({ payload }) => {
-    const value = String(payload?.value ?? '').trim().toLowerCase();
-    app.evaluationModeState.selection =
-      ['auto', 'realtime', 'precomputed_polar', 'precomputed_cartesian'].includes(value) ? value : null;
-    updateEvaluationMode();
-  });
-
-  listen('render_evaluation_mode:effective', ({ payload }) => {
-    const value = String(payload?.value ?? '').trim().toLowerCase();
-    app.evaluationModeState.effective =
-      ['realtime', 'precomputed_polar', 'precomputed_cartesian'].includes(value) ? value : null;
-    app.vbapRecomputing = false;
-    renderVbapStatus();
-    updateEvaluationMode();
-    requestSpeakerHeatmapIfNeeded();
-  });
 
   listen('vbap:recomputing', ({ payload }) => {
     app.vbapRecomputing = payload.enabled === true;
@@ -703,21 +450,6 @@ export function setupTauriBridge() {
   // Loudness
   // -----------------------------------------------------------------------
 
-  listen('loudness', ({ payload }) => {
-    app.loudnessEnabled = Number(payload.enabled) !== 0;
-    updateLoudnessDisplay();
-  });
-
-  listen('loudness:source', ({ payload }) => {
-    app.loudnessSource = Number(payload.value);
-    updateLoudnessDisplay();
-  });
-
-  listen('loudness:gain', ({ payload }) => {
-    app.loudnessGain = Number(payload.value);
-    updateLoudnessDisplay();
-  });
-
   // -----------------------------------------------------------------------
   // Master gain
   // -----------------------------------------------------------------------
@@ -731,93 +463,9 @@ export function setupTauriBridge() {
   // Distance model & diffuse
   // -----------------------------------------------------------------------
 
-  listen('distance_model', ({ payload }) => {
-    const value = String(payload?.value ?? '').trim().toLowerCase();
-    if (!['none', 'linear', 'quadratic', 'inverse-square'].includes(value)) {
-      return;
-    }
-    app.distanceModel = value;
-    updateDistanceModelUI();
-  });
-
-  listen('distance_diffuse:enabled', ({ payload }) => {
-    app.distanceDiffuseState.enabled = payload.enabled === true;
-    updateDistanceDiffuseUI();
-  });
-
-  listen('distance_diffuse:threshold', ({ payload }) => {
-    app.distanceDiffuseState.threshold = Number(payload.value);
-    updateDistanceDiffuseUI();
-  });
-
-  listen('distance_diffuse:curve', ({ payload }) => {
-    app.distanceDiffuseState.curve = Number(payload.value);
-    updateDistanceDiffuseUI();
-  });
-
   // -----------------------------------------------------------------------
   // Adaptive resampling
   // -----------------------------------------------------------------------
-
-  listen('adaptive_resampling', ({ payload }) => {
-    app.adaptiveResamplingEnabled = Number(payload.enabled) !== 0;
-    updateAdaptiveResamplingUI();
-  });
-
-  listen('adaptive_resampling:enable_far_mode', ({ payload }) => {
-    app.adaptiveResamplingEnableFarMode = Number(payload.enabled) !== 0;
-    updateAdaptiveResamplingUI();
-  });
-
-  listen('adaptive_resampling:force_silence_in_far_mode', ({ payload }) => {
-    app.adaptiveResamplingForceSilenceInFarMode = Number(payload.enabled) !== 0;
-    updateAdaptiveResamplingUI();
-  });
-
-  listen('adaptive_resampling:hard_recover_high_in_far_mode', ({ payload }) => {
-    app.adaptiveResamplingHardRecoverHighInFarMode = Number(payload.enabled) !== 0;
-    updateAdaptiveResamplingUI();
-  });
-
-  listen('adaptive_resampling:hard_recover_low_in_far_mode', ({ payload }) => {
-    app.adaptiveResamplingHardRecoverLowInFarMode = Number(payload.enabled) !== 0;
-    updateAdaptiveResamplingUI();
-  });
-
-  listen('adaptive_resampling:far_mode_return_fade_in_ms', ({ payload }) => {
-    app.adaptiveResamplingFarModeReturnFadeInMs = Number(payload.value) || 0;
-    updateAdaptiveResamplingUI();
-  });
-
-  listen('adaptive_resampling:kp_near', ({ payload }) => {
-    app.adaptiveResamplingKpNear = Number(payload.value);
-    updateAdaptiveResamplingUI();
-  });
-
-  listen('adaptive_resampling:ki', ({ payload }) => {
-    app.adaptiveResamplingKi = Number(payload.value);
-    updateAdaptiveResamplingUI();
-  });
-
-  listen('adaptive_resampling:integral_discharge_ratio', ({ payload }) => {
-    app.adaptiveResamplingIntegralDischargeRatio = Number(payload.value);
-    updateAdaptiveResamplingUI();
-  });
-
-  listen('adaptive_resampling:max_adjust', ({ payload }) => {
-    app.adaptiveResamplingMaxAdjust = Number(payload.value);
-    updateAdaptiveResamplingUI();
-  });
-
-  listen('adaptive_resampling:near_far_threshold_ms', ({ payload }) => {
-    app.adaptiveResamplingNearFarThresholdMs = Number(payload.value);
-    updateAdaptiveResamplingUI();
-  });
-
-  listen('adaptive_resampling:update_interval_callbacks', ({ payload }) => {
-    app.adaptiveResamplingUpdateIntervalCallbacks = Number(payload.value);
-    updateAdaptiveResamplingUI();
-  });
 
   listen('adaptive_resampling:band', ({ payload }) => {
     app.adaptiveResamplingBand = typeof payload.value === 'string' ? payload.value : null;
@@ -864,17 +512,6 @@ export function setupTauriBridge() {
     updateLatencyDisplay();
   });
 
-  listen('latency:target', ({ payload }) => {
-    app.latencyTargetMs = Number(payload.value);
-    updateLatencyDisplay();
-    updateLatencyMeterUI();
-  });
-
-  listen('latency:requested', ({ payload }) => {
-    app.latencyRequestedMs = Number(payload.value);
-    updateLatencyDisplay();
-  });
-
   // -----------------------------------------------------------------------
   // Resample ratio
   // -----------------------------------------------------------------------
@@ -887,57 +524,6 @@ export function setupTauriBridge() {
   // -----------------------------------------------------------------------
   // Audio
   // -----------------------------------------------------------------------
-
-  listen('audio:sample_rate', ({ payload }) => {
-    const v = Number(payload.value);
-    app.audioSampleRate = Number.isFinite(v) && v > 0 ? Math.round(v) : null;
-    updateAudioFormatDisplay();
-  });
-
-  listen('state:ramp_mode', ({ payload }) => {
-    const next = String(payload?.value || '').trim().toLowerCase();
-    if (next === 'off' || next === 'frame' || next === 'sample') {
-      app.rampMode = next;
-      updateAudioFormatDisplay();
-    }
-  });
-
-  listen('audio:output_device', ({ payload }) => {
-    app.audioOutputDevice = typeof payload.value === 'string' ? (payload.value.trim() || null) : null;
-    updateAudioFormatDisplay();
-  });
-
-  listen('audio:output_device:requested', ({ payload }) => {
-    app.audioOutputDevice = typeof payload.value === 'string' ? (payload.value.trim() || null) : null;
-    updateAudioFormatDisplay();
-  });
-
-  listen('audio:output_device:effective', ({ payload }) => {
-    app.audioOutputDeviceEffective = typeof payload.value === 'string' ? (payload.value.trim() || null) : null;
-    updateAudioFormatDisplay();
-  });
-
-  listen('audio:output_devices', ({ payload }) => {
-    app.audioOutputDevices = Array.isArray(payload.values)
-      ? payload.values
-        .map((entry) => ({
-          value: String(entry?.value || '').trim(),
-          label: String(entry?.label || entry?.value || '').trim()
-        }))
-        .filter((entry) => entry.value.length > 0)
-      : [];
-    updateAudioFormatDisplay();
-  });
-
-  listen('audio:sample_format', ({ payload }) => {
-    app.audioSampleFormat = typeof payload.value === 'string' ? (payload.value.trim() || null) : null;
-    updateAudioFormatDisplay();
-  });
-
-  listen('audio:error', ({ payload }) => {
-    app.audioError = typeof payload.value === 'string' ? (payload.value.trim() || null) : null;
-    updateAudioFormatDisplay();
-  });
 
   // -----------------------------------------------------------------------
   // Input pipe

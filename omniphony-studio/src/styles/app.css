@@ -2,6 +2,8 @@
         color-scheme: dark;
         --panel-open-max-height: min(44vh, 420px);
         --panel-open-max-height-large: min(52vh, 520px);
+        --panel-width-left: min(440px, 92vw);
+        --panel-width-right: min(440px, 92vw);
       }
 
       body {
@@ -23,11 +25,114 @@
         font-size: 14px;
         line-height: 1.45;
         z-index: 2;
-        width: min(440px, 92vw);
+        width: var(--panel-width-left);
         height: calc(100vh - 2rem);
         display: flex;
         flex-direction: column;
         gap: 0.4rem;
+      }
+
+      #overlay.panel-collapsed,
+      #speakersOverlay.panel-collapsed {
+        padding: 0;
+        gap: 0;
+        overflow: visible;
+        background: transparent;
+        border: none;
+        backdrop-filter: none;
+        height: auto;
+      }
+
+      #overlay.panel-collapsed > *:not(.panel-side-collapse-btn):not(.panel-resize-handle),
+      #speakersOverlay.panel-collapsed > *:not(.panel-side-collapse-btn):not(.panel-resize-handle) {
+        display: none !important;
+      }
+
+      .panel-resize-handle {
+        position: absolute;
+        top: 0;
+        width: 10px;
+        height: 100%;
+        cursor: ew-resize;
+        z-index: 5;
+        touch-action: none;
+      }
+
+      .panel-resize-handle-right { right: -5px; }
+      .panel-resize-handle-left { left: -5px; }
+
+      .panel-resize-handle::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 2px;
+        height: 36px;
+        background: rgba(255, 255, 255, 0.18);
+        border-radius: 2px;
+        transition: background 0.12s ease, height 0.12s ease;
+      }
+
+      .panel-resize-handle:hover::before,
+      .panel-resize-handle-active::before {
+        background: rgba(120, 200, 255, 0.7);
+        height: 56px;
+      }
+
+      #overlay.panel-collapsed .panel-resize-handle,
+      #speakersOverlay.panel-collapsed .panel-resize-handle {
+        display: none;
+      }
+
+      .panel-side-collapse-btn {
+        position: absolute;
+        top: 0.55rem;
+        width: 1.8rem;
+        height: 1.8rem;
+        box-sizing: border-box;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        color: #d9ecff;
+        border-radius: 6px;
+        font-size: 12px;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0;
+        z-index: 10;
+        pointer-events: auto;
+        transition: background 0.12s ease, border-color 0.12s ease;
+      }
+
+      .panel-side-collapse-btn:hover {
+        background: rgba(255, 255, 255, 0.18);
+        border-color: rgba(255, 255, 255, 0.32);
+      }
+
+      .panel-side-collapse-btn-left { right: 0.5rem; }
+      .panel-side-collapse-btn-right { left: 0.5rem; }
+
+      #overlay.panel-collapsed .panel-side-collapse-btn,
+      #speakersOverlay.panel-collapsed .panel-side-collapse-btn {
+        position: static;
+        margin: 0;
+        display: flex;
+      }
+
+      body.overlay-layout-resizing #overlay,
+      body.overlay-layout-resizing #speakersOverlay,
+      body.overlay-layout-resizing #logOverlay.expanded {
+        backdrop-filter: none;
+        transition: none !important;
+      }
+
+      body.overlay-layout-resizing .panel-side-collapse-btn,
+      body.overlay-layout-resizing .panel-resize-handle::before,
+      body.overlay-layout-resizing #logOverlay.expanded .icon-button {
+        transition: none !important;
       }
 
       #overlayHeader {
@@ -243,7 +348,7 @@
         font-size: 14px;
         line-height: 1.45;
         z-index: 2;
-        width: min(440px, 92vw);
+        width: var(--panel-width-right);
         height: calc(100vh - 2rem);
         display: flex;
         flex-direction: column;
@@ -267,8 +372,8 @@
       #logOverlay {
         position: fixed;
         top: 0.9rem;
-        left: calc(min(440px, 92vw) + 4rem + 2px);
-        right: calc(min(440px, 92vw) + 4rem + 2px);
+        left: calc(var(--panel-width-left) + 4rem + 2px);
+        right: calc(var(--panel-width-right) + 4rem + 2px);
         transform: none;
         z-index: 3;
         width: auto;
@@ -693,6 +798,16 @@
         display: flex;
         flex-direction: column;
         min-height: 0;
+      }
+
+      #audioPanelRoot > .info-section:first-child {
+        margin-top: 0;
+        padding-top: 0;
+        border-top: none;
+      }
+
+      #audioPanelRoot > .info-section:first-child > .panel-header {
+        padding-left: 2.2rem;
       }
 
       .osc-config-form {

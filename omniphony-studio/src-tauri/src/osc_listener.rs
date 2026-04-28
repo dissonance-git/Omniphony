@@ -1,4 +1,4 @@
-use rosc::{decoder, OscPacket};
+use rosc::{decoder, OscPacket, OscType};
 use std::net::UdpSocket;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -6,8 +6,10 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::app_state::OutputDeviceOption;
-use crate::app_state::{AppState, Meter};
-use crate::layouts::build_live_layout_from_cache;
+use crate::app_state::{
+    AppState, DistanceDiffuse, Meter, RenderBackendState, RoomRatio, SpreadState,
+};
+use crate::layouts::{Layout, Speaker};
 use crate::osc_parser::{
     is_heartbeat_address, parse_osc_message, CoordinateFormat, HeartbeatResponse, LogEntry,
     OscEvent,
@@ -16,6 +18,513 @@ use crate::osc_parser::{
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const HEARTBEAT_ACK_TIMEOUT: Duration = Duration::from_secs(10);
 const SNAPSHOT_REQUEST_INTERVAL: Duration = Duration::from_secs(1);
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AudioDomainState {
+    output_devices: Option<Vec<OutputDeviceOption>>,
+    output_device: Option<String>,
+    output_device_effective: Option<String>,
+    sample_rate: Option<u32>,
+    sample_format: Option<String>,
+    error: Option<String>,
+    adaptive_resampling: Option<AudioAdaptiveDomainState>,
+    latency_target_ms: Option<u32>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AudioAdaptiveDomainState {
+    enabled: Option<bool>,
+    enable_far_mode: Option<bool>,
+    force_silence_in_far_mode: Option<bool>,
+    hard_recover_high_in_far_mode: Option<bool>,
+    hard_recover_low_in_far_mode: Option<bool>,
+    far_mode_return_fade_in_ms: Option<u32>,
+    kp_near: Option<f64>,
+    ki: Option<f64>,
+    integral_discharge_ratio: Option<f64>,
+    max_adjust: Option<f64>,
+    near_far_threshold_ms: Option<u32>,
+    update_interval_callbacks: Option<u32>,
+    paused: Option<bool>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InputDomainState {
+    mode: Option<String>,
+    active_mode: Option<String>,
+    apply_pending: Option<bool>,
+    requested: Option<RequestedInputDomainState>,
+    applied: Option<AppliedInputDomainState>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RequestedInputDomainState {
+    backend: Option<String>,
+    node: Option<String>,
+    description: Option<String>,
+    layout: Option<String>,
+    clock_mode: Option<String>,
+    channels: Option<u32>,
+    sample_rate: Option<u32>,
+    format: Option<String>,
+    map: Option<String>,
+    lfe_mode: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AppliedInputDomainState {
+    backend: Option<String>,
+    channels: Option<u32>,
+    sample_rate: Option<u32>,
+    node: Option<String>,
+    description: Option<String>,
+    stream_format: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RendererDomainState {
+    render_backend: Option<String>,
+    render_backend_effective: Option<String>,
+    render_evaluation_mode: Option<String>,
+    render_evaluation_mode_effective: Option<String>,
+    master_gain: Option<f64>,
+    ramp_mode: Option<String>,
+    distance_model: Option<String>,
+    room_ratio: Option<RoomRatio>,
+    spread: Option<SpreadState>,
+    distance_diffuse: Option<DistanceDiffuse>,
+    render_backend_state: Option<RenderBackendState>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LoudnessDomainState {
+    enabled: Option<bool>,
+    source: Option<f64>,
+    gain: Option<f64>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LayoutDomainState {
+    name: Option<String>,
+    radius_m: Option<f64>,
+    #[serde(default)]
+    speakers: Vec<LayoutDomainSpeakerState>,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct LayoutDomainSpeakerState {
+    #[serde(default)]
+    id: Option<serde_json::Value>,
+    #[serde(default)]
+    name: Option<serde_json::Value>,
+    #[serde(default)]
+    x: Option<f64>,
+    #[serde(default)]
+    y: Option<f64>,
+    #[serde(default)]
+    z: Option<f64>,
+    #[serde(default, alias = "az", alias = "azimuthDeg", alias = "azimuth_deg")]
+    azimuth: Option<f64>,
+    #[serde(default, alias = "el", alias = "elevationDeg", alias = "elevation_deg")]
+    elevation: Option<f64>,
+    #[serde(default, alias = "dist", alias = "distanceM", alias = "distance_m")]
+    distance: Option<f64>,
+    #[serde(default, alias = "coordinate_mode", alias = "coordMode")]
+    coord_mode: Option<String>,
+    #[serde(default, alias = "delay")]
+    delay_ms: Option<f64>,
+    #[serde(default)]
+    spatialize: Option<serde_json::Value>,
+    #[serde(default, alias = "freq_low")]
+    freq_low: Option<f32>,
+    #[serde(default, alias = "freq_high")]
+    freq_high: Option<f32>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SpeakersDomainState {
+    #[serde(default)]
+    speakers: Vec<SpeakerRuntimeState>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SpeakerRuntimeState {
+    id: u32,
+    gain: Option<f64>,
+    #[serde(rename = "delayMs")]
+    delay_ms: Option<f64>,
+    muted: Option<bool>,
+}
+
+fn clamp_layout_value(value: f64, min: f64, max: f64) -> f64 {
+    value.max(min).min(max)
+}
+
+fn cartesian_to_spherical(x: f64, y: f64, z: f64) -> (f64, f64, f64) {
+    let distance = (x * x + y * y + z * z).sqrt();
+    let azimuth = z.atan2(x).to_degrees();
+    let elevation = if distance > 0.0 {
+        y.atan2((x * x + z * z).sqrt()).to_degrees()
+    } else {
+        0.0
+    };
+    (azimuth, elevation, distance)
+}
+
+fn spherical_to_cartesian(
+    azimuth_deg: f64,
+    elevation_deg: f64,
+    distance_m: f64,
+) -> (f64, f64, f64) {
+    let azimuth = azimuth_deg.to_radians();
+    let elevation = elevation_deg.to_radians();
+    (
+        distance_m * elevation.cos() * azimuth.cos(),
+        distance_m * elevation.sin(),
+        distance_m * elevation.cos() * azimuth.sin(),
+    )
+}
+
+fn scalar_string(value: Option<serde_json::Value>, fallback: &str) -> String {
+    match value {
+        Some(serde_json::Value::String(s)) => {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                fallback.to_string()
+            } else {
+                trimmed.to_string()
+            }
+        }
+        Some(serde_json::Value::Number(n)) => n.to_string(),
+        Some(serde_json::Value::Bool(v)) => {
+            if v {
+                "true".to_string()
+            } else {
+                "false".to_string()
+            }
+        }
+        _ => fallback.to_string(),
+    }
+}
+
+fn scalar_spatialize(value: Option<serde_json::Value>) -> u8 {
+    match value {
+        Some(serde_json::Value::Bool(false)) => 0,
+        Some(serde_json::Value::Bool(true)) => 1,
+        Some(serde_json::Value::Number(n)) if n.as_f64().unwrap_or(1.0) == 0.0 => 0,
+        Some(serde_json::Value::String(s)) if s.trim() == "0" => 0,
+        _ => 1,
+    }
+}
+
+fn normalized_layout_domain_speaker(raw: LayoutDomainSpeakerState) -> Speaker {
+    let id = scalar_string(raw.id.or(raw.name), "spk");
+    let coord_mode = raw
+        .coord_mode
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| {
+            if raw.x.is_some() && raw.y.is_some() && raw.z.is_some() {
+                "cartesian".to_string()
+            } else {
+                "polar".to_string()
+            }
+        });
+    let spatialize = scalar_spatialize(raw.spatialize);
+    let delay_ms = raw.delay_ms.unwrap_or(0.0).max(0.0);
+    let freq_low = raw.freq_low.filter(|value| *value > 0.0);
+    let freq_high = raw.freq_high.filter(|value| *value > 0.0);
+
+    if let (Some(x), Some(y), Some(z)) = (raw.x, raw.y, raw.z) {
+        let x = clamp_layout_value(x, -1.0, 1.0);
+        let y = clamp_layout_value(y, -1.0, 1.0);
+        let z = clamp_layout_value(z, -1.0, 1.0);
+        let (fallback_azimuth, fallback_elevation, fallback_distance) =
+            cartesian_to_spherical(x, y, z);
+        return Speaker {
+            id,
+            x,
+            y,
+            z,
+            azimuth_deg: raw.azimuth.unwrap_or(fallback_azimuth),
+            elevation_deg: raw.elevation.unwrap_or(fallback_elevation),
+            distance_m: raw.distance.unwrap_or(fallback_distance).max(0.01),
+            coord_mode: if coord_mode == "cartesian" {
+                "cartesian".to_string()
+            } else {
+                "polar".to_string()
+            },
+            spatialize,
+            delay_ms,
+            freq_low,
+            freq_high,
+        };
+    }
+
+    let azimuth = raw.azimuth.unwrap_or(0.0);
+    let elevation = raw.elevation.unwrap_or(0.0);
+    let distance_m = raw.distance.unwrap_or(1.0).max(0.01);
+    let (x, y, z) = spherical_to_cartesian(azimuth, elevation, distance_m);
+    Speaker {
+        id,
+        x: clamp_layout_value(x, -1.0, 1.0),
+        y: clamp_layout_value(y, -1.0, 1.0),
+        z: clamp_layout_value(z, -1.0, 1.0),
+        azimuth_deg: azimuth,
+        elevation_deg: elevation,
+        distance_m,
+        coord_mode: if coord_mode == "cartesian" {
+            "cartesian".to_string()
+        } else {
+            "polar".to_string()
+        },
+        spatialize,
+        delay_ms,
+        freq_low,
+        freq_high,
+    }
+}
+
+fn layout_update_payload(s: &AppState) -> serde_json::Value {
+    serde_json::json!({
+        "layouts": s.layouts,
+        "selectedLayoutKey": s.selected_layout_key
+    })
+}
+
+fn apply_layout_domain_state(s: &mut AppState, value: &str) -> bool {
+    let Ok(parsed) = serde_json::from_str::<LayoutDomainState>(value) else {
+        return false;
+    };
+    let speakers = parsed
+        .speakers
+        .into_iter()
+        .map(normalized_layout_domain_speaker)
+        .collect::<Vec<_>>();
+    if speakers.is_empty() {
+        return false;
+    }
+
+    let layout = Layout {
+        key: "omniphony-live".to_string(),
+        name: parsed
+            .name
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "omniphony (live)".to_string()),
+        speakers,
+        radius_m: parsed.radius_m.unwrap_or(1.0).max(0.01),
+    };
+
+    s.layouts.retain(|entry| entry.key != "omniphony-live");
+    s.layouts.insert(0, layout);
+    s.selected_layout_key = Some("omniphony-live".to_string());
+    true
+}
+
+fn apply_speakers_domain_state(s: &mut AppState, value: &str) -> bool {
+    let Ok(parsed) = serde_json::from_str::<SpeakersDomainState>(value) else {
+        return false;
+    };
+
+    s.speaker_gains.clear();
+    s.speaker_mutes.clear();
+
+    if let Some(layout) = s
+        .layouts
+        .iter_mut()
+        .find(|entry| entry.key == "omniphony-live")
+    {
+        for speaker in &parsed.speakers {
+            let key = speaker.id.to_string();
+            let gain = speaker.gain.unwrap_or(1.0).clamp(0.0, 2.0);
+            if (gain - 1.0).abs() > f64::EPSILON {
+                s.speaker_gains.insert(key.clone(), gain);
+            }
+            if speaker.muted.unwrap_or(false) {
+                s.speaker_mutes.insert(key.clone(), 1);
+            }
+            if let Some(delay_ms) = speaker.delay_ms {
+                if let Some(layout_speaker) = layout.speakers.get_mut(speaker.id as usize) {
+                    layout_speaker.delay_ms = delay_ms.max(0.0);
+                }
+            }
+        }
+    }
+
+    true
+}
+
+fn apply_audio_domain_state(s: &mut AppState, value: &str) -> bool {
+    let Ok(parsed) = serde_json::from_str::<AudioDomainState>(value) else {
+        return false;
+    };
+    if let Some(devices) = parsed.output_devices {
+        s.set_audio_output_devices(devices);
+    }
+    if let Some(output_device) = parsed.output_device {
+        s.set_audio_requested_output_device(&output_device);
+    }
+    if let Some(output_device_effective) = parsed.output_device_effective {
+        s.set_audio_effective_output_device(&output_device_effective);
+    }
+    if let Some(sample_rate) = parsed.sample_rate {
+        s.set_audio_sample_rate_value(sample_rate);
+    }
+    if let Some(sample_format) = parsed.sample_format {
+        s.set_audio_sample_format(sample_format);
+    }
+    if let Some(error) = parsed.error {
+        s.set_audio_error(&error);
+    }
+    if let Some(adaptive) = parsed.adaptive_resampling {
+        if let Some(enabled) = adaptive.enabled {
+            s.adaptive_resampling = Some(if enabled { 1 } else { 0 });
+        }
+        if let Some(enabled) = adaptive.enable_far_mode {
+            s.adaptive_resampling_enable_far_mode = Some(if enabled { 1 } else { 0 });
+        }
+        if let Some(enabled) = adaptive.force_silence_in_far_mode {
+            s.adaptive_resampling_force_silence_in_far_mode = Some(if enabled { 1 } else { 0 });
+        }
+        if let Some(enabled) = adaptive.hard_recover_high_in_far_mode {
+            s.adaptive_resampling_hard_recover_high_in_far_mode = Some(if enabled { 1 } else { 0 });
+        }
+        if let Some(enabled) = adaptive.hard_recover_low_in_far_mode {
+            s.adaptive_resampling_hard_recover_low_in_far_mode = Some(if enabled { 1 } else { 0 });
+        }
+        if let Some(value) = adaptive.far_mode_return_fade_in_ms {
+            s.adaptive_resampling_far_mode_return_fade_in_ms = Some(value as i64);
+        }
+        if let Some(value) = adaptive.kp_near {
+            s.adaptive_resampling_kp_near = Some(value);
+        }
+        if let Some(value) = adaptive.ki {
+            s.adaptive_resampling_ki = Some(value);
+        }
+        if let Some(value) = adaptive.integral_discharge_ratio {
+            s.adaptive_resampling_integral_discharge_ratio = Some(value);
+        }
+        if let Some(value) = adaptive.max_adjust {
+            s.adaptive_resampling_max_adjust = Some(value);
+        }
+        if let Some(value) = adaptive.near_far_threshold_ms {
+            s.adaptive_resampling_near_far_threshold_ms = Some(value as i64);
+        }
+        if let Some(value) = adaptive.update_interval_callbacks {
+            s.adaptive_resampling_update_interval_callbacks = Some(value as i64);
+        }
+        if let Some(paused) = adaptive.paused {
+            s.adaptive_resampling_paused = Some(if paused { 1 } else { 0 });
+        }
+    }
+    if let Some(latency_target_ms) = parsed.latency_target_ms {
+        s.latency.latency_target_ms = Some(latency_target_ms as i64);
+        s.latency.latency_requested_ms = Some(latency_target_ms as i64);
+    }
+    true
+}
+
+fn apply_input_domain_state(s: &mut AppState, value: &str) -> bool {
+    let Ok(parsed) = serde_json::from_str::<InputDomainState>(value) else {
+        return false;
+    };
+    if let Some(mode) = parsed.mode {
+        s.input_mode = Some(mode);
+    }
+    if let Some(active_mode) = parsed.active_mode {
+        s.input_active_mode = Some(active_mode);
+    }
+    if let Some(apply_pending) = parsed.apply_pending {
+        s.input_apply_pending = Some(if apply_pending { 1 } else { 0 });
+    }
+    if let Some(requested) = parsed.requested {
+        s.live_input.backend = requested.backend;
+        s.live_input.node = requested.node;
+        s.live_input.description = requested.description;
+        s.live_input.layout = requested.layout;
+        s.live_input.clock_mode = requested.clock_mode;
+        s.live_input.channels = requested.channels;
+        s.live_input.sample_rate = requested.sample_rate;
+        s.live_input.format = requested.format;
+        s.live_input.map = requested.map;
+        s.live_input.lfe_mode = requested.lfe_mode;
+    }
+    if let Some(applied) = parsed.applied {
+        s.input_backend = applied.backend;
+        s.input_channels = applied.channels;
+        s.input_sample_rate = applied.sample_rate;
+        s.input_node = applied.node;
+        s.input_description = applied.description;
+        s.input_stream_format = applied.stream_format;
+        s.input_error = applied.error;
+    }
+    true
+}
+
+fn apply_renderer_domain_state(s: &mut AppState, value: &str) -> bool {
+    let Ok(parsed) = serde_json::from_str::<RendererDomainState>(value) else {
+        return false;
+    };
+    if let Some(render_backend) = parsed.render_backend {
+        s.render_backend_state.selection = Some(render_backend);
+    }
+    if let Some(render_backend_effective) = parsed.render_backend_effective {
+        s.render_backend_state.effective = Some(render_backend_effective);
+    }
+    if let Some(render_evaluation_mode) = parsed.render_evaluation_mode {
+        s.render_evaluation_mode_state.selection = Some(render_evaluation_mode);
+    }
+    if let Some(render_evaluation_mode_effective) = parsed.render_evaluation_mode_effective {
+        s.render_evaluation_mode_state.effective = Some(render_evaluation_mode_effective);
+    }
+    if let Some(master_gain) = parsed.master_gain {
+        s.master_gain = Some(master_gain);
+    }
+    if let Some(ramp_mode) = parsed.ramp_mode {
+        s.audio.ramp_mode = Some(ramp_mode);
+    }
+    if let Some(distance_model) = parsed.distance_model {
+        s.distance_model.value = Some(distance_model);
+    }
+    if let Some(room_ratio) = parsed.room_ratio {
+        s.room_ratio = room_ratio;
+    }
+    if let Some(spread) = parsed.spread {
+        s.spread = spread;
+    }
+    if let Some(distance_diffuse) = parsed.distance_diffuse {
+        s.distance_diffuse = distance_diffuse;
+    }
+    if let Some(render_backend_state) = parsed.render_backend_state {
+        s.render_backend_state = render_backend_state;
+    }
+    true
+}
+
+fn apply_loudness_domain_state(s: &mut AppState, value: &str) -> bool {
+    let Ok(parsed) = serde_json::from_str::<LoudnessDomainState>(value) else {
+        return false;
+    };
+    if let Some(enabled) = parsed.enabled {
+        s.loudness = Some(if enabled { 1 } else { 0 });
+    }
+    s.loudness_source = parsed.source;
+    s.loudness_gain = parsed.gain;
+    true
+}
 
 // ── control messages (frontend → OSC listener) ────────────────────────────
 
@@ -41,17 +550,9 @@ pub enum OscControlMsg {
         b: f32,
         c: f32,
     },
-    SendSpeakerAdd {
-        name: String,
-        azimuth: f32,
-        elevation: f32,
-        distance: f32,
-        spatialize: i32,
-        delay_ms: f32,
-    },
-    SendSpeakersMove {
-        from: i32,
-        to: i32,
+    SendArgs {
+        address: String,
+        args: Vec<OscType>,
     },
     Reconnect {
         host: String,
@@ -128,39 +629,11 @@ fn send_osc_floats3(
     }
 }
 
-fn send_osc_speaker_add(
-    socket: &UdpSocket,
-    host: &str,
-    rx_port: u16,
-    name: &str,
-    azimuth: f32,
-    elevation: f32,
-    distance: f32,
-    spatialize: i32,
-    delay_ms: f32,
-) {
-    use rosc::{encoder, OscMessage, OscType};
+fn send_osc_args(socket: &UdpSocket, addr: &str, host: &str, rx_port: u16, args: Vec<OscType>) {
+    use rosc::{encoder, OscMessage};
     let msg = OscPacket::Message(OscMessage {
-        addr: "/omniphony/control/speakers/add".to_string(),
-        args: vec![
-            OscType::String(name.to_string()),
-            OscType::Float(azimuth),
-            OscType::Float(elevation),
-            OscType::Float(distance),
-            OscType::Int(if spatialize != 0 { 1 } else { 0 }),
-            OscType::Float(delay_ms),
-        ],
-    });
-    if let Ok(data) = encoder::encode(&msg) {
-        let _ = socket.send_to(&data, format!("{host}:{rx_port}"));
-    }
-}
-
-fn send_osc_speakers_move(socket: &UdpSocket, host: &str, rx_port: u16, from: i32, to: i32) {
-    use rosc::{encoder, OscMessage, OscType};
-    let msg = OscPacket::Message(OscMessage {
-        addr: "/omniphony/control/speakers/move".to_string(),
-        args: vec![OscType::Int(from.max(0)), OscType::Int(to.max(0))],
+        addr: addr.to_string(),
+        args,
     });
     if let Ok(data) = encoder::encode(&msg) {
         let _ = socket.send_to(&data, format!("{host}:{rx_port}"));
@@ -290,28 +763,8 @@ fn osc_thread(
                     OscControlMsg::SendFloats3 { address, a, b, c } => {
                         send_osc_floats3(&socket, &address, &host, osc_rx_port, a, b, c);
                     }
-                    OscControlMsg::SendSpeakerAdd {
-                        name,
-                        azimuth,
-                        elevation,
-                        distance,
-                        spatialize,
-                        delay_ms,
-                    } => {
-                        send_osc_speaker_add(
-                            &socket,
-                            &host,
-                            osc_rx_port,
-                            &name,
-                            azimuth,
-                            elevation,
-                            distance,
-                            spatialize,
-                            delay_ms,
-                        );
-                    }
-                    OscControlMsg::SendSpeakersMove { from, to } => {
-                        send_osc_speakers_move(&socket, &host, osc_rx_port, from, to);
+                    OscControlMsg::SendArgs { address, args } => {
+                        send_osc_args(&socket, &address, &host, osc_rx_port, args);
                     }
                     OscControlMsg::Reconnect {
                         host: h,
@@ -445,8 +898,6 @@ fn handle_packet(
             }
         }
         OscPacket::Bundle(bundle) => {
-            let mut config_events: Vec<OscEvent> = Vec::new();
-
             for pkt in bundle.content {
                 match pkt {
                     OscPacket::Message(msg) => {
@@ -487,16 +938,7 @@ fn handle_packet(
                                 *is_connected = true;
                                 emit_osc_status(app, state, "connected");
                             }
-                            let is_config = matches!(
-                                &ev,
-                                OscEvent::ConfigSpeakersCount { .. }
-                                    | OscEvent::ConfigSpeaker { .. }
-                            );
-                            if is_config {
-                                config_events.push(ev);
-                            } else {
-                                handle_event(ev, app, state);
-                            }
+                            handle_event(ev, app, state);
                         }
                     }
                     OscPacket::Bundle(inner) => {
@@ -525,76 +967,8 @@ fn handle_packet(
                     }
                 }
             }
-
-            if !config_events.is_empty() {
-                apply_speaker_config(config_events, app, state);
-            }
         }
     }
-}
-
-fn apply_speaker_config(events: Vec<OscEvent>, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
-    let payload = {
-        let mut s = state.lock().unwrap();
-
-        for event in events {
-            match event {
-                OscEvent::ConfigSpeakersCount { count } => {
-                    s.live_speaker_count = Some(count);
-                    s.live_speakers.retain(|idx, _| *idx < count);
-                }
-                OscEvent::ConfigSpeaker {
-                    index,
-                    name,
-                    coord_mode,
-                    x,
-                    y,
-                    z,
-                    azimuth_deg,
-                    elevation_deg,
-                    distance_m,
-                    delay_ms,
-                    spatialize,
-                    freq_low,
-                    freq_high,
-                    position: _,
-                    ..
-                } => {
-                    s.live_speakers.insert(
-                        index,
-                        crate::app_state::LiveSpeakerConfig {
-                            name,
-                            delay_ms,
-                            spatialize,
-                            freq_low,
-                            freq_high,
-                            coord_mode,
-                            x,
-                            y,
-                            z,
-                            azimuth_deg,
-                            elevation_deg,
-                            distance_m,
-                        },
-                    );
-                }
-                _ => {}
-            }
-        }
-
-        s.layouts.retain(|l| l.key != "omniphony-live");
-        if let Some(live) = build_live_layout_from_cache(&s.live_speakers, s.live_speaker_count) {
-            s.layouts.insert(0, live.clone());
-            s.selected_layout_key = Some(live.key.clone());
-        }
-
-        serde_json::json!({
-            "layouts": s.layouts,
-            "selectedLayoutKey": s.selected_layout_key
-        })
-    }; // mutex released here
-
-    let _ = app.emit("layouts:update", payload);
 }
 
 fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
@@ -640,6 +1014,7 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     s.sources.remove(id);
                     s.source_levels.remove(id);
                     s.object_speaker_gains.remove(id);
+                    s.object_gains.remove(id);
                     s.object_mutes.remove(id);
                 }
                 removed_ids.extend(stale_ids);
@@ -701,6 +1076,7 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 s.sources.remove(&id);
                 s.source_levels.remove(&id);
                 s.object_speaker_gains.remove(&id);
+                s.object_gains.remove(&id);
                 s.object_mutes.remove(&id);
                 (
                     Some(("source:remove", serde_json::json!({ "id": id }))),
@@ -789,6 +1165,13 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                         "speaker:gain",
                         serde_json::json!({ "id": id, "gain": gain }),
                     )),
+                    removed_ids,
+                )
+            }
+            OscEvent::StateObjectGain { id, gain } => {
+                s.object_gains.insert(id.clone(), gain);
+                (
+                    Some(("object:gain", serde_json::json!({ "id": id, "gain": gain }))),
                     removed_ids,
                 )
             }
@@ -937,182 +1320,16 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 )
             }
 
-            OscEvent::StateRoomRatio {
-                width,
-                length,
-                height,
-            } => {
-                s.room_ratio.width = width;
-                s.room_ratio.length = length;
-                s.room_ratio.height = height;
-                (
-                    Some((
-                        "room_ratio",
-                        serde_json::json!({
-                            "roomRatio": {
-                                "width": width,
-                                "length": length,
-                                "height": height,
-                                "rear": s.room_ratio.rear,
-                                "lower": s.room_ratio.lower
-                            }
-                        }),
-                    )),
-                    removed_ids,
-                )
+            OscEvent::StateCapabilities { value } => {
+                s.producer_capabilities = serde_json::from_str(&value).ok();
+                (None, removed_ids)
             }
-            OscEvent::StateRoomRatioRear { value } => {
-                s.room_ratio.rear = value;
-                (
-                    Some((
-                        "room_ratio",
-                        serde_json::json!({
-                            "roomRatio": {
-                                "width": s.room_ratio.width,
-                                "length": s.room_ratio.length,
-                                "height": s.room_ratio.height,
-                                "rear": value,
-                                "lower": s.room_ratio.lower
-                            }
-                        }),
-                    )),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateRoomRatioLower { value } => {
-                s.room_ratio.lower = value;
-                (
-                    Some((
-                        "room_ratio",
-                        serde_json::json!({
-                            "roomRatio": {
-                                "width": s.room_ratio.width,
-                                "length": s.room_ratio.length,
-                                "height": s.room_ratio.height,
-                                "rear": s.room_ratio.rear,
-                                "lower": value
-                            }
-                        }),
-                    )),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateRoomRatioCenterBlend { value } => {
-                s.room_ratio.center_blend = value.clamp(0.0, 1.0);
-                (
-                    Some((
-                        "room_ratio",
-                        serde_json::json!({
-                            "roomRatio": {
-                                "width": s.room_ratio.width,
-                                "length": s.room_ratio.length,
-                                "height": s.room_ratio.height,
-                                "rear": s.room_ratio.rear,
-                                "lower": s.room_ratio.lower,
-                                "centerBlend": s.room_ratio.center_blend
-                            }
-                        }),
-                    )),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateLayoutRadiusM { value } => {
-                if let Some(layout_key) = s.selected_layout_key.clone() {
-                    if let Some(layout) = s.layouts.iter_mut().find(|l| l.key == layout_key) {
-                        layout.radius_m = value.max(0.01);
-                    }
-                }
-                (
-                    Some((
-                        "layout:radius_m",
-                        serde_json::json!({ "value": value.max(0.01) }),
-                    )),
-                    removed_ids,
-                )
-            }
-
-            OscEvent::StateSpreadMin { value } => {
-                s.spread.min = Some(value);
-                (
-                    Some(("spread:min", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-
-            OscEvent::StateSpreadMax { value } => {
-                s.spread.max = Some(value);
-                (
-                    Some(("spread:max", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateSpreadFromDistance { enabled } => {
-                s.spread.from_distance = Some(enabled);
-                (
-                    Some((
-                        "spread:from_distance",
-                        serde_json::json!({ "enabled": enabled }),
-                    )),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateSpreadDistanceRange { value } => {
-                s.spread.distance_range = Some(value);
-                (
-                    Some((
-                        "spread:distance_range",
-                        serde_json::json!({ "value": value }),
-                    )),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateSpreadDistanceCurve { value } => {
-                s.spread.distance_curve = Some(value);
-                (
-                    Some((
-                        "spread:distance_curve",
-                        serde_json::json!({ "value": value }),
-                    )),
-                    removed_ids,
-                )
-            }
-
-            OscEvent::StateDistanceModel { value } => {
-                s.distance_model.value = Some(value.clone());
-                (
-                    Some(("distance_model", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-
-            OscEvent::StateRenderBackend { value } => {
-                s.render_backend_state.selection = Some(value.clone());
-                (
-                    Some(("render_backend", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-
-            OscEvent::StateRenderBackendEffective { value } => {
-                s.render_backend_state.effective = Some(value.clone());
-                (
-                    Some((
-                        "render_backend:effective",
-                        serde_json::json!({ "value": value }),
-                    )),
-                    removed_ids,
-                )
-            }
-
-            OscEvent::StateRenderBackendState { value } => {
-                if let Ok(parsed) =
-                    serde_json::from_str::<crate::app_state::RenderBackendState>(&value)
-                {
-                    s.render_backend_state = parsed.clone();
+            OscEvent::StateRenderer { value } => {
+                if apply_renderer_domain_state(&mut s, &value) {
                     (
                         Some((
-                            "render_backend:state",
-                            serde_json::to_value(parsed).unwrap_or_else(|_| serde_json::json!({})),
+                            "state:snapshot_ready",
+                            serde_json::to_value(&*s).unwrap_or_else(|_| serde_json::json!({})),
                         )),
                         removed_ids,
                     )
@@ -1120,29 +1337,72 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     (None, removed_ids)
                 }
             }
-
-            OscEvent::StateRenderEvaluationMode { value } => {
-                s.render_evaluation_mode_state.selection = Some(value.clone());
-                (
-                    Some((
-                        "render_evaluation_mode",
-                        serde_json::json!({ "value": value }),
-                    )),
-                    removed_ids,
-                )
+            OscEvent::StateAudio { value } => {
+                if apply_audio_domain_state(&mut s, &value) {
+                    (
+                        Some((
+                            "state:snapshot_ready",
+                            serde_json::to_value(&*s).unwrap_or_else(|_| serde_json::json!({})),
+                        )),
+                        removed_ids,
+                    )
+                } else {
+                    (None, removed_ids)
+                }
             }
-
-            OscEvent::StateRenderEvaluationModeEffective { value } => {
-                s.render_evaluation_mode_state.effective = Some(value.clone());
-                (
-                    Some((
-                        "render_evaluation_mode:effective",
-                        serde_json::json!({ "value": value }),
-                    )),
-                    removed_ids,
-                )
+            OscEvent::StateLayout { value } => {
+                if apply_layout_domain_state(&mut s, &value) {
+                    (
+                        Some(("layouts:update", layout_update_payload(&s))),
+                        removed_ids,
+                    )
+                } else {
+                    (None, removed_ids)
+                }
             }
-
+            OscEvent::StateSpeakers { value } => {
+                if apply_speakers_domain_state(&mut s, &value) {
+                    (
+                        Some((
+                            "state:snapshot_ready",
+                            serde_json::to_value(&*s).unwrap_or_else(|_| serde_json::json!({})),
+                        )),
+                        removed_ids,
+                    )
+                } else {
+                    (None, removed_ids)
+                }
+            }
+            OscEvent::StateInput { value } => {
+                if apply_input_domain_state(&mut s, &value) {
+                    (
+                        Some((
+                            "state:snapshot_ready",
+                            serde_json::to_value(&*s).unwrap_or_else(|_| serde_json::json!({})),
+                        )),
+                        removed_ids,
+                    )
+                } else {
+                    (None, removed_ids)
+                }
+            }
+            OscEvent::StateLoudness { value } => {
+                if apply_loudness_domain_state(&mut s, &value) {
+                    (
+                        Some((
+                            "state:snapshot_ready",
+                            serde_json::to_value(&*s).unwrap_or_else(|_| serde_json::json!({})),
+                        )),
+                        removed_ids,
+                    )
+                } else {
+                    (None, removed_ids)
+                }
+            }
+            OscEvent::StateSession { value } => {
+                s.producer_session = serde_json::from_str(&value).ok();
+                (None, removed_ids)
+            }
             OscEvent::StateDebugSpeakerHeatmapMeta { value } => (
                 Some((
                     "speaker_heatmap:meta",
@@ -1197,37 +1457,30 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 (Some(("state:snapshot_ready", snapshot)), removed_ids)
             }
 
-            OscEvent::StateLoudness { enabled } => {
-                s.loudness = Some(if enabled { 1 } else { 0 });
+            OscEvent::StateRealtimeMasterGain { value, .. } => {
+                s.master_gain = Some(value);
+                (
+                    Some(("master:gain", serde_json::json!({ "value": value }))),
+                    removed_ids,
+                )
+            }
+            OscEvent::StateRealtimeSpeakerGain { id, value, .. } => {
+                s.speaker_gains.insert(id.clone(), value);
                 (
                     Some((
-                        "loudness",
-                        serde_json::json!({ "enabled": if enabled { 1 } else { 0 } }),
+                        "speaker:gain",
+                        serde_json::json!({ "id": id, "gain": value }),
                     )),
                     removed_ids,
                 )
             }
-
-            OscEvent::StateLoudnessSource { value } => {
-                s.loudness_source = Some(value);
+            OscEvent::StateRealtimeObjectGain { id, value, .. } => {
+                s.object_gains.insert(id.clone(), value);
                 (
-                    Some(("loudness:source", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-
-            OscEvent::StateLoudnessGain { value } => {
-                s.loudness_gain = Some(value);
-                (
-                    Some(("loudness:gain", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-
-            OscEvent::StateMasterGain { value } => {
-                s.master_gain = Some(value);
-                (
-                    Some(("master:gain", serde_json::json!({ "value": value }))),
+                    Some((
+                        "object:gain",
+                        serde_json::json!({ "id": id, "gain": value }),
+                    )),
                     removed_ids,
                 )
             }
@@ -1310,160 +1563,6 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     removed_ids,
                 )
             }
-            OscEvent::StateAudioSampleRate { value } => {
-                s.set_audio_sample_rate_value(value);
-                (
-                    Some(("audio:sample_rate", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateRampMode { value } => {
-                s.audio.ramp_mode = Some(value.clone());
-                (
-                    Some(("state:ramp_mode", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateAudioOutputDevice { value } => {
-                s.set_audio_requested_output_device(&value);
-                (
-                    Some(("audio:output_device", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateAudioOutputDeviceRequested { value } => {
-                s.set_audio_requested_output_device(&value);
-                (
-                    Some((
-                        "audio:output_device:requested",
-                        serde_json::json!({ "value": value }),
-                    )),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateAudioOutputDeviceEffective { value } => {
-                s.set_audio_effective_output_device(&value);
-                (
-                    Some((
-                        "audio:output_device:effective",
-                        serde_json::json!({ "value": value }),
-                    )),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateAudioOutputDevices { values } => {
-                let parsed = values
-                    .first()
-                    .and_then(|json| serde_json::from_str::<Vec<OutputDeviceOption>>(json).ok())
-                    .unwrap_or_default();
-                s.set_audio_output_devices(parsed.clone());
-                (
-                    Some((
-                        "audio:output_devices",
-                        serde_json::json!({ "values": parsed }),
-                    )),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateAudioSampleFormat { value } => {
-                s.set_audio_sample_format(value.clone());
-                (
-                    Some(("audio:sample_format", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateAudioError { value } => {
-                s.set_audio_error(&value);
-                (
-                    Some(("audio:error", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputMode { value } => {
-                s.input_mode = Some(value.clone());
-                (
-                    Some(("input:mode", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputActiveMode { value } => {
-                s.input_active_mode = Some(value.clone());
-                (
-                    Some(("input:active_mode", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputApplyPending { enabled } => {
-                s.input_apply_pending = Some(if enabled { 1 } else { 0 });
-                (
-                    Some((
-                        "input:apply_pending",
-                        serde_json::json!({ "enabled": if enabled { 1 } else { 0 } }),
-                    )),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputBackend { value } => {
-                s.input_backend = Some(value.clone());
-                (
-                    Some(("input:backend", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputChannels { value } => {
-                s.input_channels = Some(value);
-                (
-                    Some(("input:channels", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputSampleRate { value } => {
-                s.input_sample_rate = Some(value);
-                (
-                    Some(("input:sample_rate", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputNode { value } => {
-                s.input_node = if value.trim().is_empty() {
-                    None
-                } else {
-                    Some(value.clone())
-                };
-                (
-                    Some(("input:node", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputDescription { value } => {
-                s.input_description = if value.trim().is_empty() {
-                    None
-                } else {
-                    Some(value.clone())
-                };
-                (
-                    Some(("input:description", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputStreamFormat { value } => {
-                s.input_stream_format = Some(value.clone());
-                (
-                    Some(("input:stream_format", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputError { value } => {
-                s.input_error = if value.trim().is_empty() {
-                    None
-                } else {
-                    Some(value.clone())
-                };
-                (
-                    Some(("input:error", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
             OscEvent::StateRenderBridgePath { value } => {
                 s.render_bridge_path = if value.trim().is_empty() {
                     None
@@ -1472,85 +1571,6 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 };
                 (
                     Some(("render:bridge_path", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputLiveBackend { value } => {
-                s.live_input.backend = Some(value.clone());
-                (
-                    Some(("input:live:backend", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputLiveNode { value } => {
-                s.live_input.node = Some(value.clone());
-                (
-                    Some(("input:live:node", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputLiveDescription { value } => {
-                s.live_input.description = Some(value.clone());
-                (
-                    Some((
-                        "input:live:description",
-                        serde_json::json!({ "value": value }),
-                    )),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputLiveLayout { value } => {
-                s.live_input.layout = Some(value.clone());
-                (
-                    Some(("input:live:layout", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputLiveClockMode { value } => {
-                s.live_input.clock_mode = Some(value.clone());
-                (
-                    Some((
-                        "input:live:clock_mode",
-                        serde_json::json!({ "value": value }),
-                    )),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputLiveChannels { value } => {
-                s.live_input.channels = Some(value);
-                (
-                    Some(("input:live:channels", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputLiveSampleRate { value } => {
-                s.live_input.sample_rate = Some(value);
-                (
-                    Some((
-                        "input:live:sample_rate",
-                        serde_json::json!({ "value": value }),
-                    )),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputLiveFormat { value } => {
-                s.live_input.format = Some(value.clone());
-                (
-                    Some(("input:live:format", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputLiveMap { value } => {
-                s.live_input.map = Some(value.clone());
-                (
-                    Some(("input:live:map", serde_json::json!({ "value": value }))),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateInputLiveLfeMode { value } => {
-                s.live_input.lfe_mode = Some(value.clone());
-                (
-                    Some(("input:live:lfe_mode", serde_json::json!({ "value": value }))),
                     removed_ids,
                 )
             }
@@ -1582,38 +1602,6 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 removed_ids,
             ),
 
-            OscEvent::StateDistanceDiffuseEnabled { enabled } => {
-                s.distance_diffuse.enabled = Some(enabled);
-                (
-                    Some((
-                        "distance_diffuse:enabled",
-                        serde_json::json!({ "enabled": enabled }),
-                    )),
-                    removed_ids,
-                )
-            }
-
-            OscEvent::StateDistanceDiffuseThreshold { value } => {
-                s.distance_diffuse.threshold = Some(value);
-                (
-                    Some((
-                        "distance_diffuse:threshold",
-                        serde_json::json!({ "value": value }),
-                    )),
-                    removed_ids,
-                )
-            }
-
-            OscEvent::StateDistanceDiffuseCurve { value } => {
-                s.distance_diffuse.curve = Some(value);
-                (
-                    Some((
-                        "distance_diffuse:curve",
-                        serde_json::json!({ "value": value }),
-                    )),
-                    removed_ids,
-                )
-            }
             OscEvent::StateRenderEvaluationCartesianXSize { value } => {
                 s.vbap_cartesian.x_size = Some(value);
                 (
@@ -1895,11 +1883,6 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     )),
                     removed_ids,
                 )
-            }
-
-            OscEvent::ConfigSpeakersCount { .. } | OscEvent::ConfigSpeaker { .. } => {
-                // handled in bundle context via apply_speaker_config
-                (None, removed_ids)
             }
         }
     }; // mutex released here, before any emit

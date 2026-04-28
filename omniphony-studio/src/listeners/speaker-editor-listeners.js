@@ -3,7 +3,7 @@ import { app, isSpeakerLayoutFrozen, speakerBaseGains, speakerDelays } from '../
 import {
   renderSpeakerEditor, requestAddSpeaker, requestMoveSpeaker, requestRemoveSpeaker,
   applySpeakerCartesianEdit, applySpeakerPolarEdit,
-  setSpeakerSpatializeLocal, setSpeakerCoordMode,
+  setSpeakerSpatializeLocal, setSpeakerCoordMode, updateSpeakerLayoutPatch, sendSpeakersPatch,
   updateSpeakerVisualsFromState, updateSpeakerGizmo, updateControlsForEditMode,
   computeAndApplySpeakerDelays, adjustSpeakerDistancesFromDelays,
   samplesToDelayMs
@@ -133,7 +133,7 @@ export function setupSpeakerEditorListeners() {
       const value = Math.max(0, Number(speakerEditDelayMsInputEl.value) || 0);
       speakerDelays.set(id, value);
       speakerEditDelayMsInputEl.value = String(value);
-      invoke('control_speaker_delay', { id: Number(id), delayMs: value });
+      sendSpeakersPatch({ speakerEdits: [{ id: Number(id), delayMs: value }] });
       renderSpeakerEditor();
     });
   }
@@ -146,7 +146,7 @@ export function setupSpeakerEditorListeners() {
       const samples = Math.max(0, Math.round(Number(speakerEditDelaySamplesInputEl.value) || 0));
       const delayMs = samplesToDelayMs(samples);
       speakerDelays.set(id, delayMs);
-      invoke('control_speaker_delay', { id: Number(id), delayMs });
+      sendSpeakersPatch({ speakerEdits: [{ id: Number(id), delayMs }] });
       renderSpeakerEditor();
     });
   }
@@ -173,8 +173,7 @@ export function setupSpeakerEditorListeners() {
       if (!speaker) return;
       const nextName = speakerEditNameInputEl.value.trim() || `spk-${app.selectedSpeakerIndex}`;
       speaker.id = nextName;
-      invoke('control_speaker_name', { id: app.selectedSpeakerIndex, name: nextName });
-      invoke('control_speakers_apply');
+      updateSpeakerLayoutPatch(app.selectedSpeakerIndex, { name: nextName }, { apply: true });
       updateSpeakerVisualsFromState(app.selectedSpeakerIndex);
       renderSpeakerEditor();
     });
@@ -238,13 +237,12 @@ export function setupSpeakerEditorListeners() {
       const index = app.selectedSpeakerIndex;
       const nextSpatialize = speakerEditSpatializeToggleEl.checked ? 1 : 0;
       setSpeakerSpatializeLocal(index, nextSpatialize);
-      invoke('control_speaker_spatialize', { id: index, spatialize: nextSpatialize });
-      invoke('control_speakers_apply');
+      updateSpeakerLayoutPatch(index, { spatialize: nextSpatialize !== 0 }, { apply: true });
       renderSpeakerEditor();
     });
   }
 
-  function bindSpeakerFrequencyInput(inputEl, field, command) {
+  function bindSpeakerFrequencyInput(inputEl, field) {
     if (!inputEl) return;
     let skipNextChange = false;
 
@@ -258,8 +256,11 @@ export function setupSpeakerEditorListeners() {
       if (speaker) {
         speaker[field] = Number.isFinite(freq) && freq > 0 ? freq : null;
       }
-      invoke(command, { id: index, [field === 'freqLow' ? 'freqLow' : 'freqHigh']: Number.isFinite(freq) ? freq : 0 });
-      invoke('control_speakers_apply');
+      updateSpeakerLayoutPatch(
+        index,
+        { [field]: Number.isFinite(freq) && freq > 0 ? freq : null },
+        { apply: true }
+      );
       renderSpeakerEditor();
     };
 
@@ -279,8 +280,8 @@ export function setupSpeakerEditorListeners() {
     });
   }
 
-  bindSpeakerFrequencyInput(speakerEditFreqLowInputEl, 'freqLow', 'control_speaker_freq_low');
-  bindSpeakerFrequencyInput(speakerEditFreqHighInputEl, 'freqHigh', 'control_speaker_freq_high');
+  bindSpeakerFrequencyInput(speakerEditFreqLowInputEl, 'freqLow');
+  bindSpeakerFrequencyInput(speakerEditFreqHighInputEl, 'freqHigh');
 
   if (speakerEditCartesianModeEl) {
     speakerEditCartesianModeEl.addEventListener('change', () => {

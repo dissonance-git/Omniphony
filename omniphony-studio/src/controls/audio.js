@@ -5,7 +5,12 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { app, dirty, AUDIO_SAMPLE_RATE_PRESETS } from '../state.js';
+import {
+  app,
+  dirty,
+  AUDIO_SAMPLE_RATE_PRESETS,
+  hasProducerDomain
+} from '../state.js';
 import { t, tf } from '../i18n.js';
 import { scheduleUIFlush } from '../flush.js';
 import { inAudioPanel, inRendererPanel } from '../ui/panel-roots.js';
@@ -17,12 +22,44 @@ function getAudioSampleRateInputEl() { return inAudioPanel('audioSampleRateInput
 function getAudioSampleRateMenuEl() { return inAudioPanel('audioSampleRateMenu'); }
 function getAudioOutputSummaryEl() { return inAudioPanel('audioOutputSummary'); }
 
+export function buildAudioConfigPayload() {
+  return {
+    outputDevice: app.audioOutputDevice || null,
+    sampleRate: app.audioSampleRate || null,
+    latencyTargetMs: app.latencyRequestedMs || app.latencyTargetMs || null,
+    adaptiveResampling: {
+      enabled: app.adaptiveResamplingEnabled === true,
+      enableFarMode: app.adaptiveResamplingEnableFarMode === true,
+      forceSilenceInFarMode: app.adaptiveResamplingForceSilenceInFarMode === true,
+      hardRecoverHighInFarMode: app.adaptiveResamplingHardRecoverHighInFarMode === true,
+      hardRecoverLowInFarMode: app.adaptiveResamplingHardRecoverLowInFarMode === true,
+      farModeReturnFadeInMs: Math.max(0, Math.round(app.adaptiveResamplingFarModeReturnFadeInMs ?? 0)),
+      kpNear: Number(app.adaptiveResamplingKpNear ?? 1),
+      ki: Number(app.adaptiveResamplingKi ?? 1),
+      integralDischargeRatio: Number(app.adaptiveResamplingIntegralDischargeRatio ?? 0.25),
+      maxAdjust: Number(app.adaptiveResamplingMaxAdjust ?? 0.01),
+      nearFarThresholdMs: Math.max(1, Math.round(app.adaptiveResamplingNearFarThresholdMs ?? 1000)),
+      updateIntervalCallbacks: Math.max(1, Math.round(app.adaptiveResamplingUpdateIntervalCallbacks ?? 1)),
+      paused: app.adaptiveResamplingPaused === true
+    }
+  };
+}
+
+export function sendAudioConfig({ apply = true } = {}) {
+  const payload = buildAudioConfigPayload();
+  return invoke('control_audio_config', { payload }).then(() => {
+    if (!apply) return null;
+    return invoke('control_audio_config_apply');
+  });
+}
+
 export function renderAudioFormatDisplay() {
   const audioFormatInfoEl = getAudioFormatInfoEl();
   const audioOutputDeviceSelectEl = getAudioOutputDeviceSelectEl();
   const rampModeSelectEl = getRampModeSelectEl();
   const audioSampleRateInputEl = getAudioSampleRateInputEl();
   const audioOutputSummaryEl = getAudioOutputSummaryEl();
+  const hasAudioDomain = hasProducerDomain('audio');
   if (audioFormatInfoEl) {
     const rateText = app.audioSampleRate ? `${app.audioSampleRate} Hz` : '—';
     const fmtText = app.audioSampleFormat || '—';
@@ -48,12 +85,14 @@ export function renderAudioFormatDisplay() {
     audioOutputDeviceSelectEl.value = options.some((entry) => entry.value === selectedValue)
       ? selectedValue
       : '';
+    audioOutputDeviceSelectEl.disabled = !app.oscSnapshotReady || !hasAudioDomain;
   }
   if (rampModeSelectEl) {
     rampModeSelectEl.value = ['off', 'frame', 'sample'].includes(app.rampMode) ? app.rampMode : 'frame';
   }
   if (audioSampleRateInputEl && !app.audioSampleRateEditing) {
     audioSampleRateInputEl.value = String(app.audioSampleRate || 0);
+    audioSampleRateInputEl.disabled = !app.oscSnapshotReady || !hasAudioDomain;
   }
   if (audioOutputSummaryEl) {
     const requestedValue = (app.audioOutputDevice || '').trim();
@@ -118,7 +157,7 @@ export function applyAudioSampleRateNow() {
   const requested = Math.max(0, Math.round(Number(audioSampleRateInputEl?.value) || 0));
   app.audioSampleRate = requested > 0 ? requested : null;
   updateAudioFormatDisplay();
-  invoke('control_audio_sample_rate', { sampleRate: requested });
+  sendAudioConfig();
   app.audioSampleRateEditing = false;
   closeAudioSampleRateMenu();
 }
@@ -128,7 +167,7 @@ export function applyAudioOutputDeviceNow() {
   const requested = String(audioOutputDeviceSelectEl?.value || '').trim();
   app.audioOutputDevice = requested || null;
   updateAudioFormatDisplay();
-  invoke('control_audio_output_device', { outputDevice: requested });
+  sendAudioConfig();
   app.audioOutputDeviceEditing = false;
 }
 

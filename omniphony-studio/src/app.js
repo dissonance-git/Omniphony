@@ -58,6 +58,7 @@ import { setupPointerListeners } from './picking.js';
 import { setupNumericWheelEditing } from './input.js';
 import { flushUI, flushCallbacks } from './flush.js';
 import { setupVisualRecovery, teardownVisualRecovery } from './visual-recovery.js';
+import { initRenderSurfaceController } from './core/render/render-surface-controller.js';
 
 // ── Flush callback wiring ──────────────────────────────────────────────────
 import { renderSpreadDisplay } from './controls/spread.js';
@@ -223,6 +224,10 @@ setRendererSectionOpen(false);
 setDisplaySectionOpen(false);
 
 // Register UI event listeners
+initRenderSurfaceController({
+  getRenderer: () => renderer,
+  getCamera: () => camera
+});
 setupUIListeners();
 setupPointerListeners();
 setupNumericWheelEditing();
@@ -314,9 +319,3 @@ if (import.meta.hot) {
     teardownVisualRecovery();
   });
 }
-
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});

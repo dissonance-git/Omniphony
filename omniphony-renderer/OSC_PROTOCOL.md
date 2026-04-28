@@ -1,7 +1,7 @@
 # OSC Protocol
 
-This document describes the OSC messages exchanged between `orender` and a visualizer
-or control client.
+This document describes the OSC messages exchanged between `orender`, `omniphony-studio`,
+and compatible metadata producers such as `adm-player`.
 
 ## Overview
 
@@ -37,8 +37,7 @@ Arguments:
 
 After registration, `orender` sends:
 
-1. a config bundle with the speaker layout
-2. a state bundle with the current live renderer state
+1. a state bundle with the current live renderer state, including `state/layout` and `state/speakers`
 
 ### `/omniphony/heartbeat`
 
@@ -57,23 +56,15 @@ Dynamic clients should send heartbeats periodically to stay registered.
 
 ## Messages Sent by orender
 
-### Initial Configuration
+### Serialized State
 
-#### `/omniphony/config/speakers`
+#### `/omniphony/state/layout`
 
-| Argument | Type | Description |
-|---|---|---|
-| `count` | `i32` | Total speaker count |
+Serialized JSON layout snapshot with speaker geometry and static metadata.
 
-#### `/omniphony/config/speaker/{idx}`
+#### `/omniphony/state/speakers`
 
-| Argument | Type | Description |
-|---|---|---|
-| `name` | `string` | Speaker name, for example `FL`, `TFR`, `LFE` |
-| `azimuth` | `f32` | Degrees |
-| `elevation` | `f32` | Degrees |
-| `distance` | `f32` | Metres, for visualization and UI |
-| `spatialize` | `i32` | `1` if the speaker participates in VBAP, `0` otherwise |
+Serialized JSON speaker runtime/config snapshot with per-speaker `gain`, `delayMs`, and `muted`.
 
 ### Spatial Metadata
 
@@ -136,44 +127,24 @@ Variable-length list of linear gains, one value per output speaker.
 These messages are broadcast whenever a live parameter changes, and are also sent
 to newly registered clients as part of the initial state bundle.
 
+Canonical serialized domain messages:
+
+- `/omniphony/state/capabilities s <json>`
+- `/omniphony/state/renderer s <json>`
+- `/omniphony/state/audio s <json>`
+- `/omniphony/state/layout s <json>`
+- `/omniphony/state/input s <json>`
+- `/omniphony/state/loudness s <json>`
+- `/omniphony/state/session s <json>` for metadata-oriented producers such as `adm-player`
+
 Common addresses include:
 
-- `/omniphony/state/gain`
 - `/omniphony/state/input_pipe`
-- `/omniphony/state/input/mode`
-- `/omniphony/state/input/active_mode`
-- `/omniphony/state/input/apply_pending`
-- `/omniphony/state/input/backend`
-- `/omniphony/state/input/channels`
-- `/omniphony/state/input/sample_rate`
-- `/omniphony/state/input/node`
-- `/omniphony/state/input/stream_format`
-- `/omniphony/state/input/error`
-- `/omniphony/state/input/live/backend`
-- `/omniphony/state/input/live/node`
-- `/omniphony/state/input/live/description`
-- `/omniphony/state/input/live/layout`
-- `/omniphony/state/input/live/channels`
-- `/omniphony/state/input/live/sample_rate`
-- `/omniphony/state/input/live/format`
-- `/omniphony/state/input/live/map`
-- `/omniphony/state/input/live/lfe_mode`
 - `/omniphony/state/object/{idx}/mute`
 - `/omniphony/state/speaker/{idx}/gain`
 - `/omniphony/state/speaker/{idx}/mute`
 - `/omniphony/state/speaker/{idx}`
 - `/omniphony/state/speakers/recomputing`
-- `/omniphony/state/spread/min`
-- `/omniphony/state/spread/max`
-- `/omniphony/state/spread/from_distance`
-- `/omniphony/state/spread/distance_range`
-- `/omniphony/state/spread/distance_curve`
-- `/omniphony/state/loudness`
-- `/omniphony/state/loudness/source`
-- `/omniphony/state/loudness/gain`
-- `/omniphony/state/room_ratio`
-- `/omniphony/state/render_evaluation_mode`
-- `/omniphony/state/render_evaluation_mode/effective`
 - `/omniphony/state/log_level`
 
 ### Log Stream
@@ -190,6 +161,28 @@ Common addresses include:
 ## Messages Sent to orender
 
 All control messages are sent to `--osc-rx-port`.
+
+Sequenced realtime controls use `latest-wins` semantics:
+
+- `/omniphony/control/realtime/master_gain [f32 value, i32 seq]`
+- `/omniphony/control/realtime/speaker_gain [i32 id, f32 value, i32 seq]`
+- `/omniphony/control/realtime/object_gain [s id, f32 value, i32 seq]`
+
+Serialized config-domain controls use JSON patches:
+
+- `/omniphony/control/config/audio s <json>`
+- `/omniphony/control/config/audio/apply`
+- `/omniphony/control/config/input s <json>`
+- `/omniphony/control/config/input/apply`
+- `/omniphony/control/config/layout s <json>`
+- `/omniphony/control/config/layout/apply`
+- `/omniphony/control/config/speakers s <json>`
+
+Canonical acknowledgements:
+
+- `/omniphony/state/realtime/master_gain [f32 value, i32 seq]`
+- `/omniphony/state/realtime/speaker_gain [i32 id, f32 value, i32 seq]`
+- `/omniphony/state/realtime/object_gain [s id, f32 value, i32 seq]`
 
 Common control addresses include:
 
@@ -209,7 +202,6 @@ Common control addresses include:
 - `/omniphony/control/gain`
 - `/omniphony/control/object/{idx}/mute`
 - `/omniphony/control/speaker/{idx}/gain`
-- `/omniphony/control/speaker/{idx}/mute`
 - `/omniphony/control/spread/min`
 - `/omniphony/control/spread/max`
 - `/omniphony/control/spread/from_distance`
@@ -218,16 +210,14 @@ Common control addresses include:
 - `/omniphony/control/loudness`
 - `/omniphony/control/room_ratio`
 - `/omniphony/control/render_evaluation_mode`
-- `/omniphony/control/speaker/{idx}/az`
-- `/omniphony/control/speaker/{idx}/el`
-- `/omniphony/control/speaker/{idx}/distance`
-- `/omniphony/control/speaker/{idx}/spatialize`
-- `/omniphony/control/speakers/apply`
-- `/omniphony/control/speakers/reset`
 - `/omniphony/control/save_config`
 - `/omniphony/control/reload_config`
 - `/omniphony/control/log_level`
 - `/omniphony/control/ramp_mode`
+
+Speaker topology and metadata edits should use `control/config/layout`.
+Speaker runtime edits such as `mute` and `delayMs` should use `control/config/speakers`.
+Fast speaker gain drags should use `control/realtime/speaker_gain`.
 
 `/omniphony/control/reload_config` requests a full render restart so `orender` re-resolves
 its effective options from the config file and restarts the current stream with
@@ -295,23 +285,8 @@ Important addresses:
 
 State semantics:
 
-- `/omniphony/state/input/mode`
-  - staged mode requested by Studio
-
-- `/omniphony/state/input/active_mode`
-  - mode currently active in the runtime
-
-- `/omniphony/state/input/apply_pending`
-  - `1` after staged edits are ready to apply, `0` after apply has been consumed
-
-- `/omniphony/state/input/error`
-  - last runtime error for the input path
-
-- `/omniphony/state/input/live/...`
-  - staged settings requested by Studio
-
-- `/omniphony/state/input/backend`, `/channels`, `/sample_rate`, `/node`, `/stream_format`
-  - currently applied runtime values
+- `state/input`
+  - serialized canonical input domain carrying both staged and active runtime values
 
 ## Speaker Recompute Flow
 
@@ -326,16 +301,15 @@ During recompute, `orender` broadcasts:
 When the new topology is published, it broadcasts:
 
 - `/omniphony/state/speakers/recomputing i 0`
-- updated `/omniphony/state/speaker/{idx}` messages
-- updated `/omniphony/state/speaker/{idx}/spatialize` messages
-- `/omniphony/state/render_evaluation_mode/effective`
+- updated `/omniphony/state/layout s <json>`
+- updated `/omniphony/state/speakers s <json>`
 
 ## Notes
 
 - Speaker gains and mutes apply after VBAP mixing.
 - Object controls address PCM channel indices.
 - Layout recompute requires runtime VBAP support and is not available when using a precomputed VBAP table.
-- `room_ratio` scales ADM coordinates before VBAP rendering.
+- room geometry and distance-diffuse settings live in `state/renderer`.
 
 ## Recommended Next Step
 

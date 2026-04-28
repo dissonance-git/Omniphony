@@ -1,6 +1,7 @@
-import { app } from '../state.js';
+import { app, hasProducerDomain } from '../state.js';
 import { t, tf } from '../i18n.js';
 import { inInputPanel } from '../ui/panel-roots.js';
+import { invoke } from '@tauri-apps/api/core';
 
 function getInputModeSelectEl() { return inInputPanel('inputModeSelect'); }
 function getInputPipeInputEl() { return inInputPanel('pipeStatus'); }
@@ -79,6 +80,32 @@ function bridgePathMissingMessage(requestedMode) {
   return 'Bridge path missing';
 }
 
+export function buildInputConfigPayload() {
+  return {
+    mode: app.inputMode || 'pipe_bridge',
+    liveInput: {
+      backend: app.liveInput.backend || null,
+      node: app.liveInput.node || null,
+      description: app.liveInput.description || null,
+      layout: app.liveInput.layout || null,
+      clockMode: app.liveInput.clockMode || 'dac',
+      channels: app.liveInput.channels || null,
+      sampleRate: app.liveInput.sampleRate || null,
+      format: app.liveInput.format || null,
+      map: app.liveInput.map || '7.1-fixed',
+      lfeMode: app.liveInput.lfeMode || 'object'
+    }
+  };
+}
+
+export function sendInputConfig({ apply = false } = {}) {
+  const payload = buildInputConfigPayload();
+  return invoke('control_input_config', { payload }).then(() => {
+    if (!apply) return null;
+    return invoke('control_input_config_apply');
+  });
+}
+
 export function updateInputControlUI() {
   const inputModeSelectEl = getInputModeSelectEl();
   const inputPipeInputEl = getInputPipeInputEl();
@@ -112,10 +139,12 @@ export function updateInputControlUI() {
   const inputMapRowEl = inputMapSelectEl?.closest('.input-panel-field') || null;
   const inputLfeModeRowEl = inputLfeModeSelectEl?.closest('.input-panel-field') || null;
   const requestedMode = app.inputMode || 'pipe_bridge';
+  const hasInputDomain = hasProducerDomain('input');
   if (inputModeSelectEl) {
     inputModeSelectEl.value = ['pipewire', 'pipewire_bridge', 'pipe_bridge'].includes(app.inputMode)
       ? app.inputMode
       : 'pipe_bridge';
+    inputModeSelectEl.disabled = !hasInputDomain;
   }
   if (inputBackendSelectEl) {
     inputBackendSelectEl.value = app.liveInput.backend === 'asio' ? 'asio' : 'pipewire';
@@ -167,7 +196,7 @@ export function updateInputControlUI() {
   const endpointRequested = liveRequested || pipewireBridgeRequested;
 
   if (inputBridgeFieldsEl) {
-    inputBridgeFieldsEl.style.display = bridgeRequested ? '' : 'none';
+    inputBridgeFieldsEl.style.display = hasInputDomain && bridgeRequested ? '' : 'none';
   }
   if (oscBridgePathStatusEl) {
     oscBridgePathStatusEl.textContent = bridgePathMissing;
@@ -177,20 +206,20 @@ export function updateInputControlUI() {
     oscBridgePathInputEl.classList.toggle('input-panel-danger', Boolean(bridgePathMissing));
   }
   if (inputLiveFieldsEl) {
-    inputLiveFieldsEl.style.display = endpointRequested ? '' : 'none';
-    inputLiveFieldsEl.style.opacity = endpointRequested ? '1' : '0.55';
+    inputLiveFieldsEl.style.display = hasInputDomain && endpointRequested ? '' : 'none';
+    inputLiveFieldsEl.style.opacity = hasInputDomain && endpointRequested ? '1' : '0.55';
   }
-  if (inputPipeRowEl) inputPipeRowEl.style.display = requestedMode === 'pipe_bridge' ? '' : 'none';
-  if (inputBackendRowEl) inputBackendRowEl.style.display = liveRequested ? '' : 'none';
-  if (inputNodeRowEl) inputNodeRowEl.style.display = endpointRequested ? '' : 'none';
-  if (inputDescriptionRowEl) inputDescriptionRowEl.style.display = endpointRequested ? '' : 'none';
-  if (inputClockModeRowEl) inputClockModeRowEl.style.display = pipewireBridgeRequested ? '' : 'none';
-  if (inputLayoutRowEl) inputLayoutRowEl.style.display = liveRequested ? '' : 'none';
-  if (inputChannelsRowEl) inputChannelsRowEl.style.display = liveRequested ? '' : 'none';
-  if (inputSampleRateRowEl) inputSampleRateRowEl.style.display = liveRequested ? '' : 'none';
-  if (inputFormatRowEl) inputFormatRowEl.style.display = liveRequested ? '' : 'none';
-  if (inputMapRowEl) inputMapRowEl.style.display = liveRequested ? '' : 'none';
-  if (inputLfeModeRowEl) inputLfeModeRowEl.style.display = liveRequested ? '' : 'none';
+  if (inputPipeRowEl) inputPipeRowEl.style.display = hasInputDomain && requestedMode === 'pipe_bridge' ? '' : 'none';
+  if (inputBackendRowEl) inputBackendRowEl.style.display = hasInputDomain && liveRequested ? '' : 'none';
+  if (inputNodeRowEl) inputNodeRowEl.style.display = hasInputDomain && endpointRequested ? '' : 'none';
+  if (inputDescriptionRowEl) inputDescriptionRowEl.style.display = hasInputDomain && endpointRequested ? '' : 'none';
+  if (inputClockModeRowEl) inputClockModeRowEl.style.display = hasInputDomain && pipewireBridgeRequested ? '' : 'none';
+  if (inputLayoutRowEl) inputLayoutRowEl.style.display = hasInputDomain && liveRequested ? '' : 'none';
+  if (inputChannelsRowEl) inputChannelsRowEl.style.display = hasInputDomain && liveRequested ? '' : 'none';
+  if (inputSampleRateRowEl) inputSampleRateRowEl.style.display = hasInputDomain && liveRequested ? '' : 'none';
+  if (inputFormatRowEl) inputFormatRowEl.style.display = hasInputDomain && liveRequested ? '' : 'none';
+  if (inputMapRowEl) inputMapRowEl.style.display = hasInputDomain && liveRequested ? '' : 'none';
+  if (inputLfeModeRowEl) inputLfeModeRowEl.style.display = hasInputDomain && liveRequested ? '' : 'none';
   [
     inputBackendSelectEl,
     inputNodeInputEl,
@@ -202,7 +231,11 @@ export function updateInputControlUI() {
     inputMapSelectEl,
     inputLfeModeSelectEl
   ].forEach((el) => {
-      if (el) {
+    if (el) {
+      if (!hasInputDomain) {
+        el.disabled = true;
+        return;
+      }
       if (el === inputNodeInputEl || el === inputDescriptionInputEl) {
         el.disabled = !endpointRequested;
       } else if (el === inputClockModeSelectEl) {
@@ -213,10 +246,10 @@ export function updateInputControlUI() {
     }
   });
   if (inputLayoutInputEl) {
-    inputLayoutInputEl.disabled = !liveRequested;
+    inputLayoutInputEl.disabled = !hasInputDomain || !liveRequested;
   }
   if (inputLayoutBrowseBtnEl) {
-    inputLayoutBrowseBtnEl.disabled = !liveRequested;
+    inputLayoutBrowseBtnEl.disabled = !hasInputDomain || !liveRequested;
   }
 
   if (inputStatusInfoEl) {

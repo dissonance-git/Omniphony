@@ -86,6 +86,9 @@ export const dirty = {
 // ---------------------------------------------------------------------------
 
 export const app = {
+  producerCapabilities: null,
+  producerSession: null,
+
   // Room geometry
   roomRatio: { width: 1, length: 2, height: 1, rear: 1, lower: 0.5, centerBlend: 0.5 },
   roomMasterAxis: 'width',
@@ -316,6 +319,20 @@ export function isRoomRatioFrozen() {
 
 export function isSpeakerLayoutFrozen() {
   return app.renderBackendState.frozenSpeakers === true;
+}
+
+export function hasProducerDomain(domain) {
+  const domains = app.producerCapabilities?.domains;
+  return Array.isArray(domains) && domains.includes(domain);
+}
+
+export function supportsRealtimeKey(key) {
+  const realtime = app.producerCapabilities?.realtime;
+  return Array.isArray(realtime) && realtime.includes(key);
+}
+
+export function usesNumericSpatialPlaceholders() {
+  return (app.producerCapabilities?.producer || 'renderer') === 'renderer';
 }
 
 // ---------------------------------------------------------------------------

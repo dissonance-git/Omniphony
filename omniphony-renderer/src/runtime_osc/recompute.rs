@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use renderer::live_params::RendererControl;
-use runtime_control::snapshot::build_render_backend_state_json;
+use runtime_control::snapshot::{build_renderer_state_json, build_speakers_state_json};
 
 use super::client_registry::OscClientRegistry;
-use super::transport::{broadcast_fff, broadcast_float, broadcast_int, broadcast_string};
+use super::transport::{broadcast_int, broadcast_string};
 
 pub(crate) fn trigger_layout_recompute(
     control: &Arc<RendererControl>,
@@ -64,34 +64,37 @@ pub(crate) fn trigger_layout_recompute(
                         "Render backend {} updated with new speaker layout",
                         rebuild_plan_for_thread.backend_id()
                     );
-                    let effective_backend = control_clone.active_topology().backend.kind().as_str();
-                    let effective_evaluation_mode = control_clone
-                        .active_topology()
-                        .backend
-                        .evaluation_mode()
-                        .as_str();
-                    let render_backend_state_json = {
+                    let renderer_state_json = {
                         let live = control_clone.live.read().unwrap();
                         let topology = control_clone.active_topology();
-                        build_render_backend_state_json(&live, &topology)
+                        build_renderer_state_json(&live, &topology)
+                    };
+                    let layout_json = {
+                        let layout = control_clone.editable_layout();
+                        serde_json::to_string(&layout).unwrap_or_else(|_| "{}".to_string())
+                    };
+                    let speakers_state_json = {
+                        let live = control_clone.live.read().unwrap();
+                        let layout = control_clone.editable_layout();
+                        build_speakers_state_json(&live, &layout)
                     };
                     broadcast_string(
                         &socket_clone,
                         &clients_clone,
-                        "/omniphony/state/render_backend/effective",
-                        effective_backend,
+                        "/omniphony/state/renderer",
+                        &renderer_state_json,
                     );
                     broadcast_string(
                         &socket_clone,
                         &clients_clone,
-                        "/omniphony/state/render_backend/state",
-                        &render_backend_state_json,
+                        "/omniphony/state/layout",
+                        &layout_json,
                     );
                     broadcast_string(
                         &socket_clone,
                         &clients_clone,
-                        "/omniphony/state/render_evaluation_mode/effective",
-                        effective_evaluation_mode,
+                        "/omniphony/state/speakers",
+                        &speakers_state_json,
                     );
                     broadcast_int(
                         &socket_clone,
@@ -99,42 +102,6 @@ pub(crate) fn trigger_layout_recompute(
                         "/omniphony/state/speakers/recomputing",
                         0,
                     );
-                    for (idx, speaker) in
-                        rebuild_plan_for_thread.layout().speakers.iter().enumerate()
-                    {
-                        broadcast_fff(
-                            &socket_clone,
-                            &clients_clone,
-                            &format!("/omniphony/state/speaker/{}", idx),
-                            speaker.azimuth,
-                            speaker.elevation,
-                            speaker.distance,
-                        );
-                        broadcast_int(
-                            &socket_clone,
-                            &clients_clone,
-                            &format!("/omniphony/state/speaker/{}/spatialize", idx),
-                            if speaker.spatialize { 1 } else { 0 },
-                        );
-                        broadcast_string(
-                            &socket_clone,
-                            &clients_clone,
-                            &format!("/omniphony/state/speaker/{}/name", idx),
-                            &speaker.name,
-                        );
-                        broadcast_float(
-                            &socket_clone,
-                            &clients_clone,
-                            &format!("/omniphony/state/speaker/{}/freq_low", idx),
-                            speaker.freq_low.unwrap_or(0.0),
-                        );
-                        broadcast_float(
-                            &socket_clone,
-                            &clients_clone,
-                            &format!("/omniphony/state/speaker/{}/freq_high", idx),
-                            speaker.freq_high.unwrap_or(0.0),
-                        );
-                    }
                     log::info!("Render backend recompute completed");
                 }
                 Err(e) => {

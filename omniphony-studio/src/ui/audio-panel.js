@@ -184,11 +184,6 @@ export function audioPanelMarkup() {
           <div id="masterGainBox" class="gain-box">0.0 dB</div>
         </div>
       </div>
-      <div class="info-section" id="configSection">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
-          <span id="configSavedIndicator" style="font-size:12px;color:#d9ecff">—</span>
-        </div>
-      </div>
       </div>`;
 }
 
