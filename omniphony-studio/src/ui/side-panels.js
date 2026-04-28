@@ -8,6 +8,7 @@
  */
 
 import {
+  emitOverlayLayoutChanged,
   getOverlayLayoutState,
   initOverlayLayoutState,
   resetOverlayPanelWidth,
@@ -43,6 +44,10 @@ const SIDES = {
 function collapsedPx() {
   const fontSize = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
   return COLLAPSED_WIDTH_REM * fontSize;
+}
+
+function setResizeVisualState(active) {
+  document.body.classList.toggle('overlay-layout-resizing', active);
 }
 
 function applyToDom(state) {
@@ -82,19 +87,24 @@ function makeResizeHandle(side) {
   const onPointerMove = (ev) => {
     const dx = ev.clientX - startX;
     const proposed = startWidth + cfg.direction * dx;
-    setOverlayPanelWidth(side, proposed);
+    setOverlayPanelWidth(side, proposed, `side-panel-resize-${side}`);
   };
 
   const onPointerUp = (ev) => {
+    const didResize = activePointerId !== null;
     if (activePointerId !== null) {
       try { handle.releasePointerCapture(activePointerId); } catch (_e) {}
     }
     activePointerId = null;
     handle.classList.remove('panel-resize-handle-active');
     document.body.style.userSelect = '';
+    setResizeVisualState(false);
     window.removeEventListener('pointermove', onPointerMove);
     window.removeEventListener('pointerup', onPointerUp);
     window.removeEventListener('pointercancel', onPointerUp);
+    if (didResize) {
+      emitOverlayLayoutChanged(`side-panel-resize-end-${side}`);
+    }
   };
 
   handle.addEventListener('pointerdown', (ev) => {
@@ -107,13 +117,14 @@ function makeResizeHandle(side) {
     try { handle.setPointerCapture(ev.pointerId); } catch (_e) {}
     handle.classList.add('panel-resize-handle-active');
     document.body.style.userSelect = 'none';
+    setResizeVisualState(true);
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', onPointerUp);
   });
 
   handle.addEventListener('dblclick', () => {
-    resetOverlayPanelWidth(side);
+    resetOverlayPanelWidth(side, `side-panel-width-reset-${side}`);
   });
 }
 
@@ -135,7 +146,7 @@ function makeCollapseButton(side) {
     ev.preventDefault();
     ev.stopPropagation();
     const state = getOverlayLayoutState();
-    setOverlayPanelCollapsed(side, !state[side].collapsed);
+    setOverlayPanelCollapsed(side, !state[side].collapsed, `side-panel-collapse-${side}`);
   });
 
   // Body fallback: clicking anywhere on the collapsed strip (outside the
@@ -145,7 +156,7 @@ function makeCollapseButton(side) {
     if (!state[side].collapsed) return;
     if (ev.target.closest('.panel-resize-handle')) return;
     if (ev.target.closest(`#${cfg.collapseBtnId}`)) return;
-    setOverlayPanelCollapsed(side, false);
+    setOverlayPanelCollapsed(side, false, `side-panel-expand-${side}`);
   });
 }
 

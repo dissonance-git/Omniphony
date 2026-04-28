@@ -12,6 +12,15 @@ const state = {
 const subscribers = new Set();
 let initialized = false;
 
+export function emitOverlayLayoutChanged(reason) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.dispatchEvent(new CustomEvent('omniphony:overlay-layout-changed', {
+    detail: { reason }
+  }));
+}
+
 function snapshot() {
   return {
     left: { ...state.left },
@@ -95,7 +104,7 @@ export function subscribeOverlayLayout(listener) {
   };
 }
 
-export function setOverlayPanelWidth(side, width) {
+export function setOverlayPanelWidth(side, width, reason = 'side-panel-resize') {
   initOverlayLayoutState();
   if (!state[side]) {
     return;
@@ -103,9 +112,10 @@ export function setOverlayPanelWidth(side, width) {
   state[side].width = clampWidth(width);
   persistState();
   notifySubscribers();
+  emitOverlayLayoutChanged(reason);
 }
 
-export function setOverlayPanelCollapsed(side, collapsed) {
+export function setOverlayPanelCollapsed(side, collapsed, reason = 'side-panel-collapse') {
   initOverlayLayoutState();
   if (!state[side]) {
     return;
@@ -113,8 +123,9 @@ export function setOverlayPanelCollapsed(side, collapsed) {
   state[side].collapsed = !!collapsed;
   persistState();
   notifySubscribers();
+  emitOverlayLayoutChanged(reason);
 }
 
-export function resetOverlayPanelWidth(side) {
-  setOverlayPanelWidth(side, DEFAULT_WIDTH);
+export function resetOverlayPanelWidth(side, reason = 'side-panel-width-reset') {
+  setOverlayPanelWidth(side, DEFAULT_WIDTH, reason);
 }

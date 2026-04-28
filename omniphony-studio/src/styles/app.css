@@ -122,6 +122,19 @@
         display: flex;
       }
 
+      body.overlay-layout-resizing #overlay,
+      body.overlay-layout-resizing #speakersOverlay,
+      body.overlay-layout-resizing #logOverlay.expanded {
+        backdrop-filter: none;
+        transition: none !important;
+      }
+
+      body.overlay-layout-resizing .panel-side-collapse-btn,
+      body.overlay-layout-resizing .panel-resize-handle::before,
+      body.overlay-layout-resizing #logOverlay.expanded .icon-button {
+        transition: none !important;
+      }
+
       #overlayHeader {
         flex: 0 0 auto;
       }
