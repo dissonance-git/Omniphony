@@ -24,6 +24,9 @@ import {
 } from './scene/setup.js';
 import './scene/axes.js';
 import { refreshSpeakerHeatmapScene } from './scene/speaker-heatmap.js';
+import { setupCanvasMirror, mirrorRenderedFrame } from './core/render/canvas-mirror.js';
+
+setupCanvasMirror({ getRenderer: () => renderer });
 
 // ── Domain modules (imported for side-effects & to register into state) ─────
 import {
@@ -297,6 +300,7 @@ function animate() {
       return;
     }
     renderer.render(scene, camera);
+    mirrorRenderedFrame();
   } catch (error) {
     console.error('[renderer.render]', error);
   }

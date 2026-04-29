@@ -68,7 +68,9 @@ function disposeRendererInstance(currentRenderer) {
   currentRenderer.dispose();
 }
 
-export let renderer = configureRenderer(new THREE.WebGLRenderer({ antialias: true }));
+// preserveDrawingBuffer is required so that the 2D canvas mirror can
+// drawImage() the rendered frame reliably across compositor passes.
+export let renderer = configureRenderer(new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }));
 
 function createControls(domElement) {
   const nextControls = new OrbitControls(camera, domElement);
@@ -86,6 +88,7 @@ export function rebuildRendererOnExistingCanvas() {
   disposeRendererInstance(renderer);
   renderer = configureRenderer(new THREE.WebGLRenderer({
     antialias: true,
+    preserveDrawingBuffer: true,
     canvas
   }));
   return renderer;
@@ -93,7 +96,7 @@ export function rebuildRendererOnExistingCanvas() {
 
 export function rebuildRendererOnFreshCanvas() {
   const previousRenderer = renderer;
-  const nextRenderer = configureRenderer(new THREE.WebGLRenderer({ antialias: true }));
+  const nextRenderer = configureRenderer(new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }));
   controls.dispose();
   disposeRendererInstance(previousRenderer);
   renderer = nextRenderer;
