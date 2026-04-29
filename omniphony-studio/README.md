@@ -113,6 +113,10 @@ Ce script applique `NO_STRIP=true` et permet de générer les trois formats, y c
   Toute résolution de nœud overlay doit se faire à l’usage via `panel-roots.js`, ou via des listeners délégués attachés au root du panneau.
   Raison : l’overlay peut remonter, remplacer ou réinitialiser des sous-arbres. Une ref capturée hors timing casse facilement la synchro UI et empêche d’isoler proprement le viewport 3D du reste du DOM.
   En review, considérer comme odeur d’architecture tout accès DOM persistant à un panneau monté dynamiquement.
+- Filtres CSS au-dessus du canvas WebGL :
+  ne jamais appliquer `backdrop-filter` ni `filter` (drop-shadow, blur, etc.) sur un élément qui chevauche `#omniphony-renderer-mount`. Ces propriétés promeuvent l’élément à sa propre couche compositeur et déclenchent un échantillonnage GPU du backdrop. Sur WebKitGTK (Tauri Linux), le pool de textures partagé entre le compositeur et le contexte WebGL provoque alors un aliasing : des sprites (typiquement les labels) se mettent à afficher une copie du framebuffer.
+  Symptôme : les labels 3D montrent une copie du viewport, déclenché par tout ce qui force un re-snapshot compositeur (resize de panneau, transition CSS, toggle de visibilité). Bug récurrent et difficile à diagnostiquer.
+  En review : refuser tout `filter:` ou `backdrop-filter:` ajouté à un élément qui peut se trouver au-dessus du canvas. Préférer `box-shadow` (qui ne promeut pas de couche) pour les effets d’ombre, et un fond statique ou un miroir 2D du canvas pour les effets de blur.
 
 ## Messages envoyés par le studio vers le renderer
 
