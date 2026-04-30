@@ -21,7 +21,7 @@ function applyViewport(viewport) {
   camera.aspect = viewport.width / viewport.height;
   camera.updateProjectionMatrix();
   renderer.setPixelRatio(viewport.dpr);
-  renderer.setSize(viewport.width, viewport.height, false);
+  renderer.setSize(viewport.width, viewport.height);
 }
 
 export function syncRenderSurface() {
