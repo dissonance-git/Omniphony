@@ -35,6 +35,8 @@ fn bridge_stream_uses_driver(clock_mode: InputClockMode) -> bool {
 struct BridgeCaptureUserData {
     rate_hz: u32,
     channels: u32,
+    negotiated_iec958: bool,
+    observed_transport_frames: u32,
     last_log_at: Instant,
     add_buffer_calls_since_log: usize,
     remove_buffer_calls_since_log: usize,
@@ -265,7 +267,24 @@ fn refresh_pw_stream_driver_timing(
         return;
     }
 
-    let transport_frames = (time.size / user_data.channels.max(1) as u64).max(1);
+    // For audio/raw, PipeWire reports interleaved samples in `pw_time.size`, so
+    // dividing by channels yields the transport-frame quantum. For encoded
+    // IEC958 streams, the callback payload is the authoritative transport domain:
+    // `pw_time.size` can reflect a doubled sample-domain quantum while each
+    // delivered chunk still contains the real transport frame count.
+    let (transport_frames, transport_source) = if user_data.negotiated_iec958
+        && user_data.observed_transport_frames > 0
+    {
+        (
+            user_data.observed_transport_frames as u64,
+            "observed_chunk",
+        )
+    } else {
+        (
+            (time.size / user_data.channels.max(1) as u64).max(1),
+            "pw_time",
+        )
+    };
     input_control
         .register_direct_trigger_quantum_frames(transport_frames.min(u32::MAX as u64) as u32);
     let quantum_ns = (transport_frames as u128 * time.rate.num as u128 * 1_000_000_000u128)
@@ -292,12 +311,13 @@ fn refresh_pw_stream_driver_timing(
         let quantum_ms = quantum_ns as f64 / 1_000_000.0;
         let scheduled_ms = scheduled_ns as f64 / 1_000_000.0;
         log::debug!(
-            "{} pw_time: rate={}/{} size={} transport_frames={} queued={} buffered={} queued_buffers={} avail_buffers={} delay={} quantum_ms={:.3} trigger_ms={:.3} rate_adjust={:.6} correction={:.4}",
+            "{} pw_time: rate={}/{} size={} transport_frames={} source={} queued={} buffered={} queued_buffers={} avail_buffers={} delay={} quantum_ms={:.3} trigger_ms={:.3} rate_adjust={:.6} correction={:.4}",
             log_prefix,
             time.rate.num,
             time.rate.denom,
             time.size,
             transport_frames,
+            transport_source,
             time.queued,
             time.buffered,
             time.queued_buffers,
@@ -367,6 +387,8 @@ where
         .add_local_listener_with_user_data(BridgeCaptureUserData {
             rate_hz: config.sample_rate_hz,
             channels: config.channels as u32,
+            negotiated_iec958: false,
+            observed_transport_frames: 0,
             last_log_at: Instant::now(),
             add_buffer_calls_since_log: 0,
             remove_buffer_calls_since_log: 0,
@@ -435,6 +457,7 @@ where
             }
 
             if media_subtype == pw::spa::param::format::MediaSubtype::Raw {
+                user_data.negotiated_iec958 = false;
                 let mut format = pw::spa::param::audio::AudioInfoRaw::new();
                 if format.parse(param).is_ok() {
                     if format.rate() != 0 {
@@ -452,6 +475,8 @@ where
                     );
                 }
             } else {
+                user_data.negotiated_iec958 =
+                    media_subtype == pw::spa::param::format::MediaSubtype::Iec958;
                 log::info!("{} format negotiated: subtype={:?}", log_prefix, media_subtype);
             }
         })
@@ -607,7 +632,16 @@ where
                 return;
             }
             let data = &mut datas[0];
+            let chunk_stride = data.chunk().stride().max(0) as usize;
             let byte_len = data.chunk().size() as usize;
+            if user_data.negotiated_iec958 && byte_len > 0 {
+                let bytes_per_transport_frame = chunk_stride.max(
+                    user_data.channels as usize * std::mem::size_of::<u16>(),
+                );
+                let observed_transport_frames = (byte_len / bytes_per_transport_frame).max(1);
+                user_data.observed_transport_frames =
+                    observed_transport_frames.min(u32::MAX as usize) as u32;
+            }
             let Some(bytes) = data.data() else {
                 user_data.data_missing_since_log += 1;
                 let now = Instant::now();
