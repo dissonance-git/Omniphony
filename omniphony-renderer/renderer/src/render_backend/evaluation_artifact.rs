@@ -129,6 +129,7 @@ pub struct PolarArtifact {
     gains: Vec<f32>,
 }
 
+#[allow(dead_code)]
 impl LoadedEvaluationArtifact {
     pub fn load_from_file(path: &std::path::Path) -> Result<Self> {
         let bytes = std::fs::read(path)?;
@@ -407,10 +408,12 @@ impl LoadedEvaluationArtifact {
     }
 }
 
+#[allow(dead_code)]
 pub struct EvaluationArtifactEvaluator {
     artifact: LoadedEvaluationArtifact,
 }
 
+#[allow(dead_code)]
 impl EvaluationArtifactEvaluator {
     pub fn new(artifact: LoadedEvaluationArtifact) -> Self {
         Self { artifact }
@@ -516,6 +519,7 @@ fn compress(payload: &[u8]) -> Result<Vec<u8>> {
     Ok(encoder.finish()?)
 }
 
+#[allow(dead_code)]
 fn decompress(payload: &[u8]) -> Result<Vec<u8>> {
     let mut decoder = ZlibDecoder::new(payload);
     let mut out = Vec::new();
@@ -530,12 +534,14 @@ fn write_f32_slice(out: &mut Vec<u8>, values: &[f32]) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn read_u32(reader: &mut Cursor<&[u8]>) -> Result<u32> {
     let mut bytes = [0u8; 4];
     reader.read_exact(&mut bytes)?;
     Ok(u32::from_le_bytes(bytes))
 }
 
+#[allow(dead_code)]
 fn read_f32_vec(reader: &mut Cursor<&[u8]>, count: usize) -> Result<Vec<f32>> {
     let mut out = Vec::with_capacity(count);
     for _ in 0..count {
