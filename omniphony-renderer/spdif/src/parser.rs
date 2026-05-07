@@ -79,7 +79,7 @@ impl SpdifParser {
                     let data_type = self.buffer[4] & 0x1F; // bits 0-4 of Pc
                     let pd_raw = u16::from_le_bytes([self.buffer[6], self.buffer[7]]);
                     let (payload_size, payload_unit) = payload_size_from_pd(data_type, pd_raw);
-                    log::info!(
+                    log::debug!(
                         "IEC 61937 header: data_type=0x{:02X} pd_raw={} payload_size={} payload_unit={}",
                         data_type,
                         pd_raw,
@@ -104,7 +104,7 @@ impl SpdifParser {
 
                     let payload = self.buffer.drain(0..payload_size).collect::<Vec<u8>>();
                     self.state = ParserState::WaitingForSync;
-                    log::info!(
+                    log::debug!(
                         "IEC 61937 packet extracted: data_type=0x{:02X} pd_raw={} payload={} bytes",
                         data_type,
                         pd_raw,

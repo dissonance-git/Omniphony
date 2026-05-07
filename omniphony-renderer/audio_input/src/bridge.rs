@@ -26,7 +26,7 @@ impl LiveBridgeIngestRuntime {
             let _ = self.raw_tx.try_send((packet.data_type, packet.payload));
         }
         if packet_count > 0 {
-            log::info!(
+            log::debug!(
                 "LiveBridgeIngestRuntime: extracted {} SPDIF packet(s)",
                 packet_count
             );
