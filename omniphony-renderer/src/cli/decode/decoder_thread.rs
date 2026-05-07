@@ -209,64 +209,48 @@ pub fn spawn_decoder_thread(config: DecoderThreadConfig) -> thread::JoinHandle<R
                         .count();
                     let metadata_payloads: usize =
                         result.frames.iter().map(|frame| frame.metadata.len()).sum();
-                    let metadata_summary = result
-                        .frames
-                        .iter()
-                        .flat_map(|frame| frame.metadata.iter())
-                        .map(|meta| {
-                            let event_count = meta.events.len();
-                            let min_event_sample_pos =
-                                meta.events.iter().map(|event| event.sample_pos).min();
-                            let max_event_sample_pos =
-                                meta.events.iter().map(|event| event.sample_pos).max();
-                            let min_event_id = meta.events.iter().map(|event| event.id).min();
-                            let max_event_id = meta.events.iter().map(|event| event.id).max();
-                            format!(
-                                "meta[pos={} ramp={} events={} ev_pos={:?}..{:?} ev_id={:?}..{:?}]",
-                                meta.sample_pos,
-                                meta.ramp_duration,
-                                event_count,
-                                min_event_sample_pos,
-                                max_event_sample_pos,
-                                min_event_id,
-                                max_event_id
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ");
                     let new_segment_frames = result
                         .frames
                         .iter()
                         .filter(|frame| frame.is_new_segment)
                         .count();
-                    let sample_count_min =
-                        result.frames.iter().map(|frame| frame.sample_count).min();
-                    let sample_count_max =
-                        result.frames.iter().map(|frame| frame.sample_count).max();
-
                     if matches!(transport, RInputTransport::Iec61937) {
-                        if data_type == 0x15 {
-                            sys::live_log::emit_external_record(
-                                log::Level::Info,
-                                "orender::bridge",
-                                &format!(
-                                    "E-AC3 packet cadence: payload_bytes={} frames={} samples={} decoded_ms={:.3} decode_ms={:.3} sample_count_range={:?}..{:?}",
-                                    payload_len,
-                                    emitted_frames,
-                                    emitted_samples,
-                                    packet_emitted_ms,
-                                    decode_time_ms,
-                                    sample_count_min,
-                                    sample_count_max
-                                ),
-                            );
-                        }
                         let should_warn = result.did_reset
                             || !result.error_message.is_empty()
                             || (metadata_frames > 0 && emitted_frames == 0)
-                            || new_segment_frames > 0
-                            || emitted_frames == 0;
+                            || new_segment_frames > 0;
                         if should_warn {
+                            let sample_count_min =
+                                result.frames.iter().map(|frame| frame.sample_count).min();
+                            let sample_count_max =
+                                result.frames.iter().map(|frame| frame.sample_count).max();
+                            let metadata_summary = result
+                                .frames
+                                .iter()
+                                .flat_map(|frame| frame.metadata.iter())
+                                .map(|meta| {
+                                    let event_count = meta.events.len();
+                                    let min_event_sample_pos =
+                                        meta.events.iter().map(|event| event.sample_pos).min();
+                                    let max_event_sample_pos =
+                                        meta.events.iter().map(|event| event.sample_pos).max();
+                                    let min_event_id =
+                                        meta.events.iter().map(|event| event.id).min();
+                                    let max_event_id =
+                                        meta.events.iter().map(|event| event.id).max();
+                                    format!(
+                                        "meta[pos={} ramp={} events={} ev_pos={:?}..{:?} ev_id={:?}..{:?}]",
+                                        meta.sample_pos,
+                                        meta.ramp_duration,
+                                        event_count,
+                                        min_event_sample_pos,
+                                        max_event_sample_pos,
+                                        min_event_id,
+                                        max_event_id
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                                .join(" ");
                             sys::live_log::emit_external_record(
                                 log::Level::Warn,
                                 "orender::bridge",
