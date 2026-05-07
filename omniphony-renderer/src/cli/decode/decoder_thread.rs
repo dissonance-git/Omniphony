@@ -245,6 +245,22 @@ pub fn spawn_decoder_thread(config: DecoderThreadConfig) -> thread::JoinHandle<R
                         result.frames.iter().map(|frame| frame.sample_count).max();
 
                     if matches!(transport, RInputTransport::Iec61937) {
+                        if data_type == 0x15 {
+                            sys::live_log::emit_external_record(
+                                log::Level::Info,
+                                "orender::bridge",
+                                &format!(
+                                    "E-AC3 packet cadence: payload_bytes={} frames={} samples={} decoded_ms={:.3} decode_ms={:.3} sample_count_range={:?}..{:?}",
+                                    payload_len,
+                                    emitted_frames,
+                                    emitted_samples,
+                                    packet_emitted_ms,
+                                    decode_time_ms,
+                                    sample_count_min,
+                                    sample_count_max
+                                ),
+                            );
+                        }
                         let should_warn = result.did_reset
                             || !result.error_message.is_empty()
                             || (metadata_frames > 0 && emitted_frames == 0)
@@ -377,8 +393,13 @@ pub fn spawn_decoder_thread(config: DecoderThreadConfig) -> thread::JoinHandle<R
                     };
                     let session_audio_balance_ms =
                         session_throughput_audio_ms - session_elapsed_secs * 1000.0;
+                    let throughput_level = if window_rate < 0.95 || window_rate > 1.05 {
+                        log::Level::Warn
+                    } else {
+                        log::Level::Trace
+                    };
                     sys::live_log::emit_external_record(
-                        log::Level::Trace,
+                        throughput_level,
                         "orender::cli::decode::decoder_thread",
                         &format!(
                             "Input throughput: window_bytes_per_s={:.0} window_audio_ms={:.0} window_wall_ms={:.0} window_rate={:.3}x total_audio_ms={:.0} total_wall_ms={:.0} total_rate={:.3}x total_balance_ms={:+.0} window_chunks={} total_chunks={}",

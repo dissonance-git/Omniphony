@@ -272,19 +272,15 @@ fn refresh_pw_stream_driver_timing(
     // IEC958 streams, the callback payload is the authoritative transport domain:
     // `pw_time.size` can reflect a doubled sample-domain quantum while each
     // delivered chunk still contains the real transport frame count.
-    let (transport_frames, transport_source) = if user_data.negotiated_iec958
-        && user_data.observed_transport_frames > 0
-    {
-        (
-            user_data.observed_transport_frames as u64,
-            "observed_chunk",
-        )
-    } else {
-        (
-            (time.size / user_data.channels.max(1) as u64).max(1),
-            "pw_time",
-        )
-    };
+    let (transport_frames, transport_source) =
+        if user_data.negotiated_iec958 && user_data.observed_transport_frames > 0 {
+            (user_data.observed_transport_frames as u64, "observed_chunk")
+        } else {
+            (
+                (time.size / user_data.channels.max(1) as u64).max(1),
+                "pw_time",
+            )
+        };
     input_control
         .register_direct_trigger_quantum_frames(transport_frames.min(u32::MAX as u64) as u32);
     let quantum_ns = (transport_frames as u128 * time.rate.num as u128 * 1_000_000_000u128)
@@ -363,7 +359,7 @@ where
         &requested_latency,
     );
     log::info!(
-        "Publishing PipeWire bridge input sink: node={} description={} channels={} rate={}Hz latency={} resample.disable=true",
+        "Publishing PipeWire bridge input sink: node={} description={} channels={} rate={}Hz latency={} codecs=TRUEHD+EAC3 resample.disable=true",
         config.node_name,
         config.node_description,
         config.channels,
@@ -477,7 +473,12 @@ where
             } else {
                 user_data.negotiated_iec958 =
                     media_subtype == pw::spa::param::format::MediaSubtype::Iec958;
-                log::info!("{} format negotiated: subtype={:?}", log_prefix, media_subtype);
+                log::info!(
+                    "{} format negotiated: subtype={:?} iec958={}",
+                    log_prefix,
+                    media_subtype,
+                    user_data.negotiated_iec958
+                );
             }
         })
         .io_changed(move |_, user_data, id, area, size| {
@@ -748,29 +749,17 @@ where
             user_data.frames_since_log += frame_count;
             let now = Instant::now();
             if now.duration_since(user_data.last_log_at) >= LIVE_BRIDGE_LOG_INTERVAL {
-                log::debug!(
-                    "{} ingest: add_buffers={} remove_buffers={} drained={} io_changed={} process_calls={} buffers={} bytes={} sync_buffers={} packets={} frames={} empty_polls={} datas_empty={} data_missing={} zero_chunks={} oversized_chunks={} rate={}Hz channels={}",
+                log::info!(
+                    "{} ingest: buffers={} bytes={} sync_buffers={} packets={} frames={}",
                     log_prefix,
-                    user_data.add_buffer_calls_since_log,
-                    user_data.remove_buffer_calls_since_log,
-                    user_data.drained_calls_since_log,
-                    user_data.io_changed_calls_since_log,
-                    user_data.process_calls_since_log,
                     user_data.buffers_since_log,
                     user_data.bytes_since_log,
                     user_data.sync_buffers_since_log,
                     user_data.packets_since_log,
-                    user_data.frames_since_log,
-                    user_data.empty_polls_since_log,
-                    user_data.datas_empty_since_log,
-                    user_data.data_missing_since_log,
-                    user_data.zero_size_chunks_since_log,
-                    user_data.oversized_chunks_since_log,
-                    user_data.rate_hz,
-                    user_data.channels
+                    user_data.frames_since_log
                 );
                 if user_data.buffers_since_log > 0 && user_data.sync_buffers_since_log == 0 {
-                    log::debug!("{} ingest has audio buffers but no IEC61937 sync words yet", log_prefix);
+                    log::info!("{} ingest has audio buffers but no IEC61937 sync words yet", log_prefix);
                 }
                 user_data.last_log_at = now;
                 user_data.add_buffer_calls_since_log = 0;
@@ -814,17 +803,28 @@ where
         .register()
         .map_err(|e| anyhow!("Failed to register PipeWire bridge input listeners: {e:?}"))?;
 
-    let format_values = build_pipewire_bridge_format_pod(
+    // Advertise both formats with matching buffer pods.
+    let format_2ch_bytes = build_pipewire_bridge_format_pod(
         config.sample_rate_hz,
-        config.channels,
+        2,
         spa::param::ParamType::EnumFormat,
     )?;
-    let format_pod =
-        Pod::from_bytes(&format_values).ok_or_else(|| anyhow!("Invalid PipeWire format pod"))?;
-    let buffers_values = build_pipewire_bridge_buffers_pod(config.channels, config.sample_rate_hz)?;
-    let buffers_pod =
-        Pod::from_bytes(&buffers_values).ok_or_else(|| anyhow!("Invalid PipeWire buffers pod"))?;
-    let mut params = [format_pod, buffers_pod];
+    let format_8ch_bytes = build_pipewire_bridge_format_pod(
+        config.sample_rate_hz,
+        8,
+        spa::param::ParamType::EnumFormat,
+    )?;
+    let format_2ch = Pod::from_bytes(&format_2ch_bytes)
+        .ok_or_else(|| anyhow!("Invalid PipeWire 2ch format pod"))?;
+    let format_8ch = Pod::from_bytes(&format_8ch_bytes)
+        .ok_or_else(|| anyhow!("Invalid PipeWire 8ch format pod"))?;
+    let buffers_2ch_bytes = build_pipewire_bridge_buffers_pod(2, config.sample_rate_hz)?;
+    let buffers_8ch_bytes = build_pipewire_bridge_buffers_pod(8, config.sample_rate_hz)?;
+    let buffers_2ch = Pod::from_bytes(&buffers_2ch_bytes)
+        .ok_or_else(|| anyhow!("Invalid PipeWire 2ch buffers pod"))?;
+    let buffers_8ch = Pod::from_bytes(&buffers_8ch_bytes)
+        .ok_or_else(|| anyhow!("Invalid PipeWire 8ch buffers pod"))?;
+    let mut params = [format_2ch, buffers_2ch, format_8ch, buffers_8ch];
 
     let mut stream_flags =
         pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS;

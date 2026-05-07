@@ -49,6 +49,7 @@ use std::time::Instant;
 
 const DEFAULT_LIVE_INPUT_CHANNELS: u16 = 8;
 const DEFAULT_LIVE_INPUT_SAMPLE_RATE_HZ: u32 = 48_000;
+const DEFAULT_LIVE_BRIDGE_CHANNELS: u16 = 2;
 const DEFAULT_LIVE_BRIDGE_SAMPLE_RATE_HZ: u32 = 192_000;
 const DEFAULT_LIVE_INPUT_NODE: &str = "omniphony_input_7_1";
 const DEFAULT_LIVE_INPUT_DESCRIPTION: &str = "Omniphony Input 7.1";
@@ -479,9 +480,12 @@ fn resolve_pipewire_bridge_config(
         anyhow::bail!("only the PipeWire bridge input backend is implemented on Linux");
     }
 
-    let channels = requested.channels.unwrap_or(DEFAULT_LIVE_INPUT_CHANNELS);
-    if channels != 8 {
-        anyhow::bail!("PipeWire bridge input currently supports only 8-channel IEC958 mode");
+    let channels = requested.channels.unwrap_or(DEFAULT_LIVE_BRIDGE_CHANNELS);
+    if channels != 2 && channels != 8 {
+        anyhow::bail!(
+            "PipeWire bridge input supports 2-channel (E-AC3) or 8-channel (TrueHD) IEC958 mode, got {}",
+            channels
+        );
     }
 
     Ok(PipewireBridgeInputConfig {
@@ -494,9 +498,7 @@ fn resolve_pipewire_bridge_config(
             .clone()
             .unwrap_or_else(|| DEFAULT_LIVE_BRIDGE_DESCRIPTION.to_string()),
         channels,
-        sample_rate_hz: requested
-            .sample_rate_hz
-            .unwrap_or(DEFAULT_LIVE_BRIDGE_SAMPLE_RATE_HZ),
+        sample_rate_hz: DEFAULT_LIVE_BRIDGE_SAMPLE_RATE_HZ,
         target_latency_ms: requested_live_input_latency_ms(audio_control)
             .unwrap_or(PipewireBufferConfig::default().latency_ms)
             .max(1),

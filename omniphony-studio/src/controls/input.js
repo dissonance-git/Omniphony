@@ -66,6 +66,14 @@ function defaultDescriptionPlaceholder(requestedMode) {
     : 'Omniphony Input 7.1';
 }
 
+function defaultInputChannels(requestedMode) {
+  return requestedMode === 'pipewire_bridge' ? 2 : 8;
+}
+
+function defaultInputSampleRate(requestedMode) {
+  return requestedMode === 'pipewire_bridge' ? 192000 : 48000;
+}
+
 function bridgePathMissingMessage(requestedMode) {
   if (requestedMode !== 'pipe_bridge' && requestedMode !== 'pipewire_bridge') {
     return '';
@@ -81,16 +89,17 @@ function bridgePathMissingMessage(requestedMode) {
 }
 
 export function buildInputConfigPayload() {
+  const requestedMode = app.inputMode || 'pipe_bridge';
   return {
-    mode: app.inputMode || 'pipe_bridge',
+    mode: requestedMode,
     liveInput: {
       backend: app.liveInput.backend || null,
       node: app.liveInput.node || null,
       description: app.liveInput.description || null,
       layout: app.liveInput.layout || null,
-      clockMode: app.liveInput.clockMode || 'dac',
-      channels: app.liveInput.channels || null,
-      sampleRate: app.liveInput.sampleRate || null,
+      clockMode: app.liveInput.clockMode || 'upstream',
+      channels: app.liveInput.channels || defaultInputChannels(requestedMode),
+      sampleRate: app.liveInput.sampleRate || defaultInputSampleRate(requestedMode),
       format: app.liveInput.format || null,
       map: app.liveInput.map || '7.1-fixed',
       lfeMode: app.liveInput.lfeMode || 'object'
@@ -166,16 +175,16 @@ export function updateInputControlUI() {
   if (inputClockModeSelectEl) {
     inputClockModeSelectEl.value = ['dac', 'pipewire', 'upstream'].includes(app.liveInput.clockMode)
       ? app.liveInput.clockMode
-      : 'dac';
+      : 'upstream';
   }
   if (inputLayoutInputEl) {
     inputLayoutInputEl.value = stringOrEmpty(app.liveInput.layout);
   }
   if (inputChannelsInputEl) {
-    inputChannelsInputEl.value = String(app.liveInput.channels || 8);
+    inputChannelsInputEl.value = String(app.liveInput.channels || defaultInputChannels(requestedMode));
   }
   if (inputSampleRateInputEl) {
-    inputSampleRateInputEl.value = String(app.liveInput.sampleRate || 48000);
+    inputSampleRateInputEl.value = String(app.liveInput.sampleRate || defaultInputSampleRate(requestedMode));
   }
   if (inputFormatSelectEl) {
     inputFormatSelectEl.value = app.liveInput.format === 's16' ? 's16' : 'f32';
@@ -275,7 +284,7 @@ export function updateInputControlUI() {
     } else {
       const pipe = app.orenderInputPipe || '—';
       const clock = pipewireBridgeRequested
-        ? tf('input.status.clock', { clock: formatClockModeLabel(app.liveInput.clockMode || 'dac') })
+        ? tf('input.status.clock', { clock: formatClockModeLabel(app.liveInput.clockMode || 'upstream') })
         : '';
       inputStatusInfoEl.textContent = tf('input.status.bridge', {
         requested: requestedModeLabel,
@@ -302,7 +311,7 @@ export function updateInputControlUI() {
       inputSummaryEl.textContent = tf('input.summary.pipewireBridge', {
         requested: requestedModeLabel,
         active: activeModeLabel,
-        clock: formatClockModeLabel(app.liveInput.clockMode || 'dac')
+        clock: formatClockModeLabel(app.liveInput.clockMode || 'upstream')
       });
     } else {
       inputSummaryEl.textContent = tf('input.summary.bridge', {

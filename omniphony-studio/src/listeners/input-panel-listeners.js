@@ -24,10 +24,18 @@ export function setupInputPanelListeners() {
 
   if (inputModeSelectEl) {
     inputModeSelectEl.addEventListener('change', () => {
+      const previousMode = app.inputMode;
       const value = ['pipewire', 'pipewire_bridge', 'pipe_bridge'].includes(inputModeSelectEl.value)
         ? inputModeSelectEl.value
         : 'pipe_bridge';
       app.inputMode = value;
+      if (value === 'pipewire_bridge' && previousMode !== 'pipewire_bridge') {
+        app.liveInput.channels = 2;
+        app.liveInput.sampleRate = 192000;
+      } else if (value === 'pipewire' && previousMode !== 'pipewire') {
+        app.liveInput.channels = 8;
+        app.liveInput.sampleRate = 48000;
+      }
       updateInputControlUI();
       sendInputConfig();
     });
@@ -97,7 +105,7 @@ export function setupInputPanelListeners() {
     inputClockModeSelectEl.addEventListener('change', () => {
       const value = ['dac', 'pipewire', 'upstream'].includes(inputClockModeSelectEl.value)
         ? inputClockModeSelectEl.value
-        : 'dac';
+        : 'upstream';
       app.liveInput.clockMode = value;
       updateInputControlUI();
       sendInputConfig();
@@ -129,7 +137,8 @@ export function setupInputPanelListeners() {
 
   if (inputChannelsInputEl) {
     inputChannelsInputEl.addEventListener('change', () => {
-      const value = Math.max(1, Math.round(Number(inputChannelsInputEl.value) || 8));
+      const fallback = app.inputMode === 'pipewire_bridge' ? 2 : 8;
+      const value = Math.max(1, Math.round(Number(inputChannelsInputEl.value) || fallback));
       app.liveInput.channels = value;
       updateInputControlUI();
       sendInputConfig();
@@ -138,7 +147,8 @@ export function setupInputPanelListeners() {
 
   if (inputSampleRateInputEl) {
     inputSampleRateInputEl.addEventListener('change', () => {
-      const value = Math.max(1, Math.round(Number(inputSampleRateInputEl.value) || 48000));
+      const fallback = app.inputMode === 'pipewire_bridge' ? 192000 : 48000;
+      const value = Math.max(1, Math.round(Number(inputSampleRateInputEl.value) || fallback));
       app.liveInput.sampleRate = value;
       updateInputControlUI();
       sendInputConfig();

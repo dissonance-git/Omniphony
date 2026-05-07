@@ -213,9 +213,9 @@ export const app = {
     node: '',
     description: '',
     layout: '',
-    clockMode: 'dac',
-    channels: 8,
-    sampleRate: 48000,
+    clockMode: 'upstream',
+    channels: 2,
+    sampleRate: 192000,
     format: 'f32',
     map: '7.1-fixed',
     lfeMode: 'object'

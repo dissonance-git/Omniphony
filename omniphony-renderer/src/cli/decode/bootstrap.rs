@@ -131,7 +131,9 @@ fn build_requested_input_config(
             requested.clock_mode = match live_input.clock_mode {
                 Some(renderer::config::InputClockModeConfig::Pipewire) => InputClockMode::Pipewire,
                 Some(renderer::config::InputClockModeConfig::Upstream) => InputClockMode::Upstream,
-                Some(renderer::config::InputClockModeConfig::Dac) | None => InputClockMode::Dac,
+                Some(renderer::config::InputClockModeConfig::Dac) => InputClockMode::Dac,
+                None if requested.mode == InputMode::PipewireBridge => InputClockMode::Upstream,
+                None => InputClockMode::Dac,
             };
             requested.channels = live_input.channels;
             requested.sample_rate_hz = live_input.sample_rate;
