@@ -35,6 +35,10 @@ pub(crate) struct NativeVbapLayout {
     u_spkr: Vec<[f32; 3]>,
     ls_groups: Vec<[usize; 3]>,
     layout_inv_mtx: Vec<[f32; 9]>,
+    /// Per-effective-speaker flag: `true` for the virtual ±90° pole(s) injected
+    /// for triangulation. `vbap3d` uses this to fold dummy gain back into real
+    /// speakers of the matched triangle instead of letting it be silently dropped.
+    is_dummy: Vec<bool>,
 }
 
 impl NativeVbapLayout {
@@ -50,13 +54,16 @@ impl NativeVbapLayout {
         let need_dummy_pos = speaker_dirs_deg.iter().all(|d| d[1] < ADD_DUMMY_LIMIT);
 
         let effective_dirs: Vec<[f32; 2]>;
+        let mut is_dummy: Vec<bool> = vec![false; n_real];
         if need_dummy_neg || need_dummy_pos {
             let mut dirs = speaker_dirs_deg.to_vec();
             if need_dummy_neg {
                 dirs.push([0.0, -90.0]);
+                is_dummy.push(true);
             }
             if need_dummy_pos {
                 dirs.push([0.0, 90.0]);
+                is_dummy.push(true);
             }
             effective_dirs = dirs;
         } else {
@@ -64,6 +71,7 @@ impl NativeVbapLayout {
         }
 
         let n_eff = effective_dirs.len();
+        debug_assert_eq!(is_dummy.len(), n_eff);
 
         let (u_spkr, ls_groups) = find_ls_triplets(&effective_dirs, true)
             .ok_or_else(|| "find_ls_triplets failed".to_string())?;
@@ -82,6 +90,7 @@ impl NativeVbapLayout {
             u_spkr,
             ls_groups,
             layout_inv_mtx,
+            is_dummy,
         })
     }
 
@@ -102,6 +111,7 @@ impl NativeVbapLayout {
             &self.ls_groups,
             spread_deg,
             &self.layout_inv_mtx,
+            &self.is_dummy,
         );
 
         // Strip dummy speaker columns — keep only the first n_speakers entries.
@@ -123,6 +133,81 @@ impl VbapGainSource for NativeVbapLayout {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Standard horizontal layout (no top/bottom speakers) — exercises both
+    /// dummy injections (±90°) so the redistribution path is hit at both poles.
+    fn horizontal_7_layout() -> [[f32; 2]; 7] {
+        [
+            [0.0, 0.0],     // C
+            [-30.0, 0.0],   // L
+            [30.0, 0.0],    // R
+            [-110.0, 0.0],  // LS
+            [110.0, 0.0],   // RS
+            [-150.0, 0.0],  // LRS
+            [150.0, 0.0],   // RRS
+        ]
+    }
+
+    fn rms(g: &Gains) -> f32 {
+        (0..g.len()).map(|i| g[i] * g[i]).sum::<f32>().sqrt()
+    }
+
+    #[test]
+    fn test_vertical_z_axis_no_silence() {
+        let dirs = horizontal_7_layout();
+        let layout = NativeVbapLayout::from_speaker_dirs(&dirs).unwrap();
+
+        // (X=0, Y=0, Z>0) → elevation = +90° (zenith)
+        let zenith = layout.vbap_gains(0.0, 90.0, 0.0).unwrap();
+        assert!(
+            rms(&zenith) > 0.5,
+            "zenith should not be silent, got rms={}",
+            rms(&zenith)
+        );
+
+        // (X=0, Y=0, Z<0) → elevation = -90° (nadir)
+        let nadir = layout.vbap_gains(0.0, -90.0, 0.0).unwrap();
+        assert!(
+            rms(&nadir) > 0.5,
+            "nadir should not be silent, got rms={}",
+            rms(&nadir)
+        );
+    }
+
+    #[test]
+    fn test_z_sweep_continuity() {
+        let dirs = horizontal_7_layout();
+        let layout = NativeVbapLayout::from_speaker_dirs(&dirs).unwrap();
+
+        // Sweep elevation from -90° to +90°, azimuth pinned (matches the
+        // X=0, Y=0, Z varying trajectory after `adm_to_spherical`).
+        for el_i in -9..=9 {
+            let el = el_i as f32 * 10.0;
+            let g = layout.vbap_gains(0.0, el, 0.0).unwrap();
+            assert!(
+                rms(&g) > 0.5,
+                "energy dropout at elevation {el}°: rms={}",
+                rms(&g)
+            );
+        }
+    }
+
+    #[test]
+    fn test_energy_conservation_at_pole() {
+        let dirs = horizontal_7_layout();
+        let layout = NativeVbapLayout::from_speaker_dirs(&dirs).unwrap();
+
+        // After redistribution, the RMS over real speakers should be ≈ 1.0
+        // (energy that used to leak onto the dummy is now folded back).
+        for el in [-90.0_f32, -75.0, 0.0, 75.0, 90.0] {
+            let g = layout.vbap_gains(0.0, el, 0.0).unwrap();
+            let r = rms(&g);
+            assert!(
+                (r - 1.0).abs() < 0.05,
+                "energy not conserved at elevation {el}°: rms={r}"
+            );
+        }
+    }
 
     #[test]
     fn test_coplanar_speakers_position_aware() {

@@ -291,6 +291,46 @@ pub fn get_spread_src_dirs_3d(
     out
 }
 
+// ── Dummy-speaker redistribution ─────────────────────────────────────────────
+
+/// Move the gain assigned to dummy (virtual) speakers in a matched triangle
+/// onto the real speakers of the same triangle, preserving total energy.
+///
+/// When the layout has no real speakers near ±90° elevation, dummy speakers are
+/// injected at the poles so the convex-hull triangulation succeeds. Without
+/// this redistribution, a source at (or near) a pole would land in a triangle
+/// whose dummy vertex absorbs all of the gain, only to be silently dropped
+/// when the gain matrix is trimmed back to the real-speaker count.
+#[inline]
+fn redistribute_dummy_in_triangle(
+    g: [f32; 3],
+    face: [usize; 3],
+    is_dummy: &[bool],
+) -> [f32; 3] {
+    let mask = [is_dummy[face[0]], is_dummy[face[1]], is_dummy[face[2]]];
+    if !(mask[0] || mask[1] || mask[2]) {
+        return g;
+    }
+    let dummy_sum: f32 = (0..3).filter(|i| mask[*i]).map(|i| g[i]).sum();
+    let real_sum: f32 = (0..3).filter(|i| !mask[*i]).map(|i| g[i]).sum();
+    let n_real_in_face = mask.iter().filter(|d| !**d).count();
+
+    let mut out = [0.0_f32; 3];
+    for i in 0..3 {
+        if mask[i] {
+            continue;
+        }
+        out[i] = if real_sum.abs() > 1e-30 {
+            g[i] + dummy_sum * (g[i] / real_sum)
+        } else if n_real_in_face > 0 {
+            dummy_sum / n_real_in_face as f32
+        } else {
+            0.0
+        };
+    }
+    out
+}
+
 // ── vbap3D ───────────────────────────────────────────────────────────────────
 
 /// Compute VBAP (or MDAP with spread) gains for a batch of source directions.
@@ -300,6 +340,9 @@ pub fn get_spread_src_dirs_3d(
 /// `ls_groups`: triangle indices into speakers.
 /// `spread_deg`: spread in degrees; 0 = pure VBAP, >0 = MDAP.
 /// `layout_inv_mtx`: per-triangle 3×3 inverse speaker matrices.
+/// `is_dummy`: per-speaker flag (length `n_speakers`); when set, the speaker is
+/// a virtual pole inserted to make the triangulation 3-D — its gain is folded
+/// back into the real speakers of the matched triangle.
 ///
 /// Returns a flat `[n_sources × n_speakers]` gain matrix.
 pub fn vbap3d(
@@ -308,7 +351,9 @@ pub fn vbap3d(
     ls_groups: &[[usize; 3]],
     spread_deg: f32,
     layout_inv_mtx: &[[f32; 9]],
+    is_dummy: &[bool],
 ) -> Vec<f32> {
+    debug_assert_eq!(is_dummy.len(), n_speakers);
     let n_src = src_dirs.len();
     let _n_faces = ls_groups.len();
     let mut gain_mtx = vec![0.0f32; n_src * n_speakers];
@@ -342,9 +387,14 @@ pub fn vbap3d(
                     if min_val > -0.001 {
                         let rms = (g0 * g0 + g1 * g1 + g2 * g2).sqrt();
                         if rms > 1e-30 {
-                            gains[face[0]] += g0 / rms;
-                            gains[face[1]] += g1 / rms;
-                            gains[face[2]] += g2 / rms;
+                            let gr = redistribute_dummy_in_triangle(
+                                [g0 / rms, g1 / rms, g2 / rms],
+                                *face,
+                                is_dummy,
+                            );
+                            gains[face[0]] += gr[0];
+                            gains[face[1]] += gr[1];
+                            gains[face[2]] += gr[2];
                         }
                     }
                 }
@@ -379,9 +429,14 @@ pub fn vbap3d(
                 if min_val > -0.001 {
                     let rms = (g0 * g0 + g1 * g1 + g2 * g2).sqrt();
                     if rms > 1e-30 {
-                        gains[face[0]] = g0 / rms;
-                        gains[face[1]] = g1 / rms;
-                        gains[face[2]] = g2 / rms;
+                        let gr = redistribute_dummy_in_triangle(
+                            [g0 / rms, g1 / rms, g2 / rms],
+                            *face,
+                            is_dummy,
+                        );
+                        gains[face[0]] = gr[0];
+                        gains[face[1]] = gr[1];
+                        gains[face[2]] = gr[2];
                     }
                     break 'faces;
                 }
@@ -439,6 +494,7 @@ pub fn generate_vbap_gain_table_3d(
     // Optionally add dummy speakers at ±90° elevation
     let effective_dirs: Vec<[f32; 2]>;
     let n_real = ls_dirs_deg.len();
+    let mut is_dummy: Vec<bool> = vec![false; n_real];
 
     if enable_dummies {
         let need_dummy_neg = ls_dirs_deg.iter().all(|d| d[1] > -ADD_DUMMY_LIMIT);
@@ -448,9 +504,11 @@ pub fn generate_vbap_gain_table_3d(
             let mut dirs = ls_dirs_deg.to_vec();
             if need_dummy_neg {
                 dirs.push([0.0, -90.0]);
+                is_dummy.push(true);
             }
             if need_dummy_pos {
                 dirs.push([0.0, 90.0]);
+                is_dummy.push(true);
             }
             effective_dirs = dirs;
         } else {
@@ -468,7 +526,7 @@ pub fn generate_vbap_gain_table_3d(
     let n_points = n_az * n_el;
 
     // Compute gains for all grid directions (using effective speaker count)
-    let mut gtable = vbap3d(&src_dirs, n_eff, &ls_groups, spread, &layout_inv_mtx);
+    let mut gtable = vbap3d(&src_dirs, n_eff, &ls_groups, spread, &layout_inv_mtx, &is_dummy);
 
     // Strip dummy speaker columns — shrink each row from n_eff to n_real
     if n_eff > n_real {

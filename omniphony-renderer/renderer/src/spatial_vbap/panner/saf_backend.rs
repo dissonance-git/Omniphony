@@ -147,6 +147,11 @@ impl SpartaVbapLayout {
         }
 
         // SAF returns n_eff gains — keep only the first n_speakers (real speakers).
+        // TODO: dummy-redistribution parity with native_backend. Sources at the poles
+        // (X≈Y≈0, |Z|>0) place all energy on the dummy column, which is dropped here.
+        // The native backend re-folds dummy gains into the matched triangle's real
+        // vertices inside vbap3d; the SAF FFI doesn't expose that hook, so a post-hoc
+        // k-nearest redistribution table would be needed instead.
         let all_gains = unsafe { std::slice::from_raw_parts(gain_mtx, self.n_eff) };
         let out = Gains::from_slice(&all_gains[..self.n_speakers]);
         unsafe { libc::free(gain_mtx as *mut libc::c_void) };
