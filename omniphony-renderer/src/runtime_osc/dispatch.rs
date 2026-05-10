@@ -6,9 +6,13 @@ use audio_input::InputControl;
 use audio_output::AudioControl;
 use renderer::live_params::RendererControl;
 use rosc::{OscMessage, OscType};
+use runtime_control::band_topology_cache::BandTopologyCache;
 use runtime_control::command::{RuntimeCommand, parse_process_command};
 use runtime_control::context::RuntimeControlContext;
-use runtime_control::osc::{BroadcastValue, ControlEffects, apply_simple_osc_control};
+use runtime_control::heatmap_sub::HeatmapSubscriptionState;
+use runtime_control::osc::{
+    BroadcastValue, ControlEffects, apply_simple_osc_control, republish_heatmap_if_changed,
+};
 
 use super::client_registry::OscClientRegistry;
 use super::export::{build_live_state_bundle, export_current_layout, save_live_config};
@@ -23,6 +27,8 @@ pub(crate) struct RealtimeSeqState {
     pub master_gain: Option<i32>,
     pub speaker_gain: HashMap<usize, i32>,
     pub object_gain: HashMap<String, i32>,
+    pub heatmap_sub: Arc<HeatmapSubscriptionState>,
+    pub band_topology_cache: Arc<BandTopologyCache>,
 }
 
 pub(crate) fn handle_control_message(
@@ -36,10 +42,12 @@ pub(crate) fn handle_control_message(
     clients: &Arc<OscClientRegistry>,
 ) {
     let addr = msg.addr.as_str();
-    let runtime_ctx = RuntimeControlContext::new(
+    let runtime_ctx = RuntimeControlContext::with_shared_state(
         Arc::clone(control),
         audio_control.cloned(),
         input_control.cloned(),
+        Arc::clone(&realtime_seq.heatmap_sub),
+        Arc::clone(&realtime_seq.band_topology_cache),
     );
 
     if addr == "/omniphony/control/metering" {
@@ -290,6 +298,7 @@ pub(crate) fn handle_control_message(
             input_control,
             socket,
             clients,
+            &runtime_ctx,
         );
         return;
     }
@@ -316,6 +325,7 @@ fn apply_control_effects(
     input_control: Option<&Arc<InputControl>>,
     socket: &Arc<UdpSocket>,
     clients: &Arc<OscClientRegistry>,
+    runtime_ctx: &RuntimeControlContext,
 ) {
     if effects.mark_dirty {
         set_dirty(control, socket, clients);
@@ -336,6 +346,24 @@ fn apply_control_effects(
         log::info!("{message}");
     }
     if effects.trigger_layout_recompute {
-        trigger_layout_recompute(control, socket, clients);
+        trigger_layout_recompute(
+            control,
+            socket,
+            clients,
+            Arc::clone(&runtime_ctx.heatmap_sub),
+            Arc::clone(&runtime_ctx.band_topology_cache),
+        );
+    }
+    // After any state change, republish the heatmap to the active subscription
+    // — but only if the recomputed payload differs from the last one cached.
+    // This is the keystone of the pub/sub model: edits that don't actually move
+    // the speaker (or otherwise change the heatmap) cost zero VBAP regen.
+    if effects.mark_dirty || effects.trigger_layout_recompute {
+        let pushes = republish_heatmap_if_changed(runtime_ctx);
+        for update in pushes {
+            if let BroadcastValue::String(value) = &update.value {
+                broadcast_string(socket, clients, &update.addr, value);
+            }
+        }
     }
 }

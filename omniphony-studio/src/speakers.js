@@ -87,7 +87,11 @@ import {
 } from './scene/materials.js';
 
 import { createLabelSprite, setLabelSpriteText, updateSpeakerLabelsFromSelection } from './scene/labels.js';
-import { requestSpeakerHeatmapIfNeeded, refreshSpeakerHeatmapScene } from './scene/speaker-heatmap.js';
+import {
+  refreshSpeakerHeatmapScene,
+  subscribeSpeakerHeatmap,
+  unsubscribeSpeakerHeatmap,
+} from './scene/speaker-heatmap.js';
 
 import {
   speakerGizmo,
@@ -786,15 +790,23 @@ export function applySpeakerSceneCartesianEdit(index, x, y, z, sendOsc = true) {
   updateSpeakerVisualsFromState(index);
 
   if (sendOsc) {
-    updateSpeakerLayoutPatch(index, {
-      coordMode: getSpeakerCoordMode(speaker),
-      x: speaker.x,
-      y: speaker.y,
-      z: speaker.z,
-      azimuth: speaker.azimuthDeg,
-      elevation: speaker.elevationDeg,
-      distance: speaker.distanceM
-    }, { apply: true });
+    // Send only the block matching the active coord_mode. Sending both cart and
+    // polar in the same patch is asking for trouble — the renderer would otherwise
+    // apply both sequentially and the second would overwrite the first (bug
+    // observed: Y typed as 0.500 came back as 0.938 after a polar round-trip with
+    // mismatched conventions/units).
+    const mode = getSpeakerCoordMode(speaker);
+    const patch = { coordMode: mode };
+    if (mode === 'cartesian') {
+      patch.x = speaker.x;
+      patch.y = speaker.y;
+      patch.z = speaker.z;
+    } else {
+      patch.azimuth = speaker.azimuthDeg;
+      patch.elevation = speaker.elevationDeg;
+      patch.distance = speaker.distanceM;
+    }
+    updateSpeakerLayoutPatch(index, patch, { apply: true });
   }
 
   renderSpeakerEditor();
@@ -887,14 +899,14 @@ export function renderSpeakerEditor() {
 
   if (speakerEditTitleEl) speakerEditTitleEl.textContent = `Speaker ${idx}`;
   if (speakerEditNameInputEl) speakerEditNameInputEl.value = String(speaker.id ?? idx);
-  if (speakerEditXInputEl) speakerEditXInputEl.value = formatNumber(Number(speaker.x), 3);
-  if (speakerEditYInputEl) speakerEditYInputEl.value = formatNumber(Number(speaker.y), 3);
-  if (speakerEditZInputEl) speakerEditZInputEl.value = formatNumber(Number(speaker.z), 3);
+  syncInputValueUnlessEditing(speakerEditXInputEl, formatNumber(Number(speaker.x), 3));
+  syncInputValueUnlessEditing(speakerEditYInputEl, formatNumber(Number(speaker.y), 3));
+  syncInputValueUnlessEditing(speakerEditZInputEl, formatNumber(Number(speaker.z), 3));
   if (speakerEditCartesianModeEl) speakerEditCartesianModeEl.checked = getSpeakerCoordMode(speaker) === 'cartesian';
   if (speakerEditPolarModeEl) speakerEditPolarModeEl.checked = getSpeakerCoordMode(speaker) === 'polar';
-  if (speakerEditAzInputEl) speakerEditAzInputEl.value = formatNumber(az, 1);
-  if (speakerEditElInputEl) speakerEditElInputEl.value = formatNumber(el, 1);
-  if (speakerEditRInputEl) speakerEditRInputEl.value = formatNumber(r, 3);
+  syncInputValueUnlessEditing(speakerEditAzInputEl, formatNumber(az, 1));
+  syncInputValueUnlessEditing(speakerEditElInputEl, formatNumber(el, 1));
+  syncInputValueUnlessEditing(speakerEditRInputEl, formatNumber(r, 3));
   if (speakerEditGainSliderEl) speakerEditGainSliderEl.value = String(gain);
   if (speakerEditGainBoxEl) speakerEditGainBoxEl.textContent = linearToDb(gain);
   if (speakerEditDelayMsInputEl) speakerEditDelayMsInputEl.value = String(Math.max(0, delayMs));
@@ -1326,7 +1338,11 @@ export function setSelectedSpeaker(index) {
   updateSpeakerGizmo();
   updateSpeakerControlsUI();
   updateControlsForEditMode();
-  requestSpeakerHeatmapIfNeeded();
+  if (index === null) {
+    unsubscribeSpeakerHeatmap();
+  } else {
+    subscribeSpeakerHeatmap();
+  }
 }
 
 export function updateControlsForEditMode() {

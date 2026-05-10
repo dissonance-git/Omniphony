@@ -188,46 +188,73 @@ export function setupSpeakerEditorListeners() {
     });
   }
 
+  // Read only the field that fired; pull the other axes from the canonical
+  // speaker state. Reading them back from the DOM would re-inject the
+  // 3-decimal-rounded display value and drift the untouched axes on every edit.
   bindSpeakerCoordChange(speakerEditXInputEl, (idx) => {
-    const gx = Number(speakerEditXInputEl?.value);
-    const gy = Number(speakerEditYInputEl?.value);
-    const gz = Number(speakerEditZInputEl?.value);
-    applySpeakerCartesianEdit(idx, gx, gy, gz, true);
+    const speaker = app.currentLayoutSpeakers[idx];
+    if (!speaker) return;
+    const x = Number(speakerEditXInputEl?.value);
+    if (!Number.isFinite(x)) return;
+    applySpeakerCartesianEdit(idx, x, Number(speaker.y) || 0, Number(speaker.z) || 0, true);
   });
 
   bindSpeakerCoordChange(speakerEditYInputEl, (idx) => {
-    const gx = Number(speakerEditXInputEl?.value);
-    const gy = Number(speakerEditYInputEl?.value);
-    const gz = Number(speakerEditZInputEl?.value);
-    applySpeakerCartesianEdit(idx, gx, gy, gz, true);
+    const speaker = app.currentLayoutSpeakers[idx];
+    if (!speaker) return;
+    const y = Number(speakerEditYInputEl?.value);
+    if (!Number.isFinite(y)) return;
+    applySpeakerCartesianEdit(idx, Number(speaker.x) || 0, y, Number(speaker.z) || 0, true);
   });
 
   bindSpeakerCoordChange(speakerEditZInputEl, (idx) => {
-    const gx = Number(speakerEditXInputEl?.value);
-    const gy = Number(speakerEditYInputEl?.value);
-    const gz = Number(speakerEditZInputEl?.value);
-    applySpeakerCartesianEdit(idx, gx, gy, gz, true);
+    const speaker = app.currentLayoutSpeakers[idx];
+    if (!speaker) return;
+    const z = Number(speakerEditZInputEl?.value);
+    if (!Number.isFinite(z)) return;
+    applySpeakerCartesianEdit(idx, Number(speaker.x) || 0, Number(speaker.y) || 0, z, true);
   });
 
   bindSpeakerCoordChange(speakerEditAzInputEl, (idx) => {
+    const speaker = app.currentLayoutSpeakers[idx];
+    if (!speaker) return;
     const az = Number(speakerEditAzInputEl?.value);
-    const el = Number(speakerEditElInputEl?.value);
-    const r = Number(speakerEditRInputEl?.value);
-    applySpeakerPolarEdit(idx, az, el, r, true);
+    if (!Number.isFinite(az)) return;
+    applySpeakerPolarEdit(
+      idx,
+      az,
+      Number(speaker.elevationDeg) || 0,
+      Number(speaker.distanceM) || 0.01,
+      true,
+    );
   });
 
   bindSpeakerCoordChange(speakerEditElInputEl, (idx) => {
-    const az = Number(speakerEditAzInputEl?.value);
+    const speaker = app.currentLayoutSpeakers[idx];
+    if (!speaker) return;
     const el = Number(speakerEditElInputEl?.value);
-    const r = Number(speakerEditRInputEl?.value);
-    applySpeakerPolarEdit(idx, az, el, r, true);
+    if (!Number.isFinite(el)) return;
+    applySpeakerPolarEdit(
+      idx,
+      Number(speaker.azimuthDeg) || 0,
+      el,
+      Number(speaker.distanceM) || 0.01,
+      true,
+    );
   });
 
   bindSpeakerCoordChange(speakerEditRInputEl, (idx) => {
-    const az = Number(speakerEditAzInputEl?.value);
-    const el = Number(speakerEditElInputEl?.value);
+    const speaker = app.currentLayoutSpeakers[idx];
+    if (!speaker) return;
     const r = Number(speakerEditRInputEl?.value);
-    applySpeakerPolarEdit(idx, az, el, r, true);
+    if (!Number.isFinite(r)) return;
+    applySpeakerPolarEdit(
+      idx,
+      Number(speaker.azimuthDeg) || 0,
+      Number(speaker.elevationDeg) || 0,
+      r,
+      true,
+    );
   });
 
   if (speakerEditSpatializeToggleEl) {

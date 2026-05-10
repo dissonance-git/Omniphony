@@ -75,14 +75,16 @@ import {
   handleSpeakerHeatmapSlice,
   handleSpeakerHeatmapVolumeChunk,
   handleSpeakerHeatmapUnavailable,
-  requestSpeakerHeatmapIfNeeded,
 } from './scene/speaker-heatmap.js';
 
 export function setupTauriBridge() {
   listen('state:snapshot_ready', ({ payload }) => {
     if (payload && typeof payload === 'object') {
       applyInitState(payload);
-      requestSpeakerHeatmapIfNeeded();
+      // Heatmap is push-based now: the renderer pushes new tiles automatically
+      // to the active subscription. No need to re-request on every state echo
+      // — that was the engine of the heatmap storm. Re-subscribe only on
+      // explicit user action (speaker selection, heatmap toggle, etc.).
     }
   });
 
@@ -92,7 +94,6 @@ export function setupTauriBridge() {
 
   listen('layouts:update', ({ payload }) => {
     hydrateLayoutSelect(payload.layouts || [], payload.selectedLayoutKey);
-    requestSpeakerHeatmapIfNeeded();
   });
 
   listen('layout:selected', ({ payload }) => {
@@ -100,7 +101,6 @@ export function setupTauriBridge() {
       const layoutSelectEl = document.getElementById('layoutSelect');
       if (layoutSelectEl) layoutSelectEl.value = payload.key;
       renderLayout(payload.key);
-      requestSpeakerHeatmapIfNeeded();
     }
   });
 
@@ -302,32 +302,32 @@ export function setupTauriBridge() {
     renderVbapStatus();
   });
 
+  // Heatmap re-requests removed: the renderer pushes new tiles to the
+  // active subscription whenever the underlying state changes (and the
+  // payload actually differs from the last cached one). The studio just
+  // listens for incoming pushes — see `speaker_heatmap:*` handlers below.
   listen('render_evaluation:cartesian:x_size', ({ payload }) => {
     const value = Number(payload.value);
     app.vbapCartesianState.xSize = value > 0 ? value : null;
     updateVbapCartesian();
-    requestSpeakerHeatmapIfNeeded();
   });
 
   listen('render_evaluation:cartesian:y_size', ({ payload }) => {
     const value = Number(payload.value);
     app.vbapCartesianState.ySize = value > 0 ? value : null;
     updateVbapCartesian();
-    requestSpeakerHeatmapIfNeeded();
   });
 
   listen('render_evaluation:cartesian:z_size', ({ payload }) => {
     const value = Number(payload.value);
     app.vbapCartesianState.zSize = value > 0 ? value : null;
     updateVbapCartesian();
-    requestSpeakerHeatmapIfNeeded();
   });
 
   listen('render_evaluation:cartesian:z_neg_size', ({ payload }) => {
     const value = Number(payload.value);
     app.vbapCartesianState.zNegSize = value >= 0 ? value : 0;
     updateVbapCartesian();
-    requestSpeakerHeatmapIfNeeded();
   });
 
   listen('speaker_heatmap:meta', ({ payload }) => {

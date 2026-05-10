@@ -401,6 +401,11 @@ pub struct AppState {
     pub selected_layout_key: Option<String>,
     #[serde(rename = "oscSnapshotReady")]
     pub osc_snapshot_ready: bool,
+    /// Hash of the last `state/layout` JSON applied, so we can dedup repeated
+    /// broadcasts that carry identical content (the renderer re-broadcasts the
+    /// full layout on apply and again post-recompute).
+    #[serde(skip)]
+    pub last_layout_state_hash: Option<u64>,
 }
 
 impl AppState {
@@ -568,6 +573,7 @@ impl Default for AppState {
             layouts: Vec::new(),
             selected_layout_key: None,
             osc_snapshot_ready: false,
+            last_layout_state_hash: None,
         }
     }
 }

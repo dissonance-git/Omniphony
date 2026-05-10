@@ -306,6 +306,18 @@ fn layout_update_payload(s: &AppState) -> serde_json::Value {
 }
 
 fn apply_layout_domain_state(s: &mut AppState, value: &str) -> bool {
+    // Dedup at the byte-equality level: the renderer re-broadcasts the full
+    // layout JSON on stage, on apply and post-recompute, often with identical
+    // content. Returning false skips the `layouts:update` emit downstream.
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    let new_hash = hasher.finish();
+    if s.last_layout_state_hash == Some(new_hash) {
+        return false;
+    }
+
     let Ok(parsed) = serde_json::from_str::<LayoutDomainState>(value) else {
         return false;
     };
@@ -331,6 +343,7 @@ fn apply_layout_domain_state(s: &mut AppState, value: &str) -> bool {
     s.layouts.retain(|entry| entry.key != "omniphony-live");
     s.layouts.insert(0, layout);
     s.selected_layout_key = Some("omniphony-live".to_string());
+    s.last_layout_state_hash = Some(new_hash);
     true
 }
 

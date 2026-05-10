@@ -5,7 +5,7 @@ import { rebuildTrailGeometry, createTrailRenderable } from '../trails.js';
 import { scene } from '../scene/setup.js';
 import { applySpeakerLevel, updateSourceDecorations, updateSourceSelectionStyles } from '../sources.js';
 import { refreshOverlayLists, updateSpeakerVisualsFromState } from '../speakers.js';
-import { requestSpeakerHeatmapIfNeeded, syncSpeakerHeatmapBandSelect } from '../scene/speaker-heatmap.js';
+import { subscribeSpeakerHeatmap, syncSpeakerHeatmapBandSelect } from '../scene/speaker-heatmap.js';
 
 export function setupTrailsAndDisplayListeners() {
   const trailToggleEl = document.getElementById('trailToggle');
@@ -176,7 +176,7 @@ export function setupTrailsAndDisplayListeners() {
     speakerHeatmapSlicesToggleEl.checked = app.speakerHeatmapSlicesEnabled;
     speakerHeatmapSlicesToggleEl.addEventListener('change', () => {
       app.speakerHeatmapSlicesEnabled = speakerHeatmapSlicesToggleEl.checked;
-      requestSpeakerHeatmapIfNeeded();
+      subscribeSpeakerHeatmap();
       persistEffectiveRenderPrefs();
     });
   }
@@ -185,7 +185,7 @@ export function setupTrailsAndDisplayListeners() {
     speakerHeatmapVolumeToggleEl.checked = app.speakerHeatmapVolumeEnabled;
     speakerHeatmapVolumeToggleEl.addEventListener('change', () => {
       app.speakerHeatmapVolumeEnabled = speakerHeatmapVolumeToggleEl.checked;
-      requestSpeakerHeatmapIfNeeded();
+      subscribeSpeakerHeatmap();
       persistEffectiveRenderPrefs();
     });
   }
@@ -198,7 +198,7 @@ export function setupTrailsAndDisplayListeners() {
       syncSpeakerHeatmapBandSelect();
       refreshOverlayLists();
       refreshEffectiveRenderVisibility();
-      requestSpeakerHeatmapIfNeeded();
+      subscribeSpeakerHeatmap();
       persistEffectiveRenderPrefs();
     });
   }
@@ -209,7 +209,7 @@ export function setupTrailsAndDisplayListeners() {
       const nextCount = Number(speakerHeatmapSampleCountInputEl.value);
       app.speakerHeatmapSampleCount = Math.max(128, Math.min(20000, Math.round(Number.isFinite(nextCount) ? nextCount : 3072)));
       speakerHeatmapSampleCountInputEl.value = String(app.speakerHeatmapSampleCount);
-      requestSpeakerHeatmapIfNeeded();
+      subscribeSpeakerHeatmap();
       persistEffectiveRenderPrefs();
     });
   }
@@ -225,7 +225,7 @@ export function setupTrailsAndDisplayListeners() {
       if (speakerHeatmapMaxSphereSizeValEl) {
         speakerHeatmapMaxSphereSizeValEl.textContent = app.speakerHeatmapMaxSphereSize.toFixed(3);
       }
-      requestSpeakerHeatmapIfNeeded();
+      subscribeSpeakerHeatmap();
       persistEffectiveRenderPrefs();
     });
   }
