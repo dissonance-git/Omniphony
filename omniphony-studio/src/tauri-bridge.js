@@ -527,9 +527,6 @@ export function setupTauriBridge() {
   listen('latency:target', ({ payload }) => {
     const value = Number(payload.value);
     app.latencyTargetMs = Number.isFinite(value) ? value : null;
-    if (app.latencyMs === null && Number.isFinite(value)) {
-      app.latencyMs = value;
-    }
     updateLatencyDisplay();
     updateLatencyMeterUI();
   });

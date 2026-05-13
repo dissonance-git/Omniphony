@@ -51,9 +51,6 @@ export function applyRuntimeAudioStateSnapshot(payload) {
   }
   if (typeof payload.latencyTargetMs === 'number') {
     app.latencyTargetMs = payload.latencyTargetMs;
-    if (app.latencyMs === null) {
-      app.latencyMs = payload.latencyTargetMs;
-    }
   }
   if (typeof payload.latencyRequestedMs === 'number') {
     app.latencyRequestedMs = payload.latencyRequestedMs;
@@ -151,7 +148,6 @@ export function applyRuntimeAudioEvent(eventType, payload) {
       return;
     case 'latency:target':
       app.latencyTargetMs = Number(payload?.value);
-      app.latencyMs = Number(payload?.value);
       updateLatencyDisplay();
       updateLatencyMeterUI();
       return;

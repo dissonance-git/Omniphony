@@ -38,6 +38,7 @@ impl<'a> OutputRuntimeCoordinator<'a> {
                 if let Some(mut writer) = self.output.invalidate_writer() {
                     let _ = writer.flush();
                 }
+                self.output.reset_realtime_output_tracking();
             }
             false => {}
         }

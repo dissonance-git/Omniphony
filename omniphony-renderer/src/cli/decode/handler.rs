@@ -361,21 +361,16 @@ impl DecodeHandler {
 
         self.session.decoded_samples += sample_count as u64;
 
-        let current_latency_instant_ms = self
+        let latency_snapshot = self
             .output
             .audio_writer
             .as_ref()
-            .and_then(|w| w.measured_audio_delay_ms());
-        let current_latency_control_ms = self
-            .output
-            .audio_writer
-            .as_ref()
-            .and_then(|w| w.control_audio_delay_ms());
-        let current_latency_target_ms = self
-            .output
-            .audio_writer
-            .as_ref()
-            .and_then(|w| w.total_audio_delay_ms());
+            .and_then(|w| w.latency_snapshot());
+        let current_latency_instant_ms = latency_snapshot.map(|snapshot| snapshot.final_latency_ms);
+        let current_latency_control_ms =
+            latency_snapshot.and_then(|snapshot| snapshot.control_latency_ms);
+        let current_latency_target_ms =
+            latency_snapshot.and_then(|snapshot| snapshot.target_final_latency_ms);
         let current_resample_ratio = self
             .output
             .audio_writer
@@ -558,8 +553,9 @@ impl DecodeHandler {
             writer.flush()?;
         }
         self.reset_direct_trigger_wiring();
-        self.output.bootstrap_frames_seen = 0;
-        self.output.bootstrap_started_at = None;
+        self.output.reset_realtime_output_tracking();
+        self.session.first_measured_output_delay_ms = None;
+        self.session.last_output_delay_log_at = None;
 
         let effective_channel_count = if bed_conform && self.spatial.has_objects {
             let empty_vec = Vec::new();
@@ -596,6 +592,15 @@ impl DecodeHandler {
 
     pub fn handle_decoder_flush_request(&mut self) {
         log::info!("Received flush request after decoder reset");
+        if let Some(mut writer) = self.output.invalidate_writer() {
+            if let Err(err) = writer.flush() {
+                log::warn!("Error flushing realtime output during decoder reset: {err}");
+            }
+        }
+        self.reset_direct_trigger_wiring();
+        self.output.reset_realtime_output_tracking();
+        self.session.first_measured_output_delay_ms = None;
+        self.session.last_output_delay_log_at = None;
         self.reset_spatial_state_for_segment();
     }
 }

@@ -10,6 +10,18 @@ use audio_output::pipewire::{
 #[cfg(target_os = "linux")]
 use std::sync::{Arc, atomic::AtomicI64};
 
+#[derive(Debug, Clone, Copy)]
+pub struct AudioLatencySnapshot {
+    /// Canonical end-to-end latency currently observed by the listener.
+    pub final_latency_ms: f32,
+    /// Target end-to-end latency implied by the configured buffer target plus downstream path.
+    pub target_final_latency_ms: Option<f32>,
+    /// Internal buffer-control latency used by the servo/recovery logic.
+    pub control_latency_ms: Option<f32>,
+    /// Downstream latency contribution outside the internal control buffer.
+    pub downstream_latency_ms: Option<f32>,
+}
+
 /// Audio sample data in different formats
 pub enum AudioSamples {
     /// 24-bit signed integer samples (stored in i32 LSB)
@@ -231,8 +243,24 @@ impl AudioWriter {
         }
     }
 
+    pub fn latency_snapshot(&self) -> Option<AudioLatencySnapshot> {
+        let final_latency_ms = self.measured_audio_delay_ms()?;
+        let control_latency_ms = self.control_audio_delay_ms();
+        let target_final_latency_ms = self.target_audio_delay_ms();
+        let downstream_latency_ms = control_latency_ms.and_then(|control_ms| {
+            let downstream_ms = final_latency_ms - control_ms;
+            (downstream_ms >= 0.0).then_some(downstream_ms)
+        });
+        Some(AudioLatencySnapshot {
+            final_latency_ms,
+            target_final_latency_ms,
+            control_latency_ms,
+            downstream_latency_ms,
+        })
+    }
+
     /// Total audio delay in ms (ring-buffer target + backend graph latency).
-    pub fn total_audio_delay_ms(&self) -> Option<f32> {
+    pub fn target_audio_delay_ms(&self) -> Option<f32> {
         match self {
             #[cfg(target_os = "linux")]
             AudioWriter::Pipewire(pw) => {
@@ -246,6 +274,11 @@ impl AudioWriter {
             }
             AudioWriter::Unsupported => None,
         }
+    }
+
+    /// Backward-compatible alias for the configured final latency target.
+    pub fn total_audio_delay_ms(&self) -> Option<f32> {
+        self.target_audio_delay_ms()
     }
 
     /// Measured total audio delay in ms (current ring-buffer + backend graph latency).

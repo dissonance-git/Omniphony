@@ -84,7 +84,7 @@ impl OscSender {
         let mut messages = Vec::with_capacity(
             snapshot.object_levels.len() * 2 + snapshot.speaker_levels.len() + 1,
         );
-        if let Some(ms) = latency_target_ms.or(latency_instant_ms) {
+        if let Some(ms) = latency_instant_ms.or(latency_target_ms) {
             messages.push(OscPacket::Message(OscMessage {
                 addr: "/omniphony/state/latency".to_string(),
                 args: vec![OscType::Float(ms)],
@@ -129,6 +129,12 @@ impl OscSender {
         if let Some(ms) = latency_control_ms {
             messages.push(OscPacket::Message(OscMessage {
                 addr: "/omniphony/state/latency_control".to_string(),
+                args: vec![OscType::Float(ms)],
+            }));
+        }
+        if let Some(ms) = latency_target_ms {
+            messages.push(OscPacket::Message(OscMessage {
+                addr: "/omniphony/state/latency_target".to_string(),
                 args: vec![OscType::Float(ms)],
             }));
         }

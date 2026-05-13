@@ -92,6 +92,9 @@ const state = {
   distanceDiffuse: { enabled: null, threshold: null, curve: null },
   configSaved: null,
   latencyMs: null,
+  latencyInstantMs: null,
+  latencyControlMs: null,
+  latencyTargetMs: null,
   resampleRatio: null,
   layouts: Array.isArray(layouts) ? [...layouts] : [],
   selectedLayoutKey: layouts[0]?.key || null
@@ -436,6 +439,30 @@ function handleParsedOsc(parsed) {
     broadcast({
       type: 'latency',
       value: state.latencyMs
+    });
+  }
+
+  if (parsed.type === 'state:latency:instant') {
+    state.latencyInstantMs = parsed.value;
+    broadcast({
+      type: 'latency:instant',
+      value: parsed.value
+    });
+  }
+
+  if (parsed.type === 'state:latency:control') {
+    state.latencyControlMs = parsed.value;
+    broadcast({
+      type: 'latency:control',
+      value: parsed.value
+    });
+  }
+
+  if (parsed.type === 'state:latency:target') {
+    state.latencyTargetMs = parsed.value;
+    broadcast({
+      type: 'latency:target',
+      value: parsed.value
     });
   }
 
@@ -837,6 +864,9 @@ wss.on('connection', (ws) => {
       distanceDiffuse: state.distanceDiffuse,
       configSaved: state.configSaved,
       latencyMs: state.latencyMs,
+      latencyInstantMs: state.latencyInstantMs,
+      latencyControlMs: state.latencyControlMs,
+      latencyTargetMs: state.latencyTargetMs,
       resampleRatio: state.resampleRatio,
       layouts: state.layouts,
       selectedLayoutKey: state.selectedLayoutKey
