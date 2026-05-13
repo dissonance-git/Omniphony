@@ -19,7 +19,8 @@ use crate::{
         adaptive_runtime_state_name, compute_hard_recover_high_plan, far_mode_band_from_latency,
         note_refill_or_underrun, output_to_input_domain_samples, paused_rate_adjust,
         postprocess_interleaved_output, reset_adaptive_runtime, run_adaptive_servo,
-        should_run_adaptive_servo, update_far_mode_state, update_latency_metrics,
+        should_run_adaptive_servo, store_latency_metrics_from_control_available,
+        update_far_mode_state, update_latency_metrics,
         zero_pad_tail,
     },
     adaptive_runtime_state_code, adaptive_runtime_state_name_from_code,
@@ -496,6 +497,44 @@ impl AsioWriter {
                         )),
                         Ordering::Relaxed,
                     );
+                let mut projected_control_available = metrics.control_available;
+                if far_decision.recovery_reacquire_pending && far_decision.mute_far_output {
+                    projected_control_available =
+                        projected_control_available.saturating_sub(callback_input_domain_samples);
+                } else if far_decision.hard_recover_high {
+                    let plan = compute_hard_recover_high_plan(
+                        callback_input_domain_samples,
+                        metrics.control_available,
+                        target_buffer_fill,
+                        effective_resample_ratio,
+                        channel_count as usize,
+                    );
+                    projected_control_available = projected_control_available
+                        .saturating_sub(plan.desired_consume_input_samples);
+                } else if far_decision.hold_low_recover {
+                    let trim_input_samples = output_to_input_domain_samples(
+                        far_decision.low_recover_trim_output_samples,
+                        effective_resample_ratio,
+                    );
+                    let muted_consume_input_samples =
+                        if far_decision.mute_far_output && far_decision.consume_while_muted {
+                            callback_input_domain_samples
+                        } else {
+                            0
+                        };
+                    projected_control_available = projected_control_available
+                        .saturating_sub(trim_input_samples.saturating_add(muted_consume_input_samples));
+                }
+                store_latency_metrics_from_control_available(
+                    projected_control_available,
+                    channel_count as usize,
+                    input_sample_rate,
+                    callback_midpoint_ms,
+                    LatencyMetricTargets {
+                        measured_latency_ms_bits: &measured_latency_ms_bits_clone,
+                        control_latency_ms_bits: &control_latency_ms_bits_clone,
+                    },
+                );
                 if far_decision.hold_low_recover {
                     current_rate_adjust_clone.store(1.0f32.to_bits(), Ordering::Relaxed);
                     if !low_recover_was_active {

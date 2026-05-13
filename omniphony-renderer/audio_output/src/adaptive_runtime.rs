@@ -105,6 +105,24 @@ pub struct LatencyMetricTargets<'a> {
     pub control_latency_ms_bits: &'a Arc<AtomicU32>,
 }
 
+pub fn store_latency_metrics_from_control_available(
+    control_available: usize,
+    channel_count: usize,
+    sample_rate: u32,
+    graph_latency_ms: f32,
+    targets: LatencyMetricTargets<'_>,
+) {
+    let control_latency_ms =
+        (control_available as f32 / channel_count as f32 / sample_rate as f32) * 1000.0;
+    let measured_latency_ms = control_latency_ms + graph_latency_ms;
+    targets
+        .measured_latency_ms_bits
+        .store(measured_latency_ms.to_bits(), Ordering::Relaxed);
+    targets
+        .control_latency_ms_bits
+        .store(control_latency_ms.to_bits(), Ordering::Relaxed);
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ResetOutcome {
     pub effective_resample_ratio: f64,
@@ -145,15 +163,16 @@ pub fn update_latency_metrics(
         .saturating_add(pending_resampler_input_samples);
     let control_available =
         total_available_input_domain.saturating_sub(callback_input_domain_samples / 2);
+    store_latency_metrics_from_control_available(
+        control_available,
+        channel_count,
+        sample_rate,
+        graph_latency_ms,
+        targets,
+    );
     let control_latency_ms =
         (control_available as f32 / channel_count as f32 / sample_rate as f32) * 1000.0;
     let measured_latency_ms = control_latency_ms + graph_latency_ms;
-    targets
-        .measured_latency_ms_bits
-        .store(measured_latency_ms.to_bits(), Ordering::Relaxed);
-    targets
-        .control_latency_ms_bits
-        .store(control_latency_ms.to_bits(), Ordering::Relaxed);
 
     LatencyMetrics {
         total_available_input_domain,
