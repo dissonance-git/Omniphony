@@ -14,6 +14,7 @@ const LOW_RECOVER_SETTLE_STABLE_MS: f32 = 200.0;
 const LOW_RECOVER_ENTRY_MARGIN_MS: f32 = 18.0;
 const LOW_RECOVER_EXIT_MARGIN_MS: f32 = 6.0;
 const LOW_RECOVER_SETTLE_MARGIN_MS: f32 = 6.0;
+const LOW_RECOVER_REFILL_DELTA_ALPHA: f32 = 0.5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LowRecoverPhase {
@@ -46,6 +47,8 @@ pub struct AdaptiveRuntimeState {
     pub startup_low_recover_active: bool,
     pub low_recover_phase: LowRecoverPhase,
     pub low_recover_settle_stable_ms: f32,
+    pub low_recover_refill_last_control_available: Option<usize>,
+    pub low_recover_refill_delta_ema: f32,
     pub far_mode_was_muted: bool,
     pub far_mode_fade_remaining_frames: usize,
     pub far_mode_fade_total_frames: usize,
@@ -64,6 +67,8 @@ impl AdaptiveRuntimeState {
             startup_low_recover_active: false,
             low_recover_phase: LowRecoverPhase::Inactive,
             low_recover_settle_stable_ms: 0.0,
+            low_recover_refill_last_control_available: None,
+            low_recover_refill_delta_ema: 0.0,
             far_mode_was_muted: false,
             far_mode_fade_remaining_frames: 0,
             far_mode_fade_total_frames: 0,
@@ -82,6 +87,8 @@ impl AdaptiveRuntimeState {
         self.startup_low_recover_active = true;
         self.low_recover_phase = LowRecoverPhase::Refill;
         self.low_recover_settle_stable_ms = 0.0;
+        self.low_recover_refill_last_control_available = None;
+        self.low_recover_refill_delta_ema = 0.0;
     }
 }
 
@@ -161,6 +168,7 @@ pub fn reset_adaptive_runtime(state: &mut AdaptiveRuntimeState, base_ratio: f64)
     state.startup_low_recover_active = false;
     state.low_recover_phase = LowRecoverPhase::Inactive;
     state.low_recover_settle_stable_ms = 0.0;
+    reset_low_recover_refill_tracking(state);
     state.far_mode_was_muted = false;
     state.far_mode_fade_remaining_frames = 0;
     state.far_mode_fade_total_frames = 0;
@@ -282,6 +290,11 @@ pub fn reset_controller_integrator(state: &mut AdaptiveRuntimeState) {
     state.controller_state.accumulated_drift = 0.0;
 }
 
+fn reset_low_recover_refill_tracking(state: &mut AdaptiveRuntimeState) {
+    state.low_recover_refill_last_control_available = None;
+    state.low_recover_refill_delta_ema = 0.0;
+}
+
 fn compute_low_recover_settle_trim_plan(
     control_available: usize,
     target_buffer_fill: usize,
@@ -370,6 +383,7 @@ pub fn update_far_mode_state(
     if !far_mode_enabled || !low_recover_enabled {
         state.low_recover_phase = LowRecoverPhase::Inactive;
         state.low_recover_settle_stable_ms = 0.0;
+        reset_low_recover_refill_tracking(state);
     } else {
         match state.low_recover_phase {
             LowRecoverPhase::Inactive => {
@@ -379,13 +393,29 @@ pub fn update_far_mode_state(
                     reset_controller_integrator(state);
                     state.low_recover_phase = LowRecoverPhase::Refill;
                     state.low_recover_settle_stable_ms = 0.0;
+                    reset_low_recover_refill_tracking(state);
                 }
             }
             LowRecoverPhase::Refill => {
-                if control_available >= low_recover_exit_threshold {
+                let refill_delta = state
+                    .low_recover_refill_last_control_available
+                    .map(|previous| control_available as isize - previous as isize)
+                    .unwrap_or(0) as f32;
+                if state.low_recover_refill_last_control_available.is_some() {
+                    state.low_recover_refill_delta_ema = (state.low_recover_refill_delta_ema
+                        * (1.0 - LOW_RECOVER_REFILL_DELTA_ALPHA))
+                        + (refill_delta * LOW_RECOVER_REFILL_DELTA_ALPHA);
+                }
+                state.low_recover_refill_last_control_available = Some(control_available);
+                let predicted_next_control = (control_available as f32)
+                    + state.low_recover_refill_delta_ema.max(0.0);
+                if control_available >= low_recover_exit_threshold
+                    || predicted_next_control >= target_buffer_fill as f32
+                {
                     reset_controller_integrator(state);
                     state.low_recover_phase = LowRecoverPhase::Settling;
                     state.low_recover_settle_stable_ms = 0.0;
+                    reset_low_recover_refill_tracking(state);
                     let lower_bound =
                         target_buffer_fill.saturating_sub(settle_tolerance_input_samples);
                     let upper_bound =
@@ -412,6 +442,7 @@ pub fn update_far_mode_state(
                     reset_controller_integrator(state);
                     state.low_recover_phase = LowRecoverPhase::Refill;
                     state.low_recover_settle_stable_ms = 0.0;
+                    reset_low_recover_refill_tracking(state);
                 } else if control_available > upper_bound {
                     state.low_recover_settle_stable_ms = 0.0;
                     low_recover_trim_plan = compute_low_recover_settle_trim_plan(
@@ -427,6 +458,7 @@ pub fn update_far_mode_state(
                         state.startup_low_recover_active = false;
                         state.low_recover_phase = LowRecoverPhase::Inactive;
                         state.low_recover_settle_stable_ms = 0.0;
+                        reset_low_recover_refill_tracking(state);
                         state.recovery_reacquire_pending = true;
                         reset_controller_integrator(state);
                     }
