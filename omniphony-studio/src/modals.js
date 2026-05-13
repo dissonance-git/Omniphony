@@ -18,6 +18,16 @@ function getAdaptiveResamplingInfoModalEl() { return document.getElementById('ad
 function getTelemetryGaugesInfoModalEl() { return document.getElementById('telemetryGaugesInfoModal'); }
 function getRampModeInfoModalEl() { return document.getElementById('rampModeInfoModal'); }
 function getVbapPositionInterpolationInfoModalEl() { return document.getElementById('vbapPositionInterpolationInfoModal'); }
+function getEvaluationInfoModalEl() { return document.getElementById('evaluationInfoModal'); }
+function getBackendInfoModalEl() { return document.getElementById('backendInfoModal'); }
+function getDistanceModelInfoModalEl() { return document.getElementById('distanceModelInfoModal'); }
+function getBarycenterInfoModalEl() { return document.getElementById('barycenterInfoModal'); }
+function getExperimentalDistanceInfoModalEl() { return document.getElementById('experimentalDistanceInfoModal'); }
+function getInputInfoModalEl() { return document.getElementById('inputInfoModal'); }
+function getInputClockInfoModalEl() { return document.getElementById('inputClockInfoModal'); }
+function getInputLfeInfoModalEl() { return document.getElementById('inputLfeInfoModal'); }
+function getDrcInfoModalEl() { return document.getElementById('drcInfoModal'); }
+function getHeatmapInfoModalEl() { return document.getElementById('heatmapInfoModal'); }
 function getTelemetryGaugesFormEl() { return document.getElementById('telemetryGaugesForm'); }
 function getTelemetryGaugesToggleBtnEl() { return document.getElementById('telemetryGaugesToggleBtn'); }
 function getDisplaySectionContentEl() { return document.getElementById('displaySectionContent'); }
@@ -93,6 +103,66 @@ export function setVbapPositionInterpolationInfoModalOpen(open) {
   const vbapPositionInterpolationInfoModalEl = getVbapPositionInterpolationInfoModalEl();
   if (!vbapPositionInterpolationInfoModalEl) return;
   vbapPositionInterpolationInfoModalEl.classList.toggle('open', Boolean(open));
+}
+
+export function setEvaluationInfoModalOpen(open) {
+  const evaluationInfoModalEl = getEvaluationInfoModalEl();
+  if (!evaluationInfoModalEl) return;
+  evaluationInfoModalEl.classList.toggle('open', Boolean(open));
+}
+
+export function setBackendInfoModalOpen(open) {
+  const backendInfoModalEl = getBackendInfoModalEl();
+  if (!backendInfoModalEl) return;
+  backendInfoModalEl.classList.toggle('open', Boolean(open));
+}
+
+export function setDistanceModelInfoModalOpen(open) {
+  const distanceModelInfoModalEl = getDistanceModelInfoModalEl();
+  if (!distanceModelInfoModalEl) return;
+  distanceModelInfoModalEl.classList.toggle('open', Boolean(open));
+}
+
+export function setBarycenterInfoModalOpen(open) {
+  const barycenterInfoModalEl = getBarycenterInfoModalEl();
+  if (!barycenterInfoModalEl) return;
+  barycenterInfoModalEl.classList.toggle('open', Boolean(open));
+}
+
+export function setExperimentalDistanceInfoModalOpen(open) {
+  const experimentalDistanceInfoModalEl = getExperimentalDistanceInfoModalEl();
+  if (!experimentalDistanceInfoModalEl) return;
+  experimentalDistanceInfoModalEl.classList.toggle('open', Boolean(open));
+}
+
+export function setInputInfoModalOpen(open) {
+  const inputInfoModalEl = getInputInfoModalEl();
+  if (!inputInfoModalEl) return;
+  inputInfoModalEl.classList.toggle('open', Boolean(open));
+}
+
+export function setInputClockInfoModalOpen(open) {
+  const inputClockInfoModalEl = getInputClockInfoModalEl();
+  if (!inputClockInfoModalEl) return;
+  inputClockInfoModalEl.classList.toggle('open', Boolean(open));
+}
+
+export function setInputLfeInfoModalOpen(open) {
+  const inputLfeInfoModalEl = getInputLfeInfoModalEl();
+  if (!inputLfeInfoModalEl) return;
+  inputLfeInfoModalEl.classList.toggle('open', Boolean(open));
+}
+
+export function setDrcInfoModalOpen(open) {
+  const drcInfoModalEl = getDrcInfoModalEl();
+  if (!drcInfoModalEl) return;
+  drcInfoModalEl.classList.toggle('open', Boolean(open));
+}
+
+export function setHeatmapInfoModalOpen(open) {
+  const heatmapInfoModalEl = getHeatmapInfoModalEl();
+  if (!heatmapInfoModalEl) return;
+  heatmapInfoModalEl.classList.toggle('open', Boolean(open));
 }
 
 export function setSpreadFromDistanceInfoModalOpen(open) {

@@ -46,7 +46,10 @@ export function rendererPanelMarkup() {
           <div class="renderer-panel-stack" style="margin-top:0.25rem;display:grid;gap:0.35rem">
           <div class="info-section renderer-subpanel" id="evaluationSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
             <div class="renderer-subpanel-bar" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
-              <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff">Evaluation</div>
+              <div class="title-with-info" style="margin:0;font-size:12px;font-weight:600;color:#ffffff">
+                <span data-i18n="evaluation.title">Evaluation</span>
+                <button id="evaluationInfoBtn" type="button" class="info-icon-btn" data-i18n-title="evaluation.infoButton" title="Evaluation mode info">i</button>
+              </div>
               <div class="renderer-subpanel-actions" style="display:flex;align-items:center;gap:0.35rem">
                 <select id="renderEvaluationModeSelect" class="delay-input" style="width:auto;min-width:13rem;text-align:left">
                   <option value="auto">Auto</option>
@@ -131,7 +134,10 @@ export function rendererPanelMarkup() {
           <div class="info-section renderer-subpanel" id="backendParametersSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
             <div class="renderer-subpanel-bar" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
               <div class="renderer-subpanel-titlebar" style="display:flex;align-items:center;gap:0.45rem;min-width:0">
-                <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff">Backend</div>
+                <div class="title-with-info" style="margin:0;font-size:12px;font-weight:600;color:#ffffff">
+                  <span data-i18n="backend.title">Backend</span>
+                  <button id="backendInfoBtn" type="button" class="info-icon-btn" data-i18n-title="backend.infoButton" title="Render backend info">i</button>
+                </div>
                 <div id="vbapStatus" class="vbap-status" style="margin:0;font-size:11px;min-width:0">—</div>
               </div>
               <div class="renderer-subpanel-actions" style="display:flex;align-items:center;gap:0.35rem">
@@ -147,7 +153,10 @@ export function rendererPanelMarkup() {
             <div id="backendParametersSectionContent" class="conditional-params open">
           <div id="backendSpecificParamsSection">
           <div class="control-row" id="distanceModelControlRow" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
-            <label for="distanceModelSelect" style="font-size:12px;font-weight:600;white-space:nowrap;color:#ffffff" data-i18n="distance.model">Distance model</label>
+            <div class="title-with-info" style="font-size:12px;font-weight:600;min-width:0">
+              <label for="distanceModelSelect" style="font-size:12px;font-weight:600;white-space:nowrap;color:#ffffff" data-i18n="distance.model">Distance model</label>
+              <button id="distanceModelInfoBtn" type="button" class="info-icon-btn" data-i18n-title="distance.modelInfoButton" title="Distance model info">i</button>
+            </div>
             <select id="distanceModelSelect" class="delay-input" style="min-width:11rem">
               <option value="none" data-i18n="distance.model.none">None</option>
               <option value="linear" data-i18n="distance.model.linear">Linear</option>
@@ -221,7 +230,10 @@ export function rendererPanelMarkup() {
           </div>
           <div class="info-section" id="barycenterSection" style="margin:0;padding:0;border:none;background:none;display:none">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
-              <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff">Barycenter backend</div>
+              <div class="title-with-info" style="margin:0;font-size:12px;font-weight:600;color:#ffffff">
+                <span data-i18n="barycenter.title">Barycenter backend</span>
+                <button id="barycenterInfoBtn" type="button" class="info-icon-btn" data-i18n-title="barycenter.infoButton" title="Barycenter backend info">i</button>
+              </div>
             </div>
             <div id="barycenterSectionContent" class="conditional-params open">
               <div style="margin-top:0.2rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.15rem">
@@ -234,7 +246,10 @@ export function rendererPanelMarkup() {
           </div>
           <div class="info-section" id="experimentalDistanceSection" style="margin:0;padding:0;border:none;background:none;display:none">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
-              <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff">Distance backend</div>
+              <div class="title-with-info" style="margin:0;font-size:12px;font-weight:600;color:#ffffff">
+                <span data-i18n="experimentalDistance.title">Distance backend</span>
+                <button id="experimentalDistanceInfoBtn" type="button" class="info-icon-btn" data-i18n-title="experimentalDistance.infoButton" title="Distance backend info">i</button>
+              </div>
             </div>
             <div id="experimentalDistanceSectionContent" class="conditional-params open">
               <div style="margin-top:0.2rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.15rem">
