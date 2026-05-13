@@ -46,6 +46,7 @@ export function setupUIListeners() {
 
   if (saveConfigBtnEl) {
     saveConfigBtnEl.addEventListener('click', () => {
+      if (!app.oscSnapshotReady) return;
       pushLog('info', t('log.saveRequested'));
       invoke('control_save_config');
     });
@@ -53,6 +54,7 @@ export function setupUIListeners() {
 
   if (reloadConfigBtnEl) {
     reloadConfigBtnEl.addEventListener('click', () => {
+      if (!app.oscSnapshotReady) return;
       pushLog('info', t('log.reloadRequested'));
       invoke('control_reload_config');
     });
