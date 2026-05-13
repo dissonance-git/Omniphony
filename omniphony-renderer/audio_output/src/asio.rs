@@ -501,22 +501,31 @@ impl AsioWriter {
                     resampler.reset();
                     let _ = resampler.set_resample_ratio(effective_resample_ratio, false);
                     resampler_fifo.reset();
-                    data.fill(0.0);
-                    return;
+                    if far_decision.mute_far_output {
+                        data.fill(0.0);
+                        return;
+                    }
                 }
                 if far_decision.hold_low_recover {
-                    let muted_samples_to_consume = if far_decision.consume_while_muted {
+                    let muted_samples_to_consume = if far_decision.mute_far_output
+                        && far_decision.consume_while_muted
+                    {
                         audio_samples_needed
                     } else {
                         0
                     };
-                    let muted_total_samples = muted_samples_to_consume
-                        .saturating_add(far_decision.low_recover_trim_output_samples);
-                    if muted_total_samples > 0 {
+                    let prepared_samples = if far_decision.mute_far_output {
+                        muted_samples_to_consume
+                            .saturating_add(far_decision.low_recover_trim_output_samples)
+                    } else {
+                        audio_samples_needed
+                            .saturating_add(far_decision.low_recover_trim_output_samples)
+                    };
+                    if prepared_samples > 0 {
                         if let Err(e) = resampler_fifo.ensure_output_samples(
                             &buffer_clone,
                             &mut resampler,
-                            muted_total_samples,
+                            prepared_samples,
                         ) {
                             log::error!("Resampler error: {}", e);
                         }
@@ -529,7 +538,9 @@ impl AsioWriter {
                             resampler_fifo.discard_samples(muted_samples_to_consume);
                         }
                     }
-                    data.fill(0.0);
+                    if far_decision.mute_far_output {
+                        data.fill(0.0);
+                    }
                 } else {
                     if let Err(e) = resampler_fifo.ensure_output_samples(
                         &buffer_clone,
@@ -558,7 +569,7 @@ impl AsioWriter {
                     }
                     resampler_fifo.discard_samples(plan.desired_consume_output_samples);
                     data.fill(0.0);
-                } else if far_decision.hold_low_recover {
+                } else if far_decision.hold_low_recover && far_decision.mute_far_output {
                     data.fill(0.0);
                 } else if resampler_fifo.output_len() >= audio_samples_needed {
                     // We have enough data

@@ -1121,31 +1121,77 @@ fn run_pipewire_loop(
                             rate_adjust_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
                             desired_rate_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
                             runtime_state.recovery_reacquire_pending = false;
-                            if let Err(e) = resampler_fifo.ensure_output_samples(
+                            if far_decision.mute_far_output {
+                                if let Err(e) = resampler_fifo.ensure_output_samples(
+                                    &buffer_for_callback,
+                                    resampler,
+                                    audio_samples_needed,
+                                ) {
+                                    log::error!("Resampler error during recovery reacquire: {}", e);
+                                } else if resampler_fifo.output_len() > 0 {
+                                    resampler_fifo.discard_samples(audio_samples_needed);
+                                }
+                                dest[..max_samples].fill(0.0);
+                                max_samples
+                            } else if let Err(e) = resampler_fifo.ensure_output_samples(
                                 &buffer_for_callback,
                                 resampler,
                                 audio_samples_needed,
                             ) {
                                 log::error!("Resampler error during recovery reacquire: {}", e);
-                            } else if resampler_fifo.output_len() > 0 {
-                                resampler_fifo.discard_samples(audio_samples_needed);
+                                zero_pad_tail(&mut dest[..max_samples], 0);
+                                max_samples
+                            } else if resampler_fifo.output_len() >= audio_samples_needed {
+                                let copied =
+                                    resampler_fifo.drain_into_slice(&mut dest[..audio_samples_needed]);
+                                debug_assert_eq!(copied, audio_samples_needed);
+                                postprocess_interleaved_output(
+                                    &mut dest[..audio_samples_needed],
+                                    ch,
+                                    far_decision.mute_far_output,
+                                    &mut runtime_state,
+                                );
+                                max_samples
+                            } else {
+                                let copy_count =
+                                    resampler_fifo.drain_into_slice(&mut dest[..audio_samples_needed]);
+                                zero_pad_tail(&mut dest[..max_samples], copy_count);
+                                note_refill_or_underrun(
+                                    &mut runtime_state,
+                                    "Resampler output underrun",
+                                    "Resampler output underrun",
+                                    copy_count,
+                                    audio_samples_needed,
+                                );
+                                postprocess_interleaved_output(
+                                    &mut dest[..audio_samples_needed],
+                                    ch,
+                                    far_decision.mute_far_output,
+                                    &mut runtime_state,
+                                );
+                                max_samples
                             }
-                            dest[..max_samples].fill(0.0);
-                            max_samples
                         } else {
                             if far_decision.hold_low_recover {
-                                let muted_samples_to_consume = if far_decision.consume_while_muted {
+                                let muted_samples_to_consume = if far_decision.mute_far_output
+                                    && far_decision.consume_while_muted
+                                {
                                     audio_samples_needed
                                 } else {
                                     0
                                 };
-                                let muted_total_samples = muted_samples_to_consume
-                                    .saturating_add(far_decision.low_recover_trim_output_samples);
-                                if muted_total_samples > 0 {
+                                let prepared_samples = if far_decision.mute_far_output {
+                                    muted_samples_to_consume
+                                        .saturating_add(far_decision.low_recover_trim_output_samples)
+                                } else {
+                                    audio_samples_needed
+                                        .saturating_add(far_decision.low_recover_trim_output_samples)
+                                };
+                                if prepared_samples > 0 {
                                     if let Err(e) = resampler_fifo.ensure_output_samples(
                                         &buffer_for_callback,
                                         resampler,
-                                        muted_total_samples,
+                                        prepared_samples,
                                     ) {
                                         log::error!("Resampler error: {}", e);
                                     } else {
@@ -1159,7 +1205,9 @@ fn run_pipewire_loop(
                                         }
                                     }
                                 }
-                                dest[..max_samples].fill(0.0);
+                                if far_decision.mute_far_output {
+                                    dest[..max_samples].fill(0.0);
+                                }
                             } else if let Err(e) = resampler_fifo.ensure_output_samples(
                                 &buffer_for_callback,
                                 resampler,
@@ -1184,7 +1232,7 @@ fn run_pipewire_loop(
                                 }
                                 resampler_fifo.discard_samples(plan.desired_consume_output_samples);
                                 dest[..max_samples].fill(0.0);
-                            } else if far_decision.hold_low_recover {
+                            } else if far_decision.hold_low_recover && far_decision.mute_far_output {
                                 dest[..max_samples].fill(0.0);
                             } else if resampler_fifo.output_len() >= audio_samples_needed {
                                 let copied =
@@ -1345,17 +1393,41 @@ fn run_pipewire_loop(
                             desired_rate_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
                             rate_adjust_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
                             runtime_state.recovery_reacquire_pending = false;
-                            let dropped =
-                                discard_ring_samples(&buffer_for_callback, samples_to_read);
-                            if dropped < samples_to_read {
-                                log::debug!(
-                                    "Recovery reacquire underfed: consumed {} / {} samples while re-priming output",
-                                    dropped,
-                                    samples_to_read
+                            if far_decision.mute_far_output {
+                                let dropped =
+                                    discard_ring_samples(&buffer_for_callback, samples_to_read);
+                                if dropped < samples_to_read {
+                                    log::debug!(
+                                        "Recovery reacquire underfed: consumed {} / {} samples while re-priming output",
+                                        dropped,
+                                        samples_to_read
+                                    );
+                                }
+                                dest[..max_samples].fill(0.0);
+                                max_samples
+                            } else {
+                                let mut count = 0;
+                                while count < samples_to_read {
+                                    if let Some(sample_f32) = buffer_for_callback.pop() {
+                                        dest[count] = sample_f32;
+                                        count += 1;
+                                    } else {
+                                        break;
+                                    }
+                                }
+
+                                while count < max_samples {
+                                    dest[count] = 0.0;
+                                    count += 1;
+                                }
+                                postprocess_interleaved_output(
+                                    dest,
+                                    ch,
+                                    far_decision.mute_far_output,
+                                    &mut runtime_state,
                                 );
+                                max_samples
                             }
-                            dest[..max_samples].fill(0.0);
-                            max_samples
                         } else if far_decision.hard_recover_high {
                             let plan = compute_hard_recover_high_plan(
                                 callback_input_domain_samples,
@@ -1376,26 +1448,52 @@ fn run_pipewire_loop(
                             dest[..max_samples].fill(0.0);
                             max_samples
                         } else if far_decision.hold_low_recover {
-                            let muted_samples_to_consume = if far_decision.consume_while_muted {
+                            let muted_samples_to_consume = if far_decision.mute_far_output
+                                && far_decision.consume_while_muted
+                            {
                                 samples_to_read
                             } else {
                                 0
                             };
-                            let muted_total_samples = muted_samples_to_consume
+                            let samples_to_discard = muted_samples_to_consume
                                 .saturating_add(far_decision.low_recover_trim_input_samples);
-                            if muted_total_samples > 0 {
+                            if samples_to_discard > 0 {
                                 let dropped =
-                                    discard_ring_samples(&buffer_for_callback, muted_total_samples);
-                                if dropped < muted_total_samples {
+                                    discard_ring_samples(&buffer_for_callback, samples_to_discard);
+                                if dropped < samples_to_discard {
                                     log::debug!(
                                         "Low-recover muted consume underfed: consumed {} / {} samples while stabilizing resume latency",
                                         dropped,
-                                        muted_total_samples
+                                        samples_to_discard
                                     );
                                 }
                             }
-                            dest[..max_samples].fill(0.0);
-                            max_samples
+                            if far_decision.mute_far_output {
+                                dest[..max_samples].fill(0.0);
+                                max_samples
+                            } else {
+                                let mut count = 0;
+                                while count < samples_to_read {
+                                    if let Some(sample_f32) = buffer_for_callback.pop() {
+                                        dest[count] = sample_f32;
+                                        count += 1;
+                                    } else {
+                                        break;
+                                    }
+                                }
+
+                                while count < max_samples {
+                                    dest[count] = 0.0;
+                                    count += 1;
+                                }
+                                postprocess_interleaved_output(
+                                    dest,
+                                    ch,
+                                    far_decision.mute_far_output,
+                                    &mut runtime_state,
+                                );
+                                max_samples
+                            }
                         } else {
                             let mut count = 0;
                             while count < samples_to_read {
