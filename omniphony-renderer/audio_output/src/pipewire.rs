@@ -492,7 +492,7 @@ impl PipewireWriter {
                 .store(wallclock_millis(), Ordering::Relaxed);
         }
         if self.bootstrap_write_calls <= 5 {
-            log::info!(
+            log::debug!(
                 "PipeWire bootstrap write #{}: pushed {} / {} samples, ring {} -> {}, elapsed {:.0} ms",
                 self.bootstrap_write_calls,
                 report.pushed_samples,
