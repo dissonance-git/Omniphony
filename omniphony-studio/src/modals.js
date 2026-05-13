@@ -32,18 +32,23 @@ function getTelemetryGaugesFormEl() { return document.getElementById('telemetryG
 function getTelemetryGaugesToggleBtnEl() { return document.getElementById('telemetryGaugesToggleBtn'); }
 function getDisplaySectionContentEl() { return document.getElementById('displaySectionContent'); }
 function getDisplaySectionToggleBtnEl() { return document.getElementById('displaySectionToggleBtn'); }
+function getDisplaySectionEl() { return document.getElementById('displaySection'); }
 function getDrcSectionContentEl() { return document.getElementById('drcSectionContent'); }
 function getDrcSummaryEl() { return document.getElementById('drcSummary'); }
 function getDrcSectionToggleBtnEl() { return document.getElementById('drcSectionToggleBtn'); }
+function getDrcSectionEl() { return document.getElementById('drcSection'); }
 function getAudioOutputSectionContentEl() { return document.getElementById('audioOutputSectionContent'); }
 function getAudioOutputSummaryEl() { return document.getElementById('audioOutputSummary'); }
 function getAudioOutputSectionToggleBtnEl() { return document.getElementById('audioOutputSectionToggleBtn'); }
+function getAudioOutputSectionEl() { return document.getElementById('audioOutputSection'); }
 function getInputSectionContentEl() { return document.getElementById('inputSectionContent'); }
 function getInputSummaryEl() { return document.getElementById('inputSummary'); }
 function getInputSectionToggleBtnEl() { return document.getElementById('inputSectionToggleBtn'); }
+function getInputSectionEl() { return document.getElementById('audioInputSection'); }
 function getRendererSectionContentEl() { return document.getElementById('rendererSectionContent'); }
 function getRendererSummaryEl() { return document.getElementById('rendererSummary'); }
 function getRendererSectionToggleBtnEl() { return document.getElementById('rendererSectionToggleBtn'); }
+function getRendererSectionEl() { return document.getElementById('rendererSection'); }
 function getSpreadFromDistanceInfoModalEl() { return document.getElementById('spreadFromDistanceInfoModal'); }
 function getDistanceDiffuseInfoModalEl() { return document.getElementById('distanceDiffuseInfoModal'); }
 
@@ -197,12 +202,16 @@ export function setTelemetryGaugesOpen(open) {
 export function setDisplaySectionOpen(open) {
   const displaySectionContentEl = getDisplaySectionContentEl();
   const displaySectionToggleBtnEl = getDisplaySectionToggleBtnEl();
+  const displaySectionEl = getDisplaySectionEl();
   app.displaySectionOpen = Boolean(open);
   if (displaySectionContentEl) {
     displaySectionContentEl.classList.toggle('open', app.displaySectionOpen);
   }
   if (displaySectionToggleBtnEl) {
     displaySectionToggleBtnEl.textContent = app.displaySectionOpen ? '▾' : '▸';
+  }
+  if (displaySectionEl) {
+    displaySectionEl.classList.toggle('section-collapsed', !app.displaySectionOpen);
   }
   emitOverlayLayoutChanged('display-section-toggle');
 }
@@ -211,6 +220,7 @@ export function setDrcSectionOpen(open) {
   const drcSectionContentEl = getDrcSectionContentEl();
   const drcSummaryEl = getDrcSummaryEl();
   const drcSectionToggleBtnEl = getDrcSectionToggleBtnEl();
+  const drcSectionEl = getDrcSectionEl();
   app.drcSectionOpen = Boolean(open);
   if (drcSectionContentEl) {
     drcSectionContentEl.classList.toggle('open', app.drcSectionOpen);
@@ -221,6 +231,9 @@ export function setDrcSectionOpen(open) {
   if (drcSectionToggleBtnEl) {
     drcSectionToggleBtnEl.textContent = app.drcSectionOpen ? '▾' : '▸';
   }
+  if (drcSectionEl) {
+    drcSectionEl.classList.toggle('section-collapsed', !app.drcSectionOpen);
+  }
   emitOverlayLayoutChanged('drc-section-toggle');
 }
 
@@ -228,6 +241,7 @@ export function setAudioOutputSectionOpen(open) {
   const audioOutputSectionContentEl = getAudioOutputSectionContentEl();
   const audioOutputSummaryEl = getAudioOutputSummaryEl();
   const audioOutputSectionToggleBtnEl = getAudioOutputSectionToggleBtnEl();
+  const audioOutputSectionEl = getAudioOutputSectionEl();
   app.audioOutputSectionOpen = Boolean(open);
   if (audioOutputSectionContentEl) {
     audioOutputSectionContentEl.classList.toggle('open', app.audioOutputSectionOpen);
@@ -238,6 +252,9 @@ export function setAudioOutputSectionOpen(open) {
   if (audioOutputSectionToggleBtnEl) {
     audioOutputSectionToggleBtnEl.textContent = app.audioOutputSectionOpen ? '▾' : '▸';
   }
+  if (audioOutputSectionEl) {
+    audioOutputSectionEl.classList.toggle('section-collapsed', !app.audioOutputSectionOpen);
+  }
   emitOverlayLayoutChanged('audio-output-section-toggle');
 }
 
@@ -245,6 +262,7 @@ export function setInputSectionOpen(open) {
   const inputSectionContentEl = getInputSectionContentEl();
   const inputSummaryEl = getInputSummaryEl();
   const inputSectionToggleBtnEl = getInputSectionToggleBtnEl();
+  const inputSectionEl = getInputSectionEl();
   app.inputSectionOpen = Boolean(open);
   if (inputSectionContentEl) {
     inputSectionContentEl.classList.toggle('open', app.inputSectionOpen);
@@ -255,6 +273,9 @@ export function setInputSectionOpen(open) {
   if (inputSectionToggleBtnEl) {
     inputSectionToggleBtnEl.textContent = app.inputSectionOpen ? '▾' : '▸';
   }
+  if (inputSectionEl) {
+    inputSectionEl.classList.toggle('section-collapsed', !app.inputSectionOpen);
+  }
   emitOverlayLayoutChanged('input-section-toggle');
 }
 
@@ -262,6 +283,7 @@ export function setRendererSectionOpen(open) {
   const rendererSectionContentEl = getRendererSectionContentEl();
   const rendererSummaryEl = getRendererSummaryEl();
   const rendererSectionToggleBtnEl = getRendererSectionToggleBtnEl();
+  const rendererSectionEl = getRendererSectionEl();
   app.rendererSectionOpen = Boolean(open);
   if (rendererSectionContentEl) {
     rendererSectionContentEl.classList.toggle('open', app.rendererSectionOpen);
@@ -271,6 +293,9 @@ export function setRendererSectionOpen(open) {
   }
   if (rendererSectionToggleBtnEl) {
     rendererSectionToggleBtnEl.textContent = app.rendererSectionOpen ? '▾' : '▸';
+  }
+  if (rendererSectionEl) {
+    rendererSectionEl.classList.toggle('section-collapsed', !app.rendererSectionOpen);
   }
   emitOverlayLayoutChanged('renderer-section-toggle');
 }

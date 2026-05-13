@@ -24,6 +24,7 @@ const TRAIL_PREFS_STORAGE_KEY = 'spatialviz.trail_prefs';
 const EFFECTIVE_RENDER_PREFS_STORAGE_KEY = 'spatialviz.effective_render_prefs';
 
 function getRoomGeometrySummaryEl() { return inRoomGeometryPanel('roomGeometrySummary'); }
+function getRoomGeometryHeaderSummaryEl() { return inRoomGeometryPanel('roomGeometryHeaderSummary'); }
 function getRoomGeometrySummaryScaleEl() { return inRoomGeometryPanel('roomGeometrySummaryScale'); }
 function getRoomGeometrySummarySizeEl() { return inRoomGeometryPanel('roomGeometrySummarySize'); }
 function getRoomGeometrySummaryRatioEl() { return inRoomGeometryPanel('roomGeometrySummaryRatio'); }
@@ -502,10 +503,11 @@ export function setRoomGeometryBaselineFromInputs() {
 
 export function renderRoomGeometrySummary(preview = null) {
   const roomGeometrySummaryEl = getRoomGeometrySummaryEl();
+  const roomGeometryHeaderSummaryEl = getRoomGeometryHeaderSummaryEl();
   const roomGeometrySummaryScaleEl = getRoomGeometrySummaryScaleEl();
   const roomGeometrySummarySizeEl = getRoomGeometrySummarySizeEl();
   const roomGeometrySummaryRatioEl = getRoomGeometrySummaryRatioEl();
-  if (!roomGeometrySummaryEl) return;
+  if (!roomGeometrySummaryEl && !roomGeometryHeaderSummaryEl) return;
   const metersPerUnit = app.metersPerUnit ?? 1;
   const ratioWidth = Number(preview?.ratio?.width ?? app.roomRatio.width) || 1;
   const ratioLength = Number(preview?.ratio?.length ?? app.roomRatio.length) || 1;
@@ -518,6 +520,11 @@ export function renderRoomGeometrySummary(preview = null) {
   const sizeRear = ratioRear * mpuValue;
   const sizeHeight = ratioHeight * mpuValue;
   const sizeLower = ratioLower * mpuValue;
+
+  if (roomGeometryHeaderSummaryEl) {
+    roomGeometryHeaderSummaryEl.textContent =
+      `m/u ${formatNumber(mpuValue, 2)} • X ${formatNumber(sizeWidth, 2)}m • Y ${formatNumber(sizeFront + sizeRear, 2)}m • Z ${formatNumber(sizeHeight + sizeLower, 2)}m`;
+  }
 
   if (roomGeometrySummaryScaleEl) {
     roomGeometrySummaryScaleEl.textContent = `m/u: ${formatNumber(mpuValue, 2)}`;
@@ -760,11 +767,19 @@ export function updateRoomRatioDisplay() {
 
 export function setRoomGeometryExpanded(expanded) {
   app.roomGeometryExpanded = Boolean(expanded);
+  const roomGeometryPanelRootEl = inRoomGeometryPanel('roomGeometryPanelRoot');
   const roomGeometryFormEl = inRoomGeometryPanel('roomGeometryForm');
+  const roomGeometryHeaderSummaryEl = inRoomGeometryPanel('roomGeometryHeaderSummary');
   const roomGeometrySummaryEl = inRoomGeometryPanel('roomGeometrySummary');
   const roomGeometryToggleBtnEl = inRoomGeometryPanel('roomGeometryToggleBtn');
+  if (roomGeometryPanelRootEl) {
+    roomGeometryPanelRootEl.classList.toggle('section-collapsed', !app.roomGeometryExpanded);
+  }
   if (roomGeometryFormEl) {
     roomGeometryFormEl.classList.toggle('open', app.roomGeometryExpanded);
+  }
+  if (roomGeometryHeaderSummaryEl) {
+    roomGeometryHeaderSummaryEl.style.display = app.roomGeometryExpanded ? 'none' : 'block';
   }
   if (roomGeometrySummaryEl) {
     roomGeometrySummaryEl.style.display = 'none';

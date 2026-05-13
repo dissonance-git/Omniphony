@@ -231,6 +231,62 @@
         text-overflow: ellipsis;
       }
 
+      #overlay .info-section {
+        margin-top: 0.55rem;
+        padding-top: 0.35rem;
+      }
+
+      #overlay .panel-header,
+      #roomGeometryPanelRoot > .panel-header {
+        min-height: 1.7rem;
+        gap: 0.3rem;
+      }
+
+      #overlay .panel-header-main,
+      #roomGeometryPanelRoot > .panel-header .panel-header-main {
+        gap: 0.35rem;
+      }
+
+      #overlay .panel-title,
+      #overlay .info-title.panel-title,
+      #roomGeometryPanelRoot .panel-title {
+        margin: 0;
+        font-size: 11px;
+        line-height: 1.15;
+        letter-spacing: 0.01em;
+      }
+
+      #overlay .panel-summary {
+        font-size: 10px;
+        line-height: 1.15;
+      }
+
+      #overlay .info-icon-btn,
+      #roomGeometryPanelRoot .info-icon-btn {
+        width: 17px;
+        height: 17px;
+        font-size: 10px;
+      }
+
+      #overlay .panel-toggle-btn,
+      #roomGeometryPanelRoot .panel-toggle-btn {
+        min-width: 1.65rem;
+        height: 1.2rem;
+        padding: 0.08rem 0.34rem;
+        font-size: 10px;
+      }
+
+      #overlay .info-section.section-collapsed,
+      #roomGeometryPanelRoot.section-collapsed {
+        margin-top: 0.45rem;
+        padding-top: 0.28rem;
+      }
+
+      #overlay .info-section.section-collapsed .panel-header,
+      #roomGeometryPanelRoot.section-collapsed > .panel-header {
+        min-height: 1.55rem;
+      }
+
       .input-panel-inline-status {
         display: none;
         margin: -0.2rem 0 0.15rem;
@@ -651,6 +707,14 @@
         display: grid;
         gap: 0.22rem;
         font-size: 11px;
+      }
+
+      #roomGeometryPanelRoot .room-geometry-summary {
+        margin-top: 0.22rem;
+        padding: 0.28rem 0.38rem;
+        gap: 0.16rem;
+        font-size: 10px;
+        line-height: 1.2;
       }
 
       .room-geometry-summary-row {
@@ -1191,10 +1255,19 @@
         min-height: auto;
       }
 
+      #overlay .info-list {
+        font-size: 11.5px;
+        gap: 0.18rem;
+      }
+
       #objectsList,
       #speakersList {
         padding-right: 0.6rem;
         box-sizing: border-box;
+      }
+
+      #overlay #objectsList {
+        padding-right: 0.2rem;
       }
 
       .info-item {
@@ -1204,6 +1277,10 @@
         padding: 0.25rem 0.35rem;
         border-radius: 6px;
         background: rgba(255, 255, 255, 0.04);
+      }
+
+      #overlay .info-item {
+        padding: 0.18rem 0.28rem;
       }
 
       .info-item strong {

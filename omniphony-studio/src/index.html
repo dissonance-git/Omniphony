@@ -79,11 +79,13 @@
       </div>
       </div>
       <div id="audioInputPanelMount"></div>
-      <div style="margin-top:0.75rem;padding-top:0.5rem;border-top:1px solid rgba(255, 255, 255, 0.12)"></div>
-      <div id="roomGeometryPanelRoot">
-      <div class="panel-header" style="margin-top:0.25rem">
+      <div id="roomGeometryPanelRoot" class="info-section section-collapsed">
+      <div class="panel-header">
         <div class="panel-header-main">
-        <div class="panel-title" style="font-size:12px;font-weight:600" data-i18n="room.title">Room Geometry</div>
+        <div class="panel-title-wrap">
+          <div class="info-title panel-title" data-i18n="room.title">Room Geometry</div>
+          <div id="roomGeometryHeaderSummary" class="panel-summary" style="display:block">—</div>
+        </div>
         </div>
         <div style="display:flex;align-items:center;gap:0.35rem">
           <button id="roomGeometryInfoBtn" type="button" class="info-icon-btn" data-i18n-title="room.infoButton" title="Room Geometry info">i</button>

@@ -47,7 +47,8 @@ import {
   setAudioOutputSectionOpen,
   setInputSectionOpen,
   setRendererSectionOpen,
-  setDisplaySectionOpen
+  setDisplaySectionOpen,
+  setDrcSectionOpen
 } from './modals.js';
 
 // ── Initialization & wiring ─────────────────────────────────────────────────
@@ -226,6 +227,7 @@ setAudioOutputSectionOpen(false);
 setInputSectionOpen(false);
 setRendererSectionOpen(false);
 setDisplaySectionOpen(false);
+setDrcSectionOpen(false);
 
 // Register UI event listeners
 initRenderSurfaceController({
