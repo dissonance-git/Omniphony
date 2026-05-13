@@ -1121,6 +1121,15 @@ fn run_pipewire_loop(
                             rate_adjust_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
                             desired_rate_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
                             runtime_state.recovery_reacquire_pending = false;
+                            if let Err(e) = resampler_fifo.ensure_output_samples(
+                                &buffer_for_callback,
+                                resampler,
+                                audio_samples_needed,
+                            ) {
+                                log::error!("Resampler error during recovery reacquire: {}", e);
+                            } else if resampler_fifo.output_len() > 0 {
+                                resampler_fifo.discard_samples(audio_samples_needed);
+                            }
                             dest[..max_samples].fill(0.0);
                             max_samples
                         } else {
@@ -1336,6 +1345,15 @@ fn run_pipewire_loop(
                             desired_rate_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
                             rate_adjust_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
                             runtime_state.recovery_reacquire_pending = false;
+                            let dropped =
+                                discard_ring_samples(&buffer_for_callback, samples_to_read);
+                            if dropped < samples_to_read {
+                                log::debug!(
+                                    "Recovery reacquire underfed: consumed {} / {} samples while re-priming output",
+                                    dropped,
+                                    samples_to_read
+                                );
+                            }
                             dest[..max_samples].fill(0.0);
                             max_samples
                         } else if far_decision.hard_recover_high {
