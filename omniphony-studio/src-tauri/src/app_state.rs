@@ -431,6 +431,18 @@ impl AppState {
         }
     }
 
+    pub fn reset_runtime_state(&mut self) {
+        let layouts = std::mem::take(&mut self.layouts);
+        let selected_layout_key = self.selected_layout_key.clone();
+        let osc_metering_enabled = self.osc_metering_enabled;
+        let log_level = self.log_level.clone();
+
+        *self = Self::new(layouts);
+        self.selected_layout_key = selected_layout_key;
+        self.osc_metering_enabled = osc_metering_enabled;
+        self.log_level = log_level;
+    }
+
     pub fn set_latency_value(&mut self, value: f64) -> i64 {
         let rounded = value.round() as i64;
         self.latency.latency_ms = Some(rounded);

@@ -708,10 +708,11 @@ fn send_heartbeat(socket: &UdpSocket, host: &str, rx_port: u16, listen_port: u16
 fn emit_osc_status(app: &AppHandle, state: &Arc<Mutex<AppState>>, status: &str) {
     {
         let mut s = state.lock().unwrap();
-        s.osc_status = Some(status.to_string());
         if status != "connected" {
+            s.reset_runtime_state();
             s.osc_snapshot_ready = false;
         }
+        s.osc_status = Some(status.to_string());
     }
     let _ = app.emit("osc:status", serde_json::json!({ "status": status }));
 }
