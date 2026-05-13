@@ -293,15 +293,9 @@ fn compute_low_recover_settle_trim_plan(
         (callback_input_domain_samples / 4).max(channel_count),
         channel_count,
     );
-    let max_trim_input_samples = align_samples_to_audio_frame(
-        (callback_input_domain_samples / 2).max(channel_count),
-        channel_count,
-    );
     let overshoot_input_samples = control_available.saturating_sub(target_buffer_fill);
     let desired_consume_input_samples = if overshoot_input_samples > tolerance_input_samples {
-        overshoot_input_samples
-            .saturating_sub(tolerance_input_samples)
-            .min(max_trim_input_samples)
+        overshoot_input_samples.saturating_sub(tolerance_input_samples)
     } else {
         0
     };
@@ -392,6 +386,21 @@ pub fn update_far_mode_state(
                     reset_controller_integrator(state);
                     state.low_recover_phase = LowRecoverPhase::Settling;
                     state.low_recover_settle_stable_ms = 0.0;
+                    let lower_bound =
+                        target_buffer_fill.saturating_sub(settle_tolerance_input_samples);
+                    let upper_bound =
+                        target_buffer_fill.saturating_add(settle_tolerance_input_samples);
+                    if control_available < lower_bound {
+                        state.low_recover_phase = LowRecoverPhase::Refill;
+                    } else if control_available > upper_bound {
+                        low_recover_trim_plan = compute_low_recover_settle_trim_plan(
+                            control_available,
+                            target_buffer_fill,
+                            callback_input_domain_samples,
+                            effective_resample_ratio,
+                            channel_count,
+                        );
+                    }
                 }
             }
             LowRecoverPhase::Settling => {
