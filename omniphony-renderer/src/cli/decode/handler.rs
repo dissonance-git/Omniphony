@@ -370,7 +370,7 @@ impl DecodeHandler {
         let current_latency_control_ms =
             latency_snapshot.and_then(|snapshot| snapshot.control_latency_ms);
         let current_latency_target_ms =
-            latency_snapshot.and_then(|snapshot| snapshot.target_final_latency_ms);
+            latency_snapshot.and_then(|snapshot| snapshot.target_control_latency_ms);
         let current_resample_ratio = self
             .output
             .audio_writer

@@ -684,6 +684,11 @@ impl AsioWriter {
             + f32::from_bits(self.pipeline_latency_ms_bits.load(Ordering::Relaxed))
     }
 
+    pub fn target_control_latency_ms(&self) -> f32 {
+        (self.target_buffer_fill as f32 / self.channel_count as f32 / self.input_sample_rate as f32)
+            * 1000.0
+    }
+
     pub fn measured_audio_delay_ms(&self) -> f32 {
         f32::from_bits(self.measured_latency_ms_bits.load(Ordering::Relaxed))
     }

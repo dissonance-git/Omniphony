@@ -59,7 +59,9 @@ impl<'a> SampleWriteCoordinator<'a> {
         let current_latency_control_ms =
             latency_snapshot.and_then(|snapshot| snapshot.control_latency_ms);
         let current_latency_target_ms =
-            latency_snapshot.and_then(|snapshot| snapshot.target_final_latency_ms);
+            latency_snapshot.and_then(|snapshot| snapshot.target_control_latency_ms);
+        let current_latency_downstream_ms =
+            latency_snapshot.and_then(|snapshot| snapshot.downstream_latency_ms);
         let current_resample_ratio: Option<f32> = self
             .output
             .audio_writer
@@ -76,9 +78,9 @@ impl<'a> SampleWriteCoordinator<'a> {
             .as_ref()
             .and_then(|w| w.adaptive_runtime_state());
 
-        let freeze_delay_sync = current_latency_instant_ms
+        let freeze_delay_sync = current_latency_control_ms
             .zip(current_latency_target_ms)
-            .map(|(final_ms, target_ms)| final_ms + 40.0 < target_ms)
+            .map(|(control_ms, target_ms)| control_ms + 40.0 < target_ms)
             .unwrap_or(false)
             || current_resample_ratio
                 .map(|ratio| (ratio - 1.0).abs() >= 0.03)
@@ -228,6 +230,7 @@ impl<'a> SampleWriteCoordinator<'a> {
                             current_latency_instant_ms,
                             current_latency_control_ms,
                             current_latency_target_ms,
+                            current_latency_downstream_ms,
                             current_resample_ratio,
                             current_adaptive_band,
                             current_adaptive_state,
@@ -374,6 +377,7 @@ impl<'a> SampleWriteCoordinator<'a> {
                             current_latency_instant_ms,
                             current_latency_control_ms,
                             current_latency_target_ms,
+                            current_latency_downstream_ms,
                             current_resample_ratio,
                             current_adaptive_band,
                             current_adaptive_state,

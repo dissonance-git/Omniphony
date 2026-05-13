@@ -30,6 +30,7 @@ const rendererPerfDisplayState = {
 function getLatencyInfoEl() { return inAudioPanel('latencyInfo'); }
 function getLatencyRawInfoEl() { return inAudioPanel('latencyRawInfo'); }
 function getLatencyCtrlInfoEl() { return inAudioPanel('latencyCtrlInfo'); }
+function getLatencyDownstreamInfoEl() { return inAudioPanel('latencyDownstreamInfo'); }
 function getLatencyTargetInputEl() { return inAudioPanel('latencyTargetInput'); }
 function getLatencyTargetApplyBtnEl() { return inAudioPanel('latencyTargetApplyBtn'); }
 function getResampleRatioInfoEl() { return inAudioPanel('resampleRatioInfo'); }
@@ -180,17 +181,22 @@ export function renderLatencyDisplay() {
   const latencyInfoEl = getLatencyInfoEl();
   const latencyRawInfoEl = getLatencyRawInfoEl();
   const latencyCtrlInfoEl = getLatencyCtrlInfoEl();
+  const latencyDownstreamInfoEl = getLatencyDownstreamInfoEl();
   const latencyTargetInputEl = getLatencyTargetInputEl();
   const latencyTargetApplyBtnEl = getLatencyTargetApplyBtnEl();
-  if (!latencyRawInfoEl && !latencyCtrlInfoEl && !latencyInfoEl) return;
+  if (!latencyRawInfoEl && !latencyCtrlInfoEl && !latencyDownstreamInfoEl && !latencyInfoEl) return;
   const instantText = app.latencyInstantMs === null ? '—' : `${formatNumber(app.latencyInstantMs, 0)} ms`;
-  const controlText = app.latencyControlMs === null ? '—' : `${formatNumber(app.latencyControlMs, 0)} ms`;
+  const controlText = app.latencyControlMs === null ? 'ctrl —' : `ctrl ${formatNumber(app.latencyControlMs, 0)} ms`;
+  const downstreamText = app.latencyDownstreamMs === null ? 'path —' : `path ${formatNumber(app.latencyDownstreamMs, 0)} ms`;
   const targetValue = app.latencyRequestedMs ?? app.latencyTargetMs ?? app.latencyMs;
   if (latencyRawInfoEl) {
     latencyRawInfoEl.textContent = instantText;
   }
   if (latencyCtrlInfoEl) {
     latencyCtrlInfoEl.textContent = controlText;
+  }
+  if (latencyDownstreamInfoEl) {
+    latencyDownstreamInfoEl.textContent = downstreamText;
   }
   if (!latencyRawInfoEl && latencyInfoEl) {
     latencyInfoEl.textContent = tf('status.latencyFallback', { raw: instantText, ctrl: controlText });

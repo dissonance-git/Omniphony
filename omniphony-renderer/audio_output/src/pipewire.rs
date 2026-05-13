@@ -611,6 +611,10 @@ impl PipewireWriter {
         self.target_latency_ms as f32 + self.graph_latency_ms()
     }
 
+    pub fn target_control_latency_ms(&self) -> f32 {
+        self.target_latency_ms as f32
+    }
+
     /// Measured total audio delay seen by the listener:
     /// current ring-buffer latency + PipeWire graph latency.
     pub fn measured_audio_delay_ms(&self) -> f32 {
@@ -1107,85 +1111,95 @@ fn run_pipewire_loop(
                             )),
                             Ordering::Relaxed,
                         );
-
-                        if far_decision.hold_low_recover {
-                            let muted_samples_to_consume = if far_decision.consume_while_muted {
-                                audio_samples_needed
-                            } else {
-                                0
-                            };
-                            let muted_total_samples = muted_samples_to_consume
-                                .saturating_add(far_decision.low_recover_trim_output_samples);
-                            if muted_total_samples > 0 {
-                                if let Err(e) = resampler_fifo.ensure_output_samples(
-                                    &buffer_for_callback,
-                                    resampler,
-                                    muted_total_samples,
-                                ) {
-                                    log::error!("Resampler error: {}", e);
+                        if far_decision.recovery_reacquire_pending {
+                            resampler.reset();
+                            let _ = resampler.set_resample_ratio(resample_ratio, false);
+                            resampler_fifo.reset();
+                            effective_resample_ratio = resample_ratio;
+                            rate_adjust_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
+                            desired_rate_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
+                            runtime_state.recovery_reacquire_pending = false;
+                            dest[..max_samples].fill(0.0);
+                            max_samples
+                        } else {
+                            if far_decision.hold_low_recover {
+                                let muted_samples_to_consume = if far_decision.consume_while_muted {
+                                    audio_samples_needed
                                 } else {
-                                    if far_decision.low_recover_trim_output_samples > 0 {
-                                        resampler_fifo.discard_samples(
-                                            far_decision.low_recover_trim_output_samples,
-                                        );
-                                    }
-                                    if muted_samples_to_consume > 0 {
-                                        resampler_fifo.discard_samples(muted_samples_to_consume);
+                                    0
+                                };
+                                let muted_total_samples = muted_samples_to_consume
+                                    .saturating_add(far_decision.low_recover_trim_output_samples);
+                                if muted_total_samples > 0 {
+                                    if let Err(e) = resampler_fifo.ensure_output_samples(
+                                        &buffer_for_callback,
+                                        resampler,
+                                        muted_total_samples,
+                                    ) {
+                                        log::error!("Resampler error: {}", e);
+                                    } else {
+                                        if far_decision.low_recover_trim_output_samples > 0 {
+                                            resampler_fifo.discard_samples(
+                                                far_decision.low_recover_trim_output_samples,
+                                            );
+                                        }
+                                        if muted_samples_to_consume > 0 {
+                                            resampler_fifo.discard_samples(muted_samples_to_consume);
+                                        }
                                     }
                                 }
-                            }
-                            dest[..max_samples].fill(0.0);
-                        } else if let Err(e) = resampler_fifo.ensure_output_samples(
-                            &buffer_for_callback,
-                            resampler,
-                            audio_samples_needed,
-                        ) {
-                            log::error!("Resampler error: {}", e);
-                        }
-
-                        if far_decision.hard_recover_high {
-                            let plan = compute_hard_recover_high_plan(
-                                callback_input_domain_samples,
-                                metrics.control_available,
-                                runtime_target_buffer_fill,
-                                effective_resample_ratio,
-                                channel_count as usize,
-                            );
-                            if let Err(e) = resampler_fifo.ensure_output_samples(
+                                dest[..max_samples].fill(0.0);
+                            } else if let Err(e) = resampler_fifo.ensure_output_samples(
                                 &buffer_for_callback,
                                 resampler,
-                                plan.desired_consume_output_samples,
+                                audio_samples_needed,
                             ) {
                                 log::error!("Resampler error: {}", e);
                             }
-                            resampler_fifo.discard_samples(plan.desired_consume_output_samples);
-                            dest[..max_samples].fill(0.0);
-                        } else if far_decision.hold_low_recover {
-                            dest[..max_samples].fill(0.0);
-                        } else if resampler_fifo.output_len() >= audio_samples_needed {
-                            let copied =
-                                resampler_fifo.drain_into_slice(&mut dest[..audio_samples_needed]);
-                            debug_assert_eq!(copied, audio_samples_needed);
-                            postprocess_interleaved_output(
-                                &mut dest[..audio_samples_needed],
-                                ch,
-                                far_decision.mute_far_output,
-                                &mut runtime_state,
-                            );
-                        } else {
-                            let fifo_available = resampler_fifo.output_len();
-                            let copy_count =
-                                resampler_fifo.drain_into_slice(&mut dest[..audio_samples_needed]);
-                            zero_pad_tail(&mut dest[..max_samples], copy_count);
-                            note_refill_or_underrun(
-                                &mut runtime_state,
-                                "Resampler underrun",
-                                "Resampler underrun",
-                                fifo_available,
-                                audio_samples_needed,
-                            );
+                            if far_decision.hard_recover_high {
+                                let plan = compute_hard_recover_high_plan(
+                                    callback_input_domain_samples,
+                                    metrics.control_available,
+                                    runtime_target_buffer_fill,
+                                    effective_resample_ratio,
+                                    channel_count as usize,
+                                );
+                                if let Err(e) = resampler_fifo.ensure_output_samples(
+                                    &buffer_for_callback,
+                                    resampler,
+                                    plan.desired_consume_output_samples,
+                                ) {
+                                    log::error!("Resampler error: {}", e);
+                                }
+                                resampler_fifo.discard_samples(plan.desired_consume_output_samples);
+                                dest[..max_samples].fill(0.0);
+                            } else if far_decision.hold_low_recover {
+                                dest[..max_samples].fill(0.0);
+                            } else if resampler_fifo.output_len() >= audio_samples_needed {
+                                let copied =
+                                    resampler_fifo.drain_into_slice(&mut dest[..audio_samples_needed]);
+                                debug_assert_eq!(copied, audio_samples_needed);
+                                postprocess_interleaved_output(
+                                    &mut dest[..audio_samples_needed],
+                                    ch,
+                                    far_decision.mute_far_output,
+                                    &mut runtime_state,
+                                );
+                            } else {
+                                let fifo_available = resampler_fifo.output_len();
+                                let copy_count =
+                                    resampler_fifo.drain_into_slice(&mut dest[..audio_samples_needed]);
+                                zero_pad_tail(&mut dest[..max_samples], copy_count);
+                                note_refill_or_underrun(
+                                    &mut runtime_state,
+                                    "Resampler underrun",
+                                    "Resampler underrun",
+                                    fifo_available,
+                                    audio_samples_needed,
+                                );
+                            }
+                            max_samples
                         }
-                        max_samples
                     } else {
                         if latency_servo_enabled && !is_pi_paused && callback_count % adaptive_update_interval == 0 {
                             // Refresh config from live Arc (non-blocking; keep stale on contention).
@@ -1316,7 +1330,13 @@ fn run_pipewire_loop(
                             )),
                             Ordering::Relaxed,
                         );
-                        if far_decision.hard_recover_high {
+                        if far_decision.recovery_reacquire_pending {
+                            desired_rate_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
+                            rate_adjust_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
+                            runtime_state.recovery_reacquire_pending = false;
+                            dest[..max_samples].fill(0.0);
+                            max_samples
+                        } else if far_decision.hard_recover_high {
                             let plan = compute_hard_recover_high_plan(
                                 callback_input_domain_samples,
                                 metrics.control_available,

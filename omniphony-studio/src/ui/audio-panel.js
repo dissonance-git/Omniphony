@@ -55,6 +55,11 @@ export function audioPanelMarkup() {
                 <span aria-hidden="true" style="opacity:0.45">|</span>
                 <span id="latencyRawMaxValue">max —</span>
               </div>
+              <div class="meter-subvalues" style="margin-top:0.12rem">
+                <span id="latencyCtrlInfo">ctrl —</span>
+                <span aria-hidden="true" style="opacity:0.45">|</span>
+                <span id="latencyDownstreamInfo">path —</span>
+              </div>
             </div>
             <div id="resampleMeterLabel" class="meter-mini-label" style="grid-column:1;grid-row:3;transform:translateY(-2px)" data-i18n="telemetry.resample">Resample</div>
             <div id="resampleMeterBody" style="grid-column:2;grid-row:3;display:grid;gap:0.05rem;min-width:0">

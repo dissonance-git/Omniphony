@@ -11,6 +11,9 @@ use crate::{
 
 pub const MAX_INTEGRAL_TERM: f64 = 0.0002;
 const LOW_RECOVER_SETTLE_STABLE_MS: f32 = 200.0;
+const LOW_RECOVER_ENTRY_MARGIN_MS: f32 = 18.0;
+const LOW_RECOVER_EXIT_MARGIN_MS: f32 = 6.0;
+const LOW_RECOVER_SETTLE_MARGIN_MS: f32 = 6.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LowRecoverPhase {
@@ -47,6 +50,8 @@ pub struct AdaptiveRuntimeState {
     pub far_mode_fade_remaining_frames: usize,
     pub far_mode_fade_total_frames: usize,
     pub last_logged_ratio_bits: u64,
+    pub recovery_reacquire_pending: bool,
+    pub hard_recover_high_active: bool,
 }
 
 impl AdaptiveRuntimeState {
@@ -63,6 +68,8 @@ impl AdaptiveRuntimeState {
             far_mode_fade_remaining_frames: 0,
             far_mode_fade_total_frames: 0,
             last_logged_ratio_bits: initial_ratio.to_bits(),
+            recovery_reacquire_pending: false,
+            hard_recover_high_active: false,
         }
     }
 
@@ -156,6 +163,8 @@ pub fn reset_adaptive_runtime(state: &mut AdaptiveRuntimeState, base_ratio: f64)
     state.far_mode_fade_remaining_frames = 0;
     state.far_mode_fade_total_frames = 0;
     state.last_logged_ratio_bits = base_ratio.to_bits();
+    state.recovery_reacquire_pending = false;
+    state.hard_recover_high_active = false;
     ResetOutcome {
         effective_resample_ratio: base_ratio,
         displayed_rate_adjust: 1.0,
@@ -264,6 +273,11 @@ pub struct FarModeDecision {
     pub consume_while_muted: bool,
     pub low_recover_trim_input_samples: usize,
     pub low_recover_trim_output_samples: usize,
+    pub recovery_reacquire_pending: bool,
+}
+
+pub fn reset_controller_integrator(state: &mut AdaptiveRuntimeState) {
+    state.controller_state.accumulated_drift = 0.0;
 }
 
 fn compute_low_recover_settle_trim_plan(
@@ -319,28 +333,40 @@ pub fn update_far_mode_state(
         desired_consume_input_samples: 0,
         desired_consume_output_samples: 0,
     };
+    let previous_low_recover_phase = state.low_recover_phase;
+    let previous_hard_recover_high = state.hard_recover_high_active;
     let settle_callback_ms = if channel_count > 0 && input_sample_rate > 0 {
         (callback_input_domain_samples as f32 / channel_count as f32 / input_sample_rate as f32)
             * 1000.0
     } else {
         0.0
     };
-    let near_far_threshold_input_samples = if channel_count > 0 && input_sample_rate > 0 {
-        (((adaptive_config.near_far_threshold_ms as u64)
-            .saturating_mul(input_sample_rate as u64)
-            .saturating_mul(channel_count as u64))
-            / 1000) as usize
+    let samples_per_ms = if channel_count > 0 && input_sample_rate > 0 {
+        (input_sample_rate as usize).saturating_mul(channel_count) / 1000
     } else {
         0
     };
-    let tolerance_input_samples = align_samples_to_audio_frame(
-        (callback_input_domain_samples / 4)
-            .max(near_far_threshold_input_samples / 2)
+    let margin_samples = |margin_ms: f32| -> usize {
+        let raw = (margin_ms * samples_per_ms as f32).round() as usize;
+        align_samples_to_audio_frame(raw.max(channel_count), channel_count)
+    };
+    let entry_tolerance_input_samples = align_samples_to_audio_frame(
+        (callback_input_domain_samples / 2)
+            .min(margin_samples(LOW_RECOVER_ENTRY_MARGIN_MS))
             .max(channel_count),
         channel_count,
     );
-    let low_recover_entry_threshold = target_buffer_fill.saturating_sub(tolerance_input_samples);
-    let low_recover_exit_threshold = low_recover_entry_threshold;
+    let exit_tolerance_input_samples = margin_samples(LOW_RECOVER_EXIT_MARGIN_MS);
+    let settle_tolerance_input_samples = align_samples_to_audio_frame(
+        (callback_input_domain_samples / 4)
+            .min(margin_samples(LOW_RECOVER_SETTLE_MARGIN_MS))
+            .max(channel_count),
+        channel_count,
+    );
+    let low_recover_entry_threshold =
+        target_buffer_fill.saturating_sub(entry_tolerance_input_samples);
+    let low_recover_exit_threshold =
+        target_buffer_fill.saturating_sub(exit_tolerance_input_samples);
 
     let low_recover_enabled =
         adaptive_config.hard_recover_low_in_far_mode || state.startup_low_recover_active;
@@ -354,20 +380,25 @@ pub fn update_far_mode_state(
                 if (state.startup_low_recover_active || is_far_band)
                     && control_available < low_recover_entry_threshold
                 {
+                    reset_controller_integrator(state);
                     state.low_recover_phase = LowRecoverPhase::Refill;
                     state.low_recover_settle_stable_ms = 0.0;
                 }
             }
             LowRecoverPhase::Refill => {
                 if control_available >= low_recover_exit_threshold {
+                    reset_controller_integrator(state);
                     state.low_recover_phase = LowRecoverPhase::Settling;
                     state.low_recover_settle_stable_ms = 0.0;
                 }
             }
             LowRecoverPhase::Settling => {
-                let lower_bound = target_buffer_fill.saturating_sub(tolerance_input_samples);
-                let upper_bound = target_buffer_fill.saturating_add(tolerance_input_samples);
+                let lower_bound =
+                    target_buffer_fill.saturating_sub(settle_tolerance_input_samples);
+                let upper_bound =
+                    target_buffer_fill.saturating_add(settle_tolerance_input_samples);
                 if control_available < lower_bound {
+                    reset_controller_integrator(state);
                     state.low_recover_phase = LowRecoverPhase::Refill;
                     state.low_recover_settle_stable_ms = 0.0;
                 } else if control_available > upper_bound {
@@ -385,6 +416,8 @@ pub fn update_far_mode_state(
                         state.startup_low_recover_active = false;
                         state.low_recover_phase = LowRecoverPhase::Inactive;
                         state.low_recover_settle_stable_ms = 0.0;
+                        state.recovery_reacquire_pending = true;
+                        reset_controller_integrator(state);
                     }
                 }
             }
@@ -399,6 +432,20 @@ pub fn update_far_mode_state(
         && is_far_band
         && control_available > target_buffer_fill
         && state.low_recover_phase == LowRecoverPhase::Inactive;
+    if hard_recover_high && !previous_hard_recover_high {
+        reset_controller_integrator(state);
+    }
+    state.hard_recover_high_active = hard_recover_high;
+    if previous_hard_recover_high && !hard_recover_high {
+        state.recovery_reacquire_pending = true;
+        reset_controller_integrator(state);
+    }
+    if previous_low_recover_phase != LowRecoverPhase::Inactive
+        && state.low_recover_phase == LowRecoverPhase::Inactive
+    {
+        state.recovery_reacquire_pending = true;
+    }
+    let recovery_reacquire_pending = state.recovery_reacquire_pending;
 
     if mute_far_output {
         state.far_mode_was_muted = true;
@@ -419,6 +466,7 @@ pub fn update_far_mode_state(
         consume_while_muted: state.low_recover_phase == LowRecoverPhase::Settling,
         low_recover_trim_input_samples: low_recover_trim_plan.desired_consume_input_samples,
         low_recover_trim_output_samples: low_recover_trim_plan.desired_consume_output_samples,
+        recovery_reacquire_pending,
     }
 }
 
@@ -514,10 +562,8 @@ pub fn compute_hard_recover_high_plan(
     effective_resample_ratio: f64,
     channel_count: usize,
 ) -> HardRecoverPlan {
-    let desired_consume_input_samples = (callback_input_domain_samples as i64
-        + control_available as i64
-        - target_buffer_fill as i64)
-        .max(0) as usize;
+    let _ = callback_input_domain_samples;
+    let desired_consume_input_samples = control_available.saturating_sub(target_buffer_fill);
     let desired_consume_input_samples =
         align_samples_to_audio_frame(desired_consume_input_samples, channel_count);
     let desired_consume_output_samples =
