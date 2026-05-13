@@ -410,7 +410,7 @@ pub fn update_far_mode_state(
                 let predicted_next_control = (control_available as f32)
                     + state.low_recover_refill_delta_ema.max(0.0);
                 if control_available >= low_recover_exit_threshold
-                    || predicted_next_control >= target_buffer_fill as f32
+                    || predicted_next_control >= low_recover_exit_threshold as f32
                 {
                     reset_controller_integrator(state);
                     state.low_recover_phase = LowRecoverPhase::Settling;
@@ -459,7 +459,7 @@ pub fn update_far_mode_state(
                         state.low_recover_phase = LowRecoverPhase::Inactive;
                         state.low_recover_settle_stable_ms = 0.0;
                         reset_low_recover_refill_tracking(state);
-                        state.recovery_reacquire_pending = true;
+                        state.recovery_reacquire_pending = adaptive_config.force_silence_in_far_mode;
                         reset_controller_integrator(state);
                     }
                 }
