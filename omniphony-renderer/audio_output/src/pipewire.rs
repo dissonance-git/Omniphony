@@ -20,12 +20,12 @@ use crate::{
     ADAPTIVE_BAND_FAR, ADAPTIVE_BAND_NEAR, AdaptiveResamplingConfig,
     LOCAL_RESAMPLER_MAX_RELATIVE_RATIO,
     adaptive_runtime::{
-        AdaptiveRuntimeState, FarModeDecision, LatencyMetricTargets, MAX_INTEGRAL_TERM,
-        adaptive_runtime_state_name, compute_hard_recover_high_plan, discard_ring_samples,
-        far_mode_band_from_latency, note_refill_or_underrun, output_to_input_domain_samples,
-        paused_rate_adjust, postprocess_interleaved_output, reset_adaptive_runtime,
-        run_adaptive_servo, should_run_adaptive_servo, update_far_mode_state,
-        update_latency_metrics, zero_pad_tail,
+        AdaptiveRuntimeState, FarModeDecision, LatencyMetricTargets, LowRecoverPhase,
+        MAX_INTEGRAL_TERM, adaptive_runtime_state_name, compute_hard_recover_high_plan,
+        discard_ring_samples, far_mode_band_from_latency, note_refill_or_underrun,
+        output_to_input_domain_samples, paused_rate_adjust, postprocess_interleaved_output,
+        reset_adaptive_runtime, run_adaptive_servo, should_run_adaptive_servo,
+        update_far_mode_state, update_latency_metrics, zero_pad_tail,
     },
     adaptive_runtime_state_code, adaptive_runtime_state_name_from_code,
     clamp_ratio_for_local_resampler, local_resampler_ratio_bounds,
@@ -1094,6 +1094,8 @@ fn run_pipewire_loop(
 
                         let audio_samples_needed = max_samples;
                         let far_mode_cfg = live_adaptive_config_for_callback.lock().unwrap().clone();
+                        let low_recover_was_active =
+                            runtime_state.low_recover_phase != LowRecoverPhase::Inactive;
                         let far_decision = update_far_mode_state(
                             &mut runtime_state,
                             &far_mode_cfg,
@@ -1113,6 +1115,18 @@ fn run_pipewire_loop(
                             )),
                             Ordering::Relaxed,
                         );
+                        if far_decision.hold_low_recover {
+                            rate_adjust_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
+                            desired_rate_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
+                            if !low_recover_was_active {
+                                resampler.reset();
+                                let _ = resampler.set_resample_ratio(resample_ratio, false);
+                                resampler_fifo.reset();
+                            } else if effective_resample_ratio.to_bits() != resample_ratio.to_bits() {
+                                let _ = resampler.set_resample_ratio(resample_ratio, false);
+                            }
+                            effective_resample_ratio = resample_ratio;
+                        }
                         if far_decision.recovery_reacquire_pending {
                             resampler.reset();
                             let _ = resampler.set_resample_ratio(resample_ratio, false);
@@ -1370,6 +1384,8 @@ fn run_pipewire_loop(
                         let samples_to_read = frames_to_read * ch;
 
                         let far_mode_cfg2 = live_adaptive_config_for_callback.lock().unwrap().clone();
+                        let low_recover_was_active =
+                            runtime_state.low_recover_phase != LowRecoverPhase::Inactive;
                         let far_decision: FarModeDecision = update_far_mode_state(
                             &mut runtime_state,
                             &far_mode_cfg2,
@@ -1389,6 +1405,13 @@ fn run_pipewire_loop(
                             )),
                             Ordering::Relaxed,
                         );
+                        if far_decision.hold_low_recover {
+                            desired_rate_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
+                            rate_adjust_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
+                            if !low_recover_was_active {
+                                runtime_state.controller_state.accumulated_drift = 0.0;
+                            }
+                        }
                         if far_decision.recovery_reacquire_pending {
                             desired_rate_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
                             rate_adjust_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);

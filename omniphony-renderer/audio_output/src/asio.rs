@@ -15,11 +15,12 @@ use std::time::Duration;
 use crate::{
     AdaptiveResamplingConfig, LOCAL_RESAMPLER_MAX_RELATIVE_RATIO, adaptive_band_name,
     adaptive_runtime::{
-        AdaptiveRuntimeState, FarModeDecision, LatencyMetricTargets, adaptive_runtime_state_name,
-        compute_hard_recover_high_plan, far_mode_band_from_latency, note_refill_or_underrun,
-        output_to_input_domain_samples, paused_rate_adjust, postprocess_interleaved_output,
-        reset_adaptive_runtime, run_adaptive_servo, should_run_adaptive_servo,
-        update_far_mode_state, update_latency_metrics, zero_pad_tail,
+        AdaptiveRuntimeState, FarModeDecision, LatencyMetricTargets, LowRecoverPhase,
+        adaptive_runtime_state_name, compute_hard_recover_high_plan, far_mode_band_from_latency,
+        note_refill_or_underrun, output_to_input_domain_samples, paused_rate_adjust,
+        postprocess_interleaved_output, reset_adaptive_runtime, run_adaptive_servo,
+        should_run_adaptive_servo, update_far_mode_state, update_latency_metrics,
+        zero_pad_tail,
     },
     adaptive_runtime_state_code, adaptive_runtime_state_name_from_code,
     clamp_ratio_for_local_resampler, local_resampler_ratio_bounds,
@@ -474,6 +475,8 @@ impl AsioWriter {
                 let audio_samples_needed = output_frames_needed * channel_count as usize;
                 let far_mode_cfg = live_config_for_callback.lock().unwrap().clone();
                 let startup_low_recover_was_active = runtime_state.startup_low_recover_active;
+                let low_recover_was_active =
+                    runtime_state.low_recover_phase != LowRecoverPhase::Inactive;
                 let far_decision: FarModeDecision = update_far_mode_state(
                     &mut runtime_state,
                     &far_mode_cfg,
@@ -493,6 +496,17 @@ impl AsioWriter {
                         )),
                         Ordering::Relaxed,
                     );
+                if far_decision.hold_low_recover {
+                    current_rate_adjust_clone.store(1.0f32.to_bits(), Ordering::Relaxed);
+                    if !low_recover_was_active {
+                        resampler.reset();
+                        let _ = resampler.set_resample_ratio(resample_ratio, false);
+                        resampler_fifo.reset();
+                    } else if effective_resample_ratio.to_bits() != resample_ratio.to_bits() {
+                        let _ = resampler.set_resample_ratio(resample_ratio, false);
+                    }
+                    effective_resample_ratio = resample_ratio;
+                }
                 let startup_low_recover_finished =
                     startup_low_recover_was_active && !runtime_state.startup_low_recover_active;
                 if startup_low_recover_finished {
