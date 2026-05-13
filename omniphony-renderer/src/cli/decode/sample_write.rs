@@ -50,21 +50,18 @@ impl<'a> SampleWriteCoordinator<'a> {
         let frame_duration_ms =
             sample_count as f32 / frame.sampling_frequency.max(1) as f32 * 1000.0;
 
-        let current_latency_instant_ms: Option<f32> = self
+        let latency_snapshot = self
             .output
             .audio_writer
             .as_ref()
-            .and_then(|w| w.measured_audio_delay_ms());
-        let current_latency_control_ms: Option<f32> = self
-            .output
-            .audio_writer
-            .as_ref()
-            .and_then(|w| w.control_audio_delay_ms());
-        let current_latency_target_ms: Option<f32> = self
-            .output
-            .audio_writer
-            .as_ref()
-            .and_then(|w| w.total_audio_delay_ms());
+            .and_then(|w| w.latency_snapshot());
+        let current_latency_instant_ms = latency_snapshot.map(|snapshot| snapshot.final_latency_ms);
+        let current_latency_control_ms =
+            latency_snapshot.and_then(|snapshot| snapshot.control_latency_ms);
+        let current_latency_target_ms =
+            latency_snapshot.and_then(|snapshot| snapshot.target_control_latency_ms);
+        let current_latency_downstream_ms =
+            latency_snapshot.and_then(|snapshot| snapshot.downstream_latency_ms);
         let current_resample_ratio: Option<f32> = self
             .output
             .audio_writer
@@ -90,8 +87,8 @@ impl<'a> SampleWriteCoordinator<'a> {
                 .unwrap_or(false)
             || matches!(current_adaptive_band, Some("hard"));
         if let Some(total_ms) = self.output.audio_writer.as_ref().and_then(|w| {
-            w.total_audio_delay_ms()
-                .or_else(|| w.measured_audio_delay_ms())
+            w.measured_audio_delay_ms()
+                .or_else(|| w.target_audio_delay_ms())
         }) {
             let should_write = !freeze_delay_sync
                 && self
@@ -233,6 +230,7 @@ impl<'a> SampleWriteCoordinator<'a> {
                             current_latency_instant_ms,
                             current_latency_control_ms,
                             current_latency_target_ms,
+                            current_latency_downstream_ms,
                             current_resample_ratio,
                             current_adaptive_band,
                             current_adaptive_state,
@@ -379,6 +377,7 @@ impl<'a> SampleWriteCoordinator<'a> {
                             current_latency_instant_ms,
                             current_latency_control_ms,
                             current_latency_target_ms,
+                            current_latency_downstream_ms,
                             current_resample_ratio,
                             current_adaptive_band,
                             current_adaptive_state,

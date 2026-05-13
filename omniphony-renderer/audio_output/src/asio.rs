@@ -15,11 +15,13 @@ use std::time::Duration;
 use crate::{
     AdaptiveResamplingConfig, LOCAL_RESAMPLER_MAX_RELATIVE_RATIO, adaptive_band_name,
     adaptive_runtime::{
-        AdaptiveRuntimeState, FarModeDecision, LatencyMetricTargets, adaptive_runtime_state_name,
-        compute_hard_recover_high_plan, far_mode_band_from_latency, note_refill_or_underrun,
-        output_to_input_domain_samples, paused_rate_adjust, postprocess_interleaved_output,
-        reset_adaptive_runtime, run_adaptive_servo, should_run_adaptive_servo,
-        update_far_mode_state, update_latency_metrics, zero_pad_tail,
+        AdaptiveRuntimeState, FarModeDecision, LatencyMetricTargets, LowRecoverPhase,
+        adaptive_runtime_state_name, compute_hard_recover_high_plan, far_mode_band_from_latency,
+        note_refill_or_underrun, output_to_input_domain_samples, paused_rate_adjust,
+        postprocess_interleaved_output, reset_adaptive_runtime, run_adaptive_servo,
+        should_run_adaptive_servo, store_latency_metrics_from_control_available,
+        update_far_mode_state, update_latency_metrics,
+        zero_pad_tail,
     },
     adaptive_runtime_state_code, adaptive_runtime_state_name_from_code,
     clamp_ratio_for_local_resampler, local_resampler_ratio_bounds,
@@ -351,6 +353,7 @@ impl AsioWriter {
                         resampler_fifo.output_len(),
                         effective_resample_ratio,
                     );
+                let pending_resampler_input_samples = resampler_fifo.pending_input_samples();
                 // data.len() is in device-channel domain; convert it to rendered-audio samples
                 // before comparing against the renderer/ring buffer fill level.
                 let callback_frames = data.len() / device_channel_count_for_callback as usize;
@@ -378,6 +381,7 @@ impl AsioWriter {
                     &mut runtime_state,
                     available_samples,
                     output_fifo_input_domain_samples,
+                    pending_resampler_input_samples,
                     callback_input_domain_samples,
                     channel_count as usize,
                     input_sample_rate,
@@ -472,6 +476,8 @@ impl AsioWriter {
                 let audio_samples_needed = output_frames_needed * channel_count as usize;
                 let far_mode_cfg = live_config_for_callback.lock().unwrap().clone();
                 let startup_low_recover_was_active = runtime_state.startup_low_recover_active;
+                let low_recover_was_active =
+                    runtime_state.low_recover_phase != LowRecoverPhase::Inactive;
                 let far_decision: FarModeDecision = update_far_mode_state(
                     &mut runtime_state,
                     &far_mode_cfg,
@@ -491,6 +497,55 @@ impl AsioWriter {
                         )),
                         Ordering::Relaxed,
                     );
+                let mut projected_control_available = metrics.control_available;
+                if far_decision.recovery_reacquire_pending && far_decision.mute_far_output {
+                    projected_control_available =
+                        projected_control_available.saturating_sub(callback_input_domain_samples);
+                } else if far_decision.hard_recover_high {
+                    let plan = compute_hard_recover_high_plan(
+                        callback_input_domain_samples,
+                        metrics.control_available,
+                        target_buffer_fill,
+                        effective_resample_ratio,
+                        channel_count as usize,
+                    );
+                    projected_control_available = projected_control_available
+                        .saturating_sub(plan.desired_consume_input_samples);
+                } else if far_decision.hold_low_recover {
+                    let trim_input_samples = output_to_input_domain_samples(
+                        far_decision.low_recover_trim_output_samples,
+                        effective_resample_ratio,
+                    );
+                    let muted_consume_input_samples =
+                        if far_decision.mute_far_output && far_decision.consume_while_muted {
+                            callback_input_domain_samples
+                        } else {
+                            0
+                        };
+                    projected_control_available = projected_control_available
+                        .saturating_sub(trim_input_samples.saturating_add(muted_consume_input_samples));
+                }
+                store_latency_metrics_from_control_available(
+                    projected_control_available,
+                    channel_count as usize,
+                    input_sample_rate,
+                    callback_midpoint_ms,
+                    LatencyMetricTargets {
+                        measured_latency_ms_bits: &measured_latency_ms_bits_clone,
+                        control_latency_ms_bits: &control_latency_ms_bits_clone,
+                    },
+                );
+                if far_decision.hold_low_recover {
+                    current_rate_adjust_clone.store(1.0f32.to_bits(), Ordering::Relaxed);
+                    if !low_recover_was_active {
+                        resampler.reset();
+                        let _ = resampler.set_resample_ratio(resample_ratio, false);
+                        resampler_fifo.reset();
+                    } else if effective_resample_ratio.to_bits() != resample_ratio.to_bits() {
+                        let _ = resampler.set_resample_ratio(resample_ratio, false);
+                    }
+                    effective_resample_ratio = resample_ratio;
+                }
                 let startup_low_recover_finished =
                     startup_low_recover_was_active && !runtime_state.startup_low_recover_active;
                 if startup_low_recover_finished {
@@ -499,22 +554,31 @@ impl AsioWriter {
                     resampler.reset();
                     let _ = resampler.set_resample_ratio(effective_resample_ratio, false);
                     resampler_fifo.reset();
-                    data.fill(0.0);
-                    return;
+                    if far_decision.mute_far_output {
+                        data.fill(0.0);
+                        return;
+                    }
                 }
                 if far_decision.hold_low_recover {
-                    let muted_samples_to_consume = if far_decision.consume_while_muted {
+                    let muted_samples_to_consume = if far_decision.mute_far_output
+                        && far_decision.consume_while_muted
+                    {
                         audio_samples_needed
                     } else {
                         0
                     };
-                    let muted_total_samples = muted_samples_to_consume
-                        .saturating_add(far_decision.low_recover_trim_output_samples);
-                    if muted_total_samples > 0 {
+                    let prepared_samples = if far_decision.mute_far_output {
+                        muted_samples_to_consume
+                            .saturating_add(far_decision.low_recover_trim_output_samples)
+                    } else {
+                        audio_samples_needed
+                            .saturating_add(far_decision.low_recover_trim_output_samples)
+                    };
+                    if prepared_samples > 0 {
                         if let Err(e) = resampler_fifo.ensure_output_samples(
                             &buffer_clone,
                             &mut resampler,
-                            muted_total_samples,
+                            prepared_samples,
                         ) {
                             log::error!("Resampler error: {}", e);
                         }
@@ -527,7 +591,9 @@ impl AsioWriter {
                             resampler_fifo.discard_samples(muted_samples_to_consume);
                         }
                     }
-                    data.fill(0.0);
+                    if far_decision.mute_far_output {
+                        data.fill(0.0);
+                    }
                 } else {
                     if let Err(e) = resampler_fifo.ensure_output_samples(
                         &buffer_clone,
@@ -556,7 +622,7 @@ impl AsioWriter {
                     }
                     resampler_fifo.discard_samples(plan.desired_consume_output_samples);
                     data.fill(0.0);
-                } else if far_decision.hold_low_recover {
+                } else if far_decision.hold_low_recover && far_decision.mute_far_output {
                     data.fill(0.0);
                 } else if resampler_fifo.output_len() >= audio_samples_needed {
                     // We have enough data
@@ -682,6 +748,11 @@ impl AsioWriter {
         (self.target_buffer_fill as f32 / self.channel_count as f32 / self.input_sample_rate as f32)
             * 1000.0
             + f32::from_bits(self.pipeline_latency_ms_bits.load(Ordering::Relaxed))
+    }
+
+    pub fn target_control_latency_ms(&self) -> f32 {
+        (self.target_buffer_fill as f32 / self.channel_count as f32 / self.input_sample_rate as f32)
+            * 1000.0
     }
 
     pub fn measured_audio_delay_ms(&self) -> f32 {

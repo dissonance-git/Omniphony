@@ -219,6 +219,8 @@ pub struct RuntimeLatencyState {
     pub latency_instant_ms: Option<i64>,
     #[serde(rename = "latencyControlMs")]
     pub latency_control_ms: Option<i64>,
+    #[serde(rename = "latencyDownstreamMs")]
+    pub latency_downstream_ms: Option<i64>,
     #[serde(rename = "latencyTargetMs")]
     pub latency_target_ms: Option<i64>,
     #[serde(rename = "latencyRequestedMs")]
@@ -458,6 +460,12 @@ impl AppState {
     pub fn set_latency_control_value(&mut self, value: f64) -> i64 {
         let rounded = value.round() as i64;
         self.latency.latency_control_ms = Some(rounded);
+        rounded
+    }
+
+    pub fn set_latency_downstream_value(&mut self, value: f64) -> i64 {
+        let rounded = value.round() as i64;
+        self.latency.latency_downstream_ms = Some(rounded);
         rounded
     }
 

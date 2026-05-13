@@ -1558,6 +1558,13 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     removed_ids,
                 )
             }
+            OscEvent::StateLatencyDownstream { value } => {
+                let rounded = s.set_latency_downstream_value(value);
+                (
+                    Some(("latency:downstream", serde_json::json!({ "value": rounded }))),
+                    removed_ids,
+                )
+            }
             OscEvent::StateLatencyTarget { value } => {
                 let rounded = s.set_latency_target_value(value);
                 (

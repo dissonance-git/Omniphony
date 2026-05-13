@@ -340,6 +340,26 @@ function parseOmniphonyStateMessage(parts, args) {
     return value === null ? null : { type: 'state:latency', value };
   }
 
+  if (parts.length === 3 && parts[0] === 'omniphony' && parts[1] === 'state' && parts[2] === 'latency_instant') {
+    const value = toNumber(args[0]);
+    return value === null ? null : { type: 'state:latency:instant', value };
+  }
+
+  if (parts.length === 3 && parts[0] === 'omniphony' && parts[1] === 'state' && parts[2] === 'latency_control') {
+    const value = toNumber(args[0]);
+    return value === null ? null : { type: 'state:latency:control', value };
+  }
+
+  if (parts.length === 3 && parts[0] === 'omniphony' && parts[1] === 'state' && parts[2] === 'latency_target') {
+    const value = toNumber(args[0]);
+    return value === null ? null : { type: 'state:latency:target', value };
+  }
+
+  if (parts.length === 3 && parts[0] === 'omniphony' && parts[1] === 'state' && parts[2] === 'latency_downstream') {
+    const value = toNumber(args[0]);
+    return value === null ? null : { type: 'state:latency:downstream', value };
+  }
+
   if (parts.length === 3 && parts[0] === 'omniphony' && parts[1] === 'state' && parts[2] === 'resample_ratio') {
     const value = toNumber(args[0]);
     return value === null ? null : { type: 'state:resample_ratio', value };

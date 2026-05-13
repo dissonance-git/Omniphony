@@ -68,11 +68,6 @@ const wss = new WebSocket.Server({ server });
 
 const layouts = loadLayouts();
 
-// Latency smoothing: EMA with α=0.03 → τ≈1.7 s at 20 Hz metering rate.
-// Absorbs mpv burst-fill oscillations without hiding real latency drift.
-const LATENCY_EMA_ALPHA = 0.03;
-let latencyEma = null;
-
 const state = {
   sources: {},
   sourceLevels: {},
@@ -92,6 +87,10 @@ const state = {
   distanceDiffuse: { enabled: null, threshold: null, curve: null },
   configSaved: null,
   latencyMs: null,
+  latencyInstantMs: null,
+  latencyControlMs: null,
+  latencyDownstreamMs: null,
+  latencyTargetMs: null,
   resampleRatio: null,
   layouts: Array.isArray(layouts) ? [...layouts] : [],
   selectedLayoutKey: layouts[0]?.key || null
@@ -429,13 +428,42 @@ function handleParsedOsc(parsed) {
   }
 
   if (parsed.type === 'state:latency') {
-    latencyEma = latencyEma === null
-      ? parsed.value
-      : LATENCY_EMA_ALPHA * parsed.value + (1 - LATENCY_EMA_ALPHA) * latencyEma;
-    state.latencyMs = Math.round(latencyEma);
+    state.latencyMs = Math.round(parsed.value);
     broadcast({
       type: 'latency',
       value: state.latencyMs
+    });
+  }
+
+  if (parsed.type === 'state:latency:instant') {
+    state.latencyInstantMs = parsed.value;
+    broadcast({
+      type: 'latency:instant',
+      value: parsed.value
+    });
+  }
+
+  if (parsed.type === 'state:latency:control') {
+    state.latencyControlMs = parsed.value;
+    broadcast({
+      type: 'latency:control',
+      value: parsed.value
+    });
+  }
+
+  if (parsed.type === 'state:latency:downstream') {
+    state.latencyDownstreamMs = parsed.value;
+    broadcast({
+      type: 'latency:downstream',
+      value: parsed.value
+    });
+  }
+
+  if (parsed.type === 'state:latency:target') {
+    state.latencyTargetMs = parsed.value;
+    broadcast({
+      type: 'latency:target',
+      value: parsed.value
     });
   }
 
@@ -591,7 +619,6 @@ function sendOmniphonyNoArgs(address) {
 
 function registerToOmniphony(listenPort, reason = 'startup') {
   activeListenPort = listenPort;
-  latencyEma = null;
   sendOmniphonyControlMessage('/omniphony/register', listenPort);
   lastHeartbeatAckAt = Date.now();
   console.log(`[osc] register sent to udp://${OSC_HOST}:${OSC_RX_PORT} with listen_port=${listenPort} (${reason})`);
@@ -837,6 +864,10 @@ wss.on('connection', (ws) => {
       distanceDiffuse: state.distanceDiffuse,
       configSaved: state.configSaved,
       latencyMs: state.latencyMs,
+      latencyInstantMs: state.latencyInstantMs,
+      latencyControlMs: state.latencyControlMs,
+      latencyDownstreamMs: state.latencyDownstreamMs,
+      latencyTargetMs: state.latencyTargetMs,
       resampleRatio: state.resampleRatio,
       layouts: state.layouts,
       selectedLayoutKey: state.selectedLayoutKey

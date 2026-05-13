@@ -132,6 +132,14 @@ impl OutputState {
         self.audio_writer.take()
     }
 
+    pub fn reset_realtime_output_tracking(&mut self) {
+        self.bootstrap_frames_seen = 0;
+        self.bootstrap_started_at = None;
+        self.last_audio_delay_written_ms = None;
+        self.last_audio_delay_attempted_ms = None;
+        self.last_audio_delay_write_error_at = None;
+    }
+
     pub fn update_adaptive_config(&self, config: audio_output::AdaptiveResamplingConfig) {
         if let Some(writer) = &self.audio_writer {
             writer.update_adaptive_config(config);

@@ -357,11 +357,11 @@ export function applyInitState(payload) {
   if (typeof payload.latencyControlMs === 'number') {
     app.latencyControlMs = payload.latencyControlMs;
   }
+  if (typeof payload.latencyDownstreamMs === 'number') {
+    app.latencyDownstreamMs = payload.latencyDownstreamMs;
+  }
   if (typeof payload.latencyTargetMs === 'number') {
     app.latencyTargetMs = payload.latencyTargetMs;
-    if (app.latencyMs === null) {
-      app.latencyMs = payload.latencyTargetMs;
-    }
   }
   if (typeof payload.latencyRequestedMs === 'number') {
     app.latencyRequestedMs = payload.latencyRequestedMs;
