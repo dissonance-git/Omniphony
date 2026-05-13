@@ -125,6 +125,7 @@ pub fn update_latency_metrics(
     state: &mut AdaptiveRuntimeState,
     available_input_samples: usize,
     output_fifo_input_domain_samples: usize,
+    pending_resampler_input_samples: usize,
     callback_input_domain_samples: usize,
     channel_count: usize,
     sample_rate: u32,
@@ -132,8 +133,9 @@ pub fn update_latency_metrics(
     targets: LatencyMetricTargets<'_>,
 ) -> LatencyMetrics {
     let _ = state; // no EMA state needed
-    let total_available_input_domain =
-        available_input_samples.saturating_add(output_fifo_input_domain_samples);
+    let total_available_input_domain = available_input_samples
+        .saturating_add(output_fifo_input_domain_samples)
+        .saturating_add(pending_resampler_input_samples);
     let control_available =
         total_available_input_domain.saturating_sub(callback_input_domain_samples / 2);
     let control_latency_ms =

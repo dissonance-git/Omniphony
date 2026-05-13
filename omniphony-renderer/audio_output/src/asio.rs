@@ -351,6 +351,7 @@ impl AsioWriter {
                         resampler_fifo.output_len(),
                         effective_resample_ratio,
                     );
+                let pending_resampler_input_samples = resampler_fifo.pending_input_samples();
                 // data.len() is in device-channel domain; convert it to rendered-audio samples
                 // before comparing against the renderer/ring buffer fill level.
                 let callback_frames = data.len() / device_channel_count_for_callback as usize;
@@ -378,6 +379,7 @@ impl AsioWriter {
                     &mut runtime_state,
                     available_samples,
                     output_fifo_input_domain_samples,
+                    pending_resampler_input_samples,
                     callback_input_domain_samples,
                     channel_count as usize,
                     input_sample_rate,

@@ -975,6 +975,7 @@ fn run_pipewire_loop(
                         resampler_fifo.output_len(),
                         effective_resample_ratio,
                     );
+                    let pending_resampler_input_samples = resampler_fifo.pending_input_samples();
                     // The callback observes the ring before consuming this PipeWire block.
                     // For latency control, use a midpoint estimate so the controller tracks
                     // roughly the same delay the UI/user perceives during the block.
@@ -989,6 +990,7 @@ fn run_pipewire_loop(
                         &mut runtime_state,
                         available,
                         output_fifo_input_domain_samples,
+                        pending_resampler_input_samples,
                         callback_input_domain_samples,
                         channel_count as usize,
                         sample_rate,
