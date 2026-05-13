@@ -2,6 +2,7 @@
 // Syncwords in little-endian byte order.
 const SYNCWORD_PA: u16 = 0xF872;
 const SYNCWORD_PB: u16 = 0x4E1F;
+const IEC61937_DATA_TYPE_EAC3: u8 = 0x15;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Iec61937Packet {
@@ -13,7 +14,11 @@ pub struct Iec61937Packet {
 enum ParserState {
     WaitingForSync,
     WaitingForHeader,
-    WaitingForPayload { data_type: u8, payload_size: usize },
+    WaitingForPayload {
+        data_type: u8,
+        payload_size: usize,
+        pd_raw: u16,
+    },
 }
 
 /// IEC 61937 S/PDIF parser that extracts transport packets.
@@ -71,23 +76,27 @@ impl SpdifParser {
                         return None;
                     }
 
-                    let data_type = self.buffer[4];
-                    let payload_size =
-                        u16::from_le_bytes([self.buffer[6], self.buffer[7]]) as usize;
-                    log::trace!(
-                        "IEC 61937 header: data_type=0x{:02X} pd_raw={} (bytes)",
+                    let data_type = self.buffer[4] & 0x1F; // bits 0-4 of Pc
+                    let pd_raw = u16::from_le_bytes([self.buffer[6], self.buffer[7]]);
+                    let (payload_size, payload_unit) = payload_size_from_pd(data_type, pd_raw);
+                    log::debug!(
+                        "IEC 61937 header: data_type=0x{:02X} pd_raw={} payload_size={} payload_unit={}",
                         data_type,
-                        payload_size
+                        pd_raw,
+                        payload_size,
+                        payload_unit
                     );
                     self.buffer.drain(0..8);
                     self.state = ParserState::WaitingForPayload {
                         data_type,
                         payload_size,
+                        pd_raw,
                     };
                 }
                 ParserState::WaitingForPayload {
                     data_type,
                     payload_size,
+                    pd_raw,
                 } => {
                     if self.buffer.len() < payload_size {
                         return None;
@@ -95,10 +104,24 @@ impl SpdifParser {
 
                     let payload = self.buffer.drain(0..payload_size).collect::<Vec<u8>>();
                     self.state = ParserState::WaitingForSync;
+                    log::debug!(
+                        "IEC 61937 packet extracted: data_type=0x{:02X} pd_raw={} payload={} bytes",
+                        data_type,
+                        pd_raw,
+                        payload.len()
+                    );
                     return Some(Iec61937Packet { data_type, payload });
                 }
             }
         }
+    }
+}
+
+fn payload_size_from_pd(data_type: u8, pd_raw: u16) -> (usize, &'static str) {
+    if data_type == IEC61937_DATA_TYPE_EAC3 {
+        (usize::from(pd_raw), "bytes")
+    } else {
+        (usize::from(pd_raw), "bytes")
     }
 }
 
@@ -127,6 +150,22 @@ mod tests {
             })
         );
         assert_eq!(parser.get_next_packet(), None);
+    }
+
+    #[test]
+    fn eac3_pd_is_payload_bytes() {
+        let mut parser = SpdifParser::new();
+        let packet = [
+            0x72, 0xF8, 0x1F, 0x4E, 0x15, 0x00, 0x04, 0x00, 0x0B, 0x77, 0xAA, 0xBB,
+        ];
+        parser.push_bytes(&packet);
+        assert_eq!(
+            parser.get_next_packet(),
+            Some(Iec61937Packet {
+                data_type: 0x15,
+                payload: vec![0x0B, 0x77, 0xAA, 0xBB],
+            })
+        );
     }
 
     #[test]

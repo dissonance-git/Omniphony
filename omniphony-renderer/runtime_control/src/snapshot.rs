@@ -163,12 +163,26 @@ pub fn build_renderer_state_json(live: &LiveParams, active_topology: &RenderTopo
             "max": live.spread_max,
             "fromDistance": live.spread_from_distance,
             "distanceRange": live.spread_distance_range,
-            "distanceCurve": live.spread_distance_curve
+            "distanceCurve": live.spread_distance_curve,
+            "sizeToSpreadMode": live.size_to_spread_mode.as_str()
         },
         "distanceDiffuse": {
             "enabled": live.use_distance_diffuse,
             "threshold": live.distance_diffuse_threshold,
             "curve": live.distance_diffuse_curve
+        },
+        "vbapCartesian": {
+            "xSize": live.evaluation.cartesian.x_size,
+            "ySize": live.evaluation.cartesian.y_size,
+            "zSize": live.evaluation.cartesian.z_size,
+            "zNegSize": live.evaluation.cartesian.z_neg_size
+        },
+        "vbapPolar": {
+            "azimuthResolution": live.evaluation.polar.azimuth_values,
+            "elevationResolution": live.evaluation.polar.elevation_values,
+            "distanceRes": live.evaluation.polar.distance_res,
+            "distanceMax": live.evaluation.polar.distance_max,
+            "positionInterpolation": live.evaluation.position_interpolation
         },
         "renderBackendState": serde_json::from_str::<serde_json::Value>(&render_backend_state_json)
             .unwrap_or_else(|_| json!({}))
@@ -390,6 +404,9 @@ pub fn build_live_state_bundle(
                     "mode": input_mode_name(requested.mode),
                     "activeMode": input_mode_name(applied.active_mode),
                     "applyPending": input_control.is_apply_pending(),
+                    "drcMode": live.drc_mode,
+                    "drcWeight": live.drc_weight,
+                    "supportedDrcModes": control.bridge_supported_drc_modes(),
                     "requested": {
                         "backend": requested.backend.map(input_backend_name),
                         "node": requested.node_name.clone(),

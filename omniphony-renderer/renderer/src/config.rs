@@ -116,6 +116,8 @@ pub struct RenderConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vbap_spread_max: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_to_spread_mode: Option<crate::render_backend::SizeToSpreadMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub enable_adaptive_resampling: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adaptive_resampling_enable_far_mode: Option<bool>,
@@ -144,6 +146,10 @@ pub struct RenderConfig {
     pub adaptive_resampling_near_far_threshold_ms: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_sample_rate: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drc_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drc_weight: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ramp_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

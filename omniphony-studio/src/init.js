@@ -11,7 +11,8 @@ import {
   objectMuted,
   speakerManualMuted,
   objectManualMuted,
-  speakerGainCache
+  speakerGainCache,
+  dirty
 } from './state.js';
 
 import { updateSource, updateSourceLevel, updateSourceGains } from './sources.js';
@@ -22,7 +23,17 @@ import {
   refreshOverlayLists
 } from './speakers.js';
 
-import { setLatencyInstantMs, updateLatencyDisplay, updateLatencyMeterUI, updateRenderTimeUI, setRenderTimeMs, setDecodeTimeMs, setWriteTimeMs, updateResampleRatioDisplay } from './controls/latency.js';
+import {
+  setLatencyInstantMs,
+  updateLatencyDisplay,
+  updateLatencyMeterUI,
+  updateRenderTimeUI,
+  setRenderTimeMs,
+  setDecodeTimeMs,
+  setWriteTimeMs,
+  setFrameDurationMs,
+  updateResampleRatioDisplay
+} from './controls/latency.js';
 import { updateMasterGainUI, updateMasterMeterUI } from './controls/master.js';
 import { updateSpreadDisplay } from './controls/spread.js';
 import {
@@ -38,6 +49,7 @@ import { updateInputControlUI } from './controls/input.js';
 import { updateAdaptiveResamplingUI } from './controls/adaptive.js';
 import { updateDistanceDiffuseUI } from './controls/distance-diffuse.js';
 import { setOscStatus } from './controls/osc.js';
+import { renderDrcUI } from './controls/drc.js';
 import { updateLoudnessDisplay, updateDistanceModelUI } from './controls/master.js';
 import { updateRoomRatioDisplay, applyRoomRatio, applyRoomRatioToScene } from './controls/room-geometry.js';
 import { updateConfigSavedUI } from './controls/config.js';
@@ -113,6 +125,12 @@ export function applyInitState(payload) {
     }
     if (typeof payload.spread.distanceCurve === 'number') {
       app.spreadState.distanceCurve = payload.spread.distanceCurve;
+    }
+    if (typeof payload.spread.sizeToSpreadMode === 'string') {
+      const v = payload.spread.sizeToSpreadMode.trim().toLowerCase();
+      if (['max', 'mean', 'projection_perpendicular'].includes(v)) {
+        app.spreadState.sizeToSpreadMode = v;
+      }
     }
   }
   updateSpreadDisplay();
@@ -253,8 +271,12 @@ export function applyInitState(payload) {
     app.masterGain = payload.masterGain;
   }
   updateMasterGainUI();
-  if (payload.distanceModel && typeof payload.distanceModel.value === 'string') {
-    const value = payload.distanceModel.value.trim().toLowerCase();
+  const distanceModelValue =
+    typeof payload.distanceModel === 'string'
+      ? payload.distanceModel
+      : payload?.distanceModel?.value;
+  if (typeof distanceModelValue === 'string') {
+    const value = distanceModelValue.trim().toLowerCase();
     if (['none', 'linear', 'quadratic', 'inverse-square'].includes(value)) {
       app.distanceModel = value;
     }
@@ -337,9 +359,18 @@ export function applyInitState(payload) {
   }
   if (typeof payload.latencyTargetMs === 'number') {
     app.latencyTargetMs = payload.latencyTargetMs;
+    if (app.latencyMs === null) {
+      app.latencyMs = payload.latencyTargetMs;
+    }
   }
   if (typeof payload.latencyRequestedMs === 'number') {
     app.latencyRequestedMs = payload.latencyRequestedMs;
+    if (app.latencyTargetMs === null) {
+      app.latencyTargetMs = payload.latencyRequestedMs;
+    }
+    if (app.latencyMs === null) {
+      app.latencyMs = payload.latencyRequestedMs;
+    }
   }
   if (typeof payload.decodeTimeMs === 'number') {
     setDecodeTimeMs(payload.decodeTimeMs);
@@ -351,7 +382,7 @@ export function applyInitState(payload) {
     setWriteTimeMs(payload.writeTimeMs);
   }
   if (typeof payload.frameDurationMs === 'number') {
-    app.frameDurationMs = payload.frameDurationMs;
+    setFrameDurationMs(payload.frameDurationMs);
   }
   if (typeof payload.resampleRatio === 'number') {
     app.resampleRatio = payload.resampleRatio;
@@ -400,6 +431,21 @@ export function applyInitState(payload) {
   if (typeof payload.inputApplyPending === 'number') {
     app.inputApplyPending = payload.inputApplyPending !== 0;
   }
+  if (typeof payload.drcMode === 'string') {
+    app.drcMode = payload.drcMode;
+    dirty.drcUI = true;
+  }
+  if (typeof payload.drcWeight === 'number') {
+    const clamped = Math.max(0, Math.min(1, payload.drcWeight));
+    if (app.drcWeight !== clamped) {
+      app.drcWeight = clamped;
+      dirty.drcUI = true;
+    }
+  }
+  if (Array.isArray(payload.supportedDrcModes)) {
+    app.supportedDrcModes = payload.supportedDrcModes.map(m => String(m));
+    dirty.drcUI = true;
+  }
   if (typeof payload.inputBackend === 'string') {
     app.inputBackend = payload.inputBackend.trim() || null;
   }
@@ -438,7 +484,8 @@ export function applyInitState(payload) {
       app.liveInput.layout = payload.liveInput.layout;
     }
     if (typeof payload.liveInput.clockMode === 'string') {
-      app.liveInput.clockMode = payload.liveInput.clockMode.trim().toLowerCase() || app.liveInput.clockMode;
+      const clockMode = payload.liveInput.clockMode.trim().toLowerCase();
+      app.liveInput.clockMode = clockMode === 'dac' ? 'upstream' : (clockMode || app.liveInput.clockMode);
     }
     if (typeof payload.liveInput.channels === 'number' && payload.liveInput.channels > 0) {
       app.liveInput.channels = payload.liveInput.channels;
@@ -480,6 +527,7 @@ export function applyInitState(payload) {
   updateResampleRatioDisplay();
   updateAudioFormatDisplay();
   updateInputControlUI();
+  renderDrcUI();
   if (
     app.inputError
     && /bridge path missing|no bridge plugin found|render\.bridge_path/i.test(app.inputError)
@@ -491,5 +539,6 @@ export function applyInitState(payload) {
 
   hydrateLayoutSelect(payload.layouts || [], payload.selectedLayoutKey);
   refreshOverlayLists();
+  updateMasterMeterUI();
   renderSpeakerEditor();
 }

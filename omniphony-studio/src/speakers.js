@@ -23,6 +23,7 @@ import {
   sourceBandGains,
   sourceNames,
   sourcePositionsRaw,
+  sourceSizes,
   sourceTrails,
   speakerGainCache,
   speakerBaseGains,
@@ -52,6 +53,7 @@ import {
   normalizeAngleDeg,
   formatNumber,
   formatPosition,
+  decomposePosition,
   getSpeakerCoordMode,
   getSpeakerSpatializeValue,
   getSpeakerBaseOpacity
@@ -87,7 +89,12 @@ import {
 } from './scene/materials.js';
 
 import { createLabelSprite, setLabelSpriteText, updateSpeakerLabelsFromSelection } from './scene/labels.js';
-import { requestSpeakerHeatmapIfNeeded, refreshSpeakerHeatmapScene } from './scene/speaker-heatmap.js';
+import {
+  refreshSpeakerHeatmapScene,
+  syncSpeakerHeatmapBandSelect,
+  subscribeSpeakerHeatmap,
+  unsubscribeSpeakerHeatmap,
+} from './scene/speaker-heatmap.js';
 
 import {
   speakerGizmo,
@@ -152,6 +159,7 @@ import {
   updateObjectContributionUI as updateObjectContributionUI_src,
   updateEffectiveRenderDecoration,
   getObjectDisplayName,
+  formatObjectLabel,
   applyObjectItemColor,
   dbfsToScale,
   gainToMix,
@@ -576,15 +584,19 @@ export function createSpeakerItem(id, speaker) {
   level.classList.add('speaker-meter-row');
 
   const levelText = document.createElement('div');
+  levelText.className = 'fixed-metric';
   level.appendChild(levelText);
 
   const meterBar = document.createElement('div');
   meterBar.className = 'meter-bar';
   const meterFill = document.createElement('div');
   meterFill.className = 'meter-fill';
+  const peakCursor = document.createElement('div');
+  peakCursor.className = 'meter-peak';
   const contributionFill = document.createElement('div');
   contributionFill.className = 'meter-fill contribution';
   meterBar.appendChild(meterFill);
+  meterBar.appendChild(peakCursor);
   meterBar.appendChild(contributionFill);
   const controlsRow = document.createElement('div');
   controlsRow.className = 'speaker-meter-actions';
@@ -630,6 +642,7 @@ export function createSpeakerItem(id, speaker) {
     label: idText,
     levelText,
     meterFill,
+    peakCursor,
     contributionFill,
     contributionRow,
     bandBarsContainer,
@@ -646,7 +659,7 @@ export function updateSpeakerItem(entry, id, speaker) {
   entry.soloBtn.classList.toggle('active', soloTarget === id);
   updateItemClasses(entry, speakerMuted.has(id), soloTarget && soloTarget !== id);
   entry.root.classList.toggle('is-selected', selectedSpeakerIndex !== null && Number(id) === selectedSpeakerIndex);
-  updateMeterUI(entry, speakerLevels.get(id));
+  updateMeterUI(entry, speakerLevels.get(id), 'speaker', id);
   updateSpeakerContributionUI_src(entry, id);
   updateSpeakerBandBars(entry, Number(id));
 }
@@ -733,6 +746,7 @@ export function setSpeakerSpatializeLocal(index, spatialize) {
     mesh.userData.baseOpacity = baseOpacity;
     mesh.material.opacity = baseOpacity;
   }
+  syncSpeakerHeatmapBandSelect();
   updateSpeakerColorsFromSelection();
   renderSpeakerEditor();
 }
@@ -786,15 +800,23 @@ export function applySpeakerSceneCartesianEdit(index, x, y, z, sendOsc = true) {
   updateSpeakerVisualsFromState(index);
 
   if (sendOsc) {
-    updateSpeakerLayoutPatch(index, {
-      coordMode: getSpeakerCoordMode(speaker),
-      x: speaker.x,
-      y: speaker.y,
-      z: speaker.z,
-      azimuth: speaker.azimuthDeg,
-      elevation: speaker.elevationDeg,
-      distance: speaker.distanceM
-    }, { apply: true });
+    // Send only the block matching the active coord_mode. Sending both cart and
+    // polar in the same patch is asking for trouble — the renderer would otherwise
+    // apply both sequentially and the second would overwrite the first (bug
+    // observed: Y typed as 0.500 came back as 0.938 after a polar round-trip with
+    // mismatched conventions/units).
+    const mode = getSpeakerCoordMode(speaker);
+    const patch = { coordMode: mode };
+    if (mode === 'cartesian') {
+      patch.x = speaker.x;
+      patch.y = speaker.y;
+      patch.z = speaker.z;
+    } else {
+      patch.azimuth = speaker.azimuthDeg;
+      patch.elevation = speaker.elevationDeg;
+      patch.distance = speaker.distanceM;
+    }
+    updateSpeakerLayoutPatch(index, patch, { apply: true });
   }
 
   renderSpeakerEditor();
@@ -887,14 +909,14 @@ export function renderSpeakerEditor() {
 
   if (speakerEditTitleEl) speakerEditTitleEl.textContent = `Speaker ${idx}`;
   if (speakerEditNameInputEl) speakerEditNameInputEl.value = String(speaker.id ?? idx);
-  if (speakerEditXInputEl) speakerEditXInputEl.value = formatNumber(Number(speaker.x), 3);
-  if (speakerEditYInputEl) speakerEditYInputEl.value = formatNumber(Number(speaker.y), 3);
-  if (speakerEditZInputEl) speakerEditZInputEl.value = formatNumber(Number(speaker.z), 3);
+  syncInputValueUnlessEditing(speakerEditXInputEl, formatNumber(Number(speaker.x), 3));
+  syncInputValueUnlessEditing(speakerEditYInputEl, formatNumber(Number(speaker.y), 3));
+  syncInputValueUnlessEditing(speakerEditZInputEl, formatNumber(Number(speaker.z), 3));
   if (speakerEditCartesianModeEl) speakerEditCartesianModeEl.checked = getSpeakerCoordMode(speaker) === 'cartesian';
   if (speakerEditPolarModeEl) speakerEditPolarModeEl.checked = getSpeakerCoordMode(speaker) === 'polar';
-  if (speakerEditAzInputEl) speakerEditAzInputEl.value = formatNumber(az, 1);
-  if (speakerEditElInputEl) speakerEditElInputEl.value = formatNumber(el, 1);
-  if (speakerEditRInputEl) speakerEditRInputEl.value = formatNumber(r, 3);
+  syncInputValueUnlessEditing(speakerEditAzInputEl, formatNumber(az, 1));
+  syncInputValueUnlessEditing(speakerEditElInputEl, formatNumber(el, 1));
+  syncInputValueUnlessEditing(speakerEditRInputEl, formatNumber(r, 3));
   if (speakerEditGainSliderEl) speakerEditGainSliderEl.value = String(gain);
   if (speakerEditGainBoxEl) speakerEditGainBoxEl.textContent = linearToDb(gain);
   if (speakerEditDelayMsInputEl) speakerEditDelayMsInputEl.value = String(Math.max(0, delayMs));
@@ -958,7 +980,7 @@ export function createObjectItem(id) {
   const idStrip = document.createElement('div');
   idStrip.className = 'id-strip flip';
   const idText = document.createElement('span');
-  idText.textContent = String(id);
+  idText.textContent = formatObjectLabel(id);
   idStrip.appendChild(idText);
   root.appendChild(idStrip);
 
@@ -969,7 +991,38 @@ export function createObjectItem(id) {
   head.className = 'object-head';
 
   const position = document.createElement('div');
+  position.className = 'object-coords';
+  const axisElems = {};
+  ['x', 'y', 'z', 'az', 'el', 'r'].forEach(axis => {
+    const span = document.createElement('span');
+    span.className = `coord-axis coord-${axis}`;
+    position.appendChild(span);
+    axisElems[axis] = span;
+  });
   head.appendChild(position);
+
+  // Per-object size gauges (w, d, h) \u2208 [0,1] received via
+  // /omniphony/object/{id}/size. Three stacked horizontal bars.
+  const sizeGauges = document.createElement('div');
+  sizeGauges.className = 'object-size-gauges';
+  const sizeFills = {};
+  for (const axis of ['w', 'd', 'h']) {
+    const row = document.createElement('div');
+    row.className = `object-size-row object-size-${axis}`;
+    const lbl = document.createElement('span');
+    lbl.className = 'object-size-label';
+    lbl.textContent = axis.toUpperCase();
+    const bar = document.createElement('div');
+    bar.className = 'object-size-bar';
+    const fill = document.createElement('div');
+    fill.className = 'object-size-fill';
+    fill.style.width = '0%';
+    bar.appendChild(fill);
+    row.appendChild(lbl);
+    row.appendChild(bar);
+    sizeGauges.appendChild(row);
+    sizeFills[axis] = fill;
+  }
 
   const topRight = document.createElement('div');
   topRight.className = 'object-topright';
@@ -982,16 +1035,21 @@ export function createObjectItem(id) {
   level.className = 'meter-row';
 
   const levelText = document.createElement('div');
+  levelText.className = 'fixed-metric';
   level.appendChild(levelText);
 
   const meterBar = document.createElement('div');
   meterBar.className = 'meter-bar';
   const meterFill = document.createElement('div');
   meterFill.className = 'meter-fill';
+  const peakCursor = document.createElement('div');
+  peakCursor.className = 'meter-peak';
   const contributionFill = document.createElement('div');
   contributionFill.className = 'meter-fill contribution';
   meterBar.appendChild(meterFill);
+  meterBar.appendChild(peakCursor);
   meterBar.appendChild(contributionFill);
+
   const actionsRow = document.createElement('div');
   actionsRow.className = 'object-meter-actions';
 
@@ -1015,7 +1073,9 @@ export function createObjectItem(id) {
   });
   actionsRow.appendChild(soloBtn);
 
+  level.appendChild(levelText);
   level.appendChild(meterBar);
+  level.appendChild(sizeGauges);
   level.appendChild(actionsRow);
   content.appendChild(level);
 
@@ -1035,10 +1095,12 @@ export function createObjectItem(id) {
     root,
     idStrip,
     label: idText,
-    position,
+    axisElems,
     topRight,
+    sizeFills,
     levelText,
     meterFill,
+    peakCursor,
     contributionFill,
     contributionRow,
     bandBarsContainer,
@@ -1054,15 +1116,22 @@ export function updateObjectItem(entry, id, position, name) {
   if (name) {
     sourceNames.set(id, name);
   }
-  entry.label.textContent = getObjectDisplayName(id);
-  entry.position.textContent = formatPosition(position);
+  entry.label.textContent = formatObjectLabel(id);
+  const coords = decomposePosition(position);
+  Object.keys(entry.axisElems).forEach(axis => {
+    entry.axisElems[axis].textContent = `${axis}:${coords[axis]}`;
+  });
   entry.topRight.textContent = getObjectDominantSpeakerText(id);
   entry.root.classList.toggle('has-active-trail', objectHasActiveTrail(id));
   entry.muteBtn.classList.toggle('active', objectMuted.has(id));
   entry.soloBtn.classList.toggle('active', soloTarget === id);
   updateItemClasses(entry, objectMuted.has(id), Boolean((soloTarget && soloTarget !== id) || metadataSilent));
   entry.root.classList.toggle('is-selected', selectedSourceId === id);
-  updateMeterUI(entry, sourceLevels.get(id));
+  updateMeterUI(entry, sourceLevels.get(id), 'source', id);
+  const size = sourceSizes.get(String(id));
+  entry.sizeFills.w.style.width = `${(Math.max(0, Math.min(1, size?.w ?? 0)) * 100).toFixed(1)}%`;
+  entry.sizeFills.d.style.width = `${(Math.max(0, Math.min(1, size?.d ?? 0)) * 100).toFixed(1)}%`;
+  entry.sizeFills.h.style.width = `${(Math.max(0, Math.min(1, size?.h ?? 0)) * 100).toFixed(1)}%`;
   updateObjectContributionUI_src(entry, id);
   applyObjectItemColor(entry, id);
 }
@@ -1326,7 +1395,12 @@ export function setSelectedSpeaker(index) {
   updateSpeakerGizmo();
   updateSpeakerControlsUI();
   updateControlsForEditMode();
-  requestSpeakerHeatmapIfNeeded();
+  if (index === null) {
+    unsubscribeSpeakerHeatmap();
+    refreshSpeakerHeatmapScene();
+  } else {
+    subscribeSpeakerHeatmap();
+  }
 }
 
 export function updateControlsForEditMode() {
@@ -1711,6 +1785,7 @@ export function renderLayout(key) {
   set_currentLayoutKey(key);
   const newSpeakers = Array.isArray(layout.speakers) ? layout.speakers : [];
   set_currentLayoutSpeakers(newSpeakers);
+  syncSpeakerHeatmapBandSelect();
   sceneState.metersPerUnit = Math.max(0.01, Number(layout.radius_m) || 1.0);
   speakerDelays.clear();
   newSpeakers.forEach((speaker, index) => {
@@ -1912,6 +1987,7 @@ function patchCurrentLayout(key) {
   const nextSpeakers = Array.isArray(layout.speakers) ? layout.speakers : [];
   set_currentLayoutKey(key);
   set_currentLayoutSpeakers(nextSpeakers);
+  syncSpeakerHeatmapBandSelect();
   sceneState.metersPerUnit = Math.max(0.01, Number(layout.radius_m) || 1.0);
   speakerDelays.clear();
   nextSpeakers.forEach((speaker, index) => {

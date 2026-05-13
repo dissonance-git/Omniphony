@@ -21,6 +21,7 @@ function getSpreadDistanceRangeSliderEl() { return inRendererPanel('spreadDistan
 function getSpreadDistanceRangeValEl() { return inRendererPanel('spreadDistanceRangeVal'); }
 function getSpreadDistanceCurveSliderEl() { return inRendererPanel('spreadDistanceCurveSlider'); }
 function getSpreadDistanceCurveValEl() { return inRendererPanel('spreadDistanceCurveVal'); }
+function getSizeToSpreadModeSelectEl() { return inRendererPanel('sizeToSpreadModeSelect'); }
 
 export function renderSpreadDisplay() {
   const spreadInfoEl = getSpreadInfoEl();
@@ -78,6 +79,13 @@ export function renderSpreadDisplay() {
   if (spreadDistanceCurveValEl) {
     const v = app.spreadState.distanceCurve === null ? '—' : formatNumber(app.spreadState.distanceCurve, 2);
     spreadDistanceCurveValEl.textContent = v;
+  }
+  const sizeToSpreadModeSelectEl = getSizeToSpreadModeSelectEl();
+  if (sizeToSpreadModeSelectEl) {
+    const v = app.spreadState.sizeToSpreadMode || 'max';
+    if (sizeToSpreadModeSelectEl.value !== v) {
+      sizeToSpreadModeSelectEl.value = v;
+    }
   }
 }
 

@@ -358,6 +358,12 @@ pub struct AppState {
     pub input_active_mode: Option<String>,
     #[serde(rename = "inputApplyPending")]
     pub input_apply_pending: Option<u8>,
+    #[serde(rename = "drcMode")]
+    pub drc_mode: Option<String>,
+    #[serde(rename = "drcWeight")]
+    pub drc_weight: Option<f32>,
+    #[serde(rename = "supportedDrcModes")]
+    pub supported_drc_modes: Vec<String>,
     #[serde(rename = "inputBackend")]
     pub input_backend: Option<String>,
     #[serde(rename = "inputChannels")]
@@ -401,6 +407,11 @@ pub struct AppState {
     pub selected_layout_key: Option<String>,
     #[serde(rename = "oscSnapshotReady")]
     pub osc_snapshot_ready: bool,
+    /// Hash of the last `state/layout` JSON applied, so we can dedup repeated
+    /// broadcasts that carry identical content (the renderer re-broadcasts the
+    /// full layout on apply and again post-recompute).
+    #[serde(skip)]
+    pub last_layout_state_hash: Option<u64>,
 }
 
 impl AppState {
@@ -418,6 +429,18 @@ impl AppState {
             },
             ..Default::default()
         }
+    }
+
+    pub fn reset_runtime_state(&mut self) {
+        let layouts = std::mem::take(&mut self.layouts);
+        let selected_layout_key = self.selected_layout_key.clone();
+        let osc_metering_enabled = self.osc_metering_enabled;
+        let log_level = self.log_level.clone();
+
+        *self = Self::new(layouts);
+        self.selected_layout_key = selected_layout_key;
+        self.osc_metering_enabled = osc_metering_enabled;
+        self.log_level = log_level;
     }
 
     pub fn set_latency_value(&mut self, value: f64) -> i64 {
@@ -546,6 +569,9 @@ impl Default for AppState {
             input_mode: Some("pipe_bridge".to_string()),
             input_active_mode: Some("pipe_bridge".to_string()),
             input_apply_pending: Some(0),
+            drc_mode: None,
+            drc_weight: Some(1.0),
+            supported_drc_modes: Vec::new(),
             input_backend: None,
             input_channels: None,
             input_sample_rate: None,
@@ -568,6 +594,7 @@ impl Default for AppState {
             layouts: Vec::new(),
             selected_layout_key: None,
             osc_snapshot_ready: false,
+            last_layout_state_hash: None,
         }
     }
 }

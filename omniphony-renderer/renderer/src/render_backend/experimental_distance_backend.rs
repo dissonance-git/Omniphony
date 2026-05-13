@@ -111,6 +111,7 @@ impl GainModel for ExperimentalDistanceBackend {
             supports_distance_model: false,
             supports_spread: false,
             supports_spread_from_distance: false,
+            supports_event_size: false,
             supports_distance_diffuse: false,
             supports_heatmap_cartesian: true,
             supports_table_export: false,

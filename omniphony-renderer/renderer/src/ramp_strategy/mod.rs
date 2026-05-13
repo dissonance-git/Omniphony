@@ -4,7 +4,7 @@ mod position;
 pub use gain_table::GainTableRampStrategy;
 pub use position::PositionRampStrategy;
 
-use crate::render_backend::{PreparedRenderEngine, RenderRequest};
+use crate::render_backend::{PreparedRenderEngine, RenderRequest, SizeToSpreadMode};
 use crate::spatial_vbap::{DistanceModel, Gains};
 
 #[derive(Debug, Clone, Copy)]
@@ -14,6 +14,7 @@ pub struct RampRenderParams {
     pub spread_from_distance: bool,
     pub spread_distance_range: f32,
     pub spread_distance_curve: f32,
+    pub size_to_spread_mode: SizeToSpreadMode,
     pub room_ratio: [f32; 3],
     pub room_ratio_rear: f32,
     pub room_ratio_lower: f32,
@@ -33,9 +34,15 @@ pub struct RampRenderParams {
 
 impl RampRenderParams {
     #[inline]
-    pub fn render_request(self, position: [f64; 3]) -> RenderRequest {
+    pub fn render_request_for_event(
+        self,
+        position: [f64; 3],
+        event_size: [f32; 3],
+    ) -> RenderRequest {
         RenderRequest {
             adm_position: position,
+            event_size,
+            size_to_spread_mode: self.size_to_spread_mode,
             spread_min: self.spread_min,
             spread_max: self.spread_max,
             spread_from_distance: self.spread_from_distance,
@@ -100,9 +107,13 @@ impl<'a> RampContext<'a> {
     }
 
     #[inline]
-    pub fn compute_gains(&self, position: [f64; 3]) -> Gains {
+    pub fn compute_gains(&self, position: [f64; 3], event_size: [f32; 3]) -> Gains {
         self.backend
-            .compute_gains(&self.render_params.render_request(position))
+            .compute_gains(
+                &self
+                    .render_params
+                    .render_request_for_event(position, event_size),
+            )
             .gains
     }
 }
@@ -110,7 +121,7 @@ impl<'a> RampContext<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct RampTarget {
     pub position: [f64; 3],
-    pub spread: f32,
+    pub size: [f32; 3],
     pub ramp_length: u64,
 }
 
@@ -147,6 +158,8 @@ impl RampProgress {
 struct GainCache {
     topology_identity: usize,
     position_bits: [u64; 3],
+    event_size_bits: [u32; 3],
+    size_to_spread_mode: SizeToSpreadMode,
     room_ratio_bits: [u32; 3],
     room_ratio_rear_bits: u32,
     room_ratio_lower_bits: u32,
@@ -169,6 +182,8 @@ impl Default for GainCache {
         Self {
             topology_identity: 0,
             position_bits: [0; 3],
+            event_size_bits: [0; 3],
+            size_to_spread_mode: SizeToSpreadMode::default(),
             room_ratio_bits: [0; 3],
             room_ratio_rear_bits: 0,
             room_ratio_lower_bits: 0,
@@ -189,11 +204,13 @@ impl Default for GainCache {
 }
 
 impl GainCache {
-    fn matches(&self, position: [f64; 3], ctx: &RampContext<'_>) -> bool {
+    fn matches(&self, position: [f64; 3], event_size: [f32; 3], ctx: &RampContext<'_>) -> bool {
         let render = ctx.render_params();
         self.valid
             && self.topology_identity == ctx.topology_identity()
             && self.position_bits == position.map(f64::to_bits)
+            && self.event_size_bits == event_size.map(f32::to_bits)
+            && self.size_to_spread_mode == render.size_to_spread_mode
             && self.room_ratio_bits == render.room_ratio.map(f32::to_bits)
             && self.room_ratio_rear_bits == render.room_ratio_rear.to_bits()
             && self.room_ratio_lower_bits == render.room_ratio_lower.to_bits()
@@ -209,10 +226,18 @@ impl GainCache {
             && self.distance_model == render.distance_model
     }
 
-    fn store(&mut self, position: [f64; 3], ctx: &RampContext<'_>, gains: &Gains) {
+    fn store(
+        &mut self,
+        position: [f64; 3],
+        event_size: [f32; 3],
+        ctx: &RampContext<'_>,
+        gains: &Gains,
+    ) {
         let render = ctx.render_params();
         self.topology_identity = ctx.topology_identity();
         self.position_bits = position.map(f64::to_bits);
+        self.event_size_bits = event_size.map(f32::to_bits);
+        self.size_to_spread_mode = render.size_to_spread_mode;
         self.room_ratio_bits = render.room_ratio.map(f32::to_bits);
         self.room_ratio_rear_bits = render.room_ratio_rear.to_bits();
         self.room_ratio_lower_bits = render.room_ratio_lower.to_bits();
@@ -234,11 +259,11 @@ impl GainCache {
 #[derive(Clone)]
 pub struct ChannelRampState {
     pub start_position: [f64; 3],
-    pub start_spread: f32,
+    pub start_size: [f32; 3],
     pub current_position: [f64; 3],
-    pub current_spread: f32,
+    pub current_size: [f32; 3],
     pub target_position: [f64; 3],
-    pub target_spread: f32,
+    pub target_size: [f32; 3],
     pub output_position: [f64; 3],
     pub ramp_length: u64,
     pub remaining_ramp_units: Option<u64>,
@@ -254,11 +279,11 @@ impl Default for ChannelRampState {
     fn default() -> Self {
         Self {
             start_position: [0.0; 3],
-            start_spread: 0.0,
+            start_size: [0.0; 3],
             current_position: [0.0; 3],
-            current_spread: 0.0,
+            current_size: [0.0; 3],
             target_position: [0.0; 3],
-            target_spread: 0.0,
+            target_size: [0.0; 3],
             output_position: [0.0; 3],
             ramp_length: 0,
             remaining_ramp_units: None,
@@ -289,14 +314,25 @@ impl ChannelRampState {
         &self.output_gains
     }
 
-    pub fn cached_gains(&self, position: [f64; 3], ctx: &RampContext<'_>) -> Option<&Gains> {
+    pub fn cached_gains(
+        &self,
+        position: [f64; 3],
+        event_size: [f32; 3],
+        ctx: &RampContext<'_>,
+    ) -> Option<&Gains> {
         self.cache
-            .matches(position, ctx)
+            .matches(position, event_size, ctx)
             .then_some(&self.cache.gains)
     }
 
-    pub fn store_cached_gains(&mut self, position: [f64; 3], ctx: &RampContext<'_>, gains: &Gains) {
-        self.cache.store(position, ctx, gains);
+    pub fn store_cached_gains(
+        &mut self,
+        position: [f64; 3],
+        event_size: [f32; 3],
+        ctx: &RampContext<'_>,
+        gains: &Gains,
+    ) {
+        self.cache.store(position, event_size, ctx, gains);
     }
 
     pub fn invalidate_cache(&mut self) {
@@ -322,9 +358,9 @@ impl ChannelRampState {
             Some(_) => {
                 self.remaining_ramp_units = None;
                 self.start_position = self.target_position;
-                self.start_spread = self.target_spread;
+                self.start_size = self.target_size;
                 self.current_position = self.target_position;
-                self.current_spread = self.target_spread;
+                self.current_size = self.target_size;
                 self.start_gains = self.target_gains.clone();
                 self.output_gains = self.target_gains.clone();
                 RampStatus::Finished
@@ -368,21 +404,27 @@ pub(crate) fn interpolate_position(current: [f64; 3], target: [f64; 3], fraction
 }
 
 #[inline]
-pub(crate) fn interpolate_scalar(current: f32, target: f32, fraction: f64) -> f32 {
-    let inv = (1.0 - fraction) as f32;
-    current * inv + target * fraction as f32
+pub(crate) fn interpolate_size(current: [f32; 3], target: [f32; 3], fraction: f64) -> [f32; 3] {
+    let f = fraction as f32;
+    let inv = 1.0 - f;
+    [
+        current[0] * inv + target[0] * f,
+        current[1] * inv + target[1] * f,
+        current[2] * inv + target[2] * f,
+    ]
 }
 
 pub(crate) fn compute_cached_or_direct(
     state: &mut ChannelRampState,
     position: [f64; 3],
+    event_size: [f32; 3],
     ctx: &RampContext<'_>,
 ) {
-    if let Some(cached) = state.cached_gains(position, ctx) {
+    if let Some(cached) = state.cached_gains(position, event_size, ctx) {
         state.output_gains = cached.clone();
     } else {
-        let gains = ctx.compute_gains(position);
-        state.store_cached_gains(position, ctx, &gains);
+        let gains = ctx.compute_gains(position, event_size);
+        state.store_cached_gains(position, event_size, ctx, &gains);
         state.output_gains = gains;
     }
     state.start_gains = state.output_gains.clone();

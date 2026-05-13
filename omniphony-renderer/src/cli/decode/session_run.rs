@@ -1,7 +1,7 @@
 use super::bootstrap::init_render_handler;
 use super::config_resolution::{effective_to_config, merge_render_config};
 use super::decoder_thread::{
-    DecodedAudioData, DecoderMessage, DecoderThreadConfig, spawn_decoder_thread,
+    DecodedAudioData, DecoderCommand, DecoderMessage, DecoderThreadConfig, spawn_decoder_thread,
 };
 use super::handler::DecodeHandler;
 use super::live_input::{LiveBridgeRuntimeConfig, spawn_live_input_manager};
@@ -34,6 +34,7 @@ struct PreparedDecodeRun {
     state: WriterState,
     tx: mpsc::SyncSender<Result<DecoderMessage>>,
     rx: mpsc::Receiver<Result<DecoderMessage>>,
+    cmd_tx: mpsc::Sender<DecoderCommand>,
     decode_thread: std::thread::JoinHandle<Result<()>>,
     _shutdown: sys::ShutdownHandle,
     bridge_lib: bridge_api::BridgeLibRef,
@@ -44,6 +45,7 @@ struct PreparedDecodeRun {
     coordinate_format: bridge_api::RCoordinateFormat,
     vbap_cartesian_defaults: bridge_api::RVbapCartesianDefaults,
     preferred_evaluation_mode: bridge_api::RVbapTableMode,
+    supported_drc_modes: Vec<String>,
 }
 
 fn resolve_effective_decode_args(
@@ -170,6 +172,11 @@ fn prepare_render_run(args: &RenderArgs, cli: &Cli) -> Result<PreparedDecodeRun>
     let coordinate_format = bridge.coordinate_format();
     let vbap_cartesian_defaults = bridge.vbap_cartesian_defaults();
     let preferred_evaluation_mode = bridge.preferred_vbap_table_mode();
+    let supported_drc_modes: Vec<String> = bridge
+        .supported_drc_modes()
+        .iter()
+        .map(|s: &abi_stable::std_types::RString| s.to_string())
+        .collect();
     log::info!("Bridge coordinate format: {:?}", coordinate_format);
     log::info!(
         "Bridge cartesian VBAP defaults: x={}, y={}, z={}, allow_negative_z={}",
@@ -190,6 +197,7 @@ fn prepare_render_run(args: &RenderArgs, cli: &Cli) -> Result<PreparedDecodeRun>
         queue_capacity / DECODE_QUEUE_MESSAGES_PER_MS
     );
     let (tx, rx) = mpsc::sync_channel(queue_capacity);
+    let (cmd_tx, cmd_rx) = mpsc::channel();
     let shutdown = sys::shutdown::ShutdownHandle::install()?;
     let shutdown_signal = shutdown.shutdown_signal();
 
@@ -199,6 +207,7 @@ fn prepare_render_run(args: &RenderArgs, cli: &Cli) -> Result<PreparedDecodeRun>
         continuous: args.continuous,
         drain_pipe: !args.no_drain_pipe,
         tx: tx.clone(),
+        cmd_rx,
         bridge,
         shutdown_signal,
     });
@@ -207,6 +216,7 @@ fn prepare_render_run(args: &RenderArgs, cli: &Cli) -> Result<PreparedDecodeRun>
         state,
         tx,
         rx,
+        cmd_tx,
         decode_thread,
         _shutdown: shutdown,
         bridge_lib: lib,
@@ -217,6 +227,7 @@ fn prepare_render_run(args: &RenderArgs, cli: &Cli) -> Result<PreparedDecodeRun>
         coordinate_format,
         vbap_cartesian_defaults,
         preferred_evaluation_mode,
+        supported_drc_modes,
     })
 }
 
@@ -527,6 +538,22 @@ fn run_prepared_render(
         evaluation_mode_explicit,
     )?;
     handler.spatial.coordinate_format = prepared.coordinate_format;
+    handler.drc_mode_cmd_tx = Some(prepared.cmd_tx.clone());
+
+    let live_drc_mode = std::sync::Arc::new(std::sync::RwLock::new(String::new()));
+    handler.live_drc_mode = Some(live_drc_mode.clone());
+
+    if let Some(renderer) = &handler.spatial_renderer {
+        let ctrl = renderer.renderer_control();
+        ctrl.set_bridge_supported_drc_modes(prepared.supported_drc_modes.clone());
+
+        let initial_mode = ctrl.live.read().unwrap().drc_mode.clone();
+        *live_drc_mode.write().unwrap() = initial_mode.clone();
+        prepared
+            .cmd_tx
+            .send(DecoderCommand::SetDrcMode(initial_mode))?;
+    }
+
     let live_input_manager = handler
         .input_control
         .as_ref()
@@ -541,6 +568,7 @@ fn run_prepared_render(
                     strict_mode: prepared.strict_mode,
                     presentation: prepared.presentation.clone(),
                     clock_mode: input_control.requested_snapshot().clock_mode,
+                    requested_drc_mode: live_drc_mode.clone(),
                 },
             )
         });

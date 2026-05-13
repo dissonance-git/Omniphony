@@ -171,8 +171,9 @@ pub struct SpatialChannelEvent {
     pub gain_db: Option<i8>,
     /// Ramp duration in audio frames (`None` = unchanged).
     pub ramp_length: Option<u32>,
-    /// Object spread metadata in [0.0, 1.0] (`None` = unchanged).
-    pub spread: Option<f32>,
+    /// Object spatial extent per axis (w, d, h), each in [0.0, 1.0]
+    /// (`None` = unchanged). `[0.0, 0.0, 0.0]` denotes a point source.
+    pub size: Option<[f32; 3]>,
     /// Target position in ADM Cartesian coordinates [x, y, z] (`None` = unchanged).
     /// x ∈ [-1, 1] left/right · y ∈ [-1, 1] back/front · z ∈ [-1, 1] floor/ceiling.
     pub position: Option<[f64; 3]>,
@@ -255,8 +256,9 @@ impl BandRenderer {
         &self,
         render_params: crate::ramp_strategy::RampRenderParams,
         position: [f64; 3],
+        event_size: [f32; 3],
     ) -> crate::spatial_vbap::Gains {
-        let req = render_params.render_request(position);
+        let req = render_params.render_request_for_event(position, event_size);
         let n = self.speaker_indices.len();
         let band_gains = match &self.engine {
             Some(engine) => engine.compute_gains(&req).gains,
@@ -309,6 +311,7 @@ struct LiveSnapshot<'a> {
     spread_from_distance: bool,
     spread_distance_range: f32,
     spread_distance_curve: f32,
+    size_to_spread_mode: crate::render_backend::SizeToSpreadMode,
     position_interpolation: bool,
     ramp_mode: RampMode,
     use_loudness: bool,
@@ -515,6 +518,8 @@ impl SpatialRenderer {
                 &evaluation_build_config(
                     RenderRequest {
                         adm_position: [0.0, 0.0, 0.0],
+                        event_size: [0.0, 0.0, 0.0],
+                        size_to_spread_mode: Default::default(),
                         spread_min,
                         spread_max,
                         spread_from_distance,
@@ -758,6 +763,7 @@ impl SpatialRenderer {
             spread_from_distance,
             spread_distance_range,
             spread_distance_curve,
+            size_to_spread_mode: Default::default(),
             ramp_mode,
             backend_id: RenderBackendKind::Vbap.as_str().to_string(),
             evaluation: EvaluationLiveParams {
@@ -789,6 +795,8 @@ impl SpatialRenderer {
             use_distance_diffuse: distance_diffuse,
             distance_diffuse_threshold,
             distance_diffuse_curve,
+            drc_mode: "Off".to_string(),
+            drc_weight: 1.0,
             experimental_distance: crate::live_params::ExperimentalDistanceLiveParams::default(),
             barycenter: crate::live_params::BarycenterLiveParams::default(),
         }
@@ -1002,6 +1010,7 @@ impl SpatialRenderer {
                 spread_from_distance: live.spread_from_distance,
                 spread_distance_range: live.spread_distance_range,
                 spread_distance_curve: live.spread_distance_curve,
+                size_to_spread_mode: live.size_to_spread_mode,
                 room_ratio: live.room_ratio,
                 room_ratio_rear: live.room_ratio_rear,
                 room_ratio_lower: live.room_ratio_lower,
@@ -1071,12 +1080,12 @@ impl SpatialRenderer {
                 continue;
             }
 
-            // Per-event spread is intentionally ignored.
-            let spread_changed = false;
+            // Per-event size becomes the new ramp target. `None` = unchanged.
+            let new_target_size = event.size.unwrap_or(state.ramp.target_size);
+            let size_changed = state.ramp.target_size != new_target_size;
 
             if let Some(target_position) = event.position {
-                if state.ramp.target_position != target_position || spread_changed {
-                    let current_target_spread = state.ramp.target_spread;
+                if state.ramp.target_position != target_position || size_changed {
                     let current_ramp_length = state.ramp.ramp_length;
                     if self.log_object_positions {
                         let remaining_units = state.ramp.remaining_ramp_units.unwrap_or(0);
@@ -1096,16 +1105,17 @@ impl SpatialRenderer {
                         &mut state.ramp,
                         RampTarget {
                             position: target_position,
-                            spread: current_target_spread,
+                            size: new_target_size,
                             ramp_length: current_ramp_length,
                         },
                         event.sample_pos,
                         ctx,
                     );
                 }
-            } else if spread_changed {
+            } else if size_changed {
+                state.ramp.target_size = new_target_size;
                 if state.ramp.remaining_ramp_units.is_none() {
-                    state.ramp.current_spread = state.ramp.target_spread;
+                    state.ramp.current_size = new_target_size;
                 }
             }
         }
@@ -1227,6 +1237,7 @@ impl SpatialRenderer {
                 spread_from_distance: g.spread_from_distance,
                 spread_distance_range: g.spread_distance_range,
                 spread_distance_curve: g.spread_distance_curve,
+                size_to_spread_mode: g.size_to_spread_mode,
                 position_interpolation: g.evaluation.position_interpolation,
                 ramp_mode: g.ramp_mode,
                 use_loudness: g.use_loudness,
@@ -1434,14 +1445,16 @@ impl SpatialRenderer {
                         state.ramp.remaining_ramp_units = None;
                         state.ramp.start_position = state.ramp.target_position;
                         state.ramp.current_position = state.ramp.target_position;
-                        state.ramp.current_spread = state.ramp.target_spread;
+                        state.ramp.start_size = state.ramp.target_size;
+                        state.ramp.current_size = state.ramp.target_size;
                         state.ramp.output_position = state.ramp.target_position;
 
                         let position = state.ramp.output_position;
+                        let size = state.ramp.current_size;
                         let band_gains: Vec<Gains> = self
                             .render_bands
                             .iter()
-                            .map(|b| b.compute_gains(render_params, position))
+                            .map(|b| b.compute_gains(render_params, position, size))
                             .collect();
 
                         let mut fst = obj_filter_states;
@@ -1498,10 +1511,11 @@ impl SpatialRenderer {
                         });
                         ramp_strategy.evaluate(&mut state.ramp, progress, &ramp_context);
                         let position = state.ramp.output_position;
+                        let size = state.ramp.current_size;
                         let band_gains: Vec<Gains> = self
                             .render_bands
                             .iter()
-                            .map(|b| b.compute_gains(render_params, position))
+                            .map(|b| b.compute_gains(render_params, position, size))
                             .collect();
 
                         let mut fst = obj_filter_states;
@@ -1584,10 +1598,11 @@ impl SpatialRenderer {
                                     });
                                 ramp_strategy.evaluate(&mut state.ramp, progress, &ramp_context);
                                 let position = state.ramp.output_position;
+                                let size = state.ramp.current_size;
                                 for (slot, band) in
                                     band_gains_buf.iter_mut().zip(self.render_bands.iter())
                                 {
-                                    *slot = band.compute_gains(render_params, position);
+                                    *slot = band.compute_gains(render_params, position, size);
                                 }
                                 let out_base = sample_idx * self.num_speakers;
                                 for (b, gains) in band_gains_buf.iter().enumerate() {
@@ -1608,10 +1623,11 @@ impl SpatialRenderer {
                                     });
                                 ramp_strategy.evaluate(&mut state.ramp, progress, &ramp_context);
                                 let position = state.ramp.output_position;
+                                let size = state.ramp.current_size;
                                 for (slot, band) in
                                     band_gains_buf.iter_mut().zip(self.render_bands.iter())
                                 {
-                                    *slot = band.compute_gains(render_params, position);
+                                    *slot = band.compute_gains(render_params, position, size);
                                 }
                                 let raw = input_pcm
                                     [sample_idx * input_channel_count + input_channel_idx]

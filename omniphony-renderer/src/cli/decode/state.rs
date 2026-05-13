@@ -99,6 +99,9 @@ pub struct OutputState {
     pub last_audio_sample_rate_hz: Option<u32>,
     pub last_audio_sample_format: Option<String>,
     pub last_audio_output_device: Option<String>,
+    pub drc_gain: f32,
+    pub drc_ramp_samples_remaining: u32,
+    pub drc_target_gain: f32,
 }
 
 impl Default for OutputState {
@@ -116,6 +119,9 @@ impl Default for OutputState {
             last_audio_sample_rate_hz: None,
             last_audio_sample_format: None,
             last_audio_output_device: None,
+            drc_gain: 1.0,
+            drc_ramp_samples_remaining: 0,
+            drc_target_gain: 1.0,
         }
     }
 }

@@ -8,6 +8,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use crate::app_state::OutputDeviceOption;
 use crate::app_state::{
     AppState, DistanceDiffuse, Meter, RenderBackendState, RoomRatio, SpreadState,
+    VbapCartesian, VbapPolar,
 };
 use crate::layouts::{Layout, Speaker};
 use crate::osc_parser::{
@@ -56,6 +57,9 @@ struct InputDomainState {
     mode: Option<String>,
     active_mode: Option<String>,
     apply_pending: Option<bool>,
+    drc_mode: Option<String>,
+    drc_weight: Option<f32>,
+    supported_drc_modes: Option<Vec<String>>,
     requested: Option<RequestedInputDomainState>,
     applied: Option<AppliedInputDomainState>,
 }
@@ -100,6 +104,8 @@ struct RendererDomainState {
     room_ratio: Option<RoomRatio>,
     spread: Option<SpreadState>,
     distance_diffuse: Option<DistanceDiffuse>,
+    vbap_cartesian: Option<VbapCartesian>,
+    vbap_polar: Option<VbapPolar>,
     render_backend_state: Option<RenderBackendState>,
 }
 
@@ -306,6 +312,18 @@ fn layout_update_payload(s: &AppState) -> serde_json::Value {
 }
 
 fn apply_layout_domain_state(s: &mut AppState, value: &str) -> bool {
+    // Dedup at the byte-equality level: the renderer re-broadcasts the full
+    // layout JSON on stage, on apply and post-recompute, often with identical
+    // content. Returning false skips the `layouts:update` emit downstream.
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    let new_hash = hasher.finish();
+    if s.last_layout_state_hash == Some(new_hash) {
+        return false;
+    }
+
     let Ok(parsed) = serde_json::from_str::<LayoutDomainState>(value) else {
         return false;
     };
@@ -331,6 +349,7 @@ fn apply_layout_domain_state(s: &mut AppState, value: &str) -> bool {
     s.layouts.retain(|entry| entry.key != "omniphony-live");
     s.layouts.insert(0, layout);
     s.selected_layout_key = Some("omniphony-live".to_string());
+    s.last_layout_state_hash = Some(new_hash);
     true
 }
 
@@ -450,6 +469,15 @@ fn apply_input_domain_state(s: &mut AppState, value: &str) -> bool {
     if let Some(apply_pending) = parsed.apply_pending {
         s.input_apply_pending = Some(if apply_pending { 1 } else { 0 });
     }
+    if let Some(drc_mode) = parsed.drc_mode {
+        s.drc_mode = Some(drc_mode);
+    }
+    if let Some(drc_weight) = parsed.drc_weight {
+        s.drc_weight = Some(drc_weight.clamp(0.0, 1.0));
+    }
+    if let Some(supported_drc_modes) = parsed.supported_drc_modes {
+        s.supported_drc_modes = supported_drc_modes;
+    }
     if let Some(requested) = parsed.requested {
         s.live_input.backend = requested.backend;
         s.live_input.node = requested.node;
@@ -507,6 +535,12 @@ fn apply_renderer_domain_state(s: &mut AppState, value: &str) -> bool {
     }
     if let Some(distance_diffuse) = parsed.distance_diffuse {
         s.distance_diffuse = distance_diffuse;
+    }
+    if let Some(vbap_cartesian) = parsed.vbap_cartesian {
+        s.vbap_cartesian = vbap_cartesian;
+    }
+    if let Some(vbap_polar) = parsed.vbap_polar {
+        s.vbap_polar = vbap_polar;
     }
     if let Some(render_backend_state) = parsed.render_backend_state {
         s.render_backend_state = render_backend_state;
@@ -674,10 +708,11 @@ fn send_heartbeat(socket: &UdpSocket, host: &str, rx_port: u16, listen_port: u16
 fn emit_osc_status(app: &AppHandle, state: &Arc<Mutex<AppState>>, status: &str) {
     {
         let mut s = state.lock().unwrap();
-        s.osc_status = Some(status.to_string());
         if status != "connected" {
+            s.reset_runtime_state();
             s.osc_snapshot_ready = false;
         }
+        s.osc_status = Some(status.to_string());
     }
     let _ = app.emit("osc:status", serde_json::json!({ "status": status }));
 }
@@ -1072,6 +1107,15 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 (Some(("source:update", payload)), removed_ids)
             }
 
+            OscEvent::UpdateSize { id, size, generation } => {
+                let payload = serde_json::json!({
+                    "id": id,
+                    "size": { "w": size[0], "d": size[1], "h": size[2] },
+                    "generation": generation,
+                });
+                (Some(("source:size", payload)), removed_ids)
+            }
+
             OscEvent::Remove { id } => {
                 s.sources.remove(&id);
                 s.source_levels.remove(&id);
@@ -1157,6 +1201,14 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     removed_ids,
                 )
             }
+
+            OscEvent::MeterDrcGain { value } => (
+                Some((
+                    "meter:drc_gain",
+                    serde_json::json!({ "value": value }),
+                )),
+                removed_ids,
+            ),
 
             OscEvent::StateSpeakerGain { id, gain } => {
                 s.speaker_gains.insert(id.clone(), gain);

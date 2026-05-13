@@ -4,7 +4,9 @@ pub struct Event {
     pub(crate) sample_pos: Option<u64>,
     pos: Option<[f64; 3]>,
     gain_db: Option<i8>,
-    spread: Option<f64>,
+    /// Object spatial extent per axis (w, d, h), each in [0.0, 1.0].
+    /// `None` indicates no size update in this event (preserve previous state).
+    size: Option<[f64; 3]>,
     ramp_length: Option<u32>,
 }
 
@@ -28,8 +30,8 @@ impl Event {
         self.gain_db
     }
 
-    pub fn spread(&self) -> Option<f64> {
-        self.spread
+    pub fn size(&self) -> Option<[f64; 3]> {
+        self.size
     }
 
     pub fn ramp_length(&self) -> Option<u32> {
@@ -48,8 +50,8 @@ impl Event {
         self.gain_db = Some(gain);
     }
 
-    pub fn set_spread(&mut self, spread: f64) {
-        self.spread = Some(spread);
+    pub fn set_size(&mut self, size: [f64; 3]) {
+        self.size = Some(size);
     }
 
     pub fn set_ramp_length(&mut self, len: u32) {
@@ -79,7 +81,7 @@ impl From<bridge_api::REvent> for Event {
         e.set_ramp_length(r.ramp_duration);
         if r.has_pos {
             e.set_pos(r.pos);
-            e.set_spread(r.spread);
+            e.set_size(r.size);
         }
         e
     }

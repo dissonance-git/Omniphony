@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow};
 use bridge_api::{FormatBridgeBox, RDecodedFrame, RInputTransport};
 use spdif::SpdifParser;
-use std::sync::mpsc;
+use std::sync::{Arc, RwLock, mpsc};
 use std::thread;
 use std::time::Instant;
 
@@ -20,18 +20,39 @@ impl LiveBridgeIngestRuntime {
 
     pub fn process_chunk(&mut self, chunk: &[u8]) -> (usize, usize) {
         let mut packet_count = 0usize;
+        let mut queued_count = 0usize;
         self.spdif_parser.push_bytes(chunk);
         while let Some(packet) = self.spdif_parser.get_next_packet() {
             packet_count += 1;
-            let _ = self.raw_tx.try_send((packet.data_type, packet.payload));
+            if self
+                .raw_tx
+                .try_send((packet.data_type, packet.payload))
+                .is_ok()
+            {
+                queued_count += 1;
+            }
         }
-        (packet_count, 0)
+        if packet_count > 0 {
+            log::debug!(
+                "LiveBridgeIngestRuntime: extracted {} SPDIF packet(s), queued {}",
+                packet_count,
+                queued_count
+            );
+            if queued_count < packet_count {
+                log::warn!(
+                    "LiveBridgeIngestRuntime dropped {} SPDIF packet(s): bridge decode queue is full or disconnected",
+                    packet_count - queued_count
+                );
+            }
+        }
+        (packet_count, queued_count)
     }
 }
 
 pub fn spawn_bridge_decode_worker<OnFrame, OnFlush, OnFatal>(
     bridge: FormatBridgeBox,
     raw_rx: mpsc::Receiver<(u8, Vec<u8>)>,
+    requested_drc_mode: Option<Arc<RwLock<String>>>,
     strict_mode: bool,
     mut on_frame: OnFrame,
     mut on_flush: OnFlush,
@@ -47,7 +68,15 @@ where
         .spawn(move || {
             let mut bridge = bridge;
             let mut first_frame_logs_remaining = 16usize;
+            let mut last_applied_drc_mode: Option<String> = None;
             while let Ok((data_type, payload)) = raw_rx.recv() {
+                if let Some(state) = requested_drc_mode.as_ref() {
+                    let current = state.read().unwrap().clone();
+                    if last_applied_drc_mode.as_ref() != Some(&current) {
+                        bridge.set_drc_mode(current.as_str().into());
+                        last_applied_drc_mode = Some(current);
+                    }
+                }
                 let decode_started_at = Instant::now();
                 let result = bridge.push_packet(
                     payload.as_slice().into(),
@@ -57,15 +86,6 @@ where
                 let decode_time_ms = decode_started_at.elapsed().as_secs_f32() * 1000.0;
                 if !result.error_message.is_empty() || result.did_reset {
                     log::warn!(
-                        "PipeWire bridge packet: data_type=0x{:02X} payload_bytes={} frames={} reset={} error={}",
-                        data_type,
-                        payload.len(),
-                        result.frames.len(),
-                        result.did_reset,
-                        result.error_message
-                    );
-                } else if result.frames.is_empty() {
-                    log::debug!(
                         "PipeWire bridge packet: data_type=0x{:02X} payload_bytes={} frames={} reset={} error={}",
                         data_type,
                         payload.len(),

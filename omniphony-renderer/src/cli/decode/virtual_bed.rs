@@ -304,7 +304,7 @@ pub fn build_virtual_bed_events(
             is_bed: false,
             gain_db: Some(0),
             ramp_length: Some(0),
-            spread: None,
+            size: None,
             position: Some([x as f64, y as f64, z as f64]),
             sample_pos: Some(0),
         });
@@ -356,7 +356,7 @@ pub fn build_virtual_bed_objects(
             direct_speaker_index: None,
             gain: 0,
             priority: 0.0,
-            divergence: 0.0,
+            size: [0.0, 0.0, 0.0],
         });
     }
     if objects.is_empty() {

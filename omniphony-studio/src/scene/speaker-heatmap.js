@@ -379,52 +379,86 @@ export function refreshSpeakerHeatmapScene() {
   applyHeatmapData();
 }
 
-export function requestSpeakerHeatmapIfNeeded() {
+// Subscription-based heatmap. The studio subscribes to one speaker at a time;
+// the renderer caches the last payload and only re-pushes when the heatmap
+// actually changes. Subscribe pushes use request_id = 0; the legacy /request
+// route keeps echoing the caller's request_id, so we accept both:
+//   - if there is an active subscription → accept request_id 0
+//   - else → accept the matching pendingRequestId from the legacy /request flow
+let activeSubscription = null; // { speakerIndex, bandIndex, modes, maxSamples, subscriptionId }
+let nextSubscriptionId = 1;
+
+function isAcceptedSubscriptionPush(requestId) {
+  return activeSubscription !== null && requestId === 0;
+}
+
+function acceptedForChannel(requestId, channelPendingId) {
+  if (isAcceptedSubscriptionPush(requestId)) return true;
+  return Number.isInteger(channelPendingId) && requestId === channelPendingId;
+}
+
+export function subscribeSpeakerHeatmap() {
   syncSpeakerHeatmapBandSelect();
   if (!canShowHeatmap()) {
+    unsubscribeSpeakerHeatmap();
     clearSpeakerHeatmap();
     return;
   }
   const speakerIndex = app.selectedSpeakerIndex;
   const bandIndex = Math.max(0, Math.round(Number(app.speakerHeatmapBandIndex) || 0));
-  if (app.speakerHeatmapSlicesEnabled) {
-    heatmapState.currentRequestId += 1;
-    const requestId = heatmapState.currentRequestId;
-    resetPending('slices', requestId);
-    invoke('request_speaker_heatmap', {
-      speakerIndex,
-      requestId,
-      bandIndex,
-      mode: 'slices',
-      maxSamples: app.speakerHeatmapSampleCount,
-    }).catch(() => {
-      if (requestId === heatmapState.slices.pendingRequestId) {
-        heatmapState.slices.data = null;
-        applyHeatmapData();
-      }
-    });
+  const modes = [];
+  if (app.speakerHeatmapSlicesEnabled) modes.push('slices');
+  if (app.speakerHeatmapVolumeEnabled) modes.push('volume');
+  if (modes.length === 0) {
+    unsubscribeSpeakerHeatmap();
+    clearSpeakerHeatmap();
+    return;
+  }
+  const subscriptionId = nextSubscriptionId++;
+  activeSubscription = {
+    speakerIndex,
+    bandIndex,
+    modes,
+    maxSamples: app.speakerHeatmapSampleCount,
+    subscriptionId,
+  };
+  // Reset per-channel pending state so unsolicited subscribe pushes (request_id 0)
+  // are accepted via isAcceptedSubscriptionPush.
+  if (modes.includes('slices')) {
+    resetPending('slices', 0);
   } else {
     heatmapState.slices.data = null;
   }
-  if (app.speakerHeatmapVolumeEnabled) {
-    heatmapState.currentRequestId += 1;
-    const requestId = heatmapState.currentRequestId;
-    resetPending('volume', requestId);
-    invoke('request_speaker_heatmap', {
-      speakerIndex,
-      requestId,
-      bandIndex,
-      mode: 'volume',
-      maxSamples: app.speakerHeatmapSampleCount,
-    }).catch(() => {
-      if (requestId === heatmapState.volume.pendingRequestId) {
-        heatmapState.volume.data = null;
-        applyHeatmapData();
-      }
-    });
+  if (modes.includes('volume')) {
+    resetPending('volume', 0);
   } else {
     heatmapState.volume.data = null;
   }
+  invoke('subscribe_speaker_heatmap', {
+    subscriptionId,
+    speakerIndex,
+    bandIndex,
+    modes,
+    maxSamples: app.speakerHeatmapSampleCount,
+  }).catch(() => {
+    activeSubscription = null;
+    heatmapState.slices.data = null;
+    heatmapState.volume.data = null;
+    applyHeatmapData();
+  });
+}
+
+export function unsubscribeSpeakerHeatmap() {
+  if (activeSubscription === null) return;
+  activeSubscription = null;
+  invoke('unsubscribe_speaker_heatmap').catch(() => {});
+}
+
+// Backwards-compatible alias: callers that used to pull on every state echo
+// now subscribe (idempotent). The renderer holds the cache, so re-subscribing
+// is cheap and only triggers a push if something actually changed.
+export function requestSpeakerHeatmapIfNeeded() {
+  subscribeSpeakerHeatmap();
 }
 
 export function handleSpeakerHeatmapMeta(payload) {
@@ -432,11 +466,11 @@ export function handleSpeakerHeatmapMeta(payload) {
   if (!Number.isInteger(requestId)) {
     return;
   }
-  if (requestId === heatmapState.slices.pendingRequestId) {
+  if (acceptedForChannel(requestId, heatmapState.slices.pendingRequestId)) {
     heatmapState.slices.pendingMeta = payload;
     maybeFinalizeSlices(requestId);
   }
-  if (requestId === heatmapState.volume.pendingRequestId) {
+  if (acceptedForChannel(requestId, heatmapState.volume.pendingRequestId)) {
     heatmapState.volume.pendingMeta = payload;
     maybeFinalizeVolume(requestId);
   }
@@ -444,18 +478,16 @@ export function handleSpeakerHeatmapMeta(payload) {
 
 export function handleSpeakerHeatmapSlice(planeKey, payload) {
   const normalized = normalizeSlicePayload(payload);
-  if (!Number.isInteger(normalized.requestId) || normalized.requestId !== heatmapState.slices.pendingRequestId) {
-    return;
-  }
+  if (!Number.isInteger(normalized.requestId)) return;
+  if (!acceptedForChannel(normalized.requestId, heatmapState.slices.pendingRequestId)) return;
   heatmapState.slices.pendingSlices.set(planeKey, normalized);
   maybeFinalizeSlices(normalized.requestId);
 }
 
 export function handleSpeakerHeatmapVolumeChunk(payload) {
   const normalized = normalizeVolumeChunkPayload(payload);
-  if (!Number.isInteger(normalized.requestId) || normalized.requestId !== heatmapState.volume.pendingRequestId) {
-    return;
-  }
+  if (!Number.isInteger(normalized.requestId)) return;
+  if (!acceptedForChannel(normalized.requestId, heatmapState.volume.pendingRequestId)) return;
   heatmapState.volume.pendingVolumeChunkCount = Number.isInteger(normalized.chunkCount)
     ? normalized.chunkCount
     : 0;
@@ -468,10 +500,10 @@ export function handleSpeakerHeatmapUnavailable(payload) {
   if (!Number.isInteger(requestId)) {
     return;
   }
-  if (requestId === heatmapState.slices.pendingRequestId) {
+  if (acceptedForChannel(requestId, heatmapState.slices.pendingRequestId)) {
     heatmapState.slices.data = null;
   }
-  if (requestId === heatmapState.volume.pendingRequestId) {
+  if (acceptedForChannel(requestId, heatmapState.volume.pendingRequestId)) {
     heatmapState.volume.data = null;
   }
   applyHeatmapData();

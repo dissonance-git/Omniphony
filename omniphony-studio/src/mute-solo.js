@@ -15,6 +15,8 @@ import {
   objectManualMuted,
   speakerGainCache,
   speakerBaseGains,
+  speakerPeaks,
+  sourcePeaks,
   speakerItems,
   objectItems,
   sourceMeshes,
@@ -69,10 +71,33 @@ export function dbToLinear(db) {
 // Meter UI
 // ---------------------------------------------------------------------------
 
-export function updateMeterUI(entry, meter) {
+export function updateMeterUI(entry, meter, type = null, id = null) {
   if (!entry) return;
-  entry.levelText.textContent = formatLevel(meter);
-  entry.meterFill.style.setProperty('--level', `${meterToPercent(meter).toFixed(1)}%`);
+  const levelPercent = meterToPercent(meter);
+  const currentDb = typeof meter?.rmsDbfs === 'number' ? meter.rmsDbfs : -100;
+
+  if (entry.peakCursor) {
+    const now = Date.now();
+    const peaksMap = type === 'speaker' ? speakerPeaks : sourcePeaks;
+    let peak = id !== null ? peaksMap.get(id) : null;
+
+    if (!peak || currentDb >= (peak.db ?? -100)) {
+      peak = { value: levelPercent, db: currentDb, expires: now + 1000 };
+      if (id !== null) peaksMap.set(id, peak);
+    } else if (now > peak.expires) {
+      peak.db = Math.max(currentDb, peak.db - 2.0); // Decay DB value
+      peak.value = ((Math.max(-100, peak.db) + 100) / 100) * 100;
+      if (peak.value <= levelPercent + 0.1) peak.expires = now + 1000;
+    }
+
+    entry.levelText.textContent = `${formatNumber(peak.db ?? currentDb, 1)} dB`;
+    entry.meterFill.style.setProperty('--level', `${levelPercent.toFixed(1)}%`);
+    entry.peakCursor.style.setProperty('--level', `${peak.value.toFixed(1)}%`);
+    entry.peakCursor.style.opacity = peak.value > 0.1 ? '1' : '0';
+  } else {
+    entry.levelText.textContent = formatLevel(meter);
+    entry.meterFill.style.setProperty('--level', `${levelPercent.toFixed(1)}%`);
+  }
 }
 
 // ---------------------------------------------------------------------------

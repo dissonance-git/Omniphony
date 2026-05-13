@@ -222,6 +222,10 @@ pub struct LiveParams {
     /// Curve exponent for the distance-based spread formula.
     pub spread_distance_curve: f32,
 
+    /// Reduction policy applied to the per-event 3-D object size triplet
+    /// (w, d, h) to derive a scalar spread for backends that consume it.
+    pub size_to_spread_mode: crate::render_backend::SizeToSpreadMode,
+
     /// Ramp processing mode for object moves and gain transitions.
     pub ramp_mode: RampMode,
 
@@ -284,6 +288,13 @@ pub struct LiveParams {
 
     /// Runtime tuning parameters for the barycenter backend.
     pub barycenter: BarycenterLiveParams,
+
+    /// Selected Dynamic Range Control mode (as string).
+    pub drc_mode: String,
+    /// DRC weighting in [0.0, 1.0]. 1.0 applies the full bridge-decoded DRC gain;
+    /// 0.0 bypasses it entirely. Intermediate values scale the dB reduction
+    /// linearly (effective_gain = bridge_gain.powf(drc_weight)).
+    pub drc_weight: f32,
 }
 
 impl LiveParams {
@@ -367,6 +378,8 @@ fn evaluation_build_config_from_live(
     EvaluationBuildConfig {
         request_template: RenderRequest {
             adm_position: [0.0, 0.0, 0.0],
+            event_size: [0.0, 0.0, 0.0],
+            size_to_spread_mode: live.size_to_spread_mode,
             spread_min: live.spread_min,
             spread_max: live.spread_max,
             spread_from_distance: live.spread_from_distance,
@@ -528,6 +541,8 @@ pub struct RendererControl {
     pub input_path: Mutex<Option<String>>,
     /// Requested format bridge path to be persisted into render.bridge_path.
     pub bridge_path: Mutex<Option<PathBuf>>,
+    /// Supported DRC modes reported by the bridge.
+    pub bridge_supported_drc_modes: Mutex<Vec<String>>,
     /// Requested ramp mode from OSC control.
     pub requested_ramp_mode: Mutex<RampMode>,
 }
@@ -557,6 +572,7 @@ impl RendererControl {
             config_path: Mutex::new(None),
             input_path: Mutex::new(None),
             bridge_path: Mutex::new(None),
+            bridge_supported_drc_modes: Mutex::new(Vec::new()),
             requested_ramp_mode: Mutex::new(RampMode::Frame),
         })
     }
@@ -652,6 +668,14 @@ impl RendererControl {
 
     pub fn bridge_path(&self) -> Option<PathBuf> {
         self.bridge_path.lock().unwrap().clone()
+    }
+
+    pub fn set_bridge_supported_drc_modes(&self, modes: Vec<String>) {
+        *self.bridge_supported_drc_modes.lock().unwrap() = modes;
+    }
+
+    pub fn bridge_supported_drc_modes(&self) -> Vec<String> {
+        self.bridge_supported_drc_modes.lock().unwrap().clone()
     }
 
     pub fn set_requested_ramp_mode(&self, mode: RampMode) {

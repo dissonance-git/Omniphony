@@ -35,6 +35,7 @@ pub(super) fn merge_render_config(
     if args.bridge_path.is_none() {
         args.bridge_path = cfg.bridge_path.clone();
     }
+    // Note: drc_mode currently doesn't have a CLI arg, it's OSC/config only.
     // --- Fields with defaults: apply config only when value equals the clap default ---
     // (If the user explicitly passes the default value, config is ignored — acceptable edge case.)
     if !arg_sources.is_explicit("output_backend") {
@@ -439,6 +440,8 @@ pub(super) fn effective_to_config(
         } else {
             None
         },
+        // No CLI surface yet; preserve whatever the active config carries.
+        size_to_spread_mode: existing_render_cfg.and_then(|cfg| cfg.size_to_spread_mode),
         enable_adaptive_resampling: if args.enable_adaptive_resampling {
             Some(true)
         } else {
@@ -468,6 +471,8 @@ pub(super) fn effective_to_config(
         adaptive_resampling_near_far_threshold_ms: existing_render_cfg
             .and_then(|cfg| cfg.adaptive_resampling_near_far_threshold_ms),
         output_sample_rate: args.output_sample_rate,
+        drc_mode: existing_render_cfg.and_then(|cfg| cfg.drc_mode.clone()),
+        drc_weight: existing_render_cfg.and_then(|cfg| cfg.drc_weight),
         ramp_mode: if args.ramp_mode != RampModeArg::Sample {
             Some(match args.ramp_mode {
                 RampModeArg::Off => "off".to_string(),

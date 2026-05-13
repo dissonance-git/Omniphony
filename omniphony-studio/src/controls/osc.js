@@ -17,6 +17,7 @@ import { pushLog, normalizeLogError, normalizeLogLevel, logState } from '../log.
 import { invoke } from '@tauri-apps/api/core';
 import { syncRuntimeConnectionLock } from '../runtime-connection.js';
 import { inObjectsPanel, inOscPanel } from '../ui/panel-roots.js';
+import { updateConfigSavedUI } from './config.js';
 
 // DOM refs
 function getStatusEl() { return inOscPanel('status'); }
@@ -209,6 +210,7 @@ export function setOscStatus(next) {
   if (next !== 'connected') {
     app.oscSnapshotReady = false;
   }
+  updateConfigSavedUI();
   renderOscStatus();
   if (next === 'connected') {
     clearOscConfigAutoOpenTimer();

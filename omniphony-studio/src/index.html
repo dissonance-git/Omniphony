@@ -23,6 +23,10 @@
             <option value="trace" data-i18n="log.levelOption.trace">Trace</option>
           </select>
         </label>
+        <label class="log-panel-filter">
+          <span data-i18n="log.filterLabel">Filter</span>
+          <input id="logFilterInput" type="text" spellcheck="false" data-i18n-placeholder="log.filterPlaceholder" placeholder="Filter logs" />
+        </label>
         <div class="log-panel-actions">
           <button id="logCopyBtn" type="button" class="log-panel-btn" data-i18n="log.copy">Copy</button>
           <button id="logClearBtn" type="button" class="log-panel-btn" data-i18n="log.clear">Clear</button>
@@ -75,11 +79,13 @@
       </div>
       </div>
       <div id="audioInputPanelMount"></div>
-      <div style="margin-top:0.75rem;padding-top:0.5rem;border-top:1px solid rgba(255, 255, 255, 0.12)"></div>
-      <div id="roomGeometryPanelRoot">
-      <div class="panel-header" style="margin-top:0.25rem">
+      <div id="roomGeometryPanelRoot" class="info-section section-collapsed">
+      <div class="panel-header">
         <div class="panel-header-main">
-        <div class="panel-title" style="font-size:12px;font-weight:600" data-i18n="room.title">Room Geometry</div>
+        <div class="panel-title-wrap">
+          <div class="info-title panel-title" data-i18n="room.title">Room Geometry</div>
+          <div id="roomGeometryHeaderSummary" class="panel-summary" style="display:block">—</div>
+        </div>
         </div>
         <div style="display:flex;align-items:center;gap:0.35rem">
           <button id="roomGeometryInfoBtn" type="button" class="info-icon-btn" data-i18n-title="room.infoButton" title="Room Geometry info">i</button>
@@ -214,6 +220,10 @@
                     <div data-i18n="display.objectLabels">Object labels</div>
                     <input id="objectLabelsToggle" type="checkbox" />
                   </div>
+                  <div class="inline-toggle" style="margin-top:0">
+                    <div data-i18n="display.showObjectDetails">Show object details</div>
+                    <input id="showObjectDetailsToggle" type="checkbox" checked />
+                  </div>
                 </div>
               </div>
             </div>
@@ -236,7 +246,10 @@
             </div>
             <div id="heatmapsSection" style="display:grid;gap:0.3rem">
               <div class="inline-toggle" style="margin-top:0">
-                <div data-i18n="display.heatmaps">Heatmaps</div>
+                <div class="title-with-info" style="min-width:0">
+                  <span data-i18n="display.heatmaps">Heatmaps</span>
+                  <button id="heatmapInfoBtn" type="button" class="info-icon-btn" data-i18n-title="heatmap.infoButton" title="Heatmaps info">i</button>
+                </div>
               </div>
               <div id="heatmapsSectionContent" class="conditional-params open">
                 <div style="margin-top:0.15rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
@@ -302,9 +315,64 @@
         </div>
       </div>
       </div>
+      <div id="drcPanelRoot">
+      <div class="info-section" id="drcSection">
+        <div class="panel-header">
+          <div class="panel-header-main">
+          <div class="info-title panel-title" data-i18n="section.drc">DRC / Loudness</div>
+          </div>
+          <div id="drcGaugeRow" style="flex:1 1 auto; margin: 0 0.4rem; display:none; align-items:center; gap:0.4rem; min-width:60px;">
+             <div style="flex:1; height: 6px; background: #222; border-radius: 3px; overflow: hidden; position: relative;">
+                <div id="drcGaugeFill" style="position: absolute; right: 0; top: 0; bottom: 0; width: 0%; background: #ff4444; transition: width 0.1s ease-out;"></div>
+             </div>
+             <span id="drcGainValue" style="font-size: 0.65rem; color: #888; white-space:nowrap; font-family:ui-monospace, monospace;">0.0 dB</span>
+          </div>
+          <div style="display:flex;justify-content:flex-end;min-width:0">
+            <div id="drcSummary" class="panel-summary" style="display:none;flex:0 1 auto">—</div>
+          </div>
+          <button id="drcInfoBtn" type="button" class="info-icon-btn" data-i18n-title="drc.infoButton" title="DRC and loudness info">i</button>
+          <button id="drcSectionToggleBtn" type="button" class="panel-toggle-btn">▸</button>
+        </div>
+        <div id="drcSectionContent" class="conditional-params">
+          <div style="margin-top:0.25rem;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03);display:grid;gap:0.35rem">
+            <div class="inline-toggle" id="drcControlRow" style="margin-top:0; display:none;">
+              <div data-i18n="input.drc">DRC</div>
+              <select id="drcModeSelect" class="form-select" style="font-size:0.75rem; padding:0.1rem 0.2rem; width:auto; min-width:80px;"></select>
+            </div>
+            <div id="drcWeightRow" style="display:none;">
+              <div style="font-size: 0.65rem; color: #888; margin-bottom: 0.15rem; display: flex; justify-content: space-between;">
+                <span data-i18n="input.drc_weight">DRC weight</span>
+                <span id="drcWeightValue">100%</span>
+              </div>
+              <input id="drcWeightSlider" type="range" min="0" max="100" step="1" value="100" style="width:100%;" />
+            </div>
+            <div style="margin-top:0.2rem; border-top:1px solid rgba(255,255,255,0.05); padding-top:0.3rem; display:grid; gap:0.25rem;">
+              <div class="inline-toggle" style="margin-top:0">
+                <div data-i18n="section.loudness">Loudness / Dialog Norm</div>
+                <input id="loudnessToggle" type="checkbox" />
+              </div>
+              <div id="loudnessInfo" style="font-size:10px; color:#8fa6bd; font-family:ui-monospace, monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">source: — | target: — | correction: —</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
       <div id="objectsPanelRoot">
       <div class="info-section" id="objectsSection">
-        <div class="info-title" data-i18n="section.objects">Objects</div>
+        <div class="panel-header">
+          <div class="panel-header-main">
+            <div class="info-title panel-title" data-i18n="section.objects">Objects</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:0.35rem">
+            <button
+              id="objectDetailsToggleBtn"
+              type="button"
+              class="panel-toggle-btn"
+              data-i18n-title="display.showObjectDetails"
+              title="Show object details"
+            >▸</button>
+          </div>
+        </div>
         <div class="inline-toggle" style="margin-bottom:0.35rem">
           <div data-i18n="osc.metering">Metering</div>
           <input id="oscMeteringToggle" type="checkbox" />
@@ -434,10 +502,9 @@
       <div class="info-modal-card">
         <div class="info-modal-title" data-i18n="spread.distanceInfoTitle">Spread from Distance</div>
         <div class="info-modal-text" data-i18n-html="spread.distanceInfoBody">
-          Spread from Distance replaces object_size spread with a distance-driven spread value.<br /><br />
-          Formula: <strong>spread = (1 - distance/range)^curve</strong>, clamped to [0, 1], then mapped to the global spread min/max range.<br /><br />
-          <strong>Range</strong>: distance where spread reaches 0.<br />
-          <strong>Curve</strong>: transition shape (higher = less spread near listener, more collapse farther away).
+          Spread from Distance derives spread from listener distance instead of relying only on object_size.<br /><br />
+          The distance curve is mapped into the global spread min/max range, so close objects can stay broad while far objects collapse toward the configured minimum.<br /><br />
+          <strong>Range</strong> sets where the distance contribution reaches zero. <strong>Curve</strong> shapes how quickly that collapse happens. <strong>Size→Spread mode</strong> still controls how object size is converted when size-based spread is in use or compared against the distance result.
         </div>
         <div class="info-modal-actions">
           <button id="spreadFromDistanceInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>
@@ -464,9 +531,9 @@
       <div class="info-modal-card">
         <div class="info-modal-title" data-i18n="effectiveRender.infoTitle">Effective render position</div>
         <div class="info-modal-text" data-i18n-html="effectiveRender.infoBody">
-          Shows an estimated effective render position computed from the current speaker gains.<br /><br />
-          A small marker is placed at the weighted centroid of the active speakers, using a power-style weighting based on each gain squared.<br />
-          The thin line connects the object's nominal position to this effective rendered position.
+          Shows an estimated rendered position inferred from the speakers that are currently carrying the object.<br /><br />
+          The marker is meant as a visual sanity check: it helps reveal when the rendered energy center drifts away from the nominal object position.<br /><br />
+          The thin line connects the nominal object position to that estimated effective render point.
         </div>
         <div class="info-modal-actions">
           <button id="effectiveRenderInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>
@@ -502,7 +569,7 @@
         </div>
         <dl class="about-info-grid">
           <dt data-i18n="about.version">Version</dt>
-          <dd id="aboutVersion">0.1.0</dd>
+          <dd id="aboutVersion">0.2.4</dd>
           <dt data-i18n="about.license">License</dt>
           <dd id="aboutLicense">GPL-3.0-only</dd>
           <dt data-i18n="about.repository">Repository</dt>
@@ -547,12 +614,148 @@
       <div class="info-modal-card">
         <div class="info-modal-title" data-i18n="telemetry.infoTitle">Latency Gauges</div>
         <div class="info-modal-text" data-i18n-html="telemetry.infoBody">
-          <strong>raw</strong>: instantaneous measured latency. The min/max markers show the recent sliding window.<br /><br />
-          <strong>ctrl</strong>: smoothed latency used internally by the adaptive controller.<br /><br />
-          <strong>resample</strong>: current adaptive resampling correction around the neutral 1.0 ratio. Left means slower, right means faster.
+          <strong>raw</strong> is the instantaneous measured latency; its markers show the recent low/high window.<br /><br />
+          <strong>ctrl</strong> is the smoothed control latency used by the adaptive logic. The target marker and far-threshold markers show where the controller is trying to stay and when far-mode recovery can engage.<br /><br />
+          <strong>resample</strong> shows the current adaptive correction around neutral 1.0. Left means slower, right means faster. The panel also exposes the active band/state so you can see whether the system is near, far, or actively recovering.
         </div>
         <div class="info-modal-actions">
           <button id="telemetryGaugesInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="evaluationInfoModal" class="info-modal" aria-hidden="true">
+      <div class="info-modal-card">
+        <div class="info-modal-title" data-i18n="evaluation.infoTitle">Evaluation mode</div>
+        <div class="info-modal-text" data-i18n-html="evaluation.infoBody">
+          Evaluation mode controls how speaker gains are computed for each object position.<br /><br />
+          <strong>Realtime</strong> computes directly at runtime. <strong>Precomputed polar</strong> and <strong>precomputed cartesian</strong> trade memory for faster lookups and more stable cost. <strong>Auto</strong> lets the renderer choose the best available path for the current backend and tables.
+        </div>
+        <div class="info-modal-actions">
+          <button id="evaluationInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="backendInfoModal" class="info-modal" aria-hidden="true">
+      <div class="info-modal-card">
+        <div class="info-modal-title" data-i18n="backend.infoTitle">Render backend</div>
+        <div class="info-modal-text" data-i18n-html="backend.infoBody">
+          The backend selects the spatial rendering model used for object panning.<br /><br />
+          <strong>VBAP</strong> is the main speaker-based panner. <strong>Barycenter</strong> exposes a softer, more blended localisation model. <strong>Distance</strong> is a more experimental solver with extra tuning controls.<br /><br />
+          <strong>Restore backend</strong> reverts a temporary runtime override back to the persisted configuration.
+        </div>
+        <div class="info-modal-actions">
+          <button id="backendInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="distanceModelInfoModal" class="info-modal" aria-hidden="true">
+      <div class="info-modal-card">
+        <div class="info-modal-title" data-i18n="distance.modelInfoTitle">Distance model</div>
+        <div class="info-modal-text" data-i18n-html="distance.modelInfoBody">
+          Distance model controls how object gain falls with distance before any diffuse or spread-specific processing is applied.<br /><br />
+          <strong>None</strong> keeps distance neutral. <strong>Linear</strong> and <strong>quadratic</strong> apply progressively stronger attenuation. <strong>Inverse-square</strong> is the steepest and is closest to a simple physical falloff.
+        </div>
+        <div class="info-modal-actions">
+          <button id="distanceModelInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="barycenterInfoModal" class="info-modal" aria-hidden="true">
+      <div class="info-modal-card">
+        <div class="info-modal-title" data-i18n="barycenter.infoTitle">Barycenter backend</div>
+        <div class="info-modal-text" data-i18n-html="barycenter.infoBody">
+          Barycenter backend places energy by blending nearby speakers around a weighted center instead of using the VBAP triplet selection logic.<br /><br />
+          <strong>Localize</strong> increases how tightly energy collapses toward the target point. Lower values stay broader and softer; higher values bias toward a more focused image.
+        </div>
+        <div class="info-modal-actions">
+          <button id="barycenterInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="experimentalDistanceInfoModal" class="info-modal" aria-hidden="true">
+      <div class="info-modal-card">
+        <div class="info-modal-title" data-i18n="experimentalDistance.infoTitle">Distance backend</div>
+        <div class="info-modal-text" data-i18n-html="experimentalDistance.infoBody">
+          Distance backend is an experimental renderer that scores speakers from their geometric relationship to the target point.<br /><br />
+          The exposed controls tune how many speakers can participate, how aggressively nearest speakers dominate, and how much position error is tolerated before gains are clamped or spread wider.<br /><br />
+          Use it for backend comparison and tuning, not as the safest default.
+        </div>
+        <div class="info-modal-actions">
+          <button id="experimentalDistanceInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="inputInfoModal" class="info-modal" aria-hidden="true">
+      <div class="info-modal-card">
+        <div class="info-modal-title" data-i18n="input.infoTitle">Audio Input</div>
+        <div class="info-modal-text" data-i18n-html="input.infoBody">
+          This section defines where incoming audio comes from and how Studio describes that source to the renderer.<br /><br />
+          <strong>Mode</strong> chooses between a bridged file/process input and a live device/backend path. The remaining fields define the bridge binary, imported layout, channel format, mapping, and channel handling that the renderer should expect.
+        </div>
+        <div class="info-modal-actions">
+          <button id="inputInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="inputClockInfoModal" class="info-modal" aria-hidden="true">
+      <div class="info-modal-card">
+        <div class="info-modal-title" data-i18n="input.clockInfoTitle">Input clock</div>
+        <div class="info-modal-text" data-i18n-html="input.clockInfoBody">
+          Clock selects which side is treated as the timing reference for the live input path.<br /><br />
+          <strong>DAC</strong> follows the output device clock. <strong>PipeWire</strong> follows the PipeWire graph clock. <strong>Upstream</strong> trusts the capture source or bridge clock.<br /><br />
+          This choice matters when diagnosing drift, latency correction, or which side should adapt to the other.
+        </div>
+        <div class="info-modal-actions">
+          <button id="inputClockInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="inputLfeInfoModal" class="info-modal" aria-hidden="true">
+      <div class="info-modal-card">
+        <div class="info-modal-title" data-i18n="input.lfeInfoTitle">LFE handling</div>
+        <div class="info-modal-text" data-i18n-html="input.lfeInfoBody">
+          LFE controls what happens to the input stream’s low-frequency effects channel.<br /><br />
+          <strong>Object</strong> turns it into a spatial object. <strong>Direct</strong> keeps it as a dedicated direct-fed LFE path. <strong>Drop</strong> ignores it entirely.<br /><br />
+          Choose this according to how the source material was authored and how your output layout expects bass content to be routed.
+        </div>
+        <div class="info-modal-actions">
+          <button id="inputLfeInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="drcInfoModal" class="info-modal" aria-hidden="true">
+      <div class="info-modal-card">
+        <div class="info-modal-title" data-i18n="drc.infoTitle">DRC and loudness</div>
+        <div class="info-modal-text" data-i18n-html="drc.infoBody">
+          This section combines codec-side dynamic range control with renderer-side loudness correction.<br /><br />
+          <strong>DRC</strong> selects the metadata-driven compression profile, and <strong>DRC weight</strong> blends how strongly that profile is applied.<br /><br />
+          <strong>Loudness / Dialog Norm</strong> applies a gain correction derived from the source metadata so playback lands closer to the configured target level.
+        </div>
+        <div class="info-modal-actions">
+          <button id="drcInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="heatmapInfoModal" class="info-modal" aria-hidden="true">
+      <div class="info-modal-card">
+        <div class="info-modal-title" data-i18n="heatmap.infoTitle">Heatmaps</div>
+        <div class="info-modal-text" data-i18n-html="heatmap.infoBody">
+          Heatmaps visualize how the renderer distributes energy across the listening area or volume.<br /><br />
+          <strong>Heatmap slices</strong> shows sectional planes, <strong>Heatmap volume</strong> shows volumetric sampling, and <strong>Heatmap band</strong> selects which frequency band is displayed.<br /><br />
+          <strong>Heatmap values</strong> controls sampling density, and <strong>Max sphere size</strong> caps the display size of each sample point. Some views are only meaningful when the current evaluation mode has the required precomputed data.
+        </div>
+        <div class="info-modal-actions">
+          <button id="heatmapInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>
         </div>
       </div>
     </div>

@@ -171,7 +171,10 @@ impl<'a> SpatialMetadataCoordinator<'a> {
                         direct_speaker_index,
                         gain: event.gain_db().map_or(-128, |g| g as i32),
                         priority: 0.0,
-                        divergence: 0.0,
+                        size: event
+                            .size()
+                            .map(|s| [s[0] as f32, s[1] as f32, s[2] as f32])
+                            .unwrap_or([0.0, 0.0, 0.0]),
                     }
                 })
                 .collect();
@@ -223,7 +226,9 @@ impl<'a> SpatialMetadataCoordinator<'a> {
                         is_bed,
                         gain_db: event.gain_db(),
                         ramp_length: event.ramp_length(),
-                        spread: None,
+                        size: event
+                            .size()
+                            .map(|s| [s[0] as f32, s[1] as f32, s[2] as f32]),
                         position: Self::event_pos_as_adm_cartesian(coordinate_format, event),
                         sample_pos: event.sample_pos,
                     });

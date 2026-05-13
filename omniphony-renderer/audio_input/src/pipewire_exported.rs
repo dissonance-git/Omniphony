@@ -361,7 +361,7 @@ impl PipewireBridgeExportNode {
                 buffers_since_log: 0,
                 sync_buffers_since_log: 0,
                 packets_since_log: 0,
-                frames_since_log: 0,
+                queued_packets_since_log: 0,
                 empty_polls_since_log: 0,
                 callback_chunk_logs_remaining: 8,
                 accumulate_buf: Vec::new(),

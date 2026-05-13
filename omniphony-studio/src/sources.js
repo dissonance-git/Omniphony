@@ -28,6 +28,7 @@ import {
   sourceNames,
   sourceTags,
   sourcePositionsRaw,
+  sourceSizes,
   sourceDirectSpeakerIndices,
   speakerMeshes,
   speakerLabels,
@@ -87,6 +88,7 @@ import { computeCrossoverBandLabels } from './crossover-bands.js';
 export const sourceCallbacks = {
   renderObjectsList: null,
   updateObjectPositionUI: null,
+  updateObjectSizeUI: null,
   updateObjectLabelUI: null,
   updateObjectMeterUI: null,
   updateObjectDominantSpeakerUI: null,
@@ -104,24 +106,19 @@ export const sourceCallbacks = {
 // ---------------------------------------------------------------------------
 
 export function getObjectDisplayName(id) {
-  const raw = sourceNames.get(id);
-  if (raw && typeof raw === 'string' && raw.trim()) {
-    return raw.trim();
-  }
-  return String(id);
+  const raw = sourceNames.get(String(id));
+  let name = (raw && typeof raw === 'string' && raw.trim()) ? raw.trim() : String(id);
+  // Strip common technical prefixes like a_, v_, obj_
+  name = name.replace(/^[av][_:-]/i, '');
+  name = name.replace(/^obj[_:-]/i, '');
+  return name;
 }
 
 export function formatObjectLabel(id) {
-  const raw = sourceNames.get(id);
-  if (raw && typeof raw === 'string') {
-    const trimmed = raw.trim();
-    const underscoreIndex = trimmed.indexOf('_');
-    const cleaned = underscoreIndex >= 0 ? trimmed.slice(underscoreIndex + 1) : trimmed;
-    if (cleaned) {
-      return cleaned;
-    }
-  }
-  return String(id);
+  const name = getObjectDisplayName(id);
+  const underscoreIndex = name.indexOf('_');
+  const cleaned = underscoreIndex >= 0 ? name.slice(underscoreIndex + 1) : name;
+  return cleaned || name;
 }
 
 const OBJECT_COLOR_PALETTE = [
@@ -994,6 +991,29 @@ export function updateSource(id, position) {
     entry.root.classList.toggle('has-active-trail', sourceCallbacks.objectHasActiveTrail?.(key) ?? false);
     applyObjectItemColor(entry, key);
   }
+}
+
+/**
+ * Update the 3-axis spatial extent (w, d, h) of an object received via
+ * `/omniphony/object/{id}/size`. Each component is clamped to `[0, 1]`.
+ * Notifies the UI so the per-object size gauges refresh.
+ */
+export function updateSourceSize(id, size) {
+  if (!size || typeof size !== 'object') {
+    return;
+  }
+  const key = String(id);
+  const clamp01 = (v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(1, n));
+  };
+  sourceSizes.set(key, {
+    w: clamp01(size.w),
+    d: clamp01(size.d),
+    h: clamp01(size.h)
+  });
+  sourceCallbacks.updateObjectSizeUI?.(key);
 }
 
 export function updateSourceTag(id, sourceTag) {

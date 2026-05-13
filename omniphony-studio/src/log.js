@@ -10,6 +10,7 @@ function getLogEntriesEl() { return document.getElementById('logEntries'); }
 function getLogEmptyStateEl() { return document.getElementById('logEmptyState'); }
 function getLogToggleBtnEl() { return document.getElementById('logToggleBtn'); }
 function getLogLevelSelectEl() { return document.getElementById('logLevelSelect'); }
+function getLogFilterInputEl() { return document.getElementById('logFilterInput'); }
 
 const LOG_ENTRY_LIMIT = 120;
 export const LOG_LEVEL_VALUES = ['off', 'error', 'warn', 'info', 'debug', 'trace'];
@@ -17,7 +18,8 @@ export const LOG_LEVEL_VALUES = ['off', 'error', 'warn', 'info', 'debug', 'trace
 export const logState = {
   expanded: false,
   entries: [],
-  backendLogLevel: 'info'
+  backendLogLevel: 'info',
+  filterText: ''
 };
 
 function formatLogTime(date) {
@@ -33,9 +35,46 @@ function formatLogTimestampForExport(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
-export function serializeLogsForClipboard() {
-  return logState.entries
-    .map((entry) => `[${formatLogTimestampForExport(entry.timestamp)}] ${String(entry.level || 'info').toUpperCase()} ${entry.message}`)
+function normalizeLogMessage(message) {
+  return typeof message === 'string' ? message : String(message ?? '');
+}
+
+function normalizeLogTarget(target) {
+  return typeof target === 'string' ? target.trim() : '';
+}
+
+function normalizeFilterText(value) {
+  return typeof value === 'string' ? value : String(value ?? '');
+}
+
+function buildRenderedMessage(entry) {
+  const message = normalizeLogMessage(entry.message);
+  if (message.startsWith('[')) {
+    return message;
+  }
+  return entry.target ? `[${entry.target}] ${message}` : message;
+}
+
+function buildSearchableText(entry) {
+  return [
+    buildRenderedMessage(entry),
+    entry.target,
+    String(entry.level || 'info')
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function getFilteredEntries() {
+  const filter = normalizeFilterText(logState.filterText).trim().toLowerCase();
+  if (!filter) return logState.entries;
+  return logState.entries.filter((entry) => buildSearchableText(entry).includes(filter));
+}
+
+export function serializeLogsForClipboard(entries = getFilteredEntries()) {
+  return entries
+    .map((entry) => `[${formatLogTimestampForExport(entry.timestamp)}] ${String(entry.level || 'info').toUpperCase()} ${buildRenderedMessage(entry)}`)
     .join('\n');
 }
 
@@ -56,16 +95,22 @@ export function normalizeLogLevel(value) {
   return LOG_LEVEL_VALUES.includes(normalized) ? normalized : 'info';
 }
 
-export function pushLog(level, message) {
+export function pushLog(level, message, target = '') {
   logState.entries.push({
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     level: ['warn', 'error', 'debug', 'trace'].includes(level) ? level : 'info',
-    message,
+    target: normalizeLogTarget(target),
+    message: normalizeLogMessage(message),
     timestamp: new Date()
   });
   if (logState.entries.length > LOG_ENTRY_LIMIT) {
     logState.entries.splice(0, logState.entries.length - LOG_ENTRY_LIMIT);
   }
+  renderLogPanel();
+}
+
+export function setLogFilterText(value) {
+  logState.filterText = normalizeFilterText(value);
   renderLogPanel();
 }
 
@@ -78,6 +123,14 @@ export function renderLogLevelControl() {
   }
 }
 
+function renderLogFilterControl() {
+  const logFilterInputEl = getLogFilterInputEl();
+  if (!logFilterInputEl) return;
+  if (logFilterInputEl.value !== logState.filterText) {
+    logFilterInputEl.value = logState.filterText;
+  }
+}
+
 export function renderLogPanel() {
   const logOverlayEl = getLogOverlayEl();
   const logSummaryEl = getLogSummaryEl();
@@ -85,17 +138,28 @@ export function renderLogPanel() {
   const logEmptyStateEl = getLogEmptyStateEl();
   const logToggleBtnEl = getLogToggleBtnEl();
   if (!logOverlayEl || !logSummaryEl || !logEntriesEl || !logEmptyStateEl || !logToggleBtnEl) return;
-  const latest = logState.entries[logState.entries.length - 1];
+
+  const filterActive = logState.filterText.trim().length > 0;
+  const visibleEntries = getFilteredEntries();
+  const latestVisible = visibleEntries[visibleEntries.length - 1];
+  const latestOverall = logState.entries[logState.entries.length - 1];
+  const summaryEntry = filterActive ? latestVisible : latestOverall;
+
   logOverlayEl.classList.toggle('expanded', logState.expanded);
   logOverlayEl.classList.toggle('collapsed', !logState.expanded);
-  logSummaryEl.textContent = latest ? latest.message : t('log.empty');
+  logSummaryEl.textContent = summaryEntry ? buildRenderedMessage(summaryEntry) : t('log.empty');
   logToggleBtnEl.textContent = logState.expanded ? '▴' : '▾';
   logToggleBtnEl.title = t(logState.expanded ? 'log.collapse' : 'log.expand');
-  logEmptyStateEl.style.display = logState.entries.length > 0 ? 'none' : 'block';
+  logEmptyStateEl.style.display = visibleEntries.length > 0 ? 'none' : 'block';
+  logEmptyStateEl.textContent = logState.entries.length === 0
+    ? t('log.empty')
+    : (filterActive ? t('log.noMatch') : t('log.empty'));
   logEntriesEl.innerHTML = '';
-  if (logState.entries.length === 0) return;
+  renderLogFilterControl();
+  if (visibleEntries.length === 0) return;
+
   const fragment = document.createDocumentFragment();
-  logState.entries.slice().reverse().forEach((entry) => {
+  visibleEntries.slice().reverse().forEach((entry) => {
     const row = document.createElement('div');
     row.className = 'log-entry';
 
@@ -109,7 +173,7 @@ export function renderLogPanel() {
 
     const msgEl = document.createElement('div');
     msgEl.className = 'log-entry-message';
-    msgEl.textContent = entry.message;
+    msgEl.textContent = buildRenderedMessage(entry);
 
     row.appendChild(timeEl);
     row.appendChild(levelEl);
@@ -125,11 +189,12 @@ export function setLogExpanded(next) {
 }
 
 export async function copyLogsToClipboard() {
-  if (!logState.entries.length) {
+  const visibleEntries = getFilteredEntries();
+  if (!visibleEntries.length) {
     pushLog('warn', t('log.copyEmpty'));
     return;
   }
-  const text = serializeLogsForClipboard();
+  const text = serializeLogsForClipboard(visibleEntries);
   try {
     if (navigator?.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);
@@ -144,7 +209,7 @@ export async function copyLogsToClipboard() {
       document.execCommand('copy');
       document.body.removeChild(textarea);
     }
-    pushLog('info', tf('log.copySuccess', { count: logState.entries.length }));
+    pushLog('info', tf('log.copySuccess', { count: visibleEntries.length }));
   } catch (error) {
     pushLog('error', tf('log.copyFailed', { error: normalizeLogError(error) }));
   }

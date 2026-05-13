@@ -1,6 +1,7 @@
 use abi_stable::library::RootModule;
+use abi_stable::std_types::RStr;
 use anyhow::{Context, Result, bail};
-use bridge_api::{BridgeLibRef, FormatBridgeBox};
+use bridge_api::{BridgeHostLogSink, BridgeLibRef, FormatBridgeBox, RLogLevel};
 use std::path::{Path, PathBuf};
 
 /// Loaded bridge library + live bridge instance.
@@ -22,12 +23,29 @@ impl LoadedBridge {
     pub fn load_with_params(path: &Path, strict: bool) -> Result<Self> {
         let lib = BridgeLibRef::load_from_file(path)
             .with_context(|| format!("Failed to load bridge plugin from {}", path.display()))?;
-        let new_bridge = lib
-            .new_bridge()
-            .context("Bridge plugin is missing the `new_bridge` export")?;
+        install_bridge_host_log_sink(&lib);
+        let new_bridge = lib.new_bridge();
         let bridge = new_bridge(strict);
         Ok(Self { lib, bridge })
     }
+}
+
+pub(crate) fn install_bridge_host_log_sink(lib: &BridgeLibRef) {
+    let Some(set_host_log_sink) = lib.set_host_log_sink() else {
+        return;
+    };
+    set_host_log_sink(forward_bridge_log_to_host as BridgeHostLogSink as usize);
+}
+
+extern "C" fn forward_bridge_log_to_host(level: RLogLevel, target: RStr<'_>, message: RStr<'_>) {
+    let level = match level {
+        RLogLevel::Error => log::Level::Error,
+        RLogLevel::Warn => log::Level::Warn,
+        RLogLevel::Info => log::Level::Info,
+        RLogLevel::Debug => log::Level::Debug,
+        RLogLevel::Trace => log::Level::Trace,
+    };
+    sys::live_log::emit_external_record(level, target.as_str(), message.as_str());
 }
 
 /// Resolve the path to the bridge plugin.

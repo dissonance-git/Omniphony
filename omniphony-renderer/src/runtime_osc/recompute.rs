@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
 use renderer::live_params::RendererControl;
+use runtime_control::band_topology_cache::BandTopologyCache;
+use runtime_control::context::RuntimeControlContext;
+use runtime_control::heatmap_sub::HeatmapSubscriptionState;
+use runtime_control::osc::{BroadcastValue, republish_heatmap_if_changed};
 use runtime_control::snapshot::{build_renderer_state_json, build_speakers_state_json};
 
 use super::client_registry::OscClientRegistry;
@@ -10,6 +14,8 @@ pub(crate) fn trigger_layout_recompute(
     control: &Arc<RendererControl>,
     socket: &Arc<std::net::UdpSocket>,
     clients: &Arc<OscClientRegistry>,
+    heatmap_sub: Arc<HeatmapSubscriptionState>,
+    band_topology_cache: Arc<BandTopologyCache>,
 ) {
     if control.prepare_topology_rebuild().is_none() {
         log::warn!(
@@ -46,6 +52,8 @@ pub(crate) fn trigger_layout_recompute(
     let socket_clone = Arc::clone(socket);
     let clients_clone = Arc::clone(clients);
     let rebuild_plan_for_thread = rebuild_plan.clone();
+    let heatmap_sub_clone = heatmap_sub;
+    let band_topology_cache_clone = band_topology_cache;
 
     std::thread::Builder::new()
         .name("render-backend-recompute".into())
@@ -60,6 +68,9 @@ pub(crate) fn trigger_layout_recompute(
                     control_clone
                         .recomputing
                         .store(false, std::sync::atomic::Ordering::Relaxed);
+                    // Layout/topology has changed → cached per-band topologies
+                    // are stale. Drop them so the next heatmap subscribe rebuilds.
+                    band_topology_cache_clone.clear();
                     log::info!(
                         "Render backend {} updated with new speaker layout",
                         rebuild_plan_for_thread.backend_id()
@@ -102,6 +113,21 @@ pub(crate) fn trigger_layout_recompute(
                         "/omniphony/state/speakers/recomputing",
                         0,
                     );
+                    // Push the new heatmap to the active subscription (if any)
+                    // — but only if it actually differs from the cached one.
+                    let ctx = RuntimeControlContext::with_shared_state(
+                        Arc::clone(&control_clone),
+                        None,
+                        None,
+                        heatmap_sub_clone,
+                        band_topology_cache_clone,
+                    );
+                    let pushes = republish_heatmap_if_changed(&ctx);
+                    for update in pushes {
+                        if let BroadcastValue::String(value) = &update.value {
+                            broadcast_string(&socket_clone, &clients_clone, &update.addr, value);
+                        }
+                    }
                     log::info!("Render backend recompute completed");
                 }
                 Err(e) => {

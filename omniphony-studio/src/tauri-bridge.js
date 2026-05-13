@@ -22,7 +22,7 @@ import {
   usesNumericSpatialPlaceholders
 } from './state.js';
 
-import { updateSource, updateSourceLevel, updateSourceGains, updateSourceBandGains, updateSourceTag, removeSource } from './sources.js';
+import { updateSource, updateSourceLevel, updateSourceGains, updateSourceBandGains, updateSourceSize, updateSourceTag, removeSource } from './sources.js';
 import {
   updateSpeakerLevel,
   renderLayout,
@@ -58,6 +58,7 @@ import {
 } from './controls/vbap.js';
 import { updateAudioFormatDisplay } from './controls/audio.js';
 import { updateInputControlUI } from './controls/input.js';
+import { updateDrcMeterUI } from './controls/drc.js';
 import { updateAdaptiveResamplingUI } from './controls/adaptive.js';
 import { updateDistanceDiffuseUI } from './controls/distance-diffuse.js';
 import { renderOscStatus, setOscStatus } from './controls/osc.js';
@@ -75,14 +76,17 @@ import {
   handleSpeakerHeatmapSlice,
   handleSpeakerHeatmapVolumeChunk,
   handleSpeakerHeatmapUnavailable,
-  requestSpeakerHeatmapIfNeeded,
+  syncSpeakerHeatmapBandSelect,
 } from './scene/speaker-heatmap.js';
 
 export function setupTauriBridge() {
   listen('state:snapshot_ready', ({ payload }) => {
     if (payload && typeof payload === 'object') {
       applyInitState(payload);
-      requestSpeakerHeatmapIfNeeded();
+      // Heatmap is push-based now: the renderer pushes new tiles automatically
+      // to the active subscription. No need to re-request on every state echo
+      // — that was the engine of the heatmap storm. Re-subscribe only on
+      // explicit user action (speaker selection, heatmap toggle, etc.).
     }
   });
 
@@ -92,7 +96,6 @@ export function setupTauriBridge() {
 
   listen('layouts:update', ({ payload }) => {
     hydrateLayoutSelect(payload.layouts || [], payload.selectedLayoutKey);
-    requestSpeakerHeatmapIfNeeded();
   });
 
   listen('layout:selected', ({ payload }) => {
@@ -100,7 +103,6 @@ export function setupTauriBridge() {
       const layoutSelectEl = document.getElementById('layoutSelect');
       if (layoutSelectEl) layoutSelectEl.value = payload.key;
       renderLayout(payload.key);
-      requestSpeakerHeatmapIfNeeded();
     }
   });
 
@@ -110,6 +112,10 @@ export function setupTauriBridge() {
 
   listen('source:update', ({ payload }) => {
     updateSource(payload.id, payload.position);
+  });
+
+  listen('source:size', ({ payload }) => {
+    updateSourceSize(payload.id, payload.size);
   });
 
   listen('source:remove', ({ payload }) => {
@@ -126,6 +132,10 @@ export function setupTauriBridge() {
 
   listen('source:band_gains', ({ payload }) => {
     updateSourceBandGains(payload.id, payload.band, payload.gains);
+  });
+
+  listen('meter:drc_gain', ({ payload }) => {
+    updateDrcMeterUI(Number(payload.value));
   });
 
   listen('spatial:frame', ({ payload }) => {
@@ -222,6 +232,7 @@ export function setupTauriBridge() {
     if (!speaker) return;
     const fl = payload.freq_low;
     speaker.freqLow = fl != null && fl > 0 ? fl : null;
+    syncSpeakerHeatmapBandSelect();
     if (app.selectedSpeakerIndex === index) renderSpeakerEditor();
   });
 
@@ -232,6 +243,7 @@ export function setupTauriBridge() {
     if (!speaker) return;
     const fh = payload.freq_high;
     speaker.freqHigh = fh != null && fh > 0 ? fh : null;
+    syncSpeakerHeatmapBandSelect();
     if (app.selectedSpeakerIndex === index) renderSpeakerEditor();
   });
 
@@ -302,32 +314,32 @@ export function setupTauriBridge() {
     renderVbapStatus();
   });
 
+  // Heatmap re-requests removed: the renderer pushes new tiles to the
+  // active subscription whenever the underlying state changes (and the
+  // payload actually differs from the last cached one). The studio just
+  // listens for incoming pushes — see `speaker_heatmap:*` handlers below.
   listen('render_evaluation:cartesian:x_size', ({ payload }) => {
     const value = Number(payload.value);
     app.vbapCartesianState.xSize = value > 0 ? value : null;
     updateVbapCartesian();
-    requestSpeakerHeatmapIfNeeded();
   });
 
   listen('render_evaluation:cartesian:y_size', ({ payload }) => {
     const value = Number(payload.value);
     app.vbapCartesianState.ySize = value > 0 ? value : null;
     updateVbapCartesian();
-    requestSpeakerHeatmapIfNeeded();
   });
 
   listen('render_evaluation:cartesian:z_size', ({ payload }) => {
     const value = Number(payload.value);
     app.vbapCartesianState.zSize = value > 0 ? value : null;
     updateVbapCartesian();
-    requestSpeakerHeatmapIfNeeded();
   });
 
   listen('render_evaluation:cartesian:z_neg_size', ({ payload }) => {
     const value = Number(payload.value);
     app.vbapCartesianState.zNegSize = value >= 0 ? value : 0;
     updateVbapCartesian();
-    requestSpeakerHeatmapIfNeeded();
   });
 
   listen('speaker_heatmap:meta', ({ payload }) => {
@@ -512,6 +524,29 @@ export function setupTauriBridge() {
     updateLatencyDisplay();
   });
 
+  listen('latency:target', ({ payload }) => {
+    const value = Number(payload.value);
+    app.latencyTargetMs = Number.isFinite(value) ? value : null;
+    if (app.latencyMs === null && Number.isFinite(value)) {
+      app.latencyMs = value;
+    }
+    updateLatencyDisplay();
+    updateLatencyMeterUI();
+  });
+
+  listen('latency:requested', ({ payload }) => {
+    const value = Number(payload.value);
+    app.latencyRequestedMs = Number.isFinite(value) ? value : null;
+    if (app.latencyTargetMs === null && Number.isFinite(value)) {
+      app.latencyTargetMs = value;
+    }
+    if (app.latencyMs === null && Number.isFinite(value)) {
+      app.latencyMs = value;
+    }
+    updateLatencyDisplay();
+    updateLatencyMeterUI();
+  });
+
   // -----------------------------------------------------------------------
   // Resample ratio
   // -----------------------------------------------------------------------
@@ -549,6 +584,6 @@ export function setupTauriBridge() {
     const target = String(payload?.target || '').trim();
     const message = String(payload?.message || '').trim();
     if (!message) return;
-    pushLog(level, target ? `[${target}] ${message}` : message);
+    pushLog(level, message, target);
   });
 }

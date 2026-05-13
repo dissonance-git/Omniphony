@@ -3,9 +3,24 @@ use pipewire as pw;
 use pw::spa;
 use pw::spa::pod::{object, property};
 
-const TRUEHD_ONLY_IEC958_CODECS_PROP: &str = "[ \"TRUEHD\" ]";
-const IEC958_AUDIO_POSITION_PROP: &str = "[ FL FR C LFE SL SR RL RR ]";
+const IEC958_CODECS_PROP: &str = "[ \"TRUEHD\", \"EAC3\" ]";
+const IEC958_AUDIO_POSITION_PROP_8CH: &str = "[ FL FR C LFE SL SR RL RR ]";
+const IEC958_AUDIO_POSITION_PROP_2CH: &str = "[ FL FR ]";
 const SPA_PARAM_BUFFERS_META_TYPE_RAW: u32 = 7;
+
+fn iec958_audio_position(channels: u16) -> &'static str {
+    match channels {
+        2 => IEC958_AUDIO_POSITION_PROP_2CH,
+        _ => IEC958_AUDIO_POSITION_PROP_8CH,
+    }
+}
+
+fn iec958_codec_for_channels(channels: u16) -> u32 {
+    match channels {
+        2 => spa::sys::SPA_AUDIO_IEC958_CODEC_EAC3,
+        _ => spa::sys::SPA_AUDIO_IEC958_CODEC_TRUEHD,
+    }
+}
 
 #[derive(Copy, Clone)]
 struct RawSpaPodKey(u32);
@@ -34,8 +49,8 @@ pub fn build_pipewire_bridge_stream_properties(
     props.insert("node.description", node_description.to_owned());
     props.insert("media.name", node_description.to_owned());
     props.insert("audio.channels", channels.to_string());
-    props.insert("audio.position", IEC958_AUDIO_POSITION_PROP);
-    props.insert("iec958.codecs", TRUEHD_ONLY_IEC958_CODECS_PROP);
+    props.insert("audio.position", iec958_audio_position(channels));
+    props.insert("iec958.codecs", IEC958_CODECS_PROP);
     props.insert("resample.disable", "true");
     props.insert("node.latency", requested_latency);
     props.insert("node.rate", requested_rate);
@@ -62,8 +77,8 @@ pub fn build_pipewire_bridge_adapter_properties(
     props.insert("node.description", node_description.to_owned());
     props.insert("media.name", node_description.to_owned());
     props.insert("audio.channels", channels.to_string());
-    props.insert("audio.position", IEC958_AUDIO_POSITION_PROP);
-    props.insert("iec958.codecs", TRUEHD_ONLY_IEC958_CODECS_PROP);
+    props.insert("audio.position", iec958_audio_position(channels));
+    props.insert("iec958.codecs", IEC958_CODECS_PROP);
     props.insert("resample.disable", "true");
     props.insert("node.latency", requested_latency);
     props
@@ -90,8 +105,8 @@ pub fn build_pipewire_bridge_capture_stream_properties(
     );
     props.insert("media.name", format!("{node_description} Monitor Capture"));
     props.insert("audio.channels", channels.to_string());
-    props.insert("audio.position", IEC958_AUDIO_POSITION_PROP);
-    props.insert("iec958.codecs", TRUEHD_ONLY_IEC958_CODECS_PROP);
+    props.insert("audio.position", iec958_audio_position(channels));
+    props.insert("iec958.codecs", IEC958_CODECS_PROP);
     props.insert("resample.disable", "true");
     props
 }
@@ -113,9 +128,6 @@ pub fn build_pipewire_bridge_buffers_pod(channels: u16, sample_rate_hz: u32) -> 
             pw::spa::pod::Value::Int(spa::sys::SPA_DATA_MemPtr as i32)
         ),
         property!(
-            // The Rust bindings compiled against 0.3 headers no longer expose this constant when
-            // building on PipeWire 1.x, but the SPA protocol still supports the field and the
-            // bridge relies on SPA_META_Header negotiation to receive usable IEC61937 buffers.
             RawSpaPodKey(SPA_PARAM_BUFFERS_META_TYPE_RAW),
             pw::spa::pod::Value::Int(1i32 << (spa::sys::SPA_META_Header as i32))
         ),
@@ -125,6 +137,48 @@ pub fn build_pipewire_bridge_buffers_pod(channels: u16, sample_rate_hz: u32) -> 
         &spa::pod::Value::Object(obj),
     )
     .map_err(|e| anyhow!("Failed to serialize PipeWire bridge buffer pod: {e:?}"))?
+    .0
+    .into_inner();
+    Ok(values)
+}
+
+pub fn build_pipewire_bridge_format_pod(
+    sample_rate_hz: u32,
+    channels: u16,
+    param_type: spa::param::ParamType,
+) -> Result<Vec<u8>> {
+    build_format_pod(
+        sample_rate_hz,
+        channels,
+        iec958_codec_for_channels(channels),
+        param_type,
+    )
+}
+
+fn build_format_pod(
+    sample_rate_hz: u32,
+    channels: u16,
+    codec: u32,
+    param_type: spa::param::ParamType,
+) -> Result<Vec<u8>> {
+    let obj = object! {
+        spa::utils::SpaTypes::ObjectParamFormat,
+        param_type,
+        property!(spa::param::format::FormatProperties::MediaType, Id, spa::param::format::MediaType::Audio),
+        property!(spa::param::format::FormatProperties::MediaSubtype, Id, spa::param::format::MediaSubtype::Iec958),
+        property!(spa::param::format::FormatProperties::AudioFormat, Id, spa::param::audio::AudioFormat::Encoded),
+        property!(spa::param::format::FormatProperties::AudioRate, Int, sample_rate_hz as i32),
+        property!(spa::param::format::FormatProperties::AudioChannels, Int, channels as i32),
+        property!(
+            spa::param::format::FormatProperties::AudioIec958Codec,
+            pw::spa::pod::Value::Id(pw::spa::utils::Id(codec))
+        ),
+    };
+    let values: Vec<u8> = spa::pod::serialize::PodSerializer::serialize(
+        std::io::Cursor::new(Vec::new()),
+        &spa::pod::Value::Object(obj),
+    )
+    .map_err(|e| anyhow!("Failed to serialize PipeWire bridge input format pod: {e:?}"))?
     .0
     .into_inner();
     Ok(values)
@@ -298,36 +352,6 @@ pub fn build_pipewire_bridge_port_config_pod() -> Result<Vec<u8>> {
         &spa::pod::Value::Object(obj),
     )
     .map_err(|e| anyhow!("Failed to serialize PipeWire bridge port config pod: {e:?}"))?
-    .0
-    .into_inner();
-    Ok(values)
-}
-
-pub fn build_pipewire_bridge_format_pod(
-    sample_rate_hz: u32,
-    channels: u16,
-    param_type: spa::param::ParamType,
-) -> Result<Vec<u8>> {
-    let obj = object! {
-        spa::utils::SpaTypes::ObjectParamFormat,
-        param_type,
-        property!(spa::param::format::FormatProperties::MediaType, Id, spa::param::format::MediaType::Audio),
-        property!(spa::param::format::FormatProperties::MediaSubtype, Id, spa::param::format::MediaSubtype::Iec958),
-        property!(spa::param::format::FormatProperties::AudioFormat, Id, spa::param::audio::AudioFormat::Encoded),
-        property!(spa::param::format::FormatProperties::AudioRate, Int, sample_rate_hz as i32),
-        property!(spa::param::format::FormatProperties::AudioChannels, Int, channels as i32),
-        property!(
-            spa::param::format::FormatProperties::AudioIec958Codec,
-            pw::spa::pod::Value::Id(pw::spa::utils::Id(
-                spa::sys::SPA_AUDIO_IEC958_CODEC_TRUEHD
-            ))
-        ),
-    };
-    let values: Vec<u8> = spa::pod::serialize::PodSerializer::serialize(
-        std::io::Cursor::new(Vec::new()),
-        &spa::pod::Value::Object(obj),
-    )
-    .map_err(|e| anyhow!("Failed to serialize PipeWire bridge input format pod: {e:?}"))?
     .0
     .into_inner();
     Ok(values)

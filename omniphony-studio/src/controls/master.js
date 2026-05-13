@@ -7,22 +7,22 @@
 import {
   app,
   dirty,
-  speakerMeshes,
   speakerLevels,
-  supportsRealtimeKey
+  supportsRealtimeKey,
+  masterPeak
 } from '../state.js';
 import { t, tf } from '../i18n.js';
 import { formatNumber } from '../coordinates.js';
 import { linearToDb, dbToLinear } from '../mute-solo.js';
 import { scheduleUIFlush } from '../flush.js';
-import { inAudioPanel, inRendererPanel } from '../ui/panel-roots.js';
+import { inAudioPanel, inRendererPanel, inDrcPanel } from '../ui/panel-roots.js';
 
 function getMasterGainSliderEl() { return inAudioPanel('masterGainSlider'); }
 function getMasterGainBoxEl() { return inAudioPanel('masterGainBox'); }
 function getMasterMeterTextEl() { return inAudioPanel('masterMeterText'); }
 function getMasterMeterFillEl() { return inAudioPanel('masterMeterFill'); }
-function getLoudnessInfoEl() { return inAudioPanel('loudnessInfo'); }
-function getLoudnessToggleEl() { return inAudioPanel('loudnessToggle'); }
+function getLoudnessInfoEl() { return inDrcPanel('loudnessInfo'); }
+function getLoudnessToggleEl() { return inDrcPanel('loudnessToggle'); }
 function getDistanceModelSelectEl() { return inRendererPanel('distanceModelSelect'); }
 
 export function renderMasterGainUI() {
@@ -46,10 +46,9 @@ export function updateMasterGainUI() {
 }
 
 export function getAverageSpeakerRmsDb() {
-  const levels = speakerMeshes.length
-    ? speakerMeshes.map((_, index) => speakerLevels.get(String(index)))
-    : [];
-  const valid = levels.filter((meter) => meter && typeof meter.rmsDbfs === 'number');
+  const valid = Array.from(speakerLevels.values()).filter(
+    (meter) => meter && typeof meter.rmsDbfs === 'number'
+  );
   if (valid.length === 0) {
     return null;
   }
@@ -62,27 +61,50 @@ export function getAverageSpeakerRmsDb() {
 export function updateMasterMeterUI() {
   const masterMeterTextEl = getMasterMeterTextEl();
   const masterMeterFillEl = getMasterMeterFillEl();
+  const masterMeterPeakEl = inAudioPanel('masterMeterPeak');
+
   if (!masterMeterTextEl || !masterMeterFillEl) return;
   const avgDb = getAverageSpeakerRmsDb();
   if (avgDb === null) {
     masterMeterTextEl.textContent = t('status.masterMeter');
     masterMeterFillEl.style.setProperty('--level', '0%');
+    if (masterMeterPeakEl) masterMeterPeakEl.style.opacity = '0';
     return;
   }
-  masterMeterTextEl.textContent = `${formatNumber(avgDb, 1)} dB`;
-  const percent = ((avgDb + 100) / 100) * 100;
-  masterMeterFillEl.style.setProperty('--level', `${percent.toFixed(1)}%`);
+  const levelPercent = ((avgDb + 100) / 100) * 100;
+  masterMeterFillEl.style.setProperty('--level', `${levelPercent.toFixed(1)}%`);
+
+  const now = Date.now();
+  if (avgDb >= (masterPeak.db ?? -100) || now > masterPeak.expires) {
+    if (avgDb >= (masterPeak.db ?? -100)) {
+      masterPeak.db = avgDb;
+      masterPeak.value = levelPercent;
+      masterPeak.expires = now + 1000;
+    } else {
+      masterPeak.db = Math.max(avgDb, masterPeak.db - 2.0);
+      masterPeak.value = ((Math.max(-100, masterPeak.db) + 100) / 100) * 100;
+      if (masterPeak.value <= levelPercent + 0.1) masterPeak.expires = now + 1000;
+    }
+  }
+
+  masterMeterTextEl.textContent = `${formatNumber(masterPeak.db ?? avgDb, 1)} dB`;
+
+  if (masterMeterPeakEl) {
+    masterMeterPeakEl.style.setProperty('--level', `${masterPeak.value.toFixed(1)}%`);
+    masterMeterPeakEl.style.opacity = masterPeak.value > 0.1 ? '1' : '0';
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Loudness display
 // ---------------------------------------------------------------------------
 
+import { updateDrcSummary } from './drc.js';
+
 export function renderLoudnessDisplay() {
   const loudnessInfoEl = getLoudnessInfoEl();
   const loudnessToggleEl = getLoudnessToggleEl();
   if (!loudnessInfoEl) return;
-  const enabledText = app.loudnessEnabled === null ? '—' : app.loudnessEnabled ? t('loudness.on') : t('loudness.off');
   const sourceText = app.loudnessSource === null ? '—' : `${formatNumber(app.loudnessSource, 0)} dBFS`;
   const correctionDbValue =
     app.loudnessGain === null || Number(app.loudnessGain) <= 0
@@ -97,15 +119,15 @@ export function renderLoudnessDisplay() {
     app.loudnessGain === null
       ? '—'
       : `${formatNumber(app.loudnessGain, 2)} (${linearToDb(app.loudnessGain)})`;
-  loudnessInfoEl.textContent = tf('loudness.template', {
-    source: sourceText,
-    target: targetText,
-    gain: gainText,
-    enabled: enabledText
-  });
+  loudnessInfoEl.innerHTML = [
+    `source loudness: ${sourceText}`,
+    `target loudness: ${targetText}`,
+    `correction: ${gainText}`
+  ].join('<br>');
   if (loudnessToggleEl) {
     loudnessToggleEl.checked = app.loudnessEnabled === true;
   }
+  updateDrcSummary();
 }
 
 export function updateLoudnessDisplay() {

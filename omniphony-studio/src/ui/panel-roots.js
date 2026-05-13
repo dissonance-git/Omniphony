@@ -32,6 +32,10 @@ export function getDisplayPanelRoot() {
   return panelRoot('displayPanelRoot');
 }
 
+export function getDrcPanelRoot() {
+  return panelRoot('drcPanelRoot');
+}
+
 export function getOscPanelRoot() {
   return panelRoot('oscPanelRoot');
 }
@@ -66,6 +70,10 @@ export function inRoomGeometryPanel(id) {
 
 export function inDisplayPanel(id) {
   return byId(getDisplayPanelRoot(), id);
+}
+
+export function inDrcPanel(id) {
+  return byId(getDrcPanelRoot(), id);
 }
 
 export function inOscPanel(id) {

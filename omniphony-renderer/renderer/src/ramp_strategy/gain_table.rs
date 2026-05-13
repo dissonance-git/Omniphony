@@ -19,18 +19,18 @@ impl RampStrategy for GainTableRampStrategy {
     ) {
         state.ensure_speaker_count(ctx.speaker_count());
         if !state.gains_initialized {
-            compute_cached_or_direct(state, state.current_position, ctx);
+            compute_cached_or_direct(state, state.current_position, state.current_size, ctx);
         }
         state.ramp_length = target.ramp_length;
         state.start_gains = state.output_gains.clone();
         state.start_position = target.position;
-        state.start_spread = target.spread;
+        state.start_size = target.size;
         state.current_position = target.position;
-        state.current_spread = target.spread;
+        state.current_size = target.size;
         state.target_position = target.position;
-        state.target_spread = target.spread;
+        state.target_size = target.size;
         state.output_position = target.position;
-        state.target_gains = ctx.compute_gains(target.position);
+        state.target_gains = ctx.compute_gains(target.position, target.size);
         state.remaining_ramp_units = Some(target.ramp_length);
         state.target_sample_index = sample_index;
         state.invalidate_cache();
@@ -45,7 +45,7 @@ impl RampStrategy for GainTableRampStrategy {
         state.ensure_speaker_count(ctx.speaker_count());
         state.output_position = state.target_position;
         if !state.gains_initialized {
-            state.start_gains = ctx.compute_gains(state.target_position);
+            state.start_gains = ctx.compute_gains(state.target_position, state.target_size);
             state.target_gains = state.start_gains.clone();
             state.gains_initialized = true;
         }

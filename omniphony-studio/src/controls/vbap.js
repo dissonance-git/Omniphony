@@ -232,6 +232,7 @@ export function renderEvaluationMode() {
     ? (effectiveMode || nextValue)
     : nextValue;
   applyEvaluationModeVisibility(visibleMode);
+  renderVbapPositionInterpolation();
 }
 
 export function updateEvaluationMode() {
@@ -384,6 +385,7 @@ export function renderVbapCartesian() {
   if (vbapCartZNegStepInfoEl) vbapCartZNegStepInfoEl.textContent = zNegStepMm === null ? '—' : `${formatNumber(zNegStepMm, 1)}mm`;
   updateVbapCartesianFaceGrid();
   renderVbapCartesianGridToggle();
+  renderVbapPositionInterpolation();
 }
 
 export function updateVbapCartesian() {
@@ -441,6 +443,7 @@ export function renderVbapPolar() {
   if (vbapPolarAzStepInfoEl) vbapPolarAzStepInfoEl.textContent = azStep === null ? '—' : `${formatNumber(azStep, 2)}°`;
   if (vbapPolarElStepInfoEl) vbapPolarElStepInfoEl.textContent = elStep === null ? '—' : `${formatNumber(elStep, 2)}°`;
   if (vbapPolarDistStepInfoEl) vbapPolarDistStepInfoEl.textContent = dStep === null ? '—' : `${formatNumber(dStep, 3)}`;
+  renderVbapPositionInterpolation();
 }
 
 export function updateVbapPolar() {

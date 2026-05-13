@@ -13,7 +13,7 @@ use audio_output::AudioControl;
 use bridge_api::RDecodedFrame;
 
 use anyhow::Result;
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 use std::time::Instant;
 
 pub(crate) struct BedChannelMapper;
@@ -135,6 +135,9 @@ pub struct DecodeHandler {
     pub spatial_renderer: Option<renderer::spatial_renderer::SpatialRenderer>,
     pub audio_control: Option<Arc<AudioControl>>,
     pub input_control: Option<Arc<InputControl>>,
+    pub drc_mode_cmd_tx: Option<mpsc::Sender<super::decoder_thread::DecoderCommand>>,
+    pub live_drc_mode: Option<Arc<std::sync::RwLock<String>>>,
+    pub last_seen_drc_mode: Option<String>,
 }
 
 impl Default for DecodeHandler {
@@ -148,6 +151,9 @@ impl Default for DecodeHandler {
             spatial_renderer: None,
             audio_control: None,
             input_control: None,
+            drc_mode_cmd_tx: None,
+            live_drc_mode: None,
+            last_seen_drc_mode: None,
         }
     }
 }
@@ -230,6 +236,23 @@ impl DecodeHandler {
     }
 
     pub fn poll_runtime_state(&mut self) -> Result<()> {
+        if let Some(renderer) = self.spatial_renderer.as_ref() {
+            let control = renderer.renderer_control();
+            let drc_mode = control.live.read().unwrap().drc_mode.clone();
+
+            if Some(&drc_mode) != self.last_seen_drc_mode.as_ref() {
+                if let Some(ref tx) = self.drc_mode_cmd_tx {
+                    let _ = tx.send(super::decoder_thread::DecoderCommand::SetDrcMode(
+                        drc_mode.clone(),
+                    ));
+                }
+                if let Some(ref shared) = self.live_drc_mode {
+                    *shared.write().unwrap() = drc_mode.clone();
+                }
+                self.last_seen_drc_mode = Some(drc_mode);
+            }
+        }
+
         let Some(input_control) = self.input_control.as_ref() else {
             return Ok(());
         };

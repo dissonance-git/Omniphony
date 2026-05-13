@@ -13,7 +13,10 @@ export function inputPanelMarkup() {
         })}
         <div id="inputSectionContent" class="conditional-params">
         <div class="input-panel-shell">
-          <div id="inputStatusInfo" class="input-panel-status">requested Pipe bridge • active Pipe bridge • —</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
+            <div id="inputStatusInfo" class="input-panel-status">requested Pipe bridge • active Pipe bridge • —</div>
+            <button id="inputInfoBtn" type="button" class="info-icon-btn" data-i18n-title="input.infoButton" title="Audio input info">i</button>
+          </div>
           <div class="input-panel-grid">
             <div class="input-panel-row">
               <label for="inputModeSelect" data-i18n="input.mode">Mode</label>
@@ -57,7 +60,10 @@ export function inputPanelMarkup() {
               <input id="inputDescriptionInput" class="delay-input" type="text" placeholder="Omniphony Input 7.1" />
             </div>
             <div class="input-panel-row">
-              <label for="inputClockModeSelect" data-i18n="input.clock">Clock</label>
+              <div class="title-with-info">
+                <label for="inputClockModeSelect" data-i18n="input.clock">Clock</label>
+                <button id="inputClockInfoBtn" type="button" class="info-icon-btn" data-i18n-title="input.clockInfoButton" title="Input clock info">i</button>
+              </div>
               <select id="inputClockModeSelect" class="delay-input">
                 <option value="dac" data-i18n="input.clock.dac">DAC</option>
                 <option value="pipewire" data-i18n="input.clock.pipewire">PipeWire</option>
@@ -96,7 +102,10 @@ export function inputPanelMarkup() {
                 </select>
               </div>
               <div class="input-panel-field">
-                <label for="inputLfeModeSelect" class="input-panel-inline-label" data-i18n="input.lfe">LFE</label>
+                <div class="title-with-info">
+                  <label for="inputLfeModeSelect" class="input-panel-inline-label" data-i18n="input.lfe">LFE</label>
+                  <button id="inputLfeInfoBtn" type="button" class="info-icon-btn" data-i18n-title="input.lfeInfoButton" title="Input LFE info">i</button>
+                </div>
                 <select id="inputLfeModeSelect" class="delay-input">
                   <option value="object" data-i18n="input.lfe.object">Object</option>
                   <option value="direct" data-i18n="input.lfe.direct">Direct</option>

@@ -12,10 +12,6 @@ export function audioPanelMarkup() {
           toggleId: 'audioOutputSectionToggleBtn'
         })}
         <div id="audioOutputSectionContent" class="conditional-params">
-          <div class="inline-toggle">
-            <div id="loudnessInfo">source loudness: — | target loudness: — | correction: —</div>
-            <input id="loudnessToggle" type="checkbox" />
-          </div>
           <div id="audioFormatInfo">audio: — / —</div>
           <div class="control-row" style="margin-top:0.3rem;grid-template-columns:auto minmax(0, 1fr)">
             <label for="audioOutputDeviceSelect" style="font-size:12px;white-space:nowrap" data-i18n="audio.outputDevice">Output device</label>
@@ -177,6 +173,7 @@ export function audioPanelMarkup() {
           <div id="masterMeterText" class="fixed-metric">— dB</div>
           <div class="meter-bar">
             <div id="masterMeterFill" class="meter-fill"></div>
+            <div id="masterMeterPeak" class="meter-peak"></div>
           </div>
         </div>
         <div class="control-row">

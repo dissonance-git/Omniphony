@@ -559,6 +559,24 @@ fn control_spread_from_distance(state: State<SharedState>, enable: i32) {
 }
 
 #[tauri::command]
+fn control_size_to_spread_mode(state: State<SharedState>, value: String) {
+    let normalized = value.trim().to_ascii_lowercase();
+    if !matches!(
+        normalized.as_str(),
+        "max" | "mean" | "projection_perpendicular"
+    ) {
+        return;
+    }
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/spread/size_to_spread_mode".to_string(),
+            value: normalized,
+        },
+    );
+}
+
+#[tauri::command]
 fn control_spread_distance_range(state: State<SharedState>, value: f32) {
     let v = value.max(0.01);
     send_control(
@@ -853,6 +871,45 @@ fn request_speaker_heatmap(
         OscControlMsg::SendString {
             address: "/omniphony/control/debug/speaker_heatmap/request".to_string(),
             value,
+        },
+    );
+}
+
+#[tauri::command]
+fn subscribe_speaker_heatmap(
+    state: State<SharedState>,
+    subscription_id: i32,
+    speaker_index: i32,
+    band_index: i32,
+    modes: Vec<String>,
+    max_samples: Option<i32>,
+) {
+    if speaker_index < 0 || subscription_id < 0 || band_index < 0 {
+        return;
+    }
+    let value = serde_json::json!({
+        "subscription_id": subscription_id,
+        "speaker_index": speaker_index,
+        "band_index": band_index,
+        "modes": modes,
+        "max_samples": max_samples,
+    })
+    .to_string();
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/debug/speaker_heatmap/subscribe".to_string(),
+            value,
+        },
+    );
+}
+
+#[tauri::command]
+fn unsubscribe_speaker_heatmap(state: State<SharedState>) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendNoArgs {
+            address: "/omniphony/control/debug/speaker_heatmap/unsubscribe".to_string(),
         },
     );
 }
@@ -1213,6 +1270,28 @@ fn control_ramp_mode(state: State<SharedState>, value: String) {
         OscControlMsg::SendString {
             address: "/omniphony/control/ramp_mode".to_string(),
             value: trimmed,
+        },
+    );
+}
+
+#[tauri::command]
+fn control_drc_mode(state: State<SharedState>, value: String) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/input/drc_mode".to_string(),
+            value,
+        },
+    );
+}
+
+#[tauri::command]
+fn control_drc_weight(state: State<SharedState>, value: f32) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendFloat {
+            address: "/omniphony/control/input/drc_weight".to_string(),
+            value: value.clamp(0.0, 1.0),
         },
     );
 }
@@ -2300,6 +2379,7 @@ fn main() {
             control_spread_from_distance,
             control_spread_distance_range,
             control_spread_distance_curve,
+            control_size_to_spread_mode,
             control_distance_model,
             control_experimental_distance_distance_floor,
             control_experimental_distance_min_active_speakers,
@@ -2321,6 +2401,8 @@ fn main() {
             control_render_evaluation_polar_distance_max,
             control_render_evaluation_position_interpolation,
             request_speaker_heatmap,
+            subscribe_speaker_heatmap,
+            unsubscribe_speaker_heatmap,
             control_distance_diffuse_enabled,
             control_distance_diffuse_threshold,
             control_distance_diffuse_curve,
@@ -2375,6 +2457,8 @@ fn main() {
             control_input_refresh,
             control_export_layout,
             control_audio_sample_rate,
+            control_drc_mode,
+            control_drc_weight,
         ])
         .run(tauri::generate_context!())
         .expect("error running Tauri application");

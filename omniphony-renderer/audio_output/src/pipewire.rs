@@ -492,7 +492,7 @@ impl PipewireWriter {
                 .store(wallclock_millis(), Ordering::Relaxed);
         }
         if self.bootstrap_write_calls <= 5 {
-            log::info!(
+            log::debug!(
                 "PipeWire bootstrap write #{}: pushed {} / {} samples, ring {} -> {}, elapsed {:.0} ms",
                 self.bootstrap_write_calls,
                 report.pushed_samples,
@@ -1052,7 +1052,7 @@ fn run_pipewire_loop(
                                         != runtime_state.last_logged_ratio_bits
                                     {
                                         let rel_ratio = effective_resample_ratio / resample_ratio;
-                                        log::info!(
+                                        log::debug!(
                                             "PipeWire adaptive ratio applied: base={:.6} effective={:.6} relative={:.6} consume={:.6} drift={} buf={}/{}",
                                             resample_ratio,
                                             effective_resample_ratio,

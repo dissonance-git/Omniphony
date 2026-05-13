@@ -11,7 +11,7 @@ import { app, sourceNames } from './state.js';
 import { t, tf, i18nState, normalizeLocalePreference, applyStaticTranslations, LOCALE_STORAGE_KEY } from './i18n.js';
 import {
   pushLog, logState, renderLogPanel, renderLogLevelControl,
-  normalizeLogLevel, normalizeLogError, setLogExpanded, copyLogsToClipboard
+  normalizeLogLevel, normalizeLogError, setLogExpanded, copyLogsToClipboard, setLogFilterText
 } from './log.js';
 import { setOscStatus } from './controls/osc.js';
 import { setupAudioPanelListeners } from './listeners/audio-panel-listeners.js';
@@ -41,10 +41,12 @@ export function setupUIListeners() {
   const logClearBtnEl = document.getElementById('logClearBtn');
   const logCopyBtnEl = document.getElementById('logCopyBtn');
   const logLevelSelectEl = document.getElementById('logLevelSelect');
+  const logFilterInputEl = document.getElementById('logFilterInput');
   // ── Save / reload config ────────────────────────────────────────────────
 
   if (saveConfigBtnEl) {
     saveConfigBtnEl.addEventListener('click', () => {
+      if (!app.oscSnapshotReady) return;
       pushLog('info', t('log.saveRequested'));
       invoke('control_save_config');
     });
@@ -52,6 +54,7 @@ export function setupUIListeners() {
 
   if (reloadConfigBtnEl) {
     reloadConfigBtnEl.addEventListener('click', () => {
+      if (!app.oscSnapshotReady) return;
       pushLog('info', t('log.reloadRequested'));
       invoke('control_reload_config');
     });
@@ -87,6 +90,12 @@ export function setupUIListeners() {
       invoke('control_log_level', { value }).catch((e) => {
         pushLog('error', tf('log.oscConfigFailed', { error: normalizeLogError(e) }));
       });
+    });
+  }
+
+  if (logFilterInputEl) {
+    logFilterInputEl.addEventListener('input', () => {
+      setLogFilterText(logFilterInputEl.value);
     });
   }
 

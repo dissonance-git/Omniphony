@@ -5,7 +5,7 @@ import { rebuildTrailGeometry, createTrailRenderable } from '../trails.js';
 import { scene } from '../scene/setup.js';
 import { applySpeakerLevel, updateSourceDecorations, updateSourceSelectionStyles } from '../sources.js';
 import { refreshOverlayLists, updateSpeakerVisualsFromState } from '../speakers.js';
-import { requestSpeakerHeatmapIfNeeded, syncSpeakerHeatmapBandSelect } from '../scene/speaker-heatmap.js';
+import { subscribeSpeakerHeatmap, syncSpeakerHeatmapBandSelect } from '../scene/speaker-heatmap.js';
 
 export function setupTrailsAndDisplayListeners() {
   const trailToggleEl = document.getElementById('trailToggle');
@@ -15,6 +15,8 @@ export function setupTrailsAndDisplayListeners() {
   const objectSphereSizeSliderEl = document.getElementById('objectSphereSizeSlider');
   const objectSphereSizeValEl = document.getElementById('objectSphereSizeVal');
   const objectLabelsToggleEl = document.getElementById('objectLabelsToggle');
+  const showObjectDetailsToggleEl = document.getElementById('showObjectDetailsToggle');
+  const objectDetailsToggleBtnEl = document.getElementById('objectDetailsToggleBtn');
   const speakerLabelsToggleEl = document.getElementById('speakerLabelsToggle');
   const speakerSizeSliderEl = document.getElementById('speakerSizeSlider');
   const speakerSizeValEl = document.getElementById('speakerSizeVal');
@@ -28,6 +30,19 @@ export function setupTrailsAndDisplayListeners() {
   const speakerHeatmapSampleCountInputEl = document.getElementById('speakerHeatmapSampleCountInput');
   const speakerHeatmapMaxSphereSizeSliderEl = document.getElementById('speakerHeatmapMaxSphereSizeSlider');
   const speakerHeatmapMaxSphereSizeValEl = document.getElementById('speakerHeatmapMaxSphereSizeVal');
+
+  function applyObjectDetailsVisibility(enabled) {
+    app.showObjectDetails = Boolean(enabled);
+    if (showObjectDetailsToggleEl) {
+      showObjectDetailsToggleEl.checked = app.showObjectDetails;
+    }
+    if (objectDetailsToggleBtnEl) {
+      objectDetailsToggleBtnEl.classList.toggle('active', app.showObjectDetails);
+      objectDetailsToggleBtnEl.setAttribute('aria-pressed', app.showObjectDetails ? 'true' : 'false');
+      objectDetailsToggleBtnEl.textContent = app.showObjectDetails ? '▾' : '▸';
+    }
+    document.body.classList.toggle('hide-object-details', !app.showObjectDetails);
+  }
 
   if (trailToggleEl) {
     trailToggleEl.addEventListener('change', () => {
@@ -105,6 +120,22 @@ export function setupTrailsAndDisplayListeners() {
     });
   }
 
+  if (showObjectDetailsToggleEl) {
+    applyObjectDetailsVisibility(app.showObjectDetails);
+    showObjectDetailsToggleEl.addEventListener('change', () => {
+      applyObjectDetailsVisibility(showObjectDetailsToggleEl.checked);
+      persistEffectiveRenderPrefs();
+    });
+  }
+
+  if (objectDetailsToggleBtnEl) {
+    applyObjectDetailsVisibility(app.showObjectDetails);
+    objectDetailsToggleBtnEl.addEventListener('click', () => {
+      applyObjectDetailsVisibility(!app.showObjectDetails);
+      persistEffectiveRenderPrefs();
+    });
+  }
+
   if (speakerLabelsToggleEl) {
     speakerLabelsToggleEl.checked = app.speakerLabelsEnabled;
     speakerLabelsToggleEl.addEventListener('change', () => {
@@ -176,7 +207,7 @@ export function setupTrailsAndDisplayListeners() {
     speakerHeatmapSlicesToggleEl.checked = app.speakerHeatmapSlicesEnabled;
     speakerHeatmapSlicesToggleEl.addEventListener('change', () => {
       app.speakerHeatmapSlicesEnabled = speakerHeatmapSlicesToggleEl.checked;
-      requestSpeakerHeatmapIfNeeded();
+      subscribeSpeakerHeatmap();
       persistEffectiveRenderPrefs();
     });
   }
@@ -185,7 +216,7 @@ export function setupTrailsAndDisplayListeners() {
     speakerHeatmapVolumeToggleEl.checked = app.speakerHeatmapVolumeEnabled;
     speakerHeatmapVolumeToggleEl.addEventListener('change', () => {
       app.speakerHeatmapVolumeEnabled = speakerHeatmapVolumeToggleEl.checked;
-      requestSpeakerHeatmapIfNeeded();
+      subscribeSpeakerHeatmap();
       persistEffectiveRenderPrefs();
     });
   }
@@ -198,7 +229,7 @@ export function setupTrailsAndDisplayListeners() {
       syncSpeakerHeatmapBandSelect();
       refreshOverlayLists();
       refreshEffectiveRenderVisibility();
-      requestSpeakerHeatmapIfNeeded();
+      subscribeSpeakerHeatmap();
       persistEffectiveRenderPrefs();
     });
   }
@@ -209,7 +240,7 @@ export function setupTrailsAndDisplayListeners() {
       const nextCount = Number(speakerHeatmapSampleCountInputEl.value);
       app.speakerHeatmapSampleCount = Math.max(128, Math.min(20000, Math.round(Number.isFinite(nextCount) ? nextCount : 3072)));
       speakerHeatmapSampleCountInputEl.value = String(app.speakerHeatmapSampleCount);
-      requestSpeakerHeatmapIfNeeded();
+      subscribeSpeakerHeatmap();
       persistEffectiveRenderPrefs();
     });
   }
@@ -225,7 +256,7 @@ export function setupTrailsAndDisplayListeners() {
       if (speakerHeatmapMaxSphereSizeValEl) {
         speakerHeatmapMaxSphereSizeValEl.textContent = app.speakerHeatmapMaxSphereSize.toFixed(3);
       }
-      requestSpeakerHeatmapIfNeeded();
+      subscribeSpeakerHeatmap();
       persistEffectiveRenderPrefs();
     });
   }

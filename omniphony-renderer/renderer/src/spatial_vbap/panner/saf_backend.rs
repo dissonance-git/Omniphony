@@ -8,12 +8,8 @@
 use super::Gains;
 use super::gain_source::VbapGainSource;
 use super::saf_ffi;
+use crate::spatial_vbap::vbap_native::prepare_effective_speaker_dirs;
 use std::ffi::c_int;
-
-/// Elevation threshold for dummy speaker injection — mirrors the native backend.
-/// If all speakers are above/below this limit, virtual speakers are added at ±90°
-/// so that SAF's `findLsTriplets` succeeds for near-horizontal layouts.
-const ADD_DUMMY_LIMIT: f32 = 60.0;
 
 /// Safe wrapper around SAF's speaker triangulation and VBAP gain matrices.
 ///
@@ -41,28 +37,13 @@ impl SpartaVbapLayout {
 
     /// Build a layout from speaker directions (azimuth, elevation in degrees).
     ///
-    /// When all speakers lie within ±ADD_DUMMY_LIMIT degrees of the equator,
-    /// virtual speakers at ±90° are injected before calling SAF's
-    /// `findLsTriplets`, mirroring what `generateVBAPgainTable3D(enableDummies=1)`
-    /// does internally. Dummy gains are stripped before returning.
+    /// The real layout is triangulated first. If that fails, virtual speakers at
+    /// ±90° are injected before calling SAF's `findLsTriplets`. Dummy gains are
+    /// stripped before returning.
     pub fn from_speaker_dirs(speaker_dirs_deg: &[[f32; 2]]) -> Result<Self, String> {
         let n_real = speaker_dirs_deg.len();
-
-        let need_dummy_neg = speaker_dirs_deg.iter().all(|d| d[1] > -ADD_DUMMY_LIMIT);
-        let need_dummy_pos = speaker_dirs_deg.iter().all(|d| d[1] < ADD_DUMMY_LIMIT);
-
-        let effective: Vec<[f32; 2]> = if need_dummy_neg || need_dummy_pos {
-            let mut dirs = speaker_dirs_deg.to_vec();
-            if need_dummy_neg {
-                dirs.push([0.0, -90.0]);
-            }
-            if need_dummy_pos {
-                dirs.push([0.0, 90.0]);
-            }
-            dirs
-        } else {
-            speaker_dirs_deg.to_vec()
-        };
+        let (effective, _) = prepare_effective_speaker_dirs(speaker_dirs_deg, true, true)
+            .ok_or_else(|| "findLsTriplets failed".to_string())?;
 
         let n_eff = effective.len();
         let mut ls_dirs: Vec<f32> = Vec::with_capacity(n_eff * 2);
@@ -147,6 +128,11 @@ impl SpartaVbapLayout {
         }
 
         // SAF returns n_eff gains — keep only the first n_speakers (real speakers).
+        // TODO: dummy-redistribution parity with native_backend. Sources at the poles
+        // (X≈Y≈0, |Z|>0) place all energy on the dummy column, which is dropped here.
+        // The native backend re-folds dummy gains into the matched triangle's real
+        // vertices inside vbap3d; the SAF FFI doesn't expose that hook, so a post-hoc
+        // k-nearest redistribution table would be needed instead.
         let all_gains = unsafe { std::slice::from_raw_parts(gain_mtx, self.n_eff) };
         let out = Gains::from_slice(&all_gains[..self.n_speakers]);
         unsafe { libc::free(gain_mtx as *mut libc::c_void) };

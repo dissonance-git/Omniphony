@@ -137,6 +137,7 @@ impl GainModel for BarycenterBackend {
             supports_distance_model: false,
             supports_spread: false,
             supports_spread_from_distance: false,
+            supports_event_size: false,
             supports_distance_diffuse: false,
             supports_heatmap_cartesian: true,
             supports_table_export: false,
@@ -320,6 +321,8 @@ mod tests {
     fn request(position: [f64; 3]) -> RenderRequest {
         RenderRequest {
             adm_position: position,
+            event_size: [0.0, 0.0, 0.0],
+            size_to_spread_mode: Default::default(),
             spread_min: 0.0,
             spread_max: 0.0,
             spread_from_distance: false,

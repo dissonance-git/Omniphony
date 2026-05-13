@@ -146,6 +146,22 @@ impl<'a> SampleWriteCoordinator<'a> {
                     );
                 }
 
+                let drc_weight = renderer
+                    .renderer_control()
+                    .live
+                    .read()
+                    .unwrap()
+                    .drc_weight
+                    .clamp(0.0, 1.0);
+                self.output.drc_target_gain = if drc_weight >= 1.0 {
+                    frame.drc_gain
+                } else if drc_weight <= 0.0 {
+                    1.0
+                } else {
+                    frame.drc_gain.powf(drc_weight)
+                };
+                self.output.drc_ramp_samples_remaining = frame.drc_ramp_duration;
+
                 if self.spatial.has_objects {
                     log::trace!(
                         "Using VBAP spatial rendering (metadata source: {})",
@@ -156,7 +172,14 @@ impl<'a> SampleWriteCoordinator<'a> {
                         }
                     );
 
-                    fill_pcm_f32_reuse(&mut pcm_f32_scratch, &frame.pcm);
+                    fill_pcm_f32_drc(
+                        &mut pcm_f32_scratch,
+                        &frame.pcm,
+                        channel_count,
+                        &mut self.output.drc_gain,
+                        self.output.drc_target_gain,
+                        &mut self.output.drc_ramp_samples_remaining,
+                    );
                     let pcm_data_f32 = &pcm_f32_scratch;
 
                     let has_metering_clients = self
@@ -213,6 +236,7 @@ impl<'a> SampleWriteCoordinator<'a> {
                             current_resample_ratio,
                             current_adaptive_band,
                             current_adaptive_state,
+                            Some(self.output.drc_gain),
                         ) {
                             log::warn!("Failed to send meter OSC bundle: {}", e);
                             false
@@ -296,7 +320,14 @@ impl<'a> SampleWriteCoordinator<'a> {
                         }
                     };
 
-                    fill_pcm_f32_reuse(&mut pcm_f32_scratch, &frame.pcm);
+                    fill_pcm_f32_drc(
+                        &mut pcm_f32_scratch,
+                        &frame.pcm,
+                        channel_count,
+                        &mut self.output.drc_gain,
+                        self.output.drc_target_gain,
+                        &mut self.output.drc_ramp_samples_remaining,
+                    );
                     let pcm_data_f32 = &pcm_f32_scratch;
 
                     let has_metering_clients = self
@@ -351,6 +382,7 @@ impl<'a> SampleWriteCoordinator<'a> {
                             current_resample_ratio,
                             current_adaptive_band,
                             current_adaptive_state,
+                            Some(self.output.drc_gain),
                         ) {
                             log::warn!("Failed to send meter OSC bundle: {}", e);
                             false
@@ -464,11 +496,39 @@ impl<'a> SampleWriteCoordinator<'a> {
 }
 
 #[inline]
-fn fill_pcm_f32_reuse(out: &mut Vec<f32>, pcm: &[i32]) {
+fn fill_pcm_f32_drc(
+    out: &mut Vec<f32>,
+    pcm: &[i32],
+    channel_count: usize,
+    current_gain: &mut f32,
+    target_gain: f32,
+    ramp_remaining: &mut u32,
+) {
     const SCALE: f32 = 8_388_608.0;
     out.clear();
     out.reserve(pcm.len().saturating_sub(out.capacity()));
-    for &s in pcm {
-        out.push(s as f32 / SCALE);
+
+    if channel_count == 0 {
+        return;
+    }
+    let sample_count = pcm.len() / channel_count;
+
+    for s in 0..sample_count {
+        let gain = if *ramp_remaining > 0 {
+            let step = (target_gain - *current_gain) / *ramp_remaining as f32;
+            *current_gain += step;
+            *ramp_remaining -= 1;
+            *current_gain
+        } else {
+            *current_gain = target_gain;
+            target_gain
+        };
+
+        let scaled_gain = gain / SCALE;
+
+        for c in 0..channel_count {
+            let val = pcm[s * channel_count + c];
+            out.push(val as f32 * scaled_gain);
+        }
     }
 }

@@ -48,12 +48,17 @@ pub enum DecoderMessage {
     StreamEnd(DecodedSource),
 }
 
+pub enum DecoderCommand {
+    SetDrcMode(String),
+}
+
 pub struct DecoderThreadConfig {
     pub input_path: std::path::PathBuf,
     pub strict_mode: bool,
     pub continuous: bool,
     pub drain_pipe: bool,
     pub tx: mpsc::SyncSender<Result<DecoderMessage>>,
+    pub cmd_rx: mpsc::Receiver<DecoderCommand>,
     /// The bridge owns the complete decode pipeline.
     pub bridge: FormatBridgeBox,
     /// Platform-agnostic shutdown signal for interrupt-aware I/O.
@@ -68,6 +73,7 @@ pub fn spawn_decoder_thread(config: DecoderThreadConfig) -> thread::JoinHandle<R
             continuous,
             drain_pipe,
             tx,
+            cmd_rx,
             mut bridge,
             shutdown_signal,
         } = config;
@@ -83,6 +89,14 @@ pub fn spawn_decoder_thread(config: DecoderThreadConfig) -> thread::JoinHandle<R
             if sys::ShutdownHandle::is_restart_from_config_requested() {
                 log::info!("Restart from config requested, stopping decoder loop");
                 break;
+            }
+
+            while let Ok(cmd) = cmd_rx.try_recv() {
+                match cmd {
+                    DecoderCommand::SetDrcMode(mode) => {
+                        bridge.set_drc_mode(mode.as_str().into());
+                    }
+                }
             }
 
             // Check for SIGHUP reload — clear the flag and notify systemd
@@ -132,6 +146,14 @@ pub fn spawn_decoder_thread(config: DecoderThreadConfig) -> thread::JoinHandle<R
                     || sys::ShutdownHandle::is_restart_from_config_requested()
                 {
                     return Ok(false);
+                }
+
+                while let Ok(cmd) = cmd_rx.try_recv() {
+                    match cmd {
+                        DecoderCommand::SetDrcMode(mode) => {
+                            bridge.set_drc_mode(mode.as_str().into());
+                        }
+                    }
                 }
 
                 let now = Instant::now();
@@ -209,48 +231,48 @@ pub fn spawn_decoder_thread(config: DecoderThreadConfig) -> thread::JoinHandle<R
                         .count();
                     let metadata_payloads: usize =
                         result.frames.iter().map(|frame| frame.metadata.len()).sum();
-                    let metadata_summary = result
-                        .frames
-                        .iter()
-                        .flat_map(|frame| frame.metadata.iter())
-                        .map(|meta| {
-                            let event_count = meta.events.len();
-                            let min_event_sample_pos =
-                                meta.events.iter().map(|event| event.sample_pos).min();
-                            let max_event_sample_pos =
-                                meta.events.iter().map(|event| event.sample_pos).max();
-                            let min_event_id = meta.events.iter().map(|event| event.id).min();
-                            let max_event_id = meta.events.iter().map(|event| event.id).max();
-                            format!(
-                                "meta[pos={} ramp={} events={} ev_pos={:?}..{:?} ev_id={:?}..{:?}]",
-                                meta.sample_pos,
-                                meta.ramp_duration,
-                                event_count,
-                                min_event_sample_pos,
-                                max_event_sample_pos,
-                                min_event_id,
-                                max_event_id
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ");
                     let new_segment_frames = result
                         .frames
                         .iter()
                         .filter(|frame| frame.is_new_segment)
                         .count();
-                    let sample_count_min =
-                        result.frames.iter().map(|frame| frame.sample_count).min();
-                    let sample_count_max =
-                        result.frames.iter().map(|frame| frame.sample_count).max();
-
                     if matches!(transport, RInputTransport::Iec61937) {
                         let should_warn = result.did_reset
                             || !result.error_message.is_empty()
                             || (metadata_frames > 0 && emitted_frames == 0)
-                            || new_segment_frames > 0
-                            || emitted_frames == 0;
+                            || new_segment_frames > 0;
                         if should_warn {
+                            let sample_count_min =
+                                result.frames.iter().map(|frame| frame.sample_count).min();
+                            let sample_count_max =
+                                result.frames.iter().map(|frame| frame.sample_count).max();
+                            let metadata_summary = result
+                                .frames
+                                .iter()
+                                .flat_map(|frame| frame.metadata.iter())
+                                .map(|meta| {
+                                    let event_count = meta.events.len();
+                                    let min_event_sample_pos =
+                                        meta.events.iter().map(|event| event.sample_pos).min();
+                                    let max_event_sample_pos =
+                                        meta.events.iter().map(|event| event.sample_pos).max();
+                                    let min_event_id =
+                                        meta.events.iter().map(|event| event.id).min();
+                                    let max_event_id =
+                                        meta.events.iter().map(|event| event.id).max();
+                                    format!(
+                                        "meta[pos={} ramp={} events={} ev_pos={:?}..{:?} ev_id={:?}..{:?}]",
+                                        meta.sample_pos,
+                                        meta.ramp_duration,
+                                        event_count,
+                                        min_event_sample_pos,
+                                        max_event_sample_pos,
+                                        min_event_id,
+                                        max_event_id
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                                .join(" ");
                             sys::live_log::emit_external_record(
                                 log::Level::Warn,
                                 "orender::bridge",
@@ -377,8 +399,13 @@ pub fn spawn_decoder_thread(config: DecoderThreadConfig) -> thread::JoinHandle<R
                     };
                     let session_audio_balance_ms =
                         session_throughput_audio_ms - session_elapsed_secs * 1000.0;
+                    let throughput_level = if window_rate < 0.95 || window_rate > 1.05 {
+                        log::Level::Warn
+                    } else {
+                        log::Level::Trace
+                    };
                     sys::live_log::emit_external_record(
-                        log::Level::Trace,
+                        throughput_level,
                         "orender::cli::decode::decoder_thread",
                         &format!(
                             "Input throughput: window_bytes_per_s={:.0} window_audio_ms={:.0} window_wall_ms={:.0} window_rate={:.3}x total_audio_ms={:.0} total_wall_ms={:.0} total_rate={:.3}x total_balance_ms={:+.0} window_chunks={} total_chunks={}",
