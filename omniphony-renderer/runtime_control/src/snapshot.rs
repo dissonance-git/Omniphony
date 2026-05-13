@@ -171,6 +171,19 @@ pub fn build_renderer_state_json(live: &LiveParams, active_topology: &RenderTopo
             "threshold": live.distance_diffuse_threshold,
             "curve": live.distance_diffuse_curve
         },
+        "vbapCartesian": {
+            "xSize": live.evaluation.cartesian.x_size,
+            "ySize": live.evaluation.cartesian.y_size,
+            "zSize": live.evaluation.cartesian.z_size,
+            "zNegSize": live.evaluation.cartesian.z_neg_size
+        },
+        "vbapPolar": {
+            "azimuthResolution": live.evaluation.polar.azimuth_values,
+            "elevationResolution": live.evaluation.polar.elevation_values,
+            "distanceRes": live.evaluation.polar.distance_res,
+            "distanceMax": live.evaluation.polar.distance_max,
+            "positionInterpolation": live.evaluation.position_interpolation
+        },
         "renderBackendState": serde_json::from_str::<serde_json::Value>(&render_backend_state_json)
             .unwrap_or_else(|_| json!({}))
     })

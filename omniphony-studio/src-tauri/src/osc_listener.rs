@@ -8,6 +8,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use crate::app_state::OutputDeviceOption;
 use crate::app_state::{
     AppState, DistanceDiffuse, Meter, RenderBackendState, RoomRatio, SpreadState,
+    VbapCartesian, VbapPolar,
 };
 use crate::layouts::{Layout, Speaker};
 use crate::osc_parser::{
@@ -103,6 +104,8 @@ struct RendererDomainState {
     room_ratio: Option<RoomRatio>,
     spread: Option<SpreadState>,
     distance_diffuse: Option<DistanceDiffuse>,
+    vbap_cartesian: Option<VbapCartesian>,
+    vbap_polar: Option<VbapPolar>,
     render_backend_state: Option<RenderBackendState>,
 }
 
@@ -532,6 +535,12 @@ fn apply_renderer_domain_state(s: &mut AppState, value: &str) -> bool {
     }
     if let Some(distance_diffuse) = parsed.distance_diffuse {
         s.distance_diffuse = distance_diffuse;
+    }
+    if let Some(vbap_cartesian) = parsed.vbap_cartesian {
+        s.vbap_cartesian = vbap_cartesian;
+    }
+    if let Some(vbap_polar) = parsed.vbap_polar {
+        s.vbap_polar = vbap_polar;
     }
     if let Some(render_backend_state) = parsed.render_backend_state {
         s.render_backend_state = render_backend_state;
