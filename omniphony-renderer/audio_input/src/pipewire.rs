@@ -749,7 +749,7 @@ where
             user_data.queued_packets_since_log += queued_count;
             let now = Instant::now();
             if now.duration_since(user_data.last_log_at) >= LIVE_BRIDGE_LOG_INTERVAL {
-                log::info!(
+                log::debug!(
                     "{} ingest: buffers={} bytes={} sync_buffers={} packets={} queued={}",
                     log_prefix,
                     user_data.buffers_since_log,
@@ -759,7 +759,7 @@ where
                     user_data.queued_packets_since_log
                 );
                 if user_data.buffers_since_log > 0 && user_data.sync_buffers_since_log == 0 {
-                    log::info!("{} ingest has audio buffers but no IEC61937 sync words yet", log_prefix);
+                    log::debug!("{} ingest has audio buffers but no IEC61937 sync words yet", log_prefix);
                 }
                 user_data.last_log_at = now;
                 user_data.add_buffer_calls_since_log = 0;

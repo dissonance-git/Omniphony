@@ -1052,7 +1052,7 @@ fn run_pipewire_loop(
                                         != runtime_state.last_logged_ratio_bits
                                     {
                                         let rel_ratio = effective_resample_ratio / resample_ratio;
-                                        log::info!(
+                                        log::debug!(
                                             "PipeWire adaptive ratio applied: base={:.6} effective={:.6} relative={:.6} consume={:.6} drift={} buf={}/{}",
                                             resample_ratio,
                                             effective_resample_ratio,
