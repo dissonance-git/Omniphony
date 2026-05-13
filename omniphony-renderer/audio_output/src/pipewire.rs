@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{
-    ADAPTIVE_BAND_FAR, ADAPTIVE_BAND_NEAR, AdaptiveResamplingConfig,
+    ADAPTIVE_BAND_FAR, AdaptiveResamplingConfig,
     LOCAL_RESAMPLER_MAX_RELATIVE_RATIO,
     adaptive_runtime::{
         AdaptiveRuntimeState, FarModeDecision, LatencyMetricTargets, LowRecoverPhase,
@@ -862,8 +862,6 @@ fn run_pipewire_loop(
     // Treat errors above ~120 ms as transient mismatch and allow faster convergence.
     let samples_per_ms = (sample_rate as usize).saturating_mul(channel_count as usize) / 1000;
     let samples_per_ms_f64 = samples_per_ms as f64;
-    let mut fast_catchup_threshold =
-        (adaptive_config_snapshot.near_far_threshold_ms as usize).saturating_mul(samples_per_ms);
     let mut adaptive_update_interval =
         adaptive_config_snapshot.update_interval_callbacks.max(1) as u64;
 
@@ -1015,8 +1013,6 @@ fn run_pipewire_loop(
                         {
                             // Refresh config from the live Arc (non-blocking; keep stale on contention).
                             if let Ok(cfg) = live_adaptive_config_for_callback.try_lock() {
-                                fast_catchup_threshold = (cfg.near_far_threshold_ms as usize)
-                                    .saturating_mul(samples_per_ms);
                                 adaptive_update_interval = cfg.update_interval_callbacks.max(1) as u64;
                             }
                             if should_run_adaptive_servo(
@@ -1319,31 +1315,45 @@ fn run_pipewire_loop(
                             // Refresh config from live Arc (non-blocking; keep stale on contention).
                             let native_servo_cfg = live_adaptive_config_for_callback.lock().unwrap().clone();
                             if adaptive_resampling_enabled {
-                                fast_catchup_threshold = (native_servo_cfg.near_far_threshold_ms as usize)
-                                    .saturating_mul(samples_per_ms);
                                 adaptive_update_interval = native_servo_cfg.update_interval_callbacks.max(1) as u64;
                             }
                             let drift =
                                 metrics.control_available as i64 - runtime_target_buffer_fill as i64;
-                            let drift_ms = drift as f64 / samples_per_ms_f64.max(1.0);
 
-                            if drift.abs() > 480 {
-                                if adaptive_resampling_enabled {
-                                    let max_integral_term =
-                                        native_servo_cfg.max_adjust.max(0.000_001);
-                                    // accumulated_drift in ms for ppm/ms gains
-                                    runtime_state.controller_state.accumulated_drift += drift_ms;
-                                    let integral_contribution =
-                                        runtime_state.controller_state.accumulated_drift
-                                            * native_servo_cfg.ki / 1_000_000.0;
-                                    if integral_contribution.abs() > max_integral_term
-                                        && native_servo_cfg.ki > 0.0
-                                    {
-                                        runtime_state.controller_state.accumulated_drift =
-                                            (max_integral_term * 1_000_000.0 / native_servo_cfg.ki)
-                                                * integral_contribution.signum();
-                                    }
-                                } else {
+                            if adaptive_resampling_enabled {
+                                let decision = run_adaptive_servo(
+                                    &mut runtime_state,
+                                    &native_servo_cfg,
+                                    metrics,
+                                    runtime_target_buffer_fill,
+                                    1.0,
+                                    480,
+                                    native_servo_cfg.max_adjust.max(0.000_001),
+                                    samples_per_ms,
+                                    samples_per_ms_f64,
+                                );
+                                current_adaptive_band.store(decision.adaptive_band, Ordering::Relaxed);
+                                rate_adjust_for_callback.store(
+                                    decision.displayed_rate_adjust.to_bits(),
+                                    Ordering::Relaxed,
+                                );
+                                desired_rate_for_callback
+                                    .store((decision.step.current_ratio as f32).to_bits(), Ordering::Relaxed);
+
+                                if callback_count % 100 == 0 {
+                                    log::trace!(
+                                        "PipeWire native adaptive: buf={}/{} drift={} rate={:.6} consume={:.6} (P={:.6} I={:.6})",
+                                        metrics.control_available,
+                                        runtime_target_buffer_fill,
+                                        decision.step.drift,
+                                        decision.step.current_ratio,
+                                        decision.step.consume_adjust,
+                                        decision.step.p_term,
+                                        decision.step.i_term
+                                    );
+                                }
+                            } else {
+                                if drift.abs() > 480 {
                                     runtime_state.controller_state.accumulated_drift += drift as f64;
                                     let integral_contribution =
                                         runtime_state.controller_state.accumulated_drift
@@ -1354,59 +1364,31 @@ fn run_pipewire_loop(
                                                 * integral_contribution.signum();
                                     }
                                 }
-                            }
-
-                            let is_far = adaptive_resampling_enabled
-                                && native_servo_cfg.enable_far_mode
-                                && (drift.unsigned_abs() as usize) > fast_catchup_threshold;
-                            let far_band = far_mode_band_from_latency(
-                                &native_servo_cfg,
-                                metrics.control_available,
-                                runtime_target_buffer_fill,
-                                samples_per_ms,
-                            );
-                            current_adaptive_band.store(
-                                if adaptive_resampling_enabled { if is_far { ADAPTIVE_BAND_FAR } else { ADAPTIVE_BAND_NEAR } } else { far_band },
-                                Ordering::Relaxed,
-                            );
-                            let p_term = if adaptive_resampling_enabled {
-                                drift_ms * native_servo_cfg.kp_near / 1_000_000.0
-                            } else {
+                                let far_band = far_mode_band_from_latency(
+                                    &native_servo_cfg,
+                                    metrics.control_available,
+                                    runtime_target_buffer_fill,
+                                    samples_per_ms,
+                                );
+                                current_adaptive_band.store(far_band, Ordering::Relaxed);
+                                let p_term = {
                                 drift as f64 * LATENCY_SERVO_P_GAIN / 100.0
-                            };
-                            let i_term = if adaptive_resampling_enabled {
-                                runtime_state.controller_state.accumulated_drift
-                                    * native_servo_cfg.ki / 1_000_000.0
-                            } else {
+                                };
+                                let i_term = {
                                 runtime_state.controller_state.accumulated_drift * LATENCY_SERVO_I_GAIN
-                            };
-                            let max_adjust = if adaptive_resampling_enabled {
-                                native_servo_cfg.max_adjust.max(0.000001)
-                            } else {
+                                };
+                                let max_adjust = {
                                 LATENCY_SERVO_MAX_RATE_ADJUST
-                            };
-                            let consume_adjust =
-                                (1.0 + p_term + i_term).clamp(1.0 - max_adjust, 1.0 + max_adjust);
-                            let pipewire_rate = (1.0 / consume_adjust) as f32;
+                                };
+                                let consume_adjust =
+                                    (1.0 + p_term + i_term).clamp(1.0 - max_adjust, 1.0 + max_adjust);
+                                let pipewire_rate = (1.0 / consume_adjust) as f32;
 
-                            rate_adjust_for_callback
-                                .store((consume_adjust as f32).to_bits(), Ordering::Relaxed);
-                            desired_rate_for_callback.store(pipewire_rate.to_bits(), Ordering::Relaxed);
+                                rate_adjust_for_callback
+                                    .store((consume_adjust as f32).to_bits(), Ordering::Relaxed);
+                                desired_rate_for_callback.store(pipewire_rate.to_bits(), Ordering::Relaxed);
 
-                            if callback_count % 100 == 0 {
-                                if adaptive_resampling_enabled {
-                                    log::trace!(
-                                        "Adaptive rate: buf={} target={} max={} drift={} (P={:.6} I={:.6}) -> consume={:.6} pw_rate={:.6}",
-                                        metrics.control_available,
-                                        runtime_target_buffer_fill,
-                                        max_buffer_fill,
-                                        drift,
-                                        p_term,
-                                        i_term,
-                                        consume_adjust,
-                                        pipewire_rate
-                                    );
-                                } else {
+                                if callback_count % 100 == 0 {
                                     log::trace!(
                                         "PipeWire latency servo: buf={} target={} max={} drift={} -> consume={:.6} pw_rate={:.6}",
                                         metrics.control_available,
