@@ -130,6 +130,13 @@ pub enum OscEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<String>,
     },
+    #[serde(rename = "update:size")]
+    UpdateSize {
+        id: String,
+        size: [f32; 3],
+        #[serde(skip_serializing_if = "Option::is_none")]
+        generation: Option<u64>,
+    },
     #[serde(rename = "remove")]
     Remove { id: String },
 
@@ -160,6 +167,9 @@ pub enum OscEvent {
         #[serde(rename = "rmsDbfs")]
         rms_dbfs: f64,
     },
+
+    #[serde(rename = "meter:drc_gain")]
+    MeterDrcGain { value: f64 },
 
     #[serde(rename = "state:speaker:gain")]
     StateSpeakerGain { id: String, gain: f64 },
@@ -338,21 +348,29 @@ fn parse_omniphony_object_position(
         .map(|v| v as u32);
     let gain_db = args.get(4).copied().and_then(to_number).map(|v| v as i32);
 
-    let generation = match raw_args.get(8) {
+    // Layout after `divergence` removal:
+    //   [pos0, pos1, pos2, speaker_idx, gain, priority, ramp, gen, name]  (9 args)
+    // Previous payloads carried `divergence` at index 6, shifting the trailing
+    // fields by one slot. Probe both layouts for backward compatibility.
+    let generation = match raw_args.get(7) {
         Some(OscType::Long(v)) if *v >= 0 => Some(*v as u64),
         Some(OscType::Int(v)) if *v >= 0 => Some(*v as u64),
-        _ => None,
+        _ => match raw_args.get(8) {
+            Some(OscType::Long(v)) if *v >= 0 => Some(*v as u64),
+            Some(OscType::Int(v)) if *v >= 0 => Some(*v as u64),
+            _ => None,
+        },
     };
 
-    // name at arg index 9 for the generation payload, 8 for the extended payload, or 7 for the legacy one.
+    let name_idx = if raw_args.len() >= 10 {
+        9
+    } else if raw_args.len() >= 9 {
+        8
+    } else {
+        7
+    };
     let name = raw_args
-        .get(if raw_args.len() >= 10 {
-            9
-        } else if raw_args.len() >= 9 {
-            8
-        } else {
-            7
-        })
+        .get(name_idx)
         .and_then(|a| unwrap_string(a))
         .filter(|s| !s.trim().is_empty());
 
@@ -408,6 +426,30 @@ fn parse_omniphony_object_position(
             source_tag: None,
         },
         name,
+    })
+}
+
+fn parse_omniphony_object_size(
+    parts: &[&str],
+    args: &[f64],
+    raw_args: &[OscType],
+) -> Option<OscEvent> {
+    if !parts.contains(&"omniphony") || !parts.contains(&"object") || !parts.contains(&"size") {
+        return None;
+    }
+    let id = find_id_in_address(parts)?;
+    let w = to_number(args.get(0).copied()?)?.clamp(0.0, 1.0) as f32;
+    let d = to_number(args.get(1).copied()?)?.clamp(0.0, 1.0) as f32;
+    let h = to_number(args.get(2).copied()?)?.clamp(0.0, 1.0) as f32;
+    let generation = match raw_args.get(3) {
+        Some(OscType::Long(v)) if *v >= 0 => Some(*v as u64),
+        Some(OscType::Int(v)) if *v >= 0 => Some(*v as u64),
+        _ => None,
+    };
+    Some(OscEvent::UpdateSize {
+        id,
+        size: [w, d, h],
+        generation,
     })
 }
 
@@ -773,6 +815,12 @@ fn parse_meter(parts: &[&str], args: &[f64]) -> Option<OscEvent> {
         }
     }
 
+    if after.len() == 2 && after[1] == "drc_gain" {
+        return Some(OscEvent::MeterDrcGain {
+            value: args.get(0).copied().unwrap_or(1.0),
+        });
+    }
+
     None
 }
 
@@ -816,6 +864,11 @@ pub fn parse_osc_message(
 
     // omniphony object position (xyz or aed)
     if let Some(ev) = parse_omniphony_object_position(&parts, &args, raw_args, coordinate_format) {
+        return Some(ev);
+    }
+
+    // omniphony object size
+    if let Some(ev) = parse_omniphony_object_size(&parts, &args, raw_args) {
         return Some(ev);
     }
 

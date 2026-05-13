@@ -1,6 +1,9 @@
 use anyhow::Result;
 
-use super::{BackendCapabilities, GainModel, GainModelKind, RenderRequest, RenderResponse};
+use super::{
+    BackendCapabilities, GainModel, GainModelKind, RenderRequest, RenderResponse,
+    reduce_size_to_spread,
+};
 use crate::spatial_vbap::{Gains, VbapPanner, adm_to_spherical};
 use crate::speaker_layout::SpeakerLayout;
 
@@ -32,6 +35,14 @@ impl VbapBackend {
             rendering_position[2] as f32 * req.room_ratio_lower
         };
 
+        // Per-event 3-D size → scalar policy. `[0; 3]` yields 0, preserving the
+        // legacy behaviour for streams that don't carry size metadata.
+        let intrinsic = reduce_size_to_spread(
+            req.event_size,
+            [scaled_x, scaled_y, scaled_z],
+            req.size_to_spread_mode,
+        );
+
         let effective_spread = if req.spread_from_distance {
             let (_, _, dist) = adm_to_spherical(scaled_x, scaled_y, scaled_z);
             let t = (1.0 - dist / req.spread_distance_range)
@@ -39,7 +50,12 @@ impl VbapBackend {
                 .powf(req.spread_distance_curve);
             (req.spread_min + t * (req.spread_max - req.spread_min)).clamp(0.0, 1.0)
         } else {
-            req.spread_min.clamp(0.0, 1.0)
+            // `[spread_min, spread_max]` is now used as the output range that
+            // bounds the per-event intrinsic. This also fixes the latent bug
+            // where `spread_max` was ignored when `spread_from_distance` was
+            // off: an `event_size = [0;3]` still yields `spread_min` (legacy
+            // compatibility), while `intrinsic = 1.0` reaches `spread_max`.
+            (req.spread_min + intrinsic * (req.spread_max - req.spread_min)).clamp(0.0, 1.0)
         };
 
         let direct_gains = self.panner.get_gains_cartesian(
@@ -126,6 +142,7 @@ impl GainModel for VbapBackend {
             supports_distance_model: true,
             supports_spread: true,
             supports_spread_from_distance: true,
+            supports_event_size: true,
             supports_distance_diffuse: true,
             supports_heatmap_cartesian: true,
             supports_table_export: true,

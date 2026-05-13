@@ -10,7 +10,6 @@
 
 use super::convhull::convhull_3d_build;
 
-const ADD_DUMMY_LIMIT: f32 = 60.0;
 const APERTURE_LIMIT_RAD: f32 = std::f32::consts::PI; // 180 degrees
 
 // ── Coordinate helpers ───────────────────────────────────────────────────────
@@ -197,6 +196,78 @@ pub fn invert_ls_mtx_3d(u_spkr: &[[f32; 3]], ls_groups: &[[usize; 3]]) -> Vec<[f
         .collect()
 }
 
+fn valid_triplet_count(
+    ls_dirs_deg: &[[f32; 2]],
+    omit_large_triangles: bool,
+) -> Option<usize> {
+    let (_, ls_groups) = find_ls_triplets(ls_dirs_deg, omit_large_triangles)?;
+    if ls_groups.is_empty() {
+        None
+    } else {
+        Some(ls_groups.len())
+    }
+}
+
+fn has_pole(ls_dirs_deg: &[[f32; 2]], pole_el_deg: f32) -> bool {
+    ls_dirs_deg.iter().any(|d| (d[1] - pole_el_deg).abs() < 1e-3)
+}
+
+fn try_dirs_with_optional_dummy(
+    ls_dirs_deg: &[[f32; 2]],
+    omit_large_triangles: bool,
+    add_neg: bool,
+    add_pos: bool,
+) -> Option<(Vec<[f32; 2]>, Vec<bool>)> {
+    let mut dirs = ls_dirs_deg.to_vec();
+    let mut is_dummy = vec![false; ls_dirs_deg.len()];
+
+    if add_neg {
+        dirs.push([0.0, -90.0]);
+        is_dummy.push(true);
+    }
+    if add_pos {
+        dirs.push([0.0, 90.0]);
+        is_dummy.push(true);
+    }
+
+    valid_triplet_count(&dirs, omit_large_triangles)?;
+    Some((dirs, is_dummy))
+}
+
+/// Return speaker directions usable for VBAP triangulation.
+///
+/// The real layout is tried first. If triangulation fails, virtual speakers are
+/// injected at the poles only as a fallback. The accompanying `is_dummy` flags
+/// match the returned effective direction list.
+pub fn prepare_effective_speaker_dirs(
+    ls_dirs_deg: &[[f32; 2]],
+    omit_large_triangles: bool,
+    enable_dummies: bool,
+) -> Option<(Vec<[f32; 2]>, Vec<bool>)> {
+    if let Some(result) = try_dirs_with_optional_dummy(ls_dirs_deg, omit_large_triangles, false, false)
+    {
+        return Some(result);
+    }
+
+    if !enable_dummies {
+        return None;
+    }
+
+    let can_add_neg = !has_pole(ls_dirs_deg, -90.0);
+    let can_add_pos = !has_pole(ls_dirs_deg, 90.0);
+
+    if can_add_neg || can_add_pos {
+        return try_dirs_with_optional_dummy(
+            ls_dirs_deg,
+            omit_large_triangles,
+            can_add_neg,
+            can_add_pos,
+        );
+    }
+
+    None
+}
+
 // ── getSpreadSrcDirs3D ────────────────────────────────────────────────────────
 
 /// Generate a ring of spread directions around a source (MDAP helper).
@@ -302,11 +373,7 @@ pub fn get_spread_src_dirs_3d(
 /// whose dummy vertex absorbs all of the gain, only to be silently dropped
 /// when the gain matrix is trimmed back to the real-speaker count.
 #[inline]
-fn redistribute_dummy_in_triangle(
-    g: [f32; 3],
-    face: [usize; 3],
-    is_dummy: &[bool],
-) -> [f32; 3] {
+fn redistribute_dummy_in_triangle(g: [f32; 3], face: [usize; 3], is_dummy: &[bool]) -> [f32; 3] {
     let mask = [is_dummy[face[0]], is_dummy[face[1]], is_dummy[face[2]]];
     if !(mask[0] || mask[1] || mask[2]) {
         return g;
@@ -468,7 +535,8 @@ pub fn vbap3d(
 /// `ls_dirs_deg`: speaker directions `[az, el]` in degrees.
 /// `az_res_deg` / `el_res_deg`: grid resolution.
 /// `omit_large_triangles`: filter faces with edge ≥ 180°.
-/// `enable_dummies`: add virtual ±90° elevation speakers if none exist near poles.
+/// `enable_dummies`: add virtual ±90° elevation speakers only if triangulation
+/// of the real layout fails.
 /// `spread`: spread in degrees (0 = pure VBAP, >0 = MDAP).
 pub fn generate_vbap_gain_table_3d(
     ls_dirs_deg: &[[f32; 2]],
@@ -491,32 +559,9 @@ pub fn generate_vbap_gain_table_3d(
         }
     }
 
-    // Optionally add dummy speakers at ±90° elevation
-    let effective_dirs: Vec<[f32; 2]>;
     let n_real = ls_dirs_deg.len();
-    let mut is_dummy: Vec<bool> = vec![false; n_real];
-
-    if enable_dummies {
-        let need_dummy_neg = ls_dirs_deg.iter().all(|d| d[1] > -ADD_DUMMY_LIMIT);
-        let need_dummy_pos = ls_dirs_deg.iter().all(|d| d[1] < ADD_DUMMY_LIMIT);
-
-        if need_dummy_neg || need_dummy_pos {
-            let mut dirs = ls_dirs_deg.to_vec();
-            if need_dummy_neg {
-                dirs.push([0.0, -90.0]);
-                is_dummy.push(true);
-            }
-            if need_dummy_pos {
-                dirs.push([0.0, 90.0]);
-                is_dummy.push(true);
-            }
-            effective_dirs = dirs;
-        } else {
-            effective_dirs = ls_dirs_deg.to_vec();
-        }
-    } else {
-        effective_dirs = ls_dirs_deg.to_vec();
-    }
+    let (effective_dirs, is_dummy) =
+        prepare_effective_speaker_dirs(ls_dirs_deg, omit_large_triangles, enable_dummies)?;
 
     let (u_spkr, ls_groups) = find_ls_triplets(&effective_dirs, omit_large_triangles)?;
     let layout_inv_mtx = invert_ls_mtx_3d(&u_spkr, &ls_groups);
@@ -526,7 +571,14 @@ pub fn generate_vbap_gain_table_3d(
     let n_points = n_az * n_el;
 
     // Compute gains for all grid directions (using effective speaker count)
-    let mut gtable = vbap3d(&src_dirs, n_eff, &ls_groups, spread, &layout_inv_mtx, &is_dummy);
+    let mut gtable = vbap3d(
+        &src_dirs,
+        n_eff,
+        &ls_groups,
+        spread,
+        &layout_inv_mtx,
+        &is_dummy,
+    );
 
     // Strip dummy speaker columns — shrink each row from n_eff to n_real
     if n_eff > n_real {

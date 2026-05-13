@@ -6,7 +6,7 @@
  * callback at init time.
  */
 
-import { formatPosition } from './coordinates.js';
+import { decomposePosition, formatPosition } from './coordinates.js';
 import {
   dirtyObjectMeters,
   dirtySpeakerMeters,
@@ -18,6 +18,7 @@ import {
   sourceLevels,
   speakerLevels,
   sourcePositionsRaw,
+  sourceSizes,
   sourceNames,
   app
 } from './state.js';
@@ -49,6 +50,7 @@ export const flushCallbacks = {
   renderRenderTimeUI: null,
   renderResampleRatioDisplay: null,
   renderAudioFormatDisplay: null,
+  renderDrcUI: null,
   renderMasterGainUI: null,
   updateMasterMeterUI: null,
   updateObjectContributionUI: null,
@@ -81,7 +83,7 @@ export function flushUI() {
   dirtyObjectMeters.forEach((id) => {
     const entry = objectItems.get(id);
     if (!entry) return;
-    updateMeterUI(entry, sourceLevels.get(id));
+    updateMeterUI(entry, sourceLevels.get(id), 'source', id);
     flushCallbacks.updateObjectContributionUI?.(entry, id);
   });
   dirtyObjectMeters.clear();
@@ -89,7 +91,7 @@ export function flushUI() {
   dirtySpeakerMeters.forEach((id) => {
     const entry = speakerItems.get(id);
     if (!entry) return;
-    updateMeterUI(entry, speakerLevels.get(id));
+    updateMeterUI(entry, speakerLevels.get(id), 'speaker', id);
     flushCallbacks.updateSpeakerContributionUI?.(entry, id);
   });
   dirtySpeakerMeters.clear();
@@ -98,7 +100,14 @@ export function flushUI() {
     const entry = objectItems.get(id);
     if (!entry) return;
     const pos = sourcePositionsRaw.get(id);
-    entry.position.textContent = formatPosition(pos);
+    if (entry.axisElems) {
+      const coords = decomposePosition(pos);
+      Object.keys(entry.axisElems).forEach((axis) => {
+        entry.axisElems[axis].textContent = `${axis}:${coords[axis]}`;
+      });
+    } else if (entry.position) {
+      entry.position.textContent = formatPosition(pos);
+    }
   });
   dirtyObjectPositions.clear();
 
@@ -108,8 +117,11 @@ export function flushUI() {
     const displayName = flushCallbacks.getObjectDisplayName
       ? flushCallbacks.getObjectDisplayName(id)
       : (() => {
-          const raw = sourceNames.get(id);
-          return (raw && typeof raw === 'string' && raw.trim()) ? raw.trim() : String(id);
+          const raw = sourceNames.get(String(id));
+          let name = (raw && typeof raw === 'string' && raw.trim()) ? raw.trim() : String(id);
+          name = name.replace(/^[av][_:-]/i, '');
+          name = name.replace(/^obj[_:-]/i, '');
+          return name;
         })();
     entry.label.textContent = displayName;
   });
@@ -206,6 +218,11 @@ export function flushUI() {
     dirty.audioFormat = false;
   }
 
+  if (dirty.drcUI) {
+    flushCallbacks.renderDrcUI?.();
+    dirty.drcUI = false;
+  }
+
   if (dirty.masterGain) {
     flushCallbacks.renderMasterGainUI?.();
     dirty.masterGain = false;
@@ -244,6 +261,21 @@ export function updateObjectPositionUI(id, position) {
   }
   dirtyObjectPositions.add(key);
   scheduleUIFlush();
+}
+
+/** Render the per-object size gauges from `sourceSizes`. Called directly (no
+ *  batching) because three CSS-width writes are cheap. */
+export function updateObjectSizeUI(id) {
+  const key = String(id);
+  const entry = objectItems.get(key);
+  if (!entry || !entry.sizeFills) return;
+  const s = sourceSizes.get(key);
+  const w = s?.w ?? 0;
+  const d = s?.d ?? 0;
+  const h = s?.h ?? 0;
+  entry.sizeFills.w.style.width = `${(Math.max(0, Math.min(1, w)) * 100).toFixed(1)}%`;
+  entry.sizeFills.d.style.width = `${(Math.max(0, Math.min(1, d)) * 100).toFixed(1)}%`;
+  entry.sizeFills.h.style.width = `${(Math.max(0, Math.min(1, h)) * 100).toFixed(1)}%`;
 }
 
 export function updateObjectLabelUI(id) {

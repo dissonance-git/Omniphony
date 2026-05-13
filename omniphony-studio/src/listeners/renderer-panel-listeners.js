@@ -22,6 +22,7 @@ export function setupRendererPanelListeners() {
   const spreadFromDistanceToggleEl = document.getElementById('spreadFromDistanceToggle');
   const spreadDistanceRangeSliderEl = document.getElementById('spreadDistanceRangeSlider');
   const spreadDistanceCurveSliderEl = document.getElementById('spreadDistanceCurveSlider');
+  const sizeToSpreadModeSelectEl = document.getElementById('sizeToSpreadModeSelect');
   const distanceModelSelectEl = document.getElementById('distanceModelSelect');
   const vbapCartXSizeInputEl = document.getElementById('vbapCartXSizeInput');
   const vbapCartYSizeInputEl = document.getElementById('vbapCartYSizeInput');
@@ -111,6 +112,16 @@ export function setupRendererPanelListeners() {
       renderVbapStatus();
       updateSpreadDisplay();
       invoke('control_spread_distance_curve', { value: app.spreadState.distanceCurve });
+    });
+  }
+
+  if (sizeToSpreadModeSelectEl) {
+    sizeToSpreadModeSelectEl.addEventListener('change', () => {
+      const value = String(sizeToSpreadModeSelectEl.value || '').trim().toLowerCase();
+      if (!['max', 'mean', 'projection_perpendicular'].includes(value)) return;
+      app.spreadState.sizeToSpreadMode = value;
+      updateSpreadDisplay();
+      invoke('control_size_to_spread_mode', { value });
     });
   }
 

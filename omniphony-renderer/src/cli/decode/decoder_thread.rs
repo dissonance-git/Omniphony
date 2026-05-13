@@ -48,12 +48,17 @@ pub enum DecoderMessage {
     StreamEnd(DecodedSource),
 }
 
+pub enum DecoderCommand {
+    SetDrcMode(String),
+}
+
 pub struct DecoderThreadConfig {
     pub input_path: std::path::PathBuf,
     pub strict_mode: bool,
     pub continuous: bool,
     pub drain_pipe: bool,
     pub tx: mpsc::SyncSender<Result<DecoderMessage>>,
+    pub cmd_rx: mpsc::Receiver<DecoderCommand>,
     /// The bridge owns the complete decode pipeline.
     pub bridge: FormatBridgeBox,
     /// Platform-agnostic shutdown signal for interrupt-aware I/O.
@@ -68,6 +73,7 @@ pub fn spawn_decoder_thread(config: DecoderThreadConfig) -> thread::JoinHandle<R
             continuous,
             drain_pipe,
             tx,
+            cmd_rx,
             mut bridge,
             shutdown_signal,
         } = config;
@@ -83,6 +89,14 @@ pub fn spawn_decoder_thread(config: DecoderThreadConfig) -> thread::JoinHandle<R
             if sys::ShutdownHandle::is_restart_from_config_requested() {
                 log::info!("Restart from config requested, stopping decoder loop");
                 break;
+            }
+
+            while let Ok(cmd) = cmd_rx.try_recv() {
+                match cmd {
+                    DecoderCommand::SetDrcMode(mode) => {
+                        bridge.set_drc_mode(mode.as_str().into());
+                    }
+                }
             }
 
             // Check for SIGHUP reload — clear the flag and notify systemd
@@ -132,6 +146,14 @@ pub fn spawn_decoder_thread(config: DecoderThreadConfig) -> thread::JoinHandle<R
                     || sys::ShutdownHandle::is_restart_from_config_requested()
                 {
                     return Ok(false);
+                }
+
+                while let Ok(cmd) = cmd_rx.try_recv() {
+                    match cmd {
+                        DecoderCommand::SetDrcMode(mode) => {
+                            bridge.set_drc_mode(mode.as_str().into());
+                        }
+                    }
                 }
 
                 let now = Instant::now();

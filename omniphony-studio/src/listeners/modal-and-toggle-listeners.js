@@ -6,7 +6,7 @@ import {
   setRampModeInfoModalOpen, setVbapPositionInterpolationInfoModalOpen,
   setSpreadFromDistanceInfoModalOpen, setDistanceDiffuseInfoModalOpen,
   setTelemetryGaugesOpen,
-  setDisplaySectionOpen, setAudioOutputSectionOpen, setInputSectionOpen, setRendererSectionOpen
+  setDisplaySectionOpen, setDrcSectionOpen, setAudioOutputSectionOpen, setInputSectionOpen, setRendererSectionOpen
 } from '../modals.js';
 
 function bindModalOpenClose({ buttonId, closeButtonId, modalId, open, close }) {
@@ -151,6 +151,7 @@ export function setupModalAndToggleListeners() {
 
   const telemetryGaugesToggleBtnEl = document.getElementById('telemetryGaugesToggleBtn');
   const displaySectionToggleBtnEl = document.getElementById('displaySectionToggleBtn');
+  const drcSectionToggleBtnEl = document.getElementById('drcSectionToggleBtn');
   const audioOutputSectionToggleBtnEl = document.getElementById('audioOutputSectionToggleBtn');
   const inputSectionToggleBtnEl = document.getElementById('inputSectionToggleBtn');
   const rendererSectionToggleBtnEl = document.getElementById('rendererSectionToggleBtn');
@@ -164,6 +165,12 @@ export function setupModalAndToggleListeners() {
   if (displaySectionToggleBtnEl) {
     displaySectionToggleBtnEl.addEventListener('click', () => {
       setDisplaySectionOpen(!app.displaySectionOpen);
+    });
+  }
+
+  if (drcSectionToggleBtnEl) {
+    drcSectionToggleBtnEl.addEventListener('click', () => {
+      setDrcSectionOpen(!app.drcSectionOpen);
     });
   }
 

@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { app, isSpeakerLayoutFrozen, speakerBaseGains, speakerDelays } from '../state.js';
+import { syncSpeakerHeatmapBandSelect } from '../scene/speaker-heatmap.js';
 import {
   renderSpeakerEditor, requestAddSpeaker, requestMoveSpeaker, requestRemoveSpeaker,
   applySpeakerCartesianEdit, applySpeakerPolarEdit,
@@ -288,6 +289,7 @@ export function setupSpeakerEditorListeners() {
         { [field]: Number.isFinite(freq) && freq > 0 ? freq : null },
         { apply: true }
       );
+      syncSpeakerHeatmapBandSelect();
       renderSpeakerEditor();
     };
 

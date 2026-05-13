@@ -56,6 +56,9 @@ struct InputDomainState {
     mode: Option<String>,
     active_mode: Option<String>,
     apply_pending: Option<bool>,
+    drc_mode: Option<String>,
+    drc_weight: Option<f32>,
+    supported_drc_modes: Option<Vec<String>>,
     requested: Option<RequestedInputDomainState>,
     applied: Option<AppliedInputDomainState>,
 }
@@ -462,6 +465,15 @@ fn apply_input_domain_state(s: &mut AppState, value: &str) -> bool {
     }
     if let Some(apply_pending) = parsed.apply_pending {
         s.input_apply_pending = Some(if apply_pending { 1 } else { 0 });
+    }
+    if let Some(drc_mode) = parsed.drc_mode {
+        s.drc_mode = Some(drc_mode);
+    }
+    if let Some(drc_weight) = parsed.drc_weight {
+        s.drc_weight = Some(drc_weight.clamp(0.0, 1.0));
+    }
+    if let Some(supported_drc_modes) = parsed.supported_drc_modes {
+        s.supported_drc_modes = supported_drc_modes;
     }
     if let Some(requested) = parsed.requested {
         s.live_input.backend = requested.backend;
@@ -1085,6 +1097,15 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 (Some(("source:update", payload)), removed_ids)
             }
 
+            OscEvent::UpdateSize { id, size, generation } => {
+                let payload = serde_json::json!({
+                    "id": id,
+                    "size": { "w": size[0], "d": size[1], "h": size[2] },
+                    "generation": generation,
+                });
+                (Some(("source:size", payload)), removed_ids)
+            }
+
             OscEvent::Remove { id } => {
                 s.sources.remove(&id);
                 s.source_levels.remove(&id);
@@ -1170,6 +1191,14 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     removed_ids,
                 )
             }
+
+            OscEvent::MeterDrcGain { value } => (
+                Some((
+                    "meter:drc_gain",
+                    serde_json::json!({ "value": value }),
+                )),
+                removed_ids,
+            ),
 
             OscEvent::StateSpeakerGain { id, gain } => {
                 s.speaker_gains.insert(id.clone(), gain);

@@ -57,6 +57,7 @@ impl OscSender {
         resample_ratio: Option<f32>,
         adaptive_band: Option<&str>,
         adaptive_state: Option<&str>,
+        drc_gain: Option<f32>,
     ) -> Result<()> {
         let max_gain_id = object_gains.iter().map(|(idx, _)| *idx).max().unwrap_or(0);
         let mut gains_by_id: Vec<Option<&renderer::spatial_vbap::Gains>> =
@@ -147,6 +148,12 @@ impl OscSender {
             messages.push(OscPacket::Message(OscMessage {
                 addr: "/omniphony/state/adaptive_resampling/state".to_string(),
                 args: vec![OscType::String(state.to_string())],
+            }));
+        }
+        if let Some(gain) = drc_gain {
+            messages.push(OscPacket::Message(OscMessage {
+                addr: "/omniphony/meter/drc_gain".to_string(),
+                args: vec![OscType::Float(gain)],
             }));
         }
 

@@ -61,6 +61,7 @@ function getObjectDisplayModeSelectEl() { return inDisplayPanel('objectDisplayMo
 function getObjectSphereSizeSliderEl() { return inDisplayPanel('objectSphereSizeSlider'); }
 function getObjectSphereSizeValEl() { return inDisplayPanel('objectSphereSizeVal'); }
 function getObjectLabelsToggleEl() { return inDisplayPanel('objectLabelsToggle'); }
+function getShowObjectDetailsToggleEl() { return inDisplayPanel('showObjectDetailsToggle'); }
 function getSpeakerLabelsToggleEl() { return inDisplayPanel('speakerLabelsToggle'); }
 function getSpeakerSizeSliderEl() { return inDisplayPanel('speakerSizeSlider'); }
 function getSpeakerSizeValEl() { return inDisplayPanel('speakerSizeVal'); }
@@ -136,6 +137,7 @@ export function persistEffectiveRenderPrefs() {
       objectDisplayMode: app.objectDisplayMode,
       objectSphereSize: app.objectSphereSize,
       objectLabels: app.objectLabelsEnabled,
+      showObjectDetails: app.showObjectDetails,
       speakerLabels: app.speakerLabelsEnabled,
       speakerSize: app.speakerSize,
       speakerHeatmapSlicesEnabled: app.speakerHeatmapSlicesEnabled,
@@ -175,6 +177,7 @@ export function applyEffectiveRenderPrefsToUi() {
   const objectSphereSizeSliderEl = getObjectSphereSizeSliderEl();
   const objectSphereSizeValEl = getObjectSphereSizeValEl();
   const objectLabelsToggleEl = getObjectLabelsToggleEl();
+  const showObjectDetailsToggleEl = getShowObjectDetailsToggleEl();
   const speakerLabelsToggleEl = getSpeakerLabelsToggleEl();
   const speakerSizeSliderEl = getSpeakerSizeSliderEl();
   const speakerSizeValEl = getSpeakerSizeValEl();
@@ -201,6 +204,10 @@ export function applyEffectiveRenderPrefsToUi() {
   }
   if (objectLabelsToggleEl) {
     objectLabelsToggleEl.checked = app.objectLabelsEnabled;
+  }
+  if (showObjectDetailsToggleEl) {
+    showObjectDetailsToggleEl.checked = app.showObjectDetails;
+    document.body.classList.toggle('hide-object-details', !app.showObjectDetails);
   }
   if (speakerLabelsToggleEl) {
     speakerLabelsToggleEl.checked = app.speakerLabelsEnabled;
@@ -270,6 +277,9 @@ export function loadEffectiveRenderPrefs() {
       }
       if (typeof parsed?.objectLabels === 'boolean') {
         app.objectLabelsEnabled = parsed.objectLabels;
+      }
+      if (typeof parsed?.showObjectDetails === 'boolean') {
+        app.showObjectDetails = parsed.showObjectDetails;
       }
       if (typeof parsed?.speakerLabels === 'boolean') {
         app.speakerLabelsEnabled = parsed.speakerLabels;

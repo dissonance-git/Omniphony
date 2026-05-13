@@ -16,6 +16,20 @@ pub enum RInputTransport {
     Iec61937 = 1,
 }
 
+/// ABI-stable log level used by bridges to forward diagnostics to the host.
+#[repr(u8)]
+#[derive(StableAbi, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RLogLevel {
+    Error = 1,
+    Warn = 2,
+    Info = 3,
+    Debug = 4,
+    Trace = 5,
+}
+
+/// Host-installed callback used by bridges to inject logs into the renderer pipeline.
+pub type BridgeHostLogSink = extern "C" fn(level: RLogLevel, target: RStr<'_>, message: RStr<'_>);
+
 /// ABI-stable spatial event (single object update for one frame).
 #[repr(C)]
 #[derive(StableAbi, Clone, Debug)]
@@ -32,8 +46,11 @@ pub struct REvent {
     ///   - `distance`: non-negative
     pub pos: [f64; 3],
     pub gain_db: i8,
-    /// Source spread in degrees.
-    pub spread: f64,
+    /// Object spatial extent per axis (width, depth, height), each normalised to
+    /// `[0.0, 1.0]` per ETSI TS 103 420 §5.2.2 / Dolby DAMF `object_size`.
+    /// `[0.0, 0.0, 0.0]` denotes a point source. The renderer is responsible
+    /// for reducing this triplet to a scalar spread according to its policy.
+    pub size: [f64; 3],
     pub ramp_duration: u32,
 }
 
@@ -106,6 +123,10 @@ pub struct RDecodedFrame {
     pub channel_labels: RVec<RChannelLabel>,
     /// One entry per metadata payload found in this access unit.
     pub metadata: RVec<RMetadataFrame>,
+    /// Target Dynamic Range Control gain (linear, 1.0 = 0dB).
+    pub drc_gain: f32,
+    /// DRC ramp duration in samples.
+    pub drc_ramp_duration: u32,
     /// Dialogue normalisation level in dBFS (updated from major sync).
     pub dialogue_level: ROption<i8>,
     /// True when the stream format changed mid-stream (new segment boundary).
@@ -205,6 +226,14 @@ pub trait FormatBridge: Send + Sync + 'static {
     /// Preferred VBAP table mode for this bridge when the host did not receive an
     /// explicit CLI/config override.
     fn preferred_vbap_table_mode(&self) -> RVbapTableMode;
+
+    /// Returns a list of supported DRC modes for this bridge.
+    fn supported_drc_modes(&self) -> RVec<RString>;
+
+    /// Selects a DRC mode for this bridge.
+    ///
+    /// Returns `true` if the mode was successfully applied.
+    fn set_drc_mode(&mut self, mode: RStr<'_>) -> bool;
 }
 
 /// Owned, heap-allocated bridge trait object.
@@ -222,7 +251,14 @@ pub struct BridgeLib {
     ///
     /// Format-specific options (e.g. substream selection) are set afterwards
     /// via [`FormatBridge::configure`] before the first [`FormatBridge::push_packet`].
+    #[sabi(last_prefix_field)]
     pub new_bridge: extern "C" fn(strict: bool) -> FormatBridgeBox,
+    /// Install a host log sink for bridge diagnostics.
+    ///
+    /// New hosts should register this immediately after loading the bridge.
+    /// Older bridges may not expose it; in that case bridge diagnostics fall
+    /// back to stderr.
+    pub set_host_log_sink: extern "C" fn(usize),
 }
 
 impl RootModule for BridgeLibRef {

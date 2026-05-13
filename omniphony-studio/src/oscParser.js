@@ -116,12 +116,13 @@ function parseOmniphonySpatialFrame(parts, args, context) {
   }
 
   const samplePos = toNumber(args[0]);
-  const objectCount = toNumber(args[1]);
+  const hasGeneration = args.length >= 4;
+  const objectCount = toNumber(args[hasGeneration ? 2 : 1]);
   if (samplePos === null || objectCount === null) {
     return null;
   }
 
-  const coordinateFormat = toNumber(args[2]) === 1 ? 1 : 0;
+  const coordinateFormat = toNumber(args[hasGeneration ? 3 : 2]) === 1 ? 1 : 0;
   if (context) {
     context.omniphonyCoordinateFormat = coordinateFormat;
   }
@@ -156,7 +157,13 @@ function parseOmniphonyObjectPosition(parts, args, context) {
     return null;
   }
 
-  const nameRaw = args[7];
+  // /xyz | /aed payload after divergence removal:
+  // [pos0, pos1, pos2, speaker_idx, gain, priority, ramp_duration, gen, name]
+  // Fall back to the previous slot for backward compatibility.
+  let nameRaw = args[8];
+  if (typeof nameRaw !== 'string') {
+    nameRaw = args[9];
+  }
   const name = typeof nameRaw === 'string' && nameRaw.trim() ? nameRaw.trim() : null;
 
   let payload;
@@ -198,6 +205,31 @@ function parseOmniphonyObjectPosition(parts, args, context) {
     result.name = name;
   }
   return result;
+}
+
+function parseOmniphonyObjectSize(parts, args) {
+  if (!parts.includes('omniphony') || !parts.includes('object') || !parts.includes('size')) {
+    return null;
+  }
+  const id = findIdInAddress(parts);
+  if (!id) {
+    return null;
+  }
+  const w = toNumber(args[0]);
+  const d = toNumber(args[1]);
+  const h = toNumber(args[2]);
+  if (w === null || d === null || h === null) {
+    return null;
+  }
+  return {
+    type: 'update',
+    id: String(id),
+    size: {
+      w: clamp(w, 0, 1),
+      d: clamp(d, 0, 1),
+      h: clamp(h, 0, 1)
+    }
+  };
 }
 
 function parseOmniphonyDomainState(parts, args) {
@@ -421,6 +453,11 @@ function parseOscMessage(oscMsg, context = null) {
   const parsedOmniphonyObjectPosition = parseOmniphonyObjectPosition(parts, args, context);
   if (parsedOmniphonyObjectPosition) {
     return parsedOmniphonyObjectPosition;
+  }
+
+  const parsedOmniphonyObjectSize = parseOmniphonyObjectSize(parts, args);
+  if (parsedOmniphonyObjectSize) {
+    return parsedOmniphonyObjectSize;
   }
 
   const parsedOmniphonyState = parseOmniphonyStateMessage(parts, args);

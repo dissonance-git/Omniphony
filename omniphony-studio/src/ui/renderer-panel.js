@@ -210,6 +210,14 @@ export function rendererPanelMarkup() {
                 <input id="spreadDistanceCurveSlider" type="range" min="0.1" max="3.0" step="0.05" value="1.0" class="gain-slider" />
               </div>
             </div>
+            <div class="meter-row" style="margin-top:0.25rem">
+              <label style="font-size:12px;white-space:nowrap" for="sizeToSpreadModeSelect" data-i18n="spread.sizeToSpreadMode">Size&rarr;Spread mode</label>
+              <select id="sizeToSpreadModeSelect">
+                <option value="max" data-i18n="spread.mode.max">Max</option>
+                <option value="mean" data-i18n="spread.mode.mean">Mean</option>
+                <option value="projection_perpendicular" data-i18n="spread.mode.projectionPerpendicular">Projection &perp;</option>
+              </select>
+            </div>
           </div>
           <div class="info-section" id="barycenterSection" style="margin:0;padding:0;border:none;background:none;display:none">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">

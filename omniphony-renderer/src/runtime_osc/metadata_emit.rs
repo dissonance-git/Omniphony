@@ -74,6 +74,8 @@ impl OscSender {
                     }
                 })
                 .unwrap_or(if coordinate_format == 1 { "aed" } else { "xyz" });
+            // /xyz | /aed: position + speaker + gain + priority + ramp + gen + name
+            // (9 args; `divergence` slot retired — clients should read `/size`).
             let msg = OscMessage {
                 addr: format!("/omniphony/object/{}/{}", stale_id, suffix),
                 args: vec![
@@ -83,7 +85,6 @@ impl OscSender {
                     OscType::Int(-1),
                     OscType::Int(-128),
                     OscType::Float(0.0),
-                    OscType::Float(0.0),
                     OscType::Int(ramp_duration as i32),
                     OscType::Long(self.content_generation as i64),
                     OscType::String(String::new()),
@@ -91,13 +92,28 @@ impl OscSender {
             };
             let bytes = rosc::encoder::encode(&OscPacket::Message(msg))?;
             self.send_to_all(&bytes);
+
+            // Emit a zeroed /size for stale objects so clients can clear their
+            // displays.
+            let size_msg = OscMessage {
+                addr: format!("/omniphony/object/{}/size", stale_id),
+                args: vec![
+                    OscType::Float(0.0),
+                    OscType::Float(0.0),
+                    OscType::Float(0.0),
+                    OscType::Long(self.content_generation as i64),
+                ],
+            };
+            let size_bytes = rosc::encoder::encode(&OscPacket::Message(size_msg))?;
+            self.send_to_all(&size_bytes);
         }
 
         for (object_id, obj) in objects.iter().enumerate() {
-            let changed =
-                force_full || !self.prev_objects.as_ref().unwrap()[object_id].matches(obj);
+            let prev = self.prev_objects.as_ref().and_then(|p| p.get(object_id));
+            let position_changed = force_full || prev.map_or(true, |p| !p.matches_position(obj));
+            let size_changed = force_full || prev.map_or(true, |p| !p.matches_size(obj));
 
-            if changed {
+            if position_changed {
                 let suffix = if obj.coord_mode.eq_ignore_ascii_case("cartesian") {
                     "xyz"
                 } else {
@@ -112,7 +128,6 @@ impl OscSender {
                         OscType::Int(obj.direct_speaker_index.map(|v| v as i32).unwrap_or(-1)),
                         OscType::Int(obj.gain),
                         OscType::Float(obj.priority),
-                        OscType::Float(obj.divergence),
                         OscType::Int(ramp_duration as i32),
                         OscType::Long(self.content_generation as i64),
                         OscType::String(obj.name.clone()),
@@ -120,6 +135,20 @@ impl OscSender {
                 };
                 let bytes = rosc::encoder::encode(&OscPacket::Message(msg))?;
                 self.send_to_all(&bytes);
+            }
+
+            if size_changed {
+                let size_msg = OscMessage {
+                    addr: format!("/omniphony/object/{}/size", object_id),
+                    args: vec![
+                        OscType::Float(obj.size[0]),
+                        OscType::Float(obj.size[1]),
+                        OscType::Float(obj.size[2]),
+                        OscType::Long(self.content_generation as i64),
+                    ],
+                };
+                let size_bytes = rosc::encoder::encode(&OscPacket::Message(size_msg))?;
+                self.send_to_all(&size_bytes);
             }
         }
 

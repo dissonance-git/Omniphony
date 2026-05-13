@@ -17,6 +17,9 @@ export const sourceLabels = new Map();
 export const sourceOutlines = new Map();
 export const sourceLevels = new Map();
 export const speakerLevels = new Map();
+export const sourcePeaks = new Map(); // { value: number, expires: number }
+export const speakerPeaks = new Map(); // { value: number, expires: number }
+export let masterPeak = { value: 0, expires: 0 };
 export const sourceLevelLastSeen = new Map();
 export const speakerLevelLastSeen = new Map();
 export const sourceGains = new Map();
@@ -33,6 +36,9 @@ export const objectManualMuted = new Set();
 export const sourceNames = new Map();
 export const sourceTags = new Map();
 export const sourcePositionsRaw = new Map();
+/// Per-object 3-D extent (w, d, h) received via `/omniphony/object/{id}/size`.
+/// Each entry is `{ w: number, d: number, h: number }` in [0, 1].
+export const sourceSizes = new Map();
 export const sourceDirectSpeakerIndices = new Map();
 export const sourceTrails = new Map();
 export const sourceEffectiveMarkers = new Map();
@@ -78,6 +84,7 @@ export const dirty = {
   renderTime: false,
   resample: false,
   audioFormat: false,
+  drcUI: false,
   masterGain: false
 };
 
@@ -135,7 +142,7 @@ export const app = {
   vbapCartesianFaceGridEnabled: false,
 
   // Spread
-  spreadState: { min: null, max: null, fromDistance: null, distanceRange: null, distanceCurve: null },
+  spreadState: { min: null, max: null, fromDistance: null, distanceRange: null, distanceCurve: null, sizeToSpreadMode: 'max' },
 
   // Distance diffuse
   distanceDiffuseState: { enabled: null, threshold: null, curve: null },
@@ -207,6 +214,10 @@ export const app = {
   inputDescription: null,
   inputStreamFormat: null,
   inputError: null,
+  drcMode: null,
+  supportedDrcModes: [],
+  drcGain: 1.0,
+  drcWeight: 1.0,
   renderBridgePath: null,
   liveInput: {
     backend: 'pipewire',
@@ -258,6 +269,7 @@ export const app = {
   inputSectionOpen: false,
   rendererSectionOpen: false,
   displaySectionOpen: false,
+  drcSectionOpen: false,
 
   // Selection & drag
   selectedSourceId: null,
@@ -297,7 +309,8 @@ export const app = {
   effectiveRenderEnabled: false,
   objectColorsEnabled: false,
   objectLabelsEnabled: true,
-  speakerLabelsEnabled: true,
+  showObjectDetails: true,
+  speakerLabelsEnabled: false,
   objectDisplayMode: 'circle',
   objectSphereSize: 0.07,
   lastTrailDecayAt: 0,

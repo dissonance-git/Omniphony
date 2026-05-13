@@ -559,6 +559,24 @@ fn control_spread_from_distance(state: State<SharedState>, enable: i32) {
 }
 
 #[tauri::command]
+fn control_size_to_spread_mode(state: State<SharedState>, value: String) {
+    let normalized = value.trim().to_ascii_lowercase();
+    if !matches!(
+        normalized.as_str(),
+        "max" | "mean" | "projection_perpendicular"
+    ) {
+        return;
+    }
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/spread/size_to_spread_mode".to_string(),
+            value: normalized,
+        },
+    );
+}
+
+#[tauri::command]
 fn control_spread_distance_range(state: State<SharedState>, value: f32) {
     let v = value.max(0.01);
     send_control(
@@ -1252,6 +1270,28 @@ fn control_ramp_mode(state: State<SharedState>, value: String) {
         OscControlMsg::SendString {
             address: "/omniphony/control/ramp_mode".to_string(),
             value: trimmed,
+        },
+    );
+}
+
+#[tauri::command]
+fn control_drc_mode(state: State<SharedState>, value: String) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/input/drc_mode".to_string(),
+            value,
+        },
+    );
+}
+
+#[tauri::command]
+fn control_drc_weight(state: State<SharedState>, value: f32) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendFloat {
+            address: "/omniphony/control/input/drc_weight".to_string(),
+            value: value.clamp(0.0, 1.0),
         },
     );
 }
@@ -2339,6 +2379,7 @@ fn main() {
             control_spread_from_distance,
             control_spread_distance_range,
             control_spread_distance_curve,
+            control_size_to_spread_mode,
             control_distance_model,
             control_experimental_distance_distance_floor,
             control_experimental_distance_min_active_speakers,
@@ -2416,6 +2457,8 @@ fn main() {
             control_input_refresh,
             control_export_layout,
             control_audio_sample_rate,
+            control_drc_mode,
+            control_drc_weight,
         ])
         .run(tauri::generate_context!())
         .expect("error running Tauri application");

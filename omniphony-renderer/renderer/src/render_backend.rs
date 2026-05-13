@@ -1,6 +1,7 @@
 mod barycenter_backend;
 mod evaluation_artifact;
 mod experimental_distance_backend;
+pub mod size_to_spread;
 mod vbap_backend;
 
 use crate::spatial_vbap::{DistanceModel, Gains, adm_to_spherical, spherical_to_adm};
@@ -13,6 +14,7 @@ pub use evaluation_artifact::{
     BackendRestoreSnapshot, SerializedEvaluationMode, build_backend_restore_snapshot,
 };
 pub use experimental_distance_backend::ExperimentalDistanceBackend;
+pub use size_to_spread::{SizeToSpreadMode, reduce_size_to_spread};
 pub use vbap_backend::VbapBackend;
 
 #[derive(Debug, Clone, Copy, Default, Serialize)]
@@ -24,6 +26,9 @@ pub struct BackendCapabilities {
     pub supports_distance_model: bool,
     pub supports_spread: bool,
     pub supports_spread_from_distance: bool,
+    /// True when the backend consumes per-event object size (anisotropic
+    /// w/d/h triplet) in addition to or instead of the global spread params.
+    pub supports_event_size: bool,
     pub supports_distance_diffuse: bool,
     pub supports_heatmap_cartesian: bool,
     pub supports_table_export: bool,
@@ -178,6 +183,13 @@ impl EffectiveEvaluationMode {
 #[derive(Debug, Clone, Copy)]
 pub struct RenderRequest {
     pub adm_position: [f64; 3],
+    /// Per-event object size (w, d, h) ∈ [0, 1]³. `[0, 0, 0]` for a point
+    /// source or when no size information is available.
+    pub event_size: [f32; 3],
+    /// Reduction policy applied to `event_size` to derive a scalar spread.
+    /// Only consumed by backends whose `BackendCapabilities::supports_event_size`
+    /// is `true` (currently VBAP).
+    pub size_to_spread_mode: SizeToSpreadMode,
     pub spread_min: f32,
     pub spread_max: f32,
     pub spread_from_distance: bool,

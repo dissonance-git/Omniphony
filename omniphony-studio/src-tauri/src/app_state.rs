@@ -358,6 +358,12 @@ pub struct AppState {
     pub input_active_mode: Option<String>,
     #[serde(rename = "inputApplyPending")]
     pub input_apply_pending: Option<u8>,
+    #[serde(rename = "drcMode")]
+    pub drc_mode: Option<String>,
+    #[serde(rename = "drcWeight")]
+    pub drc_weight: Option<f32>,
+    #[serde(rename = "supportedDrcModes")]
+    pub supported_drc_modes: Vec<String>,
     #[serde(rename = "inputBackend")]
     pub input_backend: Option<String>,
     #[serde(rename = "inputChannels")]
@@ -551,6 +557,9 @@ impl Default for AppState {
             input_mode: Some("pipe_bridge".to_string()),
             input_active_mode: Some("pipe_bridge".to_string()),
             input_apply_pending: Some(0),
+            drc_mode: None,
+            drc_weight: Some(1.0),
+            supported_drc_modes: Vec::new(),
             input_backend: None,
             input_channels: None,
             input_sample_rate: None,

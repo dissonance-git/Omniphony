@@ -115,7 +115,7 @@ test('parses omniphony object xyz mapping', () => {
 
 test('parses omniphony spatial frame and preserves explicit xyz decoding', () => {
   const ctx = { omniphonyCoordinateFormat: 0 };
-  const frame = parseOscMessage(msg('/omniphony/spatial/frame', [1024, 3, 1]), ctx);
+  const frame = parseOscMessage(msg('/omniphony/spatial/frame', [1024, 77, 3, 1]), ctx);
   assert.deepEqual(frame, {
     type: 'spatial:frame',
     samplePos: 1024,
@@ -132,7 +132,7 @@ test('parses omniphony spatial frame and preserves explicit xyz decoding', () =>
 
 test('parses omniphony object aed in polar mode', () => {
   const ctx = { omniphonyCoordinateFormat: 0 };
-  const frame = parseOscMessage(msg('/omniphony/spatial/frame', [1024, 3, 1]), ctx);
+  const frame = parseOscMessage(msg('/omniphony/spatial/frame', [1024, 77, 3, 1]), ctx);
   assert.equal(frame.coordinateFormat, 1);
 
   const parsed = parseOscMessage(msg('/omniphony/object/7/aed', [90, 0, 1]), ctx);
@@ -141,6 +141,18 @@ test('parses omniphony object aed in polar mode', () => {
     id: '7',
     position: { x: 0, y: 0, z: 0, coordMode: 'polar', azimuthDeg: 90, elevationDeg: 0, distanceM: 1 }
   });
+});
+
+test('parses legacy 3-argument omniphony spatial frame for backwards compatibility', () => {
+  const ctx = { omniphonyCoordinateFormat: 0 };
+  const frame = parseOscMessage(msg('/omniphony/spatial/frame', [1024, 3, 1]), ctx);
+  assert.deepEqual(frame, {
+    type: 'spatial:frame',
+    samplePos: 1024,
+    objectCount: 3,
+    coordinateFormat: 1
+  });
+  assert.equal(ctx.omniphonyCoordinateFormat, 1);
 });
 
 test('parses serialized renderer and loudness domains', () => {

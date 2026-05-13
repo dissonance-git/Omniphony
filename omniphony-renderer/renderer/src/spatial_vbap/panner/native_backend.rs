@@ -4,12 +4,9 @@
 
 use super::Gains;
 use super::gain_source::VbapGainSource;
-use crate::spatial_vbap::vbap_native::{find_ls_triplets, invert_ls_mtx_3d, vbap3d};
-
-/// Elevation threshold for dummy speaker injection.
-/// If all speakers are above/below this limit, a virtual speaker is added at ±90°
-/// so that 3D convex hull triangulation succeeds for near-horizontal layouts.
-const ADD_DUMMY_LIMIT: f32 = 60.0;
+use crate::spatial_vbap::vbap_native::{
+    find_ls_triplets, invert_ls_mtx_3d, prepare_effective_speaker_dirs, vbap3d,
+};
 
 /// Maximum spread in degrees accepted by `vbap3d`.
 /// Matches `SpartaVbapLayout::NORMALIZED_SPREAD_MAX_DEG` for parity.
@@ -44,31 +41,14 @@ pub(crate) struct NativeVbapLayout {
 impl NativeVbapLayout {
     /// Build a layout from speaker directions (azimuth, elevation in degrees).
     ///
-    /// When all speakers lie within ±ADD_DUMMY_LIMIT degrees of the equator,
-    /// virtual speakers at ±90° elevation are injected so that the 3D convex
-    /// hull triangulation succeeds. Dummy gains are stripped before returning.
+    /// The real layout is triangulated first. If that fails, virtual speakers at
+    /// ±90° elevation are injected as a fallback so the 3D convex hull can be
+    /// built. Dummy gains are stripped before returning.
     pub fn from_speaker_dirs(speaker_dirs_deg: &[[f32; 2]]) -> Result<Self, String> {
         let n_real = speaker_dirs_deg.len();
-
-        let need_dummy_neg = speaker_dirs_deg.iter().all(|d| d[1] > -ADD_DUMMY_LIMIT);
-        let need_dummy_pos = speaker_dirs_deg.iter().all(|d| d[1] < ADD_DUMMY_LIMIT);
-
-        let effective_dirs: Vec<[f32; 2]>;
-        let mut is_dummy: Vec<bool> = vec![false; n_real];
-        if need_dummy_neg || need_dummy_pos {
-            let mut dirs = speaker_dirs_deg.to_vec();
-            if need_dummy_neg {
-                dirs.push([0.0, -90.0]);
-                is_dummy.push(true);
-            }
-            if need_dummy_pos {
-                dirs.push([0.0, 90.0]);
-                is_dummy.push(true);
-            }
-            effective_dirs = dirs;
-        } else {
-            effective_dirs = speaker_dirs_deg.to_vec();
-        }
+        let (effective_dirs, is_dummy) =
+            prepare_effective_speaker_dirs(speaker_dirs_deg, true, true)
+                .ok_or_else(|| "find_ls_triplets failed".to_string())?;
 
         let n_eff = effective_dirs.len();
         debug_assert_eq!(is_dummy.len(), n_eff);
@@ -138,18 +118,46 @@ mod tests {
     /// dummy injections (±90°) so the redistribution path is hit at both poles.
     fn horizontal_7_layout() -> [[f32; 2]; 7] {
         [
-            [0.0, 0.0],     // C
-            [-30.0, 0.0],   // L
-            [30.0, 0.0],    // R
-            [-110.0, 0.0],  // LS
-            [110.0, 0.0],   // RS
-            [-150.0, 0.0],  // LRS
-            [150.0, 0.0],   // RRS
+            [0.0, 0.0],    // C
+            [-30.0, 0.0],  // L
+            [30.0, 0.0],   // R
+            [-110.0, 0.0], // LS
+            [110.0, 0.0],  // RS
+            [-150.0, 0.0], // LRS
+            [150.0, 0.0],  // RRS
         ]
     }
 
     fn rms(g: &Gains) -> f32 {
         (0..g.len()).map(|i| g[i] * g[i]).sum::<f32>().sqrt()
+    }
+
+    #[test]
+    fn test_real_height_speakers_do_not_force_dummy_poles() {
+        let dirs = [
+            [-30.0_f32, 0.0],
+            [30.0, 0.0],
+            [-110.0, 0.0],
+            [110.0, 0.0],
+            [-45.0, 36.0],
+            [45.0, 36.0],
+        ];
+
+        let layout = NativeVbapLayout::from_speaker_dirs(&dirs).unwrap();
+
+        assert_eq!(layout.n_speakers, dirs.len());
+        assert_eq!(layout.n_eff, dirs.len());
+        assert!(layout.is_dummy.iter().all(|flag| !flag));
+    }
+
+    #[test]
+    fn test_coplanar_layout_still_falls_back_to_dummy_poles() {
+        let dirs = horizontal_7_layout();
+        let layout = NativeVbapLayout::from_speaker_dirs(&dirs).unwrap();
+
+        assert_eq!(layout.n_speakers, dirs.len());
+        assert_eq!(layout.n_eff, dirs.len() + 2);
+        assert_eq!(layout.is_dummy.iter().filter(|flag| **flag).count(), 2);
     }
 
     #[test]

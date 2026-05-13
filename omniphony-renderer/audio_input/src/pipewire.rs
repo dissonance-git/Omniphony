@@ -53,7 +53,7 @@ struct BridgeCaptureUserData {
     buffers_since_log: usize,
     sync_buffers_since_log: usize,
     packets_since_log: usize,
-    frames_since_log: usize,
+    queued_packets_since_log: usize,
     empty_polls_since_log: usize,
     callback_chunk_logs_remaining: usize,
     accumulate_buf: Vec<u8>,
@@ -401,7 +401,7 @@ where
             buffers_since_log: 0,
             sync_buffers_since_log: 0,
             packets_since_log: 0,
-            frames_since_log: 0,
+            queued_packets_since_log: 0,
             empty_polls_since_log: 0,
             callback_chunk_logs_remaining: 8,
             accumulate_buf: Vec::new(),
@@ -736,7 +736,7 @@ where
             }
             user_data.accumulate_buf.extend_from_slice(chunk);
             user_data.accumulate_count += 1;
-            let (packet_count, frame_count) =
+            let (packet_count, queued_count) =
                 if user_data.accumulate_count >= PW_STREAM_ACCUMULATE_CALLBACKS {
                     let result = process_chunk.borrow_mut()(&user_data.accumulate_buf);
                     user_data.accumulate_buf.clear();
@@ -746,17 +746,17 @@ where
                     (0, 0)
                 };
             user_data.packets_since_log += packet_count;
-            user_data.frames_since_log += frame_count;
+            user_data.queued_packets_since_log += queued_count;
             let now = Instant::now();
             if now.duration_since(user_data.last_log_at) >= LIVE_BRIDGE_LOG_INTERVAL {
                 log::info!(
-                    "{} ingest: buffers={} bytes={} sync_buffers={} packets={} frames={}",
+                    "{} ingest: buffers={} bytes={} sync_buffers={} packets={} queued={}",
                     log_prefix,
                     user_data.buffers_since_log,
                     user_data.bytes_since_log,
                     user_data.sync_buffers_since_log,
                     user_data.packets_since_log,
-                    user_data.frames_since_log
+                    user_data.queued_packets_since_log
                 );
                 if user_data.buffers_since_log > 0 && user_data.sync_buffers_since_log == 0 {
                     log::info!("{} ingest has audio buffers but no IEC61937 sync words yet", log_prefix);
@@ -775,7 +775,7 @@ where
                 user_data.buffers_since_log = 0;
                 user_data.sync_buffers_since_log = 0;
                 user_data.packets_since_log = 0;
-                user_data.frames_since_log = 0;
+                user_data.queued_packets_since_log = 0;
                 user_data.empty_polls_since_log = 0;
             }
             if use_driver {

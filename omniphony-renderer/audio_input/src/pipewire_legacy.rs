@@ -47,7 +47,7 @@ pub struct BridgeCaptureUserData {
     pub buffers_since_log: usize,
     pub sync_buffers_since_log: usize,
     pub packets_since_log: usize,
-    pub frames_since_log: usize,
+    pub queued_packets_since_log: usize,
     pub empty_polls_since_log: usize,
     pub callback_chunk_logs_remaining: usize,
     pub accumulate_buf: Vec<u8>,
@@ -106,7 +106,7 @@ fn new_bridge_capture_metrics(rate_hz: u32, channels: u32) -> BridgeCaptureUserD
         buffers_since_log: 0,
         sync_buffers_since_log: 0,
         packets_since_log: 0,
-        frames_since_log: 0,
+        queued_packets_since_log: 0,
         empty_polls_since_log: 0,
         callback_chunk_logs_remaining: 8,
         accumulate_buf: Vec::new(),
@@ -531,19 +531,19 @@ pub fn process_pipewire_bridge_chunk_metrics<F>(
     if has_spdif_sync {
         metrics.sync_buffers_since_log += 1;
     }
-    let (packet_count, frame_count) = process_chunk();
+    let (packet_count, queued_count) = process_chunk();
     metrics.packets_since_log += packet_count;
-    metrics.frames_since_log += frame_count;
+    metrics.queued_packets_since_log += queued_count;
     let now = Instant::now();
     if now.duration_since(metrics.last_log_at) >= LIVE_BRIDGE_LOG_INTERVAL {
         log::debug!(
-            "PipeWire bridge ingest: process_calls={} buffers={} bytes={} sync_buffers={} packets={} frames={} empty_polls={} rate={}Hz channels={}",
+            "PipeWire bridge ingest: process_calls={} buffers={} bytes={} sync_buffers={} packets={} queued={} empty_polls={} rate={}Hz channels={}",
             metrics.process_calls_since_log,
             metrics.buffers_since_log,
             metrics.bytes_since_log,
             metrics.sync_buffers_since_log,
             metrics.packets_since_log,
-            metrics.frames_since_log,
+            metrics.queued_packets_since_log,
             metrics.empty_polls_since_log,
             metrics.rate_hz,
             metrics.channels
@@ -557,7 +557,7 @@ pub fn process_pipewire_bridge_chunk_metrics<F>(
         metrics.buffers_since_log = 0;
         metrics.sync_buffers_since_log = 0;
         metrics.packets_since_log = 0;
-        metrics.frames_since_log = 0;
+        metrics.queued_packets_since_log = 0;
         metrics.empty_polls_since_log = 0;
     }
 }

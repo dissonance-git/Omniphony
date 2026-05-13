@@ -41,7 +41,9 @@ pub struct ObjectMeta {
     /// Gain in dB (integer, -128 = silent).
     pub gain: i32,
     pub priority: f32,
-    pub divergence: f32,
+    /// Per-axis object spatial extent (w, d, h), each in [0.0, 1.0].
+    /// `[0.0, 0.0, 0.0]` denotes a point source.
+    pub size: [f32; 3],
 }
 
 /// Epsilon for position/float comparison in delta OSC sending.
@@ -58,7 +60,7 @@ struct ObjectSnapshot {
     direct_speaker_index: Option<u32>,
     gain: i32,
     priority: f32,
-    divergence: f32,
+    size: [f32; 3],
 }
 
 impl ObjectSnapshot {
@@ -72,11 +74,11 @@ impl ObjectSnapshot {
             direct_speaker_index: o.direct_speaker_index,
             gain: o.gain,
             priority: o.priority,
-            divergence: o.divergence,
+            size: o.size,
         }
     }
 
-    fn matches(&self, o: &ObjectMeta) -> bool {
+    fn matches_position(&self, o: &ObjectMeta) -> bool {
         self.name == o.name
             && self.gain == o.gain
             && self.coord_mode == o.coord_mode
@@ -85,7 +87,12 @@ impl ObjectSnapshot {
             && (self.y - o.y).abs() < OBJECT_EPSILON
             && (self.z - o.z).abs() < OBJECT_EPSILON
             && (self.priority - o.priority).abs() < OBJECT_EPSILON
-            && (self.divergence - o.divergence).abs() < OBJECT_EPSILON
+    }
+
+    fn matches_size(&self, o: &ObjectMeta) -> bool {
+        (self.size[0] - o.size[0]).abs() < OBJECT_EPSILON
+            && (self.size[1] - o.size[1]).abs() < OBJECT_EPSILON
+            && (self.size[2] - o.size[2]).abs() < OBJECT_EPSILON
     }
 }
 

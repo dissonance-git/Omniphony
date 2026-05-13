@@ -23,6 +23,10 @@
             <option value="trace" data-i18n="log.levelOption.trace">Trace</option>
           </select>
         </label>
+        <label class="log-panel-filter">
+          <span data-i18n="log.filterLabel">Filter</span>
+          <input id="logFilterInput" type="text" spellcheck="false" data-i18n-placeholder="log.filterPlaceholder" placeholder="Filter logs" />
+        </label>
         <div class="log-panel-actions">
           <button id="logCopyBtn" type="button" class="log-panel-btn" data-i18n="log.copy">Copy</button>
           <button id="logClearBtn" type="button" class="log-panel-btn" data-i18n="log.clear">Clear</button>
@@ -214,6 +218,10 @@
                     <div data-i18n="display.objectLabels">Object labels</div>
                     <input id="objectLabelsToggle" type="checkbox" />
                   </div>
+                  <div class="inline-toggle" style="margin-top:0">
+                    <div data-i18n="display.showObjectDetails">Show object details</div>
+                    <input id="showObjectDetailsToggle" type="checkbox" checked />
+                  </div>
                 </div>
               </div>
             </div>
@@ -302,9 +310,63 @@
         </div>
       </div>
       </div>
+      <div id="drcPanelRoot">
+      <div class="info-section" id="drcSection">
+        <div class="panel-header">
+          <div class="panel-header-main">
+          <div class="info-title panel-title" data-i18n="section.drc">DRC / Loudness</div>
+          </div>
+          <div id="drcGaugeRow" style="flex:1 1 auto; margin: 0 0.4rem; display:none; align-items:center; gap:0.4rem; min-width:60px;">
+             <div style="flex:1; height: 6px; background: #222; border-radius: 3px; overflow: hidden; position: relative;">
+                <div id="drcGaugeFill" style="position: absolute; right: 0; top: 0; bottom: 0; width: 0%; background: #ff4444; transition: width 0.1s ease-out;"></div>
+             </div>
+             <span id="drcGainValue" style="font-size: 0.65rem; color: #888; white-space:nowrap; font-family:ui-monospace, monospace;">0.0 dB</span>
+          </div>
+          <div style="display:flex;justify-content:flex-end;min-width:0">
+            <div id="drcSummary" class="panel-summary" style="display:none;flex:0 1 auto">—</div>
+          </div>
+          <button id="drcSectionToggleBtn" type="button" class="panel-toggle-btn">▸</button>
+        </div>
+        <div id="drcSectionContent" class="conditional-params">
+          <div style="margin-top:0.25rem;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03);display:grid;gap:0.35rem">
+            <div class="inline-toggle" id="drcControlRow" style="margin-top:0; display:none;">
+              <div data-i18n="input.drc">DRC</div>
+              <select id="drcModeSelect" class="form-select" style="font-size:0.75rem; padding:0.1rem 0.2rem; width:auto; min-width:80px;"></select>
+            </div>
+            <div id="drcWeightRow" style="display:none;">
+              <div style="font-size: 0.65rem; color: #888; margin-bottom: 0.15rem; display: flex; justify-content: space-between;">
+                <span data-i18n="input.drc_weight">DRC weight</span>
+                <span id="drcWeightValue">100%</span>
+              </div>
+              <input id="drcWeightSlider" type="range" min="0" max="100" step="1" value="100" style="width:100%;" />
+            </div>
+            <div style="margin-top:0.2rem; border-top:1px solid rgba(255,255,255,0.05); padding-top:0.3rem; display:grid; gap:0.25rem;">
+              <div class="inline-toggle" style="margin-top:0">
+                <div data-i18n="section.loudness">Loudness / Dialog Norm</div>
+                <input id="loudnessToggle" type="checkbox" />
+              </div>
+              <div id="loudnessInfo" style="font-size:10px; color:#8fa6bd; font-family:ui-monospace, monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">source: — | target: — | correction: —</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
       <div id="objectsPanelRoot">
       <div class="info-section" id="objectsSection">
-        <div class="info-title" data-i18n="section.objects">Objects</div>
+        <div class="panel-header">
+          <div class="panel-header-main">
+            <div class="info-title panel-title" data-i18n="section.objects">Objects</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:0.35rem">
+            <button
+              id="objectDetailsToggleBtn"
+              type="button"
+              class="panel-toggle-btn"
+              data-i18n-title="display.showObjectDetails"
+              title="Show object details"
+            >▸</button>
+          </div>
+        </div>
         <div class="inline-toggle" style="margin-bottom:0.35rem">
           <div data-i18n="osc.metering">Metering</div>
           <input id="oscMeteringToggle" type="checkbox" />

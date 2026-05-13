@@ -22,7 +22,7 @@ import {
   usesNumericSpatialPlaceholders
 } from './state.js';
 
-import { updateSource, updateSourceLevel, updateSourceGains, updateSourceBandGains, updateSourceTag, removeSource } from './sources.js';
+import { updateSource, updateSourceLevel, updateSourceGains, updateSourceBandGains, updateSourceSize, updateSourceTag, removeSource } from './sources.js';
 import {
   updateSpeakerLevel,
   renderLayout,
@@ -58,6 +58,7 @@ import {
 } from './controls/vbap.js';
 import { updateAudioFormatDisplay } from './controls/audio.js';
 import { updateInputControlUI } from './controls/input.js';
+import { updateDrcMeterUI } from './controls/drc.js';
 import { updateAdaptiveResamplingUI } from './controls/adaptive.js';
 import { updateDistanceDiffuseUI } from './controls/distance-diffuse.js';
 import { renderOscStatus, setOscStatus } from './controls/osc.js';
@@ -75,6 +76,7 @@ import {
   handleSpeakerHeatmapSlice,
   handleSpeakerHeatmapVolumeChunk,
   handleSpeakerHeatmapUnavailable,
+  syncSpeakerHeatmapBandSelect,
 } from './scene/speaker-heatmap.js';
 
 export function setupTauriBridge() {
@@ -112,6 +114,10 @@ export function setupTauriBridge() {
     updateSource(payload.id, payload.position);
   });
 
+  listen('source:size', ({ payload }) => {
+    updateSourceSize(payload.id, payload.size);
+  });
+
   listen('source:remove', ({ payload }) => {
     removeSource(payload.id);
   });
@@ -126,6 +132,10 @@ export function setupTauriBridge() {
 
   listen('source:band_gains', ({ payload }) => {
     updateSourceBandGains(payload.id, payload.band, payload.gains);
+  });
+
+  listen('meter:drc_gain', ({ payload }) => {
+    updateDrcMeterUI(Number(payload.value));
   });
 
   listen('spatial:frame', ({ payload }) => {
@@ -222,6 +232,7 @@ export function setupTauriBridge() {
     if (!speaker) return;
     const fl = payload.freq_low;
     speaker.freqLow = fl != null && fl > 0 ? fl : null;
+    syncSpeakerHeatmapBandSelect();
     if (app.selectedSpeakerIndex === index) renderSpeakerEditor();
   });
 
@@ -232,6 +243,7 @@ export function setupTauriBridge() {
     if (!speaker) return;
     const fh = payload.freq_high;
     speaker.freqHigh = fh != null && fh > 0 ? fh : null;
+    syncSpeakerHeatmapBandSelect();
     if (app.selectedSpeakerIndex === index) renderSpeakerEditor();
   });
 
@@ -512,6 +524,29 @@ export function setupTauriBridge() {
     updateLatencyDisplay();
   });
 
+  listen('latency:target', ({ payload }) => {
+    const value = Number(payload.value);
+    app.latencyTargetMs = Number.isFinite(value) ? value : null;
+    if (app.latencyMs === null && Number.isFinite(value)) {
+      app.latencyMs = value;
+    }
+    updateLatencyDisplay();
+    updateLatencyMeterUI();
+  });
+
+  listen('latency:requested', ({ payload }) => {
+    const value = Number(payload.value);
+    app.latencyRequestedMs = Number.isFinite(value) ? value : null;
+    if (app.latencyTargetMs === null && Number.isFinite(value)) {
+      app.latencyTargetMs = value;
+    }
+    if (app.latencyMs === null && Number.isFinite(value)) {
+      app.latencyMs = value;
+    }
+    updateLatencyDisplay();
+    updateLatencyMeterUI();
+  });
+
   // -----------------------------------------------------------------------
   // Resample ratio
   // -----------------------------------------------------------------------
@@ -549,6 +584,6 @@ export function setupTauriBridge() {
     const target = String(payload?.target || '').trim();
     const message = String(payload?.message || '').trim();
     if (!message) return;
-    pushLog(level, target ? `[${target}] ${message}` : message);
+    pushLog(level, message, target);
   });
 }

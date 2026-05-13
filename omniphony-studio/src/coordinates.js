@@ -267,6 +267,41 @@ export function hydrateSpeakerCoordinateState(speaker) {
 // Position formatting
 // ---------------------------------------------------------------------------
 
+export function decomposePosition(position) {
+  const result = {
+    x: '—', y: '—', z: '—',
+    az: '—', el: '—', r: '—'
+  };
+  if (!position) return result;
+
+  const x = Number(position.x);
+  const y = Number(position.y);
+  const z = Number(position.z);
+
+  if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+    result.x = formatNumber(x, 1);
+    result.y = formatNumber(y, 1);
+    result.z = formatNumber(z, 1);
+
+    let az, el, dist;
+    if (typeof position.azimuthDeg === 'number') {
+      az = position.azimuthDeg;
+      el = position.elevationDeg;
+      dist = position.distanceM;
+    } else {
+      az = (Math.atan2(x, y) * 180) / Math.PI;
+      const planar = Math.sqrt((x * x) + (y * y));
+      el = (Math.atan2(z, planar) * 180) / Math.PI;
+      dist = Math.sqrt(x * x + y * y + z * z);
+    }
+    result.az = formatNumber(az, 1);
+    result.el = formatNumber(el, 1);
+    result.r = formatNumber(dist, 2);
+  }
+
+  return result;
+}
+
 export function formatPosition(position) {
   if (!position) {
     return 'x:— y:— z:—';

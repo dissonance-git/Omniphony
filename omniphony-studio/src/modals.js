@@ -22,6 +22,9 @@ function getTelemetryGaugesFormEl() { return document.getElementById('telemetryG
 function getTelemetryGaugesToggleBtnEl() { return document.getElementById('telemetryGaugesToggleBtn'); }
 function getDisplaySectionContentEl() { return document.getElementById('displaySectionContent'); }
 function getDisplaySectionToggleBtnEl() { return document.getElementById('displaySectionToggleBtn'); }
+function getDrcSectionContentEl() { return document.getElementById('drcSectionContent'); }
+function getDrcSummaryEl() { return document.getElementById('drcSummary'); }
+function getDrcSectionToggleBtnEl() { return document.getElementById('drcSectionToggleBtn'); }
 function getAudioOutputSectionContentEl() { return document.getElementById('audioOutputSectionContent'); }
 function getAudioOutputSummaryEl() { return document.getElementById('audioOutputSummary'); }
 function getAudioOutputSectionToggleBtnEl() { return document.getElementById('audioOutputSectionToggleBtn'); }
@@ -134,6 +137,23 @@ export function setDisplaySectionOpen(open) {
   emitOverlayLayoutChanged('display-section-toggle');
 }
 
+export function setDrcSectionOpen(open) {
+  const drcSectionContentEl = getDrcSectionContentEl();
+  const drcSummaryEl = getDrcSummaryEl();
+  const drcSectionToggleBtnEl = getDrcSectionToggleBtnEl();
+  app.drcSectionOpen = Boolean(open);
+  if (drcSectionContentEl) {
+    drcSectionContentEl.classList.toggle('open', app.drcSectionOpen);
+  }
+  if (drcSummaryEl) {
+    drcSummaryEl.style.display = app.drcSectionOpen ? 'none' : 'block';
+  }
+  if (drcSectionToggleBtnEl) {
+    drcSectionToggleBtnEl.textContent = app.drcSectionOpen ? '▾' : '▸';
+  }
+  emitOverlayLayoutChanged('drc-section-toggle');
+}
+
 export function setAudioOutputSectionOpen(open) {
   const audioOutputSectionContentEl = getAudioOutputSectionContentEl();
   const audioOutputSummaryEl = getAudioOutputSummaryEl();
@@ -188,6 +208,7 @@ export function setRendererSectionOpen(open) {
 export function collapseRuntimeSections() {
   setTelemetryGaugesOpen(false);
   setDisplaySectionOpen(false);
+  setDrcSectionOpen(false);
   setAudioOutputSectionOpen(false);
   setInputSectionOpen(false);
   setRendererSectionOpen(false);

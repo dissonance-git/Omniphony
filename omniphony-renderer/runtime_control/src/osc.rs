@@ -385,33 +385,32 @@ pub fn compute_speaker_heatmap_broadcasts_modes(
     // band_topology depends only on the band composition + main layout; it does
     // not depend on which speaker is selected nor on its position, so it is
     // safely shared across speakers and across slices/volume modes.
-    let band_topology: Option<Arc<RenderTopology>> = if selected_band.speaker_indices.len() >= 3
-        && band_layout_index.is_some()
-    {
-        if let Some(cached) = ctx.band_topology_cache.get(band_index) {
-            Some(cached)
-        } else {
-            let band_layout = renderer::speaker_layout::SpeakerLayout {
-                radius_m: topology.speaker_layout.radius_m,
-                speakers: selected_band
-                    .speaker_indices
-                    .iter()
-                    .map(|&index| topology.speaker_layout.speakers[index].clone())
-                    .collect(),
-            };
-            let built = ctx
-                .renderer
-                .prepare_topology_rebuild_for_layout(band_layout)
-                .and_then(|plan| plan.build_topology().ok())
-                .map(Arc::new);
-            if let Some(arc) = &built {
-                ctx.band_topology_cache.insert(band_index, Arc::clone(arc));
+    let band_topology: Option<Arc<RenderTopology>> =
+        if selected_band.speaker_indices.len() >= 3 && band_layout_index.is_some() {
+            if let Some(cached) = ctx.band_topology_cache.get(band_index) {
+                Some(cached)
+            } else {
+                let band_layout = renderer::speaker_layout::SpeakerLayout {
+                    radius_m: topology.speaker_layout.radius_m,
+                    speakers: selected_band
+                        .speaker_indices
+                        .iter()
+                        .map(|&index| topology.speaker_layout.speakers[index].clone())
+                        .collect(),
+                };
+                let built = ctx
+                    .renderer
+                    .prepare_topology_rebuild_for_layout(band_layout)
+                    .and_then(|plan| plan.build_topology().ok())
+                    .map(Arc::new);
+                if let Some(arc) = &built {
+                    ctx.band_topology_cache.insert(band_index, Arc::clone(arc));
+                }
+                built
             }
-            built
-        }
-    } else {
-        None
-    };
+        } else {
+            None
+        };
 
     let reference_slices = topology
         .backend
@@ -431,13 +430,12 @@ pub fn compute_speaker_heatmap_broadcasts_modes(
                 .map(|reference| build_constant_slices_from_reference(reference, 0.0))
         }
     } else {
-        let fallback_value = if band_layout_index.is_some()
-            && !selected_band.speaker_indices.is_empty()
-        {
-            1.0 / (selected_band.speaker_indices.len() as f32).sqrt()
-        } else {
-            0.0
-        };
+        let fallback_value =
+            if band_layout_index.is_some() && !selected_band.speaker_indices.is_empty() {
+                1.0 / (selected_band.speaker_indices.len() as f32).sqrt()
+            } else {
+                0.0
+            };
         reference_slices
             .clone()
             .map(|reference| build_constant_slices_from_reference(reference, fallback_value))
@@ -575,13 +573,12 @@ fn push_volume_broadcasts(
             })
         }
     } else {
-        let fallback_value = if band_layout_index.is_some()
-            && !selected_band.speaker_indices.is_empty()
-        {
-            1.0 / (selected_band.speaker_indices.len() as f32).sqrt()
-        } else {
-            0.0
-        };
+        let fallback_value =
+            if band_layout_index.is_some() && !selected_band.speaker_indices.is_empty() {
+                1.0 / (selected_band.speaker_indices.len() as f32).sqrt()
+            } else {
+                0.0
+            };
         band_slices.map(|slices| CartesianSpeakerHeatmapVolume {
             speaker_index,
             samples: build_constant_volume_samples(slices, fallback_value, max_samples),
@@ -1517,14 +1514,16 @@ pub fn apply_simple_osc_control(
         if let Some(request) = request {
             let mode = request.mode.trim().to_ascii_lowercase();
             let max_samples = request.max_samples.unwrap_or(3072).clamp(128, 20000);
-            effects.broadcasts.extend(compute_speaker_heatmap_broadcasts(
-                ctx,
-                request.request_id,
-                request.speaker_index,
-                request.band_index,
-                &mode,
-                max_samples,
-            ));
+            effects
+                .broadcasts
+                .extend(compute_speaker_heatmap_broadcasts(
+                    ctx,
+                    request.request_id,
+                    request.speaker_index,
+                    request.band_index,
+                    &mode,
+                    max_samples,
+                ));
             effects.log_message = Some(format!(
                 "OSC: speaker heatmap requested -> speaker={} band={} mode={} request_id={}",
                 request.speaker_index, request.band_index, mode, request.request_id
@@ -1604,6 +1603,32 @@ pub fn apply_simple_osc_control(
                     InputMode::PipewireBridge => "pipewire_bridge",
                 }
             ));
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/input/drc_mode" {
+        let requested = parse_string_arg(msg.args.first());
+        if let Some(requested) = requested {
+            let mut live = ctx.renderer.live.write().unwrap();
+            if live.drc_mode != requested {
+                live.drc_mode = requested.clone();
+                effects.mark_dirty = true;
+                effects.log_message = Some(format!("OSC: DRC mode staged → {}", requested));
+            }
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/input/drc_weight" {
+        if let Some(value) = parse_f32_arg(msg.args.first()) {
+            let clamped = value.clamp(0.0, 1.0);
+            let mut live = ctx.renderer.live.write().unwrap();
+            if (live.drc_weight - clamped).abs() > f32::EPSILON {
+                live.drc_weight = clamped;
+                effects.mark_dirty = true;
+                effects.log_message = Some(format!("OSC: DRC weight staged → {:.3}", clamped));
+            }
         }
         return Some(effects);
     }
@@ -1963,6 +1988,20 @@ pub fn apply_simple_osc_control(
             ctx.renderer.live.write().unwrap().spread_from_distance = v;
             effects.mark_dirty = true;
             effects.trigger_layout_recompute = true;
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/spread/size_to_spread_mode" {
+        if let Some(OscType::String(s)) = msg.args.first() {
+            if let Some(mode) = renderer::render_backend::SizeToSpreadMode::from_str(
+                s.trim().to_ascii_lowercase().as_str(),
+            ) {
+                ctx.renderer.live.write().unwrap().size_to_spread_mode = mode;
+                effects.mark_dirty = true;
+                // No layout recompute: only the GainCache is affected via its
+                // size_to_spread_mode key.
+            }
         }
         return Some(effects);
     }

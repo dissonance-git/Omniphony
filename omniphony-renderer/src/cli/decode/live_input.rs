@@ -1,6 +1,8 @@
 use super::decoder_thread::DecoderMessage;
 #[cfg(target_os = "linux")]
 use super::decoder_thread::{DecodedAudioData, DecodedSource};
+#[cfg(target_os = "linux")]
+use crate::bridge_loader::install_bridge_host_log_sink;
 use anyhow::Result;
 #[cfg(target_os = "linux")]
 use anyhow::anyhow;
@@ -87,6 +89,7 @@ pub struct LiveBridgeRuntimeConfig {
     pub strict_mode: bool,
     pub presentation: String,
     pub clock_mode: InputClockMode,
+    pub requested_drc_mode: Arc<std::sync::RwLock<String>>,
 }
 
 #[derive(Clone)]
@@ -732,6 +735,7 @@ fn run_pipewire_bridge_capture_loop(
     spawn_bridge_decode_worker(
         bridge,
         raw_rx,
+        Some(config.runtime.requested_drc_mode.clone()),
         config.runtime.strict_mode,
         move |frame, decode_time_ms| {
             let _ = tx_for_frame.try_send(Ok(DecoderMessage::AudioData(DecodedAudioData {
@@ -1151,7 +1155,7 @@ fn run_pipewire_bridge_capture_stream(
             buffers_since_log: 0,
             sync_buffers_since_log: 0,
             packets_since_log: 0,
-            frames_since_log: 0,
+            queued_packets_since_log: 0,
             empty_polls_since_log: 0,
             callback_chunk_logs_remaining: 8,
             accumulate_buf: Vec::new(),
@@ -1472,7 +1476,7 @@ fn run_pipewire_bridge_capture_stream(
             }
             user_data.accumulate_buf.extend_from_slice(chunk);
             user_data.accumulate_count += 1;
-            let (packet_count, frame_count) = if user_data.accumulate_count >= PW_STREAM_ACCUMULATE_CALLBACKS {
+            let (packet_count, queued_count) = if user_data.accumulate_count >= PW_STREAM_ACCUMULATE_CALLBACKS {
                 let result = ingest.borrow_mut().process_chunk(&user_data.accumulate_buf);
                 user_data.accumulate_buf.clear();
                 user_data.accumulate_count = 0;
@@ -1481,11 +1485,11 @@ fn run_pipewire_bridge_capture_stream(
                 (0, 0)
             };
             user_data.packets_since_log += packet_count;
-            user_data.frames_since_log += frame_count;
+            user_data.queued_packets_since_log += queued_count;
             let now = Instant::now();
             if now.duration_since(user_data.last_log_at) >= LIVE_BRIDGE_LOG_INTERVAL {
                 log::debug!(
-                    "{} ingest: add_buffers={} remove_buffers={} drained={} io_changed={} process_calls={} buffers={} bytes={} sync_buffers={} packets={} frames={} empty_polls={} datas_empty={} data_missing={} zero_chunks={} oversized_chunks={} rate={}Hz channels={}",
+                    "{} ingest: add_buffers={} remove_buffers={} drained={} io_changed={} process_calls={} buffers={} bytes={} sync_buffers={} packets={} queued={} empty_polls={} datas_empty={} data_missing={} zero_chunks={} oversized_chunks={} rate={}Hz channels={}",
                     log_prefix,
                     user_data.add_buffer_calls_since_log,
                     user_data.remove_buffer_calls_since_log,
@@ -1496,7 +1500,7 @@ fn run_pipewire_bridge_capture_stream(
                     user_data.bytes_since_log,
                     user_data.sync_buffers_since_log,
                     user_data.packets_since_log,
-                    user_data.frames_since_log,
+                    user_data.queued_packets_since_log,
                     user_data.empty_polls_since_log,
                     user_data.datas_empty_since_log,
                     user_data.data_missing_since_log,
@@ -1522,7 +1526,7 @@ fn run_pipewire_bridge_capture_stream(
                 user_data.buffers_since_log = 0;
                 user_data.sync_buffers_since_log = 0;
                 user_data.packets_since_log = 0;
-                user_data.frames_since_log = 0;
+                user_data.queued_packets_since_log = 0;
                 user_data.empty_polls_since_log = 0;
             }
             // In DRIVER mode, trigger the next cycle on the next quantum boundary instead of
@@ -1639,10 +1643,8 @@ fn run_pipewire_bridge_capture_stream(
 
 #[cfg(target_os = "linux")]
 fn instantiate_live_bridge(runtime: &LiveBridgeRuntimeConfig) -> Result<FormatBridgeBox> {
-    let new_bridge = runtime
-        .lib
-        .new_bridge()
-        .ok_or_else(|| anyhow!("Bridge plugin is missing the `new_bridge` export"))?;
+    install_bridge_host_log_sink(&runtime.lib);
+    let new_bridge = runtime.lib.new_bridge();
     let mut bridge = new_bridge(runtime.strict_mode);
     if !bridge.configure("presentation".into(), runtime.presentation.as_str().into()) {
         anyhow::bail!(
@@ -1675,6 +1677,8 @@ fn build_live_input_frame(
         pcm: pcm.into(),
         channel_labels: seven_one_channel_labels().into(),
         metadata: Vec::new().into(),
+        drc_gain: 1.0,
+        drc_ramp_duration: 0,
         dialogue_level: abi_stable::std_types::ROption::RNone,
         is_new_segment: false,
     }

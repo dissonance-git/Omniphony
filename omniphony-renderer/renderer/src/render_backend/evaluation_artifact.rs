@@ -223,6 +223,7 @@ impl LoadedEvaluationArtifact {
             supports_distance_model: false,
             supports_spread: false,
             supports_spread_from_distance: false,
+            supports_event_size: false,
             supports_distance_diffuse: false,
             supports_heatmap_cartesian: matches!(self, Self::Cartesian(_)),
             supports_table_export: true,

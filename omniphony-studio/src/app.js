@@ -77,6 +77,7 @@ import { renderDistanceDiffuseUI } from './controls/distance-diffuse.js';
 import { renderConfigSavedUI } from './controls/config.js';
 import { renderLatencyDisplay, renderLatencyMeterUI, renderRenderTimeUI, renderResampleRatioDisplay } from './controls/latency.js';
 import { renderAudioFormatDisplay, applyAudioSampleRateNow } from './controls/audio.js';
+import { bindDrcListeners, renderDrcUI } from './controls/drc.js';
 import {
   updateObjectContributionUI,
   updateSpeakerContributionUI,
@@ -86,7 +87,7 @@ import {
   setSelectedSource
 } from './sources.js';
 import { updateVbapCartesianFaceGrid, renderVbapCartesianGridToggle } from './scene/gizmos.js';
-import { updateObjectMeterUI, updateObjectPositionUI, updateObjectLabelUI } from './flush.js';
+import { updateObjectMeterUI, updateObjectPositionUI, updateObjectSizeUI, updateObjectLabelUI } from './flush.js';
 import {
   renderObjectsList, updateSpeakerControlsUI, updateObjectControlsUI, updateObjectDominantSpeakerUI,
   objectHasActiveTrail, getObjectIds, updateSectionProportions, updateAllSpeakerBandBars
@@ -112,6 +113,7 @@ flushCallbacks.renderLatencyMeterUI = renderLatencyMeterUI;
 flushCallbacks.renderRenderTimeUI = renderRenderTimeUI;
 flushCallbacks.renderResampleRatioDisplay = renderResampleRatioDisplay;
 flushCallbacks.renderAudioFormatDisplay = renderAudioFormatDisplay;
+flushCallbacks.renderDrcUI = renderDrcUI;
 flushCallbacks.renderMasterGainUI = renderMasterGainUI;
 flushCallbacks.updateMasterMeterUI = updateMasterMeterUI;
 flushCallbacks.updateObjectContributionUI = updateObjectContributionUI;
@@ -128,6 +130,7 @@ flushCallbacks.updateRoomDimensionGuides = updateRoomDimensionGuides;
 // ── Source callbacks wiring ─────────────────────────────────────────────────
 sourceCallbacks.renderObjectsList = renderObjectsList;
 sourceCallbacks.updateObjectPositionUI = updateObjectPositionUI;
+sourceCallbacks.updateObjectSizeUI = updateObjectSizeUI;
 sourceCallbacks.updateObjectLabelUI = updateObjectLabelUI;
 sourceCallbacks.updateObjectMeterUI = updateObjectMeterUI;
 sourceCallbacks.updateObjectDominantSpeakerUI = updateObjectDominantSpeakerUI;
@@ -215,6 +218,7 @@ pushLog('info', t('log.boot'));
 loadRoomGeometryPrefs();
 loadTrailPrefs();
 loadEffectiveRenderPrefs();
+bindDrcListeners();
 refreshRoomGeometryInputState();
 setRoomGeometryExpanded(false);
 setTelemetryGaugesOpen(false);

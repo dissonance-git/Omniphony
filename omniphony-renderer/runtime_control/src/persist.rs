@@ -135,6 +135,12 @@ pub fn save_live_config(
     } else {
         None
     };
+    render.size_to_spread_mode =
+        if live.size_to_spread_mode != renderer::render_backend::SizeToSpreadMode::default() {
+            Some(live.size_to_spread_mode)
+        } else {
+            None
+        };
     render.use_loudness = if live.use_loudness { Some(true) } else { None };
     render.vbap_distance_model =
         if live.distance_model != renderer::spatial_vbap::DistanceModel::None {
@@ -153,6 +159,16 @@ pub fn save_live_config(
     render.room_ratio_rear = Some(r);
     render.room_ratio_lower = Some(lower);
     render.room_ratio_center_blend = Some(cb);
+    render.drc_weight = if (live.drc_weight - 1.0).abs() > 1e-4 {
+        Some(round6(live.drc_weight))
+    } else {
+        None
+    };
+    render.drc_mode = if live.drc_mode != "Off" {
+        Some(live.drc_mode.clone())
+    } else {
+        None
+    };
     render.distance_diffuse = if live.use_distance_diffuse {
         Some(true)
     } else {

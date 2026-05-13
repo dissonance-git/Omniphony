@@ -15,6 +15,8 @@ export function setupTrailsAndDisplayListeners() {
   const objectSphereSizeSliderEl = document.getElementById('objectSphereSizeSlider');
   const objectSphereSizeValEl = document.getElementById('objectSphereSizeVal');
   const objectLabelsToggleEl = document.getElementById('objectLabelsToggle');
+  const showObjectDetailsToggleEl = document.getElementById('showObjectDetailsToggle');
+  const objectDetailsToggleBtnEl = document.getElementById('objectDetailsToggleBtn');
   const speakerLabelsToggleEl = document.getElementById('speakerLabelsToggle');
   const speakerSizeSliderEl = document.getElementById('speakerSizeSlider');
   const speakerSizeValEl = document.getElementById('speakerSizeVal');
@@ -28,6 +30,19 @@ export function setupTrailsAndDisplayListeners() {
   const speakerHeatmapSampleCountInputEl = document.getElementById('speakerHeatmapSampleCountInput');
   const speakerHeatmapMaxSphereSizeSliderEl = document.getElementById('speakerHeatmapMaxSphereSizeSlider');
   const speakerHeatmapMaxSphereSizeValEl = document.getElementById('speakerHeatmapMaxSphereSizeVal');
+
+  function applyObjectDetailsVisibility(enabled) {
+    app.showObjectDetails = Boolean(enabled);
+    if (showObjectDetailsToggleEl) {
+      showObjectDetailsToggleEl.checked = app.showObjectDetails;
+    }
+    if (objectDetailsToggleBtnEl) {
+      objectDetailsToggleBtnEl.classList.toggle('active', app.showObjectDetails);
+      objectDetailsToggleBtnEl.setAttribute('aria-pressed', app.showObjectDetails ? 'true' : 'false');
+      objectDetailsToggleBtnEl.textContent = app.showObjectDetails ? '▾' : '▸';
+    }
+    document.body.classList.toggle('hide-object-details', !app.showObjectDetails);
+  }
 
   if (trailToggleEl) {
     trailToggleEl.addEventListener('change', () => {
@@ -101,6 +116,22 @@ export function setupTrailsAndDisplayListeners() {
       sourceMeshes.forEach((_mesh, id) => {
         updateSourceDecorations(id);
       });
+      persistEffectiveRenderPrefs();
+    });
+  }
+
+  if (showObjectDetailsToggleEl) {
+    applyObjectDetailsVisibility(app.showObjectDetails);
+    showObjectDetailsToggleEl.addEventListener('change', () => {
+      applyObjectDetailsVisibility(showObjectDetailsToggleEl.checked);
+      persistEffectiveRenderPrefs();
+    });
+  }
+
+  if (objectDetailsToggleBtnEl) {
+    applyObjectDetailsVisibility(app.showObjectDetails);
+    objectDetailsToggleBtnEl.addEventListener('click', () => {
+      applyObjectDetailsVisibility(!app.showObjectDetails);
       persistEffectiveRenderPrefs();
     });
   }

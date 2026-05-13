@@ -1,6 +1,6 @@
 use super::{
     ChannelRampState, RampContext, RampProgress, RampStatus, RampStrategy, RampTarget,
-    compute_cached_or_direct, interpolate_position, interpolate_scalar,
+    compute_cached_or_direct, interpolate_position, interpolate_size,
 };
 
 pub struct PositionRampStrategy;
@@ -19,9 +19,9 @@ impl RampStrategy for PositionRampStrategy {
     ) {
         state.ramp_length = target.ramp_length;
         state.start_position = state.current_position;
-        state.start_spread = state.current_spread;
+        state.start_size = state.current_size;
         state.target_position = target.position;
-        state.target_spread = target.spread;
+        state.target_size = target.size;
         state.remaining_ramp_units = Some(target.ramp_length);
         state.target_sample_index = sample_index;
         state.invalidate_cache();
@@ -37,9 +37,8 @@ impl RampStrategy for PositionRampStrategy {
         let fraction = progress.fraction();
         state.output_position =
             interpolate_position(state.start_position, state.target_position, fraction);
-        state.current_spread =
-            interpolate_scalar(state.start_spread, state.target_spread, fraction);
-        compute_cached_or_direct(state, state.output_position, ctx);
+        state.current_size = interpolate_size(state.start_size, state.target_size, fraction);
+        compute_cached_or_direct(state, state.output_position, state.current_size, ctx);
         if progress.is_finished() {
             RampStatus::Finished
         } else if progress.completed_units == 0 && progress.total_units == 0 {
