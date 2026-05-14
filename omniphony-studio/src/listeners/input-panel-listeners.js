@@ -20,7 +20,6 @@ export function setupInputPanelListeners() {
   const inputMapSelectEl = document.getElementById('inputMapSelect');
   const inputLfeModeSelectEl = document.getElementById('inputLfeModeSelect');
   const inputApplyBtnEl = document.getElementById('inputApplyBtn');
-  const inputRefreshBtnEl = document.getElementById('inputRefreshBtn');
 
   if (inputModeSelectEl) {
     inputModeSelectEl.addEventListener('change', () => {
@@ -216,12 +215,6 @@ export function setupInputPanelListeners() {
           app.inputApplyAwaitingAck = false;
           updateInputControlUI();
         });
-    });
-  }
-
-  if (inputRefreshBtnEl) {
-    inputRefreshBtnEl.addEventListener('click', () => {
-      invoke('control_input_refresh');
     });
   }
 }

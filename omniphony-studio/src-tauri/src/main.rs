@@ -1605,16 +1605,6 @@ fn control_render_bridge_path(state: State<SharedState>, value: String) {
     );
 }
 
-#[tauri::command]
-fn control_input_refresh(state: State<SharedState>) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendNoArgs {
-            address: "/omniphony/control/input/refresh".to_string(),
-        },
-    );
-}
-
 fn first_existing_path(candidates: &[PathBuf]) -> Option<PathBuf> {
     candidates.iter().find(|path| path.exists()).cloned()
 }
@@ -2454,7 +2444,6 @@ fn main() {
             control_input_live_lfe_mode,
             control_input_apply,
             control_render_bridge_path,
-            control_input_refresh,
             control_export_layout,
             control_audio_sample_rate,
             control_drc_mode,

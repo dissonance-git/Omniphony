@@ -113,9 +113,8 @@ export function inputPanelMarkup() {
                 </select>
               </div>
             </div>
-          </div>
+        </div>
           <div class="input-panel-actions">
-            ${secondaryButton({ id: 'inputRefreshBtn', text: 'Refresh', textKey: 'input.refresh' })}
             ${primaryButton({ id: 'inputApplyBtn', text: 'Apply', textKey: 'input.apply' })}
           </div>
         </div>
