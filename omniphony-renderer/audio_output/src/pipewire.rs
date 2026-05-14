@@ -235,6 +235,65 @@ fn wallclock_millis() -> u64 {
         .as_millis() as u64
 }
 
+/// Fixed-cadence sample-domain trace for diagnosing the DAC latency sawtooth.
+/// Logs raw integer sample counts (smoothing-independent) so one full sawtooth
+/// period can be reconstructed offline. Grep the output with `DAC_TRACE`.
+/// Keep at 1: the observed output callback is ~256 ms, so any larger interval
+/// aliases the ~1 s sawtooth away.
+const DAC_SAMPLE_TRACE_INTERVAL_CALLBACKS: u64 = 1;
+
+#[allow(clippy::too_many_arguments)]
+fn log_dac_sample_domain_trace(
+    callback_count: u64,
+    path: &str,
+    requested_frames: u64,
+    ring_samples: usize,
+    output_fifo_input_domain_samples: usize,
+    pending_resampler_input_samples: usize,
+    total_available_input_domain: usize,
+    control_available: usize,
+    projected_control_available: usize,
+    callback_input_domain_samples: usize,
+    callback_output_frames: usize,
+    channel_count: usize,
+    pending_input_triggers: i64,
+    bresenham_acc: i64,
+    in_trigger_rate: u32,
+    in_trigger_quantum: u32,
+    actual_output_rate: u32,
+    rate_adjust: f32,
+    runtime_state_code: u8,
+) {
+    if callback_count % DAC_SAMPLE_TRACE_INTERVAL_CALLBACKS != 0 {
+        return;
+    }
+    log::info!(
+        "DAC_TRACE cb={} path={} wall_ms={} req_fr={} ring={} ofifo={} presamp={} total={} ctrl={} \
+proj={} cb_in={} cb_out_fr={} ch={} pending_trig={} bresenham={} in_rate={} in_quantum={} \
+out_rate={} rate_adj={:.6} rt_state={}",
+        callback_count,
+        path,
+        wallclock_millis(),
+        requested_frames,
+        ring_samples,
+        output_fifo_input_domain_samples,
+        pending_resampler_input_samples,
+        total_available_input_domain,
+        control_available,
+        projected_control_available,
+        callback_input_domain_samples,
+        callback_output_frames,
+        channel_count,
+        pending_input_triggers,
+        bresenham_acc,
+        in_trigger_rate,
+        in_trigger_quantum,
+        actual_output_rate,
+        rate_adjust,
+        runtime_state_code,
+    );
+}
+
 pub struct PipewireWriter {
     sample_buffer: Arc<ArrayQueue<f32>>,
     sample_rate: u32,
@@ -737,11 +796,13 @@ fn run_pipewire_loop(
         log::info!("PipeWire channel positions: {}", positions);
     }
 
-    // Request a graph latency aligned with the configured target instead of
-    // pinning the stream to the processing quantum.
-    let requested_latency_frames = ((buffer_config.latency_ms as u64 * actual_output_rate as u64)
-        / 1000)
-        .max(buffer_config.quantum_frames as u64) as u32;
+    // `node.latency` controls the PipeWire processing quantum (callback size),
+    // not an abstract graph latency. Requesting the ring target (e.g. 500 ms)
+    // here forced PipeWire into ~256 ms callbacks: the control loop then ran
+    // once per 256 ms and the `callback/2` midpoint correction became a fixed
+    // ~128 ms offset. The target latency must live in the `sample_buffer` ring
+    // (target_buffer_fill), so request only the processing quantum here.
+    let requested_latency_frames = buffer_config.quantum_frames;
     let requested_latency_str = format!("{}/{}", requested_latency_frames, actual_output_rate);
     props.insert("node.latency", requested_latency_str.as_str());
 
@@ -904,36 +965,54 @@ fn run_pipewire_loop(
                 .unwrap_or(false);
 
             if let Some(mut buffer) = stream.dequeue_buffer() {
+                // Per-cycle frame count requested by PipeWire for THIS callback.
+                // `data.data()` below only exposes the mapped capacity (maxsize),
+                // which can be many quanta large; `requested()` is the real
+                // processing quantum.
+                let requested_frames_this_cycle = buffer.requested();
                 let datas = buffer.datas_mut();
                 if datas.is_empty() {
                     return;
                 }
 
                 let data = &mut datas[0];
+                let chunk_size_bytes = data.chunk().size();
 
                 // Get the data slice and fill it
                 let written = if let Some(slice) = data.data() {
-                    let max_samples = slice.len() / 4; // 4 bytes per f32
+                    let capacity_samples = slice.len() / 4; // 4 bytes per f32
                     let dest = unsafe {
                         std::slice::from_raw_parts_mut(
                             slice.as_ptr() as *mut f32,
-                            max_samples,
+                            capacity_samples,
                         )
                     };
 
-                    // Ensure frame alignment: PipeWire may provide buffers sized
-                    // for the sink's channel count rather than our source's channel count.
-                    // We must only write complete frames to avoid channel misalignment.
                     let ch = channel_count as usize;
-                    let max_frames = max_samples / ch;
-                    let frame_aligned_max = max_frames * ch;
+                    // `data.data()` exposes the full mapped buffer capacity, which
+                    // can span many quanta. `buffer.requested()` is the number of
+                    // frames PipeWire wants for THIS cycle. Producing the whole
+                    // capacity instead handed PipeWire ~256 ms per callback, which
+                    // collapsed the control loop to a 256 ms granularity (the DAC
+                    // latency sawtooth + a fixed ~128 ms `callback/2` offset).
+                    // Clamp to the per-cycle request, falling back to capacity if
+                    // it is unavailable.
+                    let capacity_frames = capacity_samples / ch;
+                    let max_frames = if requested_frames_this_cycle > 0 {
+                        (requested_frames_this_cycle as usize).min(capacity_frames)
+                    } else {
+                        capacity_frames
+                    };
+                    let max_samples = max_frames * ch;
+                    let frame_aligned_max = max_samples;
                     callback_output_frames = max_frames;
                     let runtime_target_buffer_fill = target_buffer_fill;
 
                     if callback_count == 1 {
                         log::info!(
-                            "PipeWire callback #1: buffer={} bytes, {} samples, {} channels → {} frames (remainder: {})",
-                            slice.len(), max_samples, ch, max_frames, max_samples % ch
+                            "PipeWire callback #1: buffer={} bytes, {} samples, {} channels → {} frames (remainder: {}) | requested_frames={} chunk_size_bytes={}",
+                            slice.len(), max_samples, ch, max_frames, max_samples % ch,
+                            requested_frames_this_cycle, chunk_size_bytes
                         );
                         if max_samples != frame_aligned_max {
                             log::warn!(
@@ -1151,6 +1230,27 @@ fn run_pipewire_loop(
                                 measured_latency_ms_bits: &measured_latency_ms_out,
                                 control_latency_ms_bits: &control_latency_ms_out,
                             },
+                        );
+                        log_dac_sample_domain_trace(
+                            callback_count,
+                            "resampler",
+                            requested_frames_this_cycle,
+                            available,
+                            output_fifo_input_domain_samples,
+                            pending_resampler_input_samples,
+                            metrics.total_available_input_domain,
+                            metrics.control_available,
+                            projected_control_available,
+                            callback_input_domain_samples,
+                            callback_output_frames,
+                            channel_count as usize,
+                            pending_input_triggers_for_callback.load(Ordering::Relaxed),
+                            bresenham_acc,
+                            input_trigger_rate_for_callback.load(Ordering::Relaxed),
+                            input_trigger_quantum_for_callback.load(Ordering::Relaxed),
+                            actual_output_rate,
+                            f32::from_bits(rate_adjust_for_callback.load(Ordering::Relaxed)),
+                            current_runtime_state.load(Ordering::Relaxed),
                         );
                         if far_decision.hold_low_recover {
                             rate_adjust_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
@@ -1465,6 +1565,27 @@ fn run_pipewire_loop(
                                 measured_latency_ms_bits: &measured_latency_ms_out,
                                 control_latency_ms_bits: &control_latency_ms_out,
                             },
+                        );
+                        log_dac_sample_domain_trace(
+                            callback_count,
+                            "native",
+                            requested_frames_this_cycle,
+                            available,
+                            output_fifo_input_domain_samples,
+                            pending_resampler_input_samples,
+                            metrics.total_available_input_domain,
+                            metrics.control_available,
+                            projected_control_available,
+                            callback_input_domain_samples,
+                            callback_output_frames,
+                            channel_count as usize,
+                            pending_input_triggers_for_callback.load(Ordering::Relaxed),
+                            bresenham_acc,
+                            input_trigger_rate_for_callback.load(Ordering::Relaxed),
+                            input_trigger_quantum_for_callback.load(Ordering::Relaxed),
+                            actual_output_rate,
+                            f32::from_bits(rate_adjust_for_callback.load(Ordering::Relaxed)),
+                            current_runtime_state.load(Ordering::Relaxed),
                         );
                         if far_decision.hold_low_recover {
                             desired_rate_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
