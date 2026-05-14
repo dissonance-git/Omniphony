@@ -208,6 +208,7 @@ export const app = {
   inputMode: 'pipe_bridge',
   inputActiveMode: 'pipe_bridge',
   inputApplyPending: false,
+  inputApplyAwaitingAck: false,
   inputBackend: null,
   inputChannels: null,
   inputSampleRate: null,
@@ -232,6 +233,7 @@ export const app = {
     map: '7.1-fixed',
     lfeMode: 'object'
   },
+  liveInputClockModeDirty: false,
 
   // OSC
   oscMeteringEnabled: false,

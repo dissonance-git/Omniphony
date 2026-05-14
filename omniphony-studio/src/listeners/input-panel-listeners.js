@@ -107,8 +107,8 @@ export function setupInputPanelListeners() {
         ? inputClockModeSelectEl.value
         : 'upstream';
       app.liveInput.clockMode = value;
+      app.liveInputClockModeDirty = true;
       updateInputControlUI();
-      sendInputConfig();
     });
   }
 
@@ -192,9 +192,13 @@ export function setupInputPanelListeners() {
         || (requestedMode === 'pipewire_bridge' && activeMode !== 'pipewire_bridge');
       if (needsBridgeBootstrap) {
         const value = String(oscBridgePathInputEl?.value || '').trim();
+        const clockMode = app.liveInput.clockMode || 'upstream';
         app.inputApplyPending = false;
+        app.inputApplyAwaitingAck = false;
         updateInputControlUI();
         invoke('control_render_bridge_path', { value })
+          .then(() => invoke('control_input_live_clock_mode', { value: clockMode }))
+          .then(() => invoke('control_save_config'))
           .then(() => invoke('control_reload_config'))
           .catch((e) => {
             pushLog('error', `Failed to apply bridge path: ${normalizeLogError(e)}`);
@@ -202,8 +206,16 @@ export function setupInputPanelListeners() {
         return;
       }
       app.inputApplyPending = true;
+      app.inputApplyAwaitingAck = true;
       updateInputControlUI();
-      sendInputConfig({ apply: true });
+      invoke('control_input_live_clock_mode', { value: app.liveInput.clockMode || 'upstream' })
+        .then(() => sendInputConfig({ apply: true }))
+        .catch((e) => {
+          pushLog('error', `Failed to apply input clock mode: ${normalizeLogError(e)}`);
+          app.inputApplyPending = false;
+          app.inputApplyAwaitingAck = false;
+          updateInputControlUI();
+        });
     });
   }
 

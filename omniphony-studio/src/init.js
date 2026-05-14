@@ -429,7 +429,15 @@ export function applyInitState(payload) {
     }
   }
   if (typeof payload.inputApplyPending === 'number') {
-    app.inputApplyPending = payload.inputApplyPending !== 0;
+    const pending = payload.inputApplyPending !== 0;
+    if (app.inputApplyAwaitingAck) {
+      if (pending) {
+        app.inputApplyPending = true;
+        app.inputApplyAwaitingAck = false;
+      }
+    } else {
+      app.inputApplyPending = pending;
+    }
   }
   if (typeof payload.drcMode === 'string') {
     app.drcMode = payload.drcMode;
@@ -485,7 +493,10 @@ export function applyInitState(payload) {
     }
     if (typeof payload.liveInput.clockMode === 'string') {
       const clockMode = payload.liveInput.clockMode.trim().toLowerCase();
-      app.liveInput.clockMode = clockMode === 'dac' ? 'upstream' : (clockMode || app.liveInput.clockMode);
+      if (!app.liveInputClockModeDirty || clockMode === app.liveInput.clockMode) {
+        app.liveInput.clockMode = clockMode || app.liveInput.clockMode;
+        app.liveInputClockModeDirty = false;
+      }
     }
     if (typeof payload.liveInput.channels === 'number' && payload.liveInput.channels > 0) {
       app.liveInput.channels = payload.liveInput.channels;
