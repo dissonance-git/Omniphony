@@ -16,6 +16,8 @@ pub struct AudioLatencySnapshot {
     pub final_latency_ms: f32,
     /// Internal buffer-control latency used by the servo/recovery logic.
     pub control_latency_ms: Option<f32>,
+    /// EMA-smoothed control latency — the value the servo actually tracks.
+    pub smoothed_control_latency_ms: Option<f32>,
     /// Target buffer-control latency used by the servo/recovery logic.
     pub target_control_latency_ms: Option<f32>,
     /// Downstream latency contribution outside the internal control buffer.
@@ -246,6 +248,7 @@ impl AudioWriter {
     pub fn latency_snapshot(&self) -> Option<AudioLatencySnapshot> {
         let final_latency_ms = self.measured_audio_delay_ms()?;
         let control_latency_ms = self.control_audio_delay_ms();
+        let smoothed_control_latency_ms = self.smoothed_control_audio_delay_ms();
         let target_control_latency_ms = self.target_control_latency_ms();
         let downstream_latency_ms = control_latency_ms.and_then(|control_ms| {
             let downstream_ms = final_latency_ms - control_ms;
@@ -254,6 +257,7 @@ impl AudioWriter {
         Some(AudioLatencySnapshot {
             final_latency_ms,
             control_latency_ms,
+            smoothed_control_latency_ms,
             target_control_latency_ms,
             downstream_latency_ms,
         })
@@ -324,6 +328,22 @@ impl AudioWriter {
             #[cfg(target_os = "windows")]
             AudioWriter::Asio(asio) => {
                 let v = asio.control_audio_delay_ms();
+                if v > 0.0 { Some(v) } else { None }
+            }
+            AudioWriter::Unsupported => None,
+        }
+    }
+
+    pub fn smoothed_control_audio_delay_ms(&self) -> Option<f32> {
+        match self {
+            #[cfg(target_os = "linux")]
+            AudioWriter::Pipewire(pw) => {
+                let v = pw.smoothed_control_audio_delay_ms();
+                if v > 0.0 { Some(v) } else { None }
+            }
+            #[cfg(target_os = "windows")]
+            AudioWriter::Asio(asio) => {
+                let v = asio.smoothed_control_audio_delay_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
             AudioWriter::Unsupported => None,

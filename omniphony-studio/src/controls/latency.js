@@ -30,6 +30,7 @@ const rendererPerfDisplayState = {
 function getLatencyInfoEl() { return inAudioPanel('latencyInfo'); }
 function getLatencyRawInfoEl() { return inAudioPanel('latencyRawInfo'); }
 function getLatencyCtrlInfoEl() { return inAudioPanel('latencyCtrlInfo'); }
+function getLatencySmoothedInfoEl() { return inAudioPanel('latencySmoothedInfo'); }
 function getLatencyDownstreamInfoEl() { return inAudioPanel('latencyDownstreamInfo'); }
 function getLatencyTargetInputEl() { return inAudioPanel('latencyTargetInput'); }
 function getLatencyTargetApplyBtnEl() { return inAudioPanel('latencyTargetApplyBtn'); }
@@ -47,6 +48,7 @@ function getLatencyRawMinMaskEl() { return inAudioPanel('latencyRawMinMask'); }
 function getLatencyRawMaxMaskEl() { return inAudioPanel('latencyRawMaxMask'); }
 function getLatencyRawMinMarkerEl() { return inAudioPanel('latencyRawMinMarker'); }
 function getLatencyCtrlMarkerEl() { return inAudioPanel('latencyCtrlMarker'); }
+function getLatencySmoothedMarkerEl() { return inAudioPanel('latencySmoothedMarker'); }
 function getLatencyRawMaxMarkerEl() { return inAudioPanel('latencyRawMaxMarker'); }
 function getLatencyTargetMarkerEl() { return inAudioPanel('latencyTargetMarker'); }
 function getLatencyNearLowMarkerEl() { return inAudioPanel('latencyNearLowMarker'); }
@@ -181,12 +183,14 @@ export function renderLatencyDisplay() {
   const latencyInfoEl = getLatencyInfoEl();
   const latencyRawInfoEl = getLatencyRawInfoEl();
   const latencyCtrlInfoEl = getLatencyCtrlInfoEl();
+  const latencySmoothedInfoEl = getLatencySmoothedInfoEl();
   const latencyDownstreamInfoEl = getLatencyDownstreamInfoEl();
   const latencyTargetInputEl = getLatencyTargetInputEl();
   const latencyTargetApplyBtnEl = getLatencyTargetApplyBtnEl();
-  if (!latencyRawInfoEl && !latencyCtrlInfoEl && !latencyDownstreamInfoEl && !latencyInfoEl) return;
+  if (!latencyRawInfoEl && !latencyCtrlInfoEl && !latencySmoothedInfoEl && !latencyDownstreamInfoEl && !latencyInfoEl) return;
   const instantText = app.latencyInstantMs === null ? '—' : `${formatNumber(app.latencyInstantMs, 0)} ms`;
   const controlText = app.latencyControlMs === null ? 'ctrl —' : `ctrl ${formatNumber(app.latencyControlMs, 0)} ms`;
+  const smoothedText = app.latencySmoothedMs === null ? 'smoothed —' : `smoothed ${formatNumber(app.latencySmoothedMs, 0)} ms`;
   const downstreamText = app.latencyDownstreamMs === null ? 'path —' : `path ${formatNumber(app.latencyDownstreamMs, 0)} ms`;
   const targetValue = app.latencyRequestedMs ?? app.latencyTargetMs ?? app.latencyMs;
   if (latencyRawInfoEl) {
@@ -194,6 +198,9 @@ export function renderLatencyDisplay() {
   }
   if (latencyCtrlInfoEl) {
     latencyCtrlInfoEl.textContent = controlText;
+  }
+  if (latencySmoothedInfoEl) {
+    latencySmoothedInfoEl.textContent = smoothedText;
   }
   if (latencyDownstreamInfoEl) {
     latencyDownstreamInfoEl.textContent = downstreamText;
@@ -308,6 +315,7 @@ export function renderLatencyMeterUI() {
   const latencyRawMaxMaskEl = getLatencyRawMaxMaskEl();
   const latencyRawMinMarkerEl = getLatencyRawMinMarkerEl();
   const latencyCtrlMarkerEl = getLatencyCtrlMarkerEl();
+  const latencySmoothedMarkerEl = getLatencySmoothedMarkerEl();
   const latencyRawMaxMarkerEl = getLatencyRawMaxMarkerEl();
   const latencyTargetMarkerEl = getLatencyTargetMarkerEl();
   const latencyNearLowMarkerEl = getLatencyNearLowMarkerEl();
@@ -393,6 +401,16 @@ export function renderLatencyMeterUI() {
       const percent = Math.min(100, (Math.max(0, Number(ctrl)) / maxMs) * 100);
       latencyCtrlMarkerEl.style.display = '';
       latencyCtrlMarkerEl.style.left = `calc(${percent.toFixed(1)}% - 1px)`;
+    }
+  }
+  if (latencySmoothedMarkerEl) {
+    const smoothed = app.latencySmoothedMs;
+    if (smoothed === null || smoothed === undefined) {
+      latencySmoothedMarkerEl.style.display = 'none';
+    } else {
+      const percent = Math.min(100, (Math.max(0, Number(smoothed)) / maxMs) * 100);
+      latencySmoothedMarkerEl.style.display = '';
+      latencySmoothedMarkerEl.style.left = `calc(${percent.toFixed(1)}% - 1px)`;
     }
   }
   if (latencyTargetMarkerEl) {

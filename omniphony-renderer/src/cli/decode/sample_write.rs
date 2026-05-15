@@ -58,6 +58,8 @@ impl<'a> SampleWriteCoordinator<'a> {
         let current_latency_instant_ms = latency_snapshot.map(|snapshot| snapshot.final_latency_ms);
         let current_latency_control_ms =
             latency_snapshot.and_then(|snapshot| snapshot.control_latency_ms);
+        let current_latency_smoothed_ms =
+            latency_snapshot.and_then(|snapshot| snapshot.smoothed_control_latency_ms);
         let current_latency_target_ms =
             latency_snapshot.and_then(|snapshot| snapshot.target_control_latency_ms);
         let current_latency_downstream_ms =
@@ -229,6 +231,7 @@ impl<'a> SampleWriteCoordinator<'a> {
                             Some(frame_duration_ms),
                             current_latency_instant_ms,
                             current_latency_control_ms,
+                            current_latency_smoothed_ms,
                             current_latency_target_ms,
                             current_latency_downstream_ms,
                             current_resample_ratio,
@@ -376,6 +379,7 @@ impl<'a> SampleWriteCoordinator<'a> {
                             Some(frame_duration_ms),
                             current_latency_instant_ms,
                             current_latency_control_ms,
+                            current_latency_smoothed_ms,
                             current_latency_target_ms,
                             current_latency_downstream_ms,
                             current_resample_ratio,

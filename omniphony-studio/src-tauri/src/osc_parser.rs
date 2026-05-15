@@ -234,6 +234,8 @@ pub enum OscEvent {
     StateLatencyInstant { value: f64 },
     #[serde(rename = "state:latency:control")]
     StateLatencyControl { value: f64 },
+    #[serde(rename = "state:latency:smoothed")]
+    StateLatencySmoothed { value: f64 },
     #[serde(rename = "state:latency:downstream")]
     StateLatencyDownstream { value: f64 },
     #[serde(rename = "state:latency:target")]
@@ -519,6 +521,9 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
             value: to_number(args[0])?,
         }),
         (3, "latency_control") => Some(OscEvent::StateLatencyControl {
+            value: to_number(args[0])?,
+        }),
+        (3, "latency_smoothed") => Some(OscEvent::StateLatencySmoothed {
             value: to_number(args[0])?,
         }),
         (3, "latency_downstream") => Some(OscEvent::StateLatencyDownstream {

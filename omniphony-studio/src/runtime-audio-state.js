@@ -49,6 +49,9 @@ export function applyRuntimeAudioStateSnapshot(payload) {
   if (typeof payload.latencyControlMs === 'number') {
     app.latencyControlMs = payload.latencyControlMs;
   }
+  if (typeof payload.latencySmoothedMs === 'number') {
+    app.latencySmoothedMs = payload.latencySmoothedMs;
+  }
   if (typeof payload.latencyDownstreamMs === 'number') {
     app.latencyDownstreamMs = payload.latencyDownstreamMs;
   }
@@ -148,6 +151,11 @@ export function applyRuntimeAudioEvent(eventType, payload) {
     case 'latency:control':
       app.latencyControlMs = Number(payload?.value);
       updateLatencyDisplay();
+      return;
+    case 'latency:smoothed':
+      app.latencySmoothedMs = Number(payload?.value);
+      updateLatencyDisplay();
+      updateLatencyMeterUI();
       return;
     case 'latency:downstream':
       app.latencyDownstreamMs = Number(payload?.value);

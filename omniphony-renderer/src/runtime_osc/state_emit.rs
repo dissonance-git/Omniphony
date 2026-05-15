@@ -53,6 +53,7 @@ impl OscSender {
         frame_duration_ms: Option<f32>,
         latency_instant_ms: Option<f32>,
         latency_control_ms: Option<f32>,
+        latency_smoothed_ms: Option<f32>,
         latency_target_ms: Option<f32>,
         latency_downstream_ms: Option<f32>,
         resample_ratio: Option<f32>,
@@ -130,6 +131,12 @@ impl OscSender {
         if let Some(ms) = latency_control_ms {
             messages.push(OscPacket::Message(OscMessage {
                 addr: "/omniphony/state/latency_control".to_string(),
+                args: vec![OscType::Float(ms)],
+            }));
+        }
+        if let Some(ms) = latency_smoothed_ms {
+            messages.push(OscPacket::Message(OscMessage {
+                addr: "/omniphony/state/latency_smoothed".to_string(),
                 args: vec![OscType::Float(ms)],
             }));
         }

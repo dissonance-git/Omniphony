@@ -524,6 +524,12 @@ export function setupTauriBridge() {
     updateLatencyDisplay();
   });
 
+  listen('latency:smoothed', ({ payload }) => {
+    app.latencySmoothedMs = Number(payload.value);
+    updateLatencyDisplay();
+    updateLatencyMeterUI();
+  });
+
   listen('latency:downstream', ({ payload }) => {
     app.latencyDownstreamMs = Number(payload.value);
     updateLatencyDisplay();
