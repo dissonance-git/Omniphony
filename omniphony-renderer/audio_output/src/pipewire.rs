@@ -252,6 +252,7 @@ fn log_dac_sample_domain_trace(
     pending_resampler_input_samples: usize,
     total_available_input_domain: usize,
     control_available: usize,
+    smoothed_control_available: usize,
     projected_control_available: usize,
     callback_input_domain_samples: usize,
     callback_output_frames: usize,
@@ -269,8 +270,8 @@ fn log_dac_sample_domain_trace(
     }
     log::info!(
         "DAC_TRACE cb={} path={} wall_ms={} req_fr={} ring={} ofifo={} presamp={} total={} ctrl={} \
-proj={} cb_in={} cb_out_fr={} ch={} pending_trig={} bresenham={} in_rate={} in_quantum={} \
-out_rate={} rate_adj={:.6} rt_state={}",
+smoothed={} proj={} cb_in={} cb_out_fr={} ch={} pending_trig={} bresenham={} in_rate={} \
+in_quantum={} out_rate={} rate_adj={:.6} rt_state={}",
         callback_count,
         path,
         wallclock_millis(),
@@ -280,6 +281,7 @@ out_rate={} rate_adj={:.6} rt_state={}",
         pending_resampler_input_samples,
         total_available_input_domain,
         control_available,
+        smoothed_control_available,
         projected_control_available,
         callback_input_domain_samples,
         callback_output_frames,
@@ -323,6 +325,8 @@ pub struct PipewireWriter {
     /// Downstream graph latency as measured by pw_stream_get_time().delay (f32 ms bits).
     /// Updated every ~100 callbacks once the stream is stable.
     graph_latency_ms_bits: Arc<AtomicU32>,
+    /// EMA-smoothed control latency in ms bits — the value the servo actually tracks.
+    smoothed_control_latency_ms_bits: Arc<AtomicU32>,
     /// Configured ring-buffer target latency (from PipewireBufferConfig::latency_ms).
     target_latency_ms: u32,
     live_adaptive_config: Arc<Mutex<AdaptiveResamplingConfig>>,
@@ -408,6 +412,8 @@ impl PipewireWriter {
         let control_latency_clone = control_latency_ms_bits.clone();
         let graph_latency_ms_bits = Arc::new(AtomicU32::new(0u32));
         let graph_latency_clone = graph_latency_ms_bits.clone();
+        let smoothed_control_latency_ms_bits = Arc::new(AtomicU32::new(0u32));
+        let smoothed_control_latency_clone = smoothed_control_latency_ms_bits.clone();
         let live_config = Arc::new(Mutex::new(adaptive_config));
         let adaptive_config_for_thread = Arc::clone(&live_config);
         let reset_ratio_requested = Arc::new(AtomicBool::new(false));
@@ -449,6 +455,7 @@ impl PipewireWriter {
                 measured_latency_clone,
                 control_latency_clone,
                 graph_latency_clone,
+                smoothed_control_latency_clone,
                 pending_input_triggers_for_thread,
                 input_trigger_rate_for_thread,
                 input_trigger_quantum_for_thread,
@@ -502,6 +509,7 @@ impl PipewireWriter {
             measured_latency_ms_bits,
             control_latency_ms_bits,
             graph_latency_ms_bits,
+            smoothed_control_latency_ms_bits,
             target_latency_ms,
             live_adaptive_config: live_config,
             reset_ratio_requested,
@@ -685,6 +693,11 @@ impl PipewireWriter {
         f32::from_bits(self.control_latency_ms_bits.load(Ordering::Relaxed))
     }
 
+    /// EMA-smoothed control latency in ms (the value the servo actually tracks).
+    pub fn smoothed_control_audio_delay_ms(&self) -> f32 {
+        f32::from_bits(self.smoothed_control_latency_ms_bits.load(Ordering::Relaxed))
+    }
+
     /// Signal the audio thread to snap the resampling ratio back to base and reset the integrator.
     pub fn request_ratio_reset(&self) {
         self.reset_ratio_requested.store(true, Ordering::Relaxed);
@@ -732,6 +745,7 @@ fn run_pipewire_loop(
     measured_latency_ms_out: Arc<AtomicU32>,
     control_latency_ms_out: Arc<AtomicU32>,
     graph_latency_ms_out: Arc<AtomicU32>,
+    smoothed_control_latency_ms_out: Arc<AtomicU32>,
     pending_input_triggers: Arc<AtomicI64>,
     input_trigger_rate_hz: Arc<AtomicU32>,
     input_trigger_quantum_frames: Arc<AtomicU32>,
@@ -1064,6 +1078,7 @@ fn run_pipewire_loop(
                     } else {
                         frame_aligned_max
                     };
+                    let current_adaptive_cfg = live_adaptive_config_for_callback.lock().unwrap().clone();
                     let metrics = update_latency_metrics(
                         &mut runtime_state,
                         available,
@@ -1073,12 +1088,27 @@ fn run_pipewire_loop(
                         channel_count as usize,
                         sample_rate,
                         f32::from_bits(graph_latency_for_callback.load(Ordering::Relaxed)),
+                        current_adaptive_cfg.control_smoothing_alpha,
                         LatencyMetricTargets {
                             measured_latency_ms_bits: &measured_latency_ms_out,
                             control_latency_ms_bits: &control_latency_ms_out,
                         },
                     );
-                    let current_adaptive_cfg = live_adaptive_config_for_callback.lock().unwrap().clone();
+                    // Publish the smoothed control latency the servo actually tracks,
+                    // so the UI can show it next to the raw control latency.
+                    let smoothed_control_latency_ms = if channel_count > 0 && sample_rate > 0 {
+                        metrics.smoothed_control_available as f32
+                            / channel_count as f32
+                            / sample_rate as f32
+                            * 1000.0
+                    } else {
+                        0.0
+                    };
+                    smoothed_control_latency_ms_out
+                        .store(smoothed_control_latency_ms.to_bits(), Ordering::Relaxed);
+                    // Band classification feeds the low-recover state machine: use
+                    // raw control_available so the hysteresis bands act on the real
+                    // buffer level. (The servo gets the smoothed value separately.)
                     let fallback_band = far_mode_band_from_latency(
                         &current_adaptive_cfg,
                         metrics.control_available,
@@ -1089,6 +1119,7 @@ fn run_pipewire_loop(
                     if let Some(ref mut resampler) = resampler_opt {
                         if adaptive_resampling_enabled
                             && !is_pi_paused
+                            && runtime_state.low_recover_phase == LowRecoverPhase::Inactive
                         {
                             // Refresh config from the live Arc (non-blocking; keep stale on contention).
                             if let Ok(cfg) = live_adaptive_config_for_callback.try_lock() {
@@ -1172,6 +1203,9 @@ fn run_pipewire_loop(
                         let far_mode_cfg = live_adaptive_config_for_callback.lock().unwrap().clone();
                         let low_recover_was_active =
                             runtime_state.low_recover_phase != LowRecoverPhase::Inactive;
+                        // State machine on raw: its entry/exit/settle bands are
+                        // already the hysteresis; smoothing on top added phase lag
+                        // that drove a slow oscillation.
                         let far_decision = update_far_mode_state(
                             &mut runtime_state,
                             &far_mode_cfg,
@@ -1240,6 +1274,7 @@ fn run_pipewire_loop(
                             pending_resampler_input_samples,
                             metrics.total_available_input_domain,
                             metrics.control_available,
+                            metrics.smoothed_control_available,
                             projected_control_available,
                             callback_input_domain_samples,
                             callback_output_frames,
@@ -1253,7 +1288,6 @@ fn run_pipewire_loop(
                             current_runtime_state.load(Ordering::Relaxed),
                         );
                         if far_decision.hold_low_recover {
-                            rate_adjust_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
                             desired_rate_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
                             if !low_recover_was_active {
                                 resampler.reset();
@@ -1411,14 +1445,18 @@ fn run_pipewire_loop(
                             max_samples
                         }
                     } else {
-                        if latency_servo_enabled && !is_pi_paused && callback_count % adaptive_update_interval == 0 {
+                        if latency_servo_enabled
+                            && !is_pi_paused
+                            && callback_count % adaptive_update_interval == 0
+                            && runtime_state.low_recover_phase == LowRecoverPhase::Inactive
+                        {
                             // Refresh config from live Arc (non-blocking; keep stale on contention).
                             let native_servo_cfg = live_adaptive_config_for_callback.lock().unwrap().clone();
                             if adaptive_resampling_enabled {
                                 adaptive_update_interval = native_servo_cfg.update_interval_callbacks.max(1) as u64;
                             }
-                            let drift =
-                                metrics.control_available as i64 - runtime_target_buffer_fill as i64;
+                            let drift = metrics.smoothed_control_available as i64
+                                - runtime_target_buffer_fill as i64;
 
                             if adaptive_resampling_enabled {
                                 let decision = run_adaptive_servo(
@@ -1464,6 +1502,7 @@ fn run_pipewire_loop(
                                                 * integral_contribution.signum();
                                     }
                                 }
+                                // Band classification on raw — see resampler path.
                                 let far_band = far_mode_band_from_latency(
                                     &native_servo_cfg,
                                     metrics.control_available,
@@ -1507,8 +1546,7 @@ fn run_pipewire_loop(
                         let samples_to_read = frames_to_read * ch;
 
                         let far_mode_cfg2 = live_adaptive_config_for_callback.lock().unwrap().clone();
-                        let low_recover_was_active =
-                            runtime_state.low_recover_phase != LowRecoverPhase::Inactive;
+                        // State machine on raw — see resampler path.
                         let far_decision: FarModeDecision = update_far_mode_state(
                             &mut runtime_state,
                             &far_mode_cfg2,
@@ -1575,6 +1613,7 @@ fn run_pipewire_loop(
                             pending_resampler_input_samples,
                             metrics.total_available_input_domain,
                             metrics.control_available,
+                            metrics.smoothed_control_available,
                             projected_control_available,
                             callback_input_domain_samples,
                             callback_output_frames,
@@ -1589,10 +1628,6 @@ fn run_pipewire_loop(
                         );
                         if far_decision.hold_low_recover {
                             desired_rate_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
-                            rate_adjust_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
-                            if !low_recover_was_active {
-                                runtime_state.controller_state.accumulated_drift = 0.0;
-                            }
                         }
                         if far_decision.recovery_reacquire_pending {
                             desired_rate_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);

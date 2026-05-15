@@ -45,6 +45,7 @@ export function audioPanelMarkup() {
               <div id="latencyNearHighMarker" class="meter-marker" style="display:none;background:#ffb84a;top:-11px;bottom:auto;height:5px;width:5px;border-radius:50%"></div>
               <div id="latencyRawMinMarker" class="meter-marker min"></div>
               <div id="latencyCtrlMarker" class="meter-marker" style="background:#58a0ff;top:-4px;bottom:-4px"></div>
+              <div id="latencySmoothedMarker" class="meter-marker" style="display:none;background:#c879ff;top:-4px;bottom:-4px"></div>
               <div id="latencyRawMaxMarker" class="meter-marker max"></div>
             </div>
             <div style="grid-column:2;grid-row:2;min-width:0">
@@ -57,6 +58,8 @@ export function audioPanelMarkup() {
               </div>
               <div class="meter-subvalues" style="margin-top:0.12rem">
                 <span id="latencyCtrlInfo">ctrl —</span>
+                <span aria-hidden="true" style="opacity:0.45">|</span>
+                <span id="latencySmoothedInfo">smoothed —</span>
                 <span aria-hidden="true" style="opacity:0.45">|</span>
                 <span id="latencyDownstreamInfo">path —</span>
               </div>
@@ -163,6 +166,47 @@ export function audioPanelMarkup() {
               <div id="adaptiveIntegralDischargeRow" class="control-row" style="margin-top:0.2rem">
                 <label for="adaptiveIntegralDischargeRatioInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.integralDischarge">Integral discharge</label>
                 <input id="adaptiveIntegralDischargeRatioInput" class="delay-input" type="number" min="0" max="1" step="0.001" value="0.25" style="width:8rem" />
+              </div>
+            </div>
+            <div class="adaptive-subpanel">
+              <div class="control-row" style="margin-top:0">
+                <div style="grid-column:1 / -1;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:#8fa6bd" data-i18n="adaptive.stabilizationPhases">Stabilization phases</div>
+              </div>
+              <div id="adaptiveLowRecoverSettleStableMsRow" class="control-row" style="margin-top:0.2rem">
+                <label for="adaptiveLowRecoverSettleStableMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverSettleStable">Settling hold</label>
+                <div style="display:flex;align-items:center;gap:0.35rem">
+                  <input id="adaptiveLowRecoverSettleStableMsInput" class="delay-input" type="number" min="0" step="1" value="200" style="width:7rem" />
+                  <span style="font-size:11px;color:#8fa6bd">ms</span>
+                </div>
+              </div>
+              <div id="adaptiveLowRecoverEntryMarginMsRow" class="control-row" style="margin-top:0.2rem">
+                <label for="adaptiveLowRecoverEntryMarginMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverEntryMargin">Low-recover entry margin</label>
+                <div style="display:flex;align-items:center;gap:0.35rem">
+                  <input id="adaptiveLowRecoverEntryMarginMsInput" class="delay-input" type="number" min="0" step="0.1" value="18" style="width:7rem" />
+                  <span style="font-size:11px;color:#8fa6bd">ms</span>
+                </div>
+              </div>
+              <div id="adaptiveLowRecoverExitMarginMsRow" class="control-row" style="margin-top:0.2rem">
+                <label for="adaptiveLowRecoverExitMarginMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverExitMargin">Low-recover exit margin</label>
+                <div style="display:flex;align-items:center;gap:0.35rem">
+                  <input id="adaptiveLowRecoverExitMarginMsInput" class="delay-input" type="number" min="0" step="0.1" value="6" style="width:7rem" />
+                  <span style="font-size:11px;color:#8fa6bd">ms</span>
+                </div>
+              </div>
+              <div id="adaptiveLowRecoverSettleMarginMsRow" class="control-row" style="margin-top:0.2rem">
+                <label for="adaptiveLowRecoverSettleMarginMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverSettleMargin">Settling margin</label>
+                <div style="display:flex;align-items:center;gap:0.35rem">
+                  <input id="adaptiveLowRecoverSettleMarginMsInput" class="delay-input" type="number" min="0" step="0.1" value="6" style="width:7rem" />
+                  <span style="font-size:11px;color:#8fa6bd">ms</span>
+                </div>
+              </div>
+              <div id="adaptiveLowRecoverRefillDeltaAlphaRow" class="control-row" style="margin-top:0.2rem">
+                <label for="adaptiveLowRecoverRefillDeltaAlphaInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverRefillDeltaAlpha">Refill EMA α</label>
+                <input id="adaptiveLowRecoverRefillDeltaAlphaInput" class="delay-input" type="number" min="0" max="1" step="0.01" value="0.5" style="width:8rem" />
+              </div>
+              <div id="adaptiveControlSmoothingAlphaRow" class="control-row" style="margin-top:0.2rem">
+                <label for="adaptiveControlSmoothingAlphaInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.controlSmoothingAlpha">Control smoothing α</label>
+                <input id="adaptiveControlSmoothingAlphaInput" class="delay-input" type="number" min="0" max="1" step="0.001" value="0.02" style="width:8rem" />
               </div>
             </div>
             <div style="margin-top:0.3rem;display:flex;justify-content:flex-end;gap:0.35rem">

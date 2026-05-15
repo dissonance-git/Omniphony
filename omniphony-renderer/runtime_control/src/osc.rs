@@ -107,6 +107,12 @@ struct AdaptiveResamplingPatch {
     max_adjust: Option<f64>,
     near_far_threshold_ms: Option<u32>,
     update_interval_callbacks: Option<u32>,
+    low_recover_settle_stable_ms: Option<f32>,
+    low_recover_entry_margin_ms: Option<f32>,
+    low_recover_exit_margin_ms: Option<f32>,
+    low_recover_settle_margin_ms: Option<f32>,
+    low_recover_refill_delta_alpha: Option<f32>,
+    control_smoothing_alpha: Option<f32>,
     paused: Option<bool>,
 }
 
@@ -830,6 +836,12 @@ fn build_audio_state_json(audio: &audio_output::AudioControl) -> String {
             "maxAdjust": requested.adaptive.max_adjust,
             "updateIntervalCallbacks": requested.adaptive.update_interval_callbacks,
             "nearFarThresholdMs": requested.adaptive.near_far_threshold_ms,
+            "lowRecoverSettleStableMs": requested.adaptive.low_recover_settle_stable_ms,
+            "lowRecoverEntryMarginMs": requested.adaptive.low_recover_entry_margin_ms,
+            "lowRecoverExitMarginMs": requested.adaptive.low_recover_exit_margin_ms,
+            "lowRecoverSettleMarginMs": requested.adaptive.low_recover_settle_margin_ms,
+            "lowRecoverRefillDeltaAlpha": requested.adaptive.low_recover_refill_delta_alpha,
+            "controlSmoothingAlpha": requested.adaptive.control_smoothing_alpha,
             "paused": requested.adaptive.paused
         },
         "latencyTargetMs": requested.latency_target_ms
@@ -1166,6 +1178,42 @@ pub fn apply_simple_osc_control(
                     .filter(|value| *value > 0)
                 {
                     audio.set_requested_adaptive_resampling_update_interval_callbacks(value);
+                }
+                if let Some(value) = adaptive
+                    .low_recover_settle_stable_ms
+                    .filter(|value| value.is_finite() && *value >= 0.0)
+                {
+                    audio.set_requested_adaptive_resampling_low_recover_settle_stable_ms(value);
+                }
+                if let Some(value) = adaptive
+                    .low_recover_entry_margin_ms
+                    .filter(|value| value.is_finite() && *value >= 0.0)
+                {
+                    audio.set_requested_adaptive_resampling_low_recover_entry_margin_ms(value);
+                }
+                if let Some(value) = adaptive
+                    .low_recover_exit_margin_ms
+                    .filter(|value| value.is_finite() && *value >= 0.0)
+                {
+                    audio.set_requested_adaptive_resampling_low_recover_exit_margin_ms(value);
+                }
+                if let Some(value) = adaptive
+                    .low_recover_settle_margin_ms
+                    .filter(|value| value.is_finite() && *value >= 0.0)
+                {
+                    audio.set_requested_adaptive_resampling_low_recover_settle_margin_ms(value);
+                }
+                if let Some(value) = adaptive
+                    .low_recover_refill_delta_alpha
+                    .map(|value| value.clamp(0.0, 1.0))
+                {
+                    audio.set_requested_adaptive_resampling_low_recover_refill_delta_alpha(value);
+                }
+                if let Some(value) = adaptive
+                    .control_smoothing_alpha
+                    .map(|value| value.clamp(0.0, 1.0))
+                {
+                    audio.set_requested_adaptive_resampling_control_smoothing_alpha(value);
                 }
                 if let Some(paused) = adaptive.paused {
                     audio.set_requested_adaptive_resampling_paused(paused);

@@ -219,6 +219,8 @@ pub struct RuntimeLatencyState {
     pub latency_instant_ms: Option<i64>,
     #[serde(rename = "latencyControlMs")]
     pub latency_control_ms: Option<i64>,
+    #[serde(rename = "latencySmoothedMs")]
+    pub latency_smoothed_ms: Option<i64>,
     #[serde(rename = "latencyDownstreamMs")]
     pub latency_downstream_ms: Option<i64>,
     #[serde(rename = "latencyTargetMs")]
@@ -328,6 +330,18 @@ pub struct AppState {
     pub adaptive_resampling_update_interval_callbacks: Option<i64>,
     #[serde(rename = "adaptiveResamplingNearFarThresholdMs")]
     pub adaptive_resampling_near_far_threshold_ms: Option<i64>,
+    #[serde(rename = "adaptiveResamplingLowRecoverSettleStableMs")]
+    pub adaptive_resampling_low_recover_settle_stable_ms: Option<f64>,
+    #[serde(rename = "adaptiveResamplingLowRecoverEntryMarginMs")]
+    pub adaptive_resampling_low_recover_entry_margin_ms: Option<f64>,
+    #[serde(rename = "adaptiveResamplingLowRecoverExitMarginMs")]
+    pub adaptive_resampling_low_recover_exit_margin_ms: Option<f64>,
+    #[serde(rename = "adaptiveResamplingLowRecoverSettleMarginMs")]
+    pub adaptive_resampling_low_recover_settle_margin_ms: Option<f64>,
+    #[serde(rename = "adaptiveResamplingLowRecoverRefillDeltaAlpha")]
+    pub adaptive_resampling_low_recover_refill_delta_alpha: Option<f64>,
+    #[serde(rename = "adaptiveResamplingControlSmoothingAlpha")]
+    pub adaptive_resampling_control_smoothing_alpha: Option<f64>,
     #[serde(rename = "adaptiveResamplingBand")]
     pub adaptive_resampling_band: Option<String>,
     #[serde(rename = "adaptiveResamplingState")]
@@ -463,6 +477,12 @@ impl AppState {
         rounded
     }
 
+    pub fn set_latency_smoothed_value(&mut self, value: f64) -> i64 {
+        let rounded = value.round() as i64;
+        self.latency.latency_smoothed_ms = Some(rounded);
+        rounded
+    }
+
     pub fn set_latency_downstream_value(&mut self, value: f64) -> i64 {
         let rounded = value.round() as i64;
         self.latency.latency_downstream_ms = Some(rounded);
@@ -558,6 +578,12 @@ impl Default for AppState {
             adaptive_resampling_max_adjust: Some(0.01),
             adaptive_resampling_update_interval_callbacks: Some(1),
             adaptive_resampling_near_far_threshold_ms: Some(1000),
+            adaptive_resampling_low_recover_settle_stable_ms: Some(200.0),
+            adaptive_resampling_low_recover_entry_margin_ms: Some(18.0),
+            adaptive_resampling_low_recover_exit_margin_ms: Some(6.0),
+            adaptive_resampling_low_recover_settle_margin_ms: Some(6.0),
+            adaptive_resampling_low_recover_refill_delta_alpha: Some(0.5),
+            adaptive_resampling_control_smoothing_alpha: Some(0.02),
             adaptive_resampling_band: None,
             adaptive_resampling_state: None,
             adaptive_resampling_paused: Some(0),

@@ -208,6 +208,18 @@ impl<'a> OutputRuntimeCoordinator<'a> {
                             .max(1),
                         near_far_threshold_ms: control
                             .requested_adaptive_resampling_near_far_threshold_ms(),
+                        low_recover_settle_stable_ms: control
+                            .requested_adaptive_resampling_low_recover_settle_stable_ms(),
+                        low_recover_entry_margin_ms: control
+                            .requested_adaptive_resampling_low_recover_entry_margin_ms(),
+                        low_recover_exit_margin_ms: control
+                            .requested_adaptive_resampling_low_recover_exit_margin_ms(),
+                        low_recover_settle_margin_ms: control
+                            .requested_adaptive_resampling_low_recover_settle_margin_ms(),
+                        low_recover_refill_delta_alpha: control
+                            .requested_adaptive_resampling_low_recover_refill_delta_alpha(),
+                        control_smoothing_alpha: control
+                            .requested_adaptive_resampling_control_smoothing_alpha(),
                         paused: control.requested_adaptive_resampling_paused(),
                     }
                 })
@@ -252,6 +264,36 @@ impl<'a> OutputRuntimeCoordinator<'a> {
                         .runtime
                         .adaptive_resampling_config
                         .near_far_threshold_ms
+                && requested.low_recover_settle_stable_ms
+                    == self
+                        .runtime
+                        .adaptive_resampling_config
+                        .low_recover_settle_stable_ms
+                && requested.low_recover_entry_margin_ms
+                    == self
+                        .runtime
+                        .adaptive_resampling_config
+                        .low_recover_entry_margin_ms
+                && requested.low_recover_exit_margin_ms
+                    == self
+                        .runtime
+                        .adaptive_resampling_config
+                        .low_recover_exit_margin_ms
+                && requested.low_recover_settle_margin_ms
+                    == self
+                        .runtime
+                        .adaptive_resampling_config
+                        .low_recover_settle_margin_ms
+                && requested.low_recover_refill_delta_alpha
+                    == self
+                        .runtime
+                        .adaptive_resampling_config
+                        .low_recover_refill_delta_alpha
+                && requested.control_smoothing_alpha
+                    == self
+                        .runtime
+                        .adaptive_resampling_config
+                        .control_smoothing_alpha
                 && requested.paused == self.runtime.adaptive_resampling_config.paused
             {
                 return Ok(());
@@ -259,7 +301,7 @@ impl<'a> OutputRuntimeCoordinator<'a> {
 
             self.runtime.adaptive_resampling_config = requested;
             log::info!(
-                "Applying adaptive resampling tuning (live): far_mode={}, far_silence={}, hard_recover_high={}, hard_recover_low={}, far_return_fade_in_ms={}, kp={:.4}, ki={:.4}, integral_discharge_ratio={:.4}, max_adjust={:.6}, update_interval_callbacks={}, far_threshold_ms={}",
+                "Applying adaptive resampling tuning (live): far_mode={}, far_silence={}, hard_recover_high={}, hard_recover_low={}, far_return_fade_in_ms={}, kp={:.4}, ki={:.4}, integral_discharge_ratio={:.4}, max_adjust={:.6}, update_interval_callbacks={}, far_threshold_ms={}, low_recover_settle_stable_ms={:.2}, low_recover_entry_margin_ms={:.2}, low_recover_exit_margin_ms={:.2}, low_recover_settle_margin_ms={:.2}, low_recover_refill_delta_alpha={:.3}, control_smoothing_alpha={:.4}",
                 self.runtime.adaptive_resampling_config.enable_far_mode,
                 self.runtime
                     .adaptive_resampling_config
@@ -285,6 +327,24 @@ impl<'a> OutputRuntimeCoordinator<'a> {
                 self.runtime
                     .adaptive_resampling_config
                     .near_far_threshold_ms,
+                self.runtime
+                    .adaptive_resampling_config
+                    .low_recover_settle_stable_ms,
+                self.runtime
+                    .adaptive_resampling_config
+                    .low_recover_entry_margin_ms,
+                self.runtime
+                    .adaptive_resampling_config
+                    .low_recover_exit_margin_ms,
+                self.runtime
+                    .adaptive_resampling_config
+                    .low_recover_settle_margin_ms,
+                self.runtime
+                    .adaptive_resampling_config
+                    .low_recover_refill_delta_alpha,
+                self.runtime
+                    .adaptive_resampling_config
+                    .control_smoothing_alpha,
             );
 
             // Apply live on the running audio thread — no restart needed.

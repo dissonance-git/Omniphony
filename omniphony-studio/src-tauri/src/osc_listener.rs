@@ -48,6 +48,12 @@ struct AudioAdaptiveDomainState {
     max_adjust: Option<f64>,
     near_far_threshold_ms: Option<u32>,
     update_interval_callbacks: Option<u32>,
+    low_recover_settle_stable_ms: Option<f32>,
+    low_recover_entry_margin_ms: Option<f32>,
+    low_recover_exit_margin_ms: Option<f32>,
+    low_recover_settle_margin_ms: Option<f32>,
+    low_recover_refill_delta_alpha: Option<f32>,
+    control_smoothing_alpha: Option<f64>,
     paused: Option<bool>,
 }
 
@@ -444,6 +450,24 @@ fn apply_audio_domain_state(s: &mut AppState, value: &str) -> bool {
         }
         if let Some(value) = adaptive.update_interval_callbacks {
             s.adaptive_resampling_update_interval_callbacks = Some(value as i64);
+        }
+        if let Some(value) = adaptive.low_recover_settle_stable_ms {
+            s.adaptive_resampling_low_recover_settle_stable_ms = Some(value as f64);
+        }
+        if let Some(value) = adaptive.low_recover_entry_margin_ms {
+            s.adaptive_resampling_low_recover_entry_margin_ms = Some(value as f64);
+        }
+        if let Some(value) = adaptive.low_recover_exit_margin_ms {
+            s.adaptive_resampling_low_recover_exit_margin_ms = Some(value as f64);
+        }
+        if let Some(value) = adaptive.low_recover_settle_margin_ms {
+            s.adaptive_resampling_low_recover_settle_margin_ms = Some(value as f64);
+        }
+        if let Some(value) = adaptive.low_recover_refill_delta_alpha {
+            s.adaptive_resampling_low_recover_refill_delta_alpha = Some(value as f64);
+        }
+        if let Some(value) = adaptive.control_smoothing_alpha {
+            s.adaptive_resampling_control_smoothing_alpha = Some(value);
         }
         if let Some(paused) = adaptive.paused {
             s.adaptive_resampling_paused = Some(if paused { 1 } else { 0 });
@@ -1555,6 +1579,13 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 let rounded = s.set_latency_control_value(value);
                 (
                     Some(("latency:control", serde_json::json!({ "value": rounded }))),
+                    removed_ids,
+                )
+            }
+            OscEvent::StateLatencySmoothed { value } => {
+                let rounded = s.set_latency_smoothed_value(value);
+                (
+                    Some(("latency:smoothed", serde_json::json!({ "value": rounded }))),
                     removed_ids,
                 )
             }

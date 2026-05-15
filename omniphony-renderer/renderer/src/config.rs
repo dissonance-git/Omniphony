@@ -145,6 +145,18 @@ pub struct RenderConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adaptive_resampling_near_far_threshold_ms: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub adaptive_resampling_low_recover_settle_stable_ms: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adaptive_resampling_low_recover_entry_margin_ms: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adaptive_resampling_low_recover_exit_margin_ms: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adaptive_resampling_low_recover_settle_margin_ms: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adaptive_resampling_low_recover_refill_delta_alpha: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adaptive_resampling_control_smoothing_alpha: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub output_sample_rate: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drc_mode: Option<String>,

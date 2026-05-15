@@ -22,6 +22,20 @@ pub struct AdaptiveResamplingConfig {
     pub max_adjust: f64,
     pub update_interval_callbacks: u32,
     pub near_far_threshold_ms: u32,
+    /// Duration the control buffer must stay within tolerance to exit the
+    /// `Settling` phase and resume the steady-state servo.
+    pub low_recover_settle_stable_ms: f32,
+    /// Tolerance (ms) for entering the low-recover refill phase.
+    pub low_recover_entry_margin_ms: f32,
+    /// Tolerance (ms) for exiting the low-recover refill phase.
+    pub low_recover_exit_margin_ms: f32,
+    /// Tolerance (ms) during the `Settling` phase.
+    pub low_recover_settle_margin_ms: f32,
+    /// EMA factor for tracking the refill delta across callbacks.
+    pub low_recover_refill_delta_alpha: f32,
+    /// EMA factor for the control-path buffer level. Smoothing over ~1 s keeps
+    /// the servo and far-mode state machine stable against decoder bursts.
+    pub control_smoothing_alpha: f64,
     /// When true the PI controller is frozen: the current ratio is held as-is.
     pub paused: bool,
 }
@@ -43,6 +57,12 @@ impl Default for AdaptiveResamplingConfig {
             max_adjust: 0.01,
             update_interval_callbacks: 1,
             near_far_threshold_ms: 1000,
+            low_recover_settle_stable_ms: 200.0,
+            low_recover_entry_margin_ms: 18.0,
+            low_recover_exit_margin_ms: 6.0,
+            low_recover_settle_margin_ms: 6.0,
+            low_recover_refill_delta_alpha: 0.5,
+            control_smoothing_alpha: 0.02,
             paused: false,
         }
     }

@@ -103,6 +103,25 @@ fn build_adaptive_resampling_config(
         near_far_threshold_ms: render_cfg
             .and_then(|cfg| cfg.adaptive_resampling_near_far_threshold_ms)
             .unwrap_or(defaults.near_far_threshold_ms),
+        low_recover_settle_stable_ms: render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_low_recover_settle_stable_ms)
+            .unwrap_or(defaults.low_recover_settle_stable_ms),
+        low_recover_entry_margin_ms: render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_low_recover_entry_margin_ms)
+            .unwrap_or(defaults.low_recover_entry_margin_ms),
+        low_recover_exit_margin_ms: render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_low_recover_exit_margin_ms)
+            .unwrap_or(defaults.low_recover_exit_margin_ms),
+        low_recover_settle_margin_ms: render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_low_recover_settle_margin_ms)
+            .unwrap_or(defaults.low_recover_settle_margin_ms),
+        low_recover_refill_delta_alpha: render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_low_recover_refill_delta_alpha)
+            .unwrap_or(defaults.low_recover_refill_delta_alpha),
+        control_smoothing_alpha: render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_control_smoothing_alpha)
+            .map(|v| v as f64)
+            .unwrap_or(defaults.control_smoothing_alpha),
         paused: false,
     }
 }

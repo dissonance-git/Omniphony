@@ -27,6 +27,12 @@ export function setupAudioPanelListeners() {
   const adaptiveMaxAdjustInputEl = document.getElementById('adaptiveMaxAdjustInput');
   const adaptiveNearFarThresholdInputEl = document.getElementById('adaptiveNearFarThresholdInput');
   const adaptiveUpdateIntervalCallbacksInputEl = document.getElementById('adaptiveUpdateIntervalCallbacksInput');
+  const adaptiveLowRecoverSettleStableMsInputEl = document.getElementById('adaptiveLowRecoverSettleStableMsInput');
+  const adaptiveLowRecoverEntryMarginMsInputEl = document.getElementById('adaptiveLowRecoverEntryMarginMsInput');
+  const adaptiveLowRecoverExitMarginMsInputEl = document.getElementById('adaptiveLowRecoverExitMarginMsInput');
+  const adaptiveLowRecoverSettleMarginMsInputEl = document.getElementById('adaptiveLowRecoverSettleMarginMsInput');
+  const adaptiveLowRecoverRefillDeltaAlphaInputEl = document.getElementById('adaptiveLowRecoverRefillDeltaAlphaInput');
+  const adaptiveControlSmoothingAlphaInputEl = document.getElementById('adaptiveControlSmoothingAlphaInput');
   const latencyTargetInputEl = document.getElementById('latencyTargetInput');
   const latencyTargetApplyBtnEl = document.getElementById('latencyTargetApplyBtn');
   const audioSampleRateMenuBtnEl = document.getElementById('audioSampleRateMenuBtn');
@@ -157,6 +163,12 @@ export function setupAudioPanelListeners() {
       const nearFarThresholdMs = Math.max(1, Math.round(Number(adaptiveNearFarThresholdInputEl?.value) || 0));
       const updateIntervalCallbacks = Math.max(1, Math.round(Number(adaptiveUpdateIntervalCallbacksInputEl?.value) || 0));
       const farModeReturnFadeInMs = Math.max(0, Math.round(Number(adaptiveFarFadeInMsInputEl?.value) || 0));
+      const lowRecoverSettleStableMs = Math.max(0, Math.round(Number(adaptiveLowRecoverSettleStableMsInputEl?.value) || 0));
+      const lowRecoverEntryMarginMs = Math.max(0, Number(adaptiveLowRecoverEntryMarginMsInputEl?.value) || 0);
+      const lowRecoverExitMarginMs = Math.max(0, Number(adaptiveLowRecoverExitMarginMsInputEl?.value) || 0);
+      const lowRecoverSettleMarginMs = Math.max(0, Number(adaptiveLowRecoverSettleMarginMsInputEl?.value) || 0);
+      const lowRecoverRefillDeltaAlpha = Math.min(1, Math.max(0, Number(adaptiveLowRecoverRefillDeltaAlphaInputEl?.value) || 0));
+      const controlSmoothingAlpha = Math.min(1, Math.max(0, Number(adaptiveControlSmoothingAlphaInputEl?.value) || 0));
 
       app.adaptiveResamplingKpNear = kpNear;
       app.adaptiveResamplingKi = ki;
@@ -165,6 +177,12 @@ export function setupAudioPanelListeners() {
       app.adaptiveResamplingNearFarThresholdMs = nearFarThresholdMs;
       app.adaptiveResamplingUpdateIntervalCallbacks = updateIntervalCallbacks;
       app.adaptiveResamplingFarModeReturnFadeInMs = farModeReturnFadeInMs;
+      app.adaptiveResamplingLowRecoverSettleStableMs = lowRecoverSettleStableMs;
+      app.adaptiveResamplingLowRecoverEntryMarginMs = lowRecoverEntryMarginMs;
+      app.adaptiveResamplingLowRecoverExitMarginMs = lowRecoverExitMarginMs;
+      app.adaptiveResamplingLowRecoverSettleMarginMs = lowRecoverSettleMarginMs;
+      app.adaptiveResamplingLowRecoverRefillDeltaAlpha = lowRecoverRefillDeltaAlpha;
+      app.adaptiveResamplingControlSmoothingAlpha = controlSmoothingAlpha;
       updateAdaptiveResamplingUI();
       sendAudioConfig();
 
@@ -273,6 +291,78 @@ export function setupAudioPanelListeners() {
     adaptiveUpdateIntervalCallbacksInputEl.addEventListener('input', () => {
       app.adaptiveUpdateIntervalCallbacksEditing = true;
       app.adaptiveUpdateIntervalCallbacksDirty = true;
+      updateAdaptiveResamplingUI();
+    });
+  }
+
+  if (adaptiveLowRecoverSettleStableMsInputEl) {
+    adaptiveLowRecoverSettleStableMsInputEl.addEventListener('focus', () => {
+      app.adaptiveLowRecoverSettleStableMsEditing = true;
+      adaptiveLowRecoverSettleStableMsInputEl.select();
+    });
+    adaptiveLowRecoverSettleStableMsInputEl.addEventListener('input', () => {
+      app.adaptiveLowRecoverSettleStableMsEditing = true;
+      app.adaptiveLowRecoverSettleStableMsDirty = true;
+      updateAdaptiveResamplingUI();
+    });
+  }
+
+  if (adaptiveLowRecoverEntryMarginMsInputEl) {
+    adaptiveLowRecoverEntryMarginMsInputEl.addEventListener('focus', () => {
+      app.adaptiveLowRecoverEntryMarginMsEditing = true;
+      adaptiveLowRecoverEntryMarginMsInputEl.select();
+    });
+    adaptiveLowRecoverEntryMarginMsInputEl.addEventListener('input', () => {
+      app.adaptiveLowRecoverEntryMarginMsEditing = true;
+      app.adaptiveLowRecoverEntryMarginMsDirty = true;
+      updateAdaptiveResamplingUI();
+    });
+  }
+
+  if (adaptiveLowRecoverExitMarginMsInputEl) {
+    adaptiveLowRecoverExitMarginMsInputEl.addEventListener('focus', () => {
+      app.adaptiveLowRecoverExitMarginMsEditing = true;
+      adaptiveLowRecoverExitMarginMsInputEl.select();
+    });
+    adaptiveLowRecoverExitMarginMsInputEl.addEventListener('input', () => {
+      app.adaptiveLowRecoverExitMarginMsEditing = true;
+      app.adaptiveLowRecoverExitMarginMsDirty = true;
+      updateAdaptiveResamplingUI();
+    });
+  }
+
+  if (adaptiveLowRecoverSettleMarginMsInputEl) {
+    adaptiveLowRecoverSettleMarginMsInputEl.addEventListener('focus', () => {
+      app.adaptiveLowRecoverSettleMarginMsEditing = true;
+      adaptiveLowRecoverSettleMarginMsInputEl.select();
+    });
+    adaptiveLowRecoverSettleMarginMsInputEl.addEventListener('input', () => {
+      app.adaptiveLowRecoverSettleMarginMsEditing = true;
+      app.adaptiveLowRecoverSettleMarginMsDirty = true;
+      updateAdaptiveResamplingUI();
+    });
+  }
+
+  if (adaptiveLowRecoverRefillDeltaAlphaInputEl) {
+    adaptiveLowRecoverRefillDeltaAlphaInputEl.addEventListener('focus', () => {
+      app.adaptiveLowRecoverRefillDeltaAlphaEditing = true;
+      adaptiveLowRecoverRefillDeltaAlphaInputEl.select();
+    });
+    adaptiveLowRecoverRefillDeltaAlphaInputEl.addEventListener('input', () => {
+      app.adaptiveLowRecoverRefillDeltaAlphaEditing = true;
+      app.adaptiveLowRecoverRefillDeltaAlphaDirty = true;
+      updateAdaptiveResamplingUI();
+    });
+  }
+
+  if (adaptiveControlSmoothingAlphaInputEl) {
+    adaptiveControlSmoothingAlphaInputEl.addEventListener('focus', () => {
+      app.adaptiveControlSmoothingAlphaEditing = true;
+      adaptiveControlSmoothingAlphaInputEl.select();
+    });
+    adaptiveControlSmoothingAlphaInputEl.addEventListener('input', () => {
+      app.adaptiveControlSmoothingAlphaEditing = true;
+      app.adaptiveControlSmoothingAlphaDirty = true;
       updateAdaptiveResamplingUI();
     });
   }

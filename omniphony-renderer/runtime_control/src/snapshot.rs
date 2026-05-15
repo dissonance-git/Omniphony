@@ -384,6 +384,12 @@ pub fn build_live_state_bundle(
                         "maxAdjust": requested.adaptive.max_adjust,
                         "updateIntervalCallbacks": requested.adaptive.update_interval_callbacks,
                         "nearFarThresholdMs": requested.adaptive.near_far_threshold_ms,
+                        "lowRecoverSettleStableMs": requested.adaptive.low_recover_settle_stable_ms,
+                        "lowRecoverEntryMarginMs": requested.adaptive.low_recover_entry_margin_ms,
+                        "lowRecoverExitMarginMs": requested.adaptive.low_recover_exit_margin_ms,
+                        "lowRecoverSettleMarginMs": requested.adaptive.low_recover_settle_margin_ms,
+                        "lowRecoverRefillDeltaAlpha": requested.adaptive.low_recover_refill_delta_alpha,
+                        "controlSmoothingAlpha": requested.adaptive.control_smoothing_alpha,
                         "paused": requested.adaptive.paused
                     },
                     "latencyTargetMs": requested.latency_target_ms

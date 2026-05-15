@@ -214,6 +214,76 @@ impl AudioControl {
         self.requested_snapshot().adaptive.near_far_threshold_ms
     }
 
+    pub fn set_requested_adaptive_resampling_low_recover_settle_stable_ms(&self, value: f32) {
+        self.update_requested(|requested| {
+            requested.adaptive.low_recover_settle_stable_ms = value;
+        });
+    }
+
+    pub fn requested_adaptive_resampling_low_recover_settle_stable_ms(&self) -> f32 {
+        self.requested_snapshot()
+            .adaptive
+            .low_recover_settle_stable_ms
+    }
+
+    pub fn set_requested_adaptive_resampling_low_recover_entry_margin_ms(&self, value: f32) {
+        self.update_requested(|requested| {
+            requested.adaptive.low_recover_entry_margin_ms = value;
+        });
+    }
+
+    pub fn requested_adaptive_resampling_low_recover_entry_margin_ms(&self) -> f32 {
+        self.requested_snapshot()
+            .adaptive
+            .low_recover_entry_margin_ms
+    }
+
+    pub fn set_requested_adaptive_resampling_low_recover_exit_margin_ms(&self, value: f32) {
+        self.update_requested(|requested| {
+            requested.adaptive.low_recover_exit_margin_ms = value;
+        });
+    }
+
+    pub fn requested_adaptive_resampling_low_recover_exit_margin_ms(&self) -> f32 {
+        self.requested_snapshot()
+            .adaptive
+            .low_recover_exit_margin_ms
+    }
+
+    pub fn set_requested_adaptive_resampling_low_recover_settle_margin_ms(&self, value: f32) {
+        self.update_requested(|requested| {
+            requested.adaptive.low_recover_settle_margin_ms = value;
+        });
+    }
+
+    pub fn requested_adaptive_resampling_low_recover_settle_margin_ms(&self) -> f32 {
+        self.requested_snapshot()
+            .adaptive
+            .low_recover_settle_margin_ms
+    }
+
+    pub fn set_requested_adaptive_resampling_low_recover_refill_delta_alpha(&self, value: f32) {
+        self.update_requested(|requested| {
+            requested.adaptive.low_recover_refill_delta_alpha = value;
+        });
+    }
+
+    pub fn requested_adaptive_resampling_low_recover_refill_delta_alpha(&self) -> f32 {
+        self.requested_snapshot()
+            .adaptive
+            .low_recover_refill_delta_alpha
+    }
+
+    pub fn set_requested_adaptive_resampling_control_smoothing_alpha(&self, value: f32) {
+        self.update_requested(|requested| {
+            requested.adaptive.control_smoothing_alpha = value as f64;
+        });
+    }
+
+    pub fn requested_adaptive_resampling_control_smoothing_alpha(&self) -> f64 {
+        self.requested_snapshot().adaptive.control_smoothing_alpha
+    }
+
     pub fn set_requested_adaptive_resampling_paused(&self, paused: bool) {
         self.update_requested(|requested| requested.adaptive.paused = paused);
     }

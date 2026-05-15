@@ -337,6 +337,24 @@ export function applyInitState(payload) {
   if (typeof payload.adaptiveResamplingUpdateIntervalCallbacks === 'number') {
     app.adaptiveResamplingUpdateIntervalCallbacks = payload.adaptiveResamplingUpdateIntervalCallbacks;
   }
+  if (typeof payload.adaptiveResamplingLowRecoverSettleStableMs === 'number') {
+    app.adaptiveResamplingLowRecoverSettleStableMs = payload.adaptiveResamplingLowRecoverSettleStableMs;
+  }
+  if (typeof payload.adaptiveResamplingLowRecoverEntryMarginMs === 'number') {
+    app.adaptiveResamplingLowRecoverEntryMarginMs = payload.adaptiveResamplingLowRecoverEntryMarginMs;
+  }
+  if (typeof payload.adaptiveResamplingLowRecoverExitMarginMs === 'number') {
+    app.adaptiveResamplingLowRecoverExitMarginMs = payload.adaptiveResamplingLowRecoverExitMarginMs;
+  }
+  if (typeof payload.adaptiveResamplingLowRecoverSettleMarginMs === 'number') {
+    app.adaptiveResamplingLowRecoverSettleMarginMs = payload.adaptiveResamplingLowRecoverSettleMarginMs;
+  }
+  if (typeof payload.adaptiveResamplingLowRecoverRefillDeltaAlpha === 'number') {
+    app.adaptiveResamplingLowRecoverRefillDeltaAlpha = payload.adaptiveResamplingLowRecoverRefillDeltaAlpha;
+  }
+  if (typeof payload.adaptiveResamplingControlSmoothingAlpha === 'number') {
+    app.adaptiveResamplingControlSmoothingAlpha = payload.adaptiveResamplingControlSmoothingAlpha;
+  }
   if (typeof payload.adaptiveResamplingBand === 'string') {
     app.adaptiveResamplingBand = payload.adaptiveResamplingBand;
   }

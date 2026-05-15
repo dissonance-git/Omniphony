@@ -30,6 +30,18 @@ function getAdaptiveNearFarThresholdRowEl() { return inAudioPanel('adaptiveNearF
 function getAdaptiveNearFarThresholdSymbolEl() { return inAudioPanel('adaptiveNearFarThresholdSymbol'); }
 function getAdaptiveNearFarThresholdInputEl() { return inAudioPanel('adaptiveNearFarThresholdInput'); }
 function getAdaptiveUpdateIntervalCallbacksInputEl() { return inAudioPanel('adaptiveUpdateIntervalCallbacksInput'); }
+function getAdaptiveLowRecoverSettleStableMsInputEl() { return inAudioPanel('adaptiveLowRecoverSettleStableMsInput'); }
+function getAdaptiveLowRecoverSettleStableMsRowEl() { return inAudioPanel('adaptiveLowRecoverSettleStableMsRow'); }
+function getAdaptiveLowRecoverEntryMarginMsInputEl() { return inAudioPanel('adaptiveLowRecoverEntryMarginMsInput'); }
+function getAdaptiveLowRecoverEntryMarginMsRowEl() { return inAudioPanel('adaptiveLowRecoverEntryMarginMsRow'); }
+function getAdaptiveLowRecoverExitMarginMsInputEl() { return inAudioPanel('adaptiveLowRecoverExitMarginMsInput'); }
+function getAdaptiveLowRecoverExitMarginMsRowEl() { return inAudioPanel('adaptiveLowRecoverExitMarginMsRow'); }
+function getAdaptiveLowRecoverSettleMarginMsInputEl() { return inAudioPanel('adaptiveLowRecoverSettleMarginMsInput'); }
+function getAdaptiveLowRecoverSettleMarginMsRowEl() { return inAudioPanel('adaptiveLowRecoverSettleMarginMsRow'); }
+function getAdaptiveLowRecoverRefillDeltaAlphaInputEl() { return inAudioPanel('adaptiveLowRecoverRefillDeltaAlphaInput'); }
+function getAdaptiveLowRecoverRefillDeltaAlphaRowEl() { return inAudioPanel('adaptiveLowRecoverRefillDeltaAlphaRow'); }
+function getAdaptiveControlSmoothingAlphaInputEl() { return inAudioPanel('adaptiveControlSmoothingAlphaInput'); }
+function getAdaptiveControlSmoothingAlphaRowEl() { return inAudioPanel('adaptiveControlSmoothingAlphaRow'); }
 function getAdaptiveResamplingAdvancedApplyBtnEl() { return inAudioPanel('adaptiveResamplingAdvancedApplyBtn'); }
 function getAdaptiveResamplingAdvancedCancelBtnEl() { return inAudioPanel('adaptiveResamplingAdvancedCancelBtn'); }
 function getAdaptiveBandDotEl() { return inAudioPanel('adaptiveBandDot'); }
@@ -59,6 +71,18 @@ export function renderAdaptiveResamplingUI() {
   const adaptiveNearFarThresholdSymbolEl = getAdaptiveNearFarThresholdSymbolEl();
   const adaptiveNearFarThresholdInputEl = getAdaptiveNearFarThresholdInputEl();
   const adaptiveUpdateIntervalCallbacksInputEl = getAdaptiveUpdateIntervalCallbacksInputEl();
+  const adaptiveLowRecoverSettleStableMsInputEl = getAdaptiveLowRecoverSettleStableMsInputEl();
+  const adaptiveLowRecoverSettleStableMsRowEl = getAdaptiveLowRecoverSettleStableMsRowEl();
+  const adaptiveLowRecoverEntryMarginMsInputEl = getAdaptiveLowRecoverEntryMarginMsInputEl();
+  const adaptiveLowRecoverEntryMarginMsRowEl = getAdaptiveLowRecoverEntryMarginMsRowEl();
+  const adaptiveLowRecoverExitMarginMsInputEl = getAdaptiveLowRecoverExitMarginMsInputEl();
+  const adaptiveLowRecoverExitMarginMsRowEl = getAdaptiveLowRecoverExitMarginMsRowEl();
+  const adaptiveLowRecoverSettleMarginMsInputEl = getAdaptiveLowRecoverSettleMarginMsInputEl();
+  const adaptiveLowRecoverSettleMarginMsRowEl = getAdaptiveLowRecoverSettleMarginMsRowEl();
+  const adaptiveLowRecoverRefillDeltaAlphaInputEl = getAdaptiveLowRecoverRefillDeltaAlphaInputEl();
+  const adaptiveLowRecoverRefillDeltaAlphaRowEl = getAdaptiveLowRecoverRefillDeltaAlphaRowEl();
+  const adaptiveControlSmoothingAlphaInputEl = getAdaptiveControlSmoothingAlphaInputEl();
+  const adaptiveControlSmoothingAlphaRowEl = getAdaptiveControlSmoothingAlphaRowEl();
   const adaptiveResamplingAdvancedApplyBtnEl = getAdaptiveResamplingAdvancedApplyBtnEl();
   const adaptiveResamplingAdvancedCancelBtnEl = getAdaptiveResamplingAdvancedCancelBtnEl();
   const adaptiveBandDotEl = getAdaptiveBandDotEl();
@@ -164,6 +188,60 @@ export function renderAdaptiveResamplingUI() {
   if (adaptiveUpdateIntervalCallbacksInputEl && !app.adaptiveUpdateIntervalCallbacksEditing && !app.adaptiveUpdateIntervalCallbacksDirty) {
     adaptiveUpdateIntervalCallbacksInputEl.value = app.adaptiveResamplingUpdateIntervalCallbacks === null ? '' : String(Math.max(1, Math.round(app.adaptiveResamplingUpdateIntervalCallbacks)));
   }
+  if (adaptiveLowRecoverSettleStableMsRowEl) {
+    adaptiveLowRecoverSettleStableMsRowEl.classList.toggle('adaptive-param-disabled', !hasAudioDomain);
+  }
+  if (adaptiveLowRecoverSettleStableMsInputEl) {
+    adaptiveLowRecoverSettleStableMsInputEl.disabled = !hasAudioDomain;
+    if (!app.adaptiveLowRecoverSettleStableMsEditing && !app.adaptiveLowRecoverSettleStableMsDirty) {
+      adaptiveLowRecoverSettleStableMsInputEl.value = app.adaptiveResamplingLowRecoverSettleStableMs === null ? '' : String(Math.max(0, Math.round(Number(app.adaptiveResamplingLowRecoverSettleStableMs))));
+    }
+  }
+  if (adaptiveLowRecoverEntryMarginMsRowEl) {
+    adaptiveLowRecoverEntryMarginMsRowEl.classList.toggle('adaptive-param-disabled', !hasAudioDomain);
+  }
+  if (adaptiveLowRecoverEntryMarginMsInputEl) {
+    adaptiveLowRecoverEntryMarginMsInputEl.disabled = !hasAudioDomain;
+    if (!app.adaptiveLowRecoverEntryMarginMsEditing && !app.adaptiveLowRecoverEntryMarginMsDirty) {
+      adaptiveLowRecoverEntryMarginMsInputEl.value = app.adaptiveResamplingLowRecoverEntryMarginMs === null ? '' : Number(app.adaptiveResamplingLowRecoverEntryMarginMs).toFixed(1);
+    }
+  }
+  if (adaptiveLowRecoverExitMarginMsRowEl) {
+    adaptiveLowRecoverExitMarginMsRowEl.classList.toggle('adaptive-param-disabled', !hasAudioDomain);
+  }
+  if (adaptiveLowRecoverExitMarginMsInputEl) {
+    adaptiveLowRecoverExitMarginMsInputEl.disabled = !hasAudioDomain;
+    if (!app.adaptiveLowRecoverExitMarginMsEditing && !app.adaptiveLowRecoverExitMarginMsDirty) {
+      adaptiveLowRecoverExitMarginMsInputEl.value = app.adaptiveResamplingLowRecoverExitMarginMs === null ? '' : Number(app.adaptiveResamplingLowRecoverExitMarginMs).toFixed(1);
+    }
+  }
+  if (adaptiveLowRecoverSettleMarginMsRowEl) {
+    adaptiveLowRecoverSettleMarginMsRowEl.classList.toggle('adaptive-param-disabled', !hasAudioDomain);
+  }
+  if (adaptiveLowRecoverSettleMarginMsInputEl) {
+    adaptiveLowRecoverSettleMarginMsInputEl.disabled = !hasAudioDomain;
+    if (!app.adaptiveLowRecoverSettleMarginMsEditing && !app.adaptiveLowRecoverSettleMarginMsDirty) {
+      adaptiveLowRecoverSettleMarginMsInputEl.value = app.adaptiveResamplingLowRecoverSettleMarginMs === null ? '' : Number(app.adaptiveResamplingLowRecoverSettleMarginMs).toFixed(1);
+    }
+  }
+  if (adaptiveLowRecoverRefillDeltaAlphaRowEl) {
+    adaptiveLowRecoverRefillDeltaAlphaRowEl.classList.toggle('adaptive-param-disabled', !hasAudioDomain);
+  }
+  if (adaptiveLowRecoverRefillDeltaAlphaInputEl) {
+    adaptiveLowRecoverRefillDeltaAlphaInputEl.disabled = !hasAudioDomain;
+    if (!app.adaptiveLowRecoverRefillDeltaAlphaEditing && !app.adaptiveLowRecoverRefillDeltaAlphaDirty) {
+      adaptiveLowRecoverRefillDeltaAlphaInputEl.value = app.adaptiveResamplingLowRecoverRefillDeltaAlpha === null ? '' : Number(app.adaptiveResamplingLowRecoverRefillDeltaAlpha).toFixed(2);
+    }
+  }
+  if (adaptiveControlSmoothingAlphaRowEl) {
+    adaptiveControlSmoothingAlphaRowEl.classList.toggle('adaptive-param-disabled', !hasAudioDomain);
+  }
+  if (adaptiveControlSmoothingAlphaInputEl) {
+    adaptiveControlSmoothingAlphaInputEl.disabled = !hasAudioDomain;
+    if (!app.adaptiveControlSmoothingAlphaEditing && !app.adaptiveControlSmoothingAlphaDirty) {
+      adaptiveControlSmoothingAlphaInputEl.value = app.adaptiveResamplingControlSmoothingAlpha === null ? '' : Number(app.adaptiveResamplingControlSmoothingAlpha).toFixed(3);
+    }
+  }
   if (adaptiveBandTextEl) {
     adaptiveBandTextEl.textContent = app.adaptiveResamplingBand ?? '—';
   }
@@ -204,7 +282,13 @@ export function renderAdaptiveResamplingUI() {
     app.adaptiveMaxAdjustDirty ||
     app.adaptiveNearFarThresholdDirty ||
     app.adaptiveUpdateIntervalCallbacksDirty ||
-    app.adaptiveFarFadeInMsDirty;
+    app.adaptiveFarFadeInMsDirty ||
+    app.adaptiveLowRecoverSettleStableMsDirty ||
+    app.adaptiveLowRecoverEntryMarginMsDirty ||
+    app.adaptiveLowRecoverExitMarginMsDirty ||
+    app.adaptiveLowRecoverSettleMarginMsDirty ||
+    app.adaptiveLowRecoverRefillDeltaAlphaDirty ||
+    app.adaptiveControlSmoothingAlphaDirty;
   if (adaptiveResamplingAdvancedApplyBtnEl) {
     adaptiveResamplingAdvancedApplyBtnEl.disabled = !adaptiveDirty;
     adaptiveResamplingAdvancedApplyBtnEl.style.opacity = adaptiveDirty ? '1' : '0.45';
@@ -238,4 +322,16 @@ export function resetAdaptiveResamplingAdvancedDirtyState() {
   app.adaptiveUpdateIntervalCallbacksEditing = false;
   app.adaptiveFarFadeInMsDirty = false;
   app.adaptiveFarFadeInMsEditing = false;
+  app.adaptiveLowRecoverSettleStableMsDirty = false;
+  app.adaptiveLowRecoverSettleStableMsEditing = false;
+  app.adaptiveLowRecoverEntryMarginMsDirty = false;
+  app.adaptiveLowRecoverEntryMarginMsEditing = false;
+  app.adaptiveLowRecoverExitMarginMsDirty = false;
+  app.adaptiveLowRecoverExitMarginMsEditing = false;
+  app.adaptiveLowRecoverSettleMarginMsDirty = false;
+  app.adaptiveLowRecoverSettleMarginMsEditing = false;
+  app.adaptiveLowRecoverRefillDeltaAlphaDirty = false;
+  app.adaptiveLowRecoverRefillDeltaAlphaEditing = false;
+  app.adaptiveControlSmoothingAlphaDirty = false;
+  app.adaptiveControlSmoothingAlphaEditing = false;
 }

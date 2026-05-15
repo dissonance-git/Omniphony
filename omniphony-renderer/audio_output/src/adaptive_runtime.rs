@@ -10,11 +10,6 @@ use crate::{
 };
 
 pub const MAX_INTEGRAL_TERM: f64 = 0.0002;
-const LOW_RECOVER_SETTLE_STABLE_MS: f32 = 200.0;
-const LOW_RECOVER_ENTRY_MARGIN_MS: f32 = 18.0;
-const LOW_RECOVER_EXIT_MARGIN_MS: f32 = 6.0;
-const LOW_RECOVER_SETTLE_MARGIN_MS: f32 = 6.0;
-const LOW_RECOVER_REFILL_DELTA_ALPHA: f32 = 0.5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LowRecoverPhase {
@@ -55,6 +50,9 @@ pub struct AdaptiveRuntimeState {
     pub last_logged_ratio_bits: u64,
     pub recovery_reacquire_pending: bool,
     pub hard_recover_high_active: bool,
+    /// EMA of `control_available`, driving the servo and far-mode state machine.
+    /// `None` until the first sample seeds it.
+    pub smoothed_control_available: Option<f64>,
 }
 
 impl AdaptiveRuntimeState {
@@ -75,6 +73,7 @@ impl AdaptiveRuntimeState {
             last_logged_ratio_bits: initial_ratio.to_bits(),
             recovery_reacquire_pending: false,
             hard_recover_high_active: false,
+            smoothed_control_available: None,
         }
     }
 
@@ -96,6 +95,9 @@ impl AdaptiveRuntimeState {
 pub struct LatencyMetrics {
     pub total_available_input_domain: usize,
     pub control_available: usize,
+    /// EMA-smoothed `control_available`. Drives the servo and far-mode state
+    /// machine; `control_available` stays raw for telemetry.
+    pub smoothed_control_available: usize,
     pub control_latency_ms: f32,
     pub measured_latency_ms: f32,
 }
@@ -155,14 +157,22 @@ pub fn update_latency_metrics(
     channel_count: usize,
     sample_rate: u32,
     graph_latency_ms: f32,
+    control_smoothing_alpha: f64,
     targets: LatencyMetricTargets<'_>,
 ) -> LatencyMetrics {
-    let _ = state; // no EMA state needed
     let total_available_input_domain = available_input_samples
         .saturating_add(output_fifo_input_domain_samples)
         .saturating_add(pending_resampler_input_samples);
     let control_available =
         total_available_input_domain.saturating_sub(callback_input_domain_samples / 2);
+    // Smooth the control-path level for the servo / far-mode state machine.
+    // Telemetry below keeps the raw `control_available`.
+    let smoothed = match state.smoothed_control_available {
+        Some(prev) => prev + (control_available as f64 - prev) * control_smoothing_alpha,
+        None => control_available as f64,
+    };
+    state.smoothed_control_available = Some(smoothed);
+    let smoothed_control_available = smoothed.round().max(0.0) as usize;
     store_latency_metrics_from_control_available(
         control_available,
         channel_count,
@@ -177,6 +187,7 @@ pub fn update_latency_metrics(
     LatencyMetrics {
         total_available_input_domain,
         control_available,
+        smoothed_control_available,
         control_latency_ms,
         measured_latency_ms,
     }
@@ -194,6 +205,7 @@ pub fn reset_adaptive_runtime(state: &mut AdaptiveRuntimeState, base_ratio: f64)
     state.last_logged_ratio_bits = base_ratio.to_bits();
     state.recovery_reacquire_pending = false;
     state.hard_recover_high_active = false;
+    state.smoothed_control_available = None;
     ResetOutcome {
         effective_resample_ratio: base_ratio,
         displayed_rate_adjust: 1.0,
@@ -236,7 +248,7 @@ pub fn run_adaptive_servo(
     let step = compute_adaptive_step(
         &mut state.controller_state,
         config,
-        metrics.control_available,
+        metrics.smoothed_control_available,
         target_buffer_fill,
         near_far_threshold_samples,
         base_ratio,
@@ -379,16 +391,12 @@ pub fn update_far_mode_state(
         align_samples_to_audio_frame(raw.max(channel_count), channel_count)
     };
     let entry_tolerance_input_samples = align_samples_to_audio_frame(
-        (callback_input_domain_samples / 2)
-            .min(margin_samples(LOW_RECOVER_ENTRY_MARGIN_MS))
-            .max(channel_count),
+        margin_samples(adaptive_config.low_recover_entry_margin_ms).max(channel_count),
         channel_count,
     );
-    let exit_tolerance_input_samples = margin_samples(LOW_RECOVER_EXIT_MARGIN_MS);
+    let exit_tolerance_input_samples = margin_samples(adaptive_config.low_recover_exit_margin_ms);
     let settle_tolerance_input_samples = align_samples_to_audio_frame(
-        (callback_input_domain_samples / 4)
-            .min(margin_samples(LOW_RECOVER_SETTLE_MARGIN_MS))
-            .max(channel_count),
+        margin_samples(adaptive_config.low_recover_settle_margin_ms).max(channel_count),
         channel_count,
     );
     let low_recover_entry_threshold =
@@ -409,7 +417,6 @@ pub fn update_far_mode_state(
                 if (state.startup_low_recover_active || is_far_band)
                     && control_available < low_recover_entry_threshold
                 {
-                    reset_controller_integrator(state);
                     state.low_recover_phase = LowRecoverPhase::Refill;
                     state.low_recover_settle_stable_ms = 0.0;
                     reset_low_recover_refill_tracking(state);
@@ -421,9 +428,10 @@ pub fn update_far_mode_state(
                     .map(|previous| control_available as isize - previous as isize)
                     .unwrap_or(0) as f32;
                 if state.low_recover_refill_last_control_available.is_some() {
-                    state.low_recover_refill_delta_ema = (state.low_recover_refill_delta_ema
-                        * (1.0 - LOW_RECOVER_REFILL_DELTA_ALPHA))
-                        + (refill_delta * LOW_RECOVER_REFILL_DELTA_ALPHA);
+                    let alpha = adaptive_config.low_recover_refill_delta_alpha;
+                    state.low_recover_refill_delta_ema =
+                        (state.low_recover_refill_delta_ema * (1.0 - alpha))
+                            + (refill_delta * alpha);
                 }
                 state.low_recover_refill_last_control_available = Some(control_available);
                 let predicted_next_control = (control_available as f32)
@@ -431,7 +439,6 @@ pub fn update_far_mode_state(
                 if control_available >= low_recover_exit_threshold
                     || predicted_next_control >= low_recover_exit_threshold as f32
                 {
-                    reset_controller_integrator(state);
                     state.low_recover_phase = LowRecoverPhase::Settling;
                     state.low_recover_settle_stable_ms = 0.0;
                     reset_low_recover_refill_tracking(state);
@@ -458,7 +465,6 @@ pub fn update_far_mode_state(
                 let upper_bound =
                     target_buffer_fill.saturating_add(settle_tolerance_input_samples);
                 if control_available < lower_bound {
-                    reset_controller_integrator(state);
                     state.low_recover_phase = LowRecoverPhase::Refill;
                     state.low_recover_settle_stable_ms = 0.0;
                     reset_low_recover_refill_tracking(state);
@@ -473,13 +479,14 @@ pub fn update_far_mode_state(
                     );
                 } else {
                     state.low_recover_settle_stable_ms += settle_callback_ms;
-                    if state.low_recover_settle_stable_ms >= LOW_RECOVER_SETTLE_STABLE_MS {
+                    if state.low_recover_settle_stable_ms
+                        >= adaptive_config.low_recover_settle_stable_ms
+                    {
                         state.startup_low_recover_active = false;
                         state.low_recover_phase = LowRecoverPhase::Inactive;
                         state.low_recover_settle_stable_ms = 0.0;
                         reset_low_recover_refill_tracking(state);
                         state.recovery_reacquire_pending = adaptive_config.force_silence_in_far_mode;
-                        reset_controller_integrator(state);
                     }
                 }
             }

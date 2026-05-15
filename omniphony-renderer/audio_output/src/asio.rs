@@ -377,6 +377,7 @@ impl AsioWriter {
                 };
                 pipeline_latency_ms_bits_clone
                     .store(callback_midpoint_ms.to_bits(), Ordering::Relaxed);
+                let current_asio_cfg = live_config_for_callback.lock().unwrap().clone();
                 let metrics = update_latency_metrics(
                     &mut runtime_state,
                     available_samples,
@@ -386,12 +387,12 @@ impl AsioWriter {
                     channel_count as usize,
                     input_sample_rate,
                     callback_midpoint_ms,
+                    current_asio_cfg.control_smoothing_alpha,
                     LatencyMetricTargets {
                         measured_latency_ms_bits: &measured_latency_ms_bits_clone,
                         control_latency_ms_bits: &control_latency_ms_bits_clone,
                     },
                 );
-                let current_asio_cfg = live_config_for_callback.lock().unwrap().clone();
                 let fallback_band = far_mode_band_from_latency(
                     &current_asio_cfg,
                     metrics.control_available,
@@ -404,7 +405,10 @@ impl AsioWriter {
                 // Adaptive rate logic (PI Controller)
                 // Adjusts the resampling ratio around the base ratio to maintain buffer level
                 // Only active if adaptive resampling is enabled
-                if adaptive_resampling_enabled && !is_pi_paused {
+                if adaptive_resampling_enabled
+                    && !is_pi_paused
+                    && runtime_state.low_recover_phase == LowRecoverPhase::Inactive
+                {
                     // Only adjust rate if we have started playback and have enough data
                     if should_run_adaptive_servo(
                         callback_count,
@@ -761,6 +765,12 @@ impl AsioWriter {
 
     pub fn control_audio_delay_ms(&self) -> f32 {
         f32::from_bits(self.control_latency_ms_bits.load(Ordering::Relaxed))
+    }
+
+    /// EMA-smoothed control latency. The ASIO backend does not yet maintain a
+    /// separate smoothed metric, so it falls back to the raw control latency.
+    pub fn smoothed_control_audio_delay_ms(&self) -> f32 {
+        self.control_audio_delay_ms()
     }
 
     /// Signal the audio thread to snap the resampling ratio back to base and reset the integrator.

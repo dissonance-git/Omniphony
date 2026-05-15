@@ -984,12 +984,10 @@
 
       .telemetry-gauges-form.open {
         margin-top: 0.35rem;
-        max-height: var(--panel-open-max-height-large);
+        max-height: 2000px;
         opacity: 1;
         pointer-events: auto;
-        overflow-x: hidden;
-        overflow-y: auto;
-        scrollbar-gutter: stable;
+        overflow: visible;
       }
 
       .save-footer {

@@ -40,6 +40,12 @@ export function buildAudioConfigPayload() {
       maxAdjust: Number(app.adaptiveResamplingMaxAdjust ?? 0.01),
       nearFarThresholdMs: Math.max(1, Math.round(app.adaptiveResamplingNearFarThresholdMs ?? 1000)),
       updateIntervalCallbacks: Math.max(1, Math.round(app.adaptiveResamplingUpdateIntervalCallbacks ?? 1)),
+      lowRecoverSettleStableMs: Math.max(0, Number(app.adaptiveResamplingLowRecoverSettleStableMs ?? 200)),
+      lowRecoverEntryMarginMs: Math.max(0, Number(app.adaptiveResamplingLowRecoverEntryMarginMs ?? 18)),
+      lowRecoverExitMarginMs: Math.max(0, Number(app.adaptiveResamplingLowRecoverExitMarginMs ?? 6)),
+      lowRecoverSettleMarginMs: Math.max(0, Number(app.adaptiveResamplingLowRecoverSettleMarginMs ?? 6)),
+      lowRecoverRefillDeltaAlpha: Math.min(1, Math.max(0, Number(app.adaptiveResamplingLowRecoverRefillDeltaAlpha ?? 0.5))),
+      controlSmoothingAlpha: Math.min(1, Math.max(0, Number(app.adaptiveResamplingControlSmoothingAlpha ?? 0.02))),
       paused: app.adaptiveResamplingPaused === true
     }
   };

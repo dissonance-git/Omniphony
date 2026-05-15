@@ -268,6 +268,18 @@ pub fn save_live_config(
             Some(requested.adaptive.update_interval_callbacks);
         render.adaptive_resampling_near_far_threshold_ms =
             Some(requested.adaptive.near_far_threshold_ms);
+        render.adaptive_resampling_low_recover_settle_stable_ms =
+            Some(requested.adaptive.low_recover_settle_stable_ms);
+        render.adaptive_resampling_low_recover_entry_margin_ms =
+            Some(requested.adaptive.low_recover_entry_margin_ms);
+        render.adaptive_resampling_low_recover_exit_margin_ms =
+            Some(requested.adaptive.low_recover_exit_margin_ms);
+        render.adaptive_resampling_low_recover_settle_margin_ms =
+            Some(requested.adaptive.low_recover_settle_margin_ms);
+        render.adaptive_resampling_low_recover_refill_delta_alpha =
+            Some(requested.adaptive.low_recover_refill_delta_alpha);
+        render.adaptive_resampling_control_smoothing_alpha =
+            Some(requested.adaptive.control_smoothing_alpha as f32);
     }
 
     if let Some(input_control) = input_control {
