@@ -235,67 +235,6 @@ fn wallclock_millis() -> u64 {
         .as_millis() as u64
 }
 
-/// Fixed-cadence sample-domain trace for diagnosing the DAC latency sawtooth.
-/// Logs raw integer sample counts (smoothing-independent) so one full sawtooth
-/// period can be reconstructed offline. Grep the output with `DAC_TRACE`.
-/// Keep at 1: the observed output callback is ~256 ms, so any larger interval
-/// aliases the ~1 s sawtooth away.
-const DAC_SAMPLE_TRACE_INTERVAL_CALLBACKS: u64 = 1;
-
-#[allow(clippy::too_many_arguments)]
-fn log_dac_sample_domain_trace(
-    callback_count: u64,
-    path: &str,
-    requested_frames: u64,
-    ring_samples: usize,
-    output_fifo_input_domain_samples: usize,
-    pending_resampler_input_samples: usize,
-    total_available_input_domain: usize,
-    control_available: usize,
-    smoothed_control_available: usize,
-    projected_control_available: usize,
-    callback_input_domain_samples: usize,
-    callback_output_frames: usize,
-    channel_count: usize,
-    pending_input_triggers: i64,
-    bresenham_acc: i64,
-    in_trigger_rate: u32,
-    in_trigger_quantum: u32,
-    actual_output_rate: u32,
-    rate_adjust: f32,
-    runtime_state_code: u8,
-) {
-    if callback_count % DAC_SAMPLE_TRACE_INTERVAL_CALLBACKS != 0 {
-        return;
-    }
-    log::info!(
-        "DAC_TRACE cb={} path={} wall_ms={} req_fr={} ring={} ofifo={} presamp={} total={} ctrl={} \
-smoothed={} proj={} cb_in={} cb_out_fr={} ch={} pending_trig={} bresenham={} in_rate={} \
-in_quantum={} out_rate={} rate_adj={:.6} rt_state={}",
-        callback_count,
-        path,
-        wallclock_millis(),
-        requested_frames,
-        ring_samples,
-        output_fifo_input_domain_samples,
-        pending_resampler_input_samples,
-        total_available_input_domain,
-        control_available,
-        smoothed_control_available,
-        projected_control_available,
-        callback_input_domain_samples,
-        callback_output_frames,
-        channel_count,
-        pending_input_triggers,
-        bresenham_acc,
-        in_trigger_rate,
-        in_trigger_quantum,
-        actual_output_rate,
-        rate_adjust,
-        runtime_state_code,
-    );
-}
-
 pub struct PipewireWriter {
     sample_buffer: Arc<ArrayQueue<f32>>,
     sample_rate: u32,
@@ -327,6 +266,116 @@ pub struct PipewireWriter {
     graph_latency_ms_bits: Arc<AtomicU32>,
     /// EMA-smoothed control latency in ms bits — the value the servo actually tracks.
     smoothed_control_latency_ms_bits: Arc<AtomicU32>,
+    /// Ring-buffer level converted to ms — first of the three control-available components.
+    avail_input_latency_ms_bits: Arc<AtomicU32>,
+    /// Output FIFO (resampler output) converted back to input-domain ms — second component.
+    output_fifo_latency_ms_bits: Arc<AtomicU32>,
+    /// Pending samples inside the local resampler input — third component.
+    resampler_pending_latency_ms_bits: Arc<AtomicU32>,
+    /// Cumulative input-domain samples written via `write_samples`. Paired
+    /// with `cumulative_drained_input_samples` below to give the PI a
+    /// chunk-noise-free `control_available`: the difference (written -
+    /// drained) is the true "samples in flight" between writer and the
+    /// resampler's consumption point, with no chunk granularity artefacts.
+    cumulative_written_input_samples: Arc<std::sync::atomic::AtomicU64>,
+    /// Cumulative samples drained from the input ring per output callback
+    /// (in input domain: callback_output_frames × channels / ratio). The
+    /// counter is incremented continuously (not at chunk boundaries) so
+    /// the running difference with `cumulative_written_input_samples` is
+    /// smooth. Owned here to keep the Arc alive; the callback thread has
+    /// its own clone for the fetch_add.
+    #[allow(dead_code)]
+    cumulative_drained_input_samples: Arc<std::sync::atomic::AtomicU64>,
+    /// Diagnostic: the cumulative-flow control_available value (written -
+    /// drained) actually fed to the PI. Exposed here for direct comparison
+    /// with `output_ring_input_samples` (raw ring level) — if both show the
+    /// same sawtooth, the flow-counter approach hasn't suppressed it.
+    cumulative_flow_control_available_bits: Arc<std::sync::atomic::AtomicU64>,
+    /// Diagnostic snapshots (f64 bits) of the raw cumulative counters,
+    /// republished each callback so the diag plot can confirm both are
+    /// actually growing (cf. cumulative_flow_control_available staying at 0
+    /// could mean either matched growth or no growth at all).
+    cumulative_written_diag_bits: Arc<std::sync::atomic::AtomicU64>,
+    cumulative_drained_diag_bits: Arc<std::sync::atomic::AtomicU64>,
+    /// Diagnostic atomics published by the PipeWire output process callback.
+    /// `f64` bits stored each callback; lets the Studio diag plot trace the
+    /// drain cadence (interval between callbacks and frames consumed per
+    /// callback), to localise ring-level oscillations whose origin is
+    /// downstream of the input/decoder/write chain.
+    output_callback_dt_us_bits: Arc<std::sync::atomic::AtomicU64>,
+    output_callback_frames_bits: Arc<std::sync::atomic::AtomicU64>,
+    /// Effective resample ratio expressed as ppm deviation from 1.0
+    /// (i.e. (ratio - 1.0) × 1e6). Stays constant when the PI is paused;
+    /// any modulation here under pause indicates a bug in the ratio
+    /// freeze path. f64 bits.
+    output_effective_ratio_ppm_bits: Arc<std::sync::atomic::AtomicU64>,
+    /// Input ring-buffer samples consumed by the local resampler this
+    /// callback (delta across `ensure_output_samples`). 1 Hz here while
+    /// callback dt/frames are uniform points at the local resampler
+    /// chunk timing interacting with the input write cadence.
+    output_resampler_input_consumed_bits: Arc<std::sync::atomic::AtomicU64>,
+    /// Output FIFO samples produced by the local resampler this callback.
+    output_resampler_output_produced_bits: Arc<std::sync::atomic::AtomicU64>,
+    /// Raw input ring-buffer length at callback entry, in samples. Same
+    /// quantity as `avail_input_latency_ms_bits` but published from the
+    /// callback at native cadence (not converted to ms, not sampled at
+    /// send_meter_bundle). Lets us cross-check whether the 1 Hz on the
+    /// components plot is real or a sampling/aliasing artefact.
+    output_ring_input_samples_bits: Arc<std::sync::atomic::AtomicU64>,
+    /// Interval (us) between consecutive `write_samples` calls — captured
+    /// here (not in sample_write.rs) so EVERY call site (spatial / bed-
+    /// conform / bridge bypass / etc.) is instrumented. f64 bits.
+    write_samples_dt_us_bits: Arc<std::sync::atomic::AtomicU64>,
+    /// Sample count of the last `write_samples` call (input-domain).
+    write_samples_count_bits: Arc<std::sync::atomic::AtomicU64>,
+    /// Write throughput as samples/second, exponentially smoothed per event
+    /// (α = 0.05 ≈ 1 s time constant at ~1 kHz write rate). EMA avoids the
+    /// chunk-vs-window quantisation artefacts of fixed-window aggregates,
+    /// so any 1 Hz beat in real throughput stands out.
+    write_rate_sps_bits: Arc<std::sync::atomic::AtomicU64>,
+    /// Same as `write_rate_sps_bits` but for ring consumption. Updated from
+    /// the PipeWire output callback thread when the resampler invocation
+    /// actually consumed samples.
+    pop_rate_sps_bits: Arc<std::sync::atomic::AtomicU64>,
+    /// Current adaptive runtime state code (0=stable, 1=low-recover,
+    /// 2=settling, 3=high-recover). Surfaces here as f64 bits so the diag
+    /// plot can chart state transitions over time — if the state changes
+    /// periodically while PI is paused, recovery is the source of any
+    /// ring-level oscillation.
+    runtime_state_code_bits: Arc<std::sync::atomic::AtomicU64>,
+    /// Monotonic counter of ring samples discarded by ANY recovery path
+    /// (low_recover_trim, hard_recover_high, recovery_reacquire_pending).
+    /// Plot as a counter: a non-flat slope means recovery is firing.
+    recovery_discard_count_bits: Arc<std::sync::atomic::AtomicU64>,
+    /// Timestamp of the previous `write_samples` call. Used to compute
+    /// `write_samples_dt_us_bits` above; only touched from the main writer
+    /// thread (write_samples takes &mut self) so no synchronisation needed.
+    last_write_samples_at: Option<Instant>,
+    /// EMA accumulator for write throughput (samples/sec). Persisted
+    /// across calls; only touched from the writer thread.
+    write_rate_ema_sps: f64,
+    /// Total samples written in the most recent 250 ms window. Uses a
+    /// SLIDING window (each write event updates the running sum and
+    /// expires events older than 250 ms) — fixed windows alternate high/
+    /// low values because of burst-vs-window-boundary alignment, which
+    /// hides any actual slow modulation we're trying to see.
+    writes_per_250ms_bits: Arc<std::sync::atomic::AtomicU64>,
+    /// Sliding-window backing: queue of (instant, samples_added) events
+    /// inside the 250 ms window, plus the maintained sum.
+    write_window_events: std::collections::VecDeque<(Instant, usize)>,
+    write_window_sum: usize,
+    /// Throttle the atomic store to a fixed 50 ms cadence so the diag plot
+    /// (which polls at 10 Hz) always sees a consistent sample. Publishing
+    /// at the per-event rate (~1 kHz) caused the plot to land on different
+    /// burst-cycle phases each poll → apparent high/low alternation.
+    write_window_last_publish_at: Option<Instant>,
+    /// EMA-smoothed sliding-window sum. Diagnostic-only: the sliding window
+    /// already removes burst-vs-window alignment artefacts, but the bridge
+    /// plugin's two-phase batching (some push_packets emit N frames, others
+    /// N+1) creates a bi-modal alternation that obscures slow trends. The
+    /// EMA collapses that into a single smooth curve; we keep the time
+    /// constant short (~250 ms) so 0.4 Hz signals pass through.
+    write_window_ema: f64,
     /// Configured ring-buffer target latency (from PipewireBufferConfig::latency_ms).
     target_latency_ms: u32,
     live_adaptive_config: Arc<Mutex<AdaptiveResamplingConfig>>,
@@ -414,6 +463,54 @@ impl PipewireWriter {
         let graph_latency_clone = graph_latency_ms_bits.clone();
         let smoothed_control_latency_ms_bits = Arc::new(AtomicU32::new(0u32));
         let smoothed_control_latency_clone = smoothed_control_latency_ms_bits.clone();
+        let avail_input_latency_ms_bits = Arc::new(AtomicU32::new(0u32));
+        let avail_input_latency_clone = avail_input_latency_ms_bits.clone();
+        let output_fifo_latency_ms_bits = Arc::new(AtomicU32::new(0u32));
+        let output_fifo_latency_clone = output_fifo_latency_ms_bits.clone();
+        let resampler_pending_latency_ms_bits = Arc::new(AtomicU32::new(0u32));
+        let resampler_pending_latency_clone = resampler_pending_latency_ms_bits.clone();
+        let cumulative_written_input_samples =
+            Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let cumulative_drained_input_samples =
+            Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let cumulative_drained_input_samples_clone =
+            cumulative_drained_input_samples.clone();
+        let cumulative_written_input_samples_clone =
+            cumulative_written_input_samples.clone();
+        let cumulative_flow_control_available_bits =
+            Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let cumulative_flow_control_available_clone =
+            cumulative_flow_control_available_bits.clone();
+        let cumulative_written_diag_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let cumulative_written_diag_clone = cumulative_written_diag_bits.clone();
+        let cumulative_drained_diag_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let cumulative_drained_diag_clone = cumulative_drained_diag_bits.clone();
+        let output_callback_dt_us_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let output_callback_dt_us_clone = output_callback_dt_us_bits.clone();
+        let output_callback_frames_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let output_callback_frames_clone = output_callback_frames_bits.clone();
+        let output_effective_ratio_ppm_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let output_effective_ratio_ppm_clone = output_effective_ratio_ppm_bits.clone();
+        let output_resampler_input_consumed_bits =
+            Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let output_resampler_input_consumed_clone =
+            output_resampler_input_consumed_bits.clone();
+        let output_resampler_output_produced_bits =
+            Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let output_resampler_output_produced_clone =
+            output_resampler_output_produced_bits.clone();
+        let output_ring_input_samples_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let output_ring_input_samples_clone = output_ring_input_samples_bits.clone();
+        let write_samples_dt_us_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let write_samples_count_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let write_rate_sps_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let pop_rate_sps_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let pop_rate_sps_clone = pop_rate_sps_bits.clone();
+        let writes_per_250ms_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let runtime_state_code_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let runtime_state_code_clone = runtime_state_code_bits.clone();
+        let recovery_discard_count_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let recovery_discard_count_clone = recovery_discard_count_bits.clone();
         let live_config = Arc::new(Mutex::new(adaptive_config));
         let adaptive_config_for_thread = Arc::clone(&live_config);
         let reset_ratio_requested = Arc::new(AtomicBool::new(false));
@@ -456,6 +553,23 @@ impl PipewireWriter {
                 control_latency_clone,
                 graph_latency_clone,
                 smoothed_control_latency_clone,
+                avail_input_latency_clone,
+                output_fifo_latency_clone,
+                resampler_pending_latency_clone,
+                cumulative_written_input_samples_clone,
+                cumulative_drained_input_samples_clone,
+                cumulative_flow_control_available_clone,
+                cumulative_written_diag_clone,
+                cumulative_drained_diag_clone,
+                output_callback_dt_us_clone,
+                output_callback_frames_clone,
+                output_effective_ratio_ppm_clone,
+                output_resampler_input_consumed_clone,
+                output_resampler_output_produced_clone,
+                output_ring_input_samples_clone,
+                pop_rate_sps_clone,
+                runtime_state_code_clone,
+                recovery_discard_count_clone,
                 pending_input_triggers_for_thread,
                 input_trigger_rate_for_thread,
                 input_trigger_quantum_for_thread,
@@ -510,6 +624,33 @@ impl PipewireWriter {
             control_latency_ms_bits,
             graph_latency_ms_bits,
             smoothed_control_latency_ms_bits,
+            avail_input_latency_ms_bits,
+            output_fifo_latency_ms_bits,
+            resampler_pending_latency_ms_bits,
+            cumulative_written_input_samples,
+            cumulative_drained_input_samples,
+            cumulative_flow_control_available_bits,
+            cumulative_written_diag_bits,
+            cumulative_drained_diag_bits,
+            output_callback_dt_us_bits,
+            output_callback_frames_bits,
+            output_effective_ratio_ppm_bits,
+            output_resampler_input_consumed_bits,
+            output_resampler_output_produced_bits,
+            output_ring_input_samples_bits,
+            write_samples_dt_us_bits,
+            write_samples_count_bits,
+            write_rate_sps_bits,
+            pop_rate_sps_bits,
+            writes_per_250ms_bits,
+            write_window_events: std::collections::VecDeque::new(),
+            write_window_sum: 0,
+            write_window_last_publish_at: None,
+            write_window_ema: 0.0,
+            runtime_state_code_bits,
+            recovery_discard_count_bits,
+            last_write_samples_at: None,
+            write_rate_ema_sps: 0.0,
             target_latency_ms,
             live_adaptive_config: live_config,
             reset_ratio_requested,
@@ -524,6 +665,84 @@ impl PipewireWriter {
     }
 
     pub fn write_samples(&mut self, samples: &[f32]) -> Result<()> {
+        // DIAG output: write-call cadence + size. Captured here (not at the
+        // sample_write.rs call sites) so every code path — spatial,
+        // bed-conform, bridge bypass, segment restart — is instrumented.
+        let now_write = Instant::now();
+        let dt_write_us = self
+            .last_write_samples_at
+            .map(|prev| now_write.saturating_duration_since(prev).as_micros() as u64)
+            .unwrap_or(0);
+        self.last_write_samples_at = Some(now_write);
+        self.write_samples_dt_us_bits
+            .store((dt_write_us as f64).to_bits(), Ordering::Relaxed);
+        self.write_samples_count_bits
+            .store((samples.len() as f64).to_bits(), Ordering::Relaxed);
+        // Cumulative-flow counter: increment by what we're ABOUT to push,
+        // not by what the back-pressure-aware push will actually accept.
+        // This matches the PI's mental model of "samples committed to the
+        // pipeline" — back-pressure drops are exceptional and would show
+        // up as a separate divergence anyway.
+        self.cumulative_written_input_samples
+            .fetch_add(samples.len() as u64, Ordering::Relaxed);
+        // Sliding 250 ms window of samples written. Push current event;
+        // expire any older than 250 ms; sum is maintained incrementally.
+        self.write_window_events.push_back((now_write, samples.len()));
+        self.write_window_sum = self.write_window_sum.saturating_add(samples.len());
+        while let Some(&(t, s)) = self.write_window_events.front() {
+            if now_write.saturating_duration_since(t).as_millis() > 250 {
+                self.write_window_events.pop_front();
+                self.write_window_sum = self.write_window_sum.saturating_sub(s);
+            } else {
+                break;
+            }
+        }
+        // Throttle the published atomic to 20 Hz (every 50 ms). At each
+        // publish, update an EMA of the sliding-window sum to collapse the
+        // bi-modal alternation caused by the bridge plugin's two-phase
+        // batching. α=0.2 → ~250 ms time constant at 20 Hz publish rate,
+        // which still passes the 0.4 Hz signal we're hunting (period 2.5 s
+        // → 10× the smoothing window).
+        let should_publish = self
+            .write_window_last_publish_at
+            .map(|prev| now_write.saturating_duration_since(prev).as_millis() >= 50)
+            .unwrap_or(true);
+        if should_publish {
+            // α = 0.005 → ~10 s time constant at 20 Hz. Severely attenuates
+            // even the 0.4 Hz signal we're hunting (~95% suppression). If
+            // the diag plot STILL shows a strong bi-modal alternation at
+            // this level, the EMA isn't actually being applied — the
+            // binary likely doesn't have this code path active.
+            const ALPHA: f64 = 0.005;
+            let raw = self.write_window_sum as f64;
+            // Use last_publish_at as the "is this the first call" sentinel
+            // rather than checking ema == 0.0 — the latter wrongly resets
+            // the EMA if floating-point underflow ever produces 0.
+            self.write_window_ema = if self.write_window_last_publish_at.is_none() {
+                raw
+            } else {
+                ALPHA * raw + (1.0 - ALPHA) * self.write_window_ema
+            };
+            self.writes_per_250ms_bits
+                .store(self.write_window_ema.to_bits(), Ordering::Relaxed);
+            self.write_window_last_publish_at = Some(now_write);
+        }
+        // Per-event throughput EMA (samples/sec). No fixed window → no
+        // chunk-vs-window quantisation artefacts. Time constant ≈ 1 s with
+        // α=0.05 at the typical ~1 kHz write rate; reveals any real 1 Hz
+        // beat in throughput without aliasing noise.
+        if dt_write_us > 0 {
+            let instant_rate = samples.len() as f64 * 1_000_000.0 / dt_write_us as f64;
+            const ALPHA: f64 = 0.05;
+            self.write_rate_ema_sps =
+                if self.write_rate_ema_sps == 0.0 {
+                    instant_rate
+                } else {
+                    ALPHA * instant_rate + (1.0 - ALPHA) * self.write_rate_ema_sps
+                };
+            self.write_rate_sps_bits
+                .store(self.write_rate_ema_sps.to_bits(), Ordering::Relaxed);
+        }
         // Check if stream is ready
         if !self.stream_ready.load(Ordering::Relaxed) {
             log::trace!("Stream not ready yet, dropping {} samples", samples.len());
@@ -698,6 +917,23 @@ impl PipewireWriter {
         f32::from_bits(self.smoothed_control_latency_ms_bits.load(Ordering::Relaxed))
     }
 
+    /// Ring-buffer occupancy converted to ms (first component of `control_available`).
+    pub fn avail_input_audio_delay_ms(&self) -> f32 {
+        f32::from_bits(self.avail_input_latency_ms_bits.load(Ordering::Relaxed))
+    }
+
+    /// Resampler output FIFO content converted back to input-domain ms
+    /// (second component of `control_available`).
+    pub fn output_fifo_audio_delay_ms(&self) -> f32 {
+        f32::from_bits(self.output_fifo_latency_ms_bits.load(Ordering::Relaxed))
+    }
+
+    /// Local resampler pending input samples expressed as ms
+    /// (third component of `control_available`).
+    pub fn resampler_pending_audio_delay_ms(&self) -> f32 {
+        f32::from_bits(self.resampler_pending_latency_ms_bits.load(Ordering::Relaxed))
+    }
+
     /// Signal the audio thread to snap the resampling ratio back to base and reset the integrator.
     pub fn request_ratio_reset(&self) {
         self.reset_ratio_requested.store(true, Ordering::Relaxed);
@@ -708,6 +944,129 @@ impl PipewireWriter {
         if let Ok(mut c) = self.live_adaptive_config.lock() {
             *c = config;
         }
+    }
+
+    /// Diagnostic metric handles published by the PipeWire output backend.
+    /// Each entry is registered in the global registry by the caller (one
+    /// call to `DiagRegistry::register_external`); the backend updates the
+    /// underlying atomics from the process callback. Adding a new metric in
+    /// this list is the only change needed to surface it in the Studio diag
+    /// plot — no other plumbing required.
+    pub fn diag_atomic_handles(&self) -> Vec<sys::diag::DiagAtomicHandle> {
+        vec![
+            sys::diag::DiagAtomicHandle {
+                name: "output_callback_dt_us",
+                label: "Output callback dt",
+                group: "output",
+                unit: "us",
+                atomic: Arc::clone(&self.output_callback_dt_us_bits),
+            },
+            sys::diag::DiagAtomicHandle {
+                name: "output_callback_frames",
+                label: "Frames per callback",
+                group: "output",
+                unit: "frames",
+                atomic: Arc::clone(&self.output_callback_frames_bits),
+            },
+            sys::diag::DiagAtomicHandle {
+                name: "output_effective_ratio_ppm",
+                label: "Effective ratio (ppm dev)",
+                group: "output",
+                unit: "ppm",
+                atomic: Arc::clone(&self.output_effective_ratio_ppm_bits),
+            },
+            sys::diag::DiagAtomicHandle {
+                name: "output_resampler_in_per_cb",
+                label: "Resampler input consumed/cb",
+                group: "output",
+                unit: "samples",
+                atomic: Arc::clone(&self.output_resampler_input_consumed_bits),
+            },
+            sys::diag::DiagAtomicHandle {
+                name: "output_resampler_out_per_cb",
+                label: "Resampler output produced/cb",
+                group: "output",
+                unit: "samples",
+                atomic: Arc::clone(&self.output_resampler_output_produced_bits),
+            },
+            sys::diag::DiagAtomicHandle {
+                name: "output_ring_input_samples",
+                label: "Ring input level (native sampling)",
+                group: "output",
+                unit: "samples",
+                atomic: Arc::clone(&self.output_ring_input_samples_bits),
+            },
+            sys::diag::DiagAtomicHandle {
+                name: "cumulative_flow_control_available",
+                label: "Cumulative-flow control_available (PI input)",
+                group: "output",
+                unit: "samples",
+                atomic: Arc::clone(&self.cumulative_flow_control_available_bits),
+            },
+            sys::diag::DiagAtomicHandle {
+                name: "cumulative_written_diag",
+                label: "Cumulative written samples (snapshot)",
+                group: "output",
+                unit: "samples",
+                atomic: Arc::clone(&self.cumulative_written_diag_bits),
+            },
+            sys::diag::DiagAtomicHandle {
+                name: "cumulative_drained_diag",
+                label: "Cumulative drained samples (snapshot)",
+                group: "output",
+                unit: "samples",
+                atomic: Arc::clone(&self.cumulative_drained_diag_bits),
+            },
+            sys::diag::DiagAtomicHandle {
+                name: "write_samples_dt_us",
+                label: "Write call dt",
+                group: "output",
+                unit: "us",
+                atomic: Arc::clone(&self.write_samples_dt_us_bits),
+            },
+            sys::diag::DiagAtomicHandle {
+                name: "write_samples_count",
+                label: "Samples per write call",
+                group: "output",
+                unit: "samples",
+                atomic: Arc::clone(&self.write_samples_count_bits),
+            },
+            sys::diag::DiagAtomicHandle {
+                name: "write_rate_sps",
+                label: "Write throughput (EMA)",
+                group: "output",
+                unit: "samples/s",
+                atomic: Arc::clone(&self.write_rate_sps_bits),
+            },
+            sys::diag::DiagAtomicHandle {
+                name: "pop_rate_sps",
+                label: "Pop throughput (EMA)",
+                group: "output",
+                unit: "samples/s",
+                atomic: Arc::clone(&self.pop_rate_sps_bits),
+            },
+            sys::diag::DiagAtomicHandle {
+                name: "writes_per_250ms",
+                label: "Samples written per 250ms window",
+                group: "output",
+                unit: "samples",
+                atomic: Arc::clone(&self.writes_per_250ms_bits),
+            },
+            sys::diag::DiagAtomicHandle {
+                name: "runtime_state_code",
+                label: "Runtime state (0=stable,1=low,2=settle,3=high)",
+                group: "output",
+                unit: "",
+                atomic: Arc::clone(&self.runtime_state_code_bits),
+            },
+            sys::diag::DiagAtomicHandle {
+                name: "recovery_discard_count",
+                label: "Cumulative samples discarded by recovery",
+                group: "output",
+                unit: "samples",
+                atomic: Arc::clone(&self.recovery_discard_count_bits),
+            },
+        ]
     }
 }
 
@@ -746,6 +1105,23 @@ fn run_pipewire_loop(
     control_latency_ms_out: Arc<AtomicU32>,
     graph_latency_ms_out: Arc<AtomicU32>,
     smoothed_control_latency_ms_out: Arc<AtomicU32>,
+    avail_input_latency_ms_out: Arc<AtomicU32>,
+    output_fifo_latency_ms_out: Arc<AtomicU32>,
+    resampler_pending_latency_ms_out: Arc<AtomicU32>,
+    cumulative_written_input_samples: Arc<std::sync::atomic::AtomicU64>,
+    cumulative_drained_input_samples: Arc<std::sync::atomic::AtomicU64>,
+    cumulative_flow_control_available_out: Arc<std::sync::atomic::AtomicU64>,
+    cumulative_written_diag_out: Arc<std::sync::atomic::AtomicU64>,
+    cumulative_drained_diag_out: Arc<std::sync::atomic::AtomicU64>,
+    output_callback_dt_us_out: Arc<std::sync::atomic::AtomicU64>,
+    output_callback_frames_out: Arc<std::sync::atomic::AtomicU64>,
+    output_effective_ratio_ppm_out: Arc<std::sync::atomic::AtomicU64>,
+    output_resampler_input_consumed_out: Arc<std::sync::atomic::AtomicU64>,
+    output_resampler_output_produced_out: Arc<std::sync::atomic::AtomicU64>,
+    output_ring_input_samples_out: Arc<std::sync::atomic::AtomicU64>,
+    pop_rate_sps_out: Arc<std::sync::atomic::AtomicU64>,
+    runtime_state_code_out: Arc<std::sync::atomic::AtomicU64>,
+    recovery_discard_count_out: Arc<std::sync::atomic::AtomicU64>,
     pending_input_triggers: Arc<AtomicI64>,
     input_trigger_rate_hz: Arc<AtomicU32>,
     input_trigger_quantum_frames: Arc<AtomicU32>,
@@ -911,6 +1287,27 @@ fn run_pipewire_loop(
     let rate_adjust_for_callback = current_rate_adjust.clone();
     let shutdown_requested_for_callback = shutdown_requested.clone();
     let graph_latency_for_callback = graph_latency_ms_out.clone();
+    let output_callback_dt_us_for_callback = output_callback_dt_us_out.clone();
+    let output_callback_frames_for_callback = output_callback_frames_out.clone();
+    let cumulative_written_for_callback = cumulative_written_input_samples.clone();
+    let cumulative_drained_for_callback = cumulative_drained_input_samples.clone();
+    let cumulative_flow_control_available_for_callback =
+        cumulative_flow_control_available_out.clone();
+    let cumulative_written_diag_for_callback = cumulative_written_diag_out.clone();
+    let cumulative_drained_diag_for_callback = cumulative_drained_diag_out.clone();
+    let output_effective_ratio_ppm_for_callback = output_effective_ratio_ppm_out.clone();
+    let output_resampler_input_consumed_for_callback =
+        output_resampler_input_consumed_out.clone();
+    let output_resampler_output_produced_for_callback =
+        output_resampler_output_produced_out.clone();
+    let output_ring_input_samples_for_callback = output_ring_input_samples_out.clone();
+    let pop_rate_sps_for_callback = pop_rate_sps_out.clone();
+    let runtime_state_code_for_callback = runtime_state_code_out.clone();
+    let recovery_discard_count_for_callback = recovery_discard_count_out.clone();
+    let mut last_output_callback_at: Option<Instant> = None;
+    let mut last_pop_event_at: Option<Instant> = None;
+    let mut pop_rate_ema_sps: f64 = 0.0;
+    let mut recovery_discard_total: u64 = 0;
     let live_adaptive_config_for_callback = Arc::clone(&adaptive_config);
     let reset_ratio_for_callback = Arc::clone(&reset_ratio_requested);
     let adaptive_resampling_enabled = enable_adaptive_resampling;
@@ -957,6 +1354,21 @@ fn run_pipewire_loop(
             if shutdown_requested_for_callback.load(Ordering::Relaxed) {
                 return;
             }
+            // DIAG output-callback: publish inter-callback dt + snapshot of
+            // ring level + resampler ratio (in ppm dev from 1.0). The
+            // resampler in/out per-callback deltas are computed below using
+            // ring/FIFO snapshots taken before any drain.
+            let now_cb = Instant::now();
+            let dt_cb_us = last_output_callback_at
+                .map(|prev| now_cb.saturating_duration_since(prev).as_micros() as u64)
+                .unwrap_or(0);
+            last_output_callback_at = Some(now_cb);
+            output_callback_dt_us_for_callback
+                .store((dt_cb_us as f64).to_bits(), Ordering::Relaxed);
+            let ring_input_samples_at_entry = buffer_for_callback.len();
+            output_ring_input_samples_for_callback
+                .store((ring_input_samples_at_entry as f64).to_bits(), Ordering::Relaxed);
+            let resampler_fifo_at_entry = resampler_fifo.output_len();
             let callback_count = runtime_state.advance_callback();
             let mut callback_output_frames: usize = 0;
 
@@ -1058,31 +1470,61 @@ fn run_pipewire_loop(
 
                     // Check if we have enough samples to prevent stuttering
                     let available = buffer_for_callback.len();
-                    // Convert output FIFO contents back to input-domain samples so
-                    // the controller sees the true amount of audio in flight, not
-                    // just the ring buffer.  Without this, the controller
-                    // systematically under-estimates the fill level and
-                    // over-compensates (integral windup → buffer drain).
-                    let output_fifo_input_domain_samples = output_to_input_domain_samples(
+                    // Raw FIFO level (oscillates with the chunk cycle) — kept
+                    // for the components plot so the chunk dynamics remain
+                    // observable.
+                    let output_fifo_input_domain_samples_raw = output_to_input_domain_samples(
                         resampler_fifo.output_len(),
                         effective_resample_ratio,
                     );
                     let pending_resampler_input_samples = resampler_fifo.pending_input_samples();
-                    // The callback observes the ring before consuming this PipeWire block.
-                    // For latency control, use a midpoint estimate so the controller tracks
-                    // roughly the same delay the UI/user perceives during the block.
-                    // Convert callback size to input domain to avoid domain mismatch
-                    // when upsampling (frame_aligned_max is in output domain).
+                    // Callback consumption (input-domain samples).
                     let callback_input_domain_samples = if effective_resample_ratio > 0.0 {
                         ((frame_aligned_max as f64) / effective_resample_ratio).round() as usize
                     } else {
                         frame_aligned_max
                     };
+                    // Increment cumulative-drained BEFORE we read the running
+                    // difference for control_available. callback_input_domain
+                    // _samples is what's about to be consumed this cycle.
+                    cumulative_drained_for_callback
+                        .fetch_add(callback_input_domain_samples as u64, Ordering::Relaxed);
+                    // Cumulative-flow control_available: difference between
+                    // total written-to-pipeline and total drained-from-ring,
+                    // both in input domain. Smooth by construction — chunk
+                    // granularity is just discretisation of the same flow.
+                    // No phase lag, no EMA, no constant approximation.
+                    let written = cumulative_written_for_callback.load(Ordering::Relaxed);
+                    let drained = cumulative_drained_for_callback.load(Ordering::Relaxed);
+                    let control_available_override =
+                        written.saturating_sub(drained).min(usize::MAX as u64) as usize;
+                    // Publish for direct diag-plot inspection (raw counters
+                    // converted to f64 bits so the registry can read them).
+                    cumulative_flow_control_available_for_callback.store(
+                        (control_available_override as f64).to_bits(),
+                        Ordering::Relaxed,
+                    );
+                    cumulative_written_diag_for_callback
+                        .store((written as f64).to_bits(), Ordering::Relaxed);
+                    cumulative_drained_diag_for_callback
+                        .store((drained as f64).to_bits(), Ordering::Relaxed);
                     let current_adaptive_cfg = live_adaptive_config_for_callback.lock().unwrap().clone();
+                    // Classical control_available calculation (ring + FIFO +
+                    // pending - callback/2). The cumulative-flow override was
+                    // tried during the 0.4 Hz investigation but caused
+                    // bootstrap deadlock: at startup the callback increments
+                    // `drained` before any write has happened, so the override
+                    // saturates to 0, the state machine enters perpetual
+                    // low-recover, the ring fills, and write_samples hits
+                    // the back-pressure timeout (`Buffer drain timeout after
+                    // 2s`). See LATENCY_DAC_SAWTOOTH_REPORT.md, session
+                    // 2026-05-17, "Cancellation attempts". The cumulative
+                    // counters and `cumulative_flow_control_available` are
+                    // still published as observation metrics below.
                     let metrics = update_latency_metrics(
                         &mut runtime_state,
                         available,
-                        output_fifo_input_domain_samples,
+                        output_fifo_input_domain_samples_raw,
                         pending_resampler_input_samples,
                         callback_input_domain_samples,
                         channel_count as usize,
@@ -1094,6 +1536,7 @@ fn run_pipewire_loop(
                             control_latency_ms_bits: &control_latency_ms_out,
                         },
                     );
+                    let _ = control_available_override; // kept for future revival of the flow override
                     // Publish the smoothed control latency the servo actually tracks,
                     // so the UI can show it next to the raw control latency.
                     let smoothed_control_latency_ms = if channel_count > 0 && sample_rate > 0 {
@@ -1106,6 +1549,25 @@ fn run_pipewire_loop(
                     };
                     smoothed_control_latency_ms_out
                         .store(smoothed_control_latency_ms.to_bits(), Ordering::Relaxed);
+                    // Publish the three components of `control_available` as ms so
+                    // they can be plotted independently in the Studio control plot.
+                    let samples_to_ms = |samples: usize| -> f32 {
+                        if channel_count > 0 && sample_rate > 0 {
+                            samples as f32 / channel_count as f32 / sample_rate as f32 * 1000.0
+                        } else {
+                            0.0
+                        }
+                    };
+                    avail_input_latency_ms_out
+                        .store(samples_to_ms(available).to_bits(), Ordering::Relaxed);
+                    output_fifo_latency_ms_out.store(
+                        samples_to_ms(output_fifo_input_domain_samples_raw).to_bits(),
+                        Ordering::Relaxed,
+                    );
+                    resampler_pending_latency_ms_out.store(
+                        samples_to_ms(pending_resampler_input_samples).to_bits(),
+                        Ordering::Relaxed,
+                    );
                     // Band classification feeds the low-recover state machine: use
                     // raw control_available so the hysteresis bands act on the real
                     // buffer level. (The servo gets the smoothed value separately.)
@@ -1264,28 +1726,6 @@ fn run_pipewire_loop(
                                 measured_latency_ms_bits: &measured_latency_ms_out,
                                 control_latency_ms_bits: &control_latency_ms_out,
                             },
-                        );
-                        log_dac_sample_domain_trace(
-                            callback_count,
-                            "resampler",
-                            requested_frames_this_cycle,
-                            available,
-                            output_fifo_input_domain_samples,
-                            pending_resampler_input_samples,
-                            metrics.total_available_input_domain,
-                            metrics.control_available,
-                            metrics.smoothed_control_available,
-                            projected_control_available,
-                            callback_input_domain_samples,
-                            callback_output_frames,
-                            channel_count as usize,
-                            pending_input_triggers_for_callback.load(Ordering::Relaxed),
-                            bresenham_acc,
-                            input_trigger_rate_for_callback.load(Ordering::Relaxed),
-                            input_trigger_quantum_for_callback.load(Ordering::Relaxed),
-                            actual_output_rate,
-                            f32::from_bits(rate_adjust_for_callback.load(Ordering::Relaxed)),
-                            current_runtime_state.load(Ordering::Relaxed),
                         );
                         if far_decision.hold_low_recover {
                             desired_rate_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
@@ -1604,28 +2044,6 @@ fn run_pipewire_loop(
                                 control_latency_ms_bits: &control_latency_ms_out,
                             },
                         );
-                        log_dac_sample_domain_trace(
-                            callback_count,
-                            "native",
-                            requested_frames_this_cycle,
-                            available,
-                            output_fifo_input_domain_samples,
-                            pending_resampler_input_samples,
-                            metrics.total_available_input_domain,
-                            metrics.control_available,
-                            metrics.smoothed_control_available,
-                            projected_control_available,
-                            callback_input_domain_samples,
-                            callback_output_frames,
-                            channel_count as usize,
-                            pending_input_triggers_for_callback.load(Ordering::Relaxed),
-                            bresenham_acc,
-                            input_trigger_rate_for_callback.load(Ordering::Relaxed),
-                            input_trigger_quantum_for_callback.load(Ordering::Relaxed),
-                            actual_output_rate,
-                            f32::from_bits(rate_adjust_for_callback.load(Ordering::Relaxed)),
-                            current_runtime_state.load(Ordering::Relaxed),
-                        );
                         if far_decision.hold_low_recover {
                             desired_rate_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
                         }
@@ -1636,6 +2054,12 @@ fn run_pipewire_loop(
                             if far_decision.mute_far_output {
                                 let dropped =
                                     discard_ring_samples(&buffer_for_callback, samples_to_read);
+                                recovery_discard_total =
+                                    recovery_discard_total.saturating_add(dropped as u64);
+                                recovery_discard_count_for_callback.store(
+                                    (recovery_discard_total as f64).to_bits(),
+                                    Ordering::Relaxed,
+                                );
                                 if dropped < samples_to_read {
                                     log::debug!(
                                         "Recovery reacquire underfed: consumed {} / {} samples while re-priming output",
@@ -1678,6 +2102,12 @@ fn run_pipewire_loop(
                             );
                             let dropped =
                                 discard_ring_samples(&buffer_for_callback, plan.desired_consume_input_samples);
+                            recovery_discard_total =
+                                recovery_discard_total.saturating_add(dropped as u64);
+                            recovery_discard_count_for_callback.store(
+                                (recovery_discard_total as f64).to_bits(),
+                                Ordering::Relaxed,
+                            );
                             if dropped < plan.desired_consume_input_samples {
                                 log::debug!(
                                     "Far hard recover underfed: consumed {} / {} samples while targeting exact recovery",
@@ -1700,6 +2130,12 @@ fn run_pipewire_loop(
                             if samples_to_discard > 0 {
                                 let dropped =
                                     discard_ring_samples(&buffer_for_callback, samples_to_discard);
+                                recovery_discard_total =
+                                    recovery_discard_total.saturating_add(dropped as u64);
+                                recovery_discard_count_for_callback.store(
+                                    (recovery_discard_total as f64).to_bits(),
+                                    Ordering::Relaxed,
+                                );
                                 if dropped < samples_to_discard {
                                     log::debug!(
                                         "Low-recover muted consume underfed: consumed {} / {} samples while stabilizing resume latency",
@@ -1793,6 +2229,70 @@ fn run_pipewire_loop(
                     bresenham_acc -= trigger_den;
                 }
             }
+            // DIAG output-callback: publish frames consumed this callback +
+            // current adaptive runtime state (so the diag plot reveals any
+            // periodic state transitions even when PI servo is paused).
+            output_callback_frames_for_callback.store(
+                (callback_output_frames as f64).to_bits(),
+                Ordering::Relaxed,
+            );
+            runtime_state_code_for_callback.store(
+                (current_runtime_state.load(Ordering::Relaxed) as f64).to_bits(),
+                Ordering::Relaxed,
+            );
+            // DIAG output: ring & resampler deltas + effective ratio (ppm).
+            // Resampler in/out filter out 0 values: the local resampler only
+            // fires when the output FIFO drops below threshold, so most
+            // callbacks have consumed=produced=0 — keeping those would crush
+            // the plot's auto-scale. We publish only when the resampler
+            // actually ran, so the trace shows the chunk-cadence values.
+            let ring_after = buffer_for_callback.len();
+            let resampler_input_consumed =
+                ring_input_samples_at_entry.saturating_sub(ring_after);
+            if resampler_input_consumed > 0 {
+                output_resampler_input_consumed_for_callback.store(
+                    (resampler_input_consumed as f64).to_bits(),
+                    Ordering::Relaxed,
+                );
+            }
+            // Per-event throughput EMA (samples/sec). Only fires when the
+            // resampler actually consumed samples this callback; α=0.05
+            // gives a ~1 s time constant at the chunk cadence (~44 Hz).
+            // No fixed-window quantisation → 0.55 Hz dropouts disappear if
+            // they were aggregation artefacts.
+            if resampler_input_consumed > 0 {
+                if let Some(prev) = last_pop_event_at {
+                    let dt_pop_us = now_cb.saturating_duration_since(prev).as_micros() as u64;
+                    if dt_pop_us > 0 {
+                        let instant_rate =
+                            resampler_input_consumed as f64 * 1_000_000.0 / dt_pop_us as f64;
+                        const ALPHA: f64 = 0.05;
+                        pop_rate_ema_sps = if pop_rate_ema_sps == 0.0 {
+                            instant_rate
+                        } else {
+                            ALPHA * instant_rate + (1.0 - ALPHA) * pop_rate_ema_sps
+                        };
+                        pop_rate_sps_for_callback
+                            .store(pop_rate_ema_sps.to_bits(), Ordering::Relaxed);
+                    }
+                }
+                last_pop_event_at = Some(now_cb);
+            }
+            let resampler_fifo_after = resampler_fifo.output_len();
+            let callback_output_samples = callback_output_frames
+                .saturating_mul(channel_count as usize);
+            let resampler_output_produced = callback_output_samples
+                .saturating_add(resampler_fifo_after)
+                .saturating_sub(resampler_fifo_at_entry);
+            if resampler_output_produced > 0 {
+                output_resampler_output_produced_for_callback.store(
+                    (resampler_output_produced as f64).to_bits(),
+                    Ordering::Relaxed,
+                );
+            }
+            let ratio_ppm_dev = (effective_resample_ratio - 1.0) * 1_000_000.0;
+            output_effective_ratio_ppm_for_callback
+                .store((ratio_ppm_dev).to_bits(), Ordering::Relaxed);
         })
         .register()
         .map_err(|e| anyhow!("Failed to register process listener: {:?}", e))?;

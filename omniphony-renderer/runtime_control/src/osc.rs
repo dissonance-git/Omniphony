@@ -1158,7 +1158,7 @@ pub fn apply_simple_osc_control(
                 if let Some(value) = adaptive.kp_near.filter(|value| *value > 0.0) {
                     audio.set_requested_adaptive_resampling_kp_near(value as f32);
                 }
-                if let Some(value) = adaptive.ki.filter(|value| *value > 0.0) {
+                if let Some(value) = adaptive.ki.filter(|value| *value >= 0.0) {
                     audio.set_requested_adaptive_resampling_ki(value as f32);
                 }
                 if let Some(value) = adaptive
@@ -1919,7 +1919,7 @@ pub fn apply_simple_osc_control(
     }
 
     if addr == "/omniphony/control/adaptive_resampling/ki" {
-        let value = parse_positive_f32_arg(msg.args.first());
+        let value = parse_nonnegative_f32_arg(msg.args.first());
         if let (Some(audio), Some(value)) = (ctx.audio.as_ref(), value) {
             audio.set_requested_adaptive_resampling_ki(value);
             effects.mark_dirty = true;

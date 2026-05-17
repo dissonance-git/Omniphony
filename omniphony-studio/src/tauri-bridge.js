@@ -535,6 +535,41 @@ export function setupTauriBridge() {
     updateLatencyDisplay();
   });
 
+  listen('latency:avail_input', ({ payload }) => {
+    app.latencyAvailInputMs = Number(payload.value);
+  });
+
+  listen('latency:output_fifo', ({ payload }) => {
+    app.latencyOutputFifoMs = Number(payload.value);
+  });
+
+  listen('latency:resampler_pending', ({ payload }) => {
+    app.latencyResamplerPendingMs = Number(payload.value);
+  });
+
+  // Generic diag registry: schema (list of available metrics) + values map.
+  // Lets the diag plot dynamically offer any metric the renderer registers,
+  // with zero studio-side change per new metric.
+  // The renderer side ships the schema/values as a JSON string inside the
+  // OSC payload — parse it here so the plot always sees a real JS object.
+  // Idempotent: if Tauri ever starts forwarding it as a structured value
+  // directly, the typeof check skips the redundant parse.
+  const parseDiagPayload = (payload) => {
+    const raw = payload && payload.value !== undefined ? payload.value : null;
+    if (typeof raw === 'string') {
+      try { return JSON.parse(raw); } catch (_) { return null; }
+    }
+    return raw;
+  };
+
+  listen('diag:schema', ({ payload }) => {
+    app.diagSchema = parseDiagPayload(payload);
+  });
+
+  listen('diag:values', ({ payload }) => {
+    app.diagValues = parseDiagPayload(payload);
+  });
+
   listen('latency:target', ({ payload }) => {
     const value = Number(payload.value);
     app.latencyTargetMs = Number.isFinite(value) ? value : null;

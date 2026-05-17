@@ -190,7 +190,7 @@ export function renderLatencyDisplay() {
   if (!latencyRawInfoEl && !latencyCtrlInfoEl && !latencySmoothedInfoEl && !latencyDownstreamInfoEl && !latencyInfoEl) return;
   const instantText = app.latencyInstantMs === null ? '—' : `${formatNumber(app.latencyInstantMs, 0)} ms`;
   const controlText = app.latencyControlMs === null ? 'ctrl —' : `ctrl ${formatNumber(app.latencyControlMs, 0)} ms`;
-  const smoothedText = app.latencySmoothedMs === null ? 'smoothed —' : `smoothed ${formatNumber(app.latencySmoothedMs, 0)} ms`;
+  const smoothedText = app.latencySmoothedMs === null ? 'smoothed —' : `smoothed ${formatNumber(app.latencySmoothedMs, 2)} ms`;
   const downstreamText = app.latencyDownstreamMs === null ? 'path —' : `path ${formatNumber(app.latencyDownstreamMs, 0)} ms`;
   const targetValue = app.latencyRequestedMs ?? app.latencyTargetMs ?? app.latencyMs;
   if (latencyRawInfoEl) {

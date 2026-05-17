@@ -1583,9 +1583,9 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 )
             }
             OscEvent::StateLatencySmoothed { value } => {
-                let rounded = s.set_latency_smoothed_value(value);
+                let stored = s.set_latency_smoothed_value(value);
                 (
-                    Some(("latency:smoothed", serde_json::json!({ "value": rounded }))),
+                    Some(("latency:smoothed", serde_json::json!({ "value": stored }))),
                     removed_ids,
                 )
             }
@@ -1607,6 +1607,46 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 let rounded = s.set_latency_requested_value(value);
                 (
                     Some(("latency:requested", serde_json::json!({ "value": rounded }))),
+                    removed_ids,
+                )
+            }
+            OscEvent::StateLatencyAvailInput { value } => {
+                let stored = s.set_latency_avail_input_value(value);
+                (
+                    Some(("latency:avail_input", serde_json::json!({ "value": stored }))),
+                    removed_ids,
+                )
+            }
+            OscEvent::StateLatencyOutputFifo { value } => {
+                let stored = s.set_latency_output_fifo_value(value);
+                (
+                    Some(("latency:output_fifo", serde_json::json!({ "value": stored }))),
+                    removed_ids,
+                )
+            }
+            OscEvent::StateLatencyResamplerPending { value } => {
+                let stored = s.set_latency_resampler_pending_value(value);
+                (
+                    Some(("latency:resampler_pending", serde_json::json!({ "value": stored }))),
+                    removed_ids,
+                )
+            }
+            OscEvent::StateDiagSchema { value } => {
+                // Stash a parsed copy so the snapshot includes a real object
+                // for late subscribers. The live event passes the raw JSON
+                // string through — JS parses it once on arrival. Wrapping the
+                // parsed Value::Object back in a json!{} payload triggered
+                // Tauri to emit it as a stringified object on the JS side.
+                s.latency.diag_schema = serde_json::from_str(&value).ok();
+                (
+                    Some(("diag:schema", serde_json::json!({ "value": value }))),
+                    removed_ids,
+                )
+            }
+            OscEvent::StateDiagValues { value } => {
+                s.latency.diag_values = serde_json::from_str(&value).ok();
+                (
+                    Some(("diag:values", serde_json::json!({ "value": value }))),
                     removed_ids,
                 )
             }

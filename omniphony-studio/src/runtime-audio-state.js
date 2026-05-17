@@ -55,6 +55,15 @@ export function applyRuntimeAudioStateSnapshot(payload) {
   if (typeof payload.latencyDownstreamMs === 'number') {
     app.latencyDownstreamMs = payload.latencyDownstreamMs;
   }
+  if (typeof payload.latencyAvailInputMs === 'number') {
+    app.latencyAvailInputMs = payload.latencyAvailInputMs;
+  }
+  if (typeof payload.latencyOutputFifoMs === 'number') {
+    app.latencyOutputFifoMs = payload.latencyOutputFifoMs;
+  }
+  if (typeof payload.latencyResamplerPendingMs === 'number') {
+    app.latencyResamplerPendingMs = payload.latencyResamplerPendingMs;
+  }
   if (typeof payload.latencyTargetMs === 'number') {
     app.latencyTargetMs = payload.latencyTargetMs;
   }
@@ -160,6 +169,15 @@ export function applyRuntimeAudioEvent(eventType, payload) {
     case 'latency:downstream':
       app.latencyDownstreamMs = Number(payload?.value);
       updateLatencyDisplay();
+      return;
+    case 'latency:avail_input':
+      app.latencyAvailInputMs = Number(payload?.value);
+      return;
+    case 'latency:output_fifo':
+      app.latencyOutputFifoMs = Number(payload?.value);
+      return;
+    case 'latency:resampler_pending':
+      app.latencyResamplerPendingMs = Number(payload?.value);
       return;
     case 'latency:target':
       app.latencyTargetMs = Number(payload?.value);

@@ -52,6 +52,9 @@ pub struct AsioWriter {
     measured_latency_ms_bits: Arc<AtomicU32>,
     control_latency_ms_bits: Arc<AtomicU32>,
     pipeline_latency_ms_bits: Arc<AtomicU32>,
+    avail_input_latency_ms_bits: Arc<AtomicU32>,
+    output_fifo_latency_ms_bits: Arc<AtomicU32>,
+    resampler_pending_latency_ms_bits: Arc<AtomicU32>,
     live_adaptive_config: Arc<Mutex<AdaptiveResamplingConfig>>,
     reset_ratio_requested: Arc<AtomicBool>,
     // We keep the stream alive by holding it here, though cpal streams run in background threads
@@ -133,6 +136,12 @@ impl AsioWriter {
         let control_latency_ms_bits_clone = control_latency_ms_bits.clone();
         let pipeline_latency_ms_bits = Arc::new(AtomicU32::new(0u32));
         let pipeline_latency_ms_bits_clone = pipeline_latency_ms_bits.clone();
+        let avail_input_latency_ms_bits = Arc::new(AtomicU32::new(0u32));
+        let avail_input_latency_ms_bits_clone = avail_input_latency_ms_bits.clone();
+        let output_fifo_latency_ms_bits = Arc::new(AtomicU32::new(0u32));
+        let output_fifo_latency_ms_bits_clone = output_fifo_latency_ms_bits.clone();
+        let resampler_pending_latency_ms_bits = Arc::new(AtomicU32::new(0u32));
+        let resampler_pending_latency_ms_bits_clone = resampler_pending_latency_ms_bits.clone();
         // Ring-buffer thresholds in INPUT-domain samples (same domain as buffer_clone.len()).
         let samples_per_ms =
             (input_sample_rate as usize).saturating_mul(channel_count as usize) / 1000;
@@ -348,11 +357,21 @@ impl AsioWriter {
 
                 // 1. Check buffer fill & Calculate Rate
                 let available_samples = buffer_clone.len(); // Input-domain samples (frames * channels)
-                let output_fifo_input_domain_samples =
+                // Raw FIFO level for any future diagnostic plot; not used in the
+                // PI input below (see chunk-cancellation rationale).
+                let _output_fifo_input_domain_samples_raw =
                     output_to_input_domain_samples(
                         resampler_fifo.output_len(),
                         effective_resample_ratio,
                     );
+                // Chunk-cycle-cancelled FIFO contribution: the FIFO is a
+                // deterministic sawtooth between 0 and one chunk's worth of
+                // samples. Substituting its expected steady-state mean (half
+                // a chunk in input domain) for the instantaneous value
+                // removes the chunk-induced low-frequency oscillation from
+                // `control_available` without phase lag.
+                let output_fifo_input_domain_samples =
+                    (RESAMPLER_CHUNK_SIZE / 2).saturating_mul(channel_count as usize);
                 let pending_resampler_input_samples = resampler_fifo.pending_input_samples();
                 // data.len() is in device-channel domain; convert it to rendered-audio samples
                 // before comparing against the renderer/ring buffer fill level.
@@ -393,6 +412,27 @@ impl AsioWriter {
                         control_latency_ms_bits: &control_latency_ms_bits_clone,
                     },
                 );
+                // Publish the three components of `control_available` as ms so they
+                // can be plotted independently in the Studio control plot.
+                {
+                    let samples_to_ms = |samples: usize| -> f32 {
+                        if channel_count > 0 && input_sample_rate > 0 {
+                            samples as f32 / channel_count as f32 / input_sample_rate as f32 * 1000.0
+                        } else {
+                            0.0
+                        }
+                    };
+                    avail_input_latency_ms_bits_clone
+                        .store(samples_to_ms(available_samples).to_bits(), Ordering::Relaxed);
+                    output_fifo_latency_ms_bits_clone.store(
+                        samples_to_ms(output_fifo_input_domain_samples).to_bits(),
+                        Ordering::Relaxed,
+                    );
+                    resampler_pending_latency_ms_bits_clone.store(
+                        samples_to_ms(pending_resampler_input_samples).to_bits(),
+                        Ordering::Relaxed,
+                    );
+                }
                 let fallback_band = far_mode_band_from_latency(
                     &current_asio_cfg,
                     metrics.control_available,
@@ -696,6 +736,9 @@ impl AsioWriter {
             measured_latency_ms_bits,
             control_latency_ms_bits,
             pipeline_latency_ms_bits,
+            avail_input_latency_ms_bits,
+            output_fifo_latency_ms_bits,
+            resampler_pending_latency_ms_bits,
             live_adaptive_config: live_config,
             reset_ratio_requested,
             _stream: Some(stream),
@@ -771,6 +814,23 @@ impl AsioWriter {
     /// separate smoothed metric, so it falls back to the raw control latency.
     pub fn smoothed_control_audio_delay_ms(&self) -> f32 {
         self.control_audio_delay_ms()
+    }
+
+    /// Ring-buffer occupancy converted to ms (first component of `control_available`).
+    pub fn avail_input_audio_delay_ms(&self) -> f32 {
+        f32::from_bits(self.avail_input_latency_ms_bits.load(Ordering::Relaxed))
+    }
+
+    /// Resampler output FIFO content converted back to input-domain ms
+    /// (second component of `control_available`).
+    pub fn output_fifo_audio_delay_ms(&self) -> f32 {
+        f32::from_bits(self.output_fifo_latency_ms_bits.load(Ordering::Relaxed))
+    }
+
+    /// Local resampler pending input samples expressed as ms
+    /// (third component of `control_available`).
+    pub fn resampler_pending_audio_delay_ms(&self) -> f32 {
+        f32::from_bits(self.resampler_pending_latency_ms_bits.load(Ordering::Relaxed))
     }
 
     /// Signal the audio thread to snap the resampling ratio back to base and reset the integrator.

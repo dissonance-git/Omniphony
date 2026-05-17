@@ -242,6 +242,16 @@ pub enum OscEvent {
     StateLatencyTarget { value: f64 },
     #[serde(rename = "state:latency:target_requested")]
     StateLatencyTargetRequested { value: f64 },
+    #[serde(rename = "state:latency:avail_input")]
+    StateLatencyAvailInput { value: f64 },
+    #[serde(rename = "state:latency:output_fifo")]
+    StateLatencyOutputFifo { value: f64 },
+    #[serde(rename = "state:latency:resampler_pending")]
+    StateLatencyResamplerPending { value: f64 },
+    #[serde(rename = "state:diag:schema")]
+    StateDiagSchema { value: String },
+    #[serde(rename = "state:diag:values")]
+    StateDiagValues { value: String },
     #[serde(rename = "state:decode_time_ms")]
     StateDecodeTimeMs { value: f64 },
     #[serde(rename = "state:render_time_ms")]
@@ -534,6 +544,21 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
         }),
         (3, "latency_target_requested") => Some(OscEvent::StateLatencyTargetRequested {
             value: to_number(args[0])?,
+        }),
+        (3, "latency_avail_input") => Some(OscEvent::StateLatencyAvailInput {
+            value: to_number(args[0])?,
+        }),
+        (3, "latency_output_fifo") => Some(OscEvent::StateLatencyOutputFifo {
+            value: to_number(args[0])?,
+        }),
+        (3, "latency_resampler_pending") => Some(OscEvent::StateLatencyResamplerPending {
+            value: to_number(args[0])?,
+        }),
+        (3, "diag_schema") => Some(OscEvent::StateDiagSchema {
+            value: raw_args.first().and_then(unwrap_string)?,
+        }),
+        (3, "diag_values") => Some(OscEvent::StateDiagValues {
+            value: raw_args.first().and_then(unwrap_string)?,
         }),
         (3, "decode_time_ms") => Some(OscEvent::StateDecodeTimeMs {
             value: to_number(args[0])?,

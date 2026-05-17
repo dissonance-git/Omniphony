@@ -360,6 +360,21 @@ function parseOmniphonyStateMessage(parts, args) {
     return value === null ? null : { type: 'state:latency:downstream', value };
   }
 
+  if (parts.length === 3 && parts[0] === 'omniphony' && parts[1] === 'state' && parts[2] === 'latency_avail_input') {
+    const value = toNumber(args[0]);
+    return value === null ? null : { type: 'state:latency:avail_input', value };
+  }
+
+  if (parts.length === 3 && parts[0] === 'omniphony' && parts[1] === 'state' && parts[2] === 'latency_output_fifo') {
+    const value = toNumber(args[0]);
+    return value === null ? null : { type: 'state:latency:output_fifo', value };
+  }
+
+  if (parts.length === 3 && parts[0] === 'omniphony' && parts[1] === 'state' && parts[2] === 'latency_resampler_pending') {
+    const value = toNumber(args[0]);
+    return value === null ? null : { type: 'state:latency:resampler_pending', value };
+  }
+
   if (parts.length === 3 && parts[0] === 'omniphony' && parts[1] === 'state' && parts[2] === 'resample_ratio') {
     const value = toNumber(args[0]);
     return value === null ? null : { type: 'state:resample_ratio', value };

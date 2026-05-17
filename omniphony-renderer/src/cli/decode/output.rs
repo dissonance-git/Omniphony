@@ -22,6 +22,16 @@ pub struct AudioLatencySnapshot {
     pub target_control_latency_ms: Option<f32>,
     /// Downstream latency contribution outside the internal control buffer.
     pub downstream_latency_ms: Option<f32>,
+    /// Ring-buffer level (input-domain) converted to ms — first of the three
+    /// components that sum into `control_available`. Useful to localise the
+    /// origin of oscillations in the control buffer.
+    pub avail_input_latency_ms: Option<f32>,
+    /// Output-FIFO content of the local resampler converted back to input-domain
+    /// ms — second component of `control_available`.
+    pub output_fifo_latency_ms: Option<f32>,
+    /// Resampler-pending input samples expressed as ms — third component of
+    /// `control_available`.
+    pub resampler_pending_latency_ms: Option<f32>,
 }
 
 /// Audio sample data in different formats
@@ -254,12 +264,18 @@ impl AudioWriter {
             let downstream_ms = final_latency_ms - control_ms;
             (downstream_ms >= 0.0).then_some(downstream_ms)
         });
+        let avail_input_latency_ms = self.avail_input_audio_delay_ms();
+        let output_fifo_latency_ms = self.output_fifo_audio_delay_ms();
+        let resampler_pending_latency_ms = self.resampler_pending_audio_delay_ms();
         Some(AudioLatencySnapshot {
             final_latency_ms,
             control_latency_ms,
             smoothed_control_latency_ms,
             target_control_latency_ms,
             downstream_latency_ms,
+            avail_input_latency_ms,
+            output_fifo_latency_ms,
+            resampler_pending_latency_ms,
         })
     }
 
@@ -347,6 +363,54 @@ impl AudioWriter {
                 if v > 0.0 { Some(v) } else { None }
             }
             AudioWriter::Unsupported => None,
+        }
+    }
+
+    /// Component accessors keep zero values: they represent a snapshot of the
+    /// underlying buffer occupancy, where 0 ms is a valid runtime state
+    /// (e.g. the resampler holds no pending input at this callback).
+    /// Unlike the aggregate latency accessors, we don't use `> 0.0` as a
+    /// readiness sentinel here.
+    pub fn avail_input_audio_delay_ms(&self) -> Option<f32> {
+        match self {
+            #[cfg(target_os = "linux")]
+            AudioWriter::Pipewire(pw) => Some(pw.avail_input_audio_delay_ms().max(0.0)),
+            #[cfg(target_os = "windows")]
+            AudioWriter::Asio(asio) => Some(asio.avail_input_audio_delay_ms().max(0.0)),
+            AudioWriter::Unsupported => None,
+        }
+    }
+
+    pub fn output_fifo_audio_delay_ms(&self) -> Option<f32> {
+        match self {
+            #[cfg(target_os = "linux")]
+            AudioWriter::Pipewire(pw) => Some(pw.output_fifo_audio_delay_ms().max(0.0)),
+            #[cfg(target_os = "windows")]
+            AudioWriter::Asio(asio) => Some(asio.output_fifo_audio_delay_ms().max(0.0)),
+            AudioWriter::Unsupported => None,
+        }
+    }
+
+    pub fn resampler_pending_audio_delay_ms(&self) -> Option<f32> {
+        match self {
+            #[cfg(target_os = "linux")]
+            AudioWriter::Pipewire(pw) => Some(pw.resampler_pending_audio_delay_ms().max(0.0)),
+            #[cfg(target_os = "windows")]
+            AudioWriter::Asio(asio) => Some(asio.resampler_pending_audio_delay_ms().max(0.0)),
+            AudioWriter::Unsupported => None,
+        }
+    }
+
+    /// Diagnostic metric handles published by the active output backend.
+    /// Each entry should be passed to `DiagRegistry::register_external`.
+    /// Returns an empty Vec on backends that do not yet publish any diag.
+    pub fn diag_atomic_handles(&self) -> Vec<sys::diag::DiagAtomicHandle> {
+        match self {
+            #[cfg(target_os = "linux")]
+            AudioWriter::Pipewire(pw) => pw.diag_atomic_handles(),
+            #[cfg(target_os = "windows")]
+            AudioWriter::Asio(_) => Vec::new(),
+            AudioWriter::Unsupported => Vec::new(),
         }
     }
 

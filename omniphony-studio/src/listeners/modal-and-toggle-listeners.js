@@ -13,6 +13,7 @@ import {
   setTelemetryGaugesOpen,
   setDisplaySectionOpen, setDrcSectionOpen, setAudioOutputSectionOpen, setInputSectionOpen, setRendererSectionOpen
 } from '../modals.js';
+import { closeAutoTuneWizardOnEscape } from '../auto-tune/wizard-ui.js';
 
 function bindModalOpenClose({ buttonId, closeButtonId, modalId, open, close }) {
   const buttonEl = document.getElementById(buttonId);
@@ -300,6 +301,7 @@ export function setupModalAndToggleListeners() {
       setInputLfeInfoModalOpen(false);
       setDrcInfoModalOpen(false);
       setHeatmapInfoModalOpen(false);
+      closeAutoTuneWizardOnEscape();
     }
   });
 }

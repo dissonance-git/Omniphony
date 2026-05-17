@@ -8,6 +8,10 @@ import {
   applyAudioSampleRateNow, applyAudioOutputDeviceNow, applyRampModeNow, sendAudioConfig
 } from '../controls/audio.js';
 import { applyLatencyTargetNow, updateLatencyDisplay } from '../controls/latency.js';
+import { openAutoTuneWizard } from '../auto-tune/wizard-ui.js';
+import { toggleResamplePlot } from '../controls/resample-plot.js';
+import { toggleComponentsPlot } from '../controls/components-plot.js';
+import { toggleDiagPlot } from '../controls/diag-plot.js';
 
 export function setupAudioPanelListeners() {
   const masterGainSliderEl = document.getElementById('masterGainSlider');
@@ -21,6 +25,10 @@ export function setupAudioPanelListeners() {
   const adaptiveResamplingAdvancedCancelBtnEl = document.getElementById('adaptiveResamplingAdvancedCancelBtn');
   const adaptivePauseBtnEl = document.getElementById('adaptivePauseBtn');
   const adaptiveRatioResetBtnEl = document.getElementById('adaptiveRatioResetBtn');
+  const autoTunePiBtnEl = document.getElementById('autoTunePiBtn');
+  const resamplePlotToggleBtnEl = document.getElementById('resamplePlotToggleBtn');
+  const componentsPlotToggleBtnEl = document.getElementById('componentsPlotToggleBtn');
+  const diagPlotToggleBtnEl = document.getElementById('diagPlotToggleBtn');
   const adaptiveKpNearInputEl = document.getElementById('adaptiveKpNearInput');
   const adaptiveKiInputEl = document.getElementById('adaptiveKiInput');
   const adaptiveIntegralDischargeRatioInputEl = document.getElementById('adaptiveIntegralDischargeRatioInput');
@@ -156,7 +164,7 @@ export function setupAudioPanelListeners() {
     adaptiveResamplingAdvancedApplyBtnEl.addEventListener('click', () => {
       if (adaptiveResamplingAdvancedApplyBtnEl.disabled) return;
       const kpNear = Math.max(0.01, Number(adaptiveKpNearInputEl?.value) || 0);
-      const ki = Math.max(0.01, Number(adaptiveKiInputEl?.value) || 0);
+      const ki = Math.max(0, Number(adaptiveKiInputEl?.value) || 0);
       const integralDischargeRatio = Math.min(1, Math.max(0, Number(adaptiveIntegralDischargeRatioInputEl?.value) || 0));
       const maxAdjustPpm = Math.max(1, Math.round(Number(adaptiveMaxAdjustInputEl?.value) || 0));
       const maxAdjust = Math.max(0.000001, maxAdjustPpm / 1_000_000);
@@ -200,7 +208,23 @@ export function setupAudioPanelListeners() {
   }
 
   if (adaptivePauseBtnEl) {
-    adaptivePauseBtnEl.addEventListener('click', () => {
+    // Use pointerup instead of click: the button gets `disabled = !adaptiveEnabled`
+    // rewritten every UI flush (~rAF), and any transient `false` between mousedown
+    // and mouseup makes the browser cancel the click event entirely. pointerup is
+    // not affected by the disabled state in the same way.
+    let pointerDownOnButton = false;
+    adaptivePauseBtnEl.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      pointerDownOnButton = true;
+    });
+    adaptivePauseBtnEl.addEventListener('pointercancel', () => {
+      pointerDownOnButton = false;
+    });
+    adaptivePauseBtnEl.addEventListener('pointerup', (event) => {
+      if (event.button !== 0) return;
+      if (!pointerDownOnButton) return;
+      pointerDownOnButton = false;
+      if (adaptivePauseBtnEl.disabled) return;
       const enable = app.adaptiveResamplingPaused ? 0 : 1;
       app.adaptiveResamplingPaused = enable === 1;
       updateAdaptiveResamplingUI();
@@ -211,6 +235,30 @@ export function setupAudioPanelListeners() {
   if (adaptiveRatioResetBtnEl) {
     adaptiveRatioResetBtnEl.addEventListener('click', () => {
       invoke('control_adaptive_resampling_reset_ratio');
+    });
+  }
+
+  if (autoTunePiBtnEl) {
+    autoTunePiBtnEl.addEventListener('click', () => {
+      openAutoTuneWizard();
+    });
+  }
+
+  if (resamplePlotToggleBtnEl) {
+    resamplePlotToggleBtnEl.addEventListener('click', () => {
+      toggleResamplePlot();
+    });
+  }
+
+  if (componentsPlotToggleBtnEl) {
+    componentsPlotToggleBtnEl.addEventListener('click', () => {
+      toggleComponentsPlot();
+    });
+  }
+
+  if (diagPlotToggleBtnEl) {
+    diagPlotToggleBtnEl.addEventListener('click', () => {
+      toggleDiagPlot();
     });
   }
 

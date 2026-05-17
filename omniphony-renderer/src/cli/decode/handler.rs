@@ -318,6 +318,38 @@ impl DecodeHandler {
                 );
             }
         }
+        // DIAG decoder→ring: publish per-frame cadence metrics so the diag
+        // plot can see whether the 1 Hz oscillation on avail_input is
+        // introduced between the bridge worker thread and the main decoder
+        // thread (mpsc queueing) or further downstream.
+        if let Some(ic) = self.input_control.as_ref() {
+            let diag = ic.diag_registry();
+            let dt_us = self
+                .session
+                .last_frame_received_at
+                .map(|prev| now.saturating_duration_since(prev).as_micros() as u64)
+                .unwrap_or(0);
+            let h_dt = diag.register(
+                "decoder_frame_dt_us",
+                "Decoder frame dt",
+                "decoder",
+                "us",
+            );
+            h_dt.store((dt_us as f64).to_bits(), std::sync::atomic::Ordering::Relaxed);
+            let h_lag = diag.register(
+                "decoder_queue_lag_us",
+                "MPSC queue lag",
+                "decoder",
+                "us",
+            );
+            // queue_delay_ms was already computed by handle_audio_message as
+            // `decoded.sent_at.elapsed()` — convert to us for consistency.
+            let queue_lag_us = (ctx.queue_delay_ms * 1000.0).max(0.0) as u64;
+            h_lag.store(
+                (queue_lag_us as f64).to_bits(),
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
         self.session.last_frame_received_at = Some(now);
         self.session.last_frame_sample_count = Some(sample_count_u32);
 

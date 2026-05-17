@@ -62,6 +62,17 @@ struct BridgeCaptureUserData {
     dynamic_trigger_interval: Option<Duration>,
     last_pw_time_log_at: Instant,
     output_rate_adjust: Arc<AtomicU32>,
+    /// Timestamp of the previous IEC958 chunk arrival (diagnostic).
+    last_iec958_chunk_at: Option<Instant>,
+    /// Timestamp of the previous bridge-plugin decode flush (diagnostic).
+    last_bridge_decode_at: Option<Instant>,
+    /// Registry-handed diagnostic handles, each holding `f64` bits.
+    /// Replaces the previous individual atomics; new metrics added to the
+    /// registry appear automatically in the Studio diag plot.
+    diag_iec958_chunk_bytes: Arc<std::sync::atomic::AtomicU64>,
+    diag_iec958_chunk_dt_us: Arc<std::sync::atomic::AtomicU64>,
+    diag_iec958_decode_packets: Arc<std::sync::atomic::AtomicU64>,
+    diag_iec958_decode_dt_us: Arc<std::sync::atomic::AtomicU64>,
 }
 
 #[derive(Default)]
@@ -410,6 +421,24 @@ where
             dynamic_trigger_interval: None,
             last_pw_time_log_at: Instant::now(),
             output_rate_adjust: input_control.output_rate_adjust_atomic(),
+            last_iec958_chunk_at: None,
+            last_bridge_decode_at: None,
+            diag_iec958_chunk_bytes: {
+                let diag = input_control.diag_registry();
+                diag.register("iec958_chunk_bytes", "Chunk bytes", "iec958", "B")
+            },
+            diag_iec958_chunk_dt_us: {
+                let diag = input_control.diag_registry();
+                diag.register("iec958_chunk_dt_us", "Chunk dt", "iec958", "us")
+            },
+            diag_iec958_decode_packets: {
+                let diag = input_control.diag_registry();
+                diag.register("iec958_decode_packets", "SPDIF packets/call", "iec958", "")
+            },
+            diag_iec958_decode_dt_us: {
+                let diag = input_control.diag_registry();
+                diag.register("iec958_decode_dt_us", "SPDIF parser dt", "iec958", "us")
+            },
         })
         .state_changed(move |_stream, _user_data, old, new| {
             log::info!("{} state changed: {:?} -> {:?}", log_prefix, old, new);
@@ -729,6 +758,22 @@ where
                 u16::from_le_bytes([w[0], w[1]]) == 0xF872
                     && u16::from_le_bytes([w[2], w[3]]) == 0x4E1F
             });
+            // DIAG iec958-chain: per-chunk arrival trace. Publishes the chunk
+            // size and inter-chunk interval to atomics so the Studio plot can
+            // show whether the 1 Hz sawtooth already exists in the PipeWire
+            // capture path. Kept as a log line too, for offline grep.
+            let now_chunk = Instant::now();
+            let dt_chunk_us = user_data
+                .last_iec958_chunk_at
+                .map(|prev| now_chunk.saturating_duration_since(prev).as_micros() as u64)
+                .unwrap_or(0);
+            user_data.last_iec958_chunk_at = Some(now_chunk);
+            user_data
+                .diag_iec958_chunk_bytes
+                .store((byte_len as f64).to_bits(), Ordering::Relaxed);
+            user_data
+                .diag_iec958_chunk_dt_us
+                .store((dt_chunk_us as f64).to_bits(), Ordering::Relaxed);
             user_data.bytes_since_log += byte_len;
             user_data.buffers_since_log += 1;
             if has_spdif_sync {
@@ -738,9 +783,29 @@ where
             user_data.accumulate_count += 1;
             let (packet_count, queued_count) =
                 if user_data.accumulate_count >= PW_STREAM_ACCUMULATE_CALLBACKS {
+                    let input_bytes = user_data.accumulate_buf.len();
                     let result = process_chunk.borrow_mut()(&user_data.accumulate_buf);
                     user_data.accumulate_buf.clear();
                     user_data.accumulate_count = 0;
+                    // DIAG iec958-chain: per-bridge-decode trace. Publishes
+                    // the decoded-packet count and inter-decode interval to
+                    // atomics so the Studio plot can show whether the 1 Hz
+                    // burst originates in the plugin. Kept as log too.
+                    let now_decode = Instant::now();
+                    let dt_decode_us = user_data
+                        .last_bridge_decode_at
+                        .map(|prev| {
+                            now_decode.saturating_duration_since(prev).as_micros() as u64
+                        })
+                        .unwrap_or(0);
+                    user_data.last_bridge_decode_at = Some(now_decode);
+                    user_data
+                        .diag_iec958_decode_packets
+                        .store((result.0 as f64).to_bits(), Ordering::Relaxed);
+                    user_data
+                        .diag_iec958_decode_dt_us
+                        .store((dt_decode_us as f64).to_bits(), Ordering::Relaxed);
+                    let _ = input_bytes; // Was only used in the removed log line.
                     result
                 } else {
                     (0, 0)

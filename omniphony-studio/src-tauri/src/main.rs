@@ -28,6 +28,7 @@ struct SharedState {
     config_dir: PathBuf,
     listen_port: Arc<Mutex<u16>>,
     realtime_seq: AtomicI32,
+    auto_tune_snapshot: Arc<Mutex<Option<serde_json::Value>>>,
 }
 
 // ── helper ────────────────────────────────────────────────────────────────
@@ -521,6 +522,21 @@ fn control_adaptive_resampling_reset_ratio(state: State<SharedState>) {
             value: 1,
         },
     );
+}
+
+#[tauri::command]
+fn auto_tune_snapshot_save(state: State<SharedState>, snapshot: serde_json::Value) {
+    *state.auto_tune_snapshot.lock().unwrap() = Some(snapshot);
+}
+
+#[tauri::command]
+fn auto_tune_snapshot_take(state: State<SharedState>) -> Option<serde_json::Value> {
+    state.auto_tune_snapshot.lock().unwrap().take()
+}
+
+#[tauri::command]
+fn auto_tune_snapshot_peek(state: State<SharedState>) -> Option<serde_json::Value> {
+    state.auto_tune_snapshot.lock().unwrap().clone()
 }
 
 #[tauri::command]
@@ -2304,6 +2320,7 @@ fn main() {
                 config_dir,
                 listen_port: listen_port.clone(),
                 realtime_seq: AtomicI32::new(0),
+                auto_tune_snapshot: Arc::new(Mutex::new(None)),
             };
             app.manage(shared);
 
@@ -2448,6 +2465,9 @@ fn main() {
             control_audio_sample_rate,
             control_drc_mode,
             control_drc_weight,
+            auto_tune_snapshot_save,
+            auto_tune_snapshot_take,
+            auto_tune_snapshot_peek,
         ])
         .run(tauri::generate_context!())
         .expect("error running Tauri application");

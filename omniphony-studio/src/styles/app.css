@@ -1086,6 +1086,13 @@
         background: rgba(255, 255, 255, 0.16);
       }
 
+      .info-icon-btn.is-active,
+      .info-icon-btn[aria-pressed="true"] {
+        background: rgba(82, 226, 162, 0.28);
+        border-color: rgba(82, 226, 162, 0.6);
+        color: #eaffe4;
+      }
+
       .panel-toggle-btn {
         min-width: 1.8rem;
         height: 1.3rem;

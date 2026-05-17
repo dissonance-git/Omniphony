@@ -220,13 +220,31 @@ pub struct RuntimeLatencyState {
     #[serde(rename = "latencyControlMs")]
     pub latency_control_ms: Option<i64>,
     #[serde(rename = "latencySmoothedMs")]
-    pub latency_smoothed_ms: Option<i64>,
+    pub latency_smoothed_ms: Option<f64>,
     #[serde(rename = "latencyDownstreamMs")]
     pub latency_downstream_ms: Option<i64>,
     #[serde(rename = "latencyTargetMs")]
     pub latency_target_ms: Option<i64>,
     #[serde(rename = "latencyRequestedMs")]
     pub latency_requested_ms: Option<i64>,
+    /// Ring-buffer occupancy converted to ms — first component of control_available.
+    #[serde(rename = "latencyAvailInputMs")]
+    pub latency_avail_input_ms: Option<f64>,
+    /// Output-FIFO content (input-domain) as ms — second component of control_available.
+    #[serde(rename = "latencyOutputFifoMs")]
+    pub latency_output_fifo_ms: Option<f64>,
+    /// Resampler pending input as ms — third component of control_available.
+    #[serde(rename = "latencyResamplerPendingMs")]
+    pub latency_resampler_pending_ms: Option<f64>,
+    /// Diagnostic-metric schema (list of registered metrics with labels/groups
+    /// /units). Sent once on registry change; lets the Studio plot offer a
+    /// dynamic multi-select of what to trace.
+    #[serde(rename = "diagSchema")]
+    pub diag_schema: Option<serde_json::Value>,
+    /// Current values of every registered diag metric, keyed by name. Sent
+    /// every meter-bundle tick; the Studio plot polls this map.
+    #[serde(rename = "diagValues")]
+    pub diag_values: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -477,10 +495,9 @@ impl AppState {
         rounded
     }
 
-    pub fn set_latency_smoothed_value(&mut self, value: f64) -> i64 {
-        let rounded = value.round() as i64;
-        self.latency.latency_smoothed_ms = Some(rounded);
-        rounded
+    pub fn set_latency_smoothed_value(&mut self, value: f64) -> f64 {
+        self.latency.latency_smoothed_ms = Some(value);
+        value
     }
 
     pub fn set_latency_downstream_value(&mut self, value: f64) -> i64 {
@@ -499,6 +516,21 @@ impl AppState {
         let rounded = value.round() as i64;
         self.latency.latency_requested_ms = Some(rounded);
         rounded
+    }
+
+    pub fn set_latency_avail_input_value(&mut self, value: f64) -> f64 {
+        self.latency.latency_avail_input_ms = Some(value);
+        value
+    }
+
+    pub fn set_latency_output_fifo_value(&mut self, value: f64) -> f64 {
+        self.latency.latency_output_fifo_ms = Some(value);
+        value
+    }
+
+    pub fn set_latency_resampler_pending_value(&mut self, value: f64) -> f64 {
+        self.latency.latency_resampler_pending_ms = Some(value);
+        value
     }
 
     pub fn set_audio_sample_rate_value(&mut self, value: u32) -> Option<u32> {

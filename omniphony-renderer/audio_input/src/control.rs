@@ -1,3 +1,4 @@
+use sys::diag::DiagRegistry;
 use std::path::PathBuf;
 use std::sync::{
     Arc, Mutex,
@@ -122,6 +123,11 @@ pub struct InputControl {
     input_trigger_rate_hz: AtomicU32,
     input_trigger_quantum_frames: AtomicU32,
     direct_trigger_active: Arc<AtomicBool>,
+    /// Generic diagnostic-metric registry. Any producer can register a metric
+    /// with a name/label/group/unit; the OSC publisher emits the full schema
+    /// (when changed) and the current values (each meter-bundle tick) so the
+    /// Studio plot can render an arbitrary subset chosen by the user.
+    diag_registry: Arc<DiagRegistry>,
 }
 
 impl Default for InputControl {
@@ -142,7 +148,27 @@ impl InputControl {
             input_trigger_rate_hz: AtomicU32::new(0),
             input_trigger_quantum_frames: AtomicU32::new(0),
             direct_trigger_active: Arc::new(AtomicBool::new(false)),
+            diag_registry: {
+                let r = Arc::new(DiagRegistry::new());
+                // Sentinel metric: present as soon as an InputControl exists,
+                // so the Studio diag plot can always confirm the schema/values
+                // OSC chain is alive. If the chips row is non-empty but the
+                // IEC958/bridge metrics are missing, the bridge register sites
+                // are not being reached.
+                let alive = r.register(
+                    "_diag_alive",
+                    "diag alive (sentinel)",
+                    "_diag",
+                    "",
+                );
+                alive.store((1.0_f64).to_bits(), Ordering::Relaxed);
+                r
+            },
         }
+    }
+
+    pub fn diag_registry(&self) -> Arc<DiagRegistry> {
+        Arc::clone(&self.diag_registry)
     }
 
     pub fn set_output_rate_adjust(&self, rate: f32) {
@@ -191,6 +217,7 @@ impl InputControl {
     pub fn set_direct_trigger_active(&self, active: bool) {
         self.direct_trigger_active.store(active, Ordering::Relaxed);
     }
+
 
     fn bump_state_generation(&self) {
         self.state_generation.fetch_add(1, Ordering::Relaxed);

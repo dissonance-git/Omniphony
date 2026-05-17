@@ -56,6 +56,11 @@ impl OscSender {
         latency_smoothed_ms: Option<f32>,
         latency_target_ms: Option<f32>,
         latency_downstream_ms: Option<f32>,
+        latency_avail_input_ms: Option<f32>,
+        latency_output_fifo_ms: Option<f32>,
+        latency_resampler_pending_ms: Option<f32>,
+        diag_schema_json: Option<String>,
+        diag_values_json: Option<String>,
         resample_ratio: Option<f32>,
         adaptive_band: Option<&str>,
         adaptive_state: Option<&str>,
@@ -150,6 +155,36 @@ impl OscSender {
             messages.push(OscPacket::Message(OscMessage {
                 addr: "/omniphony/state/latency_downstream".to_string(),
                 args: vec![OscType::Float(ms)],
+            }));
+        }
+        if let Some(ms) = latency_avail_input_ms {
+            messages.push(OscPacket::Message(OscMessage {
+                addr: "/omniphony/state/latency_avail_input".to_string(),
+                args: vec![OscType::Float(ms)],
+            }));
+        }
+        if let Some(ms) = latency_output_fifo_ms {
+            messages.push(OscPacket::Message(OscMessage {
+                addr: "/omniphony/state/latency_output_fifo".to_string(),
+                args: vec![OscType::Float(ms)],
+            }));
+        }
+        if let Some(ms) = latency_resampler_pending_ms {
+            messages.push(OscPacket::Message(OscMessage {
+                addr: "/omniphony/state/latency_resampler_pending".to_string(),
+                args: vec![OscType::Float(ms)],
+            }));
+        }
+        if let Some(json) = diag_schema_json {
+            messages.push(OscPacket::Message(OscMessage {
+                addr: "/omniphony/state/diag_schema".to_string(),
+                args: vec![OscType::String(json)],
+            }));
+        }
+        if let Some(json) = diag_values_json {
+            messages.push(OscPacket::Message(OscMessage {
+                addr: "/omniphony/state/diag_values".to_string(),
+                args: vec![OscType::String(json)],
             }));
         }
         if let Some(ratio) = resample_ratio {

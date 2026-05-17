@@ -732,12 +732,50 @@ fn run_pipewire_bridge_capture_loop(
     let bridge = instantiate_live_bridge(&config.runtime)?;
     let tx_for_frame = tx.clone();
     let tx_for_flush = tx.clone();
+    // DIAG iec958-chain: capture bridge plugin output cadence. Registry-handed
+    // diag metrics — updated each time the harletty plugin emits a decoded
+    // PCM frame, so the Studio plot can see whether the plugin batches
+    // frames at ~1 s intervals.
+    let diag = input_control.diag_registry();
+    let bridge_frame_samples_out =
+        diag.register("bridge_frame_samples", "Frame samples", "bridge", "samples");
+    let bridge_frame_dt_us_out =
+        diag.register("bridge_frame_dt_us", "Frame dt", "bridge", "us");
+    let bridge_frame_count_out =
+        diag.register("bridge_frame_count", "Frames emitted (counter)", "bridge", "");
+    let mut last_bridge_frame_at: Option<Instant> = None;
+    let mut bridge_frame_count: u64 = 0;
     spawn_bridge_decode_worker(
         bridge,
         raw_rx,
         Some(config.runtime.requested_drc_mode.clone()),
         config.runtime.strict_mode,
         move |frame, decode_time_ms| {
+            let now = Instant::now();
+            let dt_us = last_bridge_frame_at
+                .map(|prev| now.saturating_duration_since(prev).as_micros() as u64)
+                .unwrap_or(0);
+            last_bridge_frame_at = Some(now);
+            bridge_frame_count = bridge_frame_count.saturating_add(1);
+            bridge_frame_samples_out.store(
+                (frame.sample_count as f64).to_bits(),
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            // Filter out sub-ms back-to-back updates: the harletty plugin
+            // emits multiple frames per push_packet result, and those are
+            // dispatched in a tight loop with microsecond spacing — meaningless
+            // as a cadence metric. We only publish the dt when it's > 1 ms,
+            // which captures the actual inter-batch intervals.
+            if dt_us >= 1000 {
+                bridge_frame_dt_us_out.store(
+                    (dt_us as f64).to_bits(),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+            }
+            bridge_frame_count_out.store(
+                (bridge_frame_count as f64).to_bits(),
+                std::sync::atomic::Ordering::Relaxed,
+            );
             let _ = tx_for_frame.try_send(Ok(DecoderMessage::AudioData(DecodedAudioData {
                 source: DecodedSource::Bridge,
                 frame,
@@ -1164,6 +1202,20 @@ fn run_pipewire_bridge_capture_stream(
             dynamic_trigger_interval: None,
             last_pw_time_log_at: Instant::now(),
             output_rate_adjust: input_control.output_rate_adjust_atomic(),
+            last_iec958_chunk_at: None,
+            last_bridge_decode_at: None,
+            diag_iec958_chunk_bytes: input_control
+                .diag_registry()
+                .register("iec958_chunk_bytes", "Chunk bytes", "iec958", "B"),
+            diag_iec958_chunk_dt_us: input_control
+                .diag_registry()
+                .register("iec958_chunk_dt_us", "Chunk dt", "iec958", "us"),
+            diag_iec958_decode_packets: input_control
+                .diag_registry()
+                .register("iec958_decode_packets", "SPDIF packets/call", "iec958", ""),
+            diag_iec958_decode_dt_us: input_control
+                .diag_registry()
+                .register("iec958_decode_dt_us", "SPDIF parser dt", "iec958", "us"),
         })
         .state_changed(move |_stream, _user_data, old, new| {
             log::info!(
@@ -1469,6 +1521,22 @@ fn run_pipewire_bridge_capture_stream(
                 u16::from_le_bytes([w[0], w[1]]) == 0xF872
                     && u16::from_le_bytes([w[2], w[3]]) == 0x4E1F
             });
+            // DIAG iec958-chain: per-chunk arrival trace. Publishes the chunk
+            // size and inter-chunk interval to atomics so the Studio plot can
+            // show whether the 1 Hz sawtooth already exists in the PipeWire
+            // capture path. Kept as a log line too, for offline grep.
+            let now_chunk = Instant::now();
+            let dt_chunk_us = user_data
+                .last_iec958_chunk_at
+                .map(|prev| now_chunk.saturating_duration_since(prev).as_micros() as u64)
+                .unwrap_or(0);
+            user_data.last_iec958_chunk_at = Some(now_chunk);
+            user_data
+                .diag_iec958_chunk_bytes
+                .store((byte_len as f64).to_bits(), Ordering::Relaxed);
+            user_data
+                .diag_iec958_chunk_dt_us
+                .store((dt_chunk_us as f64).to_bits(), Ordering::Relaxed);
             user_data.bytes_since_log += byte_len;
             user_data.buffers_since_log += 1;
             if has_spdif_sync {
@@ -1477,9 +1545,27 @@ fn run_pipewire_bridge_capture_stream(
             user_data.accumulate_buf.extend_from_slice(chunk);
             user_data.accumulate_count += 1;
             let (packet_count, queued_count) = if user_data.accumulate_count >= PW_STREAM_ACCUMULATE_CALLBACKS {
+                let input_bytes = user_data.accumulate_buf.len();
                 let result = ingest.borrow_mut().process_chunk(&user_data.accumulate_buf);
                 user_data.accumulate_buf.clear();
                 user_data.accumulate_count = 0;
+                // DIAG iec958-chain: per-bridge-decode trace. Publishes the
+                // decoded-packet count and inter-decode interval to atomics
+                // so the Studio plot can show whether the 1 Hz burst originates
+                // in the plugin. Kept as a log line too.
+                let now_decode = Instant::now();
+                let dt_decode_us = user_data
+                    .last_bridge_decode_at
+                    .map(|prev| now_decode.saturating_duration_since(prev).as_micros() as u64)
+                    .unwrap_or(0);
+                user_data.last_bridge_decode_at = Some(now_decode);
+                user_data
+                    .diag_iec958_decode_packets
+                    .store((result.0 as f64).to_bits(), Ordering::Relaxed);
+                user_data
+                    .diag_iec958_decode_dt_us
+                    .store((dt_decode_us as f64).to_bits(), Ordering::Relaxed);
+                let _ = input_bytes; // Was only used in the removed log line.
                 result
             } else {
                 (0, 0)

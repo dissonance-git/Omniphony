@@ -190,6 +190,19 @@ export const app = {
   latencyDownstreamMs: null,
   latencyTargetMs: null,
   latencyRequestedMs: null,
+  // Components of `control_available` exposed by the renderer, in ms.
+  // Plotted independently to localise the source of oscillations.
+  latencyAvailInputMs: null,
+  latencyOutputFifoMs: null,
+  latencyResamplerPendingMs: null,
+  // Generic diagnostic-metric registry pushed by the renderer.
+  //   diagSchema: { items: [{name, label, group, unit}, ...] } — list of
+  //     metrics the renderer exposes (refreshed when new ones register).
+  //   diagValues: { name: value, ... } — current values, updated each
+  //     meter-bundle tick.
+  // The generic diag plot polls these to render any user-selected subset.
+  diagSchema: null,
+  diagValues: null,
   decodeTimeMs: null,
   decodeTimeWindow: [],
   renderTimeMs: null,

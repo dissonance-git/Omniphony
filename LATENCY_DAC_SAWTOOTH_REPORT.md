@@ -333,3 +333,327 @@ The problem is currently best described as:
 - plus a persistent fixed offset around `128 ms`
 - with `ctrl` and `raw` still moving together
 - and no downstream/path contribution visible
+
+---
+
+## Session 2026-05-17 — additional findings
+
+### Mode-switch investigation
+
+Confirmed by direct A/B test on the same hardware:
+
+- `clock_mode=dac`: no drift, but the historical sawtooth.
+- `clock_mode=pipewire` (default at the time of this session) **with IEC958
+  bridge (TRUEHD/EAC3 source)**: drift of `−55_000 ppm` AND a slow latency
+  oscillation that the operator originally perceived as `0.5 Hz` /
+  `30–40 ms` peak-to-peak on the smoothed control signal.
+- `clock_mode=pipewire` **with PCM source** (Live mode, virtual sink
+  `omniphony_input_7_1`): NEITHER drift NOR oscillation. The latency
+  becomes rock-stable and `rate_adjust_ppm` sits at `0`.
+
+The drift is therefore a real, expected consequence of the SPDIF source
+clock running independently from the PipeWire output clock — it is not a
+bug, the PI must compensate it in steady state. The oscillation, on the
+other hand, is specific to the IEC958 bridge chain and remains the open
+question.
+
+A separate Studio bug was identified while preparing the PCM test: the
+input-mode dropdown silently reverts from `pipewire` to `pipewire_bridge`
+on `Apply`. Filed as <https://github.com/mgth/Omniphony/issues/11>. Direct
+config-file edit (`~/.config/omniphony/config.yaml`,
+`input_mode: pipewire`, `live_input.node: omniphony_input_7_1`) was used
+as a workaround for the test.
+
+### Generic diagnostic infrastructure built during this session
+
+To narrow down where the oscillation enters the pipeline, a generic
+diagnostic registry was added so any producer can publish a named metric
+to the Studio diag plot in 2 lines of Rust with no other plumbing change.
+
+- `sys/src/diag.rs` defines `DiagRegistry` (name → `Arc<AtomicU64>` of
+  `f64` bits) and `DiagAtomicHandle` (bundle a pre-allocated atomic with
+  its schema for `register_external`).
+- `register_external` repoints the entry when the supplied `Arc` differs
+  from the registered one — necessary so a freshly-constructed
+  `PipewireWriter` reattaches its new atomics to the registry instead of
+  leaving the schema pointed at the dead atomics of the previous writer
+  (this caused a subtle bug where new metrics appeared frozen until the
+  fix).
+- `audio_input::InputControl` owns the registry; `PipewireWriter`
+  exposes its diag atomics via `diag_atomic_handles()`; `sample_write.rs`
+  hooks the writer's handles into the registry per meter bundle
+  (idempotent, no-op when the `Arc` already matches).
+- OSC: `/omniphony/state/diag_schema` (JSON, only sent when set of
+  registered metrics changes is reflected) and `/omniphony/state/diag_values`
+  (JSON map of `name → f64`, sent each meter bundle).
+- Tauri parses these as `OscEvent::StateDiagSchema` /
+  `StateDiagValues` and forwards them as events the JS bridge parses
+  into `app.diagSchema` / `app.diagValues`.
+- Studio: `controls/diag-plot.js` polls the values at 10 Hz, with a
+  multi-select chip row grouped by metric `group`, per-metric auto-
+  scaled stacked panels, selection persisted to `localStorage`.
+
+The previous fixed-purpose `iec958-plot.js` was removed in favour of this
+generic plot, which now hosts all subsequent investigation metrics.
+
+### Per-stage measurements (groups visible in the diag plot)
+
+`iec958` group (PipeWire IEC958 capture path):
+- `iec958_chunk_bytes`, `iec958_chunk_dt_us`
+- `iec958_decode_packets`, `iec958_decode_dt_us` (SPDIF parser side)
+
+`bridge` group (harletty plugin output):
+- `bridge_frame_samples`, `bridge_frame_dt_us`, `bridge_frame_count`
+
+`decoder` group (decoder thread → ring):
+- `decoder_frame_dt_us`, `decoder_queue_lag_us`
+
+`output` group (audio output backend):
+- `output_callback_dt_us`, `output_callback_frames`
+- `output_effective_ratio_ppm`
+- `output_resampler_in_per_cb`, `output_resampler_out_per_cb` (0-filtered
+  so only the callbacks that actually invoke the resampler are kept)
+- `output_ring_input_samples` (raw ring level sampled at callback rate)
+- `write_samples_dt_us`, `write_samples_count` (per write call)
+- `write_rate_sps`, `pop_rate_sps` (per-event EMA throughput)
+- `runtime_state_code` (adaptive state machine: 0=stable, 1=low-recover,
+  2=settling, 3=high-recover)
+- `recovery_discard_count` (cumulative samples discarded by ANY recovery
+  path — confirmed always 0 in the user's setup)
+- `cumulative_written_input_samples`, `cumulative_drained_input_samples`,
+  `cumulative_flow_control_available` (the new PI input signal — see
+  below)
+- `writes_per_250ms` (sliding window + EMA — see below)
+
+A sentinel metric `_diag_alive = 1` is registered in `InputControl::new`
+so the chain liveness can always be confirmed even before any audio path
+publishes anything.
+
+### What is uniform across all per-event measurements
+
+With the source active (TRUEHD over SPDIF, `clock_mode=pipewire`) and the
+PI either active or paused:
+
+- chunk arrival cadence and chunk size (PipeWire capture) — uniform
+- SPDIF parser output (packets per call, inter-call dt) — uniform
+- harletty plugin frame output — `bridge_frame_count` increments
+  smoothly; `bridge_frame_samples` constant (`40` per frame); the
+  `bridge_frame_dt_us` metric only became readable after filtering
+  intra-batch sub-millisecond values (the plugin emits multiple frames
+  per `push_packet` in a tight loop)
+- decoder thread mpsc dt and queue lag — uniform
+- output callback dt — uniform (300 µs noise around the quantum)
+- output callback frames per call — uniform
+- effective resample ratio — constant when PI paused (freeze verified)
+- recovery state — stays `stable` (0), `recovery_discard_count` stays at
+  `0` (the user explicitly tuned `low_recover_*` thresholds so the state
+  machine cannot fire on short timescales)
+
+### What does oscillate
+
+- `output_ring_input_samples` (ring level sampled at callback rate)
+  shows a real `~1 Hz` pattern with `30–40 ms` peak-to-peak amplitude
+- `pop_rate_sps` (EMA of resampler-invocation rate) shows a clear
+  `~0.4 Hz` oscillation
+- `cumulative_flow_control_available = cumulative_written -
+  cumulative_drained` (the new flow-counter PI input) shows the same
+  `~0.4 Hz` oscillation — even though both counter slopes APPEAR
+  constant and identical at the cumulative scale
+
+Critical observation: the oscillation **persists with PI paused**. So
+this is not a closed-loop PI instability — it is a real system dynamic
+in the open-loop measurement.
+
+### Cancellation attempts (in chronological order)
+
+1. **Replaced the raw `output_fifo` level by its expected steady-state
+   mean** (= `chunk_input_samples / 2` in input domain) in the
+   `control_available` calculation. The FIFO is structurally a sawtooth
+   between `0` and one chunk's worth of samples; its long-term mean is
+   constant in steady state. Implemented in `audio_output/src/pipewire.rs`
+   and `audio_output/src/asio.rs`. Outcome: the latency gauge still
+   showed the sawtooth — the input ring still contributes its own
+   chunk-induced wobble.
+
+2. **Switched to a cumulative-flow signal for the PI**
+   (`cumulative_written - cumulative_drained`, both as monotonic u64
+   counters incremented per write-event and per callback in input
+   domain). The intent was a chunk-noise-free signal by construction.
+   Outcome: the new signal still oscillates at `~0.4 Hz`. Confirmed
+   through dedicated `cumulative_written_diag` and
+   `cumulative_drained_diag` snapshot metrics that both counters do
+   grow, and the diff is genuinely modulated.
+
+### Where the oscillation comes from (current hypothesis)
+
+By elimination, with PI paused:
+- the drain counter is incremented by `callback_input_domain_samples`
+  per callback, both of which are uniform → drained grows at strictly
+  constant rate
+- the write counter is incremented per write event by `samples.len()`,
+  with per-event `samples.len()` uniform and per-event dt uniform on
+  short scales (the EMA `write_rate_sps` is stable)
+- but the bridge plugin emits frames in BATCHES per `push_packet` call
+  (visible in the intra-batch sub-ms `bridge_frame_dt_us`), so writes
+  arrive in bursts
+
+The sliding-window metric `writes_per_250ms` was added on the writer
+thread to expose any slow modulation of the write count per fixed
+window. It immediately showed a strong two-mode alternation (high/low
+every other publication) caused by the bridge plugin's two-phase
+batching (N vs N+1 frames per `push_packet`).
+
+Three display-side smoothing attempts were tried on this metric to
+expose any slow trend underneath the alternation:
+1. fixed 250 ms windows — bi-modal alternation visible
+2. sliding 250 ms window updated per event — same
+3. throttled publication (50 ms cadence) + EMA on top of the sliding sum
+   at `α = 0.05` then `α = 0.005` (τ = 10 s, kills any signal up to and
+   including the 0.4 Hz we are hunting)
+
+As of the end of this session, the bi-modal alternation in
+`writes_per_250ms` is **still visible despite the τ = 10 s EMA**, which
+should mathematically suppress any sub-Hz oscillation by ~95 %.
+
+**This either means the most recent code is not in the active binary, or
+there is a bug in the smoothing implementation that the next session
+should pin down before drawing further conclusions.** The smoothing code
+lives in `audio_output/src/pipewire.rs` near the `write_samples` method
+(fields `write_window_events`, `write_window_sum`,
+`write_window_last_publish_at`, `write_window_ema`).
+
+### Bridge plugin output characteristics
+
+The harletty bridge plugin's emission pattern is the most suspicious
+upstream source not yet directly instrumented per-emission:
+- `bridge_frame_samples = 40` per frame (per-channel? unclear; with 8
+  channels expected, this is much smaller than a typical TRUEHD access
+  unit which is 360 samples)
+- frames are emitted in bursts per `push_packet`, in a tight `for frame
+  in result.frames` loop
+- the number of frames per burst was not directly measured (only the
+  per-frame interval was, which collapses inside a burst)
+
+A `bridge_frames_per_push_packet` and `bridge_push_packet_dt_us` pair
+would directly expose whether the plugin alternates burst sizes (which
+would explain the two-mode behaviour in `writes_per_250ms`). This was
+not implemented in this session.
+
+### Conclusions and unfinished business
+
+- The `0.4 Hz` (perceived as `0.5 Hz`/`1 Hz` depending on smoothing
+  and aliasing) oscillation in the `pipewire_bridge` latency signal is
+  **independent of the PI** (visible with PI paused, unchanged when PI
+  is reactivated).
+- The substitution of the FIFO contribution by a constant mean is
+  correct in principle but not sufficient on its own — the input ring
+  level itself wobbles from chunk drains.
+- The cumulative-flow PI input is the right architectural choice (no
+  chunk discretisation by construction), but the diff `written -
+  drained` still oscillates because at least one of the two counters is
+  driven by a non-uniform event stream.
+- The most credible remaining suspect is the bridge plugin's
+  two-phase batching pattern. Confirming this requires either
+  instrumenting `bridge_frames_per_push_packet` directly OR fixing the
+  display smoothing on `writes_per_250ms` so a slow trend can actually
+  be read off the plot.
+- The diag infrastructure is in place and reusable for any further
+  metric (2 lines of Rust per metric, zero touches anywhere else).
+
+### Files touched in this session
+
+- `sys/src/diag.rs` (new module, moved from `audio_input`)
+- `sys/Cargo.toml` (adds `serde`, `serde_json`)
+- `sys/src/lib.rs` (re-exports `diag`)
+- `audio_input/src/control.rs` (registry owned by `InputControl`)
+- `audio_input/Cargo.toml` (drops `serde_json`)
+- `audio_output/Cargo.toml` (adds `sys`)
+- `audio_output/src/pipewire.rs` (all output-side diag atomics,
+  cumulative-flow PI signal, sliding window + EMA for `writes_per_250ms`,
+  removed `DAC_TRACE` spam, removed `log_dac_sample_domain_trace`)
+- `audio_output/src/asio.rs` (mirror fix for the FIFO-mean substitution)
+- `src/cli/decode/output.rs` (`AudioWriter::diag_atomic_handles`)
+- `src/cli/decode/sample_write.rs` (hooks writer handles into registry
+  per meter bundle, plumbs `diag_schema` / `diag_values` JSON to
+  `send_meter_bundle`)
+- `src/cli/decode/handler.rs` (decoder-side diag metrics)
+- `src/cli/decode/state.rs` (cleanup of obsolete `last_write_pcm_at`)
+- `src/runtime_osc/state_emit.rs` (publishes `diag_schema` /
+  `diag_values` OSC addresses)
+- `src/cli/decode/live_input.rs` (bridge-frame diag, cleanup of obsolete
+  IEC958 raw log spam)
+- `audio_input/src/{pipewire,pipewire_legacy,pipewire_exported}.rs`
+  (registry-handed handles for IEC958 cadence metrics)
+- Studio: `src-tauri/src/{osc_parser,osc_listener,app_state}.rs`,
+  `src/state.js`, `src/tauri-bridge.js` (parses string payload — Tauri
+  was forwarding the parsed `serde_json::Value` as a string blob),
+  `src/ui/audio-panel.js`, `src/listeners/audio-panel-listeners.js`,
+  `src/controls/diag-plot.js` (new), removal of `src/controls/iec958-plot.js`
+
+### Pointer for the next session
+
+Start by verifying the active binary really contains the latest
+`audio_output/src/pipewire.rs` `write_samples` body (e.g. add a
+`log::info!("write_samples ema=...")` once per second and grep the
+renderer log). If it does, the bi-modal pattern surviving a 10 s EMA
+is a genuine puzzle and probably points at something the metric reads
+that has its own internal alternation. If it doesn't, the build/run
+loop is the first thing to fix — likely a sidecar that bundles the
+renderer binary at studio build time and was not refreshed.
+
+### Bootstrap deadlock — cumulative-flow override REVERTED at end of session
+
+After the operator activated `hard_recover_high` for a separate test,
+the audio failed to start. Log signature:
+
+```
+WARN Decoded frame cadence anomaly: ... queue_ms=2021 wall_gap_ms=2020
+WARN Buffer drain timeout after 2s - dropping 440 remaining samples
+```
+
+`queue_ms` grew by ~2 s at every cycle, `wall_gap_ms` was ~2 s — the
+exact back-pressure timeout in `write_samples`. The bridge thread was
+producing frames, the mpsc was filling up, and the writer was blocked
+on `push_samples_with_backpressure` because the ring buffer was not
+being drained.
+
+Root cause: the cumulative-flow override of `control_available` cannot
+survive the bootstrap. At startup the output callback fires before any
+write_samples call:
+- `cumulative_drained_for_callback.fetch_add(callback_input_domain_samples)`
+  on each callback
+- `cumulative_written` stays at 0 until writes begin
+- → `drained > written` immediately, `saturating_sub` clamps to 0
+- → `control_available_override = 0` forever
+- → `is_far_band` true (because `|0 - target_buffer_fill|` exceeds the
+  near/far threshold), `low_recover` enters Refill perpetually
+- → callback never consumes from the ring (mute_far + no real drain)
+- → ring fills, writes hit back-pressure timeout, decoder thread blocks
+
+`hard_recover_high` was unrelated — it just made the operator test the
+audio start and discover the deadlock. Reviewing the log, the
+`Buffer drain timeout` warnings are present from the very first second,
+before any hard-recover flag was toggled.
+
+**Action taken at end of session**: the override is reverted in
+`audio_output/src/pipewire.rs` so the PI again receives the classical
+`update_latency_metrics` output (`available + output_fifo +
+pending - callback/2`). The cumulative counters and the
+`cumulative_flow_control_available` diag metric are kept (writes/
+drains still incremented, atomic still stored), so the next session
+can inspect the flow signal without breaking audio playback.
+
+Next session must:
+1. Restore an audio-safe path that exposes the chunk-noise-free PI
+   signal — likely either initialise `cumulative_drained` so that
+   `written - drained ≈ target_buffer_fill` from the start, or only
+   switch the PI to the cumulative-flow signal AFTER the bootstrap has
+   completed (e.g. when `available >= min_buffer_fill` for the first
+   time).
+2. Verify the `writes_per_250ms` smoothing actually runs in the binary
+   (the τ = 10 s EMA failing to flatten a sub-Hz signal still has no
+   convincing explanation).
+3. Decide whether to keep pursuing the cumulative-flow PI input, or
+   accept that the 0.4 Hz oscillation in the latency display is an
+   inherent measurement artefact that cannot be cancelled at the
+   source without breaking the bootstrap.

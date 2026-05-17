@@ -64,6 +64,19 @@ impl<'a> SampleWriteCoordinator<'a> {
             latency_snapshot.and_then(|snapshot| snapshot.target_control_latency_ms);
         let current_latency_downstream_ms =
             latency_snapshot.and_then(|snapshot| snapshot.downstream_latency_ms);
+        let current_latency_avail_input_ms =
+            latency_snapshot.and_then(|snapshot| snapshot.avail_input_latency_ms);
+        let current_latency_output_fifo_ms =
+            latency_snapshot.and_then(|snapshot| snapshot.output_fifo_latency_ms);
+        let current_latency_resampler_pending_ms =
+            latency_snapshot.and_then(|snapshot| snapshot.resampler_pending_latency_ms);
+        let current_diag_registry = self.input_control.map(|ic| ic.diag_registry());
+        let current_diag_schema_json = current_diag_registry
+            .as_ref()
+            .and_then(|r| r.schema_json());
+        let current_diag_values_json = current_diag_registry
+            .as_ref()
+            .and_then(|r| r.values_json());
         let current_resample_ratio: Option<f32> = self
             .output
             .audio_writer
@@ -79,6 +92,25 @@ impl<'a> SampleWriteCoordinator<'a> {
             .audio_writer
             .as_ref()
             .and_then(|w| w.adaptive_runtime_state());
+
+        // DIAG output: wire the backend's pre-allocated diag atomics into
+        // the registry. register_external is idempotent: second call (and
+        // later) is a no-op so the per-call cost is a single mutex check
+        // per handle. Adding a new metric to the backend's
+        // `diag_atomic_handles()` list surfaces it in the diag plot
+        // automatically — no other code change required.
+        if let (Some(ic), Some(writer)) = (self.input_control, self.output.audio_writer.as_ref()) {
+            let diag = ic.diag_registry();
+            for handle in writer.diag_atomic_handles() {
+                diag.register_external(
+                    handle.name,
+                    handle.label,
+                    handle.group,
+                    handle.unit,
+                    handle.atomic,
+                );
+            }
+        }
 
         let freeze_delay_sync = current_latency_control_ms
             .zip(current_latency_target_ms)
@@ -234,6 +266,11 @@ impl<'a> SampleWriteCoordinator<'a> {
                             current_latency_smoothed_ms,
                             current_latency_target_ms,
                             current_latency_downstream_ms,
+                            current_latency_avail_input_ms,
+                            current_latency_output_fifo_ms,
+                            current_latency_resampler_pending_ms,
+                            current_diag_schema_json.clone(),
+                            current_diag_values_json.clone(),
                             current_resample_ratio,
                             current_adaptive_band,
                             current_adaptive_state,
@@ -382,6 +419,11 @@ impl<'a> SampleWriteCoordinator<'a> {
                             current_latency_smoothed_ms,
                             current_latency_target_ms,
                             current_latency_downstream_ms,
+                            current_latency_avail_input_ms,
+                            current_latency_output_fifo_ms,
+                            current_latency_resampler_pending_ms,
+                            current_diag_schema_json.clone(),
+                            current_diag_values_json.clone(),
                             current_resample_ratio,
                             current_adaptive_band,
                             current_adaptive_state,

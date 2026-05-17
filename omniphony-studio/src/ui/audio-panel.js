@@ -79,9 +79,22 @@ export function audioPanelMarkup() {
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:0.35rem;justify-content:flex-end;flex:0 0 auto">
+            <button id="resamplePlotToggleBtn" type="button" class="info-icon-btn" data-i18n-title="telemetry.plotToggle" title="Toggle resample plot" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none" aria-hidden="true"><polyline points="2,12 5,8 8,10 11,4 14,7"/></svg></button>
+            <button id="componentsPlotToggleBtn" type="button" class="info-icon-btn" data-i18n-title="telemetry.componentsPlotToggle" title="Toggle control-available components plot" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none" aria-hidden="true"><path d="M2 13h12"/><path d="M3 13V6"/><path d="M7 13V9"/><path d="M11 13V3"/></svg></button>
+            <button id="diagPlotToggleBtn" type="button" class="info-icon-btn" data-i18n-title="telemetry.diagPlotToggle" title="Toggle diagnostic-metrics plot" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4v4l3 2"/></svg></button>
             <button id="telemetryGaugesInfoBtn" type="button" class="info-icon-btn" data-i18n-title="telemetry.infoButton" title="Latency panel info">i</button>
             <button id="telemetryGaugesToggleBtn" type="button" class="panel-toggle-btn" data-i18n-title="telemetry.toggle" title="Show latency controls">▸</button>
           </div>
+        </div>
+        <div id="resamplePlotContainer" style="display:none;margin-top:0.35rem">
+          <canvas id="resamplePlotCanvas" width="600" height="140" style="display:block;width:100%;height:auto;border-radius:8px"></canvas>
+        </div>
+        <div id="componentsPlotContainer" style="display:none;margin-top:0.35rem">
+          <canvas id="componentsPlotCanvas" width="600" height="240" style="display:block;width:100%;height:auto;border-radius:8px"></canvas>
+        </div>
+        <div id="diagPlotContainer" style="display:none;margin-top:0.35rem">
+          <div id="diagPlotControls" style="display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;margin-bottom:0.35rem;font-size:11px;color:#b9c7d8"></div>
+          <canvas id="diagPlotCanvas" width="600" height="240" style="display:block;width:100%;height:auto;border-radius:8px"></canvas>
         </div>
         <div id="telemetryGaugesForm" class="telemetry-gauges-form">
           <div class="control-row" style="margin-top:0;grid-template-columns:auto auto 1fr">
@@ -131,9 +144,10 @@ export function audioPanelMarkup() {
             </div>
             <div class="adaptive-subpanel">
               <div class="control-row" style="margin-top:0">
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;grid-column:1 / -1">
-                  <div style="font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:#8fa6bd" data-i18n="adaptive.resamplingController">Local resampling controller</div>
-                  <div style="display:flex;align-items:center;gap:0.4rem">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;grid-column:1 / -1;flex-wrap:wrap">
+                  <div style="font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:#8fa6bd;min-width:0;flex:1 1 auto" data-i18n="adaptive.resamplingController">Local resampling controller</div>
+                  <div style="display:flex;align-items:center;gap:0.4rem;flex-shrink:0">
+                    ${secondaryButton({ id: 'autoTunePiBtn', text: 'Auto-tune…', textKey: 'autoTune.openButton', titleKey: 'autoTune.openButtonTitle', title: 'Run the PI auto-tuner' })}
                     ${secondaryButton({ id: 'adaptivePauseBtn', text: '⏸ Pause' })}
                     ${secondaryButton({ id: 'adaptiveRatioResetBtn', text: 'Reset ratio', textKey: 'adaptive.resetRatio', extraClass: 'adaptive-ratio-reset-btn' })}
                   </div>
@@ -161,7 +175,7 @@ export function audioPanelMarkup() {
               </div>
               <div id="adaptiveKiRow" class="control-row" style="margin-top:0.2rem">
                 <label for="adaptiveKiInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.ki">Adaptive Ki</label>
-                <input id="adaptiveKiInput" class="delay-input" type="number" min="0.001" step="0.001" value="50" style="width:8rem" />
+                <input id="adaptiveKiInput" class="delay-input" type="number" min="0" step="0.001" value="50" style="width:8rem" />
               </div>
               <div id="adaptiveIntegralDischargeRow" class="control-row" style="margin-top:0.2rem">
                 <label for="adaptiveIntegralDischargeRatioInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.integralDischarge">Integral discharge</label>

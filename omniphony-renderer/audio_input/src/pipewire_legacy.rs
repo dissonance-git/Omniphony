@@ -56,6 +56,16 @@ pub struct BridgeCaptureUserData {
     pub dynamic_trigger_interval: Option<Duration>,
     pub last_pw_time_log_at: Instant,
     pub output_rate_adjust: Arc<AtomicU32>,
+    /// Timestamp of the previous IEC958 chunk arrival (diagnostic).
+    pub last_iec958_chunk_at: Option<Instant>,
+    /// Timestamp of the previous bridge-plugin decode flush (diagnostic).
+    pub last_bridge_decode_at: Option<Instant>,
+    /// Registry-handed diagnostic handles (f64 bits). Used by the legacy
+    /// callback path in live_input.rs to publish IEC958 cadence metrics.
+    pub diag_iec958_chunk_bytes: Arc<std::sync::atomic::AtomicU64>,
+    pub diag_iec958_chunk_dt_us: Arc<std::sync::atomic::AtomicU64>,
+    pub diag_iec958_decode_packets: Arc<std::sync::atomic::AtomicU64>,
+    pub diag_iec958_decode_dt_us: Arc<std::sync::atomic::AtomicU64>,
 }
 
 #[derive(Default)]
@@ -115,6 +125,12 @@ fn new_bridge_capture_metrics(rate_hz: u32, channels: u32) -> BridgeCaptureUserD
         dynamic_trigger_interval: None,
         last_pw_time_log_at: Instant::now(),
         output_rate_adjust: Arc::new(AtomicU32::new(1.0f32.to_bits())),
+        last_iec958_chunk_at: None,
+        last_bridge_decode_at: None,
+        diag_iec958_chunk_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        diag_iec958_chunk_dt_us: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        diag_iec958_decode_packets: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        diag_iec958_decode_dt_us: Arc::new(std::sync::atomic::AtomicU64::new(0)),
     }
 }
 
