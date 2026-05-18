@@ -121,7 +121,7 @@
   "input.clock": "Reloj",
   "input.clock.dac": "DAC",
   "input.clock.pipewire": "PipeWire",
-  "input.clock.upstream": "Ascendente",
+  "input.clock.upstream": "Ascendente (avanzado)",
   "input.layout": "Layout",
   "input.autoDetect": "Detección automática",
   "input.noImportedLayout": "Sin layout importado",

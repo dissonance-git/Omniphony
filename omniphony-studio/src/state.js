@@ -246,7 +246,7 @@ export const app = {
     node: '',
     description: '',
     layout: '',
-    clockMode: 'upstream',
+    clockMode: 'dac',
     channels: 2,
     sampleRate: 192000,
     format: 'f32',

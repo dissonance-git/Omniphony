@@ -104,7 +104,7 @@ export function setupInputPanelListeners() {
     inputClockModeSelectEl.addEventListener('change', () => {
       const value = ['dac', 'pipewire', 'upstream'].includes(inputClockModeSelectEl.value)
         ? inputClockModeSelectEl.value
-        : 'upstream';
+        : 'dac';
       app.liveInput.clockMode = value;
       app.liveInputClockModeDirty = true;
       updateInputControlUI();
@@ -191,7 +191,7 @@ export function setupInputPanelListeners() {
         || (requestedMode === 'pipewire_bridge' && activeMode !== 'pipewire_bridge');
       if (needsBridgeBootstrap) {
         const value = String(oscBridgePathInputEl?.value || '').trim();
-        const clockMode = app.liveInput.clockMode || 'upstream';
+        const clockMode = app.liveInput.clockMode || 'dac';
         app.inputApplyPending = false;
         app.inputApplyAwaitingAck = false;
         updateInputControlUI();
@@ -207,7 +207,7 @@ export function setupInputPanelListeners() {
       app.inputApplyPending = true;
       app.inputApplyAwaitingAck = true;
       updateInputControlUI();
-      invoke('control_input_live_clock_mode', { value: app.liveInput.clockMode || 'upstream' })
+      invoke('control_input_live_clock_mode', { value: app.liveInput.clockMode || 'dac' })
         .then(() => sendInputConfig({ apply: true }))
         .catch((e) => {
           pushLog('error', `Failed to apply input clock mode: ${normalizeLogError(e)}`);

@@ -67,7 +67,7 @@ export function inputPanelMarkup() {
               <select id="inputClockModeSelect" class="delay-input">
                 <option value="dac" data-i18n="input.clock.dac">DAC</option>
                 <option value="pipewire" data-i18n="input.clock.pipewire">PipeWire</option>
-                <option value="upstream" data-i18n="input.clock.upstream">Upstream</option>
+                <option value="upstream" data-i18n="input.clock.upstream">Upstream (advanced)</option>
               </select>
             </div>
             <div class="input-panel-row">

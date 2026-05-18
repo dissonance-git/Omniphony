@@ -121,7 +121,7 @@
   "input.clock": "クロック",
   "input.clock.dac": "DAC",
   "input.clock.pipewire": "PipeWire",
-  "input.clock.upstream": "上流",
+  "input.clock.upstream": "上流 (上級)",
   "input.layout": "レイアウト",
   "input.autoDetect": "自動検出",
   "input.noImportedLayout": "インポート済みレイアウトなし",

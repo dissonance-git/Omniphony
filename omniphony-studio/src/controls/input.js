@@ -97,7 +97,7 @@ export function buildInputConfigPayload() {
       node: app.liveInput.node || null,
       description: app.liveInput.description || null,
       layout: app.liveInput.layout || null,
-      clockMode: app.liveInput.clockMode || 'upstream',
+      clockMode: app.liveInput.clockMode || 'dac',
       channels: app.liveInput.channels || defaultInputChannels(requestedMode),
       sampleRate: app.liveInput.sampleRate || defaultInputSampleRate(requestedMode),
       format: app.liveInput.format || null,
@@ -175,7 +175,7 @@ export function updateInputControlUI() {
   if (inputClockModeSelectEl) {
     inputClockModeSelectEl.value = ['dac', 'pipewire', 'upstream'].includes(app.liveInput.clockMode)
       ? app.liveInput.clockMode
-      : 'upstream';
+      : 'dac';
   }
   if (inputLayoutInputEl) {
     inputLayoutInputEl.value = stringOrEmpty(app.liveInput.layout);
@@ -284,7 +284,7 @@ export function updateInputControlUI() {
     } else {
       const pipe = app.orenderInputPipe || '—';
       const clock = pipewireBridgeRequested
-        ? tf('input.status.clock', { clock: formatClockModeLabel(app.liveInput.clockMode || 'upstream') })
+        ? tf('input.status.clock', { clock: formatClockModeLabel(app.liveInput.clockMode || 'dac') })
         : '';
       inputStatusInfoEl.textContent = tf('input.status.bridge', {
         requested: requestedModeLabel,
@@ -311,7 +311,7 @@ export function updateInputControlUI() {
       inputSummaryEl.textContent = tf('input.summary.pipewireBridge', {
         requested: requestedModeLabel,
         active: activeModeLabel,
-        clock: formatClockModeLabel(app.liveInput.clockMode || 'upstream')
+        clock: formatClockModeLabel(app.liveInput.clockMode || 'dac')
       });
     } else {
       inputSummaryEl.textContent = tf('input.summary.bridge', {

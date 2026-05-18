@@ -711,7 +711,7 @@
         <div class="info-modal-title" data-i18n="input.clockInfoTitle">Input clock</div>
         <div class="info-modal-text" data-i18n-html="input.clockInfoBody">
           Clock selects which side is treated as the timing reference for the live input path.<br /><br />
-          <strong>DAC</strong> follows the output device clock. <strong>PipeWire</strong> follows the PipeWire graph clock. <strong>Upstream</strong> trusts the capture source or bridge clock.<br /><br />
+          <strong>DAC</strong> follows the output device clock. <strong>PipeWire</strong> follows the PipeWire graph clock. <strong>Upstream (advanced)</strong> trusts the capture source or bridge clock — the sink runs without a driver flag and requires an external PipeWire driver in the chain (e.g. JACK or a monitoring client). Without one, playback stalls. Prefer DAC unless you know you need this.<br /><br />
           This choice matters when diagnosing drift, latency correction, or which side should adapt to the other.
         </div>
         <div class="info-modal-actions">

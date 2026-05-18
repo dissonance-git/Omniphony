@@ -121,7 +121,7 @@
   "input.clock": "时钟",
   "input.clock.dac": "DAC",
   "input.clock.pipewire": "PipeWire",
-  "input.clock.upstream": "上游",
+  "input.clock.upstream": "上游（高级）",
   "input.layout": "布局",
   "input.autoDetect": "自动检测",
   "input.noImportedLayout": "没有已导入布局",
