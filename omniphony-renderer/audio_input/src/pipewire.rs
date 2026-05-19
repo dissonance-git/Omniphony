@@ -66,6 +66,13 @@ struct BridgeCaptureUserData {
     last_iec958_chunk_at: Option<Instant>,
     /// Timestamp of the previous bridge-plugin decode flush (diagnostic).
     last_bridge_decode_at: Option<Instant>,
+    /// Pre-decode source-clock cumulative time, in microseconds. Incremented
+    /// each input callback by `frames_in_buffer / rate_hz × 1e6` — i.e. how
+    /// much wall-time the just-arrived chunk represents at the S/PDIF source
+    /// clock. Smooth by construction (the IEC61937 stuffing keeps the
+    /// subframe rate constant across compressed bursts), so this exposes the
+    /// source clock free of decoder batching artefacts.
+    input_clock_us_cumulative: f64,
     /// Registry-handed diagnostic handles, each holding `f64` bits.
     /// Replaces the previous individual atomics; new metrics added to the
     /// registry appear automatically in the Studio diag plot.
@@ -73,6 +80,8 @@ struct BridgeCaptureUserData {
     diag_iec958_chunk_dt_us: Arc<std::sync::atomic::AtomicU64>,
     diag_iec958_decode_packets: Arc<std::sync::atomic::AtomicU64>,
     diag_iec958_decode_dt_us: Arc<std::sync::atomic::AtomicU64>,
+    /// Published mirror of `input_clock_us_cumulative` (f64::to_bits).
+    diag_input_clock_us: Arc<std::sync::atomic::AtomicU64>,
 }
 
 #[derive(Default)]
@@ -423,6 +432,7 @@ where
             output_rate_adjust: input_control.output_rate_adjust_atomic(),
             last_iec958_chunk_at: None,
             last_bridge_decode_at: None,
+            input_clock_us_cumulative: 0.0,
             diag_iec958_chunk_bytes: {
                 let diag = input_control.diag_registry();
                 diag.register("iec958_chunk_bytes", "Chunk bytes", "iec958", "B")
@@ -438,6 +448,10 @@ where
             diag_iec958_decode_dt_us: {
                 let diag = input_control.diag_registry();
                 diag.register("iec958_decode_dt_us", "SPDIF parser dt", "iec958", "us")
+            },
+            diag_input_clock_us: {
+                let diag = input_control.diag_registry();
+                diag.register("input_clock_us", "Source-clock cumulative", "iec958", "us")
             },
         })
         .state_changed(move |_stream, _user_data, old, new| {
@@ -481,32 +495,50 @@ where
                 return;
             }
 
-            if media_subtype == pw::spa::param::format::MediaSubtype::Raw {
-                user_data.negotiated_iec958 = false;
-                let mut format = pw::spa::param::audio::AudioInfoRaw::new();
-                if format.parse(param).is_ok() {
-                    if format.rate() != 0 {
-                        user_data.rate_hz = format.rate();
-                    }
-                    if format.channels() != 0 {
-                        user_data.channels = format.channels();
-                    }
-                    log::info!(
-                        "{} format negotiated: subtype=raw rate={}Hz channels={} format={:?}",
-                        log_prefix,
-                        user_data.rate_hz,
-                        user_data.channels,
-                        format.format()
-                    );
+            let is_iec958 =
+                media_subtype == pw::spa::param::format::MediaSubtype::Iec958;
+            user_data.negotiated_iec958 = is_iec958;
+            // `spa_format_audio_raw_parse` parses by property key (AudioRate /
+            // AudioChannels), not by subtype — so it also extracts a usable
+            // `rate` and `channels` from an IEC958 format pod. We need that
+            // because we offer two IEC958 alternatives (2 ch EAC3, 8 ch
+            // TrueHD) and PipeWire picks one at runtime; without re-reading
+            // the negotiated channel count, `user_data.channels` stays on
+            // the config default (2) even when 8-channel TrueHD streams,
+            // breaking byte→frame conversions that depend on stride.
+            let mut format = pw::spa::param::audio::AudioInfoRaw::new();
+            let parsed = format.parse(param).is_ok();
+            if parsed {
+                if format.rate() != 0 {
+                    user_data.rate_hz = format.rate();
                 }
-            } else {
-                user_data.negotiated_iec958 =
-                    media_subtype == pw::spa::param::format::MediaSubtype::Iec958;
+                if format.channels() != 0 {
+                    user_data.channels = format.channels();
+                }
+            }
+            if is_iec958 {
                 log::info!(
-                    "{} format negotiated: subtype={:?} iec958={}",
+                    "{} format negotiated: subtype=iec958 rate={}Hz channels={} (parsed={})",
+                    log_prefix,
+                    user_data.rate_hz,
+                    user_data.channels,
+                    parsed
+                );
+            } else if media_subtype == pw::spa::param::format::MediaSubtype::Raw {
+                log::info!(
+                    "{} format negotiated: subtype=raw rate={}Hz channels={} format={:?}",
+                    log_prefix,
+                    user_data.rate_hz,
+                    user_data.channels,
+                    format.format()
+                );
+            } else {
+                log::info!(
+                    "{} format negotiated: subtype={:?} rate={}Hz channels={}",
                     log_prefix,
                     media_subtype,
-                    user_data.negotiated_iec958
+                    user_data.rate_hz,
+                    user_data.channels
                 );
             }
         })
@@ -774,6 +806,20 @@ where
             user_data
                 .diag_iec958_chunk_dt_us
                 .store((dt_chunk_us as f64).to_bits(), Ordering::Relaxed);
+            // Pre-decode source-clock cumulative: each input callback delivers
+            // `frames` S/PDIF subframes; convert to wall-time-at-source-clock
+            // and accumulate. Smooth by construction (S/PDIF stuffing keeps
+            // the subframe rate constant during compressed bursts).
+            if user_data.channels > 0 && user_data.rate_hz > 0 {
+                let frames_this_chunk = byte_len as f64
+                    / (user_data.channels as f64 * std::mem::size_of::<u16>() as f64);
+                let delta_us =
+                    frames_this_chunk / user_data.rate_hz as f64 * 1_000_000.0;
+                user_data.input_clock_us_cumulative += delta_us;
+                user_data
+                    .diag_input_clock_us
+                    .store(user_data.input_clock_us_cumulative.to_bits(), Ordering::Relaxed);
+            }
             user_data.bytes_since_log += byte_len;
             user_data.buffers_since_log += 1;
             if has_spdif_sync {

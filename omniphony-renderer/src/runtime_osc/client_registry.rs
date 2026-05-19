@@ -7,6 +7,10 @@ use std::time::{Duration, Instant};
 pub(crate) struct OscClientState {
     pub(crate) last_seen: Option<Instant>,
     pub(crate) metering_enabled: bool,
+    /// Whether this client wants `/omniphony/state/diag_*` updates. Decoupled
+    /// from `metering_enabled` so a client can subscribe to diag traces
+    /// without the audio-level meter bundle (and vice versa).
+    pub(crate) diag_enabled: bool,
 }
 
 pub(crate) struct OscClientRegistry {
@@ -28,21 +32,23 @@ impl OscClientRegistry {
             OscClientState {
                 last_seen: None,
                 metering_enabled: false,
+                diag_enabled: false,
             },
         );
     }
 
     pub(crate) fn register(&self, addr: SocketAddr) -> (bool, bool) {
         let mut clients = self.clients.lock().unwrap();
-        let metering_enabled = clients
+        let (metering_enabled, diag_enabled) = clients
             .get(&addr)
-            .map(|entry| entry.metering_enabled)
-            .unwrap_or(false);
+            .map(|entry| (entry.metering_enabled, entry.diag_enabled))
+            .unwrap_or((false, false));
         let prev = clients.insert(
             addr,
             OscClientState {
                 last_seen: Some(Instant::now()),
                 metering_enabled,
+                diag_enabled,
             },
         );
         (prev.is_none(), metering_enabled)
@@ -70,6 +76,16 @@ impl OscClientRegistry {
         }
     }
 
+    pub(crate) fn set_diag(&self, addr: SocketAddr, enabled: bool) -> bool {
+        let mut clients = self.clients.lock().unwrap();
+        if let Some(entry) = clients.get_mut(&addr) {
+            entry.diag_enabled = enabled;
+            true
+        } else {
+            false
+        }
+    }
+
     pub(crate) fn is_any_live(&self) -> bool {
         let clients = self.clients.lock().unwrap();
         let now = Instant::now();
@@ -86,6 +102,18 @@ impl OscClientRegistry {
         let now = Instant::now();
         clients.values().any(|client| {
             client.metering_enabled
+                && client
+                    .last_seen
+                    .map(|t| now.duration_since(t) < self.timeout)
+                    .unwrap_or(true)
+        })
+    }
+
+    pub(crate) fn is_any_diag_live(&self) -> bool {
+        let clients = self.clients.lock().unwrap();
+        let now = Instant::now();
+        clients.values().any(|client| {
+            client.diag_enabled
                 && client
                     .last_seen
                     .map(|t| now.duration_since(t) < self.timeout)

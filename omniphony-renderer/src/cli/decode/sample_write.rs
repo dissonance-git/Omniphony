@@ -70,13 +70,38 @@ impl<'a> SampleWriteCoordinator<'a> {
             latency_snapshot.and_then(|snapshot| snapshot.output_fifo_latency_ms);
         let current_latency_resampler_pending_ms =
             latency_snapshot.and_then(|snapshot| snapshot.resampler_pending_latency_ms);
-        let current_diag_registry = self.input_control.map(|ic| ic.diag_registry());
-        let current_diag_schema_json = current_diag_registry
+        // Diag publication runs on its own cadence and per-client enable
+        // flag, independent of the audio meter bundle. Gated by
+        // `has_diag_clients` so we skip the JSON serialisation entirely
+        // when no Studio plot is open.
+        let now = Instant::now();
+        let want_diag = self
+            .telemetry
+            .osc_sender
             .as_ref()
-            .and_then(|r| r.schema_json());
-        let current_diag_values_json = current_diag_registry
-            .as_ref()
-            .and_then(|r| r.values_json());
+            .map(|s| s.has_diag_clients())
+            .unwrap_or(false)
+            && self
+                .telemetry
+                .diag_cadence
+                .as_mut()
+                .map(|c| c.should_send(now))
+                .unwrap_or(false);
+        if want_diag {
+            if let Some(ic) = self.input_control {
+                let registry = ic.diag_registry();
+                let schema_json = registry.schema_json();
+                let values_json = registry.values_json();
+                if let Some(osc_sender) = &self.telemetry.osc_sender {
+                    if let Err(e) = osc_sender.send_diag_bundle(schema_json, values_json) {
+                        log::warn!("Failed to send diag OSC bundle: {}", e);
+                    }
+                }
+                if let Some(cadence) = self.telemetry.diag_cadence.as_mut() {
+                    cadence.mark_sent(now);
+                }
+            }
+        }
         let current_resample_ratio: Option<f32> = self
             .output
             .audio_writer
@@ -269,8 +294,6 @@ impl<'a> SampleWriteCoordinator<'a> {
                             current_latency_avail_input_ms,
                             current_latency_output_fifo_ms,
                             current_latency_resampler_pending_ms,
-                            current_diag_schema_json.clone(),
-                            current_diag_values_json.clone(),
                             current_resample_ratio,
                             current_adaptive_band,
                             current_adaptive_state,
@@ -422,8 +445,6 @@ impl<'a> SampleWriteCoordinator<'a> {
                             current_latency_avail_input_ms,
                             current_latency_output_fifo_ms,
                             current_latency_resampler_pending_ms,
-                            current_diag_schema_json.clone(),
-                            current_diag_values_json.clone(),
                             current_resample_ratio,
                             current_adaptive_band,
                             current_adaptive_state,

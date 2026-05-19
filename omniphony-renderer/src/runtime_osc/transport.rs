@@ -136,6 +136,18 @@ pub(crate) fn send_metering_state(socket: &UdpSocket, client: SocketAddr, enable
     }
 }
 
+pub(crate) fn send_diag_state(socket: &UdpSocket, client: SocketAddr, enabled: bool) {
+    let packet = OscPacket::Message(OscMessage {
+        addr: "/omniphony/state/osc/diag".to_string(),
+        args: vec![OscType::Int(if enabled { 1 } else { 0 })],
+    });
+    if let Ok(bytes) = rosc::encoder::encode(&packet) {
+        if let Err(e) = socket.send_to(&bytes, client) {
+            log::warn!("Failed to send diag state to {}: {}", client, e);
+        }
+    }
+}
+
 pub(crate) fn resolve_register_addr(src: SocketAddr, args: &[OscType]) -> SocketAddr {
     if let Some(OscType::Int(port)) = args.first() {
         if let Ok(port) = u16::try_from(*port) {

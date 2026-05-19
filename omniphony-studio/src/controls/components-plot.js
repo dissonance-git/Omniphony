@@ -4,9 +4,13 @@
 // alongside the existing resample plot.
 
 import { app } from '../state.js';
+import { getPlotWindowMs } from './diag-plot.js';
 
-const POLL_INTERVAL_MS = 100;
-const WINDOW_MS = 60000;
+const POLL_INTERVAL_MS = 20;
+// Maximum retained history; the rendered window is whichever value the user
+// picks in the diag-plot selector — see `getPlotWindowMs`. Keeping the
+// largest option preserves history when the user zooms out.
+const MAX_RETAIN_MS = 60000;
 
 const TRACES = [
   { key: 'latencyAvailInputMs', color: '#7ad7ff', label: 'avail_input' },
@@ -38,7 +42,37 @@ function sampleApp() {
   };
 }
 
+function drawTimeGrid(ctx, x0, y0, panelW, panelH, tMin, tMax) {
+  // 250 ms light + 1 s bold vertical reference lines. Drawn first so
+  // traces sit on top.
+  const xFor = (t) => x0 + ((t - tMin) / (tMax - tMin)) * panelW;
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+  ctx.beginPath();
+  let t = Math.ceil(tMin / 250) * 250;
+  while (t <= tMax) {
+    if (t % 1000 !== 0) {
+      const x = Math.round(xFor(t)) + 0.5;
+      ctx.moveTo(x, y0);
+      ctx.lineTo(x, y0 + panelH);
+    }
+    t += 250;
+  }
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+  ctx.beginPath();
+  t = Math.ceil(tMin / 1000) * 1000;
+  while (t <= tMax) {
+    const x = Math.round(xFor(t)) + 0.5;
+    ctx.moveTo(x, y0);
+    ctx.lineTo(x, y0 + panelH);
+    t += 1000;
+  }
+  ctx.stroke();
+}
+
 function renderPanel(ctx, trace, x0, y0, panelW, panelH, tMin, tMax) {
+  drawTimeGrid(ctx, x0, y0, panelW, panelH, tMin, tMax);
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -49,6 +83,7 @@ function renderPanel(ctx, trace, x0, y0, panelW, panelH, tMin, tMax) {
   let vMin = Infinity;
   let vMax = -Infinity;
   for (const sample of buffer) {
+    if (sample.t < tMin) continue; // off-screen to the left
     const v = sample[trace.key];
     if (typeof v === 'number' && Number.isFinite(v)) {
       if (v < vMin) vMin = v;
@@ -119,7 +154,7 @@ function render() {
   }
 
   const tMax = buffer[buffer.length - 1].t;
-  const tMin = tMax - WINDOW_MS;
+  const tMin = tMax - getPlotWindowMs();
   const panelH = Math.floor(h / TRACES.length);
   for (let i = 0; i < TRACES.length; i += 1) {
     const y0 = i * panelH;
@@ -131,7 +166,7 @@ function render() {
 function tick() {
   const sample = sampleApp();
   buffer.push(sample);
-  const cutoff = sample.t - WINDOW_MS;
+  const cutoff = sample.t - MAX_RETAIN_MS;
   while (buffer.length && buffer[0].t < cutoff) buffer.shift();
   render();
 }

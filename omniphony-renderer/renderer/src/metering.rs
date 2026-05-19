@@ -1,3 +1,5 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 const DBFS_FLOOR: f32 = -100.0;
@@ -28,6 +30,10 @@ pub struct AudioMeter {
     num_speakers: usize,
     last_send: Instant,
     send_interval: Duration,
+    /// If present, the send_interval is recomputed from this atomic each
+    /// `poll()`, letting OSC clients adjust the metering cadence live.
+    rate_hz_bits: Option<Arc<AtomicU32>>,
+    last_rate_seen: f32,
 }
 
 impl AudioMeter {
@@ -42,7 +48,33 @@ impl AudioMeter {
             spk_count: 0,
             num_speakers,
             last_send: Instant::now(),
-            send_interval: Duration::from_secs_f32(1.0 / rate_hz),
+            send_interval: Duration::from_secs_f32(1.0 / rate_hz.max(1.0)),
+            rate_hz_bits: None,
+            last_rate_seen: rate_hz,
+        }
+    }
+
+    /// Like `new`, but the rate is read from a shared atomic on every
+    /// `poll()` — letting OSC clients update the metering cadence at
+    /// runtime via [`AudioControl::set_meter_rate_hz`].
+    pub fn new_with_rate_atomic(
+        num_speakers: usize,
+        rate_hz_bits: Arc<AtomicU32>,
+    ) -> Self {
+        let initial = f32::from_bits(rate_hz_bits.load(Ordering::Relaxed)).max(1.0);
+        Self {
+            num_channels: 0,
+            obj_peak: Vec::new(),
+            obj_rms_sq: Vec::new(),
+            obj_count: 0,
+            spk_peak: vec![0.0f32; num_speakers],
+            spk_rms_sq: vec![0.0f64; num_speakers],
+            spk_count: 0,
+            num_speakers,
+            last_send: Instant::now(),
+            send_interval: Duration::from_secs_f32(1.0 / initial),
+            rate_hz_bits: Some(rate_hz_bits),
+            last_rate_seen: initial,
         }
     }
 
@@ -91,6 +123,13 @@ impl AudioMeter {
 
     /// Returns Some(snapshot) when the send interval has elapsed, resetting accumulators.
     pub fn poll(&mut self) -> Option<MeterSnapshot> {
+        if let Some(atomic) = &self.rate_hz_bits {
+            let hz = f32::from_bits(atomic.load(Ordering::Relaxed)).max(1.0);
+            if (hz - self.last_rate_seen).abs() > 1e-3 {
+                self.last_rate_seen = hz;
+                self.send_interval = Duration::from_secs_f32(1.0 / hz);
+            }
+        }
         if self.last_send.elapsed() < self.send_interval {
             return None;
         }

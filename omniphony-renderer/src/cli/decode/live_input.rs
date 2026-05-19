@@ -7,7 +7,7 @@ use anyhow::Result;
 #[cfg(target_os = "linux")]
 use anyhow::anyhow;
 #[cfg(target_os = "linux")]
-use audio_input::bridge::{LiveBridgeIngestRuntime, spawn_bridge_decode_worker};
+use audio_input::bridge::{BridgeDecodeDiag, LiveBridgeIngestRuntime, spawn_bridge_decode_worker};
 #[cfg(target_os = "linux")]
 use audio_input::pipewire::{PipewireBridgeStreamConfig, run_pipewire_bridge_input_stream};
 #[cfg(target_os = "linux")]
@@ -739,10 +739,21 @@ fn run_pipewire_bridge_capture_loop(
     let diag = input_control.diag_registry();
     let bridge_frame_samples_out =
         diag.register("bridge_frame_samples", "Frame samples", "bridge", "samples");
-    let bridge_frame_dt_us_out =
-        diag.register("bridge_frame_dt_us", "Frame dt", "bridge", "us");
-    let bridge_frame_count_out =
-        diag.register("bridge_frame_count", "Frames emitted (counter)", "bridge", "");
+    let bridge_frame_dt_us_out = diag.register("bridge_frame_dt_us", "Frame dt", "bridge", "us");
+    let bridge_frame_count_out = diag.register(
+        "bridge_frame_count",
+        "Frames emitted (counter)",
+        "bridge",
+        "",
+    );
+    let bridge_frames_per_push_packet_out = diag.register(
+        "bridge_frames_per_push_packet",
+        "Frames per push_packet",
+        "bridge",
+        "",
+    );
+    let bridge_push_packet_dt_us_out =
+        diag.register("bridge_push_packet_dt_us", "push_packet dt", "bridge", "us");
     let mut last_bridge_frame_at: Option<Instant> = None;
     let mut bridge_frame_count: u64 = 0;
     spawn_bridge_decode_worker(
@@ -750,6 +761,10 @@ fn run_pipewire_bridge_capture_loop(
         raw_rx,
         Some(config.runtime.requested_drc_mode.clone()),
         config.runtime.strict_mode,
+        Some(BridgeDecodeDiag {
+            frames_per_push_packet: bridge_frames_per_push_packet_out,
+            push_packet_dt_us: bridge_push_packet_dt_us_out,
+        }),
         move |frame, decode_time_ms| {
             let now = Instant::now();
             let dt_us = last_bridge_frame_at

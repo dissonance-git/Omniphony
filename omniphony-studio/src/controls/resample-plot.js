@@ -4,8 +4,9 @@
 
 import { app } from '../state.js';
 import { createSparkline } from '../auto-tune/sparkline.js';
+import { getPlotWindowMs } from './diag-plot.js';
 
-const POLL_INTERVAL_MS = 100;
+const POLL_INTERVAL_MS = 20;
 
 let canvasEl = null;
 let containerEl = null;
@@ -18,7 +19,7 @@ function getElements() {
   if (!canvasEl) canvasEl = document.getElementById('resamplePlotCanvas');
   if (!containerEl) containerEl = document.getElementById('resamplePlotContainer');
   if (!toggleBtnEl) toggleBtnEl = document.getElementById('resamplePlotToggleBtn');
-  if (canvasEl && !sparkline) sparkline = createSparkline(canvasEl, { windowMs: 60000 });
+  if (canvasEl && !sparkline) sparkline = createSparkline(canvasEl, { windowMs: getPlotWindowMs });
   return { canvasEl, containerEl, toggleBtnEl };
 }
 

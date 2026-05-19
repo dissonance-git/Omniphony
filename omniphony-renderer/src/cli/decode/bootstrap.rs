@@ -539,17 +539,13 @@ fn init_osc_runtime(
         }
     }
 
-    match (&handler.spatial_renderer, &handler.telemetry.osc_sender) {
-        (Some(renderer), Some(_)) => {
-            let num_speakers = renderer.num_speakers();
-            handler.telemetry.audio_meter = Some(AudioMeter::new(num_speakers, 20.0));
-            log::info!(
-                "OSC metering available per client ({} speakers, 20 Hz)",
-                num_speakers
-            );
-        }
-        _ => {}
-    }
+    // Audio meter + diag cadence are initialised AFTER audio_control is
+    // attached (see `handler.audio_control = Some(...)` below) so they pick
+    // up the shared rate atomics. Reserve a placeholder here so subsequent
+    // code can rely on telemetry.audio_meter being Some when the renderer
+    // and OSC sender both exist.
+    let needs_telemetry =
+        matches!(&handler.spatial_renderer, Some(_)) && handler.telemetry.osc_sender.is_some();
 
     if let Some(renderer) = &handler.spatial_renderer {
         let ctrl = renderer.renderer_control();
@@ -636,6 +632,29 @@ fn init_osc_runtime(
             sender.attach_renderer_control(ctrl);
             sender.attach_audio_control(audio_control);
             sender.attach_input_control(input_control);
+        }
+    }
+
+    // Now that `handler.audio_control` is attached, wire the audio meter
+    // and the diag publication cadence to the shared rate atomics that
+    // OSC handlers update live. Done AFTER the audio_control assignment
+    // above — earlier and these reads would all see None and the cadence
+    // would never tick.
+    if needs_telemetry {
+        if let Some(renderer) = &handler.spatial_renderer {
+            let num_speakers = renderer.num_speakers();
+            let audio_ctrl = handler.audio_control.as_ref();
+            let meter_rate_atomic = audio_ctrl.map(|ctrl| ctrl.meter_rate_atomic());
+            handler.telemetry.audio_meter = Some(match meter_rate_atomic {
+                Some(atomic) => AudioMeter::new_with_rate_atomic(num_speakers, atomic),
+                None => AudioMeter::new(num_speakers, 50.0),
+            });
+            handler.telemetry.diag_cadence = audio_ctrl
+                .map(|ctrl| super::state::DiagPublishCadence::new(ctrl.diag_publish_rate_atomic()));
+            log::info!(
+                "OSC metering available per client ({} speakers, default 50 Hz, adjustable via /omniphony/control/metering/rate_hz; diag publication via /omniphony/control/diag/rate_hz)",
+                num_speakers
+            );
         }
     }
 

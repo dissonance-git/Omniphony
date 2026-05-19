@@ -540,6 +540,41 @@ fn auto_tune_snapshot_peek(state: State<SharedState>) -> Option<serde_json::Valu
 }
 
 #[tauri::command]
+fn control_metering_rate_hz(state: State<SharedState>, value: f32) {
+    let clamped = value.max(1.0).min(1000.0);
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendFloat {
+            address: "/omniphony/control/metering/rate_hz".to_string(),
+            value: clamped,
+        },
+    );
+}
+
+#[tauri::command]
+fn control_diag_rate_hz(state: State<SharedState>, value: f32) {
+    let clamped = value.max(1.0).min(1000.0);
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendFloat {
+            address: "/omniphony/control/diag/rate_hz".to_string(),
+            value: clamped,
+        },
+    );
+}
+
+#[tauri::command]
+fn control_diag_publication_enabled(state: State<SharedState>, enable: i32) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendInt {
+            address: "/omniphony/control/diag/enabled".to_string(),
+            value: if enable != 0 { 1 } else { 0 },
+        },
+    );
+}
+
+#[tauri::command]
 fn control_spread_min(state: State<SharedState>, value: f32) {
     let clamped = value.max(0.0).min(1.0);
     send_control(
@@ -2381,6 +2416,9 @@ fn main() {
             control_adaptive_resampling_near_far_threshold_ms,
             control_adaptive_resampling_pause,
             control_adaptive_resampling_reset_ratio,
+            control_metering_rate_hz,
+            control_diag_rate_hz,
+            control_diag_publication_enabled,
             control_spread_min,
             control_spread_max,
             control_spread_from_distance,

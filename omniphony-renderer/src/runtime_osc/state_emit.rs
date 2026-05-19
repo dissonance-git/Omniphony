@@ -41,6 +41,43 @@ impl OscSender {
         super::transport::broadcast_string(socket, clients, "/omniphony/state/loudness", &payload);
     }
 
+    /// Publish the diag schema and/or values bundle to subscribed clients.
+    /// Independent of the meter bundle so diag traces can be turned on/off
+    /// and re-cadenced without touching audio-level publication. No-op when
+    /// both arguments are `None`.
+    pub fn send_diag_bundle(
+        &self,
+        diag_schema_json: Option<String>,
+        diag_values_json: Option<String>,
+    ) -> Result<()> {
+        let mut messages = Vec::with_capacity(2);
+        if let Some(json) = diag_schema_json {
+            messages.push(OscPacket::Message(OscMessage {
+                addr: "/omniphony/state/diag_schema".to_string(),
+                args: vec![OscType::String(json)],
+            }));
+        }
+        if let Some(json) = diag_values_json {
+            messages.push(OscPacket::Message(OscMessage {
+                addr: "/omniphony/state/diag_values".to_string(),
+                args: vec![OscType::String(json)],
+            }));
+        }
+        if messages.is_empty() {
+            return Ok(());
+        }
+        let bundle = OscPacket::Bundle(OscBundle {
+            timetag: OscTime {
+                seconds: 0,
+                fractional: 1,
+            },
+            content: messages,
+        });
+        let bytes = rosc::encoder::encode(&bundle)?;
+        self.send_to_diag_clients(&bytes);
+        Ok(())
+    }
+
     pub fn send_meter_bundle(
         &self,
         snapshot: &renderer::metering::MeterSnapshot,
@@ -59,8 +96,6 @@ impl OscSender {
         latency_avail_input_ms: Option<f32>,
         latency_output_fifo_ms: Option<f32>,
         latency_resampler_pending_ms: Option<f32>,
-        diag_schema_json: Option<String>,
-        diag_values_json: Option<String>,
         resample_ratio: Option<f32>,
         adaptive_band: Option<&str>,
         adaptive_state: Option<&str>,
@@ -91,7 +126,10 @@ impl OscSender {
         let mut messages = Vec::with_capacity(
             snapshot.object_levels.len() * 2 + snapshot.speaker_levels.len() + 1,
         );
-        if let Some(ms) = latency_control_ms.or(latency_instant_ms).or(latency_target_ms) {
+        if let Some(ms) = latency_control_ms
+            .or(latency_instant_ms)
+            .or(latency_target_ms)
+        {
             messages.push(OscPacket::Message(OscMessage {
                 addr: "/omniphony/state/latency".to_string(),
                 args: vec![OscType::Float(ms)],
@@ -173,18 +211,6 @@ impl OscSender {
             messages.push(OscPacket::Message(OscMessage {
                 addr: "/omniphony/state/latency_resampler_pending".to_string(),
                 args: vec![OscType::Float(ms)],
-            }));
-        }
-        if let Some(json) = diag_schema_json {
-            messages.push(OscPacket::Message(OscMessage {
-                addr: "/omniphony/state/diag_schema".to_string(),
-                args: vec![OscType::String(json)],
-            }));
-        }
-        if let Some(json) = diag_values_json {
-            messages.push(OscPacket::Message(OscMessage {
-                addr: "/omniphony/state/diag_values".to_string(),
-                args: vec![OscType::String(json)],
             }));
         }
         if let Some(ratio) = resample_ratio {

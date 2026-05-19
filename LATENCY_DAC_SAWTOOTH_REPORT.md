@@ -657,3 +657,134 @@ Next session must:
    accept that the 0.4 Hz oscillation in the latency display is an
    inherent measurement artefact that cannot be cancelled at the
    source without breaking the bootstrap.
+
+---
+
+## Session 2026-05-18 — codec asymmetry in clock_mode=dac
+
+### Controlled A/B between TRUEHD and EAC3
+
+Same hardware, same `clock_mode=dac` (confirmed via `live_input` log line
+`clock_mode=Dac backend=PwStream`, the renderer's source of truth — the
+Studio UI still mis-labels modes on `v0.2.4`, see the `e425f6e` UI-apply
+fix), identical Studio configuration:
+
+- **TRUEHD source**: deterministic latency sawtooth, as previously
+  described (~`16 ms` peak-to-peak, ~`1 s` period).
+- **EAC3 source**: flat latency, no sawtooth.
+
+Reproduced on **both `v0.2.4` (`c3638de`) and `main` (`f0b0348`)**. The
+behaviour is unchanged between the two endpoints of the
+post-`v0.2.4`/pre-`main` range.
+
+### What this rules out
+
+- It is not a regression introduced between `v0.2.4` and `main`. Any
+  bisect over that range would not converge on a guilty commit — both
+  endpoints show the same TRUEHD-only sawtooth.
+- It is not a generic property of `clock_mode=dac`. The DAC capture
+  and trigger path is the same for both codecs; only the bridge-side
+  emission pattern differs.
+- It is not a downstream PipeWire graph artefact (already excluded by
+  `latency_downstream/path = 0`), and the codec dichotomy further
+  rules out anything below the bridge.
+
+### What this confirms
+
+The dominant source of the DAC sawtooth in the IEC958/bridge chain is
+**codec-dependent bridge emission cadence**, not the output servo, not
+the DAC trigger loop, and not PI tuning. This is the strongest
+single-variable signal we have in this investigation, and it aligns
+exactly with the suspicion already raised in the 2026-05-17 session
+(harletty plugin's two-phase batching: N vs N+1 frames per
+`push_packet`).
+
+EAC3 has small fixed-size access units (`1536` samples per substream
+AU), which divide cleanly into bridge-emission units and produce a
+uniform write cadence. TRUEHD uses MAT framing with substream
+alignment whose access-unit size is not a small multiple of the
+bridge's `40`-sample frame size, so the per-`push_packet` burst count
+alternates — directly producing the bi-modal `writes_per_250ms`
+pattern noted previously.
+
+### Next investigation steps (revised)
+
+1. Instrument `bridge_frames_per_push_packet` and
+   `bridge_push_packet_dt_us` per emission (still missing — flagged in
+   the 2026-05-17 session). Both codecs in parallel A/B should show:
+   - EAC3 → constant `frames_per_push_packet`
+   - TRUEHD → alternating, with period matching the observed sawtooth.
+2. If confirmed, evaluate equalising emission downstream of the bridge:
+   either a small pacing buffer at the bridge output that emits a
+   constant number of frames per tick regardless of codec AU boundary,
+   or a write-side aggregation that smooths the per-event sample count
+   before it reaches the ring.
+3. Do **not** continue speculative output-side fixes
+   (servo/PI/recovery) until the bridge-emission hypothesis is either
+   confirmed or refuted by direct measurement.
+
+### Direct measurement of frames-per-push_packet (added 2026-05-18)
+
+Added two diag metrics in group `bridge`:
+
+- `bridge_frames_per_push_packet` — number of decoded frames returned by
+  the most recent `bridge.push_packet` call.
+- `bridge_push_packet_dt_us` — wall-clock interval between consecutive
+  `push_packet` entries (µs).
+
+Both are populated by the live IEC958 bridge decode worker
+(`audio_input/src/bridge.rs::spawn_bridge_decode_worker`) — the
+file-decode path in `decoder_thread.rs` is **not** active for live
+SPDIF input, instrumenting it there yields zero.
+
+Implementation: a new `BridgeDecodeDiag` struct bundling the two atomics
+is passed as an optional parameter to `spawn_bridge_decode_worker`;
+`live_input.rs` registers them via `diag.register("bridge_..", "bridge",
+..)` alongside the existing `bridge_frame_samples` / `bridge_frame_dt_us`
+metrics, and hands the bundle to the worker.
+
+### Findings from the new metrics
+
+| Codec  | `bridge_frames_per_push_packet`     |
+| ------ | ----------------------------------- |
+| EAC3   | constant `1`                        |
+| TRUEHD | range `[23, 25]`, mostly `24`       |
+
+This **partially** contradicts the bridge-batching hypothesis:
+
+- EAC3 has zero variation and zero sawtooth in the expected pattern —
+  consistent.
+- TRUEHD has only small variation (`±1` around `24`, occasionally `23`),
+  not the strong bi-modal alternation predicted. **And** the sawtooth is
+  still present during long flat stretches at exactly `24` frames per
+  `push_packet`.
+
+So the codec-asymmetric emission cadence is real but **not** the
+dominant cause of the sawtooth — the sawtooth survives a constant
+`frames_per_push_packet` value.
+
+### Contradictory observation in the same session
+
+In a later run the operator also saw the sawtooth reappear on EAC3,
+where the previous session 2026-05-18 controlled A/B had shown EAC3 as
+flat. The variable that changed is not yet identified. The operator's
+working hypothesis is that the perceived "flat" periods were actually
+the adaptive runtime stuck in `settling` (state code `2`) rather than
+truly `stable` (state code `0`) — i.e. what we read as a stability
+property may be a state-machine artefact.
+
+### Next investigation steps (revised)
+
+1. Cross-check `runtime_state_code` (already published by
+   `audio_output/src/pipewire.rs` as a diag metric, group `output`)
+   against the latency sawtooth across both codecs. If "flat" coincides
+   with `2 = settling` instead of `0 = stable`, the sawtooth-vs-flat
+   distinction is about the controller state, not the source.
+2. Capture both states with TRUEHD and EAC3, with the new
+   `bridge_frames_per_push_packet` and `bridge_push_packet_dt_us`
+   visible, to separate source-side variability (small, but real on
+   TRUEHD) from controller-side state effects.
+3. The bridge-batching hypothesis is **demoted** but not eliminated —
+   the small `±1` jitter around `24` may still couple with the servo in
+   ways that the constant `1` of EAC3 does not. Keep the metrics in
+   place.

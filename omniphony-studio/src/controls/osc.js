@@ -29,6 +29,7 @@ function getOscHostInputEl() { return inOscPanel('oscHostInput'); }
 function getOscRxPortInputEl() { return inOscPanel('oscRxPortInput'); }
 function getOscListenPortInputEl() { return inOscPanel('oscListenPortInput'); }
 function getOscMeteringToggleEl() { return inObjectsPanel('oscMeteringToggle'); }
+function getOscMeteringRateSelectEl() { return inObjectsPanel('oscMeteringRateSelect'); }
 function getOscConfigApplyBtnEl() { return inOscPanel('oscConfigApplyBtn'); }
 function getOscServiceBtnEl() { return inOscPanel('oscServiceBtn'); }
 function getOscRestartServiceBtnEl() { return inOscPanel('oscRestartServiceBtn'); }
@@ -490,6 +491,50 @@ if (initialOscMeteringToggleEl) {
     invoke('control_osc_metering', { enable: enabled ? 1 : 0 }).catch((e) => {
       console.error('[osc metering]', e);
       pushLog('error', tf('log.oscMeteringFailed', { error: normalizeLogError(e) }));
+    });
+  });
+}
+
+// Audio meter publish rate. Controls only the AudioMeter cadence (peak/RMS
+// level updates); the diag publication rate is independent and lives in
+// `controls/diag-plot.js`.
+const METER_RATE_STORAGE_KEY = 'audioMetering.rateHz.v1';
+const METER_RATE_LEGACY_STORAGE_KEY = 'diagPlot.meterRateHz.v1';
+const METER_RATE_OPTIONS_HZ = [10, 20, 50, 100, 200];
+const METER_RATE_DEFAULT_HZ = 50;
+
+function loadMeterRateHzFromStorage() {
+  try {
+    let raw = localStorage.getItem(METER_RATE_STORAGE_KEY);
+    if (raw === null) raw = localStorage.getItem(METER_RATE_LEGACY_STORAGE_KEY);
+    const n = raw === null ? NaN : Number.parseInt(raw, 10);
+    if (Number.isFinite(n) && METER_RATE_OPTIONS_HZ.includes(n)) return n;
+  } catch (_) { /* ignore */ }
+  return METER_RATE_DEFAULT_HZ;
+}
+
+function applyMeterRateToSelect(value) {
+  const sel = getOscMeteringRateSelectEl();
+  if (!sel) return;
+  if (sel.value !== String(value)) sel.value = String(value);
+}
+
+const initialOscMeteringRateSelectEl = getOscMeteringRateSelectEl();
+if (initialOscMeteringRateSelectEl) {
+  const initialRate = loadMeterRateHzFromStorage();
+  applyMeterRateToSelect(initialRate);
+  // Push the persisted rate to the renderer at boot so it matches the UI.
+  // Failures (renderer not connected yet) are silent — the renderer defaults
+  // to 50 Hz anyway, and any later user interaction will push again.
+  invoke('control_metering_rate_hz', { value: initialRate }).catch(() => {});
+  initialOscMeteringRateSelectEl.addEventListener('change', () => {
+    const sel = getOscMeteringRateSelectEl();
+    if (!sel) return;
+    const v = Number.parseInt(sel.value, 10);
+    if (!Number.isFinite(v) || !METER_RATE_OPTIONS_HZ.includes(v)) return;
+    try { localStorage.setItem(METER_RATE_STORAGE_KEY, String(v)); } catch (_) { /* ignore */ }
+    invoke('control_metering_rate_hz', { value: v }).catch((e) => {
+      console.error('[meter rate]', e);
     });
   });
 }

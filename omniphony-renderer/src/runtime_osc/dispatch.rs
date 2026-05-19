@@ -19,7 +19,7 @@ use super::export::{build_live_state_bundle, export_current_layout, save_live_co
 use super::recompute::trigger_layout_recompute;
 use super::transport::{
     broadcast_fff, broadcast_float, broadcast_int, broadcast_string, resolve_register_addr,
-    send_metering_state,
+    send_diag_state, send_metering_state,
 };
 
 #[derive(Default)]
@@ -59,6 +59,20 @@ pub(crate) fn handle_control_message(
         let client = resolve_register_addr(src, &[]);
         if clients.set_metering(client, enabled) {
             send_metering_state(socket, client, enabled);
+        }
+        return;
+    }
+
+    if addr == "/omniphony/control/diag/enabled" {
+        let enabled = match msg.args.first() {
+            Some(OscType::Int(i)) => *i != 0,
+            Some(OscType::Float(f)) => *f != 0.0,
+            Some(OscType::Bool(b)) => *b,
+            _ => return,
+        };
+        let client = resolve_register_addr(src, &[]);
+        if clients.set_diag(client, enabled) {
+            send_diag_state(socket, client, enabled);
         }
         return;
     }

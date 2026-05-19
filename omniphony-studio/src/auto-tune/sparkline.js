@@ -17,12 +17,21 @@ export function createSparkline(canvas, options = {}) {
     ...options,
   };
 
+  // `windowMs` can be either a fixed number or a function — the latter lets
+  // callers (e.g. the resample plot) follow a user-selected setting that
+  // lives elsewhere. `retainMs` is the upper bound used for buffer pruning
+  // so we keep enough history to render at the largest visible window.
+  function currentWindowMs() {
+    return typeof opts.windowMs === 'function' ? opts.windowMs() : opts.windowMs;
+  }
+  const retainMs = typeof opts.windowMs === 'function' ? 60000 : opts.windowMs;
+
   const buffer = [];
 
   function push(sample) {
     if (!sample || typeof sample.t !== 'number') return;
     buffer.push(sample);
-    const cutoff = sample.t - opts.windowMs;
+    const cutoff = sample.t - retainMs;
     while (buffer.length && buffer[0].t < cutoff) buffer.shift();
   }
 
@@ -51,18 +60,24 @@ export function createSparkline(canvas, options = {}) {
     }
 
     const tMax = buffer[buffer.length - 1].t;
-    const tMin = tMax - opts.windowMs;
-    const xFor = (t) => ((t - tMin) / opts.windowMs) * w;
+    const win = currentWindowMs();
+    const tMin = tMax - win;
+    const xFor = (t) => ((t - tMin) / win) * w;
+    // Only consider samples within the visible window when computing
+    // axis ranges; otherwise an older spike off-screen would compress
+    // the live trace.
+    const inWindow = (s) => s.t >= tMin;
 
     const topH = Math.floor(h * 0.5);
     const botH = h - topH;
     const botY0 = topH;
 
-    // Compute trace ranges.
+    // Compute trace ranges over the visible window only.
     let lMin = Infinity, lMax = -Infinity;
     let rMin = Infinity, rMax = -Infinity;
     let tgtMin = Infinity, tgtMax = -Infinity;
     for (const s of buffer) {
+      if (!inWindow(s)) continue;
       if (typeof s.latencySmoothedMs === 'number') {
         if (s.latencySmoothedMs < lMin) lMin = s.latencySmoothedMs;
         if (s.latencySmoothedMs > lMax) lMax = s.latencySmoothedMs;
@@ -95,6 +110,31 @@ export function createSparkline(canvas, options = {}) {
     const rPad = (rMax - rMin) * 0.1;
     lMin -= lPad; lMax += lPad;
     rMin -= rPad; rMax += rPad;
+
+    // Vertical time reference lines: bold every 1 s, light every 250 ms.
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+    ctx.beginPath();
+    let gt = Math.ceil(tMin / 250) * 250;
+    while (gt <= tMax) {
+      if (gt % 1000 !== 0) {
+        const gx = Math.round(xFor(gt)) + 0.5;
+        ctx.moveTo(gx, 0);
+        ctx.lineTo(gx, h);
+      }
+      gt += 250;
+    }
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.beginPath();
+    gt = Math.ceil(tMin / 1000) * 1000;
+    while (gt <= tMax) {
+      const gx = Math.round(xFor(gt)) + 0.5;
+      ctx.moveTo(gx, 0);
+      ctx.lineTo(gx, h);
+      gt += 1000;
+    }
+    ctx.stroke();
 
     // Grid dividing the two areas.
     ctx.strokeStyle = opts.gridColor;

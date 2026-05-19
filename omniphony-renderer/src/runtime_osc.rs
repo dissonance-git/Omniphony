@@ -333,12 +333,22 @@ impl OscSender {
         });
     }
 
+    pub(crate) fn send_to_diag_clients(&self, bytes: &[u8]) {
+        send_raw_filtered(&self.socket, &self.clients, bytes, |client| {
+            client.diag_enabled
+        });
+    }
+
     pub fn has_osc_clients(&self) -> bool {
         self.clients.is_any_live()
     }
 
     pub fn has_metering_clients(&self) -> bool {
         self.clients.is_any_metering_live()
+    }
+
+    pub fn has_diag_clients(&self) -> bool {
+        self.clients.is_any_diag_live()
     }
 }
 
