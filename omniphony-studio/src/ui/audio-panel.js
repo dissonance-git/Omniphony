@@ -222,6 +222,10 @@ export function audioPanelMarkup() {
                 <label for="adaptiveControlSmoothingAlphaInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.controlSmoothingAlpha">Control smoothing α</label>
                 <input id="adaptiveControlSmoothingAlphaInput" class="delay-input" type="number" min="0" max="1" step="0.001" value="0.02" style="width:8rem" />
               </div>
+              <div id="adaptiveUsePreBridgeClockRow" class="control-row" style="margin-top:0.2rem">
+                <label for="adaptiveUsePreBridgeClockToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.usePreBridgeClock" data-i18n-title="adaptive.usePreBridgeClockTitle" title="Feed the PI servo with the IEC958 source-clock signal (pre-decoder) instead of the post-decode ring level. The source clock is smooth by construction, so the PI reacts directly to genuine hardware drift without the decoder's batching ripple.">Pre-bridge clock (PI input)</label>
+                <input id="adaptiveUsePreBridgeClockToggle" type="checkbox" />
+              </div>
             </div>
             <div style="margin-top:0.3rem;display:flex;justify-content:flex-end;gap:0.35rem">
               ${secondaryButton({ id: 'adaptiveResamplingAdvancedCancelBtn', text: 'Cancel', textKey: 'common.cancel' })}

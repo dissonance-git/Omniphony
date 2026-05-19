@@ -42,6 +42,8 @@ function getAdaptiveLowRecoverRefillDeltaAlphaInputEl() { return inAudioPanel('a
 function getAdaptiveLowRecoverRefillDeltaAlphaRowEl() { return inAudioPanel('adaptiveLowRecoverRefillDeltaAlphaRow'); }
 function getAdaptiveControlSmoothingAlphaInputEl() { return inAudioPanel('adaptiveControlSmoothingAlphaInput'); }
 function getAdaptiveControlSmoothingAlphaRowEl() { return inAudioPanel('adaptiveControlSmoothingAlphaRow'); }
+function getAdaptiveUsePreBridgeClockToggleEl() { return inAudioPanel('adaptiveUsePreBridgeClockToggle'); }
+function getAdaptiveUsePreBridgeClockRowEl() { return inAudioPanel('adaptiveUsePreBridgeClockRow'); }
 function getAdaptiveResamplingAdvancedApplyBtnEl() { return inAudioPanel('adaptiveResamplingAdvancedApplyBtn'); }
 function getAdaptiveResamplingAdvancedCancelBtnEl() { return inAudioPanel('adaptiveResamplingAdvancedCancelBtn'); }
 function getAdaptiveBandDotEl() { return inAudioPanel('adaptiveBandDot'); }
@@ -83,6 +85,8 @@ export function renderAdaptiveResamplingUI() {
   const adaptiveLowRecoverRefillDeltaAlphaRowEl = getAdaptiveLowRecoverRefillDeltaAlphaRowEl();
   const adaptiveControlSmoothingAlphaInputEl = getAdaptiveControlSmoothingAlphaInputEl();
   const adaptiveControlSmoothingAlphaRowEl = getAdaptiveControlSmoothingAlphaRowEl();
+  const adaptiveUsePreBridgeClockToggleEl = getAdaptiveUsePreBridgeClockToggleEl();
+  const adaptiveUsePreBridgeClockRowEl = getAdaptiveUsePreBridgeClockRowEl();
   const adaptiveResamplingAdvancedApplyBtnEl = getAdaptiveResamplingAdvancedApplyBtnEl();
   const adaptiveResamplingAdvancedCancelBtnEl = getAdaptiveResamplingAdvancedCancelBtnEl();
   const adaptiveBandDotEl = getAdaptiveBandDotEl();
@@ -241,6 +245,14 @@ export function renderAdaptiveResamplingUI() {
     if (!app.adaptiveControlSmoothingAlphaEditing && !app.adaptiveControlSmoothingAlphaDirty) {
       adaptiveControlSmoothingAlphaInputEl.value = app.adaptiveResamplingControlSmoothingAlpha === null ? '' : Number(app.adaptiveResamplingControlSmoothingAlpha).toFixed(3);
     }
+  }
+  if (adaptiveUsePreBridgeClockRowEl) {
+    adaptiveUsePreBridgeClockRowEl.classList.toggle('adaptive-param-disabled', !hasAudioDomain);
+  }
+  if (adaptiveUsePreBridgeClockToggleEl) {
+    adaptiveUsePreBridgeClockToggleEl.disabled = !hasAudioDomain;
+    adaptiveUsePreBridgeClockToggleEl.checked =
+      app.adaptiveResamplingUsePreBridgeClock === true;
   }
   if (adaptiveBandTextEl) {
     adaptiveBandTextEl.textContent = app.adaptiveResamplingBand ?? '—';

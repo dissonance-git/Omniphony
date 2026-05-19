@@ -482,6 +482,8 @@ pub(super) fn effective_to_config(
             .and_then(|cfg| cfg.adaptive_resampling_low_recover_refill_delta_alpha),
         adaptive_resampling_control_smoothing_alpha: existing_render_cfg
             .and_then(|cfg| cfg.adaptive_resampling_control_smoothing_alpha),
+        adaptive_resampling_use_pre_bridge_clock: existing_render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_use_pre_bridge_clock),
         output_sample_rate: args.output_sample_rate,
         drc_mode: existing_render_cfg.and_then(|cfg| cfg.drc_mode.clone()),
         drc_weight: existing_render_cfg.and_then(|cfg| cfg.drc_weight),

@@ -520,6 +520,7 @@ impl DecodeHandler {
             &self.session,
             self.spatial_renderer.as_ref(),
             self.audio_control.as_ref(),
+            self.input_control.as_ref(),
         )
         .create_audio_writer_if_needed(
             ctx.output_backend,
@@ -534,6 +535,7 @@ impl DecodeHandler {
             &self.session,
             self.spatial_renderer.as_ref(),
             self.audio_control.as_ref(),
+            self.input_control.as_ref(),
         )
         .publish_audio_state_if_changed(ctx.output_backend, sample_rate);
 
@@ -598,6 +600,7 @@ impl DecodeHandler {
                 &self.session,
                 self.spatial_renderer.as_ref(),
                 self.audio_control.as_ref(),
+                self.input_control.as_ref(),
             )
             .build_audio_writer(
                 output_backend,

@@ -128,6 +128,12 @@ pub struct InputControl {
     /// (when changed) and the current values (each meter-bundle tick) so the
     /// Studio plot can render an arbitrary subset chosen by the user.
     diag_registry: Arc<DiagRegistry>,
+    /// Cumulative source-clock time in microseconds, f64-encoded as u64 bits.
+    /// Written by the input PwStream callback from per-IEC958-chunk subframe
+    /// counts. Read by the audio_output PI when `use_pre_bridge_clock` is on
+    /// so the servo sees a decoder-batching-free clock reference instead of
+    /// the post-decode ring buffer level. Also published to the diag plot.
+    input_clock_us: Arc<AtomicU64>,
 }
 
 impl Default for InputControl {
@@ -164,11 +170,19 @@ impl InputControl {
                 alive.store((1.0_f64).to_bits(), Ordering::Relaxed);
                 r
             },
+            input_clock_us: Arc::new(AtomicU64::new(0)),
         }
     }
 
     pub fn diag_registry(&self) -> Arc<DiagRegistry> {
         Arc::clone(&self.diag_registry)
+    }
+
+    /// Cumulative source-clock time atomic (f64-bits microseconds). Shared
+    /// owner-side: written by the input PwStream callback, read by the
+    /// audio_output PI loop when running on the pre-bridge clock signal.
+    pub fn input_clock_us_atomic(&self) -> Arc<AtomicU64> {
+        Arc::clone(&self.input_clock_us)
     }
 
     pub fn set_output_rate_adjust(&self, rate: f32) {

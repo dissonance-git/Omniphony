@@ -426,6 +426,7 @@ impl PipewireWriter {
         output_sample_rate: Option<u32>,
         buffer_config: PipewireBufferConfig,
         adaptive_config: PipewireAdaptiveResamplingConfig,
+        input_clock_us: Arc<std::sync::atomic::AtomicU64>,
     ) -> Result<Self> {
         Self::new_with_channel_names(
             sample_rate,
@@ -436,6 +437,7 @@ impl PipewireWriter {
             output_sample_rate,
             buffer_config,
             adaptive_config,
+            input_clock_us,
         )
     }
 
@@ -448,6 +450,7 @@ impl PipewireWriter {
         output_sample_rate: Option<u32>,
         mut buffer_config: PipewireBufferConfig,
         adaptive_config: PipewireAdaptiveResamplingConfig,
+        input_clock_us: Arc<std::sync::atomic::AtomicU64>,
     ) -> Result<Self> {
         // Keep headroom above target, otherwise PI control saturates and the
         // buffer tends to stabilize below setpoint (target at the ceiling).
@@ -617,6 +620,7 @@ impl PipewireWriter {
                 pending_input_triggers_for_thread,
                 input_trigger_rate_for_thread,
                 input_trigger_quantum_for_thread,
+                input_clock_us,
             ) {
                 log::error!("PipeWire thread error: {}", e);
             }
@@ -1223,6 +1227,7 @@ fn run_pipewire_loop(
     pending_input_triggers: Arc<AtomicI64>,
     input_trigger_rate_hz: Arc<AtomicU32>,
     input_trigger_quantum_frames: Arc<AtomicU32>,
+    input_clock_us: Arc<std::sync::atomic::AtomicU64>,
 ) -> Result<()> {
     // Determine actual output rate and resampling ratio
     let actual_output_rate = output_sample_rate.unwrap_or(sample_rate);
@@ -1395,6 +1400,7 @@ fn run_pipewire_loop(
     let diag_latency_smoothed_ms_for_callback = diag_latency_smoothed_ms_out.clone();
     let diag_latency_control_ms_for_callback = diag_latency_control_ms_out.clone();
     let diag_rate_adjust_ppm_for_callback = diag_rate_adjust_ppm_out.clone();
+    let input_clock_us_for_callback = input_clock_us.clone();
     let cumulative_written_for_callback = cumulative_written_input_samples.clone();
     let cumulative_drained_for_callback = cumulative_drained_input_samples.clone();
     let cumulative_flow_control_available_for_callback =
@@ -1642,7 +1648,7 @@ fn run_pipewire_loop(
                     // 2026-05-17, "Cancellation attempts". The cumulative
                     // counters and `cumulative_flow_control_available` are
                     // still published as observation metrics below.
-                    let metrics = update_latency_metrics(
+                    let mut metrics = update_latency_metrics(
                         &mut runtime_state,
                         available,
                         output_fifo_input_domain_samples_raw,
@@ -1658,6 +1664,44 @@ fn run_pipewire_loop(
                         },
                     );
                     let _ = control_available_override; // kept for future revival of the flow override
+                    // Pre-bridge clock substitution. When `use_pre_bridge_clock`
+                    // is on and the input PwStream has produced at least one
+                    // chunk, replace `metrics.smoothed_control_available` with
+                    // a drift signal computed from the IEC958 source clock and
+                    // the DAC drain counter — both monotone and bursting-free,
+                    // so the PI sees genuine clock drift without the decoder's
+                    // 3.1 Hz batching ripple. The first reading captures a
+                    // calibration offset so the substituted value lands on
+                    // `target_buffer_fill` and only deviates as the two clocks
+                    // actually diverge. The diag plot and the low-recover
+                    // state machine keep using the unmodified ring-based
+                    // metrics (control_available, control_latency_ms).
+                    let input_clock_us_now =
+                        f64::from_bits(input_clock_us_for_callback.load(Ordering::Relaxed));
+                    let pre_bridge_requested = current_adaptive_cfg.use_pre_bridge_clock;
+                    let pre_bridge_ready = pre_bridge_requested && input_clock_us_now > 0.0;
+                    let pre_bridge_bootstrap_freeze =
+                        pre_bridge_requested && !pre_bridge_ready;
+                    if pre_bridge_ready {
+                        let input_clock_samples_eq = (input_clock_us_now / 1_000_000.0
+                            * sample_rate as f64
+                            * channel_count as f64)
+                            as i64;
+                        let drained_now =
+                            cumulative_drained_for_callback.load(Ordering::Relaxed) as i64;
+                        if !runtime_state.pre_bridge_offset_initialized {
+                            runtime_state.pre_bridge_offset_samples =
+                                input_clock_samples_eq - drained_now;
+                            runtime_state.pre_bridge_offset_initialized = true;
+                        }
+                        let drift_samples = input_clock_samples_eq
+                            - drained_now
+                            - runtime_state.pre_bridge_offset_samples;
+                        let target = runtime_target_buffer_fill as i64;
+                        let override_value = (target + drift_samples).max(0) as usize;
+                        metrics.smoothed_control_available = override_value;
+                    }
+                    let is_pi_paused = is_pi_paused || pre_bridge_bootstrap_freeze;
                     // Publish the smoothed control latency the servo actually tracks,
                     // so the UI can show it next to the raw control latency.
                     let smoothed_control_latency_ms = if channel_count > 0 && sample_rate > 0 {
@@ -1885,6 +1929,12 @@ fn run_pipewire_loop(
                             rate_adjust_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
                             desired_rate_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
                             runtime_state.recovery_reacquire_pending = false;
+                            // The drained counter we use as the pre-bridge
+                            // reference may have advanced during recovery
+                            // while input_clock_us did not (paused source).
+                            // Recalibrate on the next callback so the PI
+                            // restarts on target.
+                            runtime_state.pre_bridge_offset_initialized = false;
                             if far_decision.mute_far_output {
                                 if let Err(e) = resampler_fifo.ensure_output_samples(
                                     &buffer_for_callback,
@@ -2190,6 +2240,7 @@ fn run_pipewire_loop(
                             desired_rate_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
                             rate_adjust_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
                             runtime_state.recovery_reacquire_pending = false;
+                            runtime_state.pre_bridge_offset_initialized = false;
                             if far_decision.mute_far_output {
                                 let dropped =
                                     discard_ring_samples(&buffer_for_callback, samples_to_read);

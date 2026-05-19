@@ -38,6 +38,15 @@ pub struct AdaptiveResamplingConfig {
     pub control_smoothing_alpha: f64,
     /// When true the PI controller is frozen: the current ratio is held as-is.
     pub paused: bool,
+    /// When true the PI servo consumes the pre-bridge clock signal
+    /// (`input_clock_us` − cumulative drained, in samples) instead of the
+    /// post-decode ring + FIFO + pending-resampler level. The pre-bridge
+    /// signal is smooth by construction because the IEC958 source clock is
+    /// not affected by the decoder's batched delivery, so the EMA can be
+    /// effectively bypassed and the PI reacts directly to genuine clock
+    /// drift. The ring buffer is still observed for underrun/overrun safety
+    /// and for the low-recover phase. Default `false` (legacy behaviour).
+    pub use_pre_bridge_clock: bool,
 }
 
 impl Default for AdaptiveResamplingConfig {
@@ -64,6 +73,7 @@ impl Default for AdaptiveResamplingConfig {
             low_recover_refill_delta_alpha: 0.5,
             control_smoothing_alpha: 0.02,
             paused: false,
+            use_pre_bridge_clock: false,
         }
     }
 }

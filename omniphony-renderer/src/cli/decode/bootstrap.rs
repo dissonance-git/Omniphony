@@ -123,6 +123,9 @@ fn build_adaptive_resampling_config(
             .map(|v| v as f64)
             .unwrap_or(defaults.control_smoothing_alpha),
         paused: false,
+        use_pre_bridge_clock: render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_use_pre_bridge_clock)
+            .unwrap_or(defaults.use_pre_bridge_clock),
     }
 }
 

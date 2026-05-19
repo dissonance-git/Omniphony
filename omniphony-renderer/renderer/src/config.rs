@@ -157,6 +157,8 @@ pub struct RenderConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adaptive_resampling_control_smoothing_alpha: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub adaptive_resampling_use_pre_bridge_clock: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub output_sample_rate: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drc_mode: Option<String>,

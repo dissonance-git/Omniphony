@@ -86,6 +86,7 @@ impl AudioWriter {
         output_sample_rate: Option<u32>,
         buffer_config: PipewireBufferConfig,
         adaptive_config: PipewireAdaptiveResamplingConfig,
+        input_clock_us: std::sync::Arc<std::sync::atomic::AtomicU64>,
     ) -> Result<Self> {
         let pipewire_writer = PipewireWriter::new(
             sample_rate,
@@ -95,6 +96,7 @@ impl AudioWriter {
             output_sample_rate,
             buffer_config,
             adaptive_config,
+            input_clock_us,
         )?;
         Ok(AudioWriter::Pipewire(pipewire_writer))
     }
@@ -109,6 +111,7 @@ impl AudioWriter {
         output_sample_rate: Option<u32>,
         buffer_config: PipewireBufferConfig,
         adaptive_config: PipewireAdaptiveResamplingConfig,
+        input_clock_us: std::sync::Arc<std::sync::atomic::AtomicU64>,
     ) -> Result<Self> {
         let pipewire_writer = PipewireWriter::new_with_channel_names(
             sample_rate,
@@ -119,6 +122,7 @@ impl AudioWriter {
             output_sample_rate,
             buffer_config,
             adaptive_config,
+            input_clock_us,
         )?;
         Ok(AudioWriter::Pipewire(pipewire_writer))
     }

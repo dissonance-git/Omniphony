@@ -4,6 +4,7 @@ use super::state::{
 };
 use crate::cli::command::OutputBackend;
 use anyhow::{Result, anyhow};
+use audio_input::InputControl;
 use audio_output::AudioControl;
 use std::sync::Arc;
 #[cfg(target_os = "linux")]
@@ -17,6 +18,7 @@ pub struct WriterLifecycleCoordinator<'a> {
     session: &'a DecodeSessionState,
     spatial_renderer: Option<&'a renderer::spatial_renderer::SpatialRenderer>,
     audio_control: Option<&'a Arc<AudioControl>>,
+    input_control: Option<&'a Arc<InputControl>>,
 }
 
 impl<'a> WriterLifecycleCoordinator<'a> {
@@ -28,6 +30,7 @@ impl<'a> WriterLifecycleCoordinator<'a> {
         session: &'a DecodeSessionState,
         spatial_renderer: Option<&'a renderer::spatial_renderer::SpatialRenderer>,
         audio_control: Option<&'a Arc<AudioControl>>,
+        input_control: Option<&'a Arc<InputControl>>,
     ) -> Self {
         Self {
             output,
@@ -37,6 +40,7 @@ impl<'a> WriterLifecycleCoordinator<'a> {
             session,
             spatial_renderer,
             audio_control,
+            input_control,
         }
     }
 
@@ -224,6 +228,16 @@ impl<'a> WriterLifecycleCoordinator<'a> {
         match output_backend {
             #[cfg(target_os = "linux")]
             OutputBackend::Pipewire => {
+                // Pre-bridge clock atomic: when no live input is wired up
+                // (file decode path) the writer gets a zero-initialised
+                // atomic that never increments, so `use_pre_bridge_clock`
+                // simply leaves the PI frozen on a zero source-clock
+                // signal (bootstrap-freeze branch), which is exactly the
+                // desired safe behaviour.
+                let input_clock_us = self
+                    .input_control
+                    .map(|ic| ic.input_clock_us_atomic())
+                    .unwrap_or_else(|| Arc::new(std::sync::atomic::AtomicU64::new(0)));
                 if let Some(names) = pipewire_channel_names {
                     Ok(AudioWriter::create_pipewire_with_channel_names(
                         sample_rate,
@@ -234,6 +248,7 @@ impl<'a> WriterLifecycleCoordinator<'a> {
                         self.runtime.output_sample_rate,
                         self.runtime.pw_buffer_config.clone(),
                         self.runtime.adaptive_resampling_config.clone(),
+                        input_clock_us,
                     )?)
                 } else {
                     Ok(AudioWriter::create_pipewire(
@@ -244,6 +259,7 @@ impl<'a> WriterLifecycleCoordinator<'a> {
                         self.runtime.output_sample_rate,
                         self.runtime.pw_buffer_config.clone(),
                         self.runtime.adaptive_resampling_config.clone(),
+                        input_clock_us,
                     )?)
                 }
             }

@@ -1269,8 +1269,6 @@ impl SpatialRenderer {
             self.update_metadata(pending_events, ramp_strategy, &ramp_context)?;
         }
 
-        let start_time = std::time::Instant::now();
-
         // Derive sample count from slice length and channel count.
         let sample_length = if input_channel_count > 0 {
             input_pcm.len() / input_channel_count
@@ -1744,18 +1742,6 @@ impl SpatialRenderer {
                 peak_sample,
                 new_auto_gain,
                 total_reduction_db
-            );
-        }
-
-        // Warn only if rendering is unusually slow
-        let elapsed = start_time.elapsed();
-        if elapsed.as_micros() > 5000 {
-            let num_objects = input_channel_count - num_beds;
-            log::warn!(
-                "VBAP render_frame took {}μs ({} objects, {} samples) - VERY SLOW!",
-                elapsed.as_micros(),
-                num_objects,
-                sample_length
             );
         }
 

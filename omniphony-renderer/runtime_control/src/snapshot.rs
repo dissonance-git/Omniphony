@@ -390,7 +390,8 @@ pub fn build_live_state_bundle(
                         "lowRecoverSettleMarginMs": requested.adaptive.low_recover_settle_margin_ms,
                         "lowRecoverRefillDeltaAlpha": requested.adaptive.low_recover_refill_delta_alpha,
                         "controlSmoothingAlpha": requested.adaptive.control_smoothing_alpha,
-                        "paused": requested.adaptive.paused
+                        "paused": requested.adaptive.paused,
+                        "usePreBridgeClock": requested.adaptive.use_pre_bridge_clock
                     },
                     "latencyTargetMs": requested.latency_target_ms
                 })

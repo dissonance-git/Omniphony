@@ -788,3 +788,152 @@ property may be a state-machine artefact.
    the small `±1` jitter around `24` may still couple with the servo in
    ways that the constant `1` of EAC3 does not. Keep the metrics in
    place.
+
+---
+
+## Session 2026-05-19 — characterisation via FFT + pre-bridge clock servo
+
+### Tooling additions
+
+1. **Studio diag-plot FFT mode** — selected metrics are resampled onto a
+   uniform 20 ms grid (50 Hz sample rate, 25 Hz Nyquist), DC-subtracted,
+   Hanning-windowed, then run through a radix-2 Cooley-Tukey FFT. The
+   visible window length sets `N` (max 2048 at the 60 s window for
+   ~0.024 Hz bin resolution). The Y axis is absolute amplitude in dB
+   relative to 1 unit of the metric — so amplitudes are directly
+   comparable between captures. Peak marker labelled with `f Hz, dB`,
+   selection rectangle reads the spectral value at the pointer (not the
+   meaningless cursor Y geometry).
+
+2. **`d/dt` mode** — first-derivative view in either time or FFT domain.
+   Differences are taken between **actual value changes**, not between
+   consecutive polls: the studio polls at 50 Hz but the renderer
+   republishes at its own diag-rate cadence, so naively diffing adjacent
+   polls produces a poll/publish beat artefact. Skipping unchanged polls
+   recovers the true rate.
+
+3. **`input_clock_us` cumulative diag metric** (group `iec958`) — a
+   pre-decoder source-clock reference built from per-IEC958-chunk
+   subframe counts in `audio_input/src/pipewire.rs`. By construction
+   smooth: each S/PDIF subframe arrives at the source clock rate, and
+   the IEC61937 zero-padding keeps the subframe rate constant across
+   compressed bursts. Comparing its d/dt spectrum to that of
+   `cumulative_written_diag` (post-decode) shows whether a frequency
+   component lives in the source clock or only emerges after decoding.
+
+4. **`AdaptiveResamplingConfig::use_pre_bridge_clock` flag** (default
+   `false`, end-to-end plumbing through OSC `usePreBridgeClock` and a
+   studio toggle in the Adaptive Resampling advanced panel). When on,
+   the PI servo's input is overridden with `(input_clock_us · sample_rate
+   · channel_count / 1e6) − cumulative_drained_input_samples`, calibrated
+   against a one-shot offset captured at the first reading so it starts
+   exactly on `target_buffer_fill` and only deviates as the two clocks
+   genuinely drift. Ring level, FIFO, and resampler-pending continue to
+   feed `control_latency_ms`, the low-recover state machine, and
+   underrun/overrun safety paths. Bootstrap freeze (PI paused while
+   `input_clock_us == 0`) and recalibration on `recovery_reacquire_pending`
+   guard the discontinuities.
+
+### Calibration fixes uncovered along the way
+
+- `param_changed` in `audio_input/src/pipewire.rs` only updated
+  `user_data.rate_hz` / `user_data.channels` for the `Raw` subtype.
+  For IEC958 these stayed at the config defaults (2 ch / 192 kHz),
+  while PipeWire negotiated the 8-channel TrueHD alternative at
+  runtime. Result: `input_clock_us` was miscalibrated by ×4 on TrueHD.
+  Fix: call `AudioInfoRaw::parse` regardless of subtype —
+  `spa_format_audio_raw_parse` is a property-key lookup that works on
+  IEC958 pods identically to Raw pods.
+
+### Findings — characterising the source clock
+
+With `use_pre_bridge_clock = false` (baseline) and the FFT + d/dt
+overlay, on `clock_mode=Dac`:
+
+- `input_clock_us` d/dt → spectrum is **flat at 3.1 Hz** (just thermal
+  noise above the floor). Baseline ≈ 1 000 000 µs/s on Dac mode,
+  ≈ 950 000 µs/s on Pipewire mode (= −50 000 ppm drift, matches the
+  documented `~−55 000 ppm` hardware steady-state).
+- `cumulative_written_diag` d/dt → also flat at 3.1 Hz, because the
+  derivative is taken **between value changes**, which averages the
+  per-batch bursts away on cumulative counters.
+
+The sawtooth is therefore not in either cumulative signal — it lives in
+the **instantaneous buffer level** (= `cumulative_written −
+cumulative_drained`), which combines a bursty input (decoder pushes 24
+frames at a time on TrueHD) with a smooth output (DAC drains at a
+constant rate). Conclusion: the 3.1 Hz sawtooth is **decoder batching
+absorbed by the ring**, not a real latency oscillation. The PI sees it
+because it consumes the ring level; it should not.
+
+### EMA transfer-function verification
+
+Before settling on the architectural fix, the EMA was probed in three
+points by setting `control_smoothing_alpha` live and reading the FFT
+peak on `latency_smoothed_ms`:
+
+| `α`   | Measured peak | Theoretical EMA H(3.1 Hz) at 21 ms callback |
+| ----- | ------------- | ------------------------------------------- |
+| 0.2   | −6 dB         | −6.4 dB                                     |
+| 0.02  | −26 dB        | −26.1 dB                                    |
+| 0.002 | −46 dB        | −46.2 dB                                    |
+
+Match within < 0.5 dB across the range. **Identical with the local
+resampler off or on** — confirming the PI loop is not amplifying
+anything; the EMA acts as a passive low-pass on an external 3.1 Hz
+input. The architectural fix (move the PI's reference upstream of the
+decoder) is therefore strictly preferable to tuning the EMA: filtering
+adds lag, the upstream signal has no 3.1 Hz to filter in the first
+place.
+
+### Findings — pre-bridge clock servo (the architectural fix)
+
+After toggling `use_pre_bridge_clock = true` live via OSC / studio
+toggle, on `clock_mode=Dac`:
+
+- `runtime_state_code` stays at `0 = stable` across the toggle.
+- `latency_smoothed_ms` (the value the PI sees, now the override) drops
+  from its 18.5 ms p-p sawtooth to a much smaller residual.
+- `latency_control_ms` (raw ring, unchanged) keeps its 3.1 Hz sawtooth
+  as expected — the override does not touch the actual buffer.
+- `rate_adjust_ppm` becomes substantially smoother, no longer tracking
+  the batching.
+
+A small residual sawtooth survives. Different amplitude and **different
+period** from the pre-toggle 3.1 Hz, and the residual differs between
+TrueHD and EAC3. Quantitative characterisation deferred to the next
+session; the variables to capture for both codecs are:
+
+- residual peak f and dB on `latency_smoothed_ms` (override mode)
+- residual peak f and dB on `rate_adjust_ppm`
+- relationship between the residual period and the decoder's
+  `bridge_push_packet_dt_us` cadence (if any)
+
+### Status of prior hypotheses
+
+- **Closed-loop resonance EMA + PI** (carried over from earlier
+  sessions): **invalidated**. The EMA transfer function matched theory
+  exactly with the resampler on or off — the loop adds nothing.
+- **Decoder batching as the 3.1 Hz source**: **confirmed**. Pre-bridge
+  clock removes the dominant component.
+- **Source-side burst at the IEC958 transport layer**: **invalidated**.
+  `input_clock_us` d/dt is flat — the S/PDIF subframe stream is smooth
+  at the resolution of our diag plot.
+- **Residual oscillation after pre-bridge clock**: open. Codec-dependent,
+  smaller than the original, period yet to be measured precisely. To be
+  interpreted in the next session.
+
+### Next investigation steps
+
+1. Capture FFT peaks on `latency_smoothed_ms` and `rate_adjust_ppm`
+   with `use_pre_bridge_clock = true` for both TrueHD and EAC3 —
+   document the (f, dB) values per codec.
+2. Overlay `bridge_push_packet_dt_us` to see if the residual period
+   correlates with the bridge cadence (would suggest the residual is
+   still source-side jitter that the cumulative metric absorbs but the
+   instantaneous calibration captures somewhere).
+3. Consider the calibration-offset interplay: the offset is captured
+   once at first chunk, then the diff is taken. If the very first
+   chunks are atypical (boot transient), the offset may be biased and
+   the steady-state values would carry that bias. Test by forcing a
+   recalibration after a few seconds.

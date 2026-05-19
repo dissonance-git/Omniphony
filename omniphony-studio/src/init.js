@@ -355,6 +355,9 @@ export function applyInitState(payload) {
   if (typeof payload.adaptiveResamplingControlSmoothingAlpha === 'number') {
     app.adaptiveResamplingControlSmoothingAlpha = payload.adaptiveResamplingControlSmoothingAlpha;
   }
+  if (typeof payload.adaptiveResamplingUsePreBridgeClock === 'number') {
+    app.adaptiveResamplingUsePreBridgeClock = payload.adaptiveResamplingUsePreBridgeClock !== 0;
+  }
   if (typeof payload.adaptiveResamplingBand === 'string') {
     app.adaptiveResamplingBand = payload.adaptiveResamplingBand;
   }

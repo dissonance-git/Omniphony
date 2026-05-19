@@ -450,8 +450,19 @@ where
                 diag.register("iec958_decode_dt_us", "SPDIF parser dt", "iec958", "us")
             },
             diag_input_clock_us: {
+                // Reuse the atomic owned by InputControl so the audio_output PI
+                // and the diag registry observe the exact same value. Reg path
+                // is register_external (idempotent re-bind) instead of register.
                 let diag = input_control.diag_registry();
-                diag.register("input_clock_us", "Source-clock cumulative", "iec958", "us")
+                let shared = input_control.input_clock_us_atomic();
+                diag.register_external(
+                    "input_clock_us",
+                    "Source-clock cumulative",
+                    "iec958",
+                    "us",
+                    Arc::clone(&shared),
+                );
+                shared
             },
         })
         .state_changed(move |_stream, _user_data, old, new| {

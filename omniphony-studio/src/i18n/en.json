@@ -262,6 +262,8 @@
   "adaptive.lowRecoverSettleMargin": "Settling margin",
   "adaptive.lowRecoverRefillDeltaAlpha": "Refill EMA α",
   "adaptive.controlSmoothingAlpha": "Control smoothing α",
+  "adaptive.usePreBridgeClock": "Pre-bridge clock (PI input)",
+  "adaptive.usePreBridgeClockTitle": "Feed the PI servo with the IEC958 source-clock signal (pre-decoder) instead of the post-decode ring level. The source clock is smooth by construction, so the PI reacts directly to genuine hardware drift without the decoder's batching ripple.",
   "adaptive.thresholds": "Thresholds",
   "adaptive.infoButton": "Latency controls info",
   "adaptive.advancedButton": "Adaptive Resampling Advanced Settings",

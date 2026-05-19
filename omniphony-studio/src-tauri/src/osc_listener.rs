@@ -55,6 +55,7 @@ struct AudioAdaptiveDomainState {
     low_recover_refill_delta_alpha: Option<f32>,
     control_smoothing_alpha: Option<f64>,
     paused: Option<bool>,
+    use_pre_bridge_clock: Option<bool>,
 }
 
 #[derive(serde::Deserialize)]
@@ -471,6 +472,9 @@ fn apply_audio_domain_state(s: &mut AppState, value: &str) -> bool {
         }
         if let Some(paused) = adaptive.paused {
             s.adaptive_resampling_paused = Some(if paused { 1 } else { 0 });
+        }
+        if let Some(enabled) = adaptive.use_pre_bridge_clock {
+            s.adaptive_resampling_use_pre_bridge_clock = Some(if enabled { 1 } else { 0 });
         }
     }
     if let Some(latency_target_ms) = parsed.latency_target_ms {

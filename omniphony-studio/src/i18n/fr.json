@@ -262,6 +262,8 @@
   "adaptive.lowRecoverSettleMargin": "Marge de stabilisation",
   "adaptive.lowRecoverRefillDeltaAlpha": "α EMA refill",
   "adaptive.controlSmoothingAlpha": "α lissage contrôle",
+  "adaptive.usePreBridgeClock": "Horloge pré-bridge (entrée PI)",
+  "adaptive.usePreBridgeClockTitle": "Alimente le servo PI avec le signal d'horloge source IEC958 (pré-décodeur) au lieu du niveau de ring post-décodage. L'horloge source est lisse par construction, donc le PI réagit directement au drift hardware réel sans l'ondulation de batching du décodeur.",
   "adaptive.thresholds": "Seuils",
   "adaptive.infoButton": "Infos contrôles de latence",
   "adaptive.advancedButton": "Réglages avancés du resampling adaptatif",

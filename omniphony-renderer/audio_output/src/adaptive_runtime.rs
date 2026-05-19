@@ -53,6 +53,15 @@ pub struct AdaptiveRuntimeState {
     /// EMA of `control_available`, driving the servo and far-mode state machine.
     /// `None` until the first sample seeds it.
     pub smoothed_control_available: Option<f64>,
+    /// Bootstrap calibration for pre-bridge clock mode: the integer offset
+    /// `(input_clock_samples_eq - cumulative_drained_samples)` at the moment
+    /// the override first comes online (typically the first callback where
+    /// the input PwStream has produced any subframe). Subsequent samples
+    /// subtract this so the substituted `smoothed_control_available` starts
+    /// at exactly `target_buffer_fill` and only deviates as the two clocks
+    /// genuinely drift. Reset on reacquisition.
+    pub pre_bridge_offset_samples: i64,
+    pub pre_bridge_offset_initialized: bool,
 }
 
 impl AdaptiveRuntimeState {
@@ -74,6 +83,8 @@ impl AdaptiveRuntimeState {
             recovery_reacquire_pending: false,
             hard_recover_high_active: false,
             smoothed_control_available: None,
+            pre_bridge_offset_samples: 0,
+            pre_bridge_offset_initialized: false,
         }
     }
 
@@ -206,6 +217,8 @@ pub fn reset_adaptive_runtime(state: &mut AdaptiveRuntimeState, base_ratio: f64)
     state.recovery_reacquire_pending = false;
     state.hard_recover_high_active = false;
     state.smoothed_control_available = None;
+    state.pre_bridge_offset_samples = 0;
+    state.pre_bridge_offset_initialized = false;
     ResetOutcome {
         effective_resample_ratio: base_ratio,
         displayed_rate_adjust: 1.0,

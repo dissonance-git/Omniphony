@@ -179,6 +179,7 @@ export const app = {
   adaptiveResamplingLowRecoverSettleMarginMs: 6,
   adaptiveResamplingLowRecoverRefillDeltaAlpha: 0.5,
   adaptiveResamplingControlSmoothingAlpha: 0.02,
+  adaptiveResamplingUsePreBridgeClock: false,
   adaptiveResamplingBand: null,
   adaptiveResamplingState: null,
 
