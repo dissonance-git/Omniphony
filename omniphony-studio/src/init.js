@@ -352,8 +352,11 @@ export function applyInitState(payload) {
   if (typeof payload.adaptiveResamplingLowRecoverRefillDeltaAlpha === 'number') {
     app.adaptiveResamplingLowRecoverRefillDeltaAlpha = payload.adaptiveResamplingLowRecoverRefillDeltaAlpha;
   }
-  if (typeof payload.adaptiveResamplingControlSmoothingAlpha === 'number') {
-    app.adaptiveResamplingControlSmoothingAlpha = payload.adaptiveResamplingControlSmoothingAlpha;
+  if (typeof payload.adaptiveResamplingControlSmoothingCutoffHz === 'number') {
+    app.adaptiveResamplingControlSmoothingCutoffHz = payload.adaptiveResamplingControlSmoothingCutoffHz;
+  }
+  if (typeof payload.adaptiveResamplingControlSmoothingOrder === 'number') {
+    app.adaptiveResamplingControlSmoothingOrder = payload.adaptiveResamplingControlSmoothingOrder;
   }
   if (typeof payload.adaptiveResamplingUsePreBridgeClock === 'number') {
     app.adaptiveResamplingUsePreBridgeClock = payload.adaptiveResamplingUsePreBridgeClock !== 0;

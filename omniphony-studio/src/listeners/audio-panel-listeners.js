@@ -40,7 +40,8 @@ export function setupAudioPanelListeners() {
   const adaptiveLowRecoverExitMarginMsInputEl = document.getElementById('adaptiveLowRecoverExitMarginMsInput');
   const adaptiveLowRecoverSettleMarginMsInputEl = document.getElementById('adaptiveLowRecoverSettleMarginMsInput');
   const adaptiveLowRecoverRefillDeltaAlphaInputEl = document.getElementById('adaptiveLowRecoverRefillDeltaAlphaInput');
-  const adaptiveControlSmoothingAlphaInputEl = document.getElementById('adaptiveControlSmoothingAlphaInput');
+  const adaptiveControlSmoothingCutoffHzInputEl = document.getElementById('adaptiveControlSmoothingCutoffHzInput');
+  const adaptiveControlSmoothingOrderSelectEl = document.getElementById('adaptiveControlSmoothingOrderSelect');
   const adaptiveUsePreBridgeClockToggleEl = document.getElementById('adaptiveUsePreBridgeClockToggle');
   const adaptiveUseOutputPacingToggleEl = document.getElementById('adaptiveUseOutputPacingToggle');
   const latencyTargetInputEl = document.getElementById('latencyTargetInput');
@@ -178,7 +179,8 @@ export function setupAudioPanelListeners() {
       const lowRecoverExitMarginMs = Math.max(0, Number(adaptiveLowRecoverExitMarginMsInputEl?.value) || 0);
       const lowRecoverSettleMarginMs = Math.max(0, Number(adaptiveLowRecoverSettleMarginMsInputEl?.value) || 0);
       const lowRecoverRefillDeltaAlpha = Math.min(1, Math.max(0, Number(adaptiveLowRecoverRefillDeltaAlphaInputEl?.value) || 0));
-      const controlSmoothingAlpha = Math.min(1, Math.max(0, Number(adaptiveControlSmoothingAlphaInputEl?.value) || 0));
+      const controlSmoothingCutoffHz = Math.max(0.001, Number(adaptiveControlSmoothingCutoffHzInputEl?.value) || 0.5);
+      const controlSmoothingOrder = Math.min(2, Math.max(1, Math.round(Number(adaptiveControlSmoothingOrderSelectEl?.value) || 1)));
 
       app.adaptiveResamplingKpNear = kpNear;
       app.adaptiveResamplingKi = ki;
@@ -192,7 +194,8 @@ export function setupAudioPanelListeners() {
       app.adaptiveResamplingLowRecoverExitMarginMs = lowRecoverExitMarginMs;
       app.adaptiveResamplingLowRecoverSettleMarginMs = lowRecoverSettleMarginMs;
       app.adaptiveResamplingLowRecoverRefillDeltaAlpha = lowRecoverRefillDeltaAlpha;
-      app.adaptiveResamplingControlSmoothingAlpha = controlSmoothingAlpha;
+      app.adaptiveResamplingControlSmoothingCutoffHz = controlSmoothingCutoffHz;
+      app.adaptiveResamplingControlSmoothingOrder = controlSmoothingOrder;
       updateAdaptiveResamplingUI();
       sendAudioConfig();
 
@@ -405,14 +408,21 @@ export function setupAudioPanelListeners() {
     });
   }
 
-  if (adaptiveControlSmoothingAlphaInputEl) {
-    adaptiveControlSmoothingAlphaInputEl.addEventListener('focus', () => {
-      app.adaptiveControlSmoothingAlphaEditing = true;
-      adaptiveControlSmoothingAlphaInputEl.select();
+  if (adaptiveControlSmoothingCutoffHzInputEl) {
+    adaptiveControlSmoothingCutoffHzInputEl.addEventListener('focus', () => {
+      app.adaptiveControlSmoothingCutoffHzEditing = true;
+      adaptiveControlSmoothingCutoffHzInputEl.select();
     });
-    adaptiveControlSmoothingAlphaInputEl.addEventListener('input', () => {
-      app.adaptiveControlSmoothingAlphaEditing = true;
-      app.adaptiveControlSmoothingAlphaDirty = true;
+    adaptiveControlSmoothingCutoffHzInputEl.addEventListener('input', () => {
+      app.adaptiveControlSmoothingCutoffHzEditing = true;
+      app.adaptiveControlSmoothingCutoffHzDirty = true;
+      updateAdaptiveResamplingUI();
+    });
+  }
+
+  if (adaptiveControlSmoothingOrderSelectEl) {
+    adaptiveControlSmoothingOrderSelectEl.addEventListener('change', () => {
+      app.adaptiveControlSmoothingOrderDirty = true;
       updateAdaptiveResamplingUI();
     });
   }

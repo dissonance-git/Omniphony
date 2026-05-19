@@ -50,9 +50,13 @@ pub struct AdaptiveRuntimeState {
     pub last_logged_ratio_bits: u64,
     pub recovery_reacquire_pending: bool,
     pub hard_recover_high_active: bool,
-    /// EMA of `control_available`, driving the servo and far-mode state machine.
-    /// `None` until the first sample seeds it.
+    /// IIR low-pass state for the control_available smoothing seen by the
+    /// PI servo. Replaces the old EMA. The previous output is kept as
+    /// `smoothed_control_available` (also published in the latency
+    /// telemetry); the additional internal state of the biquad lives in
+    /// `iir_state`.
     pub smoothed_control_available: Option<f64>,
+    pub iir_state: crate::iir::IirLowPassState,
     /// Bootstrap calibration for pre-bridge clock mode: the integer offset
     /// `(input_clock_samples_eq - cumulative_drained_samples)` **averaged**
     /// over `PRE_BRIDGE_CALIBRATION_CALLBACKS` callbacks once the input
@@ -95,6 +99,7 @@ impl AdaptiveRuntimeState {
             recovery_reacquire_pending: false,
             hard_recover_high_active: false,
             smoothed_control_available: None,
+            iir_state: crate::iir::IirLowPassState::default(),
             pre_bridge_offset_samples: 0,
             pre_bridge_offset_initialized: false,
             pre_bridge_offset_accum: 0,
@@ -182,7 +187,9 @@ pub fn update_latency_metrics(
     channel_count: usize,
     sample_rate: u32,
     graph_latency_ms: f32,
-    control_smoothing_alpha: f64,
+    control_smoothing_cutoff_hz: f64,
+    control_smoothing_order: u32,
+    callback_dt_s: f64,
     targets: LatencyMetricTargets<'_>,
 ) -> LatencyMetrics {
     let total_available_input_domain = available_input_samples
@@ -190,12 +197,15 @@ pub fn update_latency_metrics(
         .saturating_add(pending_resampler_input_samples);
     let control_available =
         total_available_input_domain.saturating_sub(callback_input_domain_samples / 2);
-    // Smooth the control-path level for the servo / far-mode state machine.
-    // Telemetry below keeps the raw `control_available`.
-    let smoothed = match state.smoothed_control_available {
-        Some(prev) => prev + (control_available as f64 - prev) * control_smoothing_alpha,
-        None => control_available as f64,
-    };
+    // Low-pass the control-path level fed to the servo / far-mode state
+    // machine through a parametric IIR (1st or 2nd order, configurable
+    // cutoff in Hz). Telemetry below keeps the raw `control_available`.
+    let smoothed = state.iir_state.step(
+        control_available as f64,
+        control_smoothing_cutoff_hz,
+        callback_dt_s,
+        control_smoothing_order,
+    );
     state.smoothed_control_available = Some(smoothed);
     let smoothed_control_available = smoothed.round().max(0.0) as usize;
     store_latency_metrics_from_control_available(
@@ -231,6 +241,7 @@ pub fn reset_adaptive_runtime(state: &mut AdaptiveRuntimeState, base_ratio: f64)
     state.recovery_reacquire_pending = false;
     state.hard_recover_high_active = false;
     state.smoothed_control_available = None;
+    state.iir_state.reset();
     state.pre_bridge_offset_samples = 0;
     state.pre_bridge_offset_initialized = false;
     state.pre_bridge_offset_accum = 0;

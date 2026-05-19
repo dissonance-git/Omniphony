@@ -40,8 +40,10 @@ function getAdaptiveLowRecoverSettleMarginMsInputEl() { return inAudioPanel('ada
 function getAdaptiveLowRecoverSettleMarginMsRowEl() { return inAudioPanel('adaptiveLowRecoverSettleMarginMsRow'); }
 function getAdaptiveLowRecoverRefillDeltaAlphaInputEl() { return inAudioPanel('adaptiveLowRecoverRefillDeltaAlphaInput'); }
 function getAdaptiveLowRecoverRefillDeltaAlphaRowEl() { return inAudioPanel('adaptiveLowRecoverRefillDeltaAlphaRow'); }
-function getAdaptiveControlSmoothingAlphaInputEl() { return inAudioPanel('adaptiveControlSmoothingAlphaInput'); }
-function getAdaptiveControlSmoothingAlphaRowEl() { return inAudioPanel('adaptiveControlSmoothingAlphaRow'); }
+function getAdaptiveControlSmoothingCutoffHzInputEl() { return inAudioPanel('adaptiveControlSmoothingCutoffHzInput'); }
+function getAdaptiveControlSmoothingCutoffRowEl() { return inAudioPanel('adaptiveControlSmoothingCutoffRow'); }
+function getAdaptiveControlSmoothingOrderSelectEl() { return inAudioPanel('adaptiveControlSmoothingOrderSelect'); }
+function getAdaptiveControlSmoothingOrderRowEl() { return inAudioPanel('adaptiveControlSmoothingOrderRow'); }
 function getAdaptiveUsePreBridgeClockToggleEl() { return inAudioPanel('adaptiveUsePreBridgeClockToggle'); }
 function getAdaptiveUsePreBridgeClockRowEl() { return inAudioPanel('adaptiveUsePreBridgeClockRow'); }
 function getAdaptiveUseOutputPacingToggleEl() { return inAudioPanel('adaptiveUseOutputPacingToggle'); }
@@ -85,8 +87,10 @@ export function renderAdaptiveResamplingUI() {
   const adaptiveLowRecoverSettleMarginMsRowEl = getAdaptiveLowRecoverSettleMarginMsRowEl();
   const adaptiveLowRecoverRefillDeltaAlphaInputEl = getAdaptiveLowRecoverRefillDeltaAlphaInputEl();
   const adaptiveLowRecoverRefillDeltaAlphaRowEl = getAdaptiveLowRecoverRefillDeltaAlphaRowEl();
-  const adaptiveControlSmoothingAlphaInputEl = getAdaptiveControlSmoothingAlphaInputEl();
-  const adaptiveControlSmoothingAlphaRowEl = getAdaptiveControlSmoothingAlphaRowEl();
+  const adaptiveControlSmoothingCutoffHzInputEl = getAdaptiveControlSmoothingCutoffHzInputEl();
+  const adaptiveControlSmoothingCutoffRowEl = getAdaptiveControlSmoothingCutoffRowEl();
+  const adaptiveControlSmoothingOrderSelectEl = getAdaptiveControlSmoothingOrderSelectEl();
+  const adaptiveControlSmoothingOrderRowEl = getAdaptiveControlSmoothingOrderRowEl();
   const adaptiveUsePreBridgeClockToggleEl = getAdaptiveUsePreBridgeClockToggleEl();
   const adaptiveUsePreBridgeClockRowEl = getAdaptiveUsePreBridgeClockRowEl();
   const adaptiveUseOutputPacingToggleEl = getAdaptiveUseOutputPacingToggleEl();
@@ -241,13 +245,27 @@ export function renderAdaptiveResamplingUI() {
       adaptiveLowRecoverRefillDeltaAlphaInputEl.value = app.adaptiveResamplingLowRecoverRefillDeltaAlpha === null ? '' : Number(app.adaptiveResamplingLowRecoverRefillDeltaAlpha).toFixed(2);
     }
   }
-  if (adaptiveControlSmoothingAlphaRowEl) {
-    adaptiveControlSmoothingAlphaRowEl.classList.toggle('adaptive-param-disabled', !hasAudioDomain);
+  if (adaptiveControlSmoothingCutoffRowEl) {
+    adaptiveControlSmoothingCutoffRowEl.classList.toggle('adaptive-param-disabled', !hasAudioDomain);
   }
-  if (adaptiveControlSmoothingAlphaInputEl) {
-    adaptiveControlSmoothingAlphaInputEl.disabled = !hasAudioDomain;
-    if (!app.adaptiveControlSmoothingAlphaEditing && !app.adaptiveControlSmoothingAlphaDirty) {
-      adaptiveControlSmoothingAlphaInputEl.value = app.adaptiveResamplingControlSmoothingAlpha === null ? '' : Number(app.adaptiveResamplingControlSmoothingAlpha).toFixed(3);
+  if (adaptiveControlSmoothingCutoffHzInputEl) {
+    adaptiveControlSmoothingCutoffHzInputEl.disabled = !hasAudioDomain;
+    if (!app.adaptiveControlSmoothingCutoffHzEditing && !app.adaptiveControlSmoothingCutoffHzDirty) {
+      adaptiveControlSmoothingCutoffHzInputEl.value =
+        app.adaptiveResamplingControlSmoothingCutoffHz === null
+          ? ''
+          : Number(app.adaptiveResamplingControlSmoothingCutoffHz).toFixed(3);
+    }
+  }
+  if (adaptiveControlSmoothingOrderRowEl) {
+    adaptiveControlSmoothingOrderRowEl.classList.toggle('adaptive-param-disabled', !hasAudioDomain);
+  }
+  if (adaptiveControlSmoothingOrderSelectEl) {
+    adaptiveControlSmoothingOrderSelectEl.disabled = !hasAudioDomain;
+    if (!app.adaptiveControlSmoothingOrderDirty) {
+      adaptiveControlSmoothingOrderSelectEl.value = String(
+        app.adaptiveResamplingControlSmoothingOrder ?? 1,
+      );
     }
   }
   if (adaptiveUsePreBridgeClockRowEl) {
@@ -312,7 +330,8 @@ export function renderAdaptiveResamplingUI() {
     app.adaptiveLowRecoverExitMarginMsDirty ||
     app.adaptiveLowRecoverSettleMarginMsDirty ||
     app.adaptiveLowRecoverRefillDeltaAlphaDirty ||
-    app.adaptiveControlSmoothingAlphaDirty;
+    app.adaptiveControlSmoothingCutoffHzDirty ||
+    app.adaptiveControlSmoothingOrderDirty;
   if (adaptiveResamplingAdvancedApplyBtnEl) {
     adaptiveResamplingAdvancedApplyBtnEl.disabled = !adaptiveDirty;
     adaptiveResamplingAdvancedApplyBtnEl.style.opacity = adaptiveDirty ? '1' : '0.45';
@@ -356,6 +375,7 @@ export function resetAdaptiveResamplingAdvancedDirtyState() {
   app.adaptiveLowRecoverSettleMarginMsEditing = false;
   app.adaptiveLowRecoverRefillDeltaAlphaDirty = false;
   app.adaptiveLowRecoverRefillDeltaAlphaEditing = false;
-  app.adaptiveControlSmoothingAlphaDirty = false;
-  app.adaptiveControlSmoothingAlphaEditing = false;
+  app.adaptiveControlSmoothingCutoffHzDirty = false;
+  app.adaptiveControlSmoothingCutoffHzEditing = false;
+  app.adaptiveControlSmoothingOrderDirty = false;
 }

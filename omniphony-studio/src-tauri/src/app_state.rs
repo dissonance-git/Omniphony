@@ -358,8 +358,10 @@ pub struct AppState {
     pub adaptive_resampling_low_recover_settle_margin_ms: Option<f64>,
     #[serde(rename = "adaptiveResamplingLowRecoverRefillDeltaAlpha")]
     pub adaptive_resampling_low_recover_refill_delta_alpha: Option<f64>,
-    #[serde(rename = "adaptiveResamplingControlSmoothingAlpha")]
-    pub adaptive_resampling_control_smoothing_alpha: Option<f64>,
+    #[serde(rename = "adaptiveResamplingControlSmoothingCutoffHz")]
+    pub adaptive_resampling_control_smoothing_cutoff_hz: Option<f64>,
+    #[serde(rename = "adaptiveResamplingControlSmoothingOrder")]
+    pub adaptive_resampling_control_smoothing_order: Option<u32>,
     #[serde(rename = "adaptiveResamplingBand")]
     pub adaptive_resampling_band: Option<String>,
     #[serde(rename = "adaptiveResamplingState")]
@@ -619,7 +621,8 @@ impl Default for AppState {
             adaptive_resampling_low_recover_exit_margin_ms: Some(6.0),
             adaptive_resampling_low_recover_settle_margin_ms: Some(6.0),
             adaptive_resampling_low_recover_refill_delta_alpha: Some(0.5),
-            adaptive_resampling_control_smoothing_alpha: Some(0.02),
+            adaptive_resampling_control_smoothing_cutoff_hz: Some(0.5),
+            adaptive_resampling_control_smoothing_order: Some(1),
             adaptive_resampling_band: None,
             adaptive_resampling_state: None,
             adaptive_resampling_paused: Some(0),

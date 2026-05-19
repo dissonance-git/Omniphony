@@ -218,8 +218,10 @@ impl<'a> OutputRuntimeCoordinator<'a> {
                             .requested_adaptive_resampling_low_recover_settle_margin_ms(),
                         low_recover_refill_delta_alpha: control
                             .requested_adaptive_resampling_low_recover_refill_delta_alpha(),
-                        control_smoothing_alpha: control
-                            .requested_adaptive_resampling_control_smoothing_alpha(),
+                        control_smoothing_cutoff_hz: control
+                            .requested_adaptive_resampling_control_smoothing_cutoff_hz(),
+                        control_smoothing_order: control
+                            .requested_adaptive_resampling_control_smoothing_order(),
                         paused: control.requested_adaptive_resampling_paused(),
                         use_pre_bridge_clock: control
                             .requested_adaptive_resampling_use_pre_bridge_clock(),
@@ -293,11 +295,16 @@ impl<'a> OutputRuntimeCoordinator<'a> {
                         .runtime
                         .adaptive_resampling_config
                         .low_recover_refill_delta_alpha
-                && requested.control_smoothing_alpha
+                && requested.control_smoothing_cutoff_hz
                     == self
                         .runtime
                         .adaptive_resampling_config
-                        .control_smoothing_alpha
+                        .control_smoothing_cutoff_hz
+                && requested.control_smoothing_order
+                    == self
+                        .runtime
+                        .adaptive_resampling_config
+                        .control_smoothing_order
                 && requested.paused == self.runtime.adaptive_resampling_config.paused
                 && requested.use_pre_bridge_clock
                     == self.runtime.adaptive_resampling_config.use_pre_bridge_clock
@@ -309,7 +316,7 @@ impl<'a> OutputRuntimeCoordinator<'a> {
 
             self.runtime.adaptive_resampling_config = requested;
             log::info!(
-                "Applying adaptive resampling tuning (live): far_mode={}, far_silence={}, hard_recover_high={}, hard_recover_low={}, far_return_fade_in_ms={}, kp={:.4}, ki={:.4}, integral_discharge_ratio={:.4}, max_adjust={:.6}, update_interval_callbacks={}, far_threshold_ms={}, low_recover_settle_stable_ms={:.2}, low_recover_entry_margin_ms={:.2}, low_recover_exit_margin_ms={:.2}, low_recover_settle_margin_ms={:.2}, low_recover_refill_delta_alpha={:.3}, control_smoothing_alpha={:.4}, use_pre_bridge_clock={}, use_output_pacing={}",
+                "Applying adaptive resampling tuning (live): far_mode={}, far_silence={}, hard_recover_high={}, hard_recover_low={}, far_return_fade_in_ms={}, kp={:.4}, ki={:.4}, integral_discharge_ratio={:.4}, max_adjust={:.6}, update_interval_callbacks={}, far_threshold_ms={}, low_recover_settle_stable_ms={:.2}, low_recover_entry_margin_ms={:.2}, low_recover_exit_margin_ms={:.2}, low_recover_settle_margin_ms={:.2}, low_recover_refill_delta_alpha={:.3}, control_smoothing_cutoff_hz={:.3}, control_smoothing_order={}, use_pre_bridge_clock={}, use_output_pacing={}",
                 self.runtime.adaptive_resampling_config.enable_far_mode,
                 self.runtime
                     .adaptive_resampling_config
@@ -352,7 +359,10 @@ impl<'a> OutputRuntimeCoordinator<'a> {
                     .low_recover_refill_delta_alpha,
                 self.runtime
                     .adaptive_resampling_config
-                    .control_smoothing_alpha,
+                    .control_smoothing_cutoff_hz,
+                self.runtime
+                    .adaptive_resampling_config
+                    .control_smoothing_order,
                 self.runtime
                     .adaptive_resampling_config
                     .use_pre_bridge_clock,

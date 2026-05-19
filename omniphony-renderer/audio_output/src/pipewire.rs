@@ -1760,6 +1760,19 @@ fn run_pipewire_loop(
                     // 2026-05-17, "Cancellation attempts". The cumulative
                     // counters and `cumulative_flow_control_available` are
                     // still published as observation metrics below.
+                    // Read the measured callback period (us) for the IIR
+                    // cutoff math. Fallback to the configured quantum if
+                    // the atomic hasn't been populated yet on the first
+                    // callback.
+                    let callback_dt_us =
+                        f64::from_bits(output_callback_dt_us_for_callback.load(Ordering::Relaxed));
+                    let callback_dt_s = if callback_dt_us > 0.0 {
+                        callback_dt_us / 1_000_000.0
+                    } else {
+                        // Same nominal as `quantum_ms` (computed at
+                        // construction); kept as a constant fallback.
+                        (1024_f64) / (sample_rate as f64)
+                    };
                     let mut metrics = update_latency_metrics(
                         &mut runtime_state,
                         available,
@@ -1769,7 +1782,9 @@ fn run_pipewire_loop(
                         channel_count as usize,
                         sample_rate,
                         f32::from_bits(graph_latency_for_callback.load(Ordering::Relaxed)),
-                        current_adaptive_cfg.control_smoothing_alpha,
+                        current_adaptive_cfg.control_smoothing_cutoff_hz,
+                        current_adaptive_cfg.control_smoothing_order,
+                        callback_dt_s,
                         LatencyMetricTargets {
                             measured_latency_ms_bits: &measured_latency_ms_out,
                             control_latency_ms_bits: &control_latency_ms_out,

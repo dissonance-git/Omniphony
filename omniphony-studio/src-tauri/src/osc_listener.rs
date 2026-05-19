@@ -53,7 +53,8 @@ struct AudioAdaptiveDomainState {
     low_recover_exit_margin_ms: Option<f32>,
     low_recover_settle_margin_ms: Option<f32>,
     low_recover_refill_delta_alpha: Option<f32>,
-    control_smoothing_alpha: Option<f64>,
+    control_smoothing_cutoff_hz: Option<f64>,
+    control_smoothing_order: Option<u32>,
     paused: Option<bool>,
     use_pre_bridge_clock: Option<bool>,
     use_output_pacing: Option<bool>,
@@ -468,8 +469,11 @@ fn apply_audio_domain_state(s: &mut AppState, value: &str) -> bool {
         if let Some(value) = adaptive.low_recover_refill_delta_alpha {
             s.adaptive_resampling_low_recover_refill_delta_alpha = Some(value as f64);
         }
-        if let Some(value) = adaptive.control_smoothing_alpha {
-            s.adaptive_resampling_control_smoothing_alpha = Some(value);
+        if let Some(value) = adaptive.control_smoothing_cutoff_hz {
+            s.adaptive_resampling_control_smoothing_cutoff_hz = Some(value);
+        }
+        if let Some(value) = adaptive.control_smoothing_order {
+            s.adaptive_resampling_control_smoothing_order = Some(value);
         }
         if let Some(paused) = adaptive.paused {
             s.adaptive_resampling_paused = Some(if paused { 1 } else { 0 });

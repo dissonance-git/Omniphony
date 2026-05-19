@@ -480,8 +480,10 @@ pub(super) fn effective_to_config(
             .and_then(|cfg| cfg.adaptive_resampling_low_recover_settle_margin_ms),
         adaptive_resampling_low_recover_refill_delta_alpha: existing_render_cfg
             .and_then(|cfg| cfg.adaptive_resampling_low_recover_refill_delta_alpha),
-        adaptive_resampling_control_smoothing_alpha: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_control_smoothing_alpha),
+        adaptive_resampling_control_smoothing_cutoff_hz: existing_render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_control_smoothing_cutoff_hz),
+        adaptive_resampling_control_smoothing_order: existing_render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_control_smoothing_order),
         adaptive_resampling_use_pre_bridge_clock: existing_render_cfg
             .and_then(|cfg| cfg.adaptive_resampling_use_pre_bridge_clock),
         adaptive_resampling_use_output_pacing: existing_render_cfg

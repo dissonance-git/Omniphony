@@ -397,6 +397,15 @@ impl AsioWriter {
                 pipeline_latency_ms_bits_clone
                     .store(callback_midpoint_ms.to_bits(), Ordering::Relaxed);
                 let current_asio_cfg = live_config_for_callback.lock().unwrap().clone();
+                // ASIO callback dt comes from the nominal frame size of
+                // the active buffer. We don't have an atomic-published dt
+                // here as on the PipeWire path; the configured value is
+                // accurate enough for the cutoff math.
+                let callback_dt_s = if input_sample_rate > 0 {
+                    callback_frames as f64 / input_sample_rate as f64
+                } else {
+                    0.021
+                };
                 let metrics = update_latency_metrics(
                     &mut runtime_state,
                     available_samples,
@@ -406,7 +415,9 @@ impl AsioWriter {
                     channel_count as usize,
                     input_sample_rate,
                     callback_midpoint_ms,
-                    current_asio_cfg.control_smoothing_alpha,
+                    current_asio_cfg.control_smoothing_cutoff_hz,
+                    current_asio_cfg.control_smoothing_order,
+                    callback_dt_s,
                     LatencyMetricTargets {
                         measured_latency_ms_bits: &measured_latency_ms_bits_clone,
                         control_latency_ms_bits: &control_latency_ms_bits_clone,

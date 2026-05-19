@@ -118,10 +118,13 @@ fn build_adaptive_resampling_config(
         low_recover_refill_delta_alpha: render_cfg
             .and_then(|cfg| cfg.adaptive_resampling_low_recover_refill_delta_alpha)
             .unwrap_or(defaults.low_recover_refill_delta_alpha),
-        control_smoothing_alpha: render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_control_smoothing_alpha)
+        control_smoothing_cutoff_hz: render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_control_smoothing_cutoff_hz)
             .map(|v| v as f64)
-            .unwrap_or(defaults.control_smoothing_alpha),
+            .unwrap_or(defaults.control_smoothing_cutoff_hz),
+        control_smoothing_order: render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_control_smoothing_order)
+            .unwrap_or(defaults.control_smoothing_order),
         paused: false,
         use_pre_bridge_clock: render_cfg
             .and_then(|cfg| cfg.adaptive_resampling_use_pre_bridge_clock)

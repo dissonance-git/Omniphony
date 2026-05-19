@@ -218,9 +218,16 @@ export function audioPanelMarkup() {
                 <label for="adaptiveLowRecoverRefillDeltaAlphaInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverRefillDeltaAlpha">Refill EMA α</label>
                 <input id="adaptiveLowRecoverRefillDeltaAlphaInput" class="delay-input" type="number" min="0" max="1" step="0.01" value="0.5" style="width:8rem" />
               </div>
-              <div id="adaptiveControlSmoothingAlphaRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveControlSmoothingAlphaInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.controlSmoothingAlpha">Control smoothing α</label>
-                <input id="adaptiveControlSmoothingAlphaInput" class="delay-input" type="number" min="0" max="1" step="0.001" value="0.02" style="width:8rem" />
+              <div id="adaptiveControlSmoothingCutoffRow" class="control-row" style="margin-top:0.2rem">
+                <label for="adaptiveControlSmoothingCutoffHzInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.controlSmoothingCutoffHz">IIR cutoff (Hz)</label>
+                <input id="adaptiveControlSmoothingCutoffHzInput" class="delay-input" type="number" min="0.001" max="20" step="0.05" value="0.5" style="width:8rem" />
+              </div>
+              <div id="adaptiveControlSmoothingOrderRow" class="control-row" style="margin-top:0.2rem">
+                <label for="adaptiveControlSmoothingOrderSelect" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.controlSmoothingOrder">IIR order</label>
+                <select id="adaptiveControlSmoothingOrderSelect" style="font-size:11px;background:rgba(255,255,255,0.06);color:#d9ecff;border:1px solid rgba(255,255,255,0.18);border-radius:4px;padding:0.1rem 0.25rem">
+                  <option value="1">1 (single pole, 6 dB/oct)</option>
+                  <option value="2">2 (Butterworth, 12 dB/oct)</option>
+                </select>
               </div>
               <div id="adaptiveUsePreBridgeClockRow" class="control-row" style="margin-top:0.2rem">
                 <label for="adaptiveUsePreBridgeClockToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.usePreBridgeClock" data-i18n-title="adaptive.usePreBridgeClockTitle" title="Feed the PI servo with the IEC958 source-clock signal (pre-decoder) instead of the post-decode ring level. The source clock is smooth by construction, so the PI reacts directly to genuine hardware drift without the decoder's batching ripple.">Pre-bridge clock (PI input)</label>

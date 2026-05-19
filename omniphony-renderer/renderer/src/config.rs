@@ -155,7 +155,9 @@ pub struct RenderConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adaptive_resampling_low_recover_refill_delta_alpha: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub adaptive_resampling_control_smoothing_alpha: Option<f32>,
+    pub adaptive_resampling_control_smoothing_cutoff_hz: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adaptive_resampling_control_smoothing_order: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adaptive_resampling_use_pre_bridge_clock: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]

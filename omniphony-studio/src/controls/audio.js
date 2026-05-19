@@ -45,7 +45,8 @@ export function buildAudioConfigPayload() {
       lowRecoverExitMarginMs: Math.max(0, Number(app.adaptiveResamplingLowRecoverExitMarginMs ?? 6)),
       lowRecoverSettleMarginMs: Math.max(0, Number(app.adaptiveResamplingLowRecoverSettleMarginMs ?? 6)),
       lowRecoverRefillDeltaAlpha: Math.min(1, Math.max(0, Number(app.adaptiveResamplingLowRecoverRefillDeltaAlpha ?? 0.5))),
-      controlSmoothingAlpha: Math.min(1, Math.max(0, Number(app.adaptiveResamplingControlSmoothingAlpha ?? 0.02))),
+      controlSmoothingCutoffHz: Math.max(0.001, Number(app.adaptiveResamplingControlSmoothingCutoffHz ?? 0.5)),
+      controlSmoothingOrder: Math.min(2, Math.max(1, Math.round(Number(app.adaptiveResamplingControlSmoothingOrder ?? 1)))),
       paused: app.adaptiveResamplingPaused === true,
       usePreBridgeClock: app.adaptiveResamplingUsePreBridgeClock === true,
       useOutputPacing: app.adaptiveResamplingUseOutputPacing === true

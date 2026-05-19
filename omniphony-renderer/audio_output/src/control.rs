@@ -333,14 +333,24 @@ impl AudioControl {
             .low_recover_refill_delta_alpha
     }
 
-    pub fn set_requested_adaptive_resampling_control_smoothing_alpha(&self, value: f32) {
+    pub fn set_requested_adaptive_resampling_control_smoothing_cutoff_hz(&self, value: f32) {
         self.update_requested(|requested| {
-            requested.adaptive.control_smoothing_alpha = value as f64;
+            requested.adaptive.control_smoothing_cutoff_hz = value as f64;
         });
     }
 
-    pub fn requested_adaptive_resampling_control_smoothing_alpha(&self) -> f64 {
-        self.requested_snapshot().adaptive.control_smoothing_alpha
+    pub fn requested_adaptive_resampling_control_smoothing_cutoff_hz(&self) -> f64 {
+        self.requested_snapshot().adaptive.control_smoothing_cutoff_hz
+    }
+
+    pub fn set_requested_adaptive_resampling_control_smoothing_order(&self, value: u32) {
+        self.update_requested(|requested| {
+            requested.adaptive.control_smoothing_order = value.clamp(1, 2);
+        });
+    }
+
+    pub fn requested_adaptive_resampling_control_smoothing_order(&self) -> u32 {
+        self.requested_snapshot().adaptive.control_smoothing_order
     }
 
     pub fn set_requested_adaptive_resampling_paused(&self, paused: bool) {

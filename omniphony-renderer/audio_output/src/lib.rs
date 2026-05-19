@@ -1,5 +1,6 @@
 pub mod adaptive_runtime;
 pub mod control;
+pub mod iir;
 pub mod pacer;
 pub mod resampler_fifo;
 pub mod ring_buffer_io;
@@ -35,9 +36,16 @@ pub struct AdaptiveResamplingConfig {
     pub low_recover_settle_margin_ms: f32,
     /// EMA factor for tracking the refill delta across callbacks.
     pub low_recover_refill_delta_alpha: f32,
-    /// EMA factor for the control-path buffer level. Smoothing over ~1 s keeps
-    /// the servo and far-mode state machine stable against decoder bursts.
-    pub control_smoothing_alpha: f64,
+    /// Cutoff frequency (Hz) for the IIR low-pass that filters the
+    /// control-path buffer level seen by the PI servo. Replaces the old
+    /// fixed-α EMA — parametrising the filter in physical units makes the
+    /// tuning intuitive (0.5 Hz cleanly suppresses the ~3 Hz decoder
+    /// batching ripple while still tracking sub-Hz hardware drift).
+    pub control_smoothing_cutoff_hz: f64,
+    /// IIR filter order: 1 = single pole (6 dB/oct rolloff), 2 = Butterworth
+    /// biquad (12 dB/oct). Higher order rejects out-of-band ripple more
+    /// aggressively at the cost of slightly more phase lag near the cutoff.
+    pub control_smoothing_order: u32,
     /// When true the PI controller is frozen: the current ratio is held as-is.
     pub paused: bool,
     /// When true the PI servo consumes the pre-bridge clock signal
@@ -81,7 +89,8 @@ impl Default for AdaptiveResamplingConfig {
             low_recover_exit_margin_ms: 6.0,
             low_recover_settle_margin_ms: 6.0,
             low_recover_refill_delta_alpha: 0.5,
-            control_smoothing_alpha: 0.02,
+            control_smoothing_cutoff_hz: 0.5,
+            control_smoothing_order: 1,
             paused: false,
             use_pre_bridge_clock: false,
             use_output_pacing: false,

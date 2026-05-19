@@ -112,7 +112,8 @@ struct AdaptiveResamplingPatch {
     low_recover_exit_margin_ms: Option<f32>,
     low_recover_settle_margin_ms: Option<f32>,
     low_recover_refill_delta_alpha: Option<f32>,
-    control_smoothing_alpha: Option<f32>,
+    control_smoothing_cutoff_hz: Option<f32>,
+    control_smoothing_order: Option<u32>,
     paused: Option<bool>,
     use_pre_bridge_clock: Option<bool>,
     use_output_pacing: Option<bool>,
@@ -843,7 +844,8 @@ fn build_audio_state_json(audio: &audio_output::AudioControl) -> String {
             "lowRecoverExitMarginMs": requested.adaptive.low_recover_exit_margin_ms,
             "lowRecoverSettleMarginMs": requested.adaptive.low_recover_settle_margin_ms,
             "lowRecoverRefillDeltaAlpha": requested.adaptive.low_recover_refill_delta_alpha,
-            "controlSmoothingAlpha": requested.adaptive.control_smoothing_alpha,
+            "controlSmoothingCutoffHz": requested.adaptive.control_smoothing_cutoff_hz,
+            "controlSmoothingOrder": requested.adaptive.control_smoothing_order,
             "paused": requested.adaptive.paused,
             "usePreBridgeClock": requested.adaptive.use_pre_bridge_clock,
             "useOutputPacing": requested.adaptive.use_output_pacing
@@ -1214,10 +1216,13 @@ pub fn apply_simple_osc_control(
                     audio.set_requested_adaptive_resampling_low_recover_refill_delta_alpha(value);
                 }
                 if let Some(value) = adaptive
-                    .control_smoothing_alpha
-                    .map(|value| value.clamp(0.0, 1.0))
+                    .control_smoothing_cutoff_hz
+                    .map(|value| value.clamp(0.001, 1000.0))
                 {
-                    audio.set_requested_adaptive_resampling_control_smoothing_alpha(value);
+                    audio.set_requested_adaptive_resampling_control_smoothing_cutoff_hz(value);
+                }
+                if let Some(value) = adaptive.control_smoothing_order {
+                    audio.set_requested_adaptive_resampling_control_smoothing_order(value);
                 }
                 if let Some(paused) = adaptive.paused {
                     audio.set_requested_adaptive_resampling_paused(paused);

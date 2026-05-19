@@ -278,8 +278,10 @@ pub fn save_live_config(
             Some(requested.adaptive.low_recover_settle_margin_ms);
         render.adaptive_resampling_low_recover_refill_delta_alpha =
             Some(requested.adaptive.low_recover_refill_delta_alpha);
-        render.adaptive_resampling_control_smoothing_alpha =
-            Some(requested.adaptive.control_smoothing_alpha as f32);
+        render.adaptive_resampling_control_smoothing_cutoff_hz =
+            Some(requested.adaptive.control_smoothing_cutoff_hz as f32);
+        render.adaptive_resampling_control_smoothing_order =
+            Some(requested.adaptive.control_smoothing_order);
         render.adaptive_resampling_use_pre_bridge_clock =
             Some(requested.adaptive.use_pre_bridge_clock);
         render.adaptive_resampling_use_output_pacing =
