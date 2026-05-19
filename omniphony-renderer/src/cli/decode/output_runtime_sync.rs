@@ -223,6 +223,8 @@ impl<'a> OutputRuntimeCoordinator<'a> {
                         paused: control.requested_adaptive_resampling_paused(),
                         use_pre_bridge_clock: control
                             .requested_adaptive_resampling_use_pre_bridge_clock(),
+                        use_output_pacing: control
+                            .requested_adaptive_resampling_use_output_pacing(),
                     }
                 })
                 .unwrap_or_else(|| self.runtime.adaptive_resampling_config.clone());
@@ -299,13 +301,15 @@ impl<'a> OutputRuntimeCoordinator<'a> {
                 && requested.paused == self.runtime.adaptive_resampling_config.paused
                 && requested.use_pre_bridge_clock
                     == self.runtime.adaptive_resampling_config.use_pre_bridge_clock
+                && requested.use_output_pacing
+                    == self.runtime.adaptive_resampling_config.use_output_pacing
             {
                 return Ok(());
             }
 
             self.runtime.adaptive_resampling_config = requested;
             log::info!(
-                "Applying adaptive resampling tuning (live): far_mode={}, far_silence={}, hard_recover_high={}, hard_recover_low={}, far_return_fade_in_ms={}, kp={:.4}, ki={:.4}, integral_discharge_ratio={:.4}, max_adjust={:.6}, update_interval_callbacks={}, far_threshold_ms={}, low_recover_settle_stable_ms={:.2}, low_recover_entry_margin_ms={:.2}, low_recover_exit_margin_ms={:.2}, low_recover_settle_margin_ms={:.2}, low_recover_refill_delta_alpha={:.3}, control_smoothing_alpha={:.4}, use_pre_bridge_clock={}",
+                "Applying adaptive resampling tuning (live): far_mode={}, far_silence={}, hard_recover_high={}, hard_recover_low={}, far_return_fade_in_ms={}, kp={:.4}, ki={:.4}, integral_discharge_ratio={:.4}, max_adjust={:.6}, update_interval_callbacks={}, far_threshold_ms={}, low_recover_settle_stable_ms={:.2}, low_recover_entry_margin_ms={:.2}, low_recover_exit_margin_ms={:.2}, low_recover_settle_margin_ms={:.2}, low_recover_refill_delta_alpha={:.3}, control_smoothing_alpha={:.4}, use_pre_bridge_clock={}, use_output_pacing={}",
                 self.runtime.adaptive_resampling_config.enable_far_mode,
                 self.runtime
                     .adaptive_resampling_config
@@ -352,6 +356,9 @@ impl<'a> OutputRuntimeCoordinator<'a> {
                 self.runtime
                     .adaptive_resampling_config
                     .use_pre_bridge_clock,
+                self.runtime
+                    .adaptive_resampling_config
+                    .use_output_pacing,
             );
 
             // Apply live on the running audio thread — no restart needed.

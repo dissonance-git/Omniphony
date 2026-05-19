@@ -1,11 +1,13 @@
 pub mod adaptive_runtime;
 pub mod control;
+pub mod pacer;
 pub mod resampler_fifo;
 pub mod ring_buffer_io;
 
 pub use control::{
     AppliedAudioOutputState, AudioControl, OutputDeviceOption, RequestedAudioOutputConfig,
 };
+pub use pacer::PacerHandle;
 
 #[derive(Debug, Clone)]
 pub struct AdaptiveResamplingConfig {
@@ -47,6 +49,14 @@ pub struct AdaptiveResamplingConfig {
     /// drift. The ring buffer is still observed for underrun/overrun safety
     /// and for the low-recover phase. Default `false` (legacy behaviour).
     pub use_pre_bridge_clock: bool,
+    /// When true the post-rendering output pacer is active: rendered
+    /// speaker PCM goes into an intermediate FIFO which the PipeWire input
+    /// thread drains into the ring buffer in lockstep with IEC958 chunk
+    /// arrival. The ring buffer therefore sees a smooth flow regardless
+    /// of the decoder's burst pattern, and the PI sees a clean
+    /// `control_available` signal without needing the pre-bridge clock
+    /// override. Default `false`.
+    pub use_output_pacing: bool,
 }
 
 impl Default for AdaptiveResamplingConfig {
@@ -74,6 +84,7 @@ impl Default for AdaptiveResamplingConfig {
             control_smoothing_alpha: 0.02,
             paused: false,
             use_pre_bridge_clock: false,
+            use_output_pacing: false,
         }
     }
 }

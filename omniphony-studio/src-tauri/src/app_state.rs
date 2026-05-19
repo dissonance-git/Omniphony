@@ -368,6 +368,8 @@ pub struct AppState {
     pub adaptive_resampling_paused: Option<u8>,
     #[serde(rename = "adaptiveResamplingUsePreBridgeClock")]
     pub adaptive_resampling_use_pre_bridge_clock: Option<u8>,
+    #[serde(rename = "adaptiveResamplingUseOutputPacing")]
+    pub adaptive_resampling_use_output_pacing: Option<u8>,
     #[serde(rename = "vbapRecomputing")]
     pub vbap_recomputing: Option<bool>,
     #[serde(rename = "configSaved")]
@@ -622,6 +624,7 @@ impl Default for AppState {
             adaptive_resampling_state: None,
             adaptive_resampling_paused: Some(0),
             adaptive_resampling_use_pre_bridge_clock: Some(0),
+            adaptive_resampling_use_output_pacing: Some(0),
             vbap_recomputing: None,
             config_saved: None,
             latency: RuntimeLatencyState::default(),

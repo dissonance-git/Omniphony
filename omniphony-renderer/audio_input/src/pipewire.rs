@@ -831,6 +831,77 @@ where
                     .diag_input_clock_us
                     .store(user_data.input_clock_us_cumulative.to_bits(), Ordering::Relaxed);
             }
+            // Pacer drain: for each IEC958 chunk that just arrived, drain a
+            // proportional duration of rendered audio from pacer_fifo into
+            // the ring buffer. Strict 1:1 between input-chunk duration and
+            // ring-write duration → the ring sees a smooth stream regardless
+            // of the decoder's burst pattern. Underrun → zero-fill the ring
+            // (counted via the diag atomic). During pre-roll → also zero-fill
+            // until pacer_fifo is primed.
+            if user_data.channels > 0 && user_data.rate_hz > 0 {
+                if let Some(pacer) = input_control_for_process.output_pacer() {
+                    if pacer.enabled.load(Ordering::Relaxed) {
+                        let in_subframes = byte_len as u64
+                            / (user_data.channels as u64
+                                * std::mem::size_of::<u16>() as u64);
+                        let drain_samples = (in_subframes
+                            .saturating_mul(pacer.out_sample_rate as u64)
+                            .saturating_mul(pacer.out_channels as u64)
+                            / (user_data.rate_hz as u64).max(1))
+                            as usize;
+                        let mut underruns_this_chunk = 0u64;
+                        let priming = !pacer.pre_roll_complete.load(Ordering::Relaxed);
+                        if priming {
+                            if pacer.pacer_fifo.len()
+                                >= pacer.pre_roll_threshold_samples
+                            {
+                                pacer
+                                    .pre_roll_complete
+                                    .store(true, Ordering::Relaxed);
+                            } else {
+                                for _ in 0..drain_samples {
+                                    let _ = pacer.ring.push(0.0);
+                                }
+                                underruns_this_chunk += drain_samples as u64;
+                            }
+                        }
+                        if !priming
+                            || pacer.pre_roll_complete.load(Ordering::Relaxed)
+                        {
+                            for _ in 0..drain_samples {
+                                let value = pacer.pacer_fifo.pop().unwrap_or_else(|| {
+                                    underruns_this_chunk += 1;
+                                    0.0
+                                });
+                                let _ = pacer.ring.push(value);
+                            }
+                        }
+                        // Publish counters as f64-bits so the diag plot can
+                        // read them like any other atomic metric. Single
+                        // writer here (PipeWire input thread), so the
+                        // read-modify-write is race-free.
+                        let prev_drain =
+                            f64::from_bits(pacer.diag_drain_total.load(Ordering::Relaxed));
+                        pacer.diag_drain_total.store(
+                            (prev_drain + drain_samples as f64).to_bits(),
+                            Ordering::Relaxed,
+                        );
+                        if underruns_this_chunk > 0 {
+                            let prev_under = f64::from_bits(
+                                pacer.diag_underrun_total.load(Ordering::Relaxed),
+                            );
+                            pacer.diag_underrun_total.store(
+                                (prev_under + underruns_this_chunk as f64).to_bits(),
+                                Ordering::Relaxed,
+                            );
+                        }
+                        pacer.diag_fifo_level.store(
+                            (pacer.pacer_fifo.len() as f64).to_bits(),
+                            Ordering::Relaxed,
+                        );
+                    }
+                }
+            }
             user_data.bytes_since_log += byte_len;
             user_data.buffers_since_log += 1;
             if has_spdif_sync {

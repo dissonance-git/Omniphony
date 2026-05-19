@@ -126,6 +126,9 @@ fn build_adaptive_resampling_config(
         use_pre_bridge_clock: render_cfg
             .and_then(|cfg| cfg.adaptive_resampling_use_pre_bridge_clock)
             .unwrap_or(defaults.use_pre_bridge_clock),
+        use_output_pacing: render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_use_output_pacing)
+            .unwrap_or(defaults.use_output_pacing),
     }
 }
 

@@ -44,6 +44,8 @@ function getAdaptiveControlSmoothingAlphaInputEl() { return inAudioPanel('adapti
 function getAdaptiveControlSmoothingAlphaRowEl() { return inAudioPanel('adaptiveControlSmoothingAlphaRow'); }
 function getAdaptiveUsePreBridgeClockToggleEl() { return inAudioPanel('adaptiveUsePreBridgeClockToggle'); }
 function getAdaptiveUsePreBridgeClockRowEl() { return inAudioPanel('adaptiveUsePreBridgeClockRow'); }
+function getAdaptiveUseOutputPacingToggleEl() { return inAudioPanel('adaptiveUseOutputPacingToggle'); }
+function getAdaptiveUseOutputPacingRowEl() { return inAudioPanel('adaptiveUseOutputPacingRow'); }
 function getAdaptiveResamplingAdvancedApplyBtnEl() { return inAudioPanel('adaptiveResamplingAdvancedApplyBtn'); }
 function getAdaptiveResamplingAdvancedCancelBtnEl() { return inAudioPanel('adaptiveResamplingAdvancedCancelBtn'); }
 function getAdaptiveBandDotEl() { return inAudioPanel('adaptiveBandDot'); }
@@ -87,6 +89,8 @@ export function renderAdaptiveResamplingUI() {
   const adaptiveControlSmoothingAlphaRowEl = getAdaptiveControlSmoothingAlphaRowEl();
   const adaptiveUsePreBridgeClockToggleEl = getAdaptiveUsePreBridgeClockToggleEl();
   const adaptiveUsePreBridgeClockRowEl = getAdaptiveUsePreBridgeClockRowEl();
+  const adaptiveUseOutputPacingToggleEl = getAdaptiveUseOutputPacingToggleEl();
+  const adaptiveUseOutputPacingRowEl = getAdaptiveUseOutputPacingRowEl();
   const adaptiveResamplingAdvancedApplyBtnEl = getAdaptiveResamplingAdvancedApplyBtnEl();
   const adaptiveResamplingAdvancedCancelBtnEl = getAdaptiveResamplingAdvancedCancelBtnEl();
   const adaptiveBandDotEl = getAdaptiveBandDotEl();
@@ -253,6 +257,14 @@ export function renderAdaptiveResamplingUI() {
     adaptiveUsePreBridgeClockToggleEl.disabled = !hasAudioDomain;
     adaptiveUsePreBridgeClockToggleEl.checked =
       app.adaptiveResamplingUsePreBridgeClock === true;
+  }
+  if (adaptiveUseOutputPacingRowEl) {
+    adaptiveUseOutputPacingRowEl.classList.toggle('adaptive-param-disabled', !hasAudioDomain);
+  }
+  if (adaptiveUseOutputPacingToggleEl) {
+    adaptiveUseOutputPacingToggleEl.disabled = !hasAudioDomain;
+    adaptiveUseOutputPacingToggleEl.checked =
+      app.adaptiveResamplingUseOutputPacing === true;
   }
   if (adaptiveBandTextEl) {
     adaptiveBandTextEl.textContent = app.adaptiveResamplingBand ?? '—';

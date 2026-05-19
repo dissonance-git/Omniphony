@@ -21,12 +21,12 @@ use crate::{
     LOCAL_RESAMPLER_MAX_RELATIVE_RATIO,
     adaptive_runtime::{
         AdaptiveRuntimeState, FarModeDecision, LatencyMetricTargets, LowRecoverPhase,
-        MAX_INTEGRAL_TERM, adaptive_runtime_state_name, compute_hard_recover_high_plan,
-        discard_ring_samples, far_mode_band_from_latency, note_refill_or_underrun,
-        output_to_input_domain_samples, paused_rate_adjust, postprocess_interleaved_output,
-        reset_adaptive_runtime, run_adaptive_servo, should_run_adaptive_servo,
-        store_latency_metrics_from_control_available, update_far_mode_state,
-        update_latency_metrics, zero_pad_tail,
+        MAX_INTEGRAL_TERM, PRE_BRIDGE_CALIBRATION_CALLBACKS, adaptive_runtime_state_name,
+        compute_hard_recover_high_plan, discard_ring_samples, far_mode_band_from_latency,
+        note_refill_or_underrun, output_to_input_domain_samples, paused_rate_adjust,
+        postprocess_interleaved_output, reset_adaptive_runtime, run_adaptive_servo,
+        should_run_adaptive_servo, store_latency_metrics_from_control_available,
+        update_far_mode_state, update_latency_metrics, zero_pad_tail,
     },
     adaptive_runtime_state_code, adaptive_runtime_state_name_from_code,
     clamp_ratio_for_local_resampler, local_resampler_ratio_bounds,
@@ -237,6 +237,19 @@ fn wallclock_millis() -> u64 {
 
 pub struct PipewireWriter {
     sample_buffer: Arc<ArrayQueue<f32>>,
+    /// Post-rendering pacer FIFO. When `pacer_enabled` is true,
+    /// `write_samples` pushes here instead of directly to `sample_buffer`;
+    /// the PipeWire INPUT thread drains this FIFO into `sample_buffer` at
+    /// a cadence that mirrors the IEC958 chunk arrival rate, so the ring
+    /// buffer the DAC consumes sees a smooth flow regardless of the
+    /// decoder's burst pattern.
+    pacer_fifo: Arc<ArrayQueue<f32>>,
+    pacer_enabled: Arc<AtomicBool>,
+    pacer_pre_roll_complete: Arc<AtomicBool>,
+    pacer_pre_roll_threshold_samples: usize,
+    pacer_drain_total: Arc<AtomicU64>,
+    pacer_underrun_total: Arc<AtomicU64>,
+    pacer_fifo_level: Arc<AtomicU64>,
     sample_rate: u32,
     channel_count: u32,
     /// Pre-computed back-pressure threshold in samples (max_latency_ms → samples).
@@ -467,6 +480,19 @@ impl PipewireWriter {
 
         let sample_buffer = Arc::new(ArrayQueue::new(BUFFER_SIZE));
         let buffer_clone = sample_buffer.clone();
+        // Pacer FIFO: capacity matches the ring so worst-case can buffer
+        // the same amount of audio. It only fills meaningfully when the
+        // input-thread drain lags or is paused (eg. during pre-roll).
+        let pacer_fifo = Arc::new(ArrayQueue::new(BUFFER_SIZE));
+        let pacer_enabled = Arc::new(AtomicBool::new(adaptive_config.use_output_pacing));
+        let pacer_pre_roll_complete = Arc::new(AtomicBool::new(false));
+        // 64 ms of audio at the output rate × channel count. Covers >1 AU
+        // for both EAC3 (~32 ms) and TrueHD HBR (~32 ms per AU) with margin.
+        let pacer_pre_roll_threshold_samples =
+            ((sample_rate as usize) * (channel_count as usize) * 64 / 1000).max(1);
+        let pacer_drain_total = Arc::new(AtomicU64::new(0));
+        let pacer_underrun_total = Arc::new(AtomicU64::new(0));
+        let pacer_fifo_level = Arc::new(AtomicU64::new(0));
         let stream_ready = Arc::new(AtomicBool::new(false));
         let ready_clone = stream_ready.clone();
         let ready_for_thread_cleanup = stream_ready.clone();
@@ -562,6 +588,10 @@ impl PipewireWriter {
         let input_trigger_rate_for_thread = Arc::clone(&input_trigger_rate_hz);
         let input_trigger_quantum_frames = Arc::new(AtomicU32::new(0));
         let input_trigger_quantum_for_thread = Arc::clone(&input_trigger_quantum_frames);
+        // Pacer atomics cloned into the PipeWire thread so the DAC callback
+        // can flush the FIFO and re-arm pre-roll on recovery_reacquire.
+        let pacer_fifo_for_thread = Arc::clone(&pacer_fifo);
+        let pacer_pre_roll_complete_for_thread = Arc::clone(&pacer_pre_roll_complete);
 
         // Capture before moving buffer_config into the thread closure.
         let max_latency_ms = buffer_config.max_latency_ms;
@@ -621,6 +651,8 @@ impl PipewireWriter {
                 input_trigger_rate_for_thread,
                 input_trigger_quantum_for_thread,
                 input_clock_us,
+                pacer_fifo_for_thread,
+                pacer_pre_roll_complete_for_thread,
             ) {
                 log::error!("PipeWire thread error: {}", e);
             }
@@ -657,6 +689,13 @@ impl PipewireWriter {
 
         Ok(Self {
             sample_buffer,
+            pacer_fifo,
+            pacer_enabled,
+            pacer_pre_roll_complete,
+            pacer_pre_roll_threshold_samples,
+            pacer_drain_total,
+            pacer_underrun_total,
+            pacer_fifo_level,
             sample_rate,
             channel_count,
             max_buffer_samples,
@@ -803,14 +842,25 @@ impl PipewireWriter {
             return Ok(());
         }
 
+        // Route to pacer when enabled. The pacer FIFO is drained into the
+        // ring by the PipeWire input thread (in lockstep with IEC958 chunk
+        // arrival), so the ring sees a smooth flow that's decoupled from
+        // the decoder's burst pattern.
+        let pacer_active = self.pacer_enabled.load(Ordering::Relaxed);
+        let target_buffer: &Arc<ArrayQueue<f32>> = if pacer_active {
+            &self.pacer_fifo
+        } else {
+            &self.sample_buffer
+        };
         let max_buffer_fill = self.max_buffer_samples;
         let buffer_before = self.sample_buffer.len();
         let report =
-            push_samples_with_backpressure(&self.sample_buffer, samples, max_buffer_fill, 10, 200);
+            push_samples_with_backpressure(target_buffer, samples, max_buffer_fill, 10, 200);
         if report.timed_out {
             log::warn!(
-                "Buffer drain timeout after 2s - dropping {} remaining samples to prevent OOM",
-                samples.len().saturating_sub(report.pushed_samples)
+                "Buffer drain timeout after 2s - dropping {} remaining samples to prevent OOM (target={})",
+                samples.len().saturating_sub(report.pushed_samples),
+                if pacer_active { "pacer_fifo" } else { "ring" }
             );
         }
 
@@ -925,6 +975,42 @@ impl PipewireWriter {
         Arc::clone(&self.pending_input_triggers)
     }
 
+    /// Hand a cross-crate handle to the post-rendering pacer to the audio
+    /// input layer (via `InputControl::install_output_pacer`). The input
+    /// PwStream callback uses this to drain the FIFO into the ring buffer
+    /// in lockstep with IEC958 chunk arrival.
+    pub fn pacer_handle(&self) -> crate::pacer::PacerHandle {
+        crate::pacer::PacerHandle {
+            pacer_fifo: Arc::clone(&self.pacer_fifo),
+            ring: Arc::clone(&self.sample_buffer),
+            pre_roll_complete: Arc::clone(&self.pacer_pre_roll_complete),
+            pre_roll_threshold_samples: self.pacer_pre_roll_threshold_samples,
+            out_sample_rate: self.sample_rate,
+            out_channels: self.channel_count,
+            enabled: Arc::clone(&self.pacer_enabled),
+            diag_drain_total: Arc::clone(&self.pacer_drain_total),
+            diag_underrun_total: Arc::clone(&self.pacer_underrun_total),
+            diag_fifo_level: Arc::clone(&self.pacer_fifo_level),
+        }
+    }
+
+    /// Hot-swap the pacer enabled flag. Called when
+    /// `AdaptiveResamplingConfig::use_output_pacing` flips via OSC.
+    pub fn set_output_pacing_enabled(&self, enabled: bool) {
+        // On transition true → false, drain any leftover FIFO so we don't
+        // resume with stale audio on the next toggle. On false → true,
+        // re-arm pre-roll so we always grow the buffer before the input
+        // thread starts pulling real samples.
+        let was = self
+            .pacer_enabled
+            .swap(enabled, Ordering::Relaxed);
+        if was != enabled {
+            while self.pacer_fifo.pop().is_some() {}
+            self.pacer_pre_roll_complete
+                .store(false, Ordering::Relaxed);
+        }
+    }
+
     pub fn adaptive_band(&self) -> Option<&'static str> {
         match self.current_adaptive_band.load(Ordering::Relaxed) {
             1 => Some("near"),
@@ -995,6 +1081,9 @@ impl PipewireWriter {
 
     /// Update adaptive resampling tuning parameters without restarting the audio thread.
     pub fn update_adaptive_config(&self, config: AdaptiveResamplingConfig) {
+        // Hot-swap the pacer enabled flag and reset its state on transition,
+        // so toggling `use_output_pacing` over OSC starts a clean pre-roll.
+        self.set_output_pacing_enabled(config.use_output_pacing);
         if let Ok(mut c) = self.live_adaptive_config.lock() {
             *c = config;
         }
@@ -1114,6 +1203,27 @@ impl PipewireWriter {
                 atomic: Arc::clone(&self.cumulative_drained_diag_bits),
             },
             sys::diag::DiagAtomicHandle {
+                name: "pacer_fifo_level",
+                label: "Pacer FIFO level",
+                group: "output",
+                unit: "samples",
+                atomic: Arc::clone(&self.pacer_fifo_level),
+            },
+            sys::diag::DiagAtomicHandle {
+                name: "pacer_drain_total",
+                label: "Pacer drain cumulative",
+                group: "output",
+                unit: "samples",
+                atomic: Arc::clone(&self.pacer_drain_total),
+            },
+            sys::diag::DiagAtomicHandle {
+                name: "pacer_underrun_total",
+                label: "Pacer underrun cumulative",
+                group: "output",
+                unit: "samples",
+                atomic: Arc::clone(&self.pacer_underrun_total),
+            },
+            sys::diag::DiagAtomicHandle {
                 name: "write_samples_dt_us",
                 label: "Write call dt",
                 group: "output",
@@ -1228,6 +1338,8 @@ fn run_pipewire_loop(
     input_trigger_rate_hz: Arc<AtomicU32>,
     input_trigger_quantum_frames: Arc<AtomicU32>,
     input_clock_us: Arc<std::sync::atomic::AtomicU64>,
+    pacer_fifo: Arc<ArrayQueue<f32>>,
+    pacer_pre_roll_complete: Arc<AtomicBool>,
 ) -> Result<()> {
     // Determine actual output rate and resampling ratio
     let actual_output_rate = output_sample_rate.unwrap_or(sample_rate);
@@ -1680,8 +1792,6 @@ fn run_pipewire_loop(
                         f64::from_bits(input_clock_us_for_callback.load(Ordering::Relaxed));
                     let pre_bridge_requested = current_adaptive_cfg.use_pre_bridge_clock;
                     let pre_bridge_ready = pre_bridge_requested && input_clock_us_now > 0.0;
-                    let pre_bridge_bootstrap_freeze =
-                        pre_bridge_requested && !pre_bridge_ready;
                     if pre_bridge_ready {
                         let input_clock_samples_eq = (input_clock_us_now / 1_000_000.0
                             * sample_rate as f64
@@ -1690,17 +1800,47 @@ fn run_pipewire_loop(
                         let drained_now =
                             cumulative_drained_for_callback.load(Ordering::Relaxed) as i64;
                         if !runtime_state.pre_bridge_offset_initialized {
-                            runtime_state.pre_bridge_offset_samples =
-                                input_clock_samples_eq - drained_now;
-                            runtime_state.pre_bridge_offset_initialized = true;
+                            // Accumulate the raw (input_clock − drained) over
+                            // PRE_BRIDGE_CALIBRATION_CALLBACKS callbacks (≥ 1
+                            // full TrueHD batching cycle) and finalize the
+                            // offset as the average. A single-sample capture
+                            // would lock in the decoder's instantaneous
+                            // internal latency (0..~320 ms for TrueHD) and
+                            // bias the ring's steady-state position by up to
+                            // half that range. Averaging removes the bias.
+                            runtime_state.pre_bridge_offset_accum +=
+                                (input_clock_samples_eq - drained_now) as i128;
+                            runtime_state.pre_bridge_offset_count += 1;
+                            if runtime_state.pre_bridge_offset_count
+                                >= PRE_BRIDGE_CALIBRATION_CALLBACKS
+                            {
+                                let count = runtime_state.pre_bridge_offset_count as i128;
+                                runtime_state.pre_bridge_offset_samples =
+                                    (runtime_state.pre_bridge_offset_accum / count) as i64;
+                                runtime_state.pre_bridge_offset_initialized = true;
+                            }
+                        } else {
+                            let drift_samples = input_clock_samples_eq
+                                - drained_now
+                                - runtime_state.pre_bridge_offset_samples;
+                            let target = runtime_target_buffer_fill as i64;
+                            let override_value = (target + drift_samples).max(0) as usize;
+                            metrics.smoothed_control_available = override_value;
                         }
-                        let drift_samples = input_clock_samples_eq
-                            - drained_now
-                            - runtime_state.pre_bridge_offset_samples;
-                        let target = runtime_target_buffer_fill as i64;
-                        let override_value = (target + drift_samples).max(0) as usize;
-                        metrics.smoothed_control_available = override_value;
                     }
+                    // Freeze the PI only while we are still waiting for the
+                    // first IEC958 chunk to arrive (no source-clock data
+                    // yet). Once chunks are flowing, leave the ring-mode PI
+                    // running during the calibration window — it keeps the
+                    // ring stable around `target_buffer_fill`, so the offset
+                    // we accumulate is centred on the steady-state value
+                    // instead of a drift trajectory. Without this, the
+                    // resampler ratio would stay frozen during calibration
+                    // and the clock skew (~−55000 ppm here) would shift the
+                    // ring by ~82 ms over the 1.5 s window — the very bias
+                    // the averaging is supposed to remove.
+                    let pre_bridge_bootstrap_freeze =
+                        pre_bridge_requested && !pre_bridge_ready;
                     let is_pi_paused = is_pi_paused || pre_bridge_bootstrap_freeze;
                     // Publish the smoothed control latency the servo actually tracks,
                     // so the UI can show it next to the raw control latency.
@@ -1932,9 +2072,18 @@ fn run_pipewire_loop(
                             // The drained counter we use as the pre-bridge
                             // reference may have advanced during recovery
                             // while input_clock_us did not (paused source).
-                            // Recalibrate on the next callback so the PI
-                            // restarts on target.
+                            // Drop the cached offset and the in-flight
+                            // averaging window so the next steady-state run
+                            // captures a fresh, valid mean.
                             runtime_state.pre_bridge_offset_initialized = false;
+                            runtime_state.pre_bridge_offset_accum = 0;
+                            runtime_state.pre_bridge_offset_count = 0;
+                            // Flush the post-rendering pacer too: rendered
+                            // samples queued before the reacquire are stale.
+                            // Re-arm pre-roll so the input thread re-primes
+                            // before starting real drains.
+                            while pacer_fifo.pop().is_some() {}
+                            pacer_pre_roll_complete.store(false, Ordering::Relaxed);
                             if far_decision.mute_far_output {
                                 if let Err(e) = resampler_fifo.ensure_output_samples(
                                     &buffer_for_callback,
@@ -2241,6 +2390,10 @@ fn run_pipewire_loop(
                             rate_adjust_for_callback.store(1.0f32.to_bits(), Ordering::Relaxed);
                             runtime_state.recovery_reacquire_pending = false;
                             runtime_state.pre_bridge_offset_initialized = false;
+                            runtime_state.pre_bridge_offset_accum = 0;
+                            runtime_state.pre_bridge_offset_count = 0;
+                            while pacer_fifo.pop().is_some() {}
+                            pacer_pre_roll_complete.store(false, Ordering::Relaxed);
                             if far_decision.mute_far_output {
                                 let dropped =
                                     discard_ring_samples(&buffer_for_callback, samples_to_read);

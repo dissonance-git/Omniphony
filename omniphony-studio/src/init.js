@@ -358,6 +358,9 @@ export function applyInitState(payload) {
   if (typeof payload.adaptiveResamplingUsePreBridgeClock === 'number') {
     app.adaptiveResamplingUsePreBridgeClock = payload.adaptiveResamplingUsePreBridgeClock !== 0;
   }
+  if (typeof payload.adaptiveResamplingUseOutputPacing === 'number') {
+    app.adaptiveResamplingUseOutputPacing = payload.adaptiveResamplingUseOutputPacing !== 0;
+  }
   if (typeof payload.adaptiveResamplingBand === 'string') {
     app.adaptiveResamplingBand = payload.adaptiveResamplingBand;
   }

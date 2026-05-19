@@ -226,6 +226,10 @@ export function audioPanelMarkup() {
                 <label for="adaptiveUsePreBridgeClockToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.usePreBridgeClock" data-i18n-title="adaptive.usePreBridgeClockTitle" title="Feed the PI servo with the IEC958 source-clock signal (pre-decoder) instead of the post-decode ring level. The source clock is smooth by construction, so the PI reacts directly to genuine hardware drift without the decoder's batching ripple.">Pre-bridge clock (PI input)</label>
                 <input id="adaptiveUsePreBridgeClockToggle" type="checkbox" />
               </div>
+              <div id="adaptiveUseOutputPacingRow" class="control-row" style="margin-top:0.2rem">
+                <label for="adaptiveUseOutputPacingToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.useOutputPacing" data-i18n-title="adaptive.useOutputPacingTitle" title="Buffer rendered speaker PCM and drain it into the ring buffer in lockstep with IEC958 chunk arrival, so the ring sees a smooth flow regardless of the decoder's burst pattern. Adds ~64 ms of pre-roll latency on startup; eliminates the 3.1 Hz sawtooth at the source.">Output pacing (post-render)</label>
+                <input id="adaptiveUseOutputPacingToggle" type="checkbox" />
+              </div>
             </div>
             <div style="margin-top:0.3rem;display:flex;justify-content:flex-end;gap:0.35rem">
               ${secondaryButton({ id: 'adaptiveResamplingAdvancedCancelBtn', text: 'Cancel', textKey: 'common.cancel' })}

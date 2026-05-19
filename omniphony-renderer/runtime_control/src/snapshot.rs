@@ -391,7 +391,8 @@ pub fn build_live_state_bundle(
                         "lowRecoverRefillDeltaAlpha": requested.adaptive.low_recover_refill_delta_alpha,
                         "controlSmoothingAlpha": requested.adaptive.control_smoothing_alpha,
                         "paused": requested.adaptive.paused,
-                        "usePreBridgeClock": requested.adaptive.use_pre_bridge_clock
+                        "usePreBridgeClock": requested.adaptive.use_pre_bridge_clock,
+                        "useOutputPacing": requested.adaptive.use_output_pacing
                     },
                     "latencyTargetMs": requested.latency_target_ms
                 })

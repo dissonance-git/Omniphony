@@ -264,6 +264,8 @@
   "adaptive.controlSmoothingAlpha": "Control smoothing α",
   "adaptive.usePreBridgeClock": "Pre-bridge clock (PI input)",
   "adaptive.usePreBridgeClockTitle": "Feed the PI servo with the IEC958 source-clock signal (pre-decoder) instead of the post-decode ring level. The source clock is smooth by construction, so the PI reacts directly to genuine hardware drift without the decoder's batching ripple.",
+  "adaptive.useOutputPacing": "Output pacing (post-render)",
+  "adaptive.useOutputPacingTitle": "Buffer rendered speaker PCM and drain it into the ring buffer in lockstep with IEC958 chunk arrival, so the ring sees a smooth flow regardless of the decoder's burst pattern. Adds ~64 ms of pre-roll latency on startup; eliminates the 3.1 Hz sawtooth at the source.",
   "adaptive.thresholds": "Thresholds",
   "adaptive.infoButton": "Latency controls info",
   "adaptive.advancedButton": "Adaptive Resampling Advanced Settings",

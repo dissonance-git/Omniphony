@@ -47,7 +47,8 @@ export function buildAudioConfigPayload() {
       lowRecoverRefillDeltaAlpha: Math.min(1, Math.max(0, Number(app.adaptiveResamplingLowRecoverRefillDeltaAlpha ?? 0.5))),
       controlSmoothingAlpha: Math.min(1, Math.max(0, Number(app.adaptiveResamplingControlSmoothingAlpha ?? 0.02))),
       paused: app.adaptiveResamplingPaused === true,
-      usePreBridgeClock: app.adaptiveResamplingUsePreBridgeClock === true
+      usePreBridgeClock: app.adaptiveResamplingUsePreBridgeClock === true,
+      useOutputPacing: app.adaptiveResamplingUseOutputPacing === true
     }
   };
 }

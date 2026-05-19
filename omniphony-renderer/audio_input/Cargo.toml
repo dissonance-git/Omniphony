@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.99"
+audio_output = { path = "../audio_output" }
 bridge_api = { path = "../bridge_api" }
 libc = "0.2"
 log = "0.4.27"

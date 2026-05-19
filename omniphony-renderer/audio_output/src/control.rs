@@ -361,6 +361,16 @@ impl AudioControl {
         self.requested_snapshot().adaptive.use_pre_bridge_clock
     }
 
+    pub fn set_requested_adaptive_resampling_use_output_pacing(&self, enabled: bool) {
+        self.update_requested(|requested| {
+            requested.adaptive.use_output_pacing = enabled
+        });
+    }
+
+    pub fn requested_adaptive_resampling_use_output_pacing(&self) -> bool {
+        self.requested_snapshot().adaptive.use_output_pacing
+    }
+
     /// Request a one-shot ratio reset. Consumed by the sync loop via `take_ratio_reset`.
     pub fn request_ratio_reset(&self) {
         self.reset_ratio_pending.store(true, Ordering::Relaxed);

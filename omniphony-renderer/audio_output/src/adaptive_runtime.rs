@@ -54,15 +54,27 @@ pub struct AdaptiveRuntimeState {
     /// `None` until the first sample seeds it.
     pub smoothed_control_available: Option<f64>,
     /// Bootstrap calibration for pre-bridge clock mode: the integer offset
-    /// `(input_clock_samples_eq - cumulative_drained_samples)` at the moment
-    /// the override first comes online (typically the first callback where
-    /// the input PwStream has produced any subframe). Subsequent samples
-    /// subtract this so the substituted `smoothed_control_available` starts
-    /// at exactly `target_buffer_fill` and only deviates as the two clocks
-    /// genuinely drift. Reset on reacquisition.
+    /// `(input_clock_samples_eq - cumulative_drained_samples)` **averaged**
+    /// over `PRE_BRIDGE_CALIBRATION_CALLBACKS` callbacks once the input
+    /// PwStream is producing subframes. Subsequent samples subtract this so
+    /// the substituted `smoothed_control_available` starts at the calibrated
+    /// reference and only deviates as the two clocks genuinely drift. The
+    /// average is taken because the decoder's internal latency varies within
+    /// each batching cycle (notably for TrueHD with its ~320 ms cycle); a
+    /// single-sample offset captured at a random phase of the cycle places
+    /// the ring level at `target ± decoder_internal_jitter`, which can be
+    /// up to ±160 ms. Averaging over ~1.5 s (≥ one full TrueHD cycle)
+    /// removes that bias. Reset on reacquisition.
     pub pre_bridge_offset_samples: i64,
     pub pre_bridge_offset_initialized: bool,
+    pub pre_bridge_offset_accum: i128,
+    pub pre_bridge_offset_count: u32,
 }
+
+/// Calibration window length in callbacks. At ~21 ms per callback this
+/// covers ~1.5 s, more than one TrueHD batching cycle (~320 ms) so the
+/// decoder's internal-latency oscillation averages out cleanly.
+pub const PRE_BRIDGE_CALIBRATION_CALLBACKS: u32 = 72;
 
 impl AdaptiveRuntimeState {
     pub fn new(initial_ratio: f64) -> Self {
@@ -85,6 +97,8 @@ impl AdaptiveRuntimeState {
             smoothed_control_available: None,
             pre_bridge_offset_samples: 0,
             pre_bridge_offset_initialized: false,
+            pre_bridge_offset_accum: 0,
+            pre_bridge_offset_count: 0,
         }
     }
 
@@ -219,6 +233,8 @@ pub fn reset_adaptive_runtime(state: &mut AdaptiveRuntimeState, base_ratio: f64)
     state.smoothed_control_available = None;
     state.pre_bridge_offset_samples = 0;
     state.pre_bridge_offset_initialized = false;
+    state.pre_bridge_offset_accum = 0;
+    state.pre_bridge_offset_count = 0;
     ResetOutcome {
         effective_resample_ratio: base_ratio,
         displayed_rate_adjust: 1.0,

@@ -180,6 +180,7 @@ export const app = {
   adaptiveResamplingLowRecoverRefillDeltaAlpha: 0.5,
   adaptiveResamplingControlSmoothingAlpha: 0.02,
   adaptiveResamplingUsePreBridgeClock: false,
+  adaptiveResamplingUseOutputPacing: false,
   adaptiveResamplingBand: null,
   adaptiveResamplingState: null,
 

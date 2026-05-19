@@ -282,6 +282,8 @@ pub fn save_live_config(
             Some(requested.adaptive.control_smoothing_alpha as f32);
         render.adaptive_resampling_use_pre_bridge_clock =
             Some(requested.adaptive.use_pre_bridge_clock);
+        render.adaptive_resampling_use_output_pacing =
+            Some(requested.adaptive.use_output_pacing);
     }
 
     if let Some(input_control) = input_control {

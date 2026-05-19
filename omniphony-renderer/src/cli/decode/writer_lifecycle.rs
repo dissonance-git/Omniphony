@@ -108,6 +108,15 @@ impl<'a> WriterLifecycleCoordinator<'a> {
                     speaker_names,
                 ) {
                     Ok(writer) => {
+                        // Wire the post-rendering pacer into the input
+                        // control before stashing the writer, so the input
+                        // PwStream callback can drain the FIFO on its next
+                        // tick.
+                        if let (Some(ic), Some(handle)) =
+                            (self.input_control, writer.pacer_handle())
+                        {
+                            ic.install_output_pacer(handle);
+                        }
                         self.output.audio_writer = Some(writer);
                         self.output.bootstrap_frames_seen = 0;
                         self.output.bootstrap_started_at = None;

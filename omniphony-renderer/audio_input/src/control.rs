@@ -134,6 +134,12 @@ pub struct InputControl {
     /// so the servo sees a decoder-batching-free clock reference instead of
     /// the post-decode ring buffer level. Also published to the diag plot.
     input_clock_us: Arc<AtomicU64>,
+    /// Cross-crate handle to the audio_output post-rendering pacer. The
+    /// PipeWire input thread uses this to drain rendered samples from the
+    /// pacer FIFO into the ring buffer in lockstep with IEC958 chunk
+    /// arrival, smoothing the decoder's burst pattern out of the ring.
+    /// Installed by the writer lifecycle once both sides exist.
+    output_pacer: Mutex<Option<audio_output::PacerHandle>>,
 }
 
 impl Default for InputControl {
@@ -171,6 +177,7 @@ impl InputControl {
                 r
             },
             input_clock_us: Arc::new(AtomicU64::new(0)),
+            output_pacer: Mutex::new(None),
         }
     }
 
@@ -183,6 +190,24 @@ impl InputControl {
     /// audio_output PI loop when running on the pre-bridge clock signal.
     pub fn input_clock_us_atomic(&self) -> Arc<AtomicU64> {
         Arc::clone(&self.input_clock_us)
+    }
+
+    /// Install a cross-crate handle to the audio_output post-rendering
+    /// pacer. Called from the decode lifecycle once the PipewireWriter is
+    /// created. The PipeWire input thread reads the handle via
+    /// [`output_pacer`] on each chunk and drains the FIFO into the ring.
+    pub fn install_output_pacer(&self, handle: audio_output::PacerHandle) {
+        if let Ok(mut guard) = self.output_pacer.lock() {
+            *guard = Some(handle);
+        }
+    }
+
+    /// Clone the currently-installed pacer handle, if any.
+    pub fn output_pacer(&self) -> Option<audio_output::PacerHandle> {
+        self.output_pacer
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
     }
 
     pub fn set_output_rate_adjust(&self, rate: f32) {

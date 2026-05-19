@@ -115,6 +115,7 @@ struct AdaptiveResamplingPatch {
     control_smoothing_alpha: Option<f32>,
     paused: Option<bool>,
     use_pre_bridge_clock: Option<bool>,
+    use_output_pacing: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -844,7 +845,8 @@ fn build_audio_state_json(audio: &audio_output::AudioControl) -> String {
             "lowRecoverRefillDeltaAlpha": requested.adaptive.low_recover_refill_delta_alpha,
             "controlSmoothingAlpha": requested.adaptive.control_smoothing_alpha,
             "paused": requested.adaptive.paused,
-            "usePreBridgeClock": requested.adaptive.use_pre_bridge_clock
+            "usePreBridgeClock": requested.adaptive.use_pre_bridge_clock,
+            "useOutputPacing": requested.adaptive.use_output_pacing
         },
         "latencyTargetMs": requested.latency_target_ms
     })
@@ -1222,6 +1224,9 @@ pub fn apply_simple_osc_control(
                 }
                 if let Some(enabled) = adaptive.use_pre_bridge_clock {
                     audio.set_requested_adaptive_resampling_use_pre_bridge_clock(enabled);
+                }
+                if let Some(enabled) = adaptive.use_output_pacing {
+                    audio.set_requested_adaptive_resampling_use_output_pacing(enabled);
                 }
             }
             effects.mark_dirty = true;
