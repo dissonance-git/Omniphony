@@ -183,6 +183,7 @@ pub fn update_latency_metrics(
     available_input_samples: usize,
     output_fifo_input_domain_samples: usize,
     pending_resampler_input_samples: usize,
+    pacer_buffer_samples: usize,
     callback_input_domain_samples: usize,
     channel_count: usize,
     sample_rate: u32,
@@ -192,6 +193,13 @@ pub fn update_latency_metrics(
     callback_dt_s: f64,
     targets: LatencyMetricTargets<'_>,
 ) -> LatencyMetrics {
+    // PI-visible total: ring + FIFO + pending. Deliberately excludes
+    // `pacer_buffer_samples`. The pacer's level oscillates with the
+    // decoder's batching (renderer pushes in AU bursts, drain is paced
+    // to IEC chunk rate), and the whole point of the pacer was to make
+    // the ring smooth so the PI doesn't see that oscillation. Folding
+    // the pacer level back into the PI's input would re-inject the
+    // batching ripple and defeat the smoothing benefit.
     let total_available_input_domain = available_input_samples
         .saturating_add(output_fifo_input_domain_samples)
         .saturating_add(pending_resampler_input_samples);
@@ -208,15 +216,23 @@ pub fn update_latency_metrics(
     );
     state.smoothed_control_available = Some(smoothed);
     let smoothed_control_available = smoothed.round().max(0.0) as usize;
+    // User-visible latency reporting: include the pacer FIFO level so the
+    // reported value matches the true end-to-end latency from renderer
+    // output to DAC. The PI input (above) excludes the pacer for the
+    // reasons noted; here we want the user's measurement to reflect what
+    // actually plays.
+    let display_control_available = control_available.saturating_add(pacer_buffer_samples);
     store_latency_metrics_from_control_available(
-        control_available,
+        display_control_available,
         channel_count,
         sample_rate,
         graph_latency_ms,
         targets,
     );
-    let control_latency_ms =
-        (control_available as f32 / channel_count as f32 / sample_rate as f32) * 1000.0;
+    let control_latency_ms = (display_control_available as f32
+        / channel_count as f32
+        / sample_rate as f32)
+        * 1000.0;
     let measured_latency_ms = control_latency_ms + graph_latency_ms;
 
     LatencyMetrics {

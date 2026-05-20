@@ -411,6 +411,7 @@ impl AsioWriter {
                     available_samples,
                     output_fifo_input_domain_samples,
                     pending_resampler_input_samples,
+                    0, // ASIO backend has no output pacer stage
                     callback_input_domain_samples,
                     channel_count as usize,
                     input_sample_rate,

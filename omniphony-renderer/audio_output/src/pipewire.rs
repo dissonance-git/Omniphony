@@ -592,6 +592,8 @@ impl PipewireWriter {
         // can flush the FIFO and re-arm pre-roll on recovery_reacquire.
         let pacer_fifo_for_thread = Arc::clone(&pacer_fifo);
         let pacer_pre_roll_complete_for_thread = Arc::clone(&pacer_pre_roll_complete);
+        let pacer_enabled_for_thread = Arc::clone(&pacer_enabled);
+        let pacer_pre_roll_threshold_for_thread = pacer_pre_roll_threshold_samples;
 
         // Capture before moving buffer_config into the thread closure.
         let max_latency_ms = buffer_config.max_latency_ms;
@@ -653,6 +655,8 @@ impl PipewireWriter {
                 input_clock_us,
                 pacer_fifo_for_thread,
                 pacer_pre_roll_complete_for_thread,
+                pacer_enabled_for_thread,
+                pacer_pre_roll_threshold_for_thread,
             ) {
                 log::error!("PipeWire thread error: {}", e);
             }
@@ -845,14 +849,22 @@ impl PipewireWriter {
         // Route to pacer when enabled. The pacer FIFO is drained into the
         // ring by the PipeWire input thread (in lockstep with IEC958 chunk
         // arrival), so the ring sees a smooth flow that's decoupled from
-        // the decoder's burst pattern.
+        // the decoder's burst pattern. When routing through the pacer we
+        // also clamp the pacer's depth to its pre-roll capacity via
+        // backpressure on the renderer push: this guarantees the pacer
+        // contributes a *fixed* latency (= pre_roll_threshold) instead of
+        // drifting up to seconds of buffered audio.
         let pacer_active = self.pacer_enabled.load(Ordering::Relaxed);
         let target_buffer: &Arc<ArrayQueue<f32>> = if pacer_active {
             &self.pacer_fifo
         } else {
             &self.sample_buffer
         };
-        let max_buffer_fill = self.max_buffer_samples;
+        let max_buffer_fill = if pacer_active {
+            self.pacer_pre_roll_threshold_samples
+        } else {
+            self.max_buffer_samples
+        };
         let buffer_before = self.sample_buffer.len();
         let report =
             push_samples_with_backpressure(target_buffer, samples, max_buffer_fill, 10, 200);
@@ -1340,6 +1352,8 @@ fn run_pipewire_loop(
     input_clock_us: Arc<std::sync::atomic::AtomicU64>,
     pacer_fifo: Arc<ArrayQueue<f32>>,
     pacer_pre_roll_complete: Arc<AtomicBool>,
+    pacer_enabled: Arc<AtomicBool>,
+    pacer_pre_roll_threshold_samples: usize,
 ) -> Result<()> {
     // Determine actual output rate and resampling ratio
     let actual_output_rate = output_sample_rate.unwrap_or(sample_rate);
@@ -1660,7 +1674,20 @@ fn run_pipewire_loop(
                     let max_samples = max_frames * ch;
                     let frame_aligned_max = max_samples;
                     callback_output_frames = max_frames;
-                    let runtime_target_buffer_fill = target_buffer_fill;
+                    // When the pacer is active, it adds its (fixed) capacity
+                    // to the total end-to-end latency. To keep the user's
+                    // configured `latency_ms` as the TOTAL latency target
+                    // (rather than just the ring level), subtract the pacer
+                    // capacity from the PI's setpoint. The PI then aims for
+                    // a ring level of `user_target − pacer_capacity` and the
+                    // sum (ring + pacer) lands at user_target. Without this,
+                    // setting latency to 500 ms would actually give
+                    // 500 + pacer_capacity audible delay.
+                    let runtime_target_buffer_fill = if pacer_enabled.load(Ordering::Relaxed) {
+                        target_buffer_fill.saturating_sub(pacer_pre_roll_threshold_samples)
+                    } else {
+                        target_buffer_fill
+                    };
 
                     if callback_count == 1 {
                         log::info!(
@@ -1773,11 +1800,26 @@ fn run_pipewire_loop(
                         // construction); kept as a constant fallback.
                         (1024_f64) / (sample_rate as f64)
                     };
+                    // Pacer's contribution to the user-visible latency:
+                    // the configured pre-roll capacity, used as a FIXED
+                    // amount. Backpressure in `write_samples` clamps the
+                    // pacer to this capacity, so the live `pacer_fifo.len()`
+                    // never significantly exceeds it. Combined with the
+                    // `runtime_target_buffer_fill` adjustment above, this
+                    // keeps the total end-to-end latency at the user's
+                    // configured `latency_ms` regardless of whether the
+                    // pacer is active.
+                    let pacer_buffer_samples = if pacer_enabled.load(Ordering::Relaxed) {
+                        pacer_pre_roll_threshold_samples
+                    } else {
+                        0
+                    };
                     let mut metrics = update_latency_metrics(
                         &mut runtime_state,
                         available,
                         output_fifo_input_domain_samples_raw,
                         pending_resampler_input_samples,
+                        pacer_buffer_samples,
                         callback_input_domain_samples,
                         channel_count as usize,
                         sample_rate,

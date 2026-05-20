@@ -937,3 +937,111 @@ session; the variables to capture for both codecs are:
    chunks are atypical (boot transient), the offset may be biased and
    the steady-state values would carry that bias. Test by forcing a
    recalibration after a few seconds.
+
+---
+
+## Session 2026-05-20 — output pacer (the structural fix) + IIR + latency accounting
+
+### Pivot away from pre-bridge clock
+
+The pre-bridge clock servo (previous session) filtered the *symptom* on
+the PI side but left the ring buffer's raw `latency_control_ms` with its
+3.1 Hz sawtooth, and its one-shot calibration offset was polluted by the
+decoder batching phase + bootstrap conditions → a variable, "random"
+80 ms offset between raw and smoothed on TrueHD (≈0 on EAC3).
+
+The operator's insight, adopted here: **don't filter the PI signal,
+smooth the data written into the ring itself**. The IEC958 source clock
+is provably smooth (`input_clock_us` d/dt flat). So pace the bridge
+output to the IEC958 chunk cadence and buffer the decoder's bursts.
+
+### Output pacer — design
+
+A FIFO is inserted **after** the spatial renderer (post-decode,
+post-render) so the renderer keeps its metadata-accurate sample
+processing and harletty stays untouched — the pacer only sees plain
+speaker PCM that can be sliced freely.
+
+- `audio_output::pacer::PacerHandle` bundles the pacer FIFO, the ring,
+  pre-roll state, ratios and diag atomics; shared cross-crate via
+  `InputControl::install_output_pacer` (new `audio_input → audio_output`
+  dep, one direction only).
+- `PipewireWriter::write_samples` routes rendered PCM into `pacer_fifo`
+  when `use_output_pacing` is on, otherwise straight to the ring.
+- The **PipeWire input thread** drains `pacer_fifo → ring` in the same
+  callback that just read an IEC958 chunk, by an amount derived
+  arithmetically from that chunk's `byte_len` (strict 1:1 coupling,
+  no atomic-delta drift). Underrun → zero-fill + diag counter.
+- Pre-roll: until the FIFO holds `pre_roll_threshold` (64 ms default),
+  the drain zero-fills the ring so the DAC never starves at startup.
+- Diag metrics added (group `output`): `pacer_fifo_level`,
+  `pacer_drain_total`, `pacer_underrun_total`.
+
+Result: the ring sees a smooth flow regardless of decoder batching, so
+the classic ring-mode PI works on a clean `control_available` with no
+downstream filtering tricks. `use_pre_bridge_clock` becomes redundant
+(kept for now as an A/B control; flagged for removal).
+
+### Latency accounting (the part that bit us)
+
+First cut added `pacer_fifo.len()` to `control_available` — wrong: it
+re-injected the batching oscillation into the PI input and destabilised
+the servo. Then it was split (PI input excludes pacer; displayed latency
+includes it) but still reported only the instantaneous level.
+
+The operator's correct framing: **the pacer adds a fixed, known latency
+= its capacity. When the user asks for 500 ms they want 500 ms total.**
+Final design:
+
+1. **Pacer clamped to its capacity** — `write_samples` uses
+   `pre_roll_threshold_samples` as the back-pressure cap when pacing is
+   on, so the renderer blocks rather than letting the FIFO drift up to
+   seconds of buffered audio. Pacer depth is now genuinely fixed.
+2. **PI setpoint compensated** — `runtime_target_buffer_fill =
+   user_target − pacer_capacity` while pacing is on. The PI aims the
+   ring at `user_target − 64 ms`; ring + pacer sums to `user_target`.
+3. **Displayed latency uses the fixed capacity**, not the live FIFO
+   level, consistent with the clamped depth.
+
+Net: toggling pacing no longer changes the audible end-to-end latency;
+the user's configured `latency_ms` stays the total.
+
+### IIR replaces the EMA on the PI input
+
+Independently, the EMA on `control_available` was replaced by a
+parametric IIR (`audio_output::iir::IirLowPassState`):
+
+- Config: `control_smoothing_alpha` → `control_smoothing_cutoff_hz`
+  (default 0.5 Hz) + `control_smoothing_order` (1 = single pole
+  6 dB/oct, 2 = Butterworth biquad 12 dB/oct). Hard rename, no compat.
+- Coefficients recomputed each callback from the measured callback dt
+  (`output_callback_dt_us`), so the cutoff is invariant under quantum
+  changes — fixes the old bug where α-per-callback silently rescaled
+  the effective cutoff when the callback shrank from 256 ms to 21 ms
+  (commit `d43ddab`).
+- Studio: numeric cutoff field + order select in the adaptive advanced
+  panel.
+
+### Status of hypotheses
+
+- **Decoder batching as the 3.1 Hz source**: confirmed (prior session)
+  and now *structurally addressed* by the pacer rather than filtered.
+- **Pre-bridge clock**: superseded by the pacer. Redundant, slated for
+  removal once the pacer is validated in the field.
+- **Residual oscillation**: expected to be gone from the ring with the
+  pacer active (to be confirmed in-runtime via FFT on
+  `latency_control_ms`, which should lose its 3.1 Hz peak).
+
+### Next investigation steps
+
+1. Field-validate: toggle `use_output_pacing`, confirm
+   `latency_control_ms` FFT loses the 3.1 Hz peak and the audible
+   end-to-end latency equals the configured `latency_ms`.
+2. Watch `pacer_underrun_total` in steady state — if non-zero, raise the
+   pre-roll capacity (currently a hard-coded 64 ms; expose as config if
+   tuning proves necessary).
+3. Watch `write_samples` back-pressure timeouts — if the renderer blocks
+   too often, the pre-roll cap is too tight for the renderer's push
+   burst size.
+4. Remove `use_pre_bridge_clock` and its plumbing once the pacer is
+   confirmed as the single solution.
