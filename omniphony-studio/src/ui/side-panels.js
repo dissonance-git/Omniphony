@@ -8,6 +8,7 @@
  */
 
 import {
+  collapsedPx,
   emitOverlayLayoutChanged,
   getOverlayLayoutState,
   initOverlayLayoutState,
@@ -16,8 +17,6 @@ import {
   setOverlayPanelWidth,
   subscribeOverlayLayout
 } from './layout/overlay-layout-state.js';
-
-const COLLAPSED_WIDTH_REM = 1.8;
 
 const HAMBURGER_SVG = '<svg width="14" height="14" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none" aria-hidden="true"><path d="M3 5h10M3 8h10M3 11h10"/></svg>';
 const SPEAKER_SVG = '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2.5 6h2L8 3v10L4.5 10h-2z"/><path d="M10 5.5q1.5 2.5 0 5" stroke="currentColor" stroke-width="1" fill="none" stroke-linecap="round"/><path d="M12 4q2 4 0 8" stroke="currentColor" stroke-width="1" fill="none" stroke-linecap="round"/></svg>';
@@ -40,11 +39,6 @@ const SIDES = {
     direction: -1
   }
 };
-
-function collapsedPx() {
-  const fontSize = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-  return COLLAPSED_WIDTH_REM * fontSize;
-}
 
 function setResizeVisualState(active) {
   document.body.classList.toggle('overlay-layout-resizing', active);
