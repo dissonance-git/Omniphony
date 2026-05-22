@@ -135,6 +135,26 @@ impl<'a> SampleWriteCoordinator<'a> {
                     handle.atomic,
                 );
             }
+            // Target latency setpoint: published here (not from the audio
+            // backend) because the target lives in the decode runtime. Same
+            // value that feeds the latency-gauge target marker, so the diag
+            // plot can show the controller's setpoint alongside the measured
+            // latency traces.
+            if let Some(target_ms) = current_latency_target_ms {
+                diag.register("latency_target_ms", "Target latency", "latency", "ms")
+                    .store((target_ms as f64).to_bits(), std::sync::atomic::Ordering::Relaxed);
+            }
+            // Tier classification (renderer-declared): the obvious,
+            // clearly-meaningful signals go in the diag plot's "base" tab;
+            // everything else stays "advanced" (registration default).
+            for base_metric in [
+                "latency_smoothed_ms",
+                "latency_control_ms",
+                "latency_target_ms",
+                "rate_adjust_ppm",
+            ] {
+                diag.set_tier(base_metric, "base");
+            }
         }
 
         let freeze_delay_sync = current_latency_control_ms

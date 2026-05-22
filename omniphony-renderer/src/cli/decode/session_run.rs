@@ -1,7 +1,8 @@
 use super::bootstrap::init_render_handler;
 use super::config_resolution::{effective_to_config, merge_render_config};
 use super::decoder_thread::{
-    DecodedAudioData, DecoderCommand, DecoderMessage, DecoderThreadConfig, spawn_decoder_thread,
+    DecodedAudioData, DecoderCommand, DecoderMessage, DecoderThreadConfig, PipeInputDiag,
+    spawn_decoder_thread,
 };
 use super::handler::DecodeHandler;
 use super::live_input::{LiveBridgeRuntimeConfig, spawn_live_input_manager};
@@ -11,7 +12,9 @@ use crate::cli::command::{Cli, EvaluationModeArg, OutputBackend, RenderArgSource
 use anyhow::Result;
 use log::Level;
 use std::sync::mpsc;
+use std::sync::{Arc, atomic::AtomicU64};
 use std::time::Duration;
+use sys::diag::DiagAtomicHandle;
 
 const DEFAULT_DECODE_QUEUE_LATENCY_MS: u32 = 220;
 const DECODE_QUEUE_MESSAGES_PER_MS: usize = 2;
@@ -36,6 +39,11 @@ struct PreparedDecodeRun {
     rx: mpsc::Receiver<Result<DecoderMessage>>,
     cmd_tx: mpsc::Sender<DecoderCommand>,
     decode_thread: std::thread::JoinHandle<Result<()>>,
+    /// Receives per-packet emitted audio duration (microseconds) from the
+    /// decoder thread; consumed by the pure pipe-bridge pacer drain thread.
+    drain_rx: Option<mpsc::Receiver<u64>>,
+    pipe_input_diag: PipeInputDiag,
+    pacer_bridge_diag: PacerBridgeDiag,
     _shutdown: sys::ShutdownHandle,
     bridge_lib: bridge_api::BridgeLibRef,
     input_path: std::path::PathBuf,
@@ -46,6 +54,49 @@ struct PreparedDecodeRun {
     vbap_cartesian_defaults: bridge_api::RVbapCartesianDefaults,
     preferred_evaluation_mode: bridge_api::RVbapTableMode,
     supported_drc_modes: Vec<String>,
+}
+
+#[derive(Clone)]
+struct PacerBridgeDiag {
+    emitted_us: Arc<AtomicU64>,
+    drain_samples: Arc<AtomicU64>,
+    frac_frames: Arc<AtomicU64>,
+    drain_dt_us: Arc<AtomicU64>,
+}
+
+impl PacerBridgeDiag {
+    fn handles(&self) -> [DiagAtomicHandle; 4] {
+        [
+            DiagAtomicHandle {
+                name: "pacer_bridge_emitted_us",
+                label: "Pacer token duration",
+                group: "pacer_pipe",
+                unit: "us",
+                atomic: Arc::clone(&self.emitted_us),
+            },
+            DiagAtomicHandle {
+                name: "pacer_bridge_drain_samples",
+                label: "Pacer drain samples",
+                group: "pacer_pipe",
+                unit: "samples",
+                atomic: Arc::clone(&self.drain_samples),
+            },
+            DiagAtomicHandle {
+                name: "pacer_bridge_frac_frames",
+                label: "Pacer fractional frames",
+                group: "pacer_pipe",
+                unit: "frames",
+                atomic: Arc::clone(&self.frac_frames),
+            },
+            DiagAtomicHandle {
+                name: "pacer_bridge_drain_dt_us",
+                label: "Pacer drain dt",
+                group: "pacer_pipe",
+                unit: "us",
+                atomic: Arc::clone(&self.drain_dt_us),
+            },
+        ]
+    }
 }
 
 fn resolve_effective_decode_args(
@@ -198,6 +249,22 @@ fn prepare_render_run(args: &RenderArgs, cli: &Cli) -> Result<PreparedDecodeRun>
     );
     let (tx, rx) = mpsc::sync_channel(queue_capacity);
     let (cmd_tx, cmd_rx) = mpsc::channel();
+    // Unbounded so the decoder never blocks posting a drain token (a bounded
+    // channel here would re-introduce the very backpressure deadlock this
+    // pacer drain path exists to avoid).
+    let (drain_tx, drain_rx) = mpsc::channel::<u64>();
+    let pipe_input_diag = PipeInputDiag {
+        chunk_bytes: Arc::new(AtomicU64::new(0)),
+        chunk_dt_us: Arc::new(AtomicU64::new(0)),
+        audio_ms_per_chunk: Arc::new(AtomicU64::new(0)),
+        gap_over_audio_ms: Arc::new(AtomicU64::new(0)),
+    };
+    let pacer_bridge_diag = PacerBridgeDiag {
+        emitted_us: Arc::new(AtomicU64::new(0)),
+        drain_samples: Arc::new(AtomicU64::new(0)),
+        frac_frames: Arc::new(AtomicU64::new(0)),
+        drain_dt_us: Arc::new(AtomicU64::new(0)),
+    };
     let shutdown = sys::shutdown::ShutdownHandle::install()?;
     let shutdown_signal = shutdown.shutdown_signal();
 
@@ -208,6 +275,8 @@ fn prepare_render_run(args: &RenderArgs, cli: &Cli) -> Result<PreparedDecodeRun>
         drain_pipe: !args.no_drain_pipe,
         tx: tx.clone(),
         cmd_rx,
+        drain_tx: Some(drain_tx),
+        pipe_input_diag: Some(pipe_input_diag.clone()),
         bridge,
         shutdown_signal,
     });
@@ -218,6 +287,9 @@ fn prepare_render_run(args: &RenderArgs, cli: &Cli) -> Result<PreparedDecodeRun>
         rx,
         cmd_tx,
         decode_thread,
+        drain_rx: Some(drain_rx),
+        pipe_input_diag,
+        pacer_bridge_diag,
         _shutdown: shutdown,
         bridge_lib: lib,
         input_path: input,
@@ -507,8 +579,84 @@ fn finalize_render_run(
     complete_render_run(prepared, handler, args, is_shutdown)
 }
 
+/// Drains the post-rendering output pacer FIFO into the ring for pure
+/// pipe-bridge mode, where no PipeWire input RT callback exists to do it.
+///
+/// The clock is the decoder's source clock, conveyed as per-packet emitted
+/// audio durations over `drain_rx`. Running on its own thread (independent of
+/// the decoder→handler fill chain) is what makes the drain deadlock-free: it
+/// keeps relieving the FIFO even while the decoder is blocked sending and the
+/// handler is blocked in `write_samples`.
+///
+/// Only one component may own the FIFO drain at a time, so this thread acts
+/// only when pacing is enabled AND the active input mode is `Bridge`; in
+/// Live / PipewireBridge the input RT callback owns it and tokens are dropped.
+fn spawn_pacer_drain_thread(
+    input_control: std::sync::Arc<audio_input::InputControl>,
+    drain_rx: mpsc::Receiver<u64>,
+    diag: PacerBridgeDiag,
+) -> std::thread::JoinHandle<()> {
+    std::thread::Builder::new()
+        .name("pacer-bridge-drain".to_string())
+        .spawn(move || {
+            // Carry the sub-frame remainder across packets so per-packet
+            // rounding can't accumulate into audible drift over a long stream.
+            let mut frac_frames: f64 = 0.0;
+            let mut last_drain_at = None;
+            loop {
+                if sys::ShutdownHandle::is_requested()
+                    || sys::ShutdownHandle::is_restart_from_config_requested()
+                {
+                    break;
+                }
+                let emitted_us = match drain_rx.recv_timeout(Duration::from_millis(200)) {
+                    Ok(value) => value,
+                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                };
+                let Some(pacer) = input_control.output_pacer() else {
+                    frac_frames = 0.0;
+                    continue;
+                };
+                if !pacer.enabled.load(std::sync::atomic::Ordering::Relaxed)
+                    || input_control.applied_snapshot().active_mode
+                        != audio_input::InputMode::Bridge
+                {
+                    frac_frames = 0.0;
+                    continue;
+                }
+                let now = std::time::Instant::now();
+                let drain_dt_us = last_drain_at
+                    .map(|prev| now.saturating_duration_since(prev).as_micros() as u64)
+                    .unwrap_or(0);
+                last_drain_at = Some(now);
+                let exact_frames =
+                    emitted_us as f64 * pacer.out_sample_rate as f64 / 1_000_000.0 + frac_frames;
+                let drain_frames = exact_frames.floor();
+                frac_frames = exact_frames - drain_frames;
+                let drain_samples = drain_frames as usize * pacer.out_channels as usize;
+                diag.emitted_us
+                    .store((emitted_us as f64).to_bits(), std::sync::atomic::Ordering::Relaxed);
+                diag.drain_samples.store(
+                    (drain_samples as f64).to_bits(),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+                diag.frac_frames
+                    .store(frac_frames.to_bits(), std::sync::atomic::Ordering::Relaxed);
+                diag.drain_dt_us.store(
+                    (drain_dt_us as f64).to_bits(),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+                if drain_samples > 0 {
+                    pacer.drain(drain_samples);
+                }
+            }
+        })
+        .expect("failed to spawn pacer drain thread")
+}
+
 fn run_prepared_render(
-    prepared: PreparedDecodeRun,
+    mut prepared: PreparedDecodeRun,
     args: &RenderArgs,
     config_path: &Option<std::path::PathBuf>,
     current_layout_from_config: Option<renderer::speaker_layout::SpeakerLayout>,
@@ -554,6 +702,57 @@ fn run_prepared_render(
             .send(DecoderCommand::SetDrcMode(initial_mode))?;
     }
 
+    if let Some(input_control) = handler.input_control.as_ref() {
+        let diag = input_control.diag_registry();
+        for handle in [
+            DiagAtomicHandle {
+                name: "pipe_chunk_bytes",
+                label: "Pipe chunk bytes",
+                group: "pipe_input",
+                unit: "B",
+                atomic: Arc::clone(&prepared.pipe_input_diag.chunk_bytes),
+            },
+            DiagAtomicHandle {
+                name: "pipe_chunk_dt_us",
+                label: "Pipe chunk dt",
+                group: "pipe_input",
+                unit: "us",
+                atomic: Arc::clone(&prepared.pipe_input_diag.chunk_dt_us),
+            },
+            DiagAtomicHandle {
+                name: "pipe_audio_ms_per_chunk",
+                label: "Pipe audio per chunk",
+                group: "pipe_input",
+                unit: "ms",
+                atomic: Arc::clone(&prepared.pipe_input_diag.audio_ms_per_chunk),
+            },
+            DiagAtomicHandle {
+                name: "pipe_gap_over_audio_ms",
+                label: "Pipe gap minus audio",
+                group: "pipe_input",
+                unit: "ms",
+                atomic: Arc::clone(&prepared.pipe_input_diag.gap_over_audio_ms),
+            },
+        ] {
+            diag.register_external(
+                handle.name,
+                handle.label,
+                handle.group,
+                handle.unit,
+                handle.atomic,
+            );
+        }
+        for handle in prepared.pacer_bridge_diag.handles() {
+            diag.register_external(
+                handle.name,
+                handle.label,
+                handle.group,
+                handle.unit,
+                handle.atomic,
+            );
+        }
+    }
+
     let live_input_manager = handler
         .input_control
         .as_ref()
@@ -570,6 +769,22 @@ fn run_prepared_render(
                     clock_mode: input_control.requested_snapshot().clock_mode,
                     requested_drc_mode: live_drc_mode.clone(),
                 },
+            )
+        });
+
+    // Drain thread for the post-rendering pacer in pure pipe-bridge mode.
+    // Detached: it self-terminates when the decoder drops its sender
+    // (Disconnected) or on shutdown/restart, so there is no join-on-error
+    // hang to worry about.
+    let _pacer_drain_thread = handler
+        .input_control
+        .as_ref()
+        .zip(prepared.drain_rx.take())
+        .map(|(input_control, drain_rx)| {
+            spawn_pacer_drain_thread(
+                input_control.clone(),
+                drain_rx,
+                prepared.pacer_bridge_diag.clone(),
             )
         });
 

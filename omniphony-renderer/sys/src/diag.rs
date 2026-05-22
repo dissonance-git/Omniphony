@@ -26,6 +26,11 @@ pub struct DiagSchemaItem {
     pub label: String,
     pub group: String,
     pub unit: String,
+    /// Which tab the Studio diag plot shows this metric in: "base" (obvious,
+    /// clearly-meaningful signals) or "advanced" (everything else). Defaults
+    /// to "advanced" at registration; the renderer promotes the base set via
+    /// `set_tier`.
+    pub tier: String,
 }
 
 /// Pre-allocated metric handle exposed by a producer (e.g. an audio backend
@@ -79,6 +84,7 @@ impl DiagRegistry {
                     label: label.to_string(),
                     group: group.to_string(),
                     unit: unit.to_string(),
+                    tier: "advanced".to_string(),
                 },
                 value: Arc::clone(&value),
             },
@@ -118,10 +124,24 @@ impl DiagRegistry {
                     label: label.to_string(),
                     group: group.to_string(),
                     unit: unit.to_string(),
+                    tier: "advanced".to_string(),
                 },
                 value,
             },
         );
+    }
+
+    /// Override the tier ("base" | "advanced") of an already-registered
+    /// metric. No-op if the metric isn't registered yet. Lets the renderer
+    /// classify which metrics appear in the diag plot's "base" tab; everything
+    /// left at the registration default stays in "advanced".
+    pub fn set_tier(&self, name: &str, tier: &str) {
+        let mut entries = self.entries.lock().unwrap();
+        if let Some(entry) = entries.get_mut(name) {
+            if entry.schema.tier != tier {
+                entry.schema.tier = tier.to_string();
+            }
+        }
     }
 
     /// Returns the schema as JSON if any metric is registered, else `None`.

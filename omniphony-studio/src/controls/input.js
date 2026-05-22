@@ -327,7 +327,8 @@ export function updateInputControlUI() {
 }
 
 export function persistInputPipeNow() {
+  const inputPipeInputEl = getInputPipeInputEl();
   const value = String(inputPipeInputEl?.value || '').trim();
   app.orenderInputPipe = value || null;
-  return Promise.resolve();
+  return invoke('control_render_input_pipe', { value });
 }

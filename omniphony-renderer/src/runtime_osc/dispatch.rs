@@ -274,6 +274,34 @@ pub(crate) fn handle_control_message(
         return;
     }
 
+    if addr == "/omniphony/control/render/input_pipe" {
+        let value = match msg.args.first() {
+            Some(OscType::String(s)) => s.trim(),
+            _ => return,
+        };
+        let next = if value.is_empty() {
+            None
+        } else {
+            Some(value.to_string())
+        };
+        if control.input_path() != next {
+            control.set_input_path(next.clone());
+            control.mark_dirty();
+            broadcast_int(socket, clients, "/omniphony/state/config/saved", 0);
+            broadcast_string(
+                socket,
+                clients,
+                "/omniphony/state/input_pipe",
+                &next.clone().unwrap_or_default(),
+            );
+            log::info!(
+                "OSC: render.input_pipe → {}",
+                next.as_deref().unwrap_or("<default>")
+            );
+        }
+        return;
+    }
+
     if let Some(command) = parse_process_command(msg) {
         match command {
             RuntimeCommand::SaveConfig => {

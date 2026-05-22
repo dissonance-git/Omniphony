@@ -10,7 +10,6 @@ import {
 import { applyLatencyTargetNow, updateLatencyDisplay } from '../controls/latency.js';
 import { openAutoTuneWizard } from '../auto-tune/wizard-ui.js';
 import { toggleResamplePlot } from '../controls/resample-plot.js';
-import { toggleComponentsPlot } from '../controls/components-plot.js';
 import { toggleDiagPlot } from '../controls/diag-plot.js';
 
 export function setupAudioPanelListeners() {
@@ -27,7 +26,6 @@ export function setupAudioPanelListeners() {
   const adaptiveRatioResetBtnEl = document.getElementById('adaptiveRatioResetBtn');
   const autoTunePiBtnEl = document.getElementById('autoTunePiBtn');
   const resamplePlotToggleBtnEl = document.getElementById('resamplePlotToggleBtn');
-  const componentsPlotToggleBtnEl = document.getElementById('componentsPlotToggleBtn');
   const diagPlotToggleBtnEl = document.getElementById('diagPlotToggleBtn');
   const adaptiveKpNearInputEl = document.getElementById('adaptiveKpNearInput');
   const adaptiveKiInputEl = document.getElementById('adaptiveKiInput');
@@ -252,12 +250,6 @@ export function setupAudioPanelListeners() {
   if (resamplePlotToggleBtnEl) {
     resamplePlotToggleBtnEl.addEventListener('click', () => {
       toggleResamplePlot();
-    });
-  }
-
-  if (componentsPlotToggleBtnEl) {
-    componentsPlotToggleBtnEl.addEventListener('click', () => {
-      toggleComponentsPlot();
     });
   }
 

@@ -535,18 +535,6 @@ export function setupTauriBridge() {
     updateLatencyDisplay();
   });
 
-  listen('latency:avail_input', ({ payload }) => {
-    app.latencyAvailInputMs = Number(payload.value);
-  });
-
-  listen('latency:output_fifo', ({ payload }) => {
-    app.latencyOutputFifoMs = Number(payload.value);
-  });
-
-  listen('latency:resampler_pending', ({ payload }) => {
-    app.latencyResamplerPendingMs = Number(payload.value);
-  });
-
   // Generic diag registry: schema (list of available metrics) + values map.
   // Lets the diag plot dynamically offer any metric the renderer registers,
   // with zero studio-side change per new metric.

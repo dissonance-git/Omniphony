@@ -28,6 +28,7 @@ export function setupInputPanelListeners() {
         ? inputModeSelectEl.value
         : 'pipe_bridge';
       app.inputMode = value;
+      app.inputModeDirty = true;
       if (value === 'pipewire_bridge' && previousMode !== 'pipewire_bridge') {
         app.liveInput.channels = 2;
         app.liveInput.sampleRate = 192000;
@@ -42,9 +43,13 @@ export function setupInputPanelListeners() {
 
   if (inputPipeInputEl) {
     inputPipeInputEl.addEventListener('change', () => {
-      persistInputPipeNow().finally(() => {
-        updateInputControlUI();
-      });
+      persistInputPipeNow()
+        .catch((e) => {
+          pushLog('error', `Failed to set input pipe: ${normalizeLogError(e)}`);
+        })
+        .finally(() => {
+          updateInputControlUI();
+        });
     });
   }
 

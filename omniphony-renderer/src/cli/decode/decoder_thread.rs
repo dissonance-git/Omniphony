@@ -2,6 +2,8 @@ use anyhow::Result;
 use bridge_api::{FormatBridgeBox, RInputTransport};
 use spdif::SpdifParser;
 use std::io;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Instant;
@@ -52,6 +54,14 @@ pub enum DecoderCommand {
     SetDrcMode(String),
 }
 
+#[derive(Clone)]
+pub struct PipeInputDiag {
+    pub chunk_bytes: Arc<AtomicU64>,
+    pub chunk_dt_us: Arc<AtomicU64>,
+    pub audio_ms_per_chunk: Arc<AtomicU64>,
+    pub gap_over_audio_ms: Arc<AtomicU64>,
+}
+
 pub struct DecoderThreadConfig {
     pub input_path: std::path::PathBuf,
     pub strict_mode: bool,
@@ -59,6 +69,18 @@ pub struct DecoderThreadConfig {
     pub drain_pipe: bool,
     pub tx: mpsc::SyncSender<Result<DecoderMessage>>,
     pub cmd_rx: mpsc::Receiver<DecoderCommand>,
+    /// Post-rendering output pacer drain clock (pure pipe-bridge mode only).
+    /// Each decoded packet posts its emitted source duration (microseconds)
+    /// here, before the (potentially blocking) frame send. An independent
+    /// drain thread converts that to output frames and drains the pacer FIFO
+    /// into the ring — keeping the drain off this thread avoids the
+    /// backpressure deadlock (send blocks → FIFO never drains → send stays
+    /// blocked). `None` when output pacing is unused.
+    pub drain_tx: Option<mpsc::Sender<u64>>,
+    /// Optional diag handles for the named-pipe / stdin input path. Published
+    /// from the decoder thread so we can correlate upstream delivery cadence
+    /// with downstream latency sawtooths.
+    pub pipe_input_diag: Option<PipeInputDiag>,
     /// The bridge owns the complete decode pipeline.
     pub bridge: FormatBridgeBox,
     /// Platform-agnostic shutdown signal for interrupt-aware I/O.
@@ -74,6 +96,8 @@ pub fn spawn_decoder_thread(config: DecoderThreadConfig) -> thread::JoinHandle<R
             drain_pipe,
             tx,
             cmd_rx,
+            drain_tx,
+            pipe_input_diag,
             mut bridge,
             shutdown_signal,
         } = config;
@@ -159,6 +183,9 @@ pub fn spawn_decoder_thread(config: DecoderThreadConfig) -> thread::JoinHandle<R
                 let now = Instant::now();
                 let chunk_gap_ms = last_chunk_at
                     .map(|last| now.saturating_duration_since(last).as_secs_f64() * 1000.0);
+                let chunk_dt_us = last_chunk_at
+                    .map(|last| now.saturating_duration_since(last).as_micros() as u64)
+                    .unwrap_or(0);
                 if continuous && is_pipe_input {
                     last_chunk_at = Some(now);
                 }
@@ -318,6 +345,15 @@ pub fn spawn_decoder_thread(config: DecoderThreadConfig) -> thread::JoinHandle<R
                     let per_frame_decode_time_ms = decode_time_ms / frame_count_in_packet;
                     let frames_in_packet = result.frames.len();
                     frames_emitted += frames_in_packet;
+                    // Drive the output-pacer drain at the source clock: post this
+                    // packet's emitted audio duration BEFORE sending its frames,
+                    // so the drain keeps relieving the pacer FIFO even if the
+                    // frame send below blocks on handler backpressure.
+                    if let Some(ref drain_tx) = drain_tx {
+                        if packet_emitted_ms > 0.0 {
+                            let _ = drain_tx.send((packet_emitted_ms * 1000.0).round() as u64);
+                        }
+                    }
                     for frame in result.frames {
                         frame_count += 1;
                         let sent_at = Instant::now();
@@ -343,6 +379,20 @@ pub fn spawn_decoder_thread(config: DecoderThreadConfig) -> thread::JoinHandle<R
                             );
                         }
                     }
+                }
+
+                if let Some(diag) = pipe_input_diag.as_ref() {
+                    diag.chunk_bytes
+                        .store((chunk.len() as f64).to_bits(), Ordering::Relaxed);
+                    diag.chunk_dt_us
+                        .store((chunk_dt_us as f64).to_bits(), Ordering::Relaxed);
+                    diag.audio_ms_per_chunk
+                        .store(emitted_duration_ms.to_bits(), Ordering::Relaxed);
+                    let gap_over_audio_ms = chunk_gap_ms
+                        .map(|gap_ms| (gap_ms - emitted_duration_ms).max(0.0))
+                        .unwrap_or(0.0);
+                    diag.gap_over_audio_ms
+                        .store(gap_over_audio_ms.to_bits(), Ordering::Relaxed);
                 }
 
                 if let Some(gap_ms) = chunk_gap_ms.filter(|gap_ms| *gap_ms > 10.0) {

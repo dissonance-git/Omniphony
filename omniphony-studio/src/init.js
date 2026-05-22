@@ -446,7 +446,11 @@ export function applyInitState(payload) {
   if (typeof payload.inputMode === 'string') {
     const value = payload.inputMode.trim().toLowerCase();
     if (value === 'bridge' || value === 'pipe_bridge' || value === 'live' || value === 'pipewire' || value === 'pipewire_bridge') {
-      app.inputMode = value === 'bridge' ? 'pipe_bridge' : (value === 'live' ? 'pipewire' : value);
+      const normalized = value === 'bridge' ? 'pipe_bridge' : (value === 'live' ? 'pipewire' : value);
+      if (!app.inputModeDirty || normalized === app.inputMode) {
+        app.inputMode = normalized;
+        app.inputModeDirty = false;
+      }
     }
   }
   if (typeof payload.inputActiveMode === 'string') {

@@ -80,7 +80,6 @@ export function audioPanelMarkup() {
           </div>
           <div style="display:flex;align-items:center;gap:0.35rem;justify-content:flex-end;flex:0 0 auto">
             <button id="resamplePlotToggleBtn" type="button" class="info-icon-btn" data-i18n-title="telemetry.plotToggle" title="Toggle resample plot" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none" aria-hidden="true"><polyline points="2,12 5,8 8,10 11,4 14,7"/></svg></button>
-            <button id="componentsPlotToggleBtn" type="button" class="info-icon-btn" data-i18n-title="telemetry.componentsPlotToggle" title="Toggle control-available components plot" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none" aria-hidden="true"><path d="M2 13h12"/><path d="M3 13V6"/><path d="M7 13V9"/><path d="M11 13V3"/></svg></button>
             <button id="diagPlotToggleBtn" type="button" class="info-icon-btn" data-i18n-title="telemetry.diagPlotToggle" title="Toggle diagnostic-metrics plot" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4v4l3 2"/></svg></button>
             <button id="telemetryGaugesInfoBtn" type="button" class="info-icon-btn" data-i18n-title="telemetry.infoButton" title="Latency panel info">i</button>
             <button id="telemetryGaugesToggleBtn" type="button" class="panel-toggle-btn" data-i18n-title="telemetry.toggle" title="Show latency controls">▸</button>
@@ -88,9 +87,6 @@ export function audioPanelMarkup() {
         </div>
         <div id="resamplePlotContainer" style="display:none;margin-top:0.35rem">
           <canvas id="resamplePlotCanvas" width="600" height="140" style="display:block;width:100%;height:auto;border-radius:8px"></canvas>
-        </div>
-        <div id="componentsPlotContainer" style="display:none;margin-top:0.35rem">
-          <canvas id="componentsPlotCanvas" width="600" height="240" style="display:block;width:100%;height:auto;border-radius:8px"></canvas>
         </div>
         <div id="diagPlotContainer" style="display:none;margin-top:0.35rem">
           <div id="diagPlotControls" style="display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;margin-bottom:0.35rem;font-size:11px;color:#b9c7d8"></div>

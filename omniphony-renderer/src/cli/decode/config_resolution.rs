@@ -35,6 +35,13 @@ pub(super) fn merge_render_config(
     if args.bridge_path.is_none() {
         args.bridge_path = cfg.bridge_path.clone();
     }
+    // In continuous (studio bridge) mode the config is the source of truth for the
+    // input pipe, overriding the positional default the studio passes at launch.
+    if args.continuous {
+        if let Some(ref input_pipe) = cfg.input_pipe {
+            args.input = Some(input_pipe.clone());
+        }
+    }
     // Note: drc_mode currently doesn't have a CLI arg, it's OSC/config only.
     // --- Fields with defaults: apply config only when value equals the clap default ---
     // (If the user explicitly passes the default value, config is ignored — acceptable edge case.)
@@ -291,6 +298,11 @@ pub(super) fn effective_to_config(
 
     let render = RenderConfig {
         input_mode: None,
+        input_pipe: if args.continuous {
+            args.input.clone()
+        } else {
+            None
+        },
         live_input: None,
         output_backend: match args.output_backend {
             Some(value) if Some(value) != OutputBackend::platform_default() => {

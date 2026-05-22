@@ -193,11 +193,6 @@ export const app = {
   latencyDownstreamMs: null,
   latencyTargetMs: null,
   latencyRequestedMs: null,
-  // Components of `control_available` exposed by the renderer, in ms.
-  // Plotted independently to localise the source of oscillations.
-  latencyAvailInputMs: null,
-  latencyOutputFifoMs: null,
-  latencyResamplerPendingMs: null,
   // Generic diagnostic-metric registry pushed by the renderer.
   //   diagSchema: { items: [{name, label, group, unit}, ...] } — list of
   //     metrics the renderer exposes (refreshed when new ones register).
@@ -229,6 +224,7 @@ export const app = {
   audioSampleFormat: null,
   audioError: null,
   inputMode: 'pipe_bridge',
+  inputModeDirty: false,
   inputActiveMode: 'pipe_bridge',
   inputApplyPending: false,
   inputApplyAwaitingAck: false,

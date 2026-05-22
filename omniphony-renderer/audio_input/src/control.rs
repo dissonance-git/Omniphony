@@ -23,8 +23,8 @@ pub enum InputBackend {
 }
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
 pub enum InputMapMode {
+    #[serde(rename = "7.1-fixed", alias = "seven-one-fixed")]
     SevenOneFixed,
 }
 

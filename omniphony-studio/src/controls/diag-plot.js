@@ -24,6 +24,12 @@ const DIAG_RATE_STORAGE_KEY = 'diagPlot.diagRateHz.v1';
 const DIAG_RATE_LEGACY_STORAGE_KEY = 'diagPlot.meterRateHz.v1';
 const FFT_STORAGE_KEY = 'diagPlot.fftMode.v1';
 const DIFF_STORAGE_KEY = 'diagPlot.diffMode.v1';
+// Active metric tab. The renderer tags each metric with a `tier`
+// ("base" | "advanced"); the chip row shows only the metrics of the active
+// tab. Defaults to "base" for the clear, obvious signals.
+const TIER_STORAGE_KEY = 'diagPlot.tier.v1';
+const DEFAULT_TIER = 'base';
+const TIERS = ['base', 'advanced'];
 // FFT panel: sample rate equals the plot poll rate (buffer is filled once per
 // tick at POLL_INTERVAL_MS). Nyquist = 1000/(2·POLL_INTERVAL_MS). At 20 ms
 // poll this gives 25 Hz, sufficient for the 3.1 Hz sawtooth investigation.
@@ -55,6 +61,7 @@ let fftBtnEl = null;
 let fftMode = loadFftMode();
 let diffBtnEl = null;
 let diffMode = loadDiffMode();
+let activeTier = loadTier();
 const buffer = [];
 let selected = loadSelection();
 let windowMs = loadWindowMs();
@@ -121,6 +128,20 @@ function saveDiagRateHz() {
   } catch (_) { /* ignore */ }
 }
 
+function loadTier() {
+  try {
+    const raw = localStorage.getItem(TIER_STORAGE_KEY);
+    if (TIERS.includes(raw)) return raw;
+  } catch (_) { /* ignore */ }
+  return DEFAULT_TIER;
+}
+
+function saveTier() {
+  try {
+    localStorage.setItem(TIER_STORAGE_KEY, activeTier);
+  } catch (_) { /* ignore */ }
+}
+
 function loadFftMode() {
   try {
     return localStorage.getItem(FFT_STORAGE_KEY) === '1';
@@ -160,7 +181,9 @@ function getElements() {
 function schemaItems() {
   const schema = app.diagSchema;
   if (!schema || !Array.isArray(schema.items)) return [];
-  return schema.items;
+  // Hide internal sentinels (e.g. `_diag_alive`): underscore-prefixed metrics
+  // are liveness/plumbing signals, not user-selectable traces.
+  return schema.items.filter((it) => it && typeof it.name === 'string' && !it.name.startsWith('_'));
 }
 
 function colorFor(name) {
@@ -169,15 +192,23 @@ function colorFor(name) {
   return PALETTE[Math.abs(hash) % PALETTE.length];
 }
 
+function tierOf(item) {
+  return item.tier === 'base' ? 'base' : 'advanced';
+}
+
 function rebuildControlsIfSchemaChanged() {
   const { controlsEl: ctrl } = getElements();
   if (!ctrl) return;
   const items = schemaItems();
-  const signature = items.map((it) => it.name).join('|');
+  // Signature includes the active tab and each metric's tier so the chip row
+  // rebuilds when the tab changes or the renderer (re)classifies a metric.
+  const signature =
+    activeTier + '||' + items.map((it) => `${it.name}:${tierOf(it)}`).join('|');
   if (signature === renderedSchemaSignature) return;
   renderedSchemaSignature = signature;
 
   ctrl.innerHTML = '';
+  ctrl.appendChild(buildTierTabs());
   ctrl.appendChild(buildWindowSelector());
   ctrl.appendChild(buildDiagRateSelector());
   ctrl.appendChild(buildPauseButton());
@@ -191,8 +222,18 @@ function rebuildControlsIfSchemaChanged() {
     return;
   }
   // Group by `group` field, preserve registration order within group.
+  // Only the metrics of the active tier are shown as chips; selected metrics
+  // from the other tab still plot, they're just not listed here.
+  const visibleItems = items.filter((it) => tierOf(it) === activeTier);
+  if (visibleItems.length === 0) {
+    const empty = document.createElement('span');
+    empty.textContent = `No ${activeTier} metrics.`;
+    empty.style.opacity = '0.7';
+    ctrl.appendChild(empty);
+    return;
+  }
   const groups = new Map();
-  for (const item of items) {
+  for (const item of visibleItems) {
     const g = item.group || 'misc';
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g).push(item);
@@ -228,6 +269,34 @@ function rebuildControlsIfSchemaChanged() {
     }
     ctrl.appendChild(groupEl);
   }
+}
+
+function tierTabStyle(on) {
+  const color = on ? '#7ad7ff' : '#d9ecff';
+  const bg = on ? 'rgba(122, 215, 255, 0.18)' : 'rgba(255,255,255,0.06)';
+  const border = on ? '#7ad7ff' : 'rgba(255,255,255,0.15)';
+  return `font-size:10px;padding:0.15rem 0.55rem;border-radius:6px;border:1px solid ${border};background:${bg};color:${color};cursor:pointer;text-transform:uppercase;letter-spacing:0.04em;`;
+}
+
+function buildTierTabs() {
+  const wrap = document.createElement('div');
+  wrap.style.display = 'flex';
+  wrap.style.alignItems = 'center';
+  wrap.style.gap = '0.25rem';
+  for (const tier of TIERS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = tier;
+    btn.style.cssText = tierTabStyle(activeTier === tier);
+    btn.addEventListener('click', () => {
+      if (activeTier === tier) return;
+      activeTier = tier;
+      saveTier();
+      rebuildControlsIfSchemaChanged();
+    });
+    wrap.appendChild(btn);
+  }
+  return wrap;
 }
 
 function buildWindowSelector() {

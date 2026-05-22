@@ -24,6 +24,10 @@ pub struct GlobalConfig {
 pub struct RenderConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_mode: Option<InputModeConfig>,
+    /// Named pipe / file orender reads its bitstream from in continuous mode.
+    /// Shared source of truth with the mpv lua routing script.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_pipe: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub live_input: Option<LiveInputConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
