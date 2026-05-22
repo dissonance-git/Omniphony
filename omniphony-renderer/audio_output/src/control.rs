@@ -381,6 +381,16 @@ impl AudioControl {
         self.requested_snapshot().adaptive.use_output_pacing
     }
 
+    pub fn set_requested_adaptive_resampling_disable_backpressure(&self, disabled: bool) {
+        self.update_requested(|requested| {
+            requested.adaptive.disable_backpressure = disabled
+        });
+    }
+
+    pub fn requested_adaptive_resampling_disable_backpressure(&self) -> bool {
+        self.requested_snapshot().adaptive.disable_backpressure
+    }
+
     /// Request a one-shot ratio reset. Consumed by the sync loop via `take_ratio_reset`.
     pub fn request_ratio_reset(&self) {
         self.reset_ratio_pending.store(true, Ordering::Relaxed);

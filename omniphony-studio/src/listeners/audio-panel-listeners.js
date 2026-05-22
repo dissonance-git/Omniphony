@@ -42,6 +42,7 @@ export function setupAudioPanelListeners() {
   const adaptiveControlSmoothingOrderSelectEl = document.getElementById('adaptiveControlSmoothingOrderSelect');
   const adaptiveUsePreBridgeClockToggleEl = document.getElementById('adaptiveUsePreBridgeClockToggle');
   const adaptiveUseOutputPacingToggleEl = document.getElementById('adaptiveUseOutputPacingToggle');
+  const adaptiveDisableBackpressureToggleEl = document.getElementById('adaptiveDisableBackpressureToggle');
   const latencyTargetInputEl = document.getElementById('latencyTargetInput');
   const latencyTargetApplyBtnEl = document.getElementById('latencyTargetApplyBtn');
   const audioSampleRateMenuBtnEl = document.getElementById('audioSampleRateMenuBtn');
@@ -432,6 +433,15 @@ export function setupAudioPanelListeners() {
     adaptiveUseOutputPacingToggleEl.addEventListener('change', () => {
       app.adaptiveResamplingUseOutputPacing =
         adaptiveUseOutputPacingToggleEl.checked;
+      updateAdaptiveResamplingUI();
+      sendAudioConfig();
+    });
+  }
+
+  if (adaptiveDisableBackpressureToggleEl) {
+    adaptiveDisableBackpressureToggleEl.addEventListener('change', () => {
+      app.adaptiveResamplingDisableBackpressure =
+        adaptiveDisableBackpressureToggleEl.checked;
       updateAdaptiveResamplingUI();
       sendAudioConfig();
     });

@@ -49,6 +49,31 @@ pub fn push_samples_with_backpressure(
     }
 }
 
+/// Non-blocking variant of [`push_samples_with_backpressure`]: pushes as many
+/// samples as fit below `max_buffer_fill` (and as the queue physically
+/// accepts), then drops the remainder immediately instead of waiting for the
+/// consumer to drain. Used when back-pressure is disabled, so the producer is
+/// never throttled by the output buffer level.
+pub fn push_samples_drop_overflow(
+    buffer: &ArrayQueue<f32>,
+    samples: &[f32],
+    max_buffer_fill: usize,
+) -> WriteSamplesReport {
+    let mut sample_idx = 0usize;
+    while sample_idx < samples.len() && buffer.len() < max_buffer_fill {
+        if buffer.push(samples[sample_idx]).is_ok() {
+            sample_idx += 1;
+        } else {
+            break;
+        }
+    }
+    WriteSamplesReport {
+        pushed_samples: sample_idx,
+        wait_count: 0,
+        timed_out: false,
+    }
+}
+
 pub struct FlushReport {
     pub timed_out: bool,
     pub stalled: bool,

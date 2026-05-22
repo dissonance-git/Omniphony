@@ -65,6 +65,14 @@ pub struct AdaptiveResamplingConfig {
     /// `control_available` signal without needing the pre-bridge clock
     /// override. Default `false`.
     pub use_output_pacing: bool,
+    /// When true, `write_samples` never blocks the renderer waiting for the
+    /// output buffer to drain: it pushes what fits below the back-pressure
+    /// threshold and drops the overflow immediately. This decouples the
+    /// producer from the DAC consumption clock — the source (e.g. mpv over a
+    /// pipe) is no longer throttled by the ring filling up. Diagnostic toggle:
+    /// it removes the back-pressure relaxation sawtooth at the cost of dropped
+    /// samples on overflow. Default `false` (back-pressure active).
+    pub disable_backpressure: bool,
 }
 
 impl Default for AdaptiveResamplingConfig {
@@ -94,6 +102,7 @@ impl Default for AdaptiveResamplingConfig {
             paused: false,
             use_pre_bridge_clock: false,
             use_output_pacing: false,
+            disable_backpressure: false,
         }
     }
 }

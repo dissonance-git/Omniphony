@@ -290,6 +290,8 @@ pub fn save_live_config(
             Some(requested.adaptive.use_pre_bridge_clock);
         render.adaptive_resampling_use_output_pacing =
             Some(requested.adaptive.use_output_pacing);
+        render.adaptive_resampling_disable_backpressure =
+            Some(requested.adaptive.disable_backpressure);
     }
 
     if let Some(input_control) = input_control {

@@ -233,6 +233,10 @@ export function audioPanelMarkup() {
                 <label for="adaptiveUseOutputPacingToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.useOutputPacing" data-i18n-title="adaptive.useOutputPacingTitle" title="Buffer rendered speaker PCM and drain it into the ring buffer in lockstep with IEC958 chunk arrival, so the ring sees a smooth flow regardless of the decoder's burst pattern. Adds ~64 ms of pre-roll latency on startup; eliminates the 3.1 Hz sawtooth at the source.">Output pacing (post-render)</label>
                 <input id="adaptiveUseOutputPacingToggle" type="checkbox" />
               </div>
+              <div id="adaptiveDisableBackpressureRow" class="control-row" style="margin-top:0.2rem">
+                <label for="adaptiveDisableBackpressureToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.disableBackpressure" data-i18n-title="adaptive.disableBackpressureTitle" title="Diagnostic: stop blocking the renderer when the output buffer is full — push what fits and drop the overflow instead of waiting. This unhooks the source (mpv) from the DAC drain clock, removing the back-pressure relaxation sawtooth at the cost of dropped samples on overflow. Leave off for normal playback.">Disable back-pressure (diag)</label>
+                <input id="adaptiveDisableBackpressureToggle" type="checkbox" />
+              </div>
             </div>
             <div style="margin-top:0.3rem;display:flex;justify-content:flex-end;gap:0.35rem">
               ${secondaryButton({ id: 'adaptiveResamplingAdvancedCancelBtn', text: 'Cancel', textKey: 'common.cancel' })}

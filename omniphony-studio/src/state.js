@@ -182,6 +182,7 @@ export const app = {
   adaptiveResamplingControlSmoothingOrder: 1,
   adaptiveResamplingUsePreBridgeClock: false,
   adaptiveResamplingUseOutputPacing: false,
+  adaptiveResamplingDisableBackpressure: false,
   adaptiveResamplingBand: null,
   adaptiveResamplingState: null,
 

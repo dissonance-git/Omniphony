@@ -117,6 +117,7 @@ struct AdaptiveResamplingPatch {
     paused: Option<bool>,
     use_pre_bridge_clock: Option<bool>,
     use_output_pacing: Option<bool>,
+    disable_backpressure: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -848,7 +849,8 @@ fn build_audio_state_json(audio: &audio_output::AudioControl) -> String {
             "controlSmoothingOrder": requested.adaptive.control_smoothing_order,
             "paused": requested.adaptive.paused,
             "usePreBridgeClock": requested.adaptive.use_pre_bridge_clock,
-            "useOutputPacing": requested.adaptive.use_output_pacing
+            "useOutputPacing": requested.adaptive.use_output_pacing,
+            "disableBackpressure": requested.adaptive.disable_backpressure
         },
         "latencyTargetMs": requested.latency_target_ms
     })
@@ -1232,6 +1234,9 @@ pub fn apply_simple_osc_control(
                 }
                 if let Some(enabled) = adaptive.use_output_pacing {
                     audio.set_requested_adaptive_resampling_use_output_pacing(enabled);
+                }
+                if let Some(disabled) = adaptive.disable_backpressure {
+                    audio.set_requested_adaptive_resampling_disable_backpressure(disabled);
                 }
             }
             effects.mark_dirty = true;

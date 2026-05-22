@@ -49,7 +49,8 @@ export function buildAudioConfigPayload() {
       controlSmoothingOrder: Math.min(2, Math.max(1, Math.round(Number(app.adaptiveResamplingControlSmoothingOrder ?? 1)))),
       paused: app.adaptiveResamplingPaused === true,
       usePreBridgeClock: app.adaptiveResamplingUsePreBridgeClock === true,
-      useOutputPacing: app.adaptiveResamplingUseOutputPacing === true
+      useOutputPacing: app.adaptiveResamplingUseOutputPacing === true,
+      disableBackpressure: app.adaptiveResamplingDisableBackpressure === true
     }
   };
 }

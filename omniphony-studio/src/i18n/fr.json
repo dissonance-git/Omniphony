@@ -267,6 +267,8 @@
   "adaptive.usePreBridgeClockTitle": "Alimente le servo PI avec le signal d'horloge source IEC958 (pré-décodeur) au lieu du niveau de ring post-décodage. L'horloge source est lisse par construction, donc le PI réagit directement au drift hardware réel sans l'ondulation de batching du décodeur.",
   "adaptive.useOutputPacing": "Pacing de sortie (post-rendu)",
   "adaptive.useOutputPacingTitle": "Bufferise les samples speaker rendus et les draine dans le ring buffer au rythme exact des chunks IEC958 entrants. Le ring voit un flux lisse indépendamment du batching du décodeur. Ajoute ~64 ms de latence de pré-roll au démarrage ; élimine la dent de scie 3.1 Hz à la source.",
+  "adaptive.disableBackpressure": "Désactiver la back-pressure (diag)",
+  "adaptive.disableBackpressureTitle": "Diagnostic : ne plus bloquer le renderer quand le buffer de sortie est plein — pousser ce qui rentre et jeter le surplus au lieu d'attendre. Découple la source (mpv) de l'horloge de consommation du DAC, supprimant la dent de scie de relaxation de la back-pressure, au prix de samples perdus en overflow. Laisser désactivé en lecture normale.",
   "adaptive.thresholds": "Seuils",
   "adaptive.infoButton": "Infos contrôles de latence",
   "adaptive.advancedButton": "Réglages avancés du resampling adaptatif",

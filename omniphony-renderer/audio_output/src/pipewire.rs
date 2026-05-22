@@ -31,7 +31,7 @@ use crate::{
     adaptive_runtime_state_code, adaptive_runtime_state_name_from_code,
     clamp_ratio_for_local_resampler, local_resampler_ratio_bounds,
     resampler_fifo::{RESAMPLER_CHUNK_SIZE, ResamplerFifoEngine},
-    ring_buffer_io::{flush_ring_buffer, push_samples_with_backpressure},
+    ring_buffer_io::{flush_ring_buffer, push_samples_drop_overflow, push_samples_with_backpressure},
 };
 
 // FFI bindings for PipeWire thread-safe rate control and stream timing
@@ -245,6 +245,10 @@ pub struct PipewireWriter {
     /// decoder's burst pattern.
     pacer_fifo: Arc<ArrayQueue<f32>>,
     pacer_enabled: Arc<AtomicBool>,
+    /// When true, `write_samples` pushes without ever blocking and drops the
+    /// overflow above the back-pressure threshold instead of waiting for the
+    /// DAC to drain. Decouples the producer from the consumer clock.
+    backpressure_disabled: Arc<AtomicBool>,
     pacer_pre_roll_complete: Arc<AtomicBool>,
     pacer_pre_roll_threshold_samples: usize,
     pacer_drain_total: Arc<AtomicU64>,
@@ -428,6 +432,7 @@ impl PipewireWriter {
         // input-thread drain lags or is paused (eg. during pre-roll).
         let pacer_fifo = Arc::new(ArrayQueue::new(BUFFER_SIZE));
         let pacer_enabled = Arc::new(AtomicBool::new(adaptive_config.use_output_pacing));
+        let backpressure_disabled = Arc::new(AtomicBool::new(adaptive_config.disable_backpressure));
         let pacer_pre_roll_complete = Arc::new(AtomicBool::new(false));
         // 64 ms of audio at the output rate × channel count. Covers >1 AU
         // for both EAC3 (~32 ms) and TrueHD HBR (~32 ms per AU) with margin.
@@ -620,6 +625,7 @@ impl PipewireWriter {
             sample_buffer,
             pacer_fifo,
             pacer_enabled,
+            backpressure_disabled,
             pacer_pre_roll_complete,
             pacer_pre_roll_threshold_samples,
             pacer_drain_total,
@@ -706,8 +712,14 @@ impl PipewireWriter {
             self.max_buffer_samples
         };
         let buffer_before = self.sample_buffer.len();
-        let report =
-            push_samples_with_backpressure(target_buffer, samples, max_buffer_fill, 10, 200);
+        // Back-pressure disabled (diagnostic): never block the renderer; push
+        // what fits below the threshold and drop the overflow. This unhooks the
+        // producer from the DAC drain clock so the source (mpv) free-runs.
+        let report = if self.backpressure_disabled.load(Ordering::Relaxed) {
+            push_samples_drop_overflow(target_buffer, samples, max_buffer_fill)
+        } else {
+            push_samples_with_backpressure(target_buffer, samples, max_buffer_fill, 10, 200)
+        };
         if report.timed_out {
             log::warn!(
                 "Buffer drain timeout after 2s - dropping {} remaining samples to prevent OOM (target={})",
@@ -863,6 +875,12 @@ impl PipewireWriter {
         }
     }
 
+    /// Hot-swap the back-pressure disable flag. Called when
+    /// `AdaptiveResamplingConfig::disable_backpressure` flips via OSC.
+    pub fn set_backpressure_disabled(&self, disabled: bool) {
+        self.backpressure_disabled.store(disabled, Ordering::Relaxed);
+    }
+
     pub fn adaptive_band(&self) -> Option<&'static str> {
         match self.current_adaptive_band.load(Ordering::Relaxed) {
             1 => Some("near"),
@@ -936,6 +954,7 @@ impl PipewireWriter {
         // Hot-swap the pacer enabled flag and reset its state on transition,
         // so toggling `use_output_pacing` over OSC starts a clean pre-roll.
         self.set_output_pacing_enabled(config.use_output_pacing);
+        self.set_backpressure_disabled(config.disable_backpressure);
         if let Ok(mut c) = self.live_adaptive_config.lock() {
             *c = config;
         }

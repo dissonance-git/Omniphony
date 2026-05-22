@@ -58,6 +58,7 @@ struct AudioAdaptiveDomainState {
     paused: Option<bool>,
     use_pre_bridge_clock: Option<bool>,
     use_output_pacing: Option<bool>,
+    disable_backpressure: Option<bool>,
 }
 
 #[derive(serde::Deserialize)]
@@ -483,6 +484,9 @@ fn apply_audio_domain_state(s: &mut AppState, value: &str) -> bool {
         }
         if let Some(enabled) = adaptive.use_output_pacing {
             s.adaptive_resampling_use_output_pacing = Some(if enabled { 1 } else { 0 });
+        }
+        if let Some(disabled) = adaptive.disable_backpressure {
+            s.adaptive_resampling_disable_backpressure = Some(if disabled { 1 } else { 0 });
         }
     }
     if let Some(latency_target_ms) = parsed.latency_target_ms {

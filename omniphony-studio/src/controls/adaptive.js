@@ -48,6 +48,8 @@ function getAdaptiveUsePreBridgeClockToggleEl() { return inAudioPanel('adaptiveU
 function getAdaptiveUsePreBridgeClockRowEl() { return inAudioPanel('adaptiveUsePreBridgeClockRow'); }
 function getAdaptiveUseOutputPacingToggleEl() { return inAudioPanel('adaptiveUseOutputPacingToggle'); }
 function getAdaptiveUseOutputPacingRowEl() { return inAudioPanel('adaptiveUseOutputPacingRow'); }
+function getAdaptiveDisableBackpressureToggleEl() { return inAudioPanel('adaptiveDisableBackpressureToggle'); }
+function getAdaptiveDisableBackpressureRowEl() { return inAudioPanel('adaptiveDisableBackpressureRow'); }
 function getAdaptiveResamplingAdvancedApplyBtnEl() { return inAudioPanel('adaptiveResamplingAdvancedApplyBtn'); }
 function getAdaptiveResamplingAdvancedCancelBtnEl() { return inAudioPanel('adaptiveResamplingAdvancedCancelBtn'); }
 function getAdaptiveBandDotEl() { return inAudioPanel('adaptiveBandDot'); }
@@ -95,6 +97,8 @@ export function renderAdaptiveResamplingUI() {
   const adaptiveUsePreBridgeClockRowEl = getAdaptiveUsePreBridgeClockRowEl();
   const adaptiveUseOutputPacingToggleEl = getAdaptiveUseOutputPacingToggleEl();
   const adaptiveUseOutputPacingRowEl = getAdaptiveUseOutputPacingRowEl();
+  const adaptiveDisableBackpressureToggleEl = getAdaptiveDisableBackpressureToggleEl();
+  const adaptiveDisableBackpressureRowEl = getAdaptiveDisableBackpressureRowEl();
   const adaptiveResamplingAdvancedApplyBtnEl = getAdaptiveResamplingAdvancedApplyBtnEl();
   const adaptiveResamplingAdvancedCancelBtnEl = getAdaptiveResamplingAdvancedCancelBtnEl();
   const adaptiveBandDotEl = getAdaptiveBandDotEl();
@@ -283,6 +287,14 @@ export function renderAdaptiveResamplingUI() {
     adaptiveUseOutputPacingToggleEl.disabled = !hasAudioDomain;
     adaptiveUseOutputPacingToggleEl.checked =
       app.adaptiveResamplingUseOutputPacing === true;
+  }
+  if (adaptiveDisableBackpressureRowEl) {
+    adaptiveDisableBackpressureRowEl.classList.toggle('adaptive-param-disabled', !hasAudioDomain);
+  }
+  if (adaptiveDisableBackpressureToggleEl) {
+    adaptiveDisableBackpressureToggleEl.disabled = !hasAudioDomain;
+    adaptiveDisableBackpressureToggleEl.checked =
+      app.adaptiveResamplingDisableBackpressure === true;
   }
   if (adaptiveBandTextEl) {
     adaptiveBandTextEl.textContent = app.adaptiveResamplingBand ?? '—';

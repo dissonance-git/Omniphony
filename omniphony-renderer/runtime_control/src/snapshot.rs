@@ -393,7 +393,8 @@ pub fn build_live_state_bundle(
                         "controlSmoothingOrder": requested.adaptive.control_smoothing_order,
                         "paused": requested.adaptive.paused,
                         "usePreBridgeClock": requested.adaptive.use_pre_bridge_clock,
-                        "useOutputPacing": requested.adaptive.use_output_pacing
+                        "useOutputPacing": requested.adaptive.use_output_pacing,
+                        "disableBackpressure": requested.adaptive.disable_backpressure
                     },
                     "latencyTargetMs": requested.latency_target_ms
                 })
