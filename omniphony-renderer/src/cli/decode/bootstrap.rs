@@ -100,9 +100,9 @@ fn build_adaptive_resampling_config(
             })
             .unwrap_or(defaults.update_interval_callbacks)
             .max(1),
-        near_far_threshold_ms: render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_near_far_threshold_ms)
-            .unwrap_or(defaults.near_far_threshold_ms),
+        high_recover_entry_margin_ms: render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_high_recover_entry_margin_ms)
+            .unwrap_or(defaults.high_recover_entry_margin_ms),
         low_recover_settle_stable_ms: render_cfg
             .and_then(|cfg| cfg.adaptive_resampling_low_recover_settle_stable_ms)
             .unwrap_or(defaults.low_recover_settle_stable_ms),

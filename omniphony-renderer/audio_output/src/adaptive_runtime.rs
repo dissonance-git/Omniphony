@@ -125,8 +125,11 @@ impl AdaptiveRuntimeState {
 pub struct LatencyMetrics {
     pub total_available_input_domain: usize,
     pub control_available: usize,
-    /// EMA-smoothed `control_available`. Drives the servo and far-mode state
-    /// machine; `control_available` stays raw for telemetry.
+    /// IIR low-pass of `control_available`. Drives the PI servo and the
+    /// Settling **dwell** of the low-recover state machine (stability bounds +
+    /// settle timer + trim). The state machine's entry/exit actions use the
+    /// raw `control_available` instead; `control_available` also stays raw for
+    /// telemetry. See `update_far_mode_state` for the raw-vs-smoothed split.
     pub smoothed_control_available: usize,
     pub control_latency_ms: f32,
     pub measured_latency_ms: f32,
@@ -299,14 +302,14 @@ pub fn run_adaptive_servo(
     samples_per_ms: usize,
     samples_per_ms_f64: f64,
 ) -> AdaptiveServoDecision {
-    let near_far_threshold_samples =
-        (config.near_far_threshold_ms as usize).saturating_mul(samples_per_ms);
+    let high_recover_entry_margin_samples =
+        (config.high_recover_entry_margin_ms as usize).saturating_mul(samples_per_ms);
     let step = compute_adaptive_step(
         &mut state.controller_state,
         config,
         metrics.smoothed_control_available,
         target_buffer_fill,
-        near_far_threshold_samples,
+        high_recover_entry_margin_samples,
         base_ratio,
         deadband_samples,
         max_integral_term,
@@ -339,10 +342,10 @@ pub fn far_mode_band_from_latency(
         return ADAPTIVE_BAND_NONE;
     }
 
-    let near_far_threshold_samples =
-        (adaptive_config.near_far_threshold_ms as usize).saturating_mul(samples_per_ms);
-    let is_far = near_far_threshold_samples > 0
-        && control_available.abs_diff(target_buffer_fill) >= near_far_threshold_samples;
+    let high_recover_entry_margin_samples =
+        (adaptive_config.high_recover_entry_margin_ms as usize).saturating_mul(samples_per_ms);
+    let is_far = high_recover_entry_margin_samples > 0
+        && control_available.abs_diff(target_buffer_fill) >= high_recover_entry_margin_samples;
     if is_far {
         ADAPTIVE_BAND_FAR
     } else {
@@ -412,11 +415,29 @@ fn compute_low_recover_settle_trim_plan(
     }
 }
 
+/// Drives the low-recover / settling state machine.
+///
+/// Two views of the buffer level are passed in deliberately:
+///
+/// - `control_available` (raw) drives the **entry/exit actions** —
+///   Inactive→Refill entry, the predictive Refill→Settling exit, and the
+///   high-recover decisions. These need to react on the real instantaneous
+///   level; low-passing them here re-adds phase lag that previously drove a
+///   slow oscillation.
+/// - `smoothed_control_available` (IIR low-pass, same value the PI servo
+///   uses) drives the **Settling dwell**: the lower/upper stability bounds,
+///   the settle timer, and the settle trim. The dwell only needs to confirm
+///   the *mean* level is centered; judging it on raw lets the input-burst /
+///   decoder-batching sawtooth poke out of the ±settle_margin band and
+///   perpetually re-arm the timer, so the warmup never reaches `stable`.
+///   The IIR is reset on Refill→Settling so the dwell starts from the real
+///   level instead of a value still lagging behind the refill ramp.
 pub fn update_far_mode_state(
     state: &mut AdaptiveRuntimeState,
     adaptive_config: &AdaptiveResamplingConfig,
     is_far_band: bool,
     control_available: usize,
+    smoothed_control_available: usize,
     target_buffer_fill: usize,
     callback_input_domain_samples: usize,
     effective_resample_ratio: f64,
@@ -460,6 +481,14 @@ pub fn update_far_mode_state(
     let low_recover_exit_threshold =
         target_buffer_fill.saturating_sub(exit_tolerance_input_samples);
 
+    // Low recover is gated by its own switch (or by startup). Once enabled, the
+    // entry into Refill is decided purely by the dedicated low-side threshold
+    // `low_recover_entry_margin_ms`. It is intentionally NOT gated on
+    // `is_far_band`: the far band uses the symmetric `high_recover_entry_margin`
+    // (formerly "near/far threshold"), which for any realistic target latency
+    // can only be reached on the HIGH side — so ANDing it here made runtime low
+    // recover effectively unreachable. `is_far_band` still drives the high-side
+    // actions (hard-recover-high, far-mode mute) below.
     let low_recover_enabled =
         adaptive_config.hard_recover_low_in_far_mode || state.startup_low_recover_active;
 
@@ -470,9 +499,7 @@ pub fn update_far_mode_state(
     } else {
         match state.low_recover_phase {
             LowRecoverPhase::Inactive => {
-                if (state.startup_low_recover_active || is_far_band)
-                    && control_available < low_recover_entry_threshold
-                {
+                if control_available < low_recover_entry_threshold {
                     state.low_recover_phase = LowRecoverPhase::Refill;
                     state.low_recover_settle_stable_ms = 0.0;
                     reset_low_recover_refill_tracking(state);
@@ -498,6 +525,11 @@ pub fn update_far_mode_state(
                     state.low_recover_phase = LowRecoverPhase::Settling;
                     state.low_recover_settle_stable_ms = 0.0;
                     reset_low_recover_refill_tracking(state);
+                    // Re-seed the smoothed level to the current raw level so the
+                    // Settling dwell (which reads `smoothed_control_available`)
+                    // does not start from a value still lagging behind the refill
+                    // ramp, which would spuriously bounce straight back to Refill.
+                    state.iir_state.reset();
                     let lower_bound =
                         target_buffer_fill.saturating_sub(settle_tolerance_input_samples);
                     let upper_bound =
@@ -516,18 +548,21 @@ pub fn update_far_mode_state(
                 }
             }
             LowRecoverPhase::Settling => {
+                // Dwell stability is judged on the smoothed level so the
+                // input-burst / decoder-batching sawtooth does not keep
+                // re-arming the settle timer. See the function doc comment.
                 let lower_bound =
                     target_buffer_fill.saturating_sub(settle_tolerance_input_samples);
                 let upper_bound =
                     target_buffer_fill.saturating_add(settle_tolerance_input_samples);
-                if control_available < lower_bound {
+                if smoothed_control_available < lower_bound {
                     state.low_recover_phase = LowRecoverPhase::Refill;
                     state.low_recover_settle_stable_ms = 0.0;
                     reset_low_recover_refill_tracking(state);
-                } else if control_available > upper_bound {
+                } else if smoothed_control_available > upper_bound {
                     state.low_recover_settle_stable_ms = 0.0;
                     low_recover_trim_plan = compute_low_recover_settle_trim_plan(
-                        control_available,
+                        smoothed_control_available,
                         target_buffer_fill,
                         settle_tolerance_input_samples,
                         effective_resample_ratio,

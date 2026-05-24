@@ -105,7 +105,8 @@ struct AdaptiveResamplingPatch {
     ki: Option<f64>,
     integral_discharge_ratio: Option<f64>,
     max_adjust: Option<f64>,
-    near_far_threshold_ms: Option<u32>,
+    #[serde(alias = "nearFarThresholdMs")]
+    high_recover_entry_margin_ms: Option<u32>,
     update_interval_callbacks: Option<u32>,
     low_recover_settle_stable_ms: Option<f32>,
     low_recover_entry_margin_ms: Option<f32>,
@@ -839,7 +840,7 @@ fn build_audio_state_json(audio: &audio_output::AudioControl) -> String {
             "integralDischargeRatio": requested.adaptive.integral_discharge_ratio,
             "maxAdjust": requested.adaptive.max_adjust,
             "updateIntervalCallbacks": requested.adaptive.update_interval_callbacks,
-            "nearFarThresholdMs": requested.adaptive.near_far_threshold_ms,
+            "highRecoverEntryMarginMs": requested.adaptive.high_recover_entry_margin_ms,
             "lowRecoverSettleStableMs": requested.adaptive.low_recover_settle_stable_ms,
             "lowRecoverEntryMarginMs": requested.adaptive.low_recover_entry_margin_ms,
             "lowRecoverExitMarginMs": requested.adaptive.low_recover_exit_margin_ms,
@@ -1178,8 +1179,8 @@ pub fn apply_simple_osc_control(
                 if let Some(value) = adaptive.max_adjust.filter(|value| *value > 0.0) {
                     audio.set_requested_adaptive_resampling_max_adjust(value as f32);
                 }
-                if let Some(value) = adaptive.near_far_threshold_ms.filter(|value| *value > 0) {
-                    audio.set_requested_adaptive_resampling_near_far_threshold_ms(value);
+                if let Some(value) = adaptive.high_recover_entry_margin_ms.filter(|value| *value > 0) {
+                    audio.set_requested_adaptive_resampling_high_recover_entry_margin_ms(value);
                 }
                 if let Some(value) = adaptive
                     .update_interval_callbacks
@@ -1997,10 +1998,13 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
-    if addr == "/omniphony/control/adaptive_resampling/near_far_threshold_ms" {
+    if addr == "/omniphony/control/adaptive_resampling/high_recover_entry_margin_ms"
+        // Back-compat: this control was previously named near_far_threshold_ms.
+        || addr == "/omniphony/control/adaptive_resampling/near_far_threshold_ms"
+    {
         let value = parse_positive_u32_arg(msg.args.first());
         if let (Some(audio), Some(value)) = (ctx.audio.as_ref(), value) {
-            audio.set_requested_adaptive_resampling_near_far_threshold_ms(value);
+            audio.set_requested_adaptive_resampling_high_recover_entry_margin_ms(value);
             effects.mark_dirty = true;
         }
         return Some(effects);

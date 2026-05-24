@@ -41,7 +41,8 @@ export function audioPanelMarkup() {
               <div id="latencyRawMinMask" class="meter-range-mask" style="left:0;width:0;display:none"></div>
               <div id="latencyRawMaxMask" class="meter-range-mask" style="right:0;width:0;display:none"></div>
               <div id="latencyTargetMarker" class="meter-marker" style="display:none;background:#52e2a2;top:-11px;bottom:auto;height:5px;width:5px;border-radius:50%"></div>
-              <div id="latencyNearLowMarker" class="meter-marker" style="display:none;background:#ffb84a;top:-11px;bottom:auto;height:5px;width:5px;border-radius:50%"></div>
+              <div id="latencyNearLowMarker" class="meter-marker" style="display:none;background:#4ad6ff;top:-11px;bottom:auto;height:5px;width:5px;border-radius:50%"></div>
+              <div id="latencyLowExitMarker" class="meter-marker" style="display:none;background:#c08bff;top:-11px;bottom:auto;height:5px;width:5px;border-radius:50%"></div>
               <div id="latencyNearHighMarker" class="meter-marker" style="display:none;background:#ffb84a;top:-11px;bottom:auto;height:5px;width:5px;border-radius:50%"></div>
               <div id="latencyRawMinMarker" class="meter-marker min"></div>
               <div id="latencyCtrlMarker" class="meter-marker" style="background:#58a0ff;top:-4px;bottom:-4px"></div>
@@ -114,20 +115,37 @@ export function audioPanelMarkup() {
               <div class="control-row" style="margin-top:0">
                 <div style="grid-column:1 / -1;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:#8fa6bd" data-i18n="adaptive.globalActions">Global far actions</div>
               </div>
-              <div id="adaptiveNearFarThresholdRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveNearFarThresholdInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.threshold">Far Threshold</label>
-                <div style="display:flex;align-items:center;gap:0.35rem">
-                  <input id="adaptiveNearFarThresholdInput" class="delay-input" type="number" min="1" step="1" value="120" style="width:8rem" />
-                  <span id="adaptiveNearFarThresholdSymbol" aria-hidden="true" data-i18n-title="telemetry.thresholdMarkerTitle" title="Latency gauge far threshold marker" style="display:inline-block;width:0.38rem;height:0.38rem;border-radius:50%;background:#ffb84a;box-shadow:0 0 0 1px rgba(255,255,255,0.14)"></span>
-                </div>
-              </div>
               <div class="control-row" style="margin-top:0.2rem">
                 <label for="adaptiveFarHardRecoverHighToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.hardRecoverHigh">Hard recover high in far mode</label>
                 <input id="adaptiveFarHardRecoverHighToggle" type="checkbox" />
               </div>
+              <div id="adaptiveHighRecoverEntryMarginRow" class="control-row" style="margin-top:0.2rem">
+                <label for="adaptiveHighRecoverEntryMarginInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.threshold">High-recover entry margin</label>
+                <div style="display:flex;align-items:center;gap:0.35rem">
+                  <input id="adaptiveHighRecoverEntryMarginInput" class="delay-input" type="number" min="1" step="1" value="120" style="width:8rem" />
+                  <span style="font-size:11px;color:#8fa6bd">ms</span>
+                  <span id="adaptiveHighRecoverEntryMarginSymbol" aria-hidden="true" data-i18n-title="telemetry.thresholdMarkerTitle" title="Latency gauge high-recover entry marker" style="display:inline-block;width:0.38rem;height:0.38rem;border-radius:50%;background:#ffb84a;box-shadow:0 0 0 1px rgba(255,255,255,0.14)"></span>
+                </div>
+              </div>
               <div class="control-row" style="margin-top:0.2rem">
                 <label for="adaptiveFarHardRecoverLowToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.hardRecoverLow">Hard recover low in far mode</label>
                 <input id="adaptiveFarHardRecoverLowToggle" type="checkbox" />
+              </div>
+              <div id="adaptiveLowRecoverEntryMarginMsRow" class="control-row" style="margin-top:0.2rem">
+                <label for="adaptiveLowRecoverEntryMarginMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverEntryMargin">Low-recover entry margin</label>
+                <div style="display:flex;align-items:center;gap:0.35rem">
+                  <input id="adaptiveLowRecoverEntryMarginMsInput" class="delay-input" type="number" min="0" step="0.1" value="18" style="width:7rem" />
+                  <span style="font-size:11px;color:#8fa6bd">ms</span>
+                  <span id="adaptiveLowRecoverEntryMarginSymbol" aria-hidden="true" data-i18n-title="telemetry.lowThresholdMarkerTitle" title="Latency gauge low-recover entry marker" style="display:inline-block;width:0.38rem;height:0.38rem;border-radius:50%;background:#4ad6ff;box-shadow:0 0 0 1px rgba(255,255,255,0.14)"></span>
+                </div>
+              </div>
+              <div id="adaptiveLowRecoverExitMarginMsRow" class="control-row" style="margin-top:0.2rem">
+                <label for="adaptiveLowRecoverExitMarginMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverExitMargin">Low-recover exit margin</label>
+                <div style="display:flex;align-items:center;gap:0.35rem">
+                  <input id="adaptiveLowRecoverExitMarginMsInput" class="delay-input" type="number" min="0" step="0.1" value="6" style="width:7rem" />
+                  <span style="font-size:11px;color:#8fa6bd">ms</span>
+                  <span id="adaptiveLowRecoverExitMarginSymbol" aria-hidden="true" data-i18n-title="telemetry.lowExitMarkerTitle" title="Latency gauge low-recover exit marker" style="display:inline-block;width:0.38rem;height:0.38rem;border-radius:50%;background:#c08bff;box-shadow:0 0 0 1px rgba(255,255,255,0.14)"></span>
+                </div>
               </div>
               <div id="adaptiveFarSilenceRow" class="control-row" style="margin-top:0.2rem">
                 <label for="adaptiveFarSilenceToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.silenceFar">Silence in Far Mode</label>
@@ -186,20 +204,6 @@ export function audioPanelMarkup() {
                 <label for="adaptiveLowRecoverSettleStableMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverSettleStable">Settling hold</label>
                 <div style="display:flex;align-items:center;gap:0.35rem">
                   <input id="adaptiveLowRecoverSettleStableMsInput" class="delay-input" type="number" min="0" step="1" value="200" style="width:7rem" />
-                  <span style="font-size:11px;color:#8fa6bd">ms</span>
-                </div>
-              </div>
-              <div id="adaptiveLowRecoverEntryMarginMsRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveLowRecoverEntryMarginMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverEntryMargin">Low-recover entry margin</label>
-                <div style="display:flex;align-items:center;gap:0.35rem">
-                  <input id="adaptiveLowRecoverEntryMarginMsInput" class="delay-input" type="number" min="0" step="0.1" value="18" style="width:7rem" />
-                  <span style="font-size:11px;color:#8fa6bd">ms</span>
-                </div>
-              </div>
-              <div id="adaptiveLowRecoverExitMarginMsRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveLowRecoverExitMarginMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverExitMargin">Low-recover exit margin</label>
-                <div style="display:flex;align-items:center;gap:0.35rem">
-                  <input id="adaptiveLowRecoverExitMarginMsInput" class="delay-input" type="number" min="0" step="0.1" value="6" style="width:7rem" />
                   <span style="font-size:11px;color:#8fa6bd">ms</span>
                 </div>
               </div>

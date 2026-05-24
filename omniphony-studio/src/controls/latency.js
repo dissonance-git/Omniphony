@@ -52,6 +52,7 @@ function getLatencySmoothedMarkerEl() { return inAudioPanel('latencySmoothedMark
 function getLatencyRawMaxMarkerEl() { return inAudioPanel('latencyRawMaxMarker'); }
 function getLatencyTargetMarkerEl() { return inAudioPanel('latencyTargetMarker'); }
 function getLatencyNearLowMarkerEl() { return inAudioPanel('latencyNearLowMarker'); }
+function getLatencyLowExitMarkerEl() { return inAudioPanel('latencyLowExitMarker'); }
 function getLatencyNearHighMarkerEl() { return inAudioPanel('latencyNearHighMarker'); }
 function getLatencyRawMinValueEl() { return inAudioPanel('latencyRawMinValue'); }
 function getLatencyRawMaxValueEl() { return inAudioPanel('latencyRawMaxValue'); }
@@ -319,6 +320,7 @@ export function renderLatencyMeterUI() {
   const latencyRawMaxMarkerEl = getLatencyRawMaxMarkerEl();
   const latencyTargetMarkerEl = getLatencyTargetMarkerEl();
   const latencyNearLowMarkerEl = getLatencyNearLowMarkerEl();
+  const latencyLowExitMarkerEl = getLatencyLowExitMarkerEl();
   const latencyNearHighMarkerEl = getLatencyNearHighMarkerEl();
   const latencyRawMinValueEl = getLatencyRawMinValueEl();
   const latencyRawMaxValueEl = getLatencyRawMaxValueEl();
@@ -424,22 +426,34 @@ export function renderLatencyMeterUI() {
     }
   }
   const target = app.latencyTargetMs ?? app.latencyMs;
-  const nearThreshold = Number(app.adaptiveResamplingNearFarThresholdMs);
+  const highMargin = Number(app.adaptiveResamplingHighRecoverEntryMarginMs);
+  const lowMargin = Number(app.adaptiveResamplingLowRecoverEntryMarginMs);
+  const lowExitMargin = Number(app.adaptiveResamplingLowRecoverExitMarginMs);
   if (target === null || !Number.isFinite(Number(target))) {
     setThresholdDot(latencyNearLowMarkerEl, null);
+    setThresholdDot(latencyLowExitMarkerEl, null);
     setThresholdDot(latencyNearHighMarkerEl, null);
   } else {
     const targetMs = Number(target);
+    // Low side has two markers: entry (target − low entry margin, further from
+    // target) and exit (target − low exit margin, closer to target). High side
+    // marker = high-recover entry (target + high margin). Each uses a distinct
+    // dot color matching its panel legend.
     setThresholdDot(
       latencyNearLowMarkerEl,
-      Number.isFinite(nearThreshold) ? targetMs - nearThreshold : null
+      Number.isFinite(lowMargin) ? targetMs - lowMargin : null
+    );
+    setThresholdDot(
+      latencyLowExitMarkerEl,
+      Number.isFinite(lowExitMargin) ? targetMs - lowExitMargin : null
     );
     setThresholdDot(
       latencyNearHighMarkerEl,
-      Number.isFinite(nearThreshold) ? targetMs + nearThreshold : null
+      Number.isFinite(highMargin) ? targetMs + highMargin : null
     );
   }
   if (latencyNearLowMarkerEl) latencyNearLowMarkerEl.style.opacity = farModeEnabled ? '1' : '0.28';
+  if (latencyLowExitMarkerEl) latencyLowExitMarkerEl.style.opacity = farModeEnabled ? '1' : '0.28';
   if (latencyNearHighMarkerEl) latencyNearHighMarkerEl.style.opacity = farModeEnabled ? '1' : '0.28';
 }
 

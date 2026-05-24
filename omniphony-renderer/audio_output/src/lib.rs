@@ -24,7 +24,7 @@ pub struct AdaptiveResamplingConfig {
     pub integral_discharge_ratio: f64,
     pub max_adjust: f64,
     pub update_interval_callbacks: u32,
-    pub near_far_threshold_ms: u32,
+    pub high_recover_entry_margin_ms: u32,
     /// Duration the control buffer must stay within tolerance to exit the
     /// `Settling` phase and resume the steady-state servo.
     pub low_recover_settle_stable_ms: f32,
@@ -91,7 +91,7 @@ impl Default for AdaptiveResamplingConfig {
             integral_discharge_ratio: 0.25,
             max_adjust: 0.01,
             update_interval_callbacks: 1,
-            near_far_threshold_ms: 1000,
+            high_recover_entry_margin_ms: 1000,
             low_recover_settle_stable_ms: 200.0,
             low_recover_entry_margin_ms: 18.0,
             low_recover_exit_margin_ms: 6.0,
@@ -177,7 +177,7 @@ pub fn compute_adaptive_step(
     config: &AdaptiveResamplingConfig,
     available_samples: usize,
     target_buffer_fill: usize,
-    near_far_threshold_samples: usize,
+    high_recover_entry_margin_samples: usize,
     base_ratio: f64,
     deadband_samples: usize,
     max_integral_term: f64,
@@ -223,8 +223,8 @@ pub fn compute_adaptive_step(
     }
 
     let is_far = config.enable_far_mode
-        && near_far_threshold_samples > 0
-        && (drift.unsigned_abs() as usize) >= near_far_threshold_samples;
+        && high_recover_entry_margin_samples > 0
+        && (drift.unsigned_abs() as usize) >= high_recover_entry_margin_samples;
     let band = if is_far {
         ADAPTIVE_BAND_FAR
     } else {

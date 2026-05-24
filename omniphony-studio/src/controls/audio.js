@@ -38,7 +38,7 @@ export function buildAudioConfigPayload() {
       ki: Number(app.adaptiveResamplingKi ?? 1),
       integralDischargeRatio: Number(app.adaptiveResamplingIntegralDischargeRatio ?? 0.25),
       maxAdjust: Number(app.adaptiveResamplingMaxAdjust ?? 0.01),
-      nearFarThresholdMs: Math.max(1, Math.round(app.adaptiveResamplingNearFarThresholdMs ?? 1000)),
+      highRecoverEntryMarginMs: Math.max(1, Math.round(app.adaptiveResamplingHighRecoverEntryMarginMs ?? 1000)),
       updateIntervalCallbacks: Math.max(1, Math.round(app.adaptiveResamplingUpdateIntervalCallbacks ?? 1)),
       lowRecoverSettleStableMs: Math.max(0, Number(app.adaptiveResamplingLowRecoverSettleStableMs ?? 200)),
       lowRecoverEntryMarginMs: Math.max(0, Number(app.adaptiveResamplingLowRecoverEntryMarginMs ?? 18)),

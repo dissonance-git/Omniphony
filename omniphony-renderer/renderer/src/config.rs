@@ -146,8 +146,11 @@ pub struct RenderConfig {
     pub adaptive_resampling_max_adjust: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adaptive_resampling_update_interval_callbacks: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub adaptive_resampling_near_far_threshold_ms: Option<u32>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        alias = "adaptive_resampling_near_far_threshold_ms"
+    )]
+    pub adaptive_resampling_high_recover_entry_margin_ms: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adaptive_resampling_low_recover_settle_stable_ms: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -346,8 +346,8 @@ pub struct AppState {
     pub adaptive_resampling_max_adjust: Option<f64>,
     #[serde(rename = "adaptiveResamplingUpdateIntervalCallbacks")]
     pub adaptive_resampling_update_interval_callbacks: Option<i64>,
-    #[serde(rename = "adaptiveResamplingNearFarThresholdMs")]
-    pub adaptive_resampling_near_far_threshold_ms: Option<i64>,
+    #[serde(rename = "adaptiveResamplingHighRecoverEntryMarginMs")]
+    pub adaptive_resampling_high_recover_entry_margin_ms: Option<i64>,
     #[serde(rename = "adaptiveResamplingLowRecoverSettleStableMs")]
     pub adaptive_resampling_low_recover_settle_stable_ms: Option<f64>,
     #[serde(rename = "adaptiveResamplingLowRecoverEntryMarginMs")]
@@ -617,7 +617,7 @@ impl Default for AppState {
             adaptive_resampling_integral_discharge_ratio: Some(0.25),
             adaptive_resampling_max_adjust: Some(0.01),
             adaptive_resampling_update_interval_callbacks: Some(1),
-            adaptive_resampling_near_far_threshold_ms: Some(1000),
+            adaptive_resampling_high_recover_entry_margin_ms: Some(1000),
             adaptive_resampling_low_recover_settle_stable_ms: Some(200.0),
             adaptive_resampling_low_recover_entry_margin_ms: Some(18.0),
             adaptive_resampling_low_recover_exit_margin_ms: Some(6.0),

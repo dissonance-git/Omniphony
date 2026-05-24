@@ -318,8 +318,8 @@ pub enum OscEvent {
     StateAdaptiveResamplingMaxAdjust { value: f64 },
     #[serde(rename = "state:adaptive_resampling:update_interval_callbacks")]
     StateAdaptiveResamplingUpdateIntervalCallbacks { value: f64 },
-    #[serde(rename = "state:adaptive_resampling:near_far_threshold_ms")]
-    StateAdaptiveResamplingNearFarThresholdMs { value: f64 },
+    #[serde(rename = "state:adaptive_resampling:high_recover_entry_margin_ms")]
+    StateAdaptiveResamplingHighRecoverEntryMarginMs { value: f64 },
     #[serde(rename = "state:adaptive_resampling:band")]
     StateAdaptiveResamplingBand { value: String },
     #[serde(rename = "state:adaptive_resampling:state")]
@@ -719,7 +719,7 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
                     value: to_number(args[0])?,
                 })
             }
-            "near_far_threshold_ms" => Some(OscEvent::StateAdaptiveResamplingNearFarThresholdMs {
+            "high_recover_entry_margin_ms" => Some(OscEvent::StateAdaptiveResamplingHighRecoverEntryMarginMs {
                 value: to_number(args[0])?,
             }),
             "band" => Some(OscEvent::StateAdaptiveResamplingBand {

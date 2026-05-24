@@ -383,7 +383,7 @@ pub fn build_live_state_bundle(
                         "integralDischargeRatio": requested.adaptive.integral_discharge_ratio,
                         "maxAdjust": requested.adaptive.max_adjust,
                         "updateIntervalCallbacks": requested.adaptive.update_interval_callbacks,
-                        "nearFarThresholdMs": requested.adaptive.near_far_threshold_ms,
+                        "highRecoverEntryMarginMs": requested.adaptive.high_recover_entry_margin_ms,
                         "lowRecoverSettleStableMs": requested.adaptive.low_recover_settle_stable_ms,
                         "lowRecoverEntryMarginMs": requested.adaptive.low_recover_entry_margin_ms,
                         "lowRecoverExitMarginMs": requested.adaptive.low_recover_exit_margin_ms,

@@ -331,8 +331,8 @@ export function applyInitState(payload) {
   if (typeof payload.adaptiveResamplingMaxAdjust === 'number') {
     app.adaptiveResamplingMaxAdjust = payload.adaptiveResamplingMaxAdjust;
   }
-  if (typeof payload.adaptiveResamplingNearFarThresholdMs === 'number') {
-    app.adaptiveResamplingNearFarThresholdMs = payload.adaptiveResamplingNearFarThresholdMs;
+  if (typeof payload.adaptiveResamplingHighRecoverEntryMarginMs === 'number') {
+    app.adaptiveResamplingHighRecoverEntryMarginMs = payload.adaptiveResamplingHighRecoverEntryMarginMs;
   }
   if (typeof payload.adaptiveResamplingUpdateIntervalCallbacks === 'number') {
     app.adaptiveResamplingUpdateIntervalCallbacks = payload.adaptiveResamplingUpdateIntervalCallbacks;

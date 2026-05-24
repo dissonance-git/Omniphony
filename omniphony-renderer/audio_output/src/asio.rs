@@ -328,8 +328,8 @@ impl AsioWriter {
         let mut effective_resample_ratio = resample_ratio;
         let reset_ratio_requested = Arc::new(AtomicBool::new(false));
         let reset_ratio_for_callback = Arc::clone(&reset_ratio_requested);
-        let _near_far_threshold_samples =
-            (initial_cfg.near_far_threshold_ms as usize).saturating_mul(samples_per_ms);
+        let _high_recover_entry_margin_samples =
+            (initial_cfg.high_recover_entry_margin_ms as usize).saturating_mul(samples_per_ms);
         let device_channel_count_for_callback = device_channel_count;
         let adaptive_resampling_enabled = enable_adaptive_resampling;
 
@@ -539,6 +539,7 @@ impl AsioWriter {
                     &far_mode_cfg,
                     recovery_band == crate::ADAPTIVE_BAND_FAR,
                     metrics.control_available,
+                    metrics.smoothed_control_available,
                     target_buffer_fill,
                     callback_input_domain_samples,
                     effective_resample_ratio,

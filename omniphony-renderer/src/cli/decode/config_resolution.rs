@@ -480,8 +480,8 @@ pub(super) fn effective_to_config(
             .and_then(|cfg| cfg.adaptive_resampling_max_adjust),
         adaptive_resampling_update_interval_callbacks: args
             .adaptive_resampling_update_interval_callbacks,
-        adaptive_resampling_near_far_threshold_ms: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_near_far_threshold_ms),
+        adaptive_resampling_high_recover_entry_margin_ms: existing_render_cfg
+            .and_then(|cfg| cfg.adaptive_resampling_high_recover_entry_margin_ms),
         adaptive_resampling_low_recover_settle_stable_ms: existing_render_cfg
             .and_then(|cfg| cfg.adaptive_resampling_low_recover_settle_stable_ms),
         adaptive_resampling_low_recover_entry_margin_ms: existing_render_cfg

@@ -265,12 +265,12 @@ impl AudioControl {
         self.requested_snapshot().adaptive.update_interval_callbacks
     }
 
-    pub fn set_requested_adaptive_resampling_near_far_threshold_ms(&self, value: u32) {
-        self.update_requested(|requested| requested.adaptive.near_far_threshold_ms = value);
+    pub fn set_requested_adaptive_resampling_high_recover_entry_margin_ms(&self, value: u32) {
+        self.update_requested(|requested| requested.adaptive.high_recover_entry_margin_ms = value);
     }
 
-    pub fn requested_adaptive_resampling_near_far_threshold_ms(&self) -> u32 {
-        self.requested_snapshot().adaptive.near_far_threshold_ms
+    pub fn requested_adaptive_resampling_high_recover_entry_margin_ms(&self) -> u32 {
+        self.requested_snapshot().adaptive.high_recover_entry_margin_ms
     }
 
     pub fn set_requested_adaptive_resampling_low_recover_settle_stable_ms(&self, value: f32) {

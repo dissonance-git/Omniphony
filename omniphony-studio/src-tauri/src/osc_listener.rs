@@ -46,7 +46,7 @@ struct AudioAdaptiveDomainState {
     ki: Option<f64>,
     integral_discharge_ratio: Option<f64>,
     max_adjust: Option<f64>,
-    near_far_threshold_ms: Option<u32>,
+    high_recover_entry_margin_ms: Option<u32>,
     update_interval_callbacks: Option<u32>,
     low_recover_settle_stable_ms: Option<f32>,
     low_recover_entry_margin_ms: Option<f32>,
@@ -449,8 +449,8 @@ fn apply_audio_domain_state(s: &mut AppState, value: &str) -> bool {
         if let Some(value) = adaptive.max_adjust {
             s.adaptive_resampling_max_adjust = Some(value);
         }
-        if let Some(value) = adaptive.near_far_threshold_ms {
-            s.adaptive_resampling_near_far_threshold_ms = Some(value as i64);
+        if let Some(value) = adaptive.high_recover_entry_margin_ms {
+            s.adaptive_resampling_high_recover_entry_margin_ms = Some(value as i64);
         }
         if let Some(value) = adaptive.update_interval_callbacks {
             s.adaptive_resampling_update_interval_callbacks = Some(value as i64);
@@ -1978,12 +1978,12 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     removed_ids,
                 )
             }
-            OscEvent::StateAdaptiveResamplingNearFarThresholdMs { value } => {
-                s.adaptive_resampling_near_far_threshold_ms = Some(value.round() as i64);
+            OscEvent::StateAdaptiveResamplingHighRecoverEntryMarginMs { value } => {
+                s.adaptive_resampling_high_recover_entry_margin_ms = Some(value.round() as i64);
                 (
                     Some((
-                        "adaptive_resampling:near_far_threshold_ms",
-                        serde_json::json!({ "value": s.adaptive_resampling_near_far_threshold_ms }),
+                        "adaptive_resampling:high_recover_entry_margin_ms",
+                        serde_json::json!({ "value": s.adaptive_resampling_high_recover_entry_margin_ms }),
                     )),
                     removed_ids,
                 )

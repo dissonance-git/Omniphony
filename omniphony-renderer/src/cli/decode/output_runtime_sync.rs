@@ -206,8 +206,8 @@ impl<'a> OutputRuntimeCoordinator<'a> {
                         update_interval_callbacks: control
                             .requested_adaptive_resampling_update_interval_callbacks()
                             .max(1),
-                        near_far_threshold_ms: control
-                            .requested_adaptive_resampling_near_far_threshold_ms(),
+                        high_recover_entry_margin_ms: control
+                            .requested_adaptive_resampling_high_recover_entry_margin_ms(),
                         low_recover_settle_stable_ms: control
                             .requested_adaptive_resampling_low_recover_settle_stable_ms(),
                         low_recover_entry_margin_ms: control
@@ -267,11 +267,11 @@ impl<'a> OutputRuntimeCoordinator<'a> {
                         .runtime
                         .adaptive_resampling_config
                         .update_interval_callbacks
-                && requested.near_far_threshold_ms
+                && requested.high_recover_entry_margin_ms
                     == self
                         .runtime
                         .adaptive_resampling_config
-                        .near_far_threshold_ms
+                        .high_recover_entry_margin_ms
                 && requested.low_recover_settle_stable_ms
                     == self
                         .runtime
@@ -345,7 +345,7 @@ impl<'a> OutputRuntimeCoordinator<'a> {
                     .update_interval_callbacks,
                 self.runtime
                     .adaptive_resampling_config
-                    .near_far_threshold_ms,
+                    .high_recover_entry_margin_ms,
                 self.runtime
                     .adaptive_resampling_config
                     .low_recover_settle_stable_ms,

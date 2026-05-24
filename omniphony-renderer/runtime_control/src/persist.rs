@@ -270,8 +270,8 @@ pub fn save_live_config(
         render.adaptive_resampling_max_adjust = Some(requested.adaptive.max_adjust as f32);
         render.adaptive_resampling_update_interval_callbacks =
             Some(requested.adaptive.update_interval_callbacks);
-        render.adaptive_resampling_near_far_threshold_ms =
-            Some(requested.adaptive.near_far_threshold_ms);
+        render.adaptive_resampling_high_recover_entry_margin_ms =
+            Some(requested.adaptive.high_recover_entry_margin_ms);
         render.adaptive_resampling_low_recover_settle_stable_ms =
             Some(requested.adaptive.low_recover_settle_stable_ms);
         render.adaptive_resampling_low_recover_entry_margin_ms =

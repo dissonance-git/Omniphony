@@ -58,15 +58,27 @@ The recovery state machine exposes the UI states:
 
 ### Low Recovery
 
-Low recovery is used when the buffer falls too far below target.
+Low recovery is used when the buffer falls too far below target. It is
+**enabled** by the `hard_recover_low_in_far_mode` switch (or by startup), and
+entry into Refill triggers as soon as
+`control_available < target - low_recover_entry_margin_ms` — the sole low-side
+trigger (no longer gated by the far band, see Near/Far).
 
 State progression:
 
-1. `stable -> low-recover`
+1. `stable -> low-recover` (Refill)
 2. `low-recover -> settling`
 3. `settling -> stable`
 
-During `low-recover`, output is muted.
+During `low-recover` (Refill phase) output is muted and the ring refills. The
+Refill exit is **predictive**: we move to `settling` as soon as
+`control_available` — or its projection through the refill-speed EMA
+`low_recover_refill_delta_ema` — reaches `target - low_recover_exit_margin_ms`.
+
+**Throughout low-recover (both Refill and Settling) the PI servo is disabled**
+(gated by `low_recover_phase == Inactive` in `pipewire.rs` and `asio.rs`) and
+the ratio is pinned to the base ratio: no clock correction is applied until we
+are back in `stable`.
 
 ### Settling
 
@@ -74,20 +86,37 @@ During `low-recover`, output is muted.
 
 Current behavior:
 
-- output remains muted
-- if the buffer falls clearly too low again, go back to `low-recover`
-- if the buffer is somewhat too high, trim while muted
-- if the buffer stays inside the settling window long enough, transition to `stable`
+- output is muted if `force_silence_in_far_mode` is set (default), otherwise it becomes audible again during settling
+- if the level falls below `target - low_recover_settle_margin_ms`, go back to `low-recover`
+- if the level rises above `target + low_recover_settle_margin_ms`, trim the excess
+- if the level stays inside the settling window long enough, transition to `stable`
 
 Current exit timing:
 
-- `200 ms` of accumulated stable callback time inside the settling window
+- `low_recover_settle_stable_ms` (default `200 ms`) of **continuously** accumulated stable callback time; any excursion out of band re-arms the counter
 
 Current settling half-window:
 
-- `max(callback_input_domain_samples / 4, near_far_threshold_samples / 2)`
+- `low_recover_settle_margin_ms` (default `6 ms`), converted to samples and aligned to the audio frame
 
-This means the settling window is no longer based only on callback size; it is also anchored to the configured `near/far` band.
+#### Raw vs smoothed (sawtooth handling)
+
+The settling dwell bounds are tested against the **smoothed** level
+(`smoothed_control_available`, the same IIR low-pass the PI servo sees), **not**
+the raw level. Entry/exit actions (Refill entry, predictive Refill exit,
+hard-recover) stay on the **raw** level to remain responsive — low-passing them
+re-added phase lag that previously drove a slow oscillation.
+
+Why: bursty input arrival (decoder batching) puts a **sawtooth** on
+`control_available` whose amplitude exceeds the `±low_recover_settle_margin_ms`
+half-window. Judged on raw, every sawtooth tooth leaves the band and re-arms the
+timer → warmup never reaches `stable` (whereas once in `stable`, the servo —
+which already works on the smoothed level — holds fine). Judged on smoothed, the
+sawtooth is absorbed and the dwell can mature.
+
+On the `Refill -> Settling` transition the IIR state is **reset** so the
+smoothed level restarts from the real current level instead of a value still
+lagging behind the refill ramp (which would bounce straight back to Refill).
 
 ### High Recovery
 
@@ -102,8 +131,18 @@ Behavior:
 
 The `near/far` band is derived from buffer error relative to target:
 
-- `near` if `abs(control_available - target_fill) < near_far_threshold`
+- `near` if `abs(control_available - target_fill) < high_recover_entry_margin_ms`
 - `far` otherwise
+
+> Rename: `near_far_threshold_ms` is now **`high_recover_entry_margin_ms`**
+> ("High-recover entry margin"), forming a clear pair with
+> `low_recover_entry_margin_ms`. The threshold is **symmetric** (`abs_diff`),
+> but for a realistic target latency it can only be reached on the **high**
+> side, so it is the entry for high-side actions (hard-recover-high, far mute).
+> The low-recover **entry** no longer uses this band: it triggers on
+> `low_recover_entry_margin_ms` (low side) whenever `hard_recover_low_in_far_mode`
+> (or startup) is active. The old names (on-disk config, JSON key
+> `nearFarThresholdMs`, OSC address) are still accepted on read via aliases.
 
 This band is used both for UI and for determining whether far-mode actions are eligible.
 
@@ -161,7 +200,7 @@ and keeps one extra callback muted before the first audible block. This is inten
 
 ### PipeWire
 
-PipeWire does not use the same dedicated startup path. Its stream lifecycle and callback behavior are already driven by the PipeWire graph, so startup tends to be less dependent on a custom gate.
+PipeWire also forces the startup low-recover: `activate_startup_low_recover()` is called when the stream is created (`pipewire.rs`), exactly like ASIO. Startup therefore runs the same Refill → Settling → stable state machine. The difference from ASIO is the callback cadence (driven by the graph quantum) and the latency measurement, not the presence of the startup gate.
 
 ## ASIO / PipeWire Differences
 
@@ -220,8 +259,8 @@ This makes PipeWire structurally more flexible, but also means the two backends 
 
 `PipeWire`:
 
-- startup is more naturally absorbed into the backend callback lifecycle
-- does not need the same dedicated startup forcing path
+- also forces the startup low-recover (`activate_startup_low_recover()`), same state machine as ASIO
+- the graph callback cadence just makes refill/settling more regular to tune
 
 ### 5. Sensitivity to Thresholds
 
@@ -243,7 +282,7 @@ When debugging the system, interpret states as follows:
 
 - `stable`: no active recovery state machine
 - `low-recover`: output is muted because the system is rebuilding latency from below target
-- `settling`: output is still muted while the system tries to return at a less random effective latency
+- `settling`: the system confirms stability (on the smoothed level) before handing back to the servo; output is muted if `force_silence_in_far_mode` is set (default)
 - `high-recover`: buffered audio is being dropped because latency is too high
 - `near` / `far`: distance from target, not mute state by itself
 

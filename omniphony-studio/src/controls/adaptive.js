@@ -26,9 +26,9 @@ function getAdaptiveIntegralDischargeRatioInputEl() { return inAudioPanel('adapt
 function getAdaptiveIntegralDischargeRowEl() { return inAudioPanel('adaptiveIntegralDischargeRow'); }
 function getAdaptiveMaxAdjustInputEl() { return inAudioPanel('adaptiveMaxAdjustInput'); }
 function getAdaptiveMaxAdjustRowEl() { return inAudioPanel('adaptiveMaxAdjustRow'); }
-function getAdaptiveNearFarThresholdRowEl() { return inAudioPanel('adaptiveNearFarThresholdRow'); }
-function getAdaptiveNearFarThresholdSymbolEl() { return inAudioPanel('adaptiveNearFarThresholdSymbol'); }
-function getAdaptiveNearFarThresholdInputEl() { return inAudioPanel('adaptiveNearFarThresholdInput'); }
+function getAdaptiveHighRecoverEntryMarginRowEl() { return inAudioPanel('adaptiveHighRecoverEntryMarginRow'); }
+function getAdaptiveHighRecoverEntryMarginSymbolEl() { return inAudioPanel('adaptiveHighRecoverEntryMarginSymbol'); }
+function getAdaptiveHighRecoverEntryMarginInputEl() { return inAudioPanel('adaptiveHighRecoverEntryMarginInput'); }
 function getAdaptiveUpdateIntervalCallbacksInputEl() { return inAudioPanel('adaptiveUpdateIntervalCallbacksInput'); }
 function getAdaptiveLowRecoverSettleStableMsInputEl() { return inAudioPanel('adaptiveLowRecoverSettleStableMsInput'); }
 function getAdaptiveLowRecoverSettleStableMsRowEl() { return inAudioPanel('adaptiveLowRecoverSettleStableMsRow'); }
@@ -75,9 +75,9 @@ export function renderAdaptiveResamplingUI() {
   const adaptiveIntegralDischargeRowEl = getAdaptiveIntegralDischargeRowEl();
   const adaptiveMaxAdjustInputEl = getAdaptiveMaxAdjustInputEl();
   const adaptiveMaxAdjustRowEl = getAdaptiveMaxAdjustRowEl();
-  const adaptiveNearFarThresholdRowEl = getAdaptiveNearFarThresholdRowEl();
-  const adaptiveNearFarThresholdSymbolEl = getAdaptiveNearFarThresholdSymbolEl();
-  const adaptiveNearFarThresholdInputEl = getAdaptiveNearFarThresholdInputEl();
+  const adaptiveHighRecoverEntryMarginRowEl = getAdaptiveHighRecoverEntryMarginRowEl();
+  const adaptiveHighRecoverEntryMarginSymbolEl = getAdaptiveHighRecoverEntryMarginSymbolEl();
+  const adaptiveHighRecoverEntryMarginInputEl = getAdaptiveHighRecoverEntryMarginInputEl();
   const adaptiveUpdateIntervalCallbacksInputEl = getAdaptiveUpdateIntervalCallbacksInputEl();
   const adaptiveLowRecoverSettleStableMsInputEl = getAdaptiveLowRecoverSettleStableMsInputEl();
   const adaptiveLowRecoverSettleStableMsRowEl = getAdaptiveLowRecoverSettleStableMsRowEl();
@@ -167,14 +167,14 @@ export function renderAdaptiveResamplingUI() {
   if (adaptiveIntegralDischargeRatioInputEl) {
     adaptiveIntegralDischargeRatioInputEl.disabled = !adaptiveEnabled;
   }
-  if (adaptiveNearFarThresholdInputEl) {
-    adaptiveNearFarThresholdInputEl.disabled = !farModeEnabled;
+  if (adaptiveHighRecoverEntryMarginInputEl) {
+    adaptiveHighRecoverEntryMarginInputEl.disabled = !farModeEnabled;
   }
-  if (adaptiveNearFarThresholdRowEl) {
-    adaptiveNearFarThresholdRowEl.classList.toggle('adaptive-param-disabled', !farModeEnabled);
+  if (adaptiveHighRecoverEntryMarginRowEl) {
+    adaptiveHighRecoverEntryMarginRowEl.classList.toggle('adaptive-param-disabled', !farModeEnabled);
   }
-  if (adaptiveNearFarThresholdSymbolEl) {
-    adaptiveNearFarThresholdSymbolEl.style.opacity = farModeEnabled ? '1' : '0.42';
+  if (adaptiveHighRecoverEntryMarginSymbolEl) {
+    adaptiveHighRecoverEntryMarginSymbolEl.style.opacity = farModeEnabled ? '1' : '0.42';
   }
   if (adaptiveFarFadeInMsInputEl && !app.adaptiveFarFadeInMsEditing && !app.adaptiveFarFadeInMsDirty) {
     adaptiveFarFadeInMsInputEl.value = String(Math.max(0, Math.round(app.adaptiveResamplingFarModeReturnFadeInMs ?? 0)));
@@ -198,8 +198,8 @@ export function renderAdaptiveResamplingUI() {
   if (adaptiveMaxAdjustInputEl && !app.adaptiveMaxAdjustEditing && !app.adaptiveMaxAdjustDirty) {
     adaptiveMaxAdjustInputEl.value = app.adaptiveResamplingMaxAdjust === null ? '' : Math.round(Number(app.adaptiveResamplingMaxAdjust) * 1_000_000);
   }
-  if (adaptiveNearFarThresholdInputEl && !app.adaptiveNearFarThresholdEditing && !app.adaptiveNearFarThresholdDirty) {
-    adaptiveNearFarThresholdInputEl.value = app.adaptiveResamplingNearFarThresholdMs === null ? '' : String(Math.max(1, Math.round(app.adaptiveResamplingNearFarThresholdMs)));
+  if (adaptiveHighRecoverEntryMarginInputEl && !app.adaptiveHighRecoverEntryMarginEditing && !app.adaptiveHighRecoverEntryMarginDirty) {
+    adaptiveHighRecoverEntryMarginInputEl.value = app.adaptiveResamplingHighRecoverEntryMarginMs === null ? '' : String(Math.max(1, Math.round(app.adaptiveResamplingHighRecoverEntryMarginMs)));
   }
   if (adaptiveUpdateIntervalCallbacksInputEl && !app.adaptiveUpdateIntervalCallbacksEditing && !app.adaptiveUpdateIntervalCallbacksDirty) {
     adaptiveUpdateIntervalCallbacksInputEl.value = app.adaptiveResamplingUpdateIntervalCallbacks === null ? '' : String(Math.max(1, Math.round(app.adaptiveResamplingUpdateIntervalCallbacks)));
@@ -334,7 +334,7 @@ export function renderAdaptiveResamplingUI() {
     app.adaptiveKiDirty ||
     app.adaptiveIntegralDischargeRatioDirty ||
     app.adaptiveMaxAdjustDirty ||
-    app.adaptiveNearFarThresholdDirty ||
+    app.adaptiveHighRecoverEntryMarginDirty ||
     app.adaptiveUpdateIntervalCallbacksDirty ||
     app.adaptiveFarFadeInMsDirty ||
     app.adaptiveLowRecoverSettleStableMsDirty ||
@@ -371,8 +371,8 @@ export function resetAdaptiveResamplingAdvancedDirtyState() {
   app.adaptiveIntegralDischargeRatioEditing = false;
   app.adaptiveMaxAdjustDirty = false;
   app.adaptiveMaxAdjustEditing = false;
-  app.adaptiveNearFarThresholdDirty = false;
-  app.adaptiveNearFarThresholdEditing = false;
+  app.adaptiveHighRecoverEntryMarginDirty = false;
+  app.adaptiveHighRecoverEntryMarginEditing = false;
   app.adaptiveUpdateIntervalCallbacksDirty = false;
   app.adaptiveUpdateIntervalCallbacksEditing = false;
   app.adaptiveFarFadeInMsDirty = false;

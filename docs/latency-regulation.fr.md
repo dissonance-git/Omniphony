@@ -59,14 +59,26 @@ La machine d'état de recovery expose les états UI :
 ### Low Recovery
 
 Le low recovery est utilisé quand le buffer tombe trop en dessous de la cible.
+Il est **activé** par le switch `hard_recover_low_in_far_mode` (ou par le
+startup), et l'entrée en Refill se déclenche dès que
+`control_available < target - low_recover_entry_margin_ms` — c'est le seul
+déclencheur côté bas (il n'est plus conditionné par la bande far, voir Near/Far).
 
 Progression :
 
-1. `stable -> low-recover`
+1. `stable -> low-recover` (Refill)
 2. `low-recover -> settling`
 3. `settling -> stable`
 
-Pendant `low-recover`, la sortie est mutée.
+Pendant `low-recover` (phase Refill), la sortie est mutée et le ring se
+remplit. La sortie de Refill est **prédictive** : on passe en `settling` dès
+que `control_available` — ou sa projection via l'EMA de vitesse de remplissage
+`low_recover_refill_delta_ema` — atteint `target - low_recover_exit_margin_ms`.
+
+**Pendant tout le low-recover (Refill et Settling), la servo PI est
+désactivée** (gate `low_recover_phase == Inactive` dans `pipewire.rs` et
+`asio.rs`) et le ratio est figé au ratio de base : aucune correction d'horloge
+n'est appliquée tant qu'on n'est pas revenu en `stable`.
 
 ### Settling
 
@@ -74,20 +86,39 @@ Pendant `low-recover`, la sortie est mutée.
 
 Comportement actuel :
 
-- la sortie reste mutée
-- si le buffer retombe franchement trop bas, retour en `low-recover`
-- si le buffer est un peu trop haut, on trim pendant le mute
-- si le buffer reste assez longtemps dans la fenêtre de settling, transition vers `stable`
+- la sortie est mutée si `force_silence_in_far_mode` est activé (défaut), sinon elle redevient audible pendant le settling
+- si le niveau retombe sous `target - low_recover_settle_margin_ms`, retour en `low-recover`
+- si le niveau dépasse `target + low_recover_settle_margin_ms`, on trim l'excès
+- si le niveau reste assez longtemps dans la fenêtre de settling, transition vers `stable`
 
 Temps de sortie actuel :
 
-- `200 ms` de temps stable cumulé dans la fenêtre
+- `low_recover_settle_stable_ms` (défaut `200 ms`) de temps stable **cumulé d'affilée** dans la fenêtre ; toute sortie de bande réarme le compteur
 
 Demi-fenêtre de settling actuelle :
 
-- `max(callback_input_domain_samples / 4, near_far_threshold_samples / 2)`
+- `low_recover_settle_margin_ms` (défaut `6 ms`), convertie en samples et alignée sur la frame audio
 
-Donc la fenêtre de settling n'est plus dimensionnée uniquement par la taille du callback ; elle est aussi ancrée sur la bande `near/far` configurée.
+#### Raw vs smoothed (anti dent-de-scie)
+
+Le test des bornes du dwell de settling se fait sur la **valeur lissée**
+(`smoothed_control_available`, le même IIR passe-bas que celui vu par la servo
+PI), **pas** sur la valeur brute. Les entrées/exits (entrée en Refill, sortie
+prédictive de Refill, hard-recover) restent sur la valeur **brute** pour rester
+réactives — les lisser réintroduisait un lag de phase qui provoquait une
+oscillation lente.
+
+Raison : l'arrivée de l'entrée par bursts (batching du décodeur) crée une
+**dent de scie** sur `control_available` dont l'amplitude dépasse la
+demi-fenêtre `±low_recover_settle_margin_ms`. Jugé sur la valeur brute, chaque
+dent fait sortir de bande et réarme le compteur → le warmup n'atteint jamais
+`stable` (alors qu'une fois en `stable`, la servo, qui travaille déjà sur le
+lissé, tient sans problème). Jugé sur le lissé, la dent de scie est absorbée et
+le dwell peut mûrir.
+
+À la transition `Refill -> Settling`, l'état de l'IIR est **réinitialisé** pour
+que le lissé reparte du niveau réel courant et non d'une valeur encore en
+retard sur la rampe de refill (ce qui rebondirait aussitôt en Refill).
 
 ### High Recovery
 
@@ -102,10 +133,18 @@ Comportement :
 
 La bande `near/far` est dérivée de l'erreur de buffer par rapport à la cible :
 
-- `near` si `abs(control_available - target_fill) < near_far_threshold`
+- `near` si `abs(control_available - target_fill) < high_recover_entry_margin_ms`
 - `far` sinon
 
-Cette bande sert à la fois pour l'UI et pour décider si les actions de far-mode sont éligibles.
+> Renommage : `near_far_threshold_ms` s'appelle désormais
+> **`high_recover_entry_margin_ms`** (« High-recover entry margin »), pour
+> former une paire claire avec `low_recover_entry_margin_ms`. Le seuil est
+> **symétrique** (`abs_diff`), mais pour une latence cible réaliste il ne peut
+> être atteint que **côté haut** ; c'est donc l'entrée des actions high-side
+> (hard-recover-high, mute far). Les anciens noms (config disque, clé JSON
+> `nearFarThresholdMs`, adresse OSC) restent acceptés en lecture via des alias.
+
+Cette bande sert à la fois pour l'UI et pour décider si les actions far-mode **côté haut** sont éligibles. L'entrée en **low-recover** n'utilise plus cette bande : elle se déclenche sur `low_recover_entry_margin_ms` (côté bas) dès que `hard_recover_low_in_far_mode` (ou le startup) est actif — voir la section Low Recovery.
 
 La distinction importante est :
 
@@ -161,7 +200,7 @@ et garde encore un callback muté avant de rendre le premier bloc audible. Le bu
 
 ### PipeWire
 
-PipeWire n'utilise pas exactement le même chemin de démarrage dédié. Son cycle de stream et de callbacks est déjà piloté par le graphe PipeWire, donc le démarrage dépend moins d'un gate spécifique.
+PipeWire force lui aussi le low-recover de démarrage : `activate_startup_low_recover()` est appelé à la création du stream (`pipewire.rs`), exactement comme ASIO. Le démarrage suit donc la même machine d'état Refill → Settling → stable. La différence avec ASIO porte sur la cadence des callbacks (pilotée par le quantum du graphe) et sur la mesure de latence, pas sur la présence du gate de démarrage.
 
 ## Différences ASIO / PipeWire
 
@@ -220,8 +259,8 @@ Donc PipeWire est structurellement plus flexible, mais les deux backends ne sont
 
 `PipeWire` :
 
-- le démarrage est plus naturellement absorbé par le cycle de callback du backend
-- n'a pas besoin du même forçage de recovery de démarrage
+- force lui aussi le low-recover de démarrage (`activate_startup_low_recover()`), même machine d'état que ASIO
+- la cadence de callback du graphe rend juste le refill/settling plus régulier à tuner
 
 ### 5. Sensibilité Aux Seuils
 
@@ -243,7 +282,7 @@ Quand on debug le système, il faut interpréter les états comme suit :
 
 - `stable` : aucune machine de recovery active
 - `low-recover` : la sortie est mutée parce que le système reconstruit la latence depuis un buffer trop bas
-- `settling` : la sortie est toujours mutée pendant que le système essaie de revenir à une latence moins aléatoire
+- `settling` : le système confirme la stabilité (sur le niveau lissé) avant de rendre la main à la servo ; la sortie est mutée si `force_silence_in_far_mode` est activé (défaut)
 - `high-recover` : de l'audio bufferisé est jeté parce que la latence est trop haute
 - `near` / `far` : distance à la cible, pas état de mute en soi
 

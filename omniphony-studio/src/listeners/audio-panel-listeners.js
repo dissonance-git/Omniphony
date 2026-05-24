@@ -31,7 +31,7 @@ export function setupAudioPanelListeners() {
   const adaptiveKiInputEl = document.getElementById('adaptiveKiInput');
   const adaptiveIntegralDischargeRatioInputEl = document.getElementById('adaptiveIntegralDischargeRatioInput');
   const adaptiveMaxAdjustInputEl = document.getElementById('adaptiveMaxAdjustInput');
-  const adaptiveNearFarThresholdInputEl = document.getElementById('adaptiveNearFarThresholdInput');
+  const adaptiveHighRecoverEntryMarginInputEl = document.getElementById('adaptiveHighRecoverEntryMarginInput');
   const adaptiveUpdateIntervalCallbacksInputEl = document.getElementById('adaptiveUpdateIntervalCallbacksInput');
   const adaptiveLowRecoverSettleStableMsInputEl = document.getElementById('adaptiveLowRecoverSettleStableMsInput');
   const adaptiveLowRecoverEntryMarginMsInputEl = document.getElementById('adaptiveLowRecoverEntryMarginMsInput');
@@ -170,12 +170,24 @@ export function setupAudioPanelListeners() {
       const integralDischargeRatio = Math.min(1, Math.max(0, Number(adaptiveIntegralDischargeRatioInputEl?.value) || 0));
       const maxAdjustPpm = Math.max(1, Math.round(Number(adaptiveMaxAdjustInputEl?.value) || 0));
       const maxAdjust = Math.max(0.000001, maxAdjustPpm / 1_000_000);
-      const nearFarThresholdMs = Math.max(1, Math.round(Number(adaptiveNearFarThresholdInputEl?.value) || 0));
+      const highRecoverEntryMarginMs = Math.max(1, Math.round(Number(adaptiveHighRecoverEntryMarginInputEl?.value) || 0));
       const updateIntervalCallbacks = Math.max(1, Math.round(Number(adaptiveUpdateIntervalCallbacksInputEl?.value) || 0));
       const farModeReturnFadeInMs = Math.max(0, Math.round(Number(adaptiveFarFadeInMsInputEl?.value) || 0));
       const lowRecoverSettleStableMs = Math.max(0, Math.round(Number(adaptiveLowRecoverSettleStableMsInputEl?.value) || 0));
       const lowRecoverEntryMarginMs = Math.max(0, Number(adaptiveLowRecoverEntryMarginMsInputEl?.value) || 0);
-      const lowRecoverExitMarginMs = Math.max(0, Number(adaptiveLowRecoverExitMarginMsInputEl?.value) || 0);
+      // The exit margin must stay strictly below the entry margin so the
+      // low-recover hysteresis is well-formed (you enter Refill deeper than you
+      // leave it). Clamp to at most entry − one step, and reflect the corrected
+      // value back into the input so the user sees the safe value.
+      const exitMarginStep = 0.1;
+      const maxLowRecoverExitMarginMs = Math.max(0, lowRecoverEntryMarginMs - exitMarginStep);
+      const lowRecoverExitMarginMs = Math.min(
+        Math.max(0, Number(adaptiveLowRecoverExitMarginMsInputEl?.value) || 0),
+        maxLowRecoverExitMarginMs
+      );
+      if (adaptiveLowRecoverExitMarginMsInputEl) {
+        adaptiveLowRecoverExitMarginMsInputEl.value = String(lowRecoverExitMarginMs);
+      }
       const lowRecoverSettleMarginMs = Math.max(0, Number(adaptiveLowRecoverSettleMarginMsInputEl?.value) || 0);
       const lowRecoverRefillDeltaAlpha = Math.min(1, Math.max(0, Number(adaptiveLowRecoverRefillDeltaAlphaInputEl?.value) || 0));
       const controlSmoothingCutoffHz = Math.max(0.001, Number(adaptiveControlSmoothingCutoffHzInputEl?.value) || 0.5);
@@ -185,7 +197,7 @@ export function setupAudioPanelListeners() {
       app.adaptiveResamplingKi = ki;
       app.adaptiveResamplingIntegralDischargeRatio = integralDischargeRatio;
       app.adaptiveResamplingMaxAdjust = maxAdjust;
-      app.adaptiveResamplingNearFarThresholdMs = nearFarThresholdMs;
+      app.adaptiveResamplingHighRecoverEntryMarginMs = highRecoverEntryMarginMs;
       app.adaptiveResamplingUpdateIntervalCallbacks = updateIntervalCallbacks;
       app.adaptiveResamplingFarModeReturnFadeInMs = farModeReturnFadeInMs;
       app.adaptiveResamplingLowRecoverSettleStableMs = lowRecoverSettleStableMs;
@@ -317,14 +329,14 @@ export function setupAudioPanelListeners() {
     });
   }
 
-  if (adaptiveNearFarThresholdInputEl) {
-    adaptiveNearFarThresholdInputEl.addEventListener('focus', () => {
-      app.adaptiveNearFarThresholdEditing = true;
-      adaptiveNearFarThresholdInputEl.select();
+  if (adaptiveHighRecoverEntryMarginInputEl) {
+    adaptiveHighRecoverEntryMarginInputEl.addEventListener('focus', () => {
+      app.adaptiveHighRecoverEntryMarginEditing = true;
+      adaptiveHighRecoverEntryMarginInputEl.select();
     });
-    adaptiveNearFarThresholdInputEl.addEventListener('input', () => {
-      app.adaptiveNearFarThresholdEditing = true;
-      app.adaptiveNearFarThresholdDirty = true;
+    adaptiveHighRecoverEntryMarginInputEl.addEventListener('input', () => {
+      app.adaptiveHighRecoverEntryMarginEditing = true;
+      app.adaptiveHighRecoverEntryMarginDirty = true;
       updateAdaptiveResamplingUI();
     });
   }

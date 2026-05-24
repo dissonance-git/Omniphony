@@ -492,11 +492,11 @@ fn control_adaptive_resampling_update_interval_callbacks(state: State<SharedStat
 }
 
 #[tauri::command]
-fn control_adaptive_resampling_near_far_threshold_ms(state: State<SharedState>, value: i32) {
+fn control_adaptive_resampling_high_recover_entry_margin_ms(state: State<SharedState>, value: i32) {
     send_control(
         &state.osc_tx,
         OscControlMsg::SendInt {
-            address: "/omniphony/control/adaptive_resampling/near_far_threshold_ms".to_string(),
+            address: "/omniphony/control/adaptive_resampling/high_recover_entry_margin_ms".to_string(),
             value: value.max(1),
         },
     );
@@ -2424,7 +2424,7 @@ fn main() {
             control_adaptive_resampling_integral_discharge_ratio,
             control_adaptive_resampling_max_adjust,
             control_adaptive_resampling_update_interval_callbacks,
-            control_adaptive_resampling_near_far_threshold_ms,
+            control_adaptive_resampling_high_recover_entry_margin_ms,
             control_adaptive_resampling_pause,
             control_adaptive_resampling_reset_ratio,
             control_metering_rate_hz,
