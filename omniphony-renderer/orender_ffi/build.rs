@@ -9,6 +9,18 @@ fn main() {
     println!("cargo:rerun-if-changed=src/lib.rs");
     println!("cargo:rerun-if-changed=cbindgen.toml");
 
+    // On Linux, stamp the release cdylib with a SemVer soname (`liborender.so.0`)
+    // so the packaged library participates in normal shared-object versioning:
+    // consumers (mpv) record `liborender.so.0` as DT_NEEDED, resolved at runtime
+    // via the symlinks the PKGBUILD installs. Debug builds skip this so the C
+    // smoke test can link and run against the bare `target/debug/liborender.so`
+    // without needing the versioned symlinks.
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let profile = std::env::var("PROFILE").unwrap_or_default();
+    if target_os == "linux" && profile == "release" {
+        println!("cargo:rustc-cdylib-link-arg=-Wl,-soname,liborender.so.0");
+    }
+
     match cbindgen::Builder::new()
         .with_crate(&crate_dir)
         .with_language(cbindgen::Language::C)

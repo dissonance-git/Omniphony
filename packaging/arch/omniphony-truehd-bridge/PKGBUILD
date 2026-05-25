@@ -1,0 +1,49 @@
+# Maintainer: Mathieu Grenet <mathieu@mgth.fr>
+#
+# omniphony-truehd-bridge — the TrueHD/Atmos decoder plugin (harletty-bridge)
+# loaded at runtime by liborender. It matches the `*_bridge.so` plugin pattern
+# and is installed into the fixed libdir the embedded host uses by default:
+#
+#     /usr/lib/orender/truehd_bridge.so
+#
+# Point mpv at it with `--ad-orender-bridge-path=/usr/lib/orender/truehd_bridge.so`
+# (this is the intended default in the mpv-orender integration).
+#
+# This is a LOCAL/dev PKGBUILD: it builds from a sibling `harletty-bridge`
+# checkout. Override the location with `BRIDGE_SRC=/path/to/harletty-bridge`,
+# or switch to a versioned git `source=()` for a release package.
+
+pkgname=omniphony-truehd-bridge
+pkgver=0.5.0
+pkgrel=1
+pkgdesc="TrueHD/Atmos decoder bridge plugin (harletty-bridge) for liborender"
+arch=('x86_64')
+url="https://github.com/mgth/harletty-bridge"
+license=('Apache-2.0')
+depends=('gcc-libs')
+makedepends=('rust' 'cargo')
+source=()
+sha256sums=()
+
+# Sibling harletty-bridge checkout relative to this PKGBUILD, overridable.
+_bridge_src="${BRIDGE_SRC:-$startdir/../../../../harletty-bridge}"
+
+build() {
+    cd "$_bridge_src"
+    cargo build --release -p harletty-bridge
+}
+
+package() {
+    cd "$_bridge_src"
+
+    # Install under the *_bridge.so name in the fixed orender libdir so the
+    # plugin loader's filename pattern matches and the path is predictable.
+    install -Dm755 target/release/libharletty_bridge.so \
+        "$pkgdir/usr/lib/orender/truehd_bridge.so"
+
+    # Apache-2.0 text is provided by the system `licenses` package; ship the
+    # upstream copy too if the checkout has one (avoid creating an empty dir).
+    if [ -f LICENSE ]; then
+        install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    fi
+}
