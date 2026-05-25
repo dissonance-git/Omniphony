@@ -12,7 +12,7 @@
 
 use orender_engine::Engine;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -38,8 +38,9 @@ pub struct OrenderConfig {
     /// Optional speaker-layout YAML path overriding the config. NULL → use the
     /// config's embedded layout, else the 7.1.4 preset.
     pub speaker_layout_path: *const c_char,
-    /// Path to the decoder bridge plugin (e.g. truehd_bridge.so). REQUIRED:
-    /// library hosts cannot use the exe-relative search.
+    /// Optional decoder bridge plugin path (e.g. truehd_bridge.so) overriding
+    /// the config. NULL → taken from the config YAML's `render.bridge_path`
+    /// (the source of truth; library hosts have no exe-relative search).
     pub bridge_path: *const c_char,
     /// Enable the OSC live-control server. (Not yet wired in this build.)
     pub osc_enabled: c_int,
@@ -64,8 +65,8 @@ unsafe fn opt_str<'a>(p: *const c_char) -> Option<&'a str> {
 }
 
 fn build_engine(cfg: &OrenderConfig) -> Result<Engine> {
-    let bridge_path =
-        unsafe { opt_str(cfg.bridge_path) }.ok_or_else(|| anyhow!("bridge_path is required"))?;
+    // Optional override; NULL → taken from the config YAML's render.bridge_path.
+    let bridge_path = unsafe { opt_str(cfg.bridge_path) };
     let config_path = unsafe { opt_str(cfg.config_yaml_path) };
     let layout_path = unsafe { opt_str(cfg.speaker_layout_path) };
     let sample_rate = if cfg.sample_rate == 0 {
@@ -77,7 +78,7 @@ fn build_engine(cfg: &OrenderConfig) -> Result<Engine> {
     let mut engine = Engine::from_paths(
         config_path.map(Path::new),
         layout_path.map(Path::new),
-        Path::new(bridge_path),
+        bridge_path.map(Path::new),
         sample_rate,
     )?;
 

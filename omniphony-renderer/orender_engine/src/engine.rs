@@ -131,10 +131,14 @@ impl Engine {
     /// resolve the speaker layout (explicit path → config layout → 7.1.4 preset),
     /// load + configure the decoder bridge, and build the renderer. This is the
     /// path both the FFI and the test harness use.
+    /// `bridge_path`: explicit decoder-bridge path, or `None` to take it from
+    /// the config YAML's `render.bridge_path`. The config is the source of
+    /// truth for the bridge location (there is no exe-relative search when
+    /// hosted in mpv); an explicit path here only overrides it.
     pub fn from_paths(
         config_yaml_path: Option<&Path>,
         speaker_layout_path: Option<&Path>,
-        bridge_path: &Path,
+        bridge_path: Option<&Path>,
         sample_rate: u32,
     ) -> Result<Self> {
         let render_cfg = config_yaml_path
@@ -149,9 +153,20 @@ impl Engine {
             SpeakerLayout::preset("7.1.4")?
         };
 
+        // Resolve the bridge path: explicit override → config render.bridge_path.
+        let resolved_bridge = bridge_path
+            .map(Path::to_path_buf)
+            .or_else(|| render_cfg.as_ref().and_then(|c| c.bridge_path.clone()))
+            .ok_or_else(|| {
+                anyhow!(
+                    "no decoder bridge path: pass one explicitly or set \
+                     render.bridge_path in the config YAML"
+                )
+            })?;
+
         // The renderer's table mode/defaults come from the bridge, so load and
         // configure it before building the renderer.
-        let mut bridge = LoadedBridge::load_with_params(bridge_path, false)?;
+        let mut bridge = LoadedBridge::load_with_params(&resolved_bridge, false)?;
         bridge.configure("presentation", "best");
         let vbap_defaults = bridge.vbap_cartesian_defaults();
         let preferred = bridge.preferred_vbap_table_mode();

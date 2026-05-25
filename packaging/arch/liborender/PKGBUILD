@@ -21,6 +21,7 @@ url="https://github.com/mgth/Omniphony"
 license=('GPL-3.0-only')
 depends=('gcc-libs' 'omniphony-truehd-bridge')
 makedepends=('rust' 'cargo')
+backup=('etc/orender/config.yaml')
 # No remote source: built in-place from this checkout (see build()).
 source=()
 sha256sums=()
@@ -58,6 +59,10 @@ package() {
     for f in "$_workspace"/../layouts/*.yaml; do
         install -Dm644 "$f" "$pkgdir/usr/share/orender/layouts/${f##*/}"
     done
+
+    # Default config read by the embedded host (mpv's ad_orender): provides the
+    # decoder bridge path (render.bridge_path) and, optionally, the layout.
+    install -Dm644 "$startdir/config.yaml" "$pkgdir/etc/orender/config.yaml"
 
     # License text.
     install -Dm644 "$_workspace/LICENSE" \

@@ -30,7 +30,7 @@ fn renders_real_truehd_atmos_stream() {
 
     let data = std::fs::read(&sample).expect("read sample file");
     let mut engine =
-        Engine::from_paths(None, None, Path::new(&bridge), 48_000).expect("build engine");
+        Engine::from_paths(None, None, Some(Path::new(&bridge)), 48_000).expect("build engine");
 
     // Smoke the OSC live-control wiring: the listener binds (ephemeral port) and
     // attaches the renderer control without error. No client interaction here.
@@ -121,7 +121,7 @@ fn osc_broadcasts_object_frames() {
     let port_out = client.local_addr().unwrap().port();
 
     let mut engine =
-        Engine::from_paths(None, None, Path::new(&bridge), 48_000).expect("build engine");
+        Engine::from_paths(None, None, Some(Path::new(&bridge)), 48_000).expect("build engine");
     engine
         .enable_osc(orender_engine::OscOptions {
             host: "127.0.0.1".to_string(),

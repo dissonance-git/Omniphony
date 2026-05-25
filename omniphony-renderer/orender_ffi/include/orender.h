@@ -36,8 +36,9 @@ typedef struct OrenderConfig {
    */
   const char *speaker_layout_path;
   /**
-   * Path to the decoder bridge plugin (e.g. truehd_bridge.so). REQUIRED:
-   * library hosts cannot use the exe-relative search.
+   * Optional decoder bridge plugin path (e.g. truehd_bridge.so) overriding
+   * the config. NULL → taken from the config YAML's `render.bridge_path`
+   * (the source of truth; library hosts have no exe-relative search).
    */
   const char *bridge_path;
   /**
