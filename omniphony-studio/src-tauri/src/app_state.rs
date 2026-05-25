@@ -404,6 +404,10 @@ pub struct AppState {
     pub drc_mode: Option<String>,
     #[serde(rename = "drcWeight")]
     pub drc_weight: Option<f32>,
+    #[serde(rename = "meterRateHz")]
+    pub meter_rate_hz: Option<f32>,
+    #[serde(rename = "diagRateHz")]
+    pub diag_rate_hz: Option<f32>,
     #[serde(rename = "supportedDrcModes")]
     pub supported_drc_modes: Vec<String>,
     #[serde(rename = "inputBackend")]
@@ -649,6 +653,8 @@ impl Default for AppState {
             input_apply_pending: Some(0),
             drc_mode: None,
             drc_weight: Some(1.0),
+            meter_rate_hz: None,
+            diag_rate_hz: None,
             supported_drc_modes: Vec::new(),
             input_backend: None,
             input_channels: None,

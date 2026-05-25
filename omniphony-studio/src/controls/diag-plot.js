@@ -66,7 +66,7 @@ const buffer = [];
 let selected = loadSelection();
 let windowMs = loadWindowMs();
 let diagRateHz = loadDiagRateHz();
-let diagRatePushed = false;
+let diagRateSelectEl = null;
 let lastDiagEnabledKeepaliveAt = 0;
 const DIAG_ENABLED_KEEPALIVE_MS = 1000;
 let renderedSchemaSignature = null;
@@ -363,14 +363,20 @@ function buildDiagRateSelector() {
       pushDiagRate();
     }
   });
-  // Push the persisted choice to the renderer when the controls bar is
-  // first built (renderer defaults to 50 Hz; this resyncs after restart).
-  if (!diagRatePushed) {
-    pushDiagRate();
-    diagRatePushed = true;
-  }
+  // Renderer is the source of truth: no boot push. The select syncs from
+  // /state/monitoring (syncDiagRateFromRenderer); user changes still push.
+  diagRateSelectEl = sel;
   wrap.appendChild(sel);
   return wrap;
+}
+
+// Sync the diag-rate select from the renderer's authoritative value.
+export function syncDiagRateFromRenderer(hz) {
+  const rounded = Math.round(Number(hz));
+  if (!Number.isFinite(rounded) || !DIAG_RATE_OPTIONS_HZ.includes(rounded)) return;
+  diagRateHz = rounded;
+  saveDiagRateHz();
+  if (diagRateSelectEl) diagRateSelectEl.value = String(rounded);
 }
 
 function pushDiagRate() {

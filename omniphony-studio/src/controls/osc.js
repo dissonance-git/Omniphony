@@ -522,11 +522,10 @@ function applyMeterRateToSelect(value) {
 const initialOscMeteringRateSelectEl = getOscMeteringRateSelectEl();
 if (initialOscMeteringRateSelectEl) {
   const initialRate = loadMeterRateHzFromStorage();
+  // Pre-connect default for the UI only. The renderer is the source of truth:
+  // its persisted value arrives via /state/monitoring (syncMeterRateFromRenderer)
+  // and overrides this. We no longer push localStorage to the renderer on boot.
   applyMeterRateToSelect(initialRate);
-  // Push the persisted rate to the renderer at boot so it matches the UI.
-  // Failures (renderer not connected yet) are silent — the renderer defaults
-  // to 50 Hz anyway, and any later user interaction will push again.
-  invoke('control_metering_rate_hz', { value: initialRate }).catch(() => {});
   initialOscMeteringRateSelectEl.addEventListener('change', () => {
     const sel = getOscMeteringRateSelectEl();
     if (!sel) return;
@@ -537,4 +536,14 @@ if (initialOscMeteringRateSelectEl) {
       console.error('[meter rate]', e);
     });
   });
+}
+
+// Sync the meter-rate select from the renderer's authoritative value
+// (/omniphony/state/monitoring). Mirrors it into localStorage so the UI memory
+// tracks the renderer rather than overriding it.
+export function syncMeterRateFromRenderer(hz) {
+  const rounded = Math.round(Number(hz));
+  if (!Number.isFinite(rounded) || !METER_RATE_OPTIONS_HZ.includes(rounded)) return;
+  applyMeterRateToSelect(rounded);
+  try { localStorage.setItem(METER_RATE_STORAGE_KEY, String(rounded)); } catch (_) { /* ignore */ }
 }

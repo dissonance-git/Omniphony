@@ -129,6 +129,13 @@ struct LoudnessDomainState {
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct MonitoringDomainState {
+    meter_rate_hz: Option<f32>,
+    diag_rate_hz: Option<f32>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct LayoutDomainState {
     name: Option<String>,
     radius_m: Option<f64>,
@@ -597,6 +604,19 @@ fn apply_loudness_domain_state(s: &mut AppState, value: &str) -> bool {
     }
     s.loudness_source = parsed.source;
     s.loudness_gain = parsed.gain;
+    true
+}
+
+fn apply_monitoring_domain_state(s: &mut AppState, value: &str) -> bool {
+    let Ok(parsed) = serde_json::from_str::<MonitoringDomainState>(value) else {
+        return false;
+    };
+    if parsed.meter_rate_hz.is_some() {
+        s.meter_rate_hz = parsed.meter_rate_hz;
+    }
+    if parsed.diag_rate_hz.is_some() {
+        s.diag_rate_hz = parsed.diag_rate_hz;
+    }
     true
 }
 
@@ -1480,6 +1500,19 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
             }
             OscEvent::StateLoudness { value } => {
                 if apply_loudness_domain_state(&mut s, &value) {
+                    (
+                        Some((
+                            "state:snapshot_ready",
+                            serde_json::to_value(&*s).unwrap_or_else(|_| serde_json::json!({})),
+                        )),
+                        removed_ids,
+                    )
+                } else {
+                    (None, removed_ids)
+                }
+            }
+            OscEvent::StateMonitoring { value } => {
+                if apply_monitoring_domain_state(&mut s, &value) {
                     (
                         Some((
                             "state:snapshot_ready",

@@ -206,6 +206,8 @@ pub enum OscEvent {
     StateInput { value: String },
     #[serde(rename = "state:loudness")]
     StateLoudness { value: String },
+    #[serde(rename = "state:monitoring")]
+    StateMonitoring { value: String },
     #[serde(rename = "state:session")]
     StateSession { value: String },
     #[serde(rename = "state:debug:speaker_heatmap:meta")]
@@ -604,6 +606,9 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
         }),
         (3, "snapshot_complete") => Some(OscEvent::StateSnapshotComplete),
         (3, "loudness") => Some(OscEvent::StateLoudness {
+            value: raw_args.first().and_then(unwrap_string)?,
+        }),
+        (3, "monitoring") => Some(OscEvent::StateMonitoring {
             value: raw_args.first().and_then(unwrap_string)?,
         }),
         (4, "realtime") => match parts[3] {

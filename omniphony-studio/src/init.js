@@ -47,6 +47,8 @@ import {
 import { updateAudioFormatDisplay } from './controls/audio.js';
 import { updateInputControlUI } from './controls/input.js';
 import { updateAdaptiveResamplingUI } from './controls/adaptive.js';
+import { syncMeterRateFromRenderer } from './controls/osc.js';
+import { syncDiagRateFromRenderer } from './controls/diag-plot.js';
 import { updateDistanceDiffuseUI } from './controls/distance-diffuse.js';
 import { setOscStatus } from './controls/osc.js';
 import { renderDrcUI } from './controls/drc.js';
@@ -70,6 +72,10 @@ export function applyInitState(payload) {
     app.oscSnapshotReady = payload.oscSnapshotReady;
     syncRuntimeConnectionLock();
   }
+  // Monitoring cadences: the renderer is the source of truth — sync the UI
+  // selects from its broadcast value (/omniphony/state/monitoring).
+  if (typeof payload.meterRateHz === 'number') syncMeterRateFromRenderer(payload.meterRateHz);
+  if (typeof payload.diagRateHz === 'number') syncDiagRateFromRenderer(payload.diagRateHz);
   speakerGainCache.clear();
   speakerMuted.clear();
   objectMuted.clear();
