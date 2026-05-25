@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use audio_input::InputControl;
 use audio_output::AudioControl;
@@ -40,8 +41,22 @@ pub(crate) fn handle_control_message(
     realtime_seq: &mut RealtimeSeqState,
     socket: &Arc<UdpSocket>,
     clients: &Arc<OscClientRegistry>,
+    meter_rate_hz_bits: &Arc<AtomicU32>,
 ) {
     let addr = msg.addr.as_str();
+
+    // Meter cadence: mirror the rate into the OSC-owned atomic so hosts without
+    // an AudioControl (the embedded engine) can pace AudioMeter from it. Falls
+    // through so the AudioControl-backed path (CLI) still applies + broadcasts.
+    if addr == "/omniphony/control/metering/rate_hz" {
+        if let Some(hz) = msg.args.first().and_then(|arg| match arg {
+            OscType::Float(v) => Some(*v),
+            OscType::Int(v) => Some(*v as f32),
+            _ => None,
+        }) {
+            meter_rate_hz_bits.store(hz.max(1.0).to_bits(), Ordering::Relaxed);
+        }
+    }
     let runtime_ctx = RuntimeControlContext::with_shared_state(
         Arc::clone(control),
         audio_control.cloned(),
