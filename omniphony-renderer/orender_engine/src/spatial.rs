@@ -2,7 +2,9 @@
 //! per-channel events. Shared by the engine and the CLI host.
 
 use crate::events::{Configuration, Event};
+use crate::osc::ObjectMeta;
 use bridge_api::RCoordinateFormat;
+use renderer::speaker_layout::SpeakerLayout;
 use renderer::spatial_renderer::SpatialChannelEvent;
 use std::collections::HashMap;
 
@@ -15,6 +17,98 @@ pub fn normalize_azimuth_deg(mut azimuth_deg: f32) -> f32 {
         azimuth_deg -= 360.0;
     }
     azimuth_deg
+}
+
+/// Raw, unconverted position `[x, y, z]` exactly as the event carries it (no
+/// coordinate-format conversion). Used for OSC object broadcast, where the
+/// coordinate format is sent alongside the values.
+pub fn event_pos_raw(event: &Event) -> Option<[f64; 3]> {
+    let p = event.pos()?;
+    if p.len() < 3 {
+        return None;
+    }
+    Some([p[0], p[1], p[2]])
+}
+
+/// Build the OSC broadcast objects for one metadata payload.
+///
+/// Bed objects (id `< 10`) are reported at their layout speaker position with
+/// `direct_speaker_index` set; dynamic objects report their raw event position
+/// in the bridge's coordinate format. Names come from the accumulated
+/// `object_names` map (falling back to `Obj_<id>`).
+pub fn build_object_metas(
+    conf: &Configuration,
+    coordinate_format: RCoordinateFormat,
+    layout: Option<&SpeakerLayout>,
+    object_names: &HashMap<u32, String>,
+) -> Vec<ObjectMeta> {
+    let bed_to_speaker = layout.map(|l| l.bed_to_speaker_mapping()).unwrap_or_default();
+    conf.events
+        .iter()
+        .enumerate()
+        .map(|(idx, event)| {
+            let logical_id = event.id().unwrap_or(idx as u32);
+            let direct_speaker_index = if logical_id < 10 {
+                bed_to_speaker
+                    .get(&(logical_id as usize))
+                    .copied()
+                    .map(|i| i as u32)
+            } else {
+                None
+            };
+            let (ox, oy, oz, coord_mode) = direct_speaker_index
+                .and_then(|spk| {
+                    layout.and_then(|l| {
+                        l.speakers.get(spk as usize).map(|speaker| {
+                            if speaker.coord_mode.eq_ignore_ascii_case("cartesian") {
+                                (
+                                    speaker.x as f64,
+                                    speaker.y as f64,
+                                    speaker.z as f64,
+                                    "cartesian".to_string(),
+                                )
+                            } else {
+                                (
+                                    speaker.azimuth as f64,
+                                    speaker.elevation as f64,
+                                    speaker.distance as f64,
+                                    "polar".to_string(),
+                                )
+                            }
+                        })
+                    })
+                })
+                .unwrap_or_else(|| {
+                    let [x, y, z] = event_pos_raw(event).unwrap_or([0.0; 3]);
+                    (
+                        x,
+                        y,
+                        z,
+                        match coordinate_format {
+                            RCoordinateFormat::Cartesian => "cartesian".to_string(),
+                            RCoordinateFormat::Polar => "polar".to_string(),
+                        },
+                    )
+                });
+            ObjectMeta {
+                name: object_names
+                    .get(&logical_id)
+                    .cloned()
+                    .unwrap_or_else(|| format!("Obj_{logical_id}")),
+                x: ox as f32,
+                y: oy as f32,
+                z: oz as f32,
+                coord_mode,
+                direct_speaker_index,
+                gain: event.gain_db().map_or(-128, |g| g as i32),
+                priority: 0.0,
+                size: event
+                    .size()
+                    .map(|s| [s[0] as f32, s[1] as f32, s[2] as f32])
+                    .unwrap_or([0.0, 0.0, 0.0]),
+            }
+        })
+        .collect()
 }
 
 /// Resolve an event's position to ADM Cartesian `[x, y, z]`, converting from the

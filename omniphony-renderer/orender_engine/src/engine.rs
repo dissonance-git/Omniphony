@@ -13,8 +13,10 @@ use crate::{render, spatial};
 use anyhow::{Result, anyhow, bail};
 use bridge_api::{RCoordinateFormat, RDecodedFrame, RInputTransport};
 use renderer::config::Config;
+use renderer::metering::AudioMeter;
 use renderer::speaker_layout::SpeakerLayout;
 use renderer::spatial_renderer::{SpatialChannelEvent, SpatialRenderer};
+use std::collections::HashMap;
 use std::path::Path;
 
 /// Options for the engine's OSC live-control server.
@@ -66,6 +68,10 @@ pub struct Engine {
     /// Optional OSC live-control server (kept alive here; its Drop stops the
     /// listener thread when the engine is dropped).
     osc: Option<OscSender>,
+    /// VU meter, created with the OSC server; feeds outgoing meter bundles.
+    audio_meter: Option<AudioMeter>,
+    /// Accumulated object names (id → name) for OSC object broadcast.
+    object_names: HashMap<u32, String>,
 }
 
 impl Engine {
@@ -89,6 +95,8 @@ impl Engine {
             frame_events: Vec::new(),
             pcm_f32_buf: Vec::new(),
             osc: None,
+            audio_meter: None,
+            object_names: HashMap::new(),
         }
     }
 
@@ -110,6 +118,8 @@ impl Engine {
         sender.attach_renderer_control(self.renderer.renderer_control());
         sender.start_listener(opts.port_in)?;
         self.osc = Some(sender);
+        // 50 Hz meter cadence, matching the CLI default.
+        self.audio_meter = Some(AudioMeter::new(self.renderer.num_speakers(), 50.0));
         Ok(())
     }
 
@@ -190,6 +200,7 @@ impl Engine {
         self.bed_indices = None;
         self.frame_events.clear();
         self.loudness_applied = false;
+        self.object_names.clear();
     }
 
     /// Push one raw compressed packet and render any frames it produces.
@@ -234,17 +245,25 @@ impl Engine {
     fn render_frame(&mut self, frame: &RDecodedFrame) -> Result<Option<RenderedAudio>> {
         let channel_count = frame.channel_count as usize;
         let sample_count = frame.sample_count as usize;
+        let sample_rate = frame.sampling_frequency.max(1);
         let sample_pos_at_start = self.decoded_samples;
+
+        let want_osc = self.osc.as_ref().is_some_and(|o| o.has_osc_clients());
 
         // Dialogue normalisation (from major-sync frames), applied once.
         if !self.loudness_applied {
             if let Some(dialogue_level) = frame.dialogue_level.into_option() {
                 self.renderer.set_loudness(dialogue_level);
                 self.loudness_applied = true;
+                if want_osc {
+                    if let Some(osc) = self.osc.as_ref() {
+                        osc.send_loudness_state();
+                    }
+                }
             }
         }
 
-        // Spatial metadata → bed config + per-channel events.
+        // Spatial metadata → bed config + per-channel events (+ OSC objects).
         for meta in frame.metadata.iter() {
             self.has_objects = true;
             if !meta.bed_indices.is_empty() {
@@ -263,6 +282,30 @@ impl Engine {
                 bed,
                 &mut self.frame_events,
             );
+
+            // Outgoing: broadcast object positions/names to OSC clients.
+            if want_osc {
+                for upd in meta.name_updates.iter() {
+                    self.object_names.insert(upd.id, upd.name.to_string());
+                }
+                let layout = self.renderer.speaker_layout();
+                let objects = spatial::build_object_metas(
+                    &conf,
+                    self.coordinate_format,
+                    Some(&layout),
+                    &self.object_names,
+                );
+                let coord_fmt = match self.coordinate_format {
+                    RCoordinateFormat::Cartesian => 0,
+                    RCoordinateFormat::Polar => 1,
+                };
+                if let Some(osc) = self.osc.as_mut() {
+                    let _ =
+                        osc.send_object_frame(meta.sample_pos, meta.ramp_duration, coord_fmt, &objects);
+                    let seconds = meta.sample_pos as f64 / sample_rate as f64;
+                    let _ = osc.send_timestamp(meta.sample_pos, seconds);
+                }
+            }
         }
 
         self.decoded_samples += sample_count as u64;
@@ -305,19 +348,69 @@ impl Engine {
             &mut self.drc_ramp_samples_remaining,
         );
 
+        // VU metering (outgoing): feed object PCM pre-render; speakers post-render.
+        let want_metering = self.osc.as_ref().is_some_and(|o| o.has_metering_clients());
+        if want_metering {
+            if let Some(meter) = self.audio_meter.as_mut() {
+                meter.update_channel_count(channel_count);
+                for chunk in pcm_f32.chunks_exact(channel_count) {
+                    meter.process_objects(chunk, channel_count);
+                }
+            }
+        }
+
+        let render_started = std::time::Instant::now();
         let rendered = self.renderer.render_frame(
             &pcm_f32,
             channel_count,
             &self.frame_events,
             Vec::new(),
-            false,
+            want_metering,
         )?;
+        let render_time_ms = render_started.elapsed().as_secs_f32() * 1000.0;
 
         // Return scratch buffers for reuse next frame.
         self.pcm_f32_buf = pcm_f32;
         self.frame_events.clear();
 
         let n_channels = self.renderer.num_speakers() as u32;
+
+        if want_metering {
+            let frame_duration_ms = sample_count as f32 / sample_rate as f32 * 1000.0;
+            let drc_gain = self.drc_gain;
+            if let Some(meter) = self.audio_meter.as_mut() {
+                meter.process_speakers(&rendered.samples, n_channels as usize);
+                if let Some(snapshot) = meter.poll() {
+                    if let Some(osc) = self.osc.as_ref() {
+                        // Latency/resample/adaptive args are output-stage specific
+                        // and absent in the embedded host → None.
+                        let _ = osc.send_meter_bundle(
+                            &snapshot,
+                            &rendered.object_gains,
+                            &rendered.object_band_gains,
+                            None,
+                            Some(rendered.crossover_time_ms),
+                            Some(render_time_ms),
+                            None,
+                            Some(frame_duration_ms),
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            Some(drc_gain),
+                        );
+                    }
+                }
+            }
+        }
+
         Ok(Some(RenderedAudio {
             samples: rendered.samples,
             n_channels,

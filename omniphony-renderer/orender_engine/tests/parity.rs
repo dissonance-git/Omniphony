@@ -86,3 +86,61 @@ fn renders_real_truehd_atmos_stream() {
     // it — verifying audible content needs a real (non-prefix) Atmos sample.
     let _ = peak;
 }
+
+/// Outgoing OSC: with a client as the broadcast target, the engine should emit
+/// at least one object-position frame while decoding the Atmos stream.
+#[test]
+fn osc_broadcasts_object_frames() {
+    let (Ok(bridge), Ok(sample)) = (
+        std::env::var("ORENDER_BRIDGE"),
+        std::env::var("ORENDER_SAMPLE"),
+    ) else {
+        eprintln!("skipping osc_broadcasts_object_frames: set ORENDER_BRIDGE and ORENDER_SAMPLE");
+        return;
+    };
+
+    let data = std::fs::read(&sample).expect("read sample file");
+
+    // A client socket that will receive the engine's OSC broadcasts.
+    let client = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind client socket");
+    client
+        .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+        .unwrap();
+    let port_out = client.local_addr().unwrap().port();
+
+    let mut engine =
+        Engine::from_paths(None, None, Path::new(&bridge), 48_000).expect("build engine");
+    engine
+        .enable_osc(orender_engine::OscOptions {
+            host: "127.0.0.1".to_string(),
+            port_out,
+            port_in: 0,
+        })
+        .expect("enable_osc");
+
+    // Object frames are sent synchronously during process_raw to the permanent
+    // target (our client), so they're buffered by the time we read.
+    for packet in data.chunks(4096) {
+        let _ = engine.process_raw(packet).expect("process_raw");
+    }
+
+    let needle = b"/omniphony/spatial/frame";
+    let mut buf = [0u8; 16384];
+    let mut found = false;
+    for _ in 0..512 {
+        match client.recv_from(&mut buf) {
+            Ok((n, _)) => {
+                if buf[..n].windows(needle.len()).any(|w| w == needle) {
+                    found = true;
+                    break;
+                }
+            }
+            Err(_) => break, // timeout: no more datagrams
+        }
+    }
+
+    assert!(
+        found,
+        "expected at least one /omniphony/spatial/frame OSC broadcast"
+    );
+}
