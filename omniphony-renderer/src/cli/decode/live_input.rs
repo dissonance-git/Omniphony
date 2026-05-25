@@ -2,7 +2,7 @@ use super::decoder_thread::DecoderMessage;
 #[cfg(target_os = "linux")]
 use super::decoder_thread::{DecodedAudioData, DecodedSource};
 #[cfg(target_os = "linux")]
-use crate::bridge_loader::install_bridge_host_log_sink;
+use orender_engine::bridge_loader::install_bridge_host_log_sink;
 use anyhow::Result;
 #[cfg(target_os = "linux")]
 use anyhow::anyhow;

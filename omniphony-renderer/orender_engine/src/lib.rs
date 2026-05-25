@@ -1,0 +1,14 @@
+//! Headless decode→render engine for the `orender` Atmos renderer.
+//!
+//! This crate hosts the host-agnostic decode→render session: load a format
+//! decoder bridge plugin, push raw packets through it, turn the decoded
+//! PCM + spatial metadata into VBAP-rendered multichannel PCM, and (optionally)
+//! expose OSC live control. It performs **no audio I/O** — no stdin input, no
+//! PipeWire/ASIO output, no adaptive resampling. Those stay in the host:
+//!
+//! - the `orender` CLI binary wraps this with stdin input + PipeWire/ASIO output,
+//! - `orender_ffi` (liborender.so) wraps it for the mpv integration, where mpv
+//!   owns audio output and A/V sync.
+
+pub mod bridge_loader;
+pub mod events;

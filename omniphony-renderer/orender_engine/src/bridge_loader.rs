@@ -30,7 +30,7 @@ impl LoadedBridge {
     }
 }
 
-pub(crate) fn install_bridge_host_log_sink(lib: &BridgeLibRef) {
+pub fn install_bridge_host_log_sink(lib: &BridgeLibRef) {
     let Some(set_host_log_sink) = lib.set_host_log_sink() else {
         return;
     };
@@ -53,6 +53,10 @@ extern "C" fn forward_bridge_log_to_host(level: RLogLevel, target: RStr<'_>, mes
 /// Search order:
 /// 1. `--bridge-path` / config-provided explicit file path
 /// 2. Any file matching `*_bridge.so` / `.dll` / `.dylib` next to the executable
+///
+/// Note: the exe-relative fallback (2) only makes sense when the host is the
+/// `orender` binary. Library hosts (e.g. mpv loading `liborender.so`) must pass
+/// an explicit path, because `current_exe()` would resolve to the host program.
 pub fn resolve_bridge_path(explicit: Option<&Path>) -> Result<PathBuf> {
     // 1. Explicit path from CLI/config
     if let Some(path) = explicit {

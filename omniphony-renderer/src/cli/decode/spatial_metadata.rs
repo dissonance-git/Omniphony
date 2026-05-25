@@ -1,5 +1,5 @@
 use super::state::SpatialState;
-use crate::events::{Configuration, Event};
+use orender_engine::events::{Configuration, Event};
 use crate::runtime_osc::{ObjectMeta, OscSender};
 use anyhow::Result;
 use bridge_api::{RCoordinateFormat, RMetadataFrame};
@@ -230,7 +230,7 @@ impl<'a> SpatialMetadataCoordinator<'a> {
                             .size()
                             .map(|s| [s[0] as f32, s[1] as f32, s[2] as f32]),
                         position: Self::event_pos_as_adm_cartesian(coordinate_format, event),
-                        sample_pos: event.sample_pos,
+                        sample_pos: event.sample_pos(),
                     });
             }
         }
