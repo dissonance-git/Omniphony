@@ -1,0 +1,245 @@
+//! The headless decode→render session.
+//!
+//! [`Engine`] owns a loaded decoder bridge plugin and a [`SpatialRenderer`], and
+//! turns raw compressed packets into VBAP-rendered interleaved multichannel PCM.
+//! It performs no audio I/O: the host (the `orender` CLI, or `liborender.so`
+//! inside mpv) feeds packets in and consumes rendered samples.
+
+use crate::bridge_loader::LoadedBridge;
+use crate::events::Configuration;
+use crate::{render, spatial};
+use anyhow::{Result, bail};
+use bridge_api::{RCoordinateFormat, RDecodedFrame, RInputTransport};
+use renderer::spatial_renderer::{SpatialChannelEvent, SpatialRenderer};
+
+/// One block of rendered, interleaved multichannel `f32` PCM.
+pub struct RenderedAudio {
+    /// Interleaved samples: `[s0c0, s0c1, …, s0c(N-1), s1c0, …]`, length
+    /// `n_frames * n_channels`.
+    pub samples: Vec<f32>,
+    /// Number of output channels (speakers).
+    pub n_channels: u32,
+    /// Number of sample frames in this block.
+    pub n_frames: usize,
+    /// Absolute decoded sample position at the start of this block, in input
+    /// samples (monotonic across the stream; reset by [`Engine::reset`]).
+    pub sample_pos: u64,
+}
+
+/// A decode→render session: bridge plugin + spatial renderer + per-stream state.
+pub struct Engine {
+    bridge: LoadedBridge,
+    renderer: SpatialRenderer,
+    sample_rate: u32,
+    coordinate_format: RCoordinateFormat,
+
+    // ── per-stream spatial state ──
+    bed_indices: Option<Vec<usize>>,
+    has_objects: bool,
+    loudness_applied: bool,
+    decoded_samples: u64,
+
+    // ── DRC gain ramp state (continues across frames) ──
+    drc_gain: f32,
+    drc_target_gain: f32,
+    drc_ramp_samples_remaining: u32,
+
+    // ── reusable scratch ──
+    frame_events: Vec<SpatialChannelEvent>,
+    pcm_f32_buf: Vec<f32>,
+}
+
+impl Engine {
+    /// Build a session around an already-loaded bridge and a constructed
+    /// renderer. The bridge must already be configured (presentation, DRC mode)
+    /// before the first [`process`](Self::process) call.
+    pub fn new(bridge: LoadedBridge, renderer: SpatialRenderer, sample_rate: u32) -> Self {
+        let coordinate_format = bridge.bridge.coordinate_format();
+        Self {
+            bridge,
+            renderer,
+            sample_rate,
+            coordinate_format,
+            bed_indices: None,
+            has_objects: false,
+            loudness_applied: false,
+            decoded_samples: 0,
+            drc_gain: 1.0,
+            drc_target_gain: 1.0,
+            drc_ramp_samples_remaining: 0,
+            frame_events: Vec::new(),
+            pcm_f32_buf: Vec::new(),
+        }
+    }
+
+    /// Number of output channels the renderer produces (speaker count).
+    pub fn channel_count(&self) -> u32 {
+        self.renderer.num_speakers() as u32
+    }
+
+    /// Whether the current presentation may carry spatial objects. Valid after
+    /// the bridge has been configured; drives the host's Atmos-vs-plain decision.
+    pub fn is_spatial(&self) -> bool {
+        self.bridge.bridge.is_spatial()
+    }
+
+    /// Input sample rate the session was created for.
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    /// Reset the session after a seek or stream discontinuity. Flushes the
+    /// bridge pipeline and the renderer's per-object/ramp state, and clears the
+    /// per-stream spatial state. Live parameters (gains, layout, OSC-applied
+    /// settings) are preserved — a seek must not lose live adjustments.
+    pub fn reset(&mut self) {
+        self.bridge.bridge.reset();
+        self.renderer.reset_runtime_state();
+        self.reset_segment_state();
+        self.decoded_samples = 0;
+        self.drc_gain = 1.0;
+        self.drc_target_gain = 1.0;
+        self.drc_ramp_samples_remaining = 0;
+    }
+
+    fn reset_segment_state(&mut self) {
+        self.has_objects = false;
+        self.bed_indices = None;
+        self.frame_events.clear();
+        self.loudness_applied = false;
+    }
+
+    /// Push one raw compressed packet and render any frames it produces.
+    ///
+    /// `transport`/`data_type` follow the bridge ABI: hosts that demux raw
+    /// access units (e.g. mpv) pass [`RInputTransport::Raw`] with `data_type` 0.
+    pub fn process(
+        &mut self,
+        data: &[u8],
+        transport: RInputTransport,
+        data_type: u8,
+    ) -> Result<Vec<RenderedAudio>> {
+        let result = self
+            .bridge
+            .bridge
+            .push_packet(data.into(), transport, data_type);
+
+        if !result.error_message.is_empty() {
+            bail!("bridge decode error: {}", result.error_message);
+        }
+        if result.did_reset {
+            // Sync-loss recovery inside the bridge: drop stale spatial state but
+            // keep live params and the absolute sample clock.
+            self.renderer.reset_runtime_state();
+            self.reset_segment_state();
+        }
+
+        let mut out = Vec::with_capacity(result.frames.len());
+        for frame in result.frames.iter() {
+            if let Some(chunk) = self.render_frame(frame)? {
+                out.push(chunk);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Convenience wrapper for hosts that always feed raw access units.
+    pub fn process_raw(&mut self, data: &[u8]) -> Result<Vec<RenderedAudio>> {
+        self.process(data, RInputTransport::Raw, 0)
+    }
+
+    fn render_frame(&mut self, frame: &RDecodedFrame) -> Result<Option<RenderedAudio>> {
+        let channel_count = frame.channel_count as usize;
+        let sample_count = frame.sample_count as usize;
+        let sample_pos_at_start = self.decoded_samples;
+
+        // Dialogue normalisation (from major-sync frames), applied once.
+        if !self.loudness_applied {
+            if let Some(dialogue_level) = frame.dialogue_level.into_option() {
+                self.renderer.set_loudness(dialogue_level);
+                self.loudness_applied = true;
+            }
+        }
+
+        // Spatial metadata → bed config + per-channel events.
+        for meta in frame.metadata.iter() {
+            self.has_objects = true;
+            if !meta.bed_indices.is_empty() {
+                let new_bed: Vec<usize> = meta.bed_indices.iter().copied().collect();
+                if self.bed_indices.as_ref() != Some(&new_bed) {
+                    self.bed_indices = Some(new_bed);
+                    self.renderer
+                        .configure_beds(self.bed_indices.as_deref().unwrap_or(&[]));
+                }
+            }
+            let conf = Configuration::from(meta);
+            let bed = self.bed_indices.as_deref().unwrap_or(&[]);
+            spatial::build_spatial_channel_events(
+                &conf,
+                self.coordinate_format,
+                bed,
+                &mut self.frame_events,
+            );
+        }
+
+        self.decoded_samples += sample_count as u64;
+
+        if !self.has_objects {
+            // TODO(virtual-bed): bed-only / pre-metadata frames need the virtual
+            // bed path (build_virtual_bed_events) to render channel beds through
+            // VBAP. Until that is ported, such frames produce no output. Atmos
+            // streams carry OAMD from the first major-sync frame, so the object
+            // path below covers the mpv use case.
+            self.frame_events.clear();
+            return Ok(None);
+        }
+
+        // DRC target from the stream gain, weighted by the live DRC weight.
+        let drc_weight = self
+            .renderer
+            .renderer_control()
+            .live
+            .read()
+            .unwrap()
+            .drc_weight
+            .clamp(0.0, 1.0);
+        self.drc_target_gain = if drc_weight >= 1.0 {
+            frame.drc_gain
+        } else if drc_weight <= 0.0 {
+            1.0
+        } else {
+            frame.drc_gain.powf(drc_weight)
+        };
+        self.drc_ramp_samples_remaining = frame.drc_ramp_duration;
+
+        let mut pcm_f32 = std::mem::take(&mut self.pcm_f32_buf);
+        render::fill_pcm_f32_drc(
+            &mut pcm_f32,
+            &frame.pcm,
+            channel_count,
+            &mut self.drc_gain,
+            self.drc_target_gain,
+            &mut self.drc_ramp_samples_remaining,
+        );
+
+        let rendered = self.renderer.render_frame(
+            &pcm_f32,
+            channel_count,
+            &self.frame_events,
+            Vec::new(),
+            false,
+        )?;
+
+        // Return scratch buffers for reuse next frame.
+        self.pcm_f32_buf = pcm_f32;
+        self.frame_events.clear();
+
+        let n_channels = self.renderer.num_speakers() as u32;
+        Ok(Some(RenderedAudio {
+            samples: rendered.samples,
+            n_channels,
+            n_frames: sample_count,
+            sample_pos: sample_pos_at_start,
+        }))
+    }
+}

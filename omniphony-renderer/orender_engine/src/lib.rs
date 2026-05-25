@@ -11,6 +11,9 @@
 //!   owns audio output and A/V sync.
 
 pub mod bridge_loader;
+pub mod engine;
 pub mod events;
 pub mod render;
 pub mod spatial;
+
+pub use engine::{Engine, RenderedAudio};
