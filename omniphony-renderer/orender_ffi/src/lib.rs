@@ -87,15 +87,31 @@ fn build_engine(cfg: &OrenderConfig) -> Result<Engine> {
         sample_rate,
     )?;
 
-    if cfg.osc_enabled != 0 {
+    // OSC: an explicit C override wins; otherwise it follows the shared config's
+    // `render.osc` (so the CLI + studio + mpv all enable OSC the same way).
+    // Host/ports likewise fall back C-override → config → CLI defaults.
+    let render_cfg = config_path
+        .as_deref()
+        .map(orender_engine::Config::load_or_default)
+        .and_then(|c| c.render);
+    let osc_on =
+        cfg.osc_enabled != 0 || render_cfg.as_ref().and_then(|c| c.osc).unwrap_or(false);
+    if osc_on {
         let host = unsafe { opt_str(cfg.osc_host) }
-            .unwrap_or("127.0.0.1")
-            .to_string();
-        engine.enable_osc(orender_engine::OscOptions {
-            host,
-            port_out: cfg.osc_port_out,
-            port_in: cfg.osc_port_in,
-        })?;
+            .map(str::to_string)
+            .or_else(|| render_cfg.as_ref().and_then(|c| c.osc_host.clone()))
+            .unwrap_or_else(|| "127.0.0.1".to_string());
+        let port_out = if cfg.osc_port_out != 0 {
+            cfg.osc_port_out
+        } else {
+            render_cfg.as_ref().and_then(|c| c.osc_port).unwrap_or(9000)
+        };
+        let port_in = if cfg.osc_port_in != 0 {
+            cfg.osc_port_in
+        } else {
+            render_cfg.as_ref().and_then(|c| c.osc_rx_port).unwrap_or(9000)
+        };
+        engine.enable_osc(orender_engine::OscOptions { host, port_out, port_in })?;
     }
 
     Ok(engine)
