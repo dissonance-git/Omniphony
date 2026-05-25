@@ -6,6 +6,7 @@ use anyhow::Result;
 use audio_input::InputControl;
 use bridge_api::RChannelLabel;
 use bridge_api::RDecodedFrame;
+use orender_engine::render::fill_pcm_f32_drc;
 use std::time::Instant;
 
 pub struct SampleWriteCoordinator<'a> {
@@ -578,43 +579,5 @@ impl<'a> SampleWriteCoordinator<'a> {
             writer.write_pcm_samples(&AudioSamples::I32(samples), conformed_channel_count)?;
         }
         Ok(())
-    }
-}
-
-#[inline]
-fn fill_pcm_f32_drc(
-    out: &mut Vec<f32>,
-    pcm: &[i32],
-    channel_count: usize,
-    current_gain: &mut f32,
-    target_gain: f32,
-    ramp_remaining: &mut u32,
-) {
-    const SCALE: f32 = 8_388_608.0;
-    out.clear();
-    out.reserve(pcm.len().saturating_sub(out.capacity()));
-
-    if channel_count == 0 {
-        return;
-    }
-    let sample_count = pcm.len() / channel_count;
-
-    for s in 0..sample_count {
-        let gain = if *ramp_remaining > 0 {
-            let step = (target_gain - *current_gain) / *ramp_remaining as f32;
-            *current_gain += step;
-            *ramp_remaining -= 1;
-            *current_gain
-        } else {
-            *current_gain = target_gain;
-            target_gain
-        };
-
-        let scaled_gain = gain / SCALE;
-
-        for c in 0..channel_count {
-            let val = pcm[s * channel_count + c];
-            out.push(val as f32 * scaled_gain);
-        }
     }
 }

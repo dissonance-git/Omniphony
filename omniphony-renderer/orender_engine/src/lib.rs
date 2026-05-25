@@ -12,3 +12,5 @@
 
 pub mod bridge_loader;
 pub mod events;
+pub mod render;
+pub mod spatial;
