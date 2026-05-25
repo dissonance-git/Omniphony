@@ -16,7 +16,7 @@ use anyhow::Result;
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int};
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::ptr;
 
 /// Opaque handle to a decode→render session. Created by [`orender_create`],
@@ -32,8 +32,9 @@ pub struct OrenderRenderer {
 pub struct OrenderConfig {
     /// Output/host sample rate in Hz. 0 → 48000.
     pub sample_rate: u32,
-    /// Path to the omniphony YAML config (drives the speaker layout + all render
-    /// params). NULL → built-in defaults.
+    /// Path to the omniphony YAML config (drives bridge path, speaker layout +
+    /// all render params). NULL → the shared default config used by the orender
+    /// CLI + studio (`~/.config/omniphony/config.yaml`).
     pub config_yaml_path: *const c_char,
     /// Optional speaker-layout YAML path overriding the config. NULL → use the
     /// config's embedded layout, else the 7.1.4 preset.
@@ -67,7 +68,11 @@ unsafe fn opt_str<'a>(p: *const c_char) -> Option<&'a str> {
 fn build_engine(cfg: &OrenderConfig) -> Result<Engine> {
     // Optional override; NULL → taken from the config YAML's render.bridge_path.
     let bridge_path = unsafe { opt_str(cfg.bridge_path) };
-    let config_path = unsafe { opt_str(cfg.config_yaml_path) };
+    // NULL config → the shared omniphony config (same as the CLI + studio:
+    // ~/.config/omniphony/config.yaml), so one config drives all hosts.
+    let config_path = unsafe { opt_str(cfg.config_yaml_path) }
+        .map(PathBuf::from)
+        .or_else(orender_engine::default_config_path);
     let layout_path = unsafe { opt_str(cfg.speaker_layout_path) };
     let sample_rate = if cfg.sample_rate == 0 {
         48_000
@@ -76,7 +81,7 @@ fn build_engine(cfg: &OrenderConfig) -> Result<Engine> {
     };
 
     let mut engine = Engine::from_paths(
-        config_path.map(Path::new),
+        config_path.as_deref(),
         layout_path.map(Path::new),
         bridge_path.map(Path::new),
         sample_rate,

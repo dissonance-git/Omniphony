@@ -26,8 +26,9 @@ typedef struct OrenderConfig {
    */
   uint32_t sample_rate;
   /**
-   * Path to the omniphony YAML config (drives the speaker layout + all render
-   * params). NULL → built-in defaults.
+   * Path to the omniphony YAML config (drives bridge path, speaker layout +
+   * all render params). NULL → the shared default config used by the orender
+   * CLI + studio (`~/.config/omniphony/config.yaml`).
    */
   const char *config_yaml_path;
   /**

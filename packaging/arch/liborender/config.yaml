@@ -1,8 +1,0 @@
-# Default orender configuration, installed to /etc/orender/config.yaml.
-#
-# The embedded host (mpv's ad_orender) reads this for the decoder bridge path
-# and, optionally, the speaker layout. Without an explicit layout, liborender
-# uses its 7.1.4 preset. Edit to point at your own layout / render params.
-render:
-  bridge_path: /usr/lib/orender/truehd_bridge.so
-  # current_layout: ...   # optional; omit for the 7.1.4 preset
