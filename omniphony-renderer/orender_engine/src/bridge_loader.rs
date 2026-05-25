@@ -1,7 +1,10 @@
 use abi_stable::library::RootModule;
 use abi_stable::std_types::RStr;
 use anyhow::{Context, Result, bail};
-use bridge_api::{BridgeHostLogSink, BridgeLibRef, FormatBridgeBox, RLogLevel};
+use bridge_api::{
+    BridgeHostLogSink, BridgeLibRef, FormatBridgeBox, RLogLevel, RVbapCartesianDefaults,
+    RVbapTableMode,
+};
 use std::path::{Path, PathBuf};
 
 /// Loaded bridge library + live bridge instance.
@@ -27,6 +30,21 @@ impl LoadedBridge {
         let new_bridge = lib.new_bridge();
         let bridge = new_bridge(strict);
         Ok(Self { lib, bridge })
+    }
+
+    /// Set a bridge configuration option. Must be called before the first packet.
+    pub fn configure(&mut self, key: &str, value: &str) -> bool {
+        self.bridge.configure(key.into(), value.into())
+    }
+
+    /// Default Cartesian VBAP grid dimensions suggested by the bridge.
+    pub fn vbap_cartesian_defaults(&self) -> RVbapCartesianDefaults {
+        self.bridge.vbap_cartesian_defaults()
+    }
+
+    /// Preferred VBAP table mode suggested by the bridge.
+    pub fn preferred_vbap_table_mode(&self) -> RVbapTableMode {
+        self.bridge.preferred_vbap_table_mode()
     }
 }
 
