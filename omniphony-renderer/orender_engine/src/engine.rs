@@ -9,9 +9,9 @@ use crate::bridge_loader::LoadedBridge;
 use crate::events::Configuration;
 use crate::osc::OscSender;
 use crate::renderer_build::{SpatialRendererParams, build_spatial_renderer};
-use crate::{render, spatial};
+use crate::{render, spatial, virtual_bed};
 use anyhow::{Result, anyhow, bail};
-use bridge_api::{RCoordinateFormat, RDecodedFrame, RInputTransport};
+use bridge_api::{RChannelLabel, RCoordinateFormat, RDecodedFrame, RInputTransport};
 use renderer::config::Config;
 use renderer::metering::AudioMeter;
 use renderer::speaker_layout::SpeakerLayout;
@@ -320,14 +320,62 @@ impl Engine {
 
         self.decoded_samples += sample_count as u64;
 
+        // Bed-only / pre-metadata frames carry no OAMD objects: fall back to the
+        // virtual-bed path so each input channel renders through VBAP at its
+        // speaker pose (matches the CLI's file-decode behaviour). The embedded
+        // host has no live input device, so there is no input layout to bias the
+        // poses (`None`), exactly as in the CLI's file-decode path.
         if !self.has_objects {
-            // TODO(virtual-bed): bed-only / pre-metadata frames need the virtual
-            // bed path (build_virtual_bed_events) to render channel beds through
-            // VBAP. Until that is ported, such frames produce no output. Atmos
-            // streams carry OAMD from the first major-sync frame, so the object
-            // path below covers the mpv use case.
-            self.frame_events.clear();
-            return Ok(None);
+            let labels: Vec<RChannelLabel> = frame.channel_labels.iter().copied().collect();
+            let (room_ratio, room_ratio_rear, room_ratio_lower, room_ratio_center_blend) = {
+                let control = self.renderer.renderer_control();
+                let live = control.live.read().unwrap();
+                (
+                    live.room_ratio,
+                    live.room_ratio_rear,
+                    live.room_ratio_lower,
+                    live.room_ratio_center_blend,
+                )
+            };
+
+            match virtual_bed::build_virtual_bed_events(
+                &labels,
+                None,
+                room_ratio,
+                room_ratio_rear,
+                room_ratio_lower,
+                room_ratio_center_blend,
+            ) {
+                Some(events) => self.frame_events = events,
+                None => {
+                    // No virtual-bed VBAP map for these labels → emit silence so
+                    // the host still advances by the frame's sample count.
+                    self.frame_events.clear();
+                    let n_channels = self.renderer.num_speakers() as u32;
+                    return Ok(Some(RenderedAudio {
+                        samples: vec![0.0; sample_count * n_channels as usize],
+                        n_channels,
+                        n_frames: sample_count,
+                        sample_pos: sample_pos_at_start,
+                    }));
+                }
+            }
+
+            // Outgoing: broadcast the virtual-bed channel poses as OSC objects.
+            if want_osc {
+                if let Some(objects) = virtual_bed::build_virtual_bed_objects(
+                    &labels,
+                    None,
+                    room_ratio,
+                    room_ratio_rear,
+                    room_ratio_lower,
+                    room_ratio_center_blend,
+                ) {
+                    if let Some(osc) = self.osc.as_mut() {
+                        let _ = osc.send_object_frame(sample_pos_at_start, 0, 0, &objects);
+                    }
+                }
+            }
         }
 
         // DRC target from the stream gain, weighted by the live DRC weight.

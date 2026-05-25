@@ -1,12 +1,12 @@
 use super::handler::{BedChannelMapper, ChannelCountCalculator};
 use super::output::AudioSamples;
 use super::state::{DecodeSessionState, OutputState, SpatialState, TelemetryState};
-use super::virtual_bed::{build_virtual_bed_events, build_virtual_bed_objects};
 use anyhow::Result;
 use audio_input::InputControl;
 use bridge_api::RChannelLabel;
 use bridge_api::RDecodedFrame;
 use orender_engine::render::fill_pcm_f32_drc;
+use orender_engine::virtual_bed::{build_virtual_bed_events, build_virtual_bed_objects};
 use std::time::Instant;
 
 pub struct SampleWriteCoordinator<'a> {

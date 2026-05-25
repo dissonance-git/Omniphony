@@ -17,6 +17,8 @@ pub mod osc;
 pub mod render;
 pub mod renderer_build;
 pub mod spatial;
+pub mod virtual_bed;
 
 pub use engine::{Engine, OscOptions, RenderedAudio};
 pub use osc::{ObjectMeta, OscSender};
+pub use virtual_bed::{build_virtual_bed_events, build_virtual_bed_objects};

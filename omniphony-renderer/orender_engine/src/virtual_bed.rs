@@ -1,4 +1,12 @@
-use orender_engine::osc::ObjectMeta;
+//! Virtual-bed rendering for bed-only / pre-metadata frames.
+//!
+//! When a stream carries no OAMD objects (a plain multichannel TrueHD bed, or
+//! the frames before the first major-sync OAMD payload), each input channel is
+//! turned into a fixed-position "virtual object" placed at its speaker pose, so
+//! the bed still renders through VBAP instead of being dropped. Shared by the
+//! `orender` CLI and the embedded engine for identical behaviour.
+
+use crate::osc::ObjectMeta;
 use bridge_api::RChannelLabel;
 use renderer::speaker_layout::SpeakerLayout;
 use std::path::{Path, PathBuf};
@@ -108,11 +116,16 @@ fn virtual_bed_layouts() -> &'static VirtualBedLayouts {
 
 fn load_virtual_bed_layout(file_name: &str) -> Option<SpeakerLayout> {
     let mut candidates: Vec<PathBuf> = vec![
+        // cwd-relative first — matches the CLI run from the workspace root.
         PathBuf::from("layouts").join(file_name),
         PathBuf::from("omniphony").join("layouts").join(file_name),
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("layouts")
             .join(file_name),
+        // Fixed install dirs for the embedded host (mpv has no workspace cwd);
+        // reached only when the cwd-relative lookups miss, so CLI parity holds.
+        PathBuf::from("/usr/lib/orender/layouts").join(file_name),
+        PathBuf::from("/usr/share/orender/layouts").join(file_name),
     ];
     candidates.dedup();
 
@@ -363,5 +376,62 @@ pub fn build_virtual_bed_objects(
         None
     } else {
         Some(objects)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const UNIT_ROOM: [f32; 3] = [1.0, 1.0, 1.0];
+
+    #[test]
+    fn maps_a_5_1_bed_with_fallback_poses() {
+        // No input layout → resolves via bundled layouts or built-in fallbacks.
+        let labels = [
+            RChannelLabel::L,
+            RChannelLabel::R,
+            RChannelLabel::C,
+            RChannelLabel::LFE,
+            RChannelLabel::Ls,
+            RChannelLabel::Rs,
+        ];
+        let events = build_virtual_bed_events(&labels, None, UNIT_ROOM, 1.0, 1.0, 0.0)
+            .expect("5.1 bed must map to virtual events");
+        assert_eq!(events.len(), labels.len());
+        for (i, ev) in events.iter().enumerate() {
+            assert_eq!(ev.channel_idx, i);
+            assert!(!ev.is_bed);
+            let pos = ev.position.expect("virtual event carries a position");
+            assert!(
+                pos.iter().all(|c| c.is_finite() && (-1.0..=1.0).contains(c)),
+                "position {pos:?} must be finite and within the unit room"
+            );
+        }
+    }
+
+    #[test]
+    fn left_and_right_beds_are_mirrored() {
+        let labels = [RChannelLabel::L, RChannelLabel::R];
+        let events = build_virtual_bed_events(&labels, None, UNIT_ROOM, 1.0, 1.0, 0.0).unwrap();
+        let l = events[0].position.unwrap();
+        let r = events[1].position.unwrap();
+        // L sits on the negative-x side, R on the positive-x side.
+        assert!(l[0] < 0.0, "L x={} should be negative", l[0]);
+        assert!(r[0] > 0.0, "R x={} should be positive", r[0]);
+    }
+
+    #[test]
+    fn objects_match_events_for_the_same_bed() {
+        let labels = [RChannelLabel::L, RChannelLabel::R, RChannelLabel::C];
+        let events = build_virtual_bed_events(&labels, None, UNIT_ROOM, 1.0, 1.0, 0.0).unwrap();
+        let objects = build_virtual_bed_objects(&labels, None, UNIT_ROOM, 1.0, 1.0, 0.0).unwrap();
+        assert_eq!(events.len(), objects.len());
+        for (ev, obj) in events.iter().zip(objects.iter()) {
+            let pos = ev.position.unwrap();
+            assert!((pos[0] - obj.x as f64).abs() < 1e-6);
+            assert!((pos[1] - obj.y as f64).abs() < 1e-6);
+            assert!((pos[2] - obj.z as f64).abs() < 1e-6);
+        }
     }
 }
