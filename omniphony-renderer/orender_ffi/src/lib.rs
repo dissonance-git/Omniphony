@@ -74,16 +74,25 @@ fn build_engine(cfg: &OrenderConfig) -> Result<Engine> {
         cfg.sample_rate
     };
 
-    if cfg.osc_enabled != 0 {
-        eprintln!("orender: OSC requested but not yet wired into the FFI (TODO)");
-    }
-
-    Engine::from_paths(
+    let mut engine = Engine::from_paths(
         config_path.map(Path::new),
         layout_path.map(Path::new),
         Path::new(bridge_path),
         sample_rate,
-    )
+    )?;
+
+    if cfg.osc_enabled != 0 {
+        let host = unsafe { opt_str(cfg.osc_host) }
+            .unwrap_or("127.0.0.1")
+            .to_string();
+        engine.enable_osc(orender_engine::OscOptions {
+            host,
+            port_out: cfg.osc_port_out,
+            port_in: cfg.osc_port_in,
+        })?;
+    }
+
+    Ok(engine)
 }
 
 /// Create a session. Returns NULL on failure (bad config, missing bridge, etc.).

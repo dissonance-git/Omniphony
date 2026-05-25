@@ -32,6 +32,16 @@ fn renders_real_truehd_atmos_stream() {
     let mut engine =
         Engine::from_paths(None, None, Path::new(&bridge), 48_000).expect("build engine");
 
+    // Smoke the OSC live-control wiring: the listener binds (ephemeral port) and
+    // attaches the renderer control without error. No client interaction here.
+    engine
+        .enable_osc(orender_engine::OscOptions {
+            host: "127.0.0.1".to_string(),
+            port_out: 9000,
+            port_in: 0,
+        })
+        .expect("enable_osc should start the OSC listener");
+
     let channels = engine.channel_count();
     let spatial_before = engine.is_spatial();
 

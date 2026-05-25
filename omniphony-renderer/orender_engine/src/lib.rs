@@ -18,5 +18,5 @@ pub mod render;
 pub mod renderer_build;
 pub mod spatial;
 
-pub use engine::{Engine, RenderedAudio};
+pub use engine::{Engine, OscOptions, RenderedAudio};
 pub use osc::{ObjectMeta, OscSender};

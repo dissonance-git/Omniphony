@@ -7,14 +7,25 @@
 
 use crate::bridge_loader::LoadedBridge;
 use crate::events::Configuration;
+use crate::osc::OscSender;
 use crate::renderer_build::{SpatialRendererParams, build_spatial_renderer};
 use crate::{render, spatial};
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use bridge_api::{RCoordinateFormat, RDecodedFrame, RInputTransport};
 use renderer::config::Config;
 use renderer::speaker_layout::SpeakerLayout;
 use renderer::spatial_renderer::{SpatialChannelEvent, SpatialRenderer};
 use std::path::Path;
+
+/// Options for the engine's OSC live-control server.
+pub struct OscOptions {
+    /// Monitoring target host (where outgoing VU/state bundles are sent).
+    pub host: String,
+    /// Monitoring target port.
+    pub port_out: u16,
+    /// Registration/listener port for incoming control; 0 = OS-assigned (logged).
+    pub port_in: u16,
+}
 
 /// One block of rendered, interleaved multichannel `f32` PCM.
 pub struct RenderedAudio {
@@ -51,6 +62,10 @@ pub struct Engine {
     // ── reusable scratch ──
     frame_events: Vec<SpatialChannelEvent>,
     pcm_f32_buf: Vec<f32>,
+
+    /// Optional OSC live-control server (kept alive here; its Drop stops the
+    /// listener thread when the engine is dropped).
+    osc: Option<OscSender>,
 }
 
 impl Engine {
@@ -73,7 +88,29 @@ impl Engine {
             drc_ramp_samples_remaining: 0,
             frame_events: Vec::new(),
             pcm_f32_buf: Vec::new(),
+            osc: None,
         }
+    }
+
+    /// Start the OSC live-control server, attaching the renderer control so
+    /// incoming `/omniphony/control/*` messages adjust live params (gains, room,
+    /// spread, …) — picked up by the next `render_frame` — and registered
+    /// clients receive the live-state bundle.
+    ///
+    /// The embedded host has no audio/input controls, so those OSC domains stay
+    /// inactive (studio hides the matching panels via the capabilities
+    /// handshake). The server is owned by the engine and shut down on drop.
+    pub fn enable_osc(&mut self, opts: OscOptions) -> Result<()> {
+        use std::net::SocketAddrV4;
+        use std::str::FromStr;
+
+        let target = SocketAddrV4::from_str(&format!("{}:{}", opts.host, opts.port_out))
+            .map_err(|e| anyhow!("invalid OSC target {}:{}: {e}", opts.host, opts.port_out))?;
+        let mut sender = OscSender::new(target)?;
+        sender.attach_renderer_control(self.renderer.renderer_control());
+        sender.start_listener(opts.port_in)?;
+        self.osc = Some(sender);
+        Ok(())
     }
 
     /// Build a session from file paths: load the omniphony YAML config (if any),
