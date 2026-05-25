@@ -1,6 +1,6 @@
 use super::handler::DecodeHandler;
 use crate::cli::command::{EvaluationModeArg, OutputBackend, RenderArgs};
-use crate::runtime_osc::OscSender;
+use orender_engine::osc::OscSender;
 use anyhow::Result;
 use audio_input::{
     InputBackend, InputClockMode, InputControl, InputLfeMode, InputMapMode, InputMode,

@@ -1,6 +1,6 @@
 use super::output::AudioWriter;
 use crate::cli::command::OutputBackend;
-use crate::runtime_osc::OscSender;
+use orender_engine::osc::OscSender;
 use audio_output::AdaptiveResamplingConfig;
 #[cfg(target_os = "linux")]
 use audio_output::pipewire::PipewireBufferConfig;

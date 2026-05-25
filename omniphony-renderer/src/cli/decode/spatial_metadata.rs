@@ -1,6 +1,6 @@
 use super::state::SpatialState;
 use orender_engine::events::{Configuration, Event};
-use crate::runtime_osc::{ObjectMeta, OscSender};
+use orender_engine::osc::{ObjectMeta, OscSender};
 use anyhow::Result;
 use bridge_api::{RCoordinateFormat, RMetadataFrame};
 

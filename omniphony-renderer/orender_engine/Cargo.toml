@@ -11,6 +11,13 @@ renderer = { version = "0.2.4", path = "../renderer" }
 bridge_api = { version = "0.2.0", path = "../bridge_api" }
 runtime_control = { version = "0.2.4", path = "../runtime_control" }
 sys = { version = "0.1.0", path = "../sys" }
+# audio_output/audio_input are already in the graph via runtime_control; named
+# here for the OSC layer (AudioControl/InputControl are optional and unused by
+# the embedded host). TODO: feature-gate these so liborender can drop PipeWire.
+audio_output = { version = "0.2.4", path = "../audio_output" }
+audio_input = { version = "0.2.4", path = "../audio_input" }
 abi_stable = "0.11"
 anyhow = "1.0"
 log = "0.4"
+rosc = "0.10"
+serde_json = "1.0"

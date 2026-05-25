@@ -1,4 +1,4 @@
-use crate::runtime_osc::ObjectMeta;
+use orender_engine::osc::ObjectMeta;
 use bridge_api::RChannelLabel;
 use renderer::speaker_layout::SpeakerLayout;
 use std::path::{Path, PathBuf};

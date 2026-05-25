@@ -13,8 +13,10 @@
 pub mod bridge_loader;
 pub mod engine;
 pub mod events;
+pub mod osc;
 pub mod render;
 pub mod renderer_build;
 pub mod spatial;
 
 pub use engine::{Engine, RenderedAudio};
+pub use osc::{ObjectMeta, OscSender};
