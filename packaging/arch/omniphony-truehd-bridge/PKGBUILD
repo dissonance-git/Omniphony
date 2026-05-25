@@ -1,40 +1,53 @@
 # Maintainer: Mathieu Grenet <mathieu@mgth.fr>
 #
-# omniphony-truehd-bridge — the TrueHD/Atmos decoder plugin (harletty-bridge)
-# loaded at runtime by liborender. It matches the `*_bridge.so` plugin pattern
-# and is installed into the fixed libdir the embedded host uses by default:
+# omniphony-truehd-bridge — the TrueHD/E-AC3 (Atmos/JOC) decoder plugin
+# (harletty-bridge) loaded at runtime by liborender via dlopen. Installed into
+# the fixed libdir the embedded host uses by default:
 #
 #     /usr/lib/orender/truehd_bridge.so
 #
 # Point mpv at it with `--ad-orender-bridge-path=/usr/lib/orender/truehd_bridge.so`
-# (this is the intended default in the mpv-orender integration).
+# (the intended default in the mpv-orender integration).
 #
-# This is a LOCAL/dev PKGBUILD: it builds from a sibling `harletty-bridge`
-# checkout. Override the location with `BRIDGE_SRC=/path/to/harletty-bridge`,
-# or switch to a versioned git `source=()` for a release package.
+# harletty-bridge builds against a few crates from the Omniphony workspace via
+# path deps (bridge_api/spdif/sys), so the matching liborender release source is
+# fetched alongside and exposed under the sibling name its Cargo.toml expects.
 
 pkgname=omniphony-truehd-bridge
-pkgver=0.5.0
+pkgver=0.6.0
 pkgrel=1
-pkgdesc="TrueHD/Atmos decoder bridge plugin (harletty-bridge) for liborender"
+pkgdesc="TrueHD/E-AC3 (Atmos/JOC) decoder bridge plugin (harletty-bridge) for liborender"
 arch=('x86_64')
 url="https://github.com/mgth/harletty-bridge"
 license=('Apache-2.0')
 depends=('gcc-libs')
 makedepends=('rust' 'cargo')
-source=()
-sha256sums=()
 
-# Sibling harletty-bridge checkout relative to this PKGBUILD, overridable.
-_bridge_src="${BRIDGE_SRC:-$startdir/../../../../harletty-bridge}"
+# Omniphony tag providing the workspace path-deps (bridge_api/spdif/sys).
+_omniver=0.1.0
+
+source=("harletty-bridge-$pkgver.tar.gz::https://github.com/harletty/harletty-bridge/archive/refs/tags/v$pkgver.tar.gz"
+        "omniphony-$_omniver.tar.gz::https://github.com/mgth/Omniphony/archive/refs/tags/liborender-v$_omniver.tar.gz")
+sha256sums=('d0d54e0f069d9a1a746e4336ac94fb7c8722e8091879ed098d1573703ad52dff'
+            'db67066271e0011c0381536d66574051cc017fbaf44607c710a6b257f2dcdfc4')
+
+_bridge="harletty-bridge-$pkgver"
+
+prepare() {
+    # harletty-bridge/Cargo.toml references ../Omniphony/omniphony-renderer/*;
+    # expose the extracted Omniphony source under that sibling name.
+    ln -sfn "Omniphony-liborender-v$_omniver" "$srcdir/Omniphony"
+}
 
 build() {
-    cd "$_bridge_src"
+    cd "$srcdir/$_bridge"
+    # Keep $srcdir out of the binary (panic-location paths) for reproducibility.
+    export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$srcdir=src"
     cargo build --release -p harletty-bridge
 }
 
 package() {
-    cd "$_bridge_src"
+    cd "$srcdir/$_bridge"
 
     # Install under the *_bridge.so name in the fixed orender libdir so the
     # plugin loader's filename pattern matches and the path is predictable.

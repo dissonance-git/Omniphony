@@ -34,27 +34,38 @@ mpv --ad=orender \
     --ad-orender-config=/path/to/omniphony.yaml  film.atmos.mkv
 ```
 
-## Building (local/dev)
+## Building
 
-These are **local/dev** PKGBUILDs: they build in place from the checkouts on
-disk (no network `source=()`), so build them where the sibling repos live:
+These fetch pinned release tarballs — no checkout layout needed:
 
-```
-spatial-renderer/
-├── Omniphony/         # this repo (PKGBUILDs under packaging/arch/)
-└── harletty-bridge/   # the decoder bridge (sibling)
-```
+- `omniphony-truehd-bridge` 0.6.0 ← harletty-bridge `v0.6.0`, plus the matching
+  Omniphony `liborender-v0.1.0` source for its workspace path-deps
+  (`bridge_api`/`spdif`/`sys`).
+- `liborender` 0.1.0 ← Omniphony `liborender-v0.1.0`.
+
+Build the bridge first (`liborender` depends on it):
 
 ```sh
-cd Omniphony/packaging/arch/omniphony-truehd-bridge && makepkg -f
-cd ../liborender                                     && makepkg -fd   # -d: bridge dep not installed yet
+cd omniphony-truehd-bridge && makepkg -si
+cd ../liborender           && makepkg -si
 ```
 
-Override the bridge source location with `BRIDGE_SRC=/path/to/harletty-bridge`.
+Then the mpv package from the separate `mpv-orender` repo (depends on
+`liborender>=0.1`).
 
-For a **release** package, replace the in-place build with a versioned git or
-tarball `source=()` plus real `sha256sums`, and drop the `-d`/`BRIDGE_SRC`
-shortcuts.
+**Bumping a release:** retag the source repo(s), then refresh the version vars
+(`pkgver`, and `_omniver` in the bridge) and `sha256sums` (`updpkgsums` or
+`makepkg -g`).
+
+### Clean-room build
+
+Both build cleanly from the fetched tarballs (validated with `makepkg`, no
+`$srcdir` leakage thanks to `--remap-path-prefix`). For a fully isolated build
+before publishing, use a chroot (bridge first):
+
+```sh
+makechrootpkg -c -r "$CHROOT"   # run in each package dir
+```
 
 ## Verify
 
