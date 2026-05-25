@@ -1524,21 +1524,9 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
-    // metering/rate_hz is handled by the OSC layer (orender_engine::osc::dispatch)
-    // against its own meter-rate atomic — the single source for CLI + engine.
-
-    if addr == "/omniphony/control/diag/rate_hz" {
-        if let (Some(audio), Some(hz)) = (ctx.audio.as_ref(), parse_positive_f32_arg(msg.args.first()))
-        {
-            audio.set_diag_publish_rate_hz(hz);
-            log::info!(
-                "OSC diag publication rate set to {:.1} Hz",
-                audio.diag_publish_rate_hz()
-            );
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
+    // metering/rate_hz and diag/rate_hz are handled by the OSC layer
+    // (orender_engine::osc::dispatch) against RendererControl — the single
+    // source of truth for both, persisted to config.
 
     if addr == "/omniphony/control/render_backend" {
         let requested = parse_string_arg(msg.args.first())

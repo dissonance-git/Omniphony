@@ -316,9 +316,6 @@ fn init_osc_runtime(
         match OscSender::new(osc_addr) {
             Ok(sender) => {
                 log::info!("OSC output enabled: {}:{}", args.osc_host, args.osc_port);
-                // Studio default meter cadence; live-adjustable via
-                // /omniphony/control/metering/rate_hz.
-                sender.set_meter_rate_hz(50.0);
                 handler.telemetry.osc_sender = Some(sender);
             }
             Err(e) => {
@@ -357,6 +354,11 @@ fn init_osc_runtime(
             .unwrap_or(1.0)
             .clamp(0.0, 1.0);
         ctrl.live.write().unwrap().drc_weight = drc_weight;
+
+        // Monitoring cadences: seed RendererControl from config (CLI default
+        // 50 Hz). Renderer is the source of truth — OSC-adjustable + persisted.
+        ctrl.set_meter_rate_hz(render_cfg.as_ref().and_then(|cfg| cfg.meter_rate).unwrap_or(50.0));
+        ctrl.set_diag_rate_hz(render_cfg.as_ref().and_then(|cfg| cfg.diag_rate).unwrap_or(50.0));
 
         ctrl.set_requested_ramp_mode(args.ramp_mode.into());
         ctrl.live.write().unwrap().ramp_mode = args.ramp_mode.into();
@@ -432,21 +434,16 @@ fn init_osc_runtime(
     if needs_telemetry {
         if let Some(renderer) = &handler.spatial_renderer {
             let num_speakers = renderer.num_speakers();
-            let audio_ctrl = handler.audio_control.as_ref();
-            // Meter cadence comes from the OSC layer's atomic (single source
-            // shared with the embedded engine); diag cadence stays on
-            // AudioControl (output-stage concern).
-            let meter_rate_atomic = handler
-                .telemetry
-                .osc_sender
-                .as_ref()
-                .map(|sender| sender.meter_rate_atomic());
-            handler.telemetry.audio_meter = Some(match meter_rate_atomic {
-                Some(atomic) => AudioMeter::new_with_rate_atomic(num_speakers, atomic),
-                None => AudioMeter::new(num_speakers, 50.0),
-            });
-            handler.telemetry.diag_cadence = audio_ctrl
-                .map(|ctrl| super::state::DiagPublishCadence::new(ctrl.diag_publish_rate_atomic()));
+            // Both monitoring cadences come from RendererControl (source of
+            // truth, OSC-adjustable, persisted to config).
+            let control = renderer.renderer_control();
+            handler.telemetry.audio_meter = Some(AudioMeter::new_with_rate_atomic(
+                num_speakers,
+                control.meter_rate_atomic(),
+            ));
+            handler.telemetry.diag_cadence = Some(super::state::DiagPublishCadence::new(
+                control.diag_rate_atomic(),
+            ));
             log::info!(
                 "OSC metering available per client ({} speakers, default 50 Hz, adjustable via /omniphony/control/metering/rate_hz; diag publication via /omniphony/control/diag/rate_hz)",
                 num_speakers

@@ -1,13 +1,8 @@
 use crate::AdaptiveResamplingConfig;
-use std::sync::Arc;
 use std::sync::{
     Mutex,
-    atomic::{AtomicBool, AtomicU32, Ordering},
+    atomic::{AtomicBool, Ordering},
 };
-
-/// Default diag-publication rate. Independent of the audio-meter rate so the
-/// diag plot can be sampled faster (or slower) than the level meters.
-pub const DEFAULT_DIAG_RATE_HZ: f32 = 50.0;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct OutputDeviceOption {
@@ -50,9 +45,6 @@ pub struct AudioControl {
     available_output_devices: Mutex<Vec<OutputDeviceOption>>,
     device_list_fetcher: Mutex<Option<Box<dyn Fn() -> Vec<OutputDeviceOption> + Send + Sync>>>,
     reset_ratio_pending: AtomicBool,
-    /// Diag-publication rate in Hz, stored as `f32::to_bits`. Drives the
-    /// decoder-side diag publisher (output_*, latency_*, bridge_*).
-    diag_publish_rate_hz_bits: Arc<AtomicU32>,
 }
 
 impl Default for AudioControl {
@@ -69,29 +61,7 @@ impl AudioControl {
             available_output_devices: Mutex::new(Vec::new()),
             device_list_fetcher: Mutex::new(None),
             reset_ratio_pending: AtomicBool::new(false),
-            diag_publish_rate_hz_bits: Arc::new(AtomicU32::new(
-                DEFAULT_DIAG_RATE_HZ.to_bits(),
-            )),
         }
-    }
-
-    /// Shared atomic holding the diag-publication rate (Hz, encoded as
-    /// `f32::to_bits`). The decoder-side diag publisher clones this and
-    /// recomputes its interval whenever the value changes.
-    pub fn diag_publish_rate_atomic(&self) -> Arc<AtomicU32> {
-        Arc::clone(&self.diag_publish_rate_hz_bits)
-    }
-
-    pub fn diag_publish_rate_hz(&self) -> f32 {
-        f32::from_bits(self.diag_publish_rate_hz_bits.load(Ordering::Relaxed))
-    }
-
-    /// Update the diag-publication rate, with the same `[1, 1000]` clamp
-    /// as `set_meter_rate_hz` for the same reasons.
-    pub fn set_diag_publish_rate_hz(&self, hz: f32) {
-        let clamped = hz.clamp(1.0, 1000.0);
-        self.diag_publish_rate_hz_bits
-            .store(clamped.to_bits(), Ordering::Relaxed);
     }
 
     pub fn requested_snapshot(&self) -> RequestedAudioOutputConfig {

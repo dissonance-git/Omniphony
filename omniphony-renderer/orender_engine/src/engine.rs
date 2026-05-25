@@ -117,11 +117,11 @@ impl Engine {
         let mut sender = OscSender::new(target)?;
         sender.attach_renderer_control(self.renderer.renderer_control());
         sender.start_listener(opts.port_in)?;
-        // Meter cadence reads the OSC-owned atomic each poll, so clients can
-        // change it live via /omniphony/control/metering/rate_hz (default 10 Hz).
+        // Meter cadence reads the RendererControl atomic each poll (source of
+        // truth, OSC-adjustable, persisted).
         self.audio_meter = Some(AudioMeter::new_with_rate_atomic(
             self.renderer.num_speakers(),
-            sender.meter_rate_atomic(),
+            self.renderer.renderer_control().meter_rate_atomic(),
         ));
         self.osc = Some(sender);
         Ok(())
@@ -165,6 +165,12 @@ impl Engine {
             preferred,
             render_cfg.as_ref(),
         )?;
+
+        // Seed monitoring cadences from config (renderer is the source of
+        // truth); embedded default is 10 Hz.
+        let control = renderer.renderer_control();
+        control.set_meter_rate_hz(render_cfg.as_ref().and_then(|c| c.meter_rate).unwrap_or(10.0));
+        control.set_diag_rate_hz(render_cfg.as_ref().and_then(|c| c.diag_rate).unwrap_or(10.0));
 
         Ok(Self::new(bridge, renderer, sample_rate))
     }

@@ -173,6 +173,10 @@ pub fn save_live_config(
     } else {
         None
     };
+    // Monitoring cadences: the renderer is the source of truth, so always
+    // persist the current values (read lock-free from RendererControl).
+    render.meter_rate = Some(round6(control.meter_rate_hz()));
+    render.diag_rate = Some(round6(control.diag_rate_hz()));
     render.distance_diffuse = if live.use_distance_diffuse {
         Some(true)
     } else {

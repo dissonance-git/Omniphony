@@ -545,6 +545,14 @@ pub struct RendererControl {
     pub bridge_supported_drc_modes: Mutex<Vec<String>>,
     /// Requested ramp mode from OSC control.
     pub requested_ramp_mode: Mutex<RampMode>,
+
+    /// OSC meter cadence in Hz (`f32::to_bits`). Read lock-free by `AudioMeter`
+    /// each poll; OSC-adjustable and persisted to config. The renderer is the
+    /// source of truth (not the studio client).
+    pub meter_rate_hz_bits: Arc<std::sync::atomic::AtomicU32>,
+    /// OSC diag-publication cadence in Hz (`f32::to_bits`). Read lock-free by
+    /// the diag publisher; OSC-adjustable and persisted to config.
+    pub diag_rate_hz_bits: Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl RendererControl {
@@ -574,7 +582,37 @@ impl RendererControl {
             bridge_path: Mutex::new(None),
             bridge_supported_drc_modes: Mutex::new(Vec::new()),
             requested_ramp_mode: Mutex::new(RampMode::Frame),
+            // Seeded from config (or a host default) after construction.
+            meter_rate_hz_bits: Arc::new(std::sync::atomic::AtomicU32::new(50.0_f32.to_bits())),
+            diag_rate_hz_bits: Arc::new(std::sync::atomic::AtomicU32::new(50.0_f32.to_bits())),
         })
+    }
+
+    /// Shared meter-cadence atomic (Hz bits) for `AudioMeter::new_with_rate_atomic`.
+    pub fn meter_rate_atomic(&self) -> Arc<std::sync::atomic::AtomicU32> {
+        Arc::clone(&self.meter_rate_hz_bits)
+    }
+    /// Current meter cadence in Hz.
+    pub fn meter_rate_hz(&self) -> f32 {
+        f32::from_bits(self.meter_rate_hz_bits.load(Ordering::Relaxed))
+    }
+    /// Set the meter cadence (Hz), clamped to `[1, 1000]`.
+    pub fn set_meter_rate_hz(&self, hz: f32) {
+        self.meter_rate_hz_bits
+            .store(hz.clamp(1.0, 1000.0).to_bits(), Ordering::Relaxed);
+    }
+    /// Shared diag-cadence atomic (Hz bits) for the diag publisher.
+    pub fn diag_rate_atomic(&self) -> Arc<std::sync::atomic::AtomicU32> {
+        Arc::clone(&self.diag_rate_hz_bits)
+    }
+    /// Current diag-publication cadence in Hz.
+    pub fn diag_rate_hz(&self) -> f32 {
+        f32::from_bits(self.diag_rate_hz_bits.load(Ordering::Relaxed))
+    }
+    /// Set the diag-publication cadence (Hz), clamped to `[1, 1000]`.
+    pub fn set_diag_rate_hz(&self, hz: f32) {
+        self.diag_rate_hz_bits
+            .store(hz.clamp(1.0, 1000.0).to_bits(), Ordering::Relaxed);
     }
 
     /// Store the active config file path so the save-config OSC handler can use it.

@@ -3,7 +3,7 @@ use audio_input::InputControl;
 use audio_output::AudioControl;
 use rosc::{OscMessage, OscPacket};
 use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -28,11 +28,6 @@ use self::transport::{
 
 /// Timeout after which a registered client (one that must heartbeat) is considered dead.
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(15);
-
-/// Default OSC meter cadence (Hz), adjustable live via
-/// `/omniphony/control/metering/rate_hz`. Lower than the CLI's audio-backed
-/// default since the embedded host has no output-stage telemetry to pace.
-const DEFAULT_METER_RATE_HZ: f32 = 10.0;
 
 /// Generic description of a single spatial audio object for OSC broadcast.
 /// Built by the caller from whatever source format it uses.
@@ -125,10 +120,6 @@ pub struct OscSender {
     listener_stop: Arc<AtomicBool>,
     /// Join handle for the background OSC listener thread.
     listener_thread: Mutex<Option<JoinHandle<()>>>,
-    /// OSC meter cadence in Hz (f32 bits), updated by
-    /// `/omniphony/control/metering/rate_hz`. Hosts without an `AudioControl`
-    /// (the embedded engine) drive `AudioMeter` from this atomic.
-    meter_rate_hz_bits: Arc<AtomicU32>,
 }
 
 impl OscSender {
@@ -147,23 +138,7 @@ impl OscSender {
             content_generation: 0,
             listener_stop: Arc::new(AtomicBool::new(false)),
             listener_thread: Mutex::new(None),
-            meter_rate_hz_bits: Arc::new(AtomicU32::new(DEFAULT_METER_RATE_HZ.to_bits())),
         })
-    }
-
-    /// Shared meter-cadence atomic (f32 Hz bits), updated by the
-    /// `/omniphony/control/metering/rate_hz` command. Pass to
-    /// `AudioMeter::new_with_rate_atomic` so the cadence tracks OSC changes.
-    pub fn meter_rate_atomic(&self) -> Arc<AtomicU32> {
-        Arc::clone(&self.meter_rate_hz_bits)
-    }
-
-    /// Seed the meter cadence (Hz), clamped to `[1, 1000]`. Hosts call this to
-    /// override the default (e.g. the CLI uses 50 Hz). It can still be changed
-    /// live via `/omniphony/control/metering/rate_hz`.
-    pub fn set_meter_rate_hz(&self, hz: f32) {
-        self.meter_rate_hz_bits
-            .store(hz.clamp(1.0, 1000.0).to_bits(), Ordering::Relaxed);
     }
 
     /// Attach the renderer control object so the OSC listener can read/write live params
@@ -194,7 +169,6 @@ impl OscSender {
         let input_control = self.input_control.clone();
         let force_full_next = Arc::clone(&self.force_full_next);
         let stop = Arc::clone(&self.listener_stop);
-        let meter_rate_hz_bits = Arc::clone(&self.meter_rate_hz_bits);
 
         if let Some(handle) = self.listener_thread.lock().unwrap().take() {
             self.listener_stop.store(true, Ordering::Relaxed);
@@ -320,7 +294,6 @@ impl OscSender {
                                             &mut realtime_seq,
                                             &socket,
                                             &clients,
-                                            &meter_rate_hz_bits,
                                         );
                                     }
                                 }

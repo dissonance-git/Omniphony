@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 /// Tracks the diag-publication cadence. The rate is read from a shared
-/// atomic (`AudioControl::diag_publish_rate_atomic`) each tick so the user
+/// atomic (`RendererControl::diag_rate_atomic`) each tick so the user
 /// can adjust the cadence live; the interval is cached to avoid recomputing
 /// the Duration from f32 each call.
 pub struct DiagPublishCadence {

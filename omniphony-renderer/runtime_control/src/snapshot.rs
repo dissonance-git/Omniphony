@@ -271,6 +271,18 @@ pub fn build_live_state_bundle(
             )],
         }),
         OscPacket::Message(OscMessage {
+            // Monitoring cadences — renderer is the source of truth so studio
+            // syncs its UI from here instead of pushing its own localStorage.
+            addr: "/omniphony/state/monitoring".to_string(),
+            args: vec![OscType::String(
+                json!({
+                    "meterRateHz": control.meter_rate_hz(),
+                    "diagRateHz": control.diag_rate_hz(),
+                })
+                .to_string(),
+            )],
+        }),
+        OscPacket::Message(OscMessage {
             addr: "/omniphony/state/render_evaluation/cartesian/x_size".to_string(),
             args: vec![OscType::Int(live.evaluation.cartesian.x_size as i32)],
         }),

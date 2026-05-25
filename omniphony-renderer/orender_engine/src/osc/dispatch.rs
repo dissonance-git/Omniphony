@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
 
 use audio_input::InputControl;
 use audio_output::AudioControl;
@@ -41,22 +40,27 @@ pub(crate) fn handle_control_message(
     realtime_seq: &mut RealtimeSeqState,
     socket: &Arc<UdpSocket>,
     clients: &Arc<OscClientRegistry>,
-    meter_rate_hz_bits: &Arc<AtomicU32>,
 ) {
     let addr = msg.addr.as_str();
 
-    // Meter cadence: the OSC-owned atomic is the single source for both the CLI
-    // and the embedded engine (AudioMeter reads it each poll). Not persisted, so
-    // unlike most control messages this does not mark the config dirty.
+    // Monitoring cadences live on RendererControl (the source of truth): both
+    // CLI and embedded engine read them, they persist to config, and they are
+    // broadcast in the live-state bundle. Changing them marks the config dirty.
     if addr == "/omniphony/control/metering/rate_hz" {
-        if let Some(hz) = msg.args.first().and_then(|arg| match arg {
-            OscType::Float(v) => Some(*v),
-            OscType::Int(v) => Some(*v as f32),
-            _ => None,
-        }) {
-            let clamped = hz.clamp(1.0, 1000.0);
-            meter_rate_hz_bits.store(clamped.to_bits(), Ordering::Relaxed);
-            log::info!("OSC metering rate set to {clamped:.1} Hz");
+        if let Some(hz) = first_rate_hz_arg(msg) {
+            control.set_meter_rate_hz(hz);
+            control.mark_dirty();
+            broadcast_int(socket, clients, "/omniphony/state/config/saved", 0);
+            log::info!("OSC metering rate set to {:.1} Hz", control.meter_rate_hz());
+        }
+        return;
+    }
+    if addr == "/omniphony/control/diag/rate_hz" {
+        if let Some(hz) = first_rate_hz_arg(msg) {
+            control.set_diag_rate_hz(hz);
+            control.mark_dirty();
+            broadcast_int(socket, clients, "/omniphony/state/config/saved", 0);
+            log::info!("OSC diag rate set to {:.1} Hz", control.diag_rate_hz());
         }
         return;
     }
@@ -371,6 +375,14 @@ pub(crate) fn handle_control_message(
         export_current_layout(control, requested_name);
         return;
     }
+}
+
+fn first_rate_hz_arg(msg: &OscMessage) -> Option<f32> {
+    msg.args.first().and_then(|arg| match arg {
+        OscType::Float(v) => Some(*v),
+        OscType::Int(v) => Some(*v as f32),
+        _ => None,
+    })
 }
 
 fn set_dirty(control: &Arc<RendererControl>, socket: &UdpSocket, clients: &OscClientRegistry) {

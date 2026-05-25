@@ -177,6 +177,12 @@ pub struct RenderConfig {
     pub drc_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drc_weight: Option<f32>,
+    /// OSC meter cadence (Hz). Persisted so the renderer is the source of truth.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meter_rate: Option<f32>,
+    /// OSC diag-publication cadence (Hz). Persisted alongside `meter_rate`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diag_rate: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ramp_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
