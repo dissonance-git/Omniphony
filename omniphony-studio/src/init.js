@@ -12,7 +12,9 @@ import {
   speakerManualMuted,
   objectManualMuted,
   speakerGainCache,
-  dirty
+  dirty,
+  hasProducerDomain,
+  hasControlConfig
 } from './state.js';
 
 import { updateSource, updateSourceLevel, updateSourceGains } from './sources.js';
@@ -59,11 +61,24 @@ import { normalizeLogLevel, renderLogLevelControl, logState } from './log.js';
 import { syncRuntimeConnectionLock } from './runtime-connection.js';
 import { setInputSectionOpen } from './modals.js';
 
+// Show/hide panels that only apply to a renderer with an audio-output stage.
+// The embedded (mpv/liborender) variant advertises no `audio` domain and no
+// `adaptive_resampling` controlConfig, so its output-device, resampler and
+// latency-target panels are hidden via body classes (CSS uses !important so it
+// wins over the panels' own open/close toggles). Before the handshake
+// (capabilities null) nothing is hidden — the default standalone UI is shown.
+export function applyProducerCapabilityVisibility() {
+  const known = !!app.producerCapabilities;
+  document.body.classList.toggle('cap-no-audio', known && !hasProducerDomain('audio'));
+  document.body.classList.toggle('cap-no-resampler', known && !hasControlConfig('adaptive_resampling'));
+}
+
 export function applyInitState(payload) {
   app.producerCapabilities =
     payload?.producerCapabilities && typeof payload.producerCapabilities === 'object'
       ? payload.producerCapabilities
       : null;
+  applyProducerCapabilityVisibility();
   app.producerSession =
     payload?.producerSession && typeof payload.producerSession === 'object'
       ? payload.producerSession

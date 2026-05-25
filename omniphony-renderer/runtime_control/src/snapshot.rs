@@ -190,16 +190,83 @@ pub fn build_renderer_state_json(live: &LiveParams, active_topology: &RenderTopo
     .to_string()
 }
 
-fn build_renderer_capabilities_json() -> String {
+/// Build the capabilities handshake describing what this renderer instance can
+/// actually do, so studio can label the connection and hide inapplicable panels.
+///
+/// Capabilities are derived from the host's actual control surfaces:
+/// - `has_audio` (an [`AudioControl`] is attached) → output device + adaptive
+///   resampling + latency-target controls apply (the standalone CLI/service).
+/// - `has_input` (an [`InputControl`] is attached) → input-source controls apply.
+///
+/// The embedded host (`liborender` inside mpv) owns no audio output or input
+/// stage — mpv does — so it attaches neither and advertises the reduced set,
+/// tagged `variant: "embedded"` / `host: "mpv"` for the connection label.
+fn build_renderer_capabilities_json(has_audio: bool, has_input: bool) -> String {
+    let mut domains = vec!["renderer", "layout", "speakers", "loudness"];
+    let mut control_config = vec!["layout", "speakers"];
+    if has_audio {
+        domains.push("audio");
+        // The output device, adaptive resampler and latency-target servo all
+        // live in the audio-output stage.
+        control_config.push("audio");
+        control_config.push("adaptive_resampling");
+    }
+    if has_input {
+        domains.push("input");
+        control_config.push("input");
+    }
     json!({
         "producer": "renderer",
-        "domains": ["renderer", "audio", "layout", "speakers", "input", "loudness"],
+        "variant": if has_audio { "standalone" } else { "embedded" },
+        "host": if has_audio { "cli" } else { "mpv" },
+        "domains": domains,
         "realtime": ["master_gain", "speaker_gain", "object_gain"],
         "spatial": true,
         "metering": true,
-        "controlConfig": ["audio", "input", "adaptive_resampling", "layout", "speakers"]
+        "controlConfig": control_config
     })
     .to_string()
+}
+
+#[cfg(test)]
+mod capability_tests {
+    use super::build_renderer_capabilities_json;
+
+    fn parse(json: &str) -> serde_json::Value {
+        serde_json::from_str(json).expect("valid capabilities JSON")
+    }
+
+    #[test]
+    fn standalone_advertises_full_set() {
+        let v = parse(&build_renderer_capabilities_json(true, true));
+        assert_eq!(v["variant"], "standalone");
+        assert_eq!(v["host"], "cli");
+        let domains = v["domains"].as_array().unwrap();
+        assert!(domains.iter().any(|d| d == "audio"));
+        assert!(domains.iter().any(|d| d == "input"));
+        let cc = v["controlConfig"].as_array().unwrap();
+        assert!(cc.iter().any(|c| c == "audio"));
+        assert!(cc.iter().any(|c| c == "adaptive_resampling"));
+        assert!(cc.iter().any(|c| c == "input"));
+    }
+
+    #[test]
+    fn embedded_drops_audio_and_input() {
+        let v = parse(&build_renderer_capabilities_json(false, false));
+        assert_eq!(v["variant"], "embedded");
+        assert_eq!(v["host"], "mpv");
+        let domains = v["domains"].as_array().unwrap();
+        assert!(!domains.iter().any(|d| d == "audio"));
+        assert!(!domains.iter().any(|d| d == "input"));
+        // Spatial domains stay.
+        assert!(domains.iter().any(|d| d == "renderer"));
+        assert!(domains.iter().any(|d| d == "speakers"));
+        let cc = v["controlConfig"].as_array().unwrap();
+        assert!(!cc.iter().any(|c| c == "audio"));
+        assert!(!cc.iter().any(|c| c == "adaptive_resampling"));
+        assert!(!cc.iter().any(|c| c == "input"));
+        assert!(cc.iter().any(|c| c == "speakers"));
+    }
 }
 
 pub fn build_speakers_state_json(
@@ -245,7 +312,10 @@ pub fn build_live_state_bundle(
     let mut messages = vec![
         OscPacket::Message(OscMessage {
             addr: "/omniphony/state/capabilities".to_string(),
-            args: vec![OscType::String(build_renderer_capabilities_json())],
+            args: vec![OscType::String(build_renderer_capabilities_json(
+                audio_control.is_some(),
+                input_control.is_some(),
+            ))],
         }),
         OscPacket::Message(OscMessage {
             addr: "/omniphony/state/renderer".to_string(),

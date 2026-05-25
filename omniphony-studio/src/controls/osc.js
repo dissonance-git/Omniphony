@@ -10,7 +10,7 @@
  *     functions (launchOrenderFromPanel, installOrenderServiceFromPanel, etc.)
  */
 
-import { app, dirty, isLinux } from '../state.js';
+import { app, dirty, isLinux, producerHost, producerVariant } from '../state.js';
 import { t, tf } from '../i18n.js';
 import { scheduleUIFlush } from '../flush.js';
 import { pushLog, normalizeLogError, normalizeLogLevel, logState } from '../log.js';
@@ -49,7 +49,16 @@ export function renderOscStatus() {
   const oscRestartPipewireBtnEl = getOscRestartPipewireBtnEl();
   const oscLaunchRendererBtnEl = getOscLaunchRendererBtnEl();
   syncRuntimeConnectionLock();
-  if (statusEl) statusEl.textContent = t(`status.${app.oscStatusState}`);
+  if (statusEl) {
+    let statusText = t(`status.${app.oscStatusState}`);
+    // Label the connected renderer flavour (e.g. "connected · mpv" for the
+    // embedded variant vs "connected · cli" for the standalone service).
+    if (app.oscStatusState === 'connected' && app.producerCapabilities) {
+      const flavour = producerHost() || producerVariant();
+      if (flavour) statusText += ` · ${flavour}`;
+    }
+    statusEl.textContent = statusText;
+  }
   if (pipeStatusEl && document.activeElement !== pipeStatusEl) {
     pipeStatusEl.value = app.orenderInputPipe || '';
   }

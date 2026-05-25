@@ -2140,3 +2140,25 @@
         border: 2px solid transparent;
         background-clip: padding-box;
       }
+
+/* ---------------------------------------------------------------------------
+ * Renderer-variant adaptation (capability handshake).
+ *
+ * The embedded renderer (liborender inside mpv) owns no audio-output stage —
+ * mpv does — so it advertises no `audio` domain and no `adaptive_resampling`
+ * controlConfig. Studio toggles these body classes from the handshake
+ * (see applyProducerCapabilityVisibility) to HIDE the inapplicable panels.
+ * !important so it wins over the panels' own open/close display toggles.
+ * --------------------------------------------------------------------------- */
+body.cap-no-audio #audioOutputSection {
+  display: none !important;
+}
+body.cap-no-resampler #resampleMeterLabel,
+body.cap-no-resampler #resampleMeterBody,
+body.cap-no-resampler #resamplePlotToggleBtn,
+body.cap-no-resampler #resamplePlotContainer,
+body.cap-no-resampler #telemetryGaugesInfoBtn,
+body.cap-no-resampler #telemetryGaugesToggleBtn,
+body.cap-no-resampler #telemetryGaugesForm {
+  display: none !important;
+}
