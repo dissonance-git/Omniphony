@@ -316,6 +316,9 @@ fn init_osc_runtime(
         match OscSender::new(osc_addr) {
             Ok(sender) => {
                 log::info!("OSC output enabled: {}:{}", args.osc_host, args.osc_port);
+                // Studio default meter cadence; live-adjustable via
+                // /omniphony/control/metering/rate_hz.
+                sender.set_meter_rate_hz(50.0);
                 handler.telemetry.osc_sender = Some(sender);
             }
             Err(e) => {
@@ -430,7 +433,14 @@ fn init_osc_runtime(
         if let Some(renderer) = &handler.spatial_renderer {
             let num_speakers = renderer.num_speakers();
             let audio_ctrl = handler.audio_control.as_ref();
-            let meter_rate_atomic = audio_ctrl.map(|ctrl| ctrl.meter_rate_atomic());
+            // Meter cadence comes from the OSC layer's atomic (single source
+            // shared with the embedded engine); diag cadence stays on
+            // AudioControl (output-stage concern).
+            let meter_rate_atomic = handler
+                .telemetry
+                .osc_sender
+                .as_ref()
+                .map(|sender| sender.meter_rate_atomic());
             handler.telemetry.audio_meter = Some(match meter_rate_atomic {
                 Some(atomic) => AudioMeter::new_with_rate_atomic(num_speakers, atomic),
                 None => AudioMeter::new(num_speakers, 50.0),

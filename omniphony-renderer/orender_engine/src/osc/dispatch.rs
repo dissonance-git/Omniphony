@@ -45,17 +45,20 @@ pub(crate) fn handle_control_message(
 ) {
     let addr = msg.addr.as_str();
 
-    // Meter cadence: mirror the rate into the OSC-owned atomic so hosts without
-    // an AudioControl (the embedded engine) can pace AudioMeter from it. Falls
-    // through so the AudioControl-backed path (CLI) still applies + broadcasts.
+    // Meter cadence: the OSC-owned atomic is the single source for both the CLI
+    // and the embedded engine (AudioMeter reads it each poll). Not persisted, so
+    // unlike most control messages this does not mark the config dirty.
     if addr == "/omniphony/control/metering/rate_hz" {
         if let Some(hz) = msg.args.first().and_then(|arg| match arg {
             OscType::Float(v) => Some(*v),
             OscType::Int(v) => Some(*v as f32),
             _ => None,
         }) {
-            meter_rate_hz_bits.store(hz.max(1.0).to_bits(), Ordering::Relaxed);
+            let clamped = hz.clamp(1.0, 1000.0);
+            meter_rate_hz_bits.store(clamped.to_bits(), Ordering::Relaxed);
+            log::info!("OSC metering rate set to {clamped:.1} Hz");
         }
+        return;
     }
     let runtime_ctx = RuntimeControlContext::with_shared_state(
         Arc::clone(control),

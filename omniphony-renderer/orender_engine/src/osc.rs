@@ -158,6 +158,14 @@ impl OscSender {
         Arc::clone(&self.meter_rate_hz_bits)
     }
 
+    /// Seed the meter cadence (Hz), clamped to `[1, 1000]`. Hosts call this to
+    /// override the default (e.g. the CLI uses 50 Hz). It can still be changed
+    /// live via `/omniphony/control/metering/rate_hz`.
+    pub fn set_meter_rate_hz(&self, hz: f32) {
+        self.meter_rate_hz_bits
+            .store(hz.clamp(1.0, 1000.0).to_bits(), Ordering::Relaxed);
+    }
+
     /// Attach the renderer control object so the OSC listener can read/write live params
     /// and trigger VBAP recomputes.  Must be called **before** `start_listener`.
     pub fn attach_renderer_control(&mut self, control: Arc<RendererControl>) {
