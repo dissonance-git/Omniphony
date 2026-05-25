@@ -180,6 +180,19 @@ impl Engine {
         self.renderer.num_speakers() as u32
     }
 
+    /// Per-channel labels of the active output layout, one entry per speaker in
+    /// render (output channel) order. The host (mpv) turns this into a channel
+    /// map. Speakers whose layout name is unrecognised map to
+    /// [`RChannelLabel::Unknown`].
+    pub fn channel_layout(&self) -> Vec<RChannelLabel> {
+        self.renderer
+            .speaker_layout()
+            .speakers
+            .iter()
+            .map(|s| crate::channel_layout::label_for_speaker_name(&s.name))
+            .collect()
+    }
+
     /// Whether the current presentation may carry spatial objects. Valid after
     /// the bridge has been configured; drives the host's Atmos-vs-plain decision.
     pub fn is_spatial(&self) -> bool {

@@ -85,6 +85,18 @@ int orender_is_spatial(const struct OrenderRenderer *r);
 uint32_t orender_channel_count(const struct OrenderRenderer *r);
 
 /**
+ * Write the active output layout's per-channel labels (one [`RChannelLabel`]
+ * byte per speaker, in render order) so the host can build a channel map.
+ *
+ * Returns the channel count `N`. If `out_labels` is non-NULL and `cap >= N`,
+ * the first `N` bytes are filled with label discriminants; otherwise nothing is
+ * written — call with `out_labels = NULL` to query `N`, size a buffer, then
+ * call again. Each byte is an `RChannelLabel` value (255 = Unknown). Returns 0
+ * on error/NULL handle.
+ */
+uint32_t orender_channel_layout(const struct OrenderRenderer *r, uint8_t *out_labels, uint32_t cap);
+
+/**
  * Reset after a seek/discontinuity (flushes decoder + renderer state, keeps
  * live params).
  */

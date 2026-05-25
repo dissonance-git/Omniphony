@@ -11,6 +11,7 @@
 //!   owns audio output and A/V sync.
 
 pub mod bridge_loader;
+pub mod channel_layout;
 pub mod engine;
 pub mod events;
 pub mod osc;
@@ -19,6 +20,7 @@ pub mod renderer_build;
 pub mod spatial;
 pub mod virtual_bed;
 
+pub use channel_layout::label_for_speaker_name;
 pub use engine::{Engine, OscOptions, RenderedAudio};
 pub use osc::{ObjectMeta, OscSender};
 pub use virtual_bed::{build_virtual_bed_events, build_virtual_bed_objects};

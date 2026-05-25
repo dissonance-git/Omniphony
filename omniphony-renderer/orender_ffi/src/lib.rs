@@ -151,6 +151,37 @@ pub unsafe extern "C" fn orender_channel_count(r: *const OrenderRenderer) -> u32
     .unwrap_or(0)
 }
 
+/// Write the active output layout's per-channel labels (one [`RChannelLabel`]
+/// byte per speaker, in render order) so the host can build a channel map.
+///
+/// Returns the channel count `N`. If `out_labels` is non-NULL and `cap >= N`,
+/// the first `N` bytes are filled with label discriminants; otherwise nothing is
+/// written — call with `out_labels = NULL` to query `N`, size a buffer, then
+/// call again. Each byte is an `RChannelLabel` value (255 = Unknown). Returns 0
+/// on error/NULL handle.
+#[no_mangle]
+pub unsafe extern "C" fn orender_channel_layout(
+    r: *const OrenderRenderer,
+    out_labels: *mut u8,
+    cap: u32,
+) -> u32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if r.is_null() {
+            return 0;
+        }
+        let labels = (*(r as *const Engine)).channel_layout();
+        let n = labels.len() as u32;
+        if !out_labels.is_null() && cap >= n {
+            let out = std::slice::from_raw_parts_mut(out_labels, labels.len());
+            for (dst, lbl) in out.iter_mut().zip(labels.iter()) {
+                *dst = *lbl as u8;
+            }
+        }
+        n
+    }))
+    .unwrap_or(0)
+}
+
 /// Reset after a seek/discontinuity (flushes decoder + renderer state, keeps
 /// live params).
 #[no_mangle]

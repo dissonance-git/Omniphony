@@ -45,6 +45,18 @@ fn renders_real_truehd_atmos_stream() {
     let channels = engine.channel_count();
     let spatial_before = engine.is_spatial();
 
+    // Output channel-layout export: the 7.1.4 preset must map cleanly to labels
+    // (no Unknown), one per speaker, in render order. This is what the FFI's
+    // orender_channel_layout() hands mpv to build its chmap.
+    use bridge_api::RChannelLabel::*;
+    let layout = engine.channel_layout();
+    assert_eq!(layout.len(), channels as usize, "one label per speaker");
+    assert_eq!(
+        layout,
+        vec![L, R, C, LFE, Lb, Rb, Ls, Rs, Tfl, Tfr, Tbl, Tbr],
+        "7.1.4 preset channel labels (render order)"
+    );
+
     let mut total_frames = 0usize;
     let mut total_samples = 0usize;
     let mut peak = 0.0f32;
