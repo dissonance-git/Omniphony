@@ -61,6 +61,77 @@ pub struct SpatialRendererParams {
     pub distance_diffuse_curve: f32,
 }
 
+impl SpatialRendererParams {
+    /// Resolve renderer params from a YAML render config, applying the same
+    /// defaults the CLI uses (mirrors `config_resolution::merge_render_config`)
+    /// so the FFI and CLI build an identical renderer from the same config.
+    ///
+    /// `log_object_positions` and precomputed `vbap_table` loading are CLI-only
+    /// and stay off here. `render_evaluation_mode` selects the table mode; like
+    /// the CLI, a config-only mode is not treated as "explicit", so the live
+    /// evaluation mode starts at `Auto`.
+    pub fn from_render_config(cfg: Option<&RenderConfig>) -> Self {
+        let mode = cfg.and_then(|c| c.render_evaluation_mode.as_deref());
+        let render_evaluation_mode = match mode {
+            Some(v)
+                if v.eq_ignore_ascii_case("precomputed_cartesian")
+                    || v.eq_ignore_ascii_case("cartesian") =>
+            {
+                EvalMode::Cartesian
+            }
+            _ => EvalMode::Polar,
+        };
+        Self {
+            vbap_table: None,
+            evaluation_polar_azimuth_resolution: cfg
+                .and_then(|c| c.vbap_azimuth_resolution)
+                .unwrap_or(360),
+            evaluation_polar_elevation_resolution: cfg
+                .and_then(|c| c.vbap_elevation_resolution)
+                .unwrap_or(180),
+            evaluation_polar_distance_res: cfg.and_then(|c| c.vbap_distance_res).unwrap_or(8),
+            evaluation_polar_distance_max: cfg.and_then(|c| c.vbap_distance_max).unwrap_or(2.0),
+            render_evaluation_mode,
+            evaluation_mode_explicit: false,
+            evaluation_cartesian_x_size: cfg.and_then(|c| c.evaluation_cartesian_x_size),
+            evaluation_cartesian_y_size: cfg.and_then(|c| c.evaluation_cartesian_y_size),
+            evaluation_cartesian_z_size: cfg.and_then(|c| c.evaluation_cartesian_z_size),
+            evaluation_cartesian_z_neg_size: cfg.and_then(|c| c.evaluation_cartesian_z_neg_size),
+            vbap_allow_negative_z: matches!(cfg.and_then(|c| c.vbap_allow_negative_z), Some(true)),
+            no_vbap_allow_negative_z: matches!(
+                cfg.and_then(|c| c.vbap_allow_negative_z),
+                Some(false)
+            ),
+            render_evaluation_position_interpolation: cfg
+                .and_then(|c| c.render_evaluation_position_interpolation)
+                .unwrap_or(true),
+            vbap_distance_model: cfg
+                .and_then(|c| c.vbap_distance_model.clone())
+                .unwrap_or_else(|| "none".to_string()),
+            spread_from_distance: cfg.and_then(|c| c.spread_from_distance).unwrap_or(false),
+            spread_distance_range: cfg.and_then(|c| c.spread_distance_range).unwrap_or(1.0),
+            spread_distance_curve: cfg.and_then(|c| c.spread_distance_curve).unwrap_or(1.0),
+            vbap_spread_min: cfg.and_then(|c| c.vbap_spread_min).unwrap_or(0.0),
+            vbap_spread_max: cfg.and_then(|c| c.vbap_spread_max).unwrap_or(1.0),
+            log_object_positions: false,
+            room_ratio: cfg
+                .and_then(|c| c.room_ratio.clone())
+                .unwrap_or_else(|| "1.0,2.0,1.0".to_string()),
+            room_ratio_rear: cfg.and_then(|c| c.room_ratio_rear),
+            room_ratio_lower: cfg.and_then(|c| c.room_ratio_lower),
+            room_ratio_center_blend: cfg.and_then(|c| c.room_ratio_center_blend),
+            master_gain: cfg.and_then(|c| c.master_gain).unwrap_or(0.0),
+            auto_gain: cfg.and_then(|c| c.auto_gain).unwrap_or(false),
+            use_loudness: cfg.and_then(|c| c.use_loudness).unwrap_or(false),
+            distance_diffuse: cfg.and_then(|c| c.distance_diffuse).unwrap_or(false),
+            distance_diffuse_threshold: cfg
+                .and_then(|c| c.distance_diffuse_threshold)
+                .unwrap_or(1.0),
+            distance_diffuse_curve: cfg.and_then(|c| c.distance_diffuse_curve).unwrap_or(1.0),
+        }
+    }
+}
+
 fn parse_room_ratio(params: &SpatialRendererParams) -> Result<([f32; 3], f32, f32, f32)> {
     let parts: Vec<&str> = params.room_ratio.split(',').collect();
     if parts.len() != 3 {
