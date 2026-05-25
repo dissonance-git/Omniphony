@@ -15,10 +15,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 orender_engine = { version = "0.1.0", path = "../orender_engine" }
-renderer = { version = "0.2.4", path = "../renderer" }
-bridge_api = { version = "0.2.0", path = "../bridge_api" }
 anyhow = "1.0"
-log = "0.4"
 
 [build-dependencies]
 cbindgen = "0.27"

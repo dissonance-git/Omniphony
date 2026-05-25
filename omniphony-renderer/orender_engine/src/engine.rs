@@ -7,10 +7,14 @@
 
 use crate::bridge_loader::LoadedBridge;
 use crate::events::Configuration;
+use crate::renderer_build::{SpatialRendererParams, build_spatial_renderer};
 use crate::{render, spatial};
 use anyhow::{Result, bail};
 use bridge_api::{RCoordinateFormat, RDecodedFrame, RInputTransport};
+use renderer::config::Config;
+use renderer::speaker_layout::SpeakerLayout;
 use renderer::spatial_renderer::{SpatialChannelEvent, SpatialRenderer};
+use std::path::Path;
 
 /// One block of rendered, interleaved multichannel `f32` PCM.
 pub struct RenderedAudio {
@@ -70,6 +74,48 @@ impl Engine {
             frame_events: Vec::new(),
             pcm_f32_buf: Vec::new(),
         }
+    }
+
+    /// Build a session from file paths: load the omniphony YAML config (if any),
+    /// resolve the speaker layout (explicit path → config layout → 7.1.4 preset),
+    /// load + configure the decoder bridge, and build the renderer. This is the
+    /// path both the FFI and the test harness use.
+    pub fn from_paths(
+        config_yaml_path: Option<&Path>,
+        speaker_layout_path: Option<&Path>,
+        bridge_path: &Path,
+        sample_rate: u32,
+    ) -> Result<Self> {
+        let render_cfg = config_yaml_path
+            .map(Config::load_or_default)
+            .and_then(|c| c.render);
+
+        let layout = if let Some(p) = speaker_layout_path {
+            SpeakerLayout::from_file(p)?
+        } else if let Some(l) = render_cfg.as_ref().and_then(|c| c.current_layout.clone()) {
+            l
+        } else {
+            SpeakerLayout::preset("7.1.4")?
+        };
+
+        // The renderer's table mode/defaults come from the bridge, so load and
+        // configure it before building the renderer.
+        let mut bridge = LoadedBridge::load_with_params(bridge_path, false)?;
+        bridge.configure("presentation", "best");
+        let vbap_defaults = bridge.vbap_cartesian_defaults();
+        let preferred = bridge.preferred_vbap_table_mode();
+
+        let params = SpatialRendererParams::from_render_config(render_cfg.as_ref());
+        let renderer = build_spatial_renderer(
+            &params,
+            layout,
+            sample_rate,
+            vbap_defaults,
+            preferred,
+            render_cfg.as_ref(),
+        )?;
+
+        Ok(Self::new(bridge, renderer, sample_rate))
     }
 
     /// Number of output channels the renderer produces (speaker count).

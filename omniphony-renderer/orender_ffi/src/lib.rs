@@ -11,10 +11,6 @@
 #![allow(clippy::missing_safety_doc)]
 
 use orender_engine::Engine;
-use orender_engine::bridge_loader::LoadedBridge;
-use orender_engine::renderer_build::{SpatialRendererParams, build_spatial_renderer};
-use renderer::config::Config;
-use renderer::speaker_layout::SpeakerLayout;
 
 use anyhow::{Result, anyhow};
 use std::ffi::CStr;
@@ -78,40 +74,16 @@ fn build_engine(cfg: &OrenderConfig) -> Result<Engine> {
         cfg.sample_rate
     };
 
-    let render_cfg = config_path
-        .map(|p| Config::load_or_default(Path::new(p)))
-        .and_then(|c| c.render);
-
-    let layout = if let Some(p) = layout_path {
-        SpeakerLayout::from_file(Path::new(p))?
-    } else if let Some(l) = render_cfg.as_ref().and_then(|c| c.current_layout.clone()) {
-        l
-    } else {
-        SpeakerLayout::preset("7.1.4")?
-    };
-
-    // The renderer's table mode/defaults come from the bridge, so load and
-    // configure it before building the renderer.
-    let mut bridge = LoadedBridge::load_with_params(Path::new(bridge_path), false)?;
-    bridge.configure("presentation", "best");
-    let vbap_defaults = bridge.vbap_cartesian_defaults();
-    let preferred = bridge.preferred_vbap_table_mode();
-
-    let params = SpatialRendererParams::from_render_config(render_cfg.as_ref());
-    let renderer = build_spatial_renderer(
-        &params,
-        layout,
-        sample_rate,
-        vbap_defaults,
-        preferred,
-        render_cfg.as_ref(),
-    )?;
-
     if cfg.osc_enabled != 0 {
         eprintln!("orender: OSC requested but not yet wired into the FFI (TODO)");
     }
 
-    Ok(Engine::new(bridge, renderer, sample_rate))
+    Engine::from_paths(
+        config_path.map(Path::new),
+        layout_path.map(Path::new),
+        Path::new(bridge_path),
+        sample_rate,
+    )
 }
 
 /// Create a session. Returns NULL on failure (bad config, missing bridge, etc.).
