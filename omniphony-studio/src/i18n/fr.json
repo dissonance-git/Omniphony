@@ -108,6 +108,7 @@
   "section.audioInput": "Entrée audio",
   "section.audioOutput": "Sortie audio",
   "section.latency": "Latence",
+  "section.diagnostics": "Diagnostics",
   "section.renderer": "Renderer",
   "section.speakers": "Enceintes",
   "section.speakerEditor": "Éditeur d’enceinte",

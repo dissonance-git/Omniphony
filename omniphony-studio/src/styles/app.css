@@ -2153,12 +2153,10 @@
 body.cap-no-audio #audioOutputSection {
   display: none !important;
 }
-body.cap-no-resampler #resampleMeterLabel,
-body.cap-no-resampler #resampleMeterBody,
-body.cap-no-resampler #resamplePlotToggleBtn,
-body.cap-no-resampler #resamplePlotContainer,
-body.cap-no-resampler #telemetryGaugesInfoBtn,
-body.cap-no-resampler #telemetryGaugesToggleBtn,
-body.cap-no-resampler #telemetryGaugesForm {
+/* The whole Latency section (latency meter + resample meter + adaptive
+ * resampler + latency-target) is output-stage only, so hide it wholesale on
+ * the embedded variant. The diagnostics plot lives in its own #diagSection
+ * (generalised well beyond latency) and stays visible in both variants. */
+body.cap-no-resampler #latencySection {
   display: none !important;
 }

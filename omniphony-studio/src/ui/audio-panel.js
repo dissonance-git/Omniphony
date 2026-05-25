@@ -32,7 +32,7 @@ export function audioPanelMarkup() {
           </div>
         </div>
       </div>
-      <div class="info-section">
+      <div class="info-section" id="latencySection">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.5rem">
           <div style="display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto auto;column-gap:0.5rem;row-gap:0.18rem;align-items:start;min-width:0;flex:1 1 auto">
             <div class="info-title" style="margin:0;grid-column:1;grid-row:1" data-i18n="section.latency">Latency</div>
@@ -81,17 +81,12 @@ export function audioPanelMarkup() {
           </div>
           <div style="display:flex;align-items:center;gap:0.35rem;justify-content:flex-end;flex:0 0 auto">
             <button id="resamplePlotToggleBtn" type="button" class="info-icon-btn" data-i18n-title="telemetry.plotToggle" title="Toggle resample plot" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none" aria-hidden="true"><polyline points="2,12 5,8 8,10 11,4 14,7"/></svg></button>
-            <button id="diagPlotToggleBtn" type="button" class="info-icon-btn" data-i18n-title="telemetry.diagPlotToggle" title="Toggle diagnostic-metrics plot" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4v4l3 2"/></svg></button>
             <button id="telemetryGaugesInfoBtn" type="button" class="info-icon-btn" data-i18n-title="telemetry.infoButton" title="Latency panel info">i</button>
             <button id="telemetryGaugesToggleBtn" type="button" class="panel-toggle-btn" data-i18n-title="telemetry.toggle" title="Show latency controls">▸</button>
           </div>
         </div>
         <div id="resamplePlotContainer" style="display:none;margin-top:0.35rem">
           <canvas id="resamplePlotCanvas" width="600" height="140" style="display:block;width:100%;height:auto;border-radius:8px"></canvas>
-        </div>
-        <div id="diagPlotContainer" style="display:none;margin-top:0.35rem">
-          <div id="diagPlotControls" style="display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;margin-bottom:0.35rem;font-size:11px;color:#b9c7d8"></div>
-          <canvas id="diagPlotCanvas" width="600" height="240" style="display:block;width:100%;height:auto;border-radius:8px"></canvas>
         </div>
         <div id="telemetryGaugesForm" class="telemetry-gauges-form">
           <div class="control-row" style="margin-top:0;grid-template-columns:auto auto 1fr">
@@ -247,6 +242,16 @@ export function audioPanelMarkup() {
               ${primaryButton({ id: 'adaptiveResamplingAdvancedApplyBtn', text: 'Apply', textKey: 'adaptive.apply' })}
             </div>
           </div>
+        </div>
+      </div>
+      <div class="info-section" id="diagSection">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
+          <div class="info-title" style="margin:0" data-i18n="section.diagnostics">Diagnostics</div>
+          <button id="diagPlotToggleBtn" type="button" class="info-icon-btn" data-i18n-title="telemetry.diagPlotToggle" title="Toggle diagnostic-metrics plot" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4v4l3 2"/></svg></button>
+        </div>
+        <div id="diagPlotContainer" style="display:none;margin-top:0.35rem">
+          <div id="diagPlotControls" style="display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;margin-bottom:0.35rem;font-size:11px;color:#b9c7d8"></div>
+          <canvas id="diagPlotCanvas" width="600" height="240" style="display:block;width:100%;height:auto;border-radius:8px"></canvas>
         </div>
       </div>
       <div class="info-section" id="masterSection">
