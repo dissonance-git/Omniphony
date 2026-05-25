@@ -11,9 +11,7 @@ use audio_output::pipewire::{PipewireBufferConfig, list_pipewire_output_devices}
 use audio_output::{
     AdaptiveResamplingConfig, AudioControl, OutputDeviceOption, RequestedAudioOutputConfig,
 };
-use renderer::live_params::LiveEvaluationMode;
 use renderer::metering::AudioMeter;
-use renderer::render_backend::RenderBackendKind;
 use renderer::speaker_layout::SpeakerLayout;
 use std::sync::Arc;
 
@@ -218,39 +216,6 @@ fn configure_windows_runtime_output(
     handler.runtime.adaptive_resampling_config = build_adaptive_resampling_config(args, render_cfg);
 }
 
-fn parse_room_ratio(args: &RenderArgs) -> Result<([f32; 3], f32, f32, f32)> {
-    let parts: Vec<&str> = args.room_ratio.split(',').collect();
-    if parts.len() != 3 {
-        anyhow::bail!(
-            "Invalid room-ratio format '{}'. Expected 'width,length,height' (e.g., '1.0,2.0,0.5')",
-            args.room_ratio
-        );
-    }
-    let room_ratio = [
-        parts[0]
-            .trim()
-            .parse::<f32>()
-            .map_err(|_| anyhow::anyhow!("Invalid room-ratio width: '{}'", parts[0]))?,
-        parts[1]
-            .trim()
-            .parse::<f32>()
-            .map_err(|_| anyhow::anyhow!("Invalid room-ratio length: '{}'", parts[1]))?,
-        parts[2]
-            .trim()
-            .parse::<f32>()
-            .map_err(|_| anyhow::anyhow!("Invalid room-ratio height: '{}'", parts[2]))?,
-    ];
-    let room_ratio_rear = args.room_ratio_rear.unwrap_or(room_ratio[1]).max(0.01);
-    let room_ratio_lower = args.room_ratio_lower.unwrap_or(0.5).max(0.01);
-    let room_ratio_center_blend = args.room_ratio_center_blend.unwrap_or(0.5).clamp(0.0, 1.0);
-    Ok((
-        room_ratio,
-        room_ratio_rear,
-        room_ratio_lower,
-        room_ratio_center_blend,
-    ))
-}
-
 fn resolve_layout(
     args: &RenderArgs,
     current_layout_from_config: &Option<SpeakerLayout>,
@@ -271,51 +236,6 @@ fn resolve_layout(
     }
 }
 
-fn resolve_evaluation_table_mode(
-    args: &RenderArgs,
-    vbap_cartesian_defaults: bridge_api::RVbapCartesianDefaults,
-) -> Result<(renderer::spatial_vbap::VbapTableMode, bool)> {
-    use renderer::spatial_vbap::VbapTableMode;
-
-    let vbap_allow_negative_z = if args.vbap_allow_negative_z {
-        true
-    } else if args.no_vbap_allow_negative_z {
-        false
-    } else {
-        vbap_cartesian_defaults.allow_negative_z
-    };
-    let vbap_table_mode = match args.render_evaluation_mode {
-        EvaluationModeArg::Polar => VbapTableMode::Polar,
-        EvaluationModeArg::Cartesian => {
-            let x_cells = args
-                .evaluation_cartesian_x_size
-                .unwrap_or(vbap_cartesian_defaults.x_size as usize);
-            let y_cells = args
-                .evaluation_cartesian_y_size
-                .unwrap_or(vbap_cartesian_defaults.y_size as usize);
-            let z_cells = args
-                .evaluation_cartesian_z_size
-                .unwrap_or(vbap_cartesian_defaults.z_size as usize);
-            let z_neg_cells = args.evaluation_cartesian_z_neg_size.unwrap_or(0);
-            if x_cells < 1 || y_cells < 1 || z_cells < 1 {
-                anyhow::bail!(
-                    "Invalid cartesian VBAP cell count: x={}, y={}, z+={} (each must be >= 1)",
-                    x_cells,
-                    y_cells,
-                    z_cells
-                );
-            }
-            VbapTableMode::Cartesian {
-                x_size: x_cells + 1,
-                y_size: y_cells + 1,
-                z_size: z_cells + 1,
-                z_neg_size: z_neg_cells,
-            }
-        }
-    };
-    Ok((vbap_table_mode, vbap_allow_negative_z))
-}
-
 fn init_spatial_renderer(
     handler: &mut DecodeHandler,
     args: &RenderArgs,
@@ -329,200 +249,54 @@ fn init_spatial_renderer(
         return Ok(());
     }
 
-    use renderer::spatial_renderer::SpatialRenderer;
-    use renderer::spatial_vbap::DistanceModel;
-    use std::str::FromStr;
-
-    let distance_model = DistanceModel::from_str(&args.vbap_distance_model)
-        .map_err(|e| anyhow::anyhow!("Invalid distance model: {}", e))?;
-    let (room_ratio, room_ratio_rear, room_ratio_lower, room_ratio_center_blend) =
-        parse_room_ratio(args)?;
-
-    let (vbap_table_mode, vbap_allow_negative_z) =
-        resolve_evaluation_table_mode(args, vbap_cartesian_defaults)?;
-
-    log::info!("VBAP allow_negative_z: {}", vbap_allow_negative_z);
-
-    if let Some(ref vbap_table_path) = args.vbap_table {
-        anyhow::bail!(
-            "loading precomputed renderer state from file is no longer supported ({})",
-            vbap_table_path.display()
-        );
-    }
-
-    let renderer = {
-        let layout = resolve_layout(args, current_layout_from_config)?;
-        log::info!(
-            "Speaker layout: {} speakers ({})",
-            layout.num_speakers(),
-            layout.speaker_names().join(", ")
-        );
-        log::info!("Generating VBAP table at runtime (this may take a few seconds)...");
-        let start_time = std::time::Instant::now();
-        let azimuth_cells = args.evaluation_polar_azimuth_resolution.max(1);
-        let elevation_cells = args.evaluation_polar_elevation_resolution.max(1);
-        let distance_cells = args.evaluation_polar_distance_res.max(1);
-        let azimuth_step_deg = (360.0f32 / (azimuth_cells as f32)).max(1.0).round() as i32;
-        let elevation_step_deg = (((if vbap_allow_negative_z { 180.0 } else { 90.0 })
-            / (elevation_cells as f32))
-            .max(1.0)
-            .round()) as i32;
-        let distance_step = args.evaluation_polar_distance_max.max(0.01) / (distance_cells as f32);
-
-        let renderer = SpatialRenderer::new(
-            layout,
-            48000,
-            azimuth_step_deg,
-            elevation_step_deg,
-            distance_step,
-            args.evaluation_polar_distance_max,
-            vbap_table_mode,
-            vbap_allow_negative_z,
-            args.render_evaluation_position_interpolation,
-            distance_model,
-            args.spread_from_distance,
-            args.spread_distance_range,
-            args.spread_distance_curve,
-            args.vbap_spread_min,
-            args.vbap_spread_max,
-            args.log_object_positions,
-            room_ratio,
-            room_ratio_rear,
-            room_ratio_lower,
-            room_ratio_center_blend,
-            args.master_gain,
-            args.auto_gain,
-            args.use_loudness,
-            args.distance_diffuse,
-            args.distance_diffuse_threshold,
-            args.distance_diffuse_curve,
-            match preferred_evaluation_mode {
-                bridge_api::RVbapTableMode::Polar => {
-                    renderer::live_params::PreferredEvaluationMode::PrecomputedPolar
-                }
-                bridge_api::RVbapTableMode::Cartesian => {
-                    renderer::live_params::PreferredEvaluationMode::PrecomputedCartesian
-                }
-            },
-            if evaluation_mode_explicit {
-                match args.render_evaluation_mode {
-                    EvaluationModeArg::Polar => {
-                        renderer::live_params::LiveEvaluationMode::PrecomputedPolar
-                    }
-                    EvaluationModeArg::Cartesian => {
-                        renderer::live_params::LiveEvaluationMode::PrecomputedCartesian
-                    }
-                }
-            } else {
-                renderer::live_params::LiveEvaluationMode::Auto
-            },
-            args.evaluation_cartesian_x_size
-                .unwrap_or(vbap_cartesian_defaults.x_size as usize),
-            args.evaluation_cartesian_y_size
-                .unwrap_or(vbap_cartesian_defaults.y_size as usize),
-            args.evaluation_cartesian_z_size
-                .unwrap_or(vbap_cartesian_defaults.z_size as usize),
-            args.evaluation_cartesian_z_neg_size.unwrap_or(0),
-        )?;
-        let elapsed = start_time.elapsed();
-        log::info!("VBAP table generated in {:.2}s", elapsed.as_secs_f64());
-        renderer
+    let layout = resolve_layout(args, current_layout_from_config)?;
+    let params = orender_engine::renderer_build::SpatialRendererParams {
+        vbap_table: args.vbap_table.clone(),
+        evaluation_polar_azimuth_resolution: args.evaluation_polar_azimuth_resolution,
+        evaluation_polar_elevation_resolution: args.evaluation_polar_elevation_resolution,
+        evaluation_polar_distance_res: args.evaluation_polar_distance_res,
+        evaluation_polar_distance_max: args.evaluation_polar_distance_max,
+        render_evaluation_mode: match args.render_evaluation_mode {
+            EvaluationModeArg::Polar => orender_engine::renderer_build::EvalMode::Polar,
+            EvaluationModeArg::Cartesian => orender_engine::renderer_build::EvalMode::Cartesian,
+        },
+        evaluation_mode_explicit,
+        evaluation_cartesian_x_size: args.evaluation_cartesian_x_size,
+        evaluation_cartesian_y_size: args.evaluation_cartesian_y_size,
+        evaluation_cartesian_z_size: args.evaluation_cartesian_z_size,
+        evaluation_cartesian_z_neg_size: args.evaluation_cartesian_z_neg_size,
+        vbap_allow_negative_z: args.vbap_allow_negative_z,
+        no_vbap_allow_negative_z: args.no_vbap_allow_negative_z,
+        render_evaluation_position_interpolation: args.render_evaluation_position_interpolation,
+        vbap_distance_model: args.vbap_distance_model.clone(),
+        spread_from_distance: args.spread_from_distance,
+        spread_distance_range: args.spread_distance_range,
+        spread_distance_curve: args.spread_distance_curve,
+        vbap_spread_min: args.vbap_spread_min,
+        vbap_spread_max: args.vbap_spread_max,
+        log_object_positions: args.log_object_positions,
+        room_ratio: args.room_ratio.clone(),
+        room_ratio_rear: args.room_ratio_rear,
+        room_ratio_lower: args.room_ratio_lower,
+        room_ratio_center_blend: args.room_ratio_center_blend,
+        master_gain: args.master_gain,
+        auto_gain: args.auto_gain,
+        use_loudness: args.use_loudness,
+        distance_diffuse: args.distance_diffuse,
+        distance_diffuse_threshold: args.distance_diffuse_threshold,
+        distance_diffuse_curve: args.distance_diffuse_curve,
     };
 
-    log::info!("VBAP spatial rendering enabled");
-    let configured_backend = render_cfg
-        .and_then(|cfg| cfg.render_backend.as_deref())
-        .and_then(RenderBackendKind::from_str);
-    let configured_evaluation = render_cfg
-        .and_then(|cfg| cfg.render_evaluation_mode.as_deref())
-        .and_then(LiveEvaluationMode::from_str);
-    let experimental_distance_cfg = render_cfg.map(|cfg| {
-        let defaults = renderer::live_params::ExperimentalDistanceLiveParams::default();
-        renderer::live_params::ExperimentalDistanceLiveParams {
-            distance_floor: cfg
-                .experimental_distance_distance_floor
-                .unwrap_or(defaults.distance_floor)
-                .max(0.0),
-            min_active_speakers: cfg
-                .experimental_distance_min_active_speakers
-                .unwrap_or(defaults.min_active_speakers)
-                .max(1),
-            max_active_speakers: cfg
-                .experimental_distance_max_active_speakers
-                .unwrap_or(defaults.max_active_speakers)
-                .max(1),
-            position_error_floor: cfg
-                .experimental_distance_position_error_floor
-                .unwrap_or(defaults.position_error_floor)
-                .max(0.0),
-            position_error_nearest_scale: cfg
-                .experimental_distance_position_error_nearest_scale
-                .unwrap_or(defaults.position_error_nearest_scale)
-                .max(0.0),
-            position_error_span_scale: cfg
-                .experimental_distance_position_error_span_scale
-                .unwrap_or(defaults.position_error_span_scale)
-                .max(0.0),
-        }
-    });
-    if configured_backend.is_some() || configured_evaluation.is_some() {
-        let control = renderer.renderer_control();
-        let mut requires_rebuild = false;
-        {
-            let mut live = control.live.write().unwrap();
-            if let Some(configured_backend) = configured_backend {
-                if live.backend_id() != configured_backend.as_str() {
-                    live.backend_id = configured_backend.as_str().to_string();
-                    requires_rebuild = true;
-                }
-            }
-            if let Some(configured_evaluation) = configured_evaluation {
-                if live.evaluation.mode != configured_evaluation {
-                    live.set_evaluation_mode(configured_evaluation);
-                    requires_rebuild = true;
-                }
-            }
-            if let Some(mut experimental_distance) = experimental_distance_cfg {
-                if experimental_distance.max_active_speakers
-                    < experimental_distance.min_active_speakers
-                {
-                    experimental_distance.max_active_speakers =
-                        experimental_distance.min_active_speakers;
-                }
-                if live.experimental_distance.distance_floor != experimental_distance.distance_floor
-                    || live.experimental_distance.min_active_speakers
-                        != experimental_distance.min_active_speakers
-                    || live.experimental_distance.max_active_speakers
-                        != experimental_distance.max_active_speakers
-                    || live.experimental_distance.position_error_floor
-                        != experimental_distance.position_error_floor
-                    || live.experimental_distance.position_error_nearest_scale
-                        != experimental_distance.position_error_nearest_scale
-                    || live.experimental_distance.position_error_span_scale
-                        != experimental_distance.position_error_span_scale
-                {
-                    live.experimental_distance = experimental_distance;
-                    requires_rebuild = true;
-                }
-            }
-        }
-        if requires_rebuild {
-            if let Some(plan) = control.prepare_topology_rebuild() {
-                let topology = plan.build_topology()?;
-                control.publish_topology(topology);
-            }
-        }
-    } else if let Some(mut experimental_distance) = experimental_distance_cfg {
-        if experimental_distance.max_active_speakers < experimental_distance.min_active_speakers {
-            experimental_distance.max_active_speakers = experimental_distance.min_active_speakers;
-        }
-        renderer
-            .renderer_control()
-            .live
-            .write()
-            .unwrap()
-            .experimental_distance = experimental_distance;
-    }
+    // The CLI keeps using the stream's native 48 kHz here, matching the
+    // previous behaviour; the FFI passes its host sample rate instead.
+    let renderer = orender_engine::renderer_build::build_spatial_renderer(
+        &params,
+        layout,
+        48000,
+        vbap_cartesian_defaults,
+        preferred_evaluation_mode,
+        render_cfg,
+    )?;
     handler.spatial_renderer = Some(renderer);
     Ok(())
 }
