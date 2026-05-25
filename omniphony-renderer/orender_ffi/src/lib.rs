@@ -117,9 +117,25 @@ fn build_engine(cfg: &OrenderConfig) -> Result<Engine> {
     Ok(engine)
 }
 
+/// Initialise the `log` backend once, so the engine's `log::info!` diagnostics
+/// (bridge-load time, "VBAP table generated in Xs", engine-ready time) surface
+/// on stderr. Quiet by default (`warn`); set `RUST_LOG=info` to see startup
+/// timing. Idempotent and harmless if the host already installed a logger.
+fn init_logging() {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let _ = env_logger::Builder::from_env(
+            env_logger::Env::default().default_filter_or("warn"),
+        )
+        .try_init();
+    });
+}
+
 /// Create a session. Returns NULL on failure (bad config, missing bridge, etc.).
 #[no_mangle]
 pub unsafe extern "C" fn orender_create(cfg: *const OrenderConfig) -> *mut OrenderRenderer {
+    init_logging();
     catch_unwind(AssertUnwindSafe(|| {
         if cfg.is_null() {
             return ptr::null_mut();

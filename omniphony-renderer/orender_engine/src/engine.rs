@@ -141,6 +141,7 @@ impl Engine {
         bridge_path: Option<&Path>,
         sample_rate: u32,
     ) -> Result<Self> {
+        let t_total = std::time::Instant::now();
         let render_cfg = config_yaml_path
             .map(Config::load_or_default)
             .and_then(|c| c.render);
@@ -166,10 +167,15 @@ impl Engine {
 
         // The renderer's table mode/defaults come from the bridge, so load and
         // configure it before building the renderer.
+        let t_bridge = std::time::Instant::now();
         let mut bridge = LoadedBridge::load_with_params(&resolved_bridge, false)?;
         bridge.configure("presentation", "best");
         let vbap_defaults = bridge.vbap_cartesian_defaults();
         let preferred = bridge.preferred_vbap_table_mode();
+        log::info!(
+            "bridge loaded + configured in {:.2}s",
+            t_bridge.elapsed().as_secs_f64()
+        );
 
         let params = SpatialRendererParams::from_render_config(render_cfg.as_ref());
         let renderer = build_spatial_renderer(
@@ -187,7 +193,12 @@ impl Engine {
         control.set_meter_rate_hz(render_cfg.as_ref().and_then(|c| c.meter_rate).unwrap_or(10.0));
         control.set_diag_rate_hz(render_cfg.as_ref().and_then(|c| c.diag_rate).unwrap_or(10.0));
 
-        Ok(Self::new(bridge, renderer, sample_rate))
+        let engine = Self::new(bridge, renderer, sample_rate);
+        log::info!(
+            "engine ready in {:.2}s (bridge load + VBAP table + renderer build)",
+            t_total.elapsed().as_secs_f64()
+        );
+        Ok(engine)
     }
 
     /// Number of output channels the renderer produces (speaker count).

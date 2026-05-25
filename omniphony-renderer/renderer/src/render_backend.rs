@@ -7,6 +7,7 @@ mod vbap_backend;
 use crate::spatial_vbap::{DistanceModel, Gains, adm_to_spherical, spherical_to_adm};
 use crate::speaker_layout::SpeakerLayout;
 use anyhow::Result;
+use rayon::prelude::*;
 use serde::Serialize;
 
 pub use barycenter_backend::BarycenterBackend;
@@ -349,17 +350,31 @@ impl SampledCartesianEvaluator {
         let z_positions =
             cartesian_z_axis(config.cartesian.z_size.max(2), config.cartesian.z_neg_size);
         let speaker_count = model.speaker_count();
-        let mut gains = Vec::with_capacity(
-            x_positions.len() * y_positions.len() * z_positions.len() * speaker_count,
-        );
-        let mut request = config.request_template;
-        for &z in &z_positions {
-            for &y in &y_positions {
-                for &x in &x_positions {
-                    request.adm_position = [x as f64, y as f64, z as f64];
-                    gains.extend_from_slice(&model.compute_gains(&request).gains);
-                }
-            }
+        let (nx, ny, nz) = (x_positions.len(), y_positions.len(), z_positions.len());
+        let template = config.request_template;
+        // Sampling the gain model over the full x×y×z volume dominates engine
+        // startup, and it runs once per render backend. Each cell is independent
+        // and GainModel is Sync, so evaluate them in parallel. The flat index
+        // decodes to the SAME z→y→x order the sequential build produced, which
+        // the runtime table lookup relies on.
+        let per_cell: Vec<Gains> = (0..nx * ny * nz)
+            .into_par_iter()
+            .map(|idx| {
+                let xi = idx % nx;
+                let yi = (idx / nx) % ny;
+                let zi = idx / (nx * ny);
+                let mut request = template;
+                request.adm_position = [
+                    x_positions[xi] as f64,
+                    y_positions[yi] as f64,
+                    z_positions[zi] as f64,
+                ];
+                model.compute_gains(&request).gains
+            })
+            .collect();
+        let mut gains = Vec::with_capacity(nx * ny * nz * speaker_count);
+        for cell in &per_cell {
+            gains.extend_from_slice(&cell[..]);
         }
         let backend_restore_snapshot = build_backend_restore_snapshot(
             model.backend_id(),
