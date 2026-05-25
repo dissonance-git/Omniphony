@@ -60,6 +60,11 @@ pub struct Engine {
     drc_gain: f32,
     drc_target_gain: f32,
     drc_ramp_samples_remaining: u32,
+    /// DRC mode last pushed to the bridge (selects which DRC words the decoder
+    /// extracts → drives `frame.drc_gain`). Synced from the live param each
+    /// `process` so config + OSC changes reach the decoder, mirroring the CLI's
+    /// decoder thread. Empty until the first sync.
+    applied_drc_mode: String,
 
     // ── reusable scratch ──
     frame_events: Vec<SpatialChannelEvent>,
@@ -92,6 +97,7 @@ impl Engine {
             drc_gain: 1.0,
             drc_target_gain: 1.0,
             drc_ramp_samples_remaining: 0,
+            applied_drc_mode: String::new(),
             frame_events: Vec::new(),
             pcm_f32_buf: Vec::new(),
             osc: None,
@@ -135,10 +141,14 @@ impl Engine {
     /// the config YAML's `render.bridge_path`. The config is the source of
     /// truth for the bridge location (there is no exe-relative search when
     /// hosted in mpv); an explicit path here only overrides it.
+    /// `input_codec`: codec of the raw access units the host will feed
+    /// (`"truehd"`, `"eac3"`, …). Declared to the bridge so its `Raw` transport
+    /// routes to the right decoder; `None` lets the bridge sniff the sync word.
     pub fn from_paths(
         config_yaml_path: Option<&Path>,
         speaker_layout_path: Option<&Path>,
         bridge_path: Option<&Path>,
+        input_codec: Option<&str>,
         sample_rate: u32,
     ) -> Result<Self> {
         let t_total = std::time::Instant::now();
@@ -170,6 +180,12 @@ impl Engine {
         let t_bridge = std::time::Instant::now();
         let mut bridge = LoadedBridge::load_with_params(&resolved_bridge, false)?;
         bridge.configure("presentation", "best");
+        if let Some(codec) = input_codec {
+            // Disambiguates the bridge's `Raw` transport (no data_type byte).
+            // Unknown to older bridges → harmless `false`, which falls back to
+            // sniffing the sync word.
+            bridge.configure("input_codec", codec);
+        }
         let vbap_defaults = bridge.vbap_cartesian_defaults();
         let preferred = bridge.preferred_vbap_table_mode();
         log::info!(
@@ -192,6 +208,30 @@ impl Engine {
         let control = renderer.renderer_control();
         control.set_meter_rate_hz(render_cfg.as_ref().and_then(|c| c.meter_rate).unwrap_or(10.0));
         control.set_diag_rate_hz(render_cfg.as_ref().and_then(|c| c.diag_rate).unwrap_or(10.0));
+
+        // DRC: seed the live params from config and publish the bridge's
+        // supported modes (so studio shows the DRC control). The decode-side
+        // mode itself is pushed to the bridge lazily in `process` (see
+        // `sync_drc_mode`), mirroring the CLI's decoder thread.
+        let supported_drc: Vec<String> = bridge
+            .bridge
+            .supported_drc_modes()
+            .iter()
+            .map(|m| m.as_str().to_string())
+            .collect();
+        control.set_bridge_supported_drc_modes(supported_drc);
+        {
+            let mut live = control.live.write().unwrap();
+            live.drc_mode = render_cfg
+                .as_ref()
+                .and_then(|c| c.drc_mode.clone())
+                .unwrap_or_else(|| "Off".to_string());
+            live.drc_weight = render_cfg
+                .as_ref()
+                .and_then(|c| c.drc_weight)
+                .unwrap_or(1.0)
+                .clamp(0.0, 1.0);
+        }
 
         let engine = Self::new(bridge, renderer, sample_rate);
         log::info!(
@@ -252,6 +292,23 @@ impl Engine {
         self.object_names.clear();
     }
 
+    /// Push the live DRC mode to the bridge when it changes (selects which DRC
+    /// words the decoder extracts). Cheap no-op when unchanged. Mirrors the
+    /// CLI's `DecoderCommand::SetDrcMode` handling. The bridge preserves the
+    /// mode across `reset`, so a seek keeps the current DRC setting.
+    fn sync_drc_mode(&mut self) {
+        let live_mode = {
+            let control = self.renderer.renderer_control();
+            let live = control.live.read().unwrap();
+            if live.drc_mode == self.applied_drc_mode {
+                return;
+            }
+            live.drc_mode.clone()
+        };
+        self.bridge.bridge.set_drc_mode(live_mode.as_str().into());
+        self.applied_drc_mode = live_mode;
+    }
+
     /// Push one raw compressed packet and render any frames it produces.
     ///
     /// `transport`/`data_type` follow the bridge ABI: hosts that demux raw
@@ -262,6 +319,10 @@ impl Engine {
         transport: RInputTransport,
         data_type: u8,
     ) -> Result<Vec<RenderedAudio>> {
+        // Push any DRC-mode change (config-seeded or OSC-driven) to the decoder
+        // before it decodes this packet.
+        self.sync_drc_mode();
+
         let result = self
             .bridge
             .bridge

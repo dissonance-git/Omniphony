@@ -43,6 +43,10 @@ pub struct OrenderConfig {
     /// the config. NULL → taken from the config YAML's `render.bridge_path`
     /// (the source of truth; library hosts have no exe-relative search).
     pub bridge_path: *const c_char,
+    /// Codec of the raw access units the host will feed: "truehd" or "eac3".
+    /// Disambiguates the bridge's raw transport (which carries no data-type
+    /// byte). NULL → the bridge sniffs the sync word.
+    pub codec: *const c_char,
     /// Enable the OSC live-control server. (Not yet wired in this build.)
     pub osc_enabled: c_int,
     /// Incoming OSC port (0 = auto).
@@ -74,6 +78,7 @@ fn build_engine(cfg: &OrenderConfig) -> Result<Engine> {
         .map(PathBuf::from)
         .or_else(orender_engine::default_config_path);
     let layout_path = unsafe { opt_str(cfg.speaker_layout_path) };
+    let codec = unsafe { opt_str(cfg.codec) };
     let sample_rate = if cfg.sample_rate == 0 {
         48_000
     } else {
@@ -84,6 +89,7 @@ fn build_engine(cfg: &OrenderConfig) -> Result<Engine> {
         config_path.as_deref(),
         layout_path.map(Path::new),
         bridge_path.map(Path::new),
+        codec,
         sample_rate,
     )?;
 

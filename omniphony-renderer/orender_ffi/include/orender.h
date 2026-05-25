@@ -43,6 +43,12 @@ typedef struct OrenderConfig {
    */
   const char *bridge_path;
   /**
+   * Codec of the raw access units the host will feed: "truehd" or "eac3".
+   * Disambiguates the bridge's raw transport (which carries no data-type
+   * byte). NULL → the bridge sniffs the sync word.
+   */
+  const char *codec;
+  /**
    * Enable the OSC live-control server. (Not yet wired in this build.)
    */
   int osc_enabled;

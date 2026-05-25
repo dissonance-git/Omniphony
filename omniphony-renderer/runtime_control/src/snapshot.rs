@@ -525,6 +525,22 @@ pub fn build_live_state_bundle(
             )],
         }));
         let _ = (requested, applied);
+    } else {
+        // No live audio input in this build (e.g. mpv-embedded), but DRC is a
+        // decode-stage control that still applies. Publish just the DRC fields
+        // on the same address the standalone build uses so studio's DRC control
+        // populates (Tauri + studio both parse partial input payloads).
+        messages.push(OscPacket::Message(OscMessage {
+            addr: "/omniphony/state/input".to_string(),
+            args: vec![OscType::String(
+                json!({
+                    "drcMode": live.drc_mode,
+                    "drcWeight": live.drc_weight,
+                    "supportedDrcModes": control.bridge_supported_drc_modes(),
+                })
+                .to_string(),
+            )],
+        }));
     }
 
     let mut all_messages = messages;
