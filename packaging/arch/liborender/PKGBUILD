@@ -2,13 +2,13 @@
 #
 # liborender — the orender Atmos spatial renderer as a C shared library
 # (liborender.so), consumed by the mpv `ad_orender` decoder (see the separate
-# mpv-orender repo) or any C host.
+# mpv-omniphony repo) or any C host.
 #
 # The decoder bridge is a runtime dlopen plugin and ships separately as
 # `omniphony-truehd-bridge` (Apache-2.0); liborender depends on it.
 
 pkgname=liborender
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="Atmos spatial renderer library (liborender.so) for the orender/mpv integration"
 arch=('x86_64')
@@ -17,7 +17,7 @@ license=('GPL-3.0-only')
 depends=('gcc-libs' 'omniphony-truehd-bridge')
 makedepends=('rust' 'cargo')
 source=("liborender-$pkgver.tar.gz::https://github.com/mgth/Omniphony/archive/refs/tags/liborender-v$pkgver.tar.gz")
-sha256sums=('db67066271e0011c0381536d66574051cc017fbaf44607c710a6b257f2dcdfc4')
+sha256sums=('ecdf8aa640aa8d35b4868b8e47d3bcb4db412e751b4d0f31704e041fa462b78b')
 
 # Workspace inside the extracted Omniphony source tree.
 _src="Omniphony-liborender-v$pkgver"

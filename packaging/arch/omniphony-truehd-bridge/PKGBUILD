@@ -7,7 +7,7 @@
 #     /usr/lib/orender/truehd_bridge.so
 #
 # Point mpv at it with `--ad-orender-bridge-path=/usr/lib/orender/truehd_bridge.so`
-# (the intended default in the mpv-orender integration).
+# (the intended default in the mpv-omniphony integration).
 #
 # harletty-bridge builds against a few crates from the Omniphony workspace via
 # path deps (bridge_api/spdif/sys), so the matching liborender release source is

@@ -1,7 +1,7 @@
 # Arch/CachyOS packaging
 
-PKGBUILDs for the mpv-orender integration's runtime libraries. The mpv package
-itself (`mpv-orender`) lives in the separate `mpv-orender` repo and depends on
+PKGBUILDs for the mpv-omniphony integration's runtime libraries. The mpv package
+itself (`mpv-omniphony`) lives in the separate `mpv-omniphony` repo and depends on
 `liborender>=0.1`.
 
 | Package                   | Builds from            | License      | Installs |
@@ -41,7 +41,7 @@ These fetch pinned release tarballs — no checkout layout needed:
 - `omniphony-truehd-bridge` 0.6.0 ← harletty-bridge `v0.6.0`, plus the matching
   Omniphony `liborender-v0.1.0` source for its workspace path-deps
   (`bridge_api`/`spdif`/`sys`).
-- `liborender` 0.1.0 ← Omniphony `liborender-v0.1.0`.
+- `liborender` 0.2.0 ← Omniphony `liborender-v0.2.0`.
 
 Build the bridge first (`liborender` depends on it):
 
@@ -50,7 +50,7 @@ cd omniphony-truehd-bridge && makepkg -si
 cd ../liborender           && makepkg -si
 ```
 
-Then the mpv package from the separate `mpv-orender` repo (depends on
+Then the mpv package from the separate `mpv-omniphony` repo (depends on
 `liborender>=0.1`).
 
 **Bumping a release:** retag the source repo(s), then refresh the version vars
