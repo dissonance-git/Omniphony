@@ -1,8 +1,8 @@
-//! C ABI for the `orender` Atmos renderer — built as `liborender.so`.
+//! C ABI for the `orender` spatial audio renderer — built as `liborender.so`.
 //!
 //! A thin, panic-safe shim over [`orender_engine::Engine`]: the host (mpv via
 //! `ad_orender.c`, or any C program) creates a session from a config, pushes
-//! raw TrueHD packets, and receives interleaved multichannel `f32` PCM. No
+//! raw encoded packets, and receives interleaved multichannel `f32` PCM. No
 //! audio output happens here — the host owns that.
 //!
 //! Every entry point catches Rust panics at the boundary (a panic crossing into
@@ -39,11 +39,13 @@ pub struct OrenderConfig {
     /// Optional speaker-layout YAML path overriding the config. NULL → use the
     /// config's embedded layout, else the 7.1.4 preset.
     pub speaker_layout_path: *const c_char,
-    /// Optional decoder bridge plugin path (e.g. truehd_bridge.so) overriding
-    /// the config. NULL → taken from the config YAML's `render.bridge_path`
-    /// (the source of truth; library hosts have no exe-relative search).
+    /// Optional decoder bridge plugin path (the `*_bridge.so` produced by
+    /// the input format's bridge crate) overriding the config. NULL → taken
+    /// from the config YAML's `render.bridge_path` (the source of truth;
+    /// library hosts have no exe-relative search).
     pub bridge_path: *const c_char,
-    /// Codec of the raw access units the host will feed: "truehd" or "eac3".
+    /// Codec identifier of the raw access units the host will feed (matches
+    /// the bridge's supported codec IDs, e.g. as used in FFmpeg/IEC958).
     /// Disambiguates the bridge's raw transport (which carries no data-type
     /// byte). NULL → the bridge sniffs the sync word.
     pub codec: *const c_char,
@@ -168,9 +170,9 @@ pub unsafe extern "C" fn orender_destroy(r: *mut OrenderRenderer) {
     }));
 }
 
-/// 1 if the current presentation may contain spatial objects (Atmos), 0 if not
-/// (plain TrueHD — the host should fall back to its standard decoder), <0 on
-/// error. Meaningful after at least one [`orender_process`] call.
+/// 1 if the current presentation carries spatial objects, 0 if it is a plain
+/// multichannel stream (the host should fall back to its standard decoder),
+/// <0 on error. Meaningful after at least one [`orender_process`] call.
 #[no_mangle]
 pub unsafe extern "C" fn orender_is_spatial(r: *const OrenderRenderer) -> c_int {
     catch_unwind(AssertUnwindSafe(|| {
@@ -238,7 +240,7 @@ pub unsafe extern "C" fn orender_reset(r: *mut OrenderRenderer) {
     }));
 }
 
-/// Push one raw TrueHD packet and render whatever frames it yields.
+/// Push one raw encoded packet and render whatever frames it yields.
 ///
 /// The caller owns `out` (capacity `out_cap_samples` floats). On success the
 /// rendered interleaved samples are written there and `*out_frames` /

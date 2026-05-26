@@ -3,7 +3,7 @@ use pipewire as pw;
 use pw::spa;
 use pw::spa::pod::{object, property};
 
-const IEC958_CODECS_PROP: &str = "[ \"TRUEHD\", \"EAC3\" ]";
+pub(crate) const IEC958_CODECS_PROP: &str = "[ \"TRUEHD\", \"EAC3\" ]";
 const IEC958_AUDIO_POSITION_PROP_8CH: &str = "[ FL FR C LFE SL SR RL RR ]";
 const IEC958_AUDIO_POSITION_PROP_2CH: &str = "[ FL FR ]";
 const SPA_PARAM_BUFFERS_META_TYPE_RAW: u32 = 7;

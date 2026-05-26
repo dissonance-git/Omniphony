@@ -35,7 +35,7 @@ pub struct PacerHandle {
     pub pre_roll_complete: Arc<AtomicBool>,
     /// Samples (across all channels) that must accumulate in `pacer_fifo`
     /// before the drain switches from silence to real audio. Sized to
-    /// exceed one full TrueHD AU (~32 ms at 48 kHz × 8 ch ≈ 12 288 samples)
+    /// exceed one full decoded AU (~32 ms at 48 kHz × 8 ch ≈ 12 288 samples)
     /// with comfortable margin.
     pub pre_roll_threshold_samples: usize,
     /// Output sample rate (Hz) used to compute the per-chunk drain quantum.

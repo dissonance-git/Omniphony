@@ -37,13 +37,15 @@ typedef struct OrenderConfig {
    */
   const char *speaker_layout_path;
   /**
-   * Optional decoder bridge plugin path (e.g. truehd_bridge.so) overriding
-   * the config. NULL → taken from the config YAML's `render.bridge_path`
-   * (the source of truth; library hosts have no exe-relative search).
+   * Optional decoder bridge plugin path (the `*_bridge.so` produced by
+   * the input format's bridge crate) overriding the config. NULL → taken
+   * from the config YAML's `render.bridge_path` (the source of truth;
+   * library hosts have no exe-relative search).
    */
   const char *bridge_path;
   /**
-   * Codec of the raw access units the host will feed: "truehd" or "eac3".
+   * Codec identifier of the raw access units the host will feed (matches
+   * the bridge's supported codec IDs, e.g. as used in FFmpeg/IEC958).
    * Disambiguates the bridge's raw transport (which carries no data-type
    * byte). NULL → the bridge sniffs the sync word.
    */
@@ -81,9 +83,9 @@ struct OrenderRenderer *orender_create(const struct OrenderConfig *cfg);
 void orender_destroy(struct OrenderRenderer *r);
 
 /**
- * 1 if the current presentation may contain spatial objects (Atmos), 0 if not
- * (plain TrueHD — the host should fall back to its standard decoder), <0 on
- * error. Meaningful after at least one [`orender_process`] call.
+ * 1 if the current presentation carries spatial objects, 0 if it is a plain
+ * multichannel stream (the host should fall back to its standard decoder),
+ * <0 on error. Meaningful after at least one [`orender_process`] call.
  */
 int orender_is_spatial(const struct OrenderRenderer *r);
 
@@ -111,7 +113,7 @@ uint32_t orender_channel_layout(const struct OrenderRenderer *r, uint8_t *out_la
 void orender_reset(struct OrenderRenderer *r);
 
 /**
- * Push one raw TrueHD packet and render whatever frames it yields.
+ * Push one raw encoded packet and render whatever frames it yields.
  *
  * The caller owns `out` (capacity `out_cap_samples` floats). On success the
  * rendered interleaved samples are written there and `*out_frames` /

@@ -25,7 +25,7 @@ sys = { version = "0.1.0", path = "sys" }
 bridge_api = { version = "0.2.0", path = "bridge_api" }
 spdif = { version = "0.1.0", path = "spdif" }
 runtime_control = { version = "0.2.4", path = "runtime_control" }
-orender_engine = { version = "0.2.0", path = "orender_engine" }
+orender_engine = { version = "0.2.1", path = "orender_engine" }
 host_audio = { version = "0.1.0", path = "host_audio" }
 abi_stable = "0.11"
 libloading = "0.8"

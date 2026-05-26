@@ -64,10 +64,10 @@ pub struct AdaptiveRuntimeState {
     /// the substituted `smoothed_control_available` starts at the calibrated
     /// reference and only deviates as the two clocks genuinely drift. The
     /// average is taken because the decoder's internal latency varies within
-    /// each batching cycle (notably for TrueHD with its ~320 ms cycle); a
-    /// single-sample offset captured at a random phase of the cycle places
-    /// the ring level at `target ± decoder_internal_jitter`, which can be
-    /// up to ±160 ms. Averaging over ~1.5 s (≥ one full TrueHD cycle)
+    /// each batching cycle (notably for the lossless multichannel codec with
+    /// its ~320 ms cycle); a single-sample offset captured at a random phase
+    /// of the cycle places the ring level at `target ± decoder_internal_jitter`,
+    /// which can be up to ±160 ms. Averaging over ~1.5 s (≥ one full cycle)
     /// removes that bias. Reset on reacquisition.
     pub pre_bridge_offset_samples: i64,
     pub pre_bridge_offset_initialized: bool,
@@ -76,7 +76,7 @@ pub struct AdaptiveRuntimeState {
 }
 
 /// Calibration window length in callbacks. At ~21 ms per callback this
-/// covers ~1.5 s, more than one TrueHD batching cycle (~320 ms) so the
+/// covers ~1.5 s, more than one decoder batching cycle (~320 ms) so the
 /// decoder's internal-latency oscillation averages out cleanly.
 pub const PRE_BRIDGE_CALIBRATION_CALLBACKS: u32 = 72;
 

@@ -1,4 +1,4 @@
-//! Headless decode→render engine for the `orender` Atmos renderer.
+//! Headless decode→render engine for the `orender` spatial audio renderer.
 //!
 //! This crate hosts the host-agnostic decode→render session: load a format
 //! decoder bridge plugin, push raw packets through it, turn the decoded

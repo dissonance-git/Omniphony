@@ -486,7 +486,7 @@ fn resolve_pipewire_bridge_config(
     let channels = requested.channels.unwrap_or(DEFAULT_LIVE_BRIDGE_CHANNELS);
     if channels != 2 && channels != 8 {
         anyhow::bail!(
-            "PipeWire bridge input supports 2-channel (E-AC3) or 8-channel (TrueHD) IEC958 mode, got {}",
+            "PipeWire bridge input supports 2-channel or 8-channel IEC958 mode, got {}",
             channels
         );
     }

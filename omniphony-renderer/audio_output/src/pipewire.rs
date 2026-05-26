@@ -435,7 +435,7 @@ impl PipewireWriter {
         let backpressure_disabled = Arc::new(AtomicBool::new(adaptive_config.disable_backpressure));
         let pacer_pre_roll_complete = Arc::new(AtomicBool::new(false));
         // 64 ms of audio at the output rate × channel count. Covers >1 AU
-        // for both EAC3 (~32 ms) and TrueHD HBR (~32 ms per AU) with margin.
+        // for both supported input codecs (~32 ms per AU) with margin.
         let pacer_pre_roll_threshold_samples =
             ((sample_rate as usize) * (channel_count as usize) * 64 / 1000).max(1);
         let pacer_drain_total = Arc::new(AtomicU64::new(0));
@@ -1642,10 +1642,11 @@ fn run_pipewire_loop(
                         if !runtime_state.pre_bridge_offset_initialized {
                             // Accumulate the raw (input_clock − drained) over
                             // PRE_BRIDGE_CALIBRATION_CALLBACKS callbacks (≥ 1
-                            // full TrueHD batching cycle) and finalize the
+                            // full decoder batching cycle) and finalize the
                             // offset as the average. A single-sample capture
                             // would lock in the decoder's instantaneous
-                            // internal latency (0..~320 ms for TrueHD) and
+                            // internal latency (0..~320 ms for the lossless
+                            // multichannel codec) and
                             // bias the ring's steady-state position by up to
                             // half that range. Averaging removes the bias.
                             runtime_state.pre_bridge_offset_accum +=

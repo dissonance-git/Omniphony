@@ -47,7 +47,7 @@ pub struct REvent {
     pub pos: [f64; 3],
     pub gain_db: i8,
     /// Object spatial extent per axis (width, depth, height), each normalised to
-    /// `[0.0, 1.0]` per ETSI TS 103 420 §5.2.2 / Dolby DAMF `object_size`.
+    /// `[0.0, 1.0]` per ETSI TS 103 420 §5.2.2 `object_size`.
     /// `[0.0, 0.0, 0.0]` denotes a point source. The renderer is responsible
     /// for reducing this triplet to a scalar spread according to its policy.
     pub size: [f64; 3],

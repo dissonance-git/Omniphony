@@ -1,7 +1,8 @@
 //! Virtual-bed rendering for bed-only / pre-metadata frames.
 //!
-//! When a stream carries no OAMD objects (a plain multichannel TrueHD bed, or
-//! the frames before the first major-sync OAMD payload), each input channel is
+//! When a stream carries no spatial-object metadata (a plain multichannel bed,
+//! or the frames before the first major-sync metadata payload), each input
+//! channel is
 //! turned into a fixed-position "virtual object" placed at its speaker pose, so
 //! the bed still renders through VBAP instead of being dropped. Shared by the
 //! `orender` CLI and the embedded engine for identical behaviour.

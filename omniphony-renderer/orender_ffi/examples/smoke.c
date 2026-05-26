@@ -7,8 +7,8 @@
  *
  * Verifies the header compiles, the symbols link, version reporting works, and
  * the panic-safe boundary returns errors (not crashes) on bad input. It does
- * NOT exercise real decoding — that needs a TrueHD file + the truehd bridge .so
- * and is the job of the full parity test.
+ * NOT exercise real decoding — that needs an encoded input file plus the
+ * matching decoder bridge .so, and is the job of the full parity test.
  */
 #include <stdio.h>
 #include "orender.h"

@@ -1,5 +1,5 @@
 use crate::pipewire_pods::{
-    build_pipewire_bridge_buffers_pod, build_pipewire_bridge_format_pod,
+    IEC958_CODECS_PROP, build_pipewire_bridge_buffers_pod, build_pipewire_bridge_format_pod,
     build_pipewire_bridge_stream_properties,
 };
 use crate::{InputClockMode, InputControl};
@@ -379,12 +379,13 @@ where
         &requested_latency,
     );
     log::info!(
-        "Publishing PipeWire bridge input sink: node={} description={} channels={} rate={}Hz latency={} codecs=TRUEHD+EAC3 resample.disable=true",
+        "Publishing PipeWire bridge input sink: node={} description={} channels={} rate={}Hz latency={} codecs={} resample.disable=true",
         config.node_name,
         config.node_description,
         config.channels,
         config.sample_rate_hz,
-        requested_latency
+        requested_latency,
+        IEC958_CODECS_PROP
     );
 
     let stream = pw::stream::StreamBox::new(&core, "omniphony-live-bridge-input", props)
@@ -512,10 +513,10 @@ where
             // `spa_format_audio_raw_parse` parses by property key (AudioRate /
             // AudioChannels), not by subtype — so it also extracts a usable
             // `rate` and `channels` from an IEC958 format pod. We need that
-            // because we offer two IEC958 alternatives (2 ch EAC3, 8 ch
-            // TrueHD) and PipeWire picks one at runtime; without re-reading
-            // the negotiated channel count, `user_data.channels` stays on
-            // the config default (2) even when 8-channel TrueHD streams,
+            // because we offer two IEC958 alternatives (2 ch and 8 ch) and
+            // PipeWire picks one at runtime; without re-reading the
+            // negotiated channel count, `user_data.channels` stays on the
+            // config default (2) even when 8-channel streams arrive,
             // breaking byte→frame conversions that depend on stride.
             let mut format = pw::spa::param::audio::AudioInfoRaw::new();
             let parsed = format.parse(param).is_ok();

@@ -141,9 +141,10 @@ impl Engine {
     /// the config YAML's `render.bridge_path`. The config is the source of
     /// truth for the bridge location (there is no exe-relative search when
     /// hosted in mpv); an explicit path here only overrides it.
-    /// `input_codec`: codec of the raw access units the host will feed
-    /// (`"truehd"`, `"eac3"`, …). Declared to the bridge so its `Raw` transport
-    /// routes to the right decoder; `None` lets the bridge sniff the sync word.
+    /// `input_codec`: codec identifier of the raw access units the host will
+    /// feed (matching the bridge's supported codec IDs). Declared to the
+    /// bridge so its `Raw` transport routes to the right decoder; `None`
+    /// lets the bridge sniff the sync word.
     pub fn from_paths(
         config_yaml_path: Option<&Path>,
         speaker_layout_path: Option<&Path>,
@@ -260,7 +261,8 @@ impl Engine {
     }
 
     /// Whether the current presentation may carry spatial objects. Valid after
-    /// the bridge has been configured; drives the host's Atmos-vs-plain decision.
+    /// the bridge has been configured; drives the host's spatial-vs-plain
+    /// fallback decision.
     pub fn is_spatial(&self) -> bool {
         self.bridge.bridge.is_spatial()
     }
