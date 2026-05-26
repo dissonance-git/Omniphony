@@ -59,6 +59,28 @@ The studio accepts multiple OSC input formats, including:
 - spherical coordinates as `azimuth/elevation/distance`
 - explicit source removal
 
+## Integrations
+
+### `mpv-omniphony`
+
+[`mpv-omniphony`](https://github.com/mgth/mpv-omniphony) is the
+[mpv](https://mpv.io/) media player patched with `ad_orender`, an
+opt-in spatial audio decoder that hands raw access units to
+`liborender` (the C shared-library form of this renderer) for
+VBAP object rendering instead of letting FFmpeg downmix.
+
+- Opt-in via `--ad=orender`; plain streams keep playing through
+  the standard mpv decoders.
+- Reads the same per-user config as the standalone `orender` CLI
+  and `omniphony-studio` (`~/.config/omniphony/config.yaml`), so a
+  single setup serves all three.
+- Windows builds ship the Steinberg ASIO output driver
+  (`--ao=asio`) alongside the usual WASAPI / DirectSound paths.
+- Prebuilt Linux and Windows bundles are produced from the
+  `mpv-omniphony` repo's release CI. The decoder bridge
+  (`omniphony-bridge`) is packaged separately and depended on at
+  runtime via `dlopen`.
+
 ## Repository Layout
 
 - `omniphony-renderer/`
