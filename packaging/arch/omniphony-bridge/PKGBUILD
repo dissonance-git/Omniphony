@@ -25,12 +25,12 @@ depends=('gcc-libs')
 makedepends=('rust' 'cargo')
 
 # Omniphony tag providing the workspace path-deps (bridge_api/spdif/sys).
-_omniver=0.2.0
+_omniver=0.2.1
 
 source=("harletty-bridge-$pkgver.tar.gz::https://github.com/harletty/harletty-bridge/archive/refs/tags/v$pkgver.tar.gz"
         "omniphony-$_omniver.tar.gz::https://github.com/mgth/Omniphony/archive/refs/tags/liborender-v$_omniver.tar.gz")
 sha256sums=('d0d54e0f069d9a1a746e4336ac94fb7c8722e8091879ed098d1573703ad52dff'
-            'ecdf8aa640aa8d35b4868b8e47d3bcb4db412e751b4d0f31704e041fa462b78b')
+            '4c0f699bde0b66a9cbecaa63d3a2fae88eb5a4a83d87f02f59e15273be5b86cf')
 
 _bridge="harletty-bridge-$pkgver"
 

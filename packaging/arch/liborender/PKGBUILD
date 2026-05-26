@@ -17,7 +17,7 @@ license=('GPL-3.0-only')
 depends=('gcc-libs' 'omniphony-bridge')
 makedepends=('rust' 'cargo')
 source=("liborender-$pkgver.tar.gz::https://github.com/mgth/Omniphony/archive/refs/tags/liborender-v$pkgver.tar.gz")
-sha256sums=('ecdf8aa640aa8d35b4868b8e47d3bcb4db412e751b4d0f31704e041fa462b78b')
+sha256sums=('4c0f699bde0b66a9cbecaa63d3a2fae88eb5a4a83d87f02f59e15273be5b86cf')
 
 # Workspace inside the extracted Omniphony source tree.
 _src="Omniphony-liborender-v$pkgver"
