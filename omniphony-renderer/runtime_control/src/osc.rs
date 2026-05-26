@@ -706,7 +706,7 @@ pub fn republish_heatmap_if_changed(ctx: &RuntimeControlContext) -> Vec<Broadcas
     }
 }
 
-fn parse_bool_arg(arg: Option<&OscType>) -> Option<bool> {
+pub fn parse_bool_arg(arg: Option<&OscType>) -> Option<bool> {
     match arg {
         Some(OscType::Int(i)) => Some(*i != 0),
         Some(OscType::Float(f)) => Some(*f != 0.0),
@@ -714,7 +714,7 @@ fn parse_bool_arg(arg: Option<&OscType>) -> Option<bool> {
     }
 }
 
-fn parse_positive_u32_arg(arg: Option<&OscType>) -> Option<u32> {
+pub fn parse_positive_u32_arg(arg: Option<&OscType>) -> Option<u32> {
     match arg {
         Some(OscType::Int(i)) if *i > 0 => Some(*i as u32),
         Some(OscType::Float(f)) if *f > 0.0 => Some(*f as u32),
@@ -722,7 +722,7 @@ fn parse_positive_u32_arg(arg: Option<&OscType>) -> Option<u32> {
     }
 }
 
-fn parse_nonnegative_u32_arg(arg: Option<&OscType>) -> Option<u32> {
+pub fn parse_nonnegative_u32_arg(arg: Option<&OscType>) -> Option<u32> {
     match arg {
         Some(OscType::Int(i)) if *i >= 0 => Some(*i as u32),
         Some(OscType::Float(f)) if *f >= 0.0 => Some(*f as u32),
@@ -730,7 +730,7 @@ fn parse_nonnegative_u32_arg(arg: Option<&OscType>) -> Option<u32> {
     }
 }
 
-fn parse_positive_f32_arg(arg: Option<&OscType>) -> Option<f32> {
+pub fn parse_positive_f32_arg(arg: Option<&OscType>) -> Option<f32> {
     match arg {
         Some(OscType::Float(f)) if *f > 0.0 => Some(*f),
         Some(OscType::Int(i)) if *i > 0 => Some(*i as f32),
@@ -738,7 +738,7 @@ fn parse_positive_f32_arg(arg: Option<&OscType>) -> Option<f32> {
     }
 }
 
-fn parse_nonnegative_f32_arg(arg: Option<&OscType>) -> Option<f32> {
+pub fn parse_nonnegative_f32_arg(arg: Option<&OscType>) -> Option<f32> {
     match arg {
         Some(OscType::Float(f)) if *f >= 0.0 => Some(*f),
         Some(OscType::Int(i)) if *i >= 0 => Some(*i as f32),
@@ -746,7 +746,7 @@ fn parse_nonnegative_f32_arg(arg: Option<&OscType>) -> Option<f32> {
     }
 }
 
-fn parse_f32_arg(arg: Option<&OscType>) -> Option<f32> {
+pub fn parse_f32_arg(arg: Option<&OscType>) -> Option<f32> {
     match arg {
         Some(OscType::Float(f)) => Some(*f),
         Some(OscType::Int(i)) => Some(*i as f32),
@@ -754,7 +754,7 @@ fn parse_f32_arg(arg: Option<&OscType>) -> Option<f32> {
     }
 }
 
-fn parse_string_arg(arg: Option<&OscType>) -> Option<String> {
+pub fn parse_string_arg(arg: Option<&OscType>) -> Option<String> {
     match arg {
         Some(OscType::String(s)) => {
             let trimmed = s.trim();
@@ -768,7 +768,7 @@ fn parse_string_arg(arg: Option<&OscType>) -> Option<String> {
     }
 }
 
-fn parse_input_layout_arg(
+pub fn parse_input_layout_arg(
     arg: Option<&OscType>,
 ) -> Option<renderer::speaker_layout::SpeakerLayout> {
     let raw = parse_string_arg(arg)?;
@@ -811,7 +811,7 @@ fn remap_live_speakers_remove(
     *speakers = next;
 }
 
-fn parse_json_string_arg<T: for<'de> Deserialize<'de>>(arg: Option<&OscType>) -> Option<T> {
+pub fn parse_json_string_arg<T: for<'de> Deserialize<'de>>(arg: Option<&OscType>) -> Option<T> {
     let OscType::String(value) = arg? else {
         return None;
     };
