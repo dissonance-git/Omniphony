@@ -2,32 +2,54 @@ use std::net::UdpSocket;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use audio_input::InputControl;
-use audio_output::AudioControl;
 use renderer::live_params::RendererControl;
+use rosc::{OscBundle, OscMessage, OscPacket, OscTime, OscType};
+use runtime_control::HostControlHandler;
 
 use super::client_registry::OscClientRegistry;
 use super::transport::{broadcast_int, send_raw};
 
+/// Compose the live-state snapshot bundle: core messages (renderer/layout/
+/// speakers/loudness/DRC/monitoring/objects) + the host handler's extra
+/// messages (e.g. /state/audio + /state/input device fields) + the
+/// snapshot_complete marker, bundled and encoded.
 pub(crate) fn build_live_state_bundle(
     control: &Arc<RendererControl>,
-    audio_control: Option<&Arc<AudioControl>>,
-    input_control: Option<&Arc<InputControl>>,
+    host: Option<&Arc<dyn HostControlHandler>>,
 ) -> Vec<u8> {
-    runtime_control::snapshot::build_live_state_bundle(control, audio_control, input_control)
+    let has_audio = host.is_some();
+    let has_input = host.is_some();
+    let mut messages =
+        runtime_control::snapshot::build_live_state_bundle(control, has_audio, has_input);
+    if let Some(h) = host {
+        messages.extend(h.extend_snapshot());
+    }
+    messages.push(OscPacket::Message(OscMessage {
+        addr: "/omniphony/state/snapshot_complete".to_string(),
+        args: vec![OscType::Int(1)],
+    }));
+    let bundle = OscPacket::Bundle(OscBundle {
+        timetag: OscTime {
+            seconds: 0,
+            fractional: 1,
+        },
+        content: messages,
+    });
+    rosc::encoder::encode(&bundle).unwrap_or_default()
 }
 
 pub(crate) fn save_live_config(
     control: &Arc<RendererControl>,
-    audio_control: Option<&Arc<AudioControl>>,
-    input_control: Option<&Arc<InputControl>>,
+    host: Option<&Arc<dyn HostControlHandler>>,
     socket: &UdpSocket,
     clients: &OscClientRegistry,
 ) {
-    match runtime_control::persist::save_live_config(control, audio_control, input_control) {
+    let host_ref: Option<&dyn HostControlHandler> = host.map(|h| h.as_ref());
+    match runtime_control::persist::save_live_config(control, host_ref) {
         Ok(result) => {
             broadcast_int(socket, clients, "/omniphony/state/config/saved", 1);
-            send_raw(socket, clients, &result.state_bundle);
+            let state_bytes = build_live_state_bundle(control, host);
+            send_raw(socket, clients, &state_bytes);
             log::info!("OSC: config saved to {}", result.path.display());
             if result.restart_required {
                 log::info!("OSC: render.bridge_path changed, requesting reload_config");

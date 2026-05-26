@@ -2,10 +2,9 @@ use std::collections::HashMap;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 
-use audio_input::InputControl;
-use audio_output::AudioControl;
 use renderer::live_params::RendererControl;
 use rosc::{OscMessage, OscType};
+use runtime_control::HostControlHandler;
 use runtime_control::band_topology_cache::BandTopologyCache;
 use runtime_control::command::{RuntimeCommand, parse_process_command};
 use runtime_control::context::RuntimeControlContext;
@@ -35,8 +34,7 @@ pub(crate) fn handle_control_message(
     msg: &OscMessage,
     src: SocketAddr,
     control: &Arc<RendererControl>,
-    audio_control: Option<&Arc<AudioControl>>,
-    input_control: Option<&Arc<InputControl>>,
+    host: Option<&Arc<dyn HostControlHandler>>,
     realtime_seq: &mut RealtimeSeqState,
     socket: &Arc<UdpSocket>,
     clients: &Arc<OscClientRegistry>,
@@ -66,8 +64,6 @@ pub(crate) fn handle_control_message(
     }
     let runtime_ctx = RuntimeControlContext::with_shared_state(
         Arc::clone(control),
-        audio_control.cloned(),
-        input_control.cloned(),
         Arc::clone(&realtime_seq.heatmap_sub),
         Arc::clone(&realtime_seq.band_topology_cache),
     );
@@ -100,7 +96,7 @@ pub(crate) fn handle_control_message(
     }
 
     if addr == "/omniphony/control/input/refresh" {
-        let state_bytes = build_live_state_bundle(control, audio_control, input_control);
+        let state_bytes = build_live_state_bundle(control, host);
         super::transport::send_raw(socket, clients, &state_bytes);
         log::info!("OSC: input state refresh requested");
         return;
@@ -327,7 +323,7 @@ pub(crate) fn handle_control_message(
     if let Some(command) = parse_process_command(msg) {
         match command {
             RuntimeCommand::SaveConfig => {
-                save_live_config(control, audio_control, input_control, socket, clients)
+                save_live_config(control, host, socket, clients)
             }
             RuntimeCommand::ReloadConfig => {
                 log::info!("OSC reload_config requested");
@@ -355,15 +351,13 @@ pub(crate) fn handle_control_message(
     }
 
     if let Some(effects) = apply_simple_osc_control(msg, &runtime_ctx) {
-        apply_control_effects(
-            effects,
-            control,
-            audio_control,
-            input_control,
-            socket,
-            clients,
-            &runtime_ctx,
-        );
+        apply_control_effects(effects, control, host, socket, clients, &runtime_ctx);
+        return;
+    }
+
+    // Core didn't handle it — delegate to the host (audio output/input).
+    if let Some(effects) = host.and_then(|h| h.handle(addr, msg)) {
+        apply_control_effects(effects, control, host, socket, clients, &runtime_ctx);
         return;
     }
 
@@ -393,15 +387,14 @@ fn set_dirty(control: &Arc<RendererControl>, socket: &UdpSocket, clients: &OscCl
 fn apply_control_effects(
     effects: ControlEffects,
     control: &Arc<RendererControl>,
-    audio_control: Option<&Arc<AudioControl>>,
-    input_control: Option<&Arc<InputControl>>,
+    host: Option<&Arc<dyn HostControlHandler>>,
     socket: &Arc<UdpSocket>,
     clients: &Arc<OscClientRegistry>,
     runtime_ctx: &RuntimeControlContext,
 ) {
     if effects.mark_dirty {
         set_dirty(control, socket, clients);
-        let state_bytes = build_live_state_bundle(control, audio_control, input_control);
+        let state_bytes = build_live_state_bundle(control, host);
         super::transport::send_raw(socket, clients, &state_bytes);
     }
     for update in effects.broadcasts {

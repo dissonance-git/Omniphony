@@ -863,6 +863,10 @@ impl HostControlHandler for HostAudio {
         messages
     }
 
+    fn state_generation(&self) -> u64 {
+        self.input.state_generation()
+    }
+
     fn amend_saved_config(&self, render: &mut renderer::config::RenderConfig) {
         // ── Audio output ──
         let audio = &self.audio;

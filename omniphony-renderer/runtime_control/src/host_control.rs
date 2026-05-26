@@ -26,4 +26,12 @@ pub trait HostControlHandler: Send + Sync {
     /// Amend the config being saved with host-owned fields (output device,
     /// live input, adaptive resampling, latency target) before it is written.
     fn amend_saved_config(&self, render: &mut renderer::config::RenderConfig);
+
+    /// Monotonic generation counter the engine's OSC listener polls to decide
+    /// when to re-broadcast the live-state bundle. Bumps when host-owned state
+    /// changed asynchronously (e.g. PipeWire device enumeration). Default `0`
+    /// disables polling for hosts that don't need it (embedded).
+    fn state_generation(&self) -> u64 {
+        0
+    }
 }

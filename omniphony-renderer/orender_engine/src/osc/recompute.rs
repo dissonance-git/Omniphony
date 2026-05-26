@@ -117,8 +117,6 @@ pub(crate) fn trigger_layout_recompute(
                     // — but only if it actually differs from the cached one.
                     let ctx = RuntimeControlContext::with_shared_state(
                         Arc::clone(&control_clone),
-                        None,
-                        None,
                         heatmap_sub_clone,
                         band_topology_cache_clone,
                     );

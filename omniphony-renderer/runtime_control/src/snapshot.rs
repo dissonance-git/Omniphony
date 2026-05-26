@@ -1,58 +1,13 @@
 use std::sync::Arc;
 
-use audio_input::{
-    InputBackend, InputClockMode, InputControl, InputLfeMode, InputMapMode, InputMode,
-    InputSampleFormat,
-};
-use audio_output::AudioControl;
 use renderer::live_params::{LiveParams, RenderTopology, RendererControl};
-use rosc::{OscBundle, OscMessage, OscPacket, OscTime, OscType};
+use rosc::{OscMessage, OscPacket, OscType};
 use serde::Serialize;
 use serde_json::json;
-
-fn input_mode_name(mode: InputMode) -> &'static str {
-    match mode {
-        InputMode::Bridge => "pipe_bridge",
-        InputMode::Live => "pipewire",
-        InputMode::PipewireBridge => "pipewire_bridge",
-    }
-}
-
-fn input_backend_name(backend: InputBackend) -> &'static str {
-    match backend {
-        InputBackend::Pipewire => "pipewire",
-        InputBackend::Asio => "asio",
-    }
-}
-
-fn input_map_mode_name(mode: InputMapMode) -> &'static str {
-    match mode {
-        InputMapMode::SevenOneFixed => "7.1-fixed",
-    }
-}
-
-fn input_lfe_mode_name(mode: InputLfeMode) -> &'static str {
-    match mode {
-        InputLfeMode::Object => "object",
-        InputLfeMode::Direct => "direct",
-        InputLfeMode::Drop => "drop",
-    }
-}
-
-fn input_sample_format_name(format: InputSampleFormat) -> &'static str {
-    match format {
-        InputSampleFormat::F32 => "f32",
-        InputSampleFormat::S16 => "s16",
-    }
-}
-
-fn input_clock_mode_name(mode: InputClockMode) -> &'static str {
-    match mode {
-        InputClockMode::Dac => "dac",
-        InputClockMode::Pipewire => "pipewire",
-        InputClockMode::Upstream => "upstream",
-    }
-}
+// audio output/input + their OSC dispatch are owned by the host_audio crate
+// (registered via runtime_control::HostControlHandler); this audio-free core
+// no longer references audio_output/audio_input so liborender cross-compiles
+// without cpal/pipewire/asio.
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ExperimentalDistanceOptionsSnapshot {
@@ -293,11 +248,19 @@ pub fn build_speakers_state_json(
     json!({ "speakers": speakers }).to_string()
 }
 
+/// Build the core OSC messages for a live-state snapshot.
+///
+/// Returns `Vec<OscPacket>` rather than encoded bytes so the engine wrapper
+/// can append `HostControlHandler::extend_snapshot()` + the
+/// `/state/snapshot_complete` marker and bundle/encode the whole thing. The
+/// core never references host-owned audio/input state directly; capabilities
+/// are passed in (`has_audio`/`has_input`) by the engine wrapper, derived from
+/// whether a `HostControlHandler` is attached.
 pub fn build_live_state_bundle(
     control: &Arc<RendererControl>,
-    audio_control: Option<&Arc<AudioControl>>,
-    input_control: Option<&Arc<InputControl>>,
-) -> Vec<u8> {
+    has_audio: bool,
+    has_input: bool,
+) -> Vec<OscPacket> {
     let live = control.live.read().unwrap();
     let active_topology = control.active_topology();
     let editable_layout = control.editable_layout();
@@ -313,8 +276,8 @@ pub fn build_live_state_bundle(
         OscPacket::Message(OscMessage {
             addr: "/omniphony/state/capabilities".to_string(),
             args: vec![OscType::String(build_renderer_capabilities_json(
-                audio_control.is_some(),
-                input_control.is_some(),
+                has_audio,
+                has_input,
             ))],
         }),
         OscPacket::Message(OscMessage {
@@ -440,108 +403,23 @@ pub fn build_live_state_bundle(
         }),
     ];
 
-    if let Some(audio_control) = audio_control {
-        let requested = audio_control.requested_snapshot();
-        let requested_output_device = requested.output_device.clone().unwrap_or_default();
-        messages.push(OscPacket::Message(OscMessage {
-            addr: "/omniphony/state/audio".to_string(),
-            args: vec![OscType::String(
-                json!({
-                    "outputDevices": audio_control.available_output_devices(),
-                    "outputDevice": requested.output_device.clone(),
-                    "outputDeviceEffective": audio_control.effective_output_device(),
-                    "sampleRate": requested.output_sample_rate_hz,
-                    "sampleFormat": audio_control.audio_state().1,
-                    "error": audio_control.audio_error(),
-                    "adaptiveResampling": {
-                        "enabled": requested.adaptive_enabled,
-                        "enableFarMode": requested.adaptive.enable_far_mode,
-                        "forceSilenceInFarMode": requested.adaptive.force_silence_in_far_mode,
-                        "hardRecoverHighInFarMode": requested.adaptive.hard_recover_high_in_far_mode,
-                        "hardRecoverLowInFarMode": requested.adaptive.hard_recover_low_in_far_mode,
-                        "farModeReturnFadeInMs": requested.adaptive.far_mode_return_fade_in_ms,
-                        "kpNear": requested.adaptive.kp_near,
-                        "ki": requested.adaptive.ki,
-                        "integralDischargeRatio": requested.adaptive.integral_discharge_ratio,
-                        "maxAdjust": requested.adaptive.max_adjust,
-                        "updateIntervalCallbacks": requested.adaptive.update_interval_callbacks,
-                        "highRecoverEntryMarginMs": requested.adaptive.high_recover_entry_margin_ms,
-                        "lowRecoverSettleStableMs": requested.adaptive.low_recover_settle_stable_ms,
-                        "lowRecoverEntryMarginMs": requested.adaptive.low_recover_entry_margin_ms,
-                        "lowRecoverExitMarginMs": requested.adaptive.low_recover_exit_margin_ms,
-                        "lowRecoverSettleMarginMs": requested.adaptive.low_recover_settle_margin_ms,
-                        "lowRecoverRefillDeltaAlpha": requested.adaptive.low_recover_refill_delta_alpha,
-                        "controlSmoothingCutoffHz": requested.adaptive.control_smoothing_cutoff_hz,
-                        "controlSmoothingOrder": requested.adaptive.control_smoothing_order,
-                        "paused": requested.adaptive.paused,
-                        "usePreBridgeClock": requested.adaptive.use_pre_bridge_clock,
-                        "useOutputPacing": requested.adaptive.use_output_pacing,
-                        "disableBackpressure": requested.adaptive.disable_backpressure
-                    },
-                    "latencyTargetMs": requested.latency_target_ms
-                })
-                .to_string(),
-            )],
-        }));
-        let _ = requested_output_device;
-    }
-
-    if let Some(input_control) = input_control {
-        let requested = input_control.requested_snapshot();
-        let applied = input_control.applied_snapshot();
-        messages.push(OscPacket::Message(OscMessage {
-            addr: "/omniphony/state/input".to_string(),
-            args: vec![OscType::String(
-                json!({
-                    "mode": input_mode_name(requested.mode),
-                    "activeMode": input_mode_name(applied.active_mode),
-                    "applyPending": input_control.is_apply_pending(),
-                    "drcMode": live.drc_mode,
-                    "drcWeight": live.drc_weight,
-                    "supportedDrcModes": control.bridge_supported_drc_modes(),
-                    "requested": {
-                        "backend": requested.backend.map(input_backend_name),
-                        "node": requested.node_name.clone(),
-                        "description": requested.node_description.clone(),
-                        "layout": requested.layout_path.as_ref().map(|path| path.display().to_string()),
-                        "clockMode": input_clock_mode_name(requested.clock_mode),
-                        "channels": requested.channels,
-                        "sampleRate": requested.sample_rate_hz,
-                        "format": requested.sample_format.map(input_sample_format_name),
-                        "map": input_map_mode_name(requested.map_mode),
-                        "lfeMode": input_lfe_mode_name(requested.lfe_mode)
-                    },
-                    "applied": {
-                        "backend": applied.backend.map(input_backend_name),
-                        "channels": applied.channels,
-                        "sampleRate": applied.sample_rate_hz,
-                        "node": applied.node_name.clone(),
-                        "description": applied.node_description.clone(),
-                        "streamFormat": applied.stream_format.clone(),
-                        "error": applied.input_error.clone()
-                    }
-                })
-                .to_string(),
-            )],
-        }));
-        let _ = (requested, applied);
-    } else {
-        // No live audio input in this build (e.g. mpv-embedded), but DRC is a
-        // decode-stage control that still applies. Publish just the DRC fields
-        // on the same address the standalone build uses so studio's DRC control
-        // populates (Tauri + studio both parse partial input payloads).
-        messages.push(OscPacket::Message(OscMessage {
-            addr: "/omniphony/state/input".to_string(),
-            args: vec![OscType::String(
-                json!({
-                    "drcMode": live.drc_mode,
-                    "drcWeight": live.drc_weight,
-                    "supportedDrcModes": control.bridge_supported_drc_modes(),
-                })
-                .to_string(),
-            )],
-        }));
-    }
+    // DRC is a decode-stage control owned by the core (lives in liborender).
+    // Always publish the DRC fields on /state/input. When a host_audio
+    // HostControlHandler is attached, its extend_snapshot() emits a separate
+    // /state/input message carrying the live-input device fields; studio's
+    // Tauri InputDomainState parser merges partial payloads, so two
+    // /state/input messages in one bundle compose cleanly.
+    messages.push(OscPacket::Message(OscMessage {
+        addr: "/omniphony/state/input".to_string(),
+        args: vec![OscType::String(
+            json!({
+                "drcMode": live.drc_mode,
+                "drcWeight": live.drc_weight,
+                "supportedDrcModes": control.bridge_supported_drc_modes(),
+            })
+            .to_string(),
+        )],
+    }));
 
     let mut all_messages = messages;
 
@@ -560,18 +438,7 @@ pub fn build_live_state_bundle(
         }
     }
 
-    all_messages.push(OscPacket::Message(OscMessage {
-        addr: "/omniphony/state/snapshot_complete".to_string(),
-        args: vec![OscType::Int(1)],
-    }));
-
-    let bundle = OscPacket::Bundle(OscBundle {
-        timetag: OscTime {
-            seconds: 0,
-            fractional: 1,
-        },
-        content: all_messages,
-    });
-
-    rosc::encoder::encode(&bundle).unwrap_or_default()
+    // The engine wrapper appends `HostControlHandler::extend_snapshot()` and
+    // the `/state/snapshot_complete` marker, then bundles + encodes.
+    all_messages
 }

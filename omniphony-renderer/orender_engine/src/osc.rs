@@ -1,6 +1,4 @@
 use anyhow::Result;
-use audio_input::InputControl;
-use audio_output::AudioControl;
 use rosc::{OscMessage, OscPacket};
 use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -107,10 +105,6 @@ pub struct OscSender {
     /// Shared live parameters + pending VBAP swap.
     /// Set by `attach_renderer_control` before `start_listener` is called.
     control: Option<Arc<RendererControl>>,
-    /// Shared audio runtime control for output-device and adaptive-resampling state.
-    audio_control: Option<Arc<AudioControl>>,
-    /// Shared input runtime control for bridge/live source selection and live input state.
-    input_control: Option<Arc<InputControl>>,
     /// Optional host-owned control handler (audio output/input). Set by hosts
     /// that bring their own audio layer (the CLI's `host_audio::HostAudio`);
     /// unset for the embedded liborender host so the core stays audio-free.
@@ -138,8 +132,6 @@ impl OscSender {
             socket: Arc::new(socket),
             clients,
             control: None,
-            audio_control: None,
-            input_control: None,
             host_handler: None,
             prev_objects: None,
             force_full_next: Arc::new(AtomicBool::new(true)),
@@ -155,19 +147,11 @@ impl OscSender {
         self.control = Some(control);
     }
 
-    pub fn attach_audio_control(&mut self, control: Arc<AudioControl>) {
-        self.audio_control = Some(control);
-    }
-
     /// Attach a host control handler (audio output/input layer). Hosts that
     /// own audio (the CLI) register their `host_audio::HostAudio` here; the
     /// embedded liborender host registers nothing so the core stays audio-free.
     pub fn attach_host_handler(&mut self, handler: Arc<dyn HostControlHandler>) {
         self.host_handler = Some(handler);
-    }
-
-    pub fn attach_input_control(&mut self, control: Arc<InputControl>) {
-        self.input_control = Some(control);
     }
 
     /// Start the OSC registration listener on `rx_port`.
@@ -180,8 +164,7 @@ impl OscSender {
         let socket = Arc::clone(&self.socket);
         let clients = Arc::clone(&self.clients);
         let control = self.control.clone();
-        let audio_control = self.audio_control.clone();
-        let input_control = self.input_control.clone();
+        let host_handler = self.host_handler.clone();
         let force_full_next = Arc::clone(&self.force_full_next);
         let stop = Arc::clone(&self.listener_stop);
 
@@ -209,9 +192,9 @@ impl OscSender {
                     .last()
                     .map(|record| record.seq)
                     .unwrap_or(0);
-                let mut last_input_state_generation = input_control
+                let mut last_host_state_generation = host_handler
                     .as_ref()
-                    .map(|control| control.state_generation());
+                    .map(|h| h.state_generation());
 
                 let mut buf = [0u8; 4096];
                 loop {
@@ -219,16 +202,13 @@ impl OscSender {
                         break;
                     }
                     flush_pending_logs(&socket, &clients, &mut last_log_seq);
-                    if let Some(input) = input_control.as_ref() {
-                        let generation = input.state_generation();
-                        if last_input_state_generation != Some(generation) {
-                            last_input_state_generation = Some(generation);
+                    if let Some(host) = host_handler.as_ref() {
+                        let generation = host.state_generation();
+                        if last_host_state_generation != Some(generation) {
+                            last_host_state_generation = Some(generation);
                             if let Some(ref ctrl) = control {
-                                let state_bytes = build_live_state_bundle(
-                                    ctrl,
-                                    audio_control.as_ref(),
-                                    input_control.as_ref(),
-                                );
+                                let state_bytes =
+                                    build_live_state_bundle(ctrl, Some(host));
                                 send_raw_filtered(&socket, &clients, &state_bytes, |_| true);
                             }
                         }
@@ -250,8 +230,7 @@ impl OscSender {
                                     if let Some(ref ctrl) = control {
                                         let state_bytes = build_live_state_bundle(
                                             ctrl,
-                                            audio_control.as_ref(),
-                                            input_control.as_ref(),
+                                            host_handler.as_ref(),
                                         );
                                         if let Err(e) = socket.send_to(&state_bytes, client) {
                                             log::warn!(
@@ -304,8 +283,7 @@ impl OscSender {
                                             &msg,
                                             src,
                                             ctrl,
-                                            audio_control.as_ref(),
-                                            input_control.as_ref(),
+                                            host_handler.as_ref(),
                                             &mut realtime_seq,
                                             &socket,
                                             &clients,

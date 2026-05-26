@@ -420,9 +420,17 @@ fn init_osc_runtime(
             ctrl.set_config_path(path.clone());
         }
         if let Some(sender) = &mut handler.telemetry.osc_sender {
-            sender.attach_renderer_control(ctrl);
-            sender.attach_audio_control(audio_control);
-            sender.attach_input_control(input_control);
+            sender.attach_renderer_control(Arc::clone(&ctrl));
+            // The audio output/input layer (audio_output + audio_input + their
+            // OSC handlers) lives in the host_audio crate, registered here as
+            // the engine's HostControlHandler. The audio-free engine + the
+            // embedded mpv host never reference audio_output/audio_input.
+            let host = std::sync::Arc::new(host_audio::HostAudio::new(
+                ctrl,
+                audio_control,
+                input_control,
+            )) as Arc<dyn runtime_control::HostControlHandler>;
+            sender.attach_host_handler(host);
         }
     }
 
