@@ -9,6 +9,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use renderer::live_params::RendererControl;
+use runtime_control::HostControlHandler;
 
 mod client_registry;
 mod dispatch;
@@ -110,6 +111,12 @@ pub struct OscSender {
     audio_control: Option<Arc<AudioControl>>,
     /// Shared input runtime control for bridge/live source selection and live input state.
     input_control: Option<Arc<InputControl>>,
+    /// Optional host-owned control handler (audio output/input). Set by hosts
+    /// that bring their own audio layer (the CLI's `host_audio::HostAudio`);
+    /// unset for the embedded liborender host so the core stays audio-free.
+    /// Receives /control/{audio,input}/* messages the core doesn't handle and
+    /// contributes /state/audio + /state/input to the live-state bundle.
+    host_handler: Option<Arc<dyn HostControlHandler>>,
     /// Previous frame's object snapshots for delta detection.
     prev_objects: Option<Vec<ObjectSnapshot>>,
     /// Force next send_object_frame call to emit all objects.
@@ -133,6 +140,7 @@ impl OscSender {
             control: None,
             audio_control: None,
             input_control: None,
+            host_handler: None,
             prev_objects: None,
             force_full_next: Arc::new(AtomicBool::new(true)),
             content_generation: 0,
@@ -149,6 +157,13 @@ impl OscSender {
 
     pub fn attach_audio_control(&mut self, control: Arc<AudioControl>) {
         self.audio_control = Some(control);
+    }
+
+    /// Attach a host control handler (audio output/input layer). Hosts that
+    /// own audio (the CLI) register their `host_audio::HostAudio` here; the
+    /// embedded liborender host registers nothing so the core stays audio-free.
+    pub fn attach_host_handler(&mut self, handler: Arc<dyn HostControlHandler>) {
+        self.host_handler = Some(handler);
     }
 
     pub fn attach_input_control(&mut self, control: Arc<InputControl>) {
