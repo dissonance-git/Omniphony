@@ -1,20 +1,14 @@
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
-use audio_input::{
-    InputBackend, InputClockMode, InputControl, InputLfeMode, InputMapMode, InputMode,
-    InputSampleFormat,
-};
-use audio_output::AudioControl;
 use renderer::live_params::{
     LiveEvaluationMode, PreferredEvaluationMode, RampMode, RendererControl,
 };
 
-use crate::snapshot::build_live_state_bundle;
+use crate::HostControlHandler;
 
 pub struct SaveLiveConfigResult {
     pub path: std::path::PathBuf,
-    pub state_bundle: Vec<u8>,
     pub restart_required: bool,
 }
 
@@ -23,10 +17,14 @@ fn round6(v: f32) -> f32 {
     (v * 1_000_000.0).round() / 1_000_000.0
 }
 
+/// Save the live config to disk. The audio-free core writes core fields
+/// (renderer/layout/speakers/loudness/DRC/monitoring); the optional host
+/// handler (e.g. `host_audio::HostAudio`) appends its own fields
+/// (output device, live input, adaptive resampling, latency target) via
+/// [`HostControlHandler::amend_saved_config`] before the file is written.
 pub fn save_live_config(
     control: &Arc<RendererControl>,
-    audio_control: Option<&Arc<AudioControl>>,
-    input_control: Option<&Arc<InputControl>>,
+    host: Option<&dyn HostControlHandler>,
 ) -> Result<SaveLiveConfigResult> {
     let path = {
         let guard = control.config_path.lock().unwrap();
@@ -173,6 +171,10 @@ pub fn save_live_config(
     } else {
         None
     };
+    // Monitoring cadences: the renderer is the source of truth, so always
+    // persist the current values (read lock-free from RendererControl).
+    render.meter_rate = Some(round6(control.meter_rate_hz()));
+    render.diag_rate = Some(round6(control.diag_rate_hz()));
     render.distance_diffuse = if live.use_distance_diffuse {
         Some(true)
     } else {
@@ -248,97 +250,20 @@ pub fn save_live_config(
         mode => Some(mode.as_str().to_string()),
     };
 
-    if let Some(audio_control) = audio_control {
-        let requested = audio_control.requested_snapshot();
-        render.output_device = requested.output_device;
-        render.output_sample_rate = requested.output_sample_rate_hz;
-        render.enable_adaptive_resampling = Some(requested.adaptive_enabled);
-        render.adaptive_resampling_enable_far_mode = Some(requested.adaptive.enable_far_mode);
-        render.adaptive_resampling_force_silence_in_far_mode =
-            Some(requested.adaptive.force_silence_in_far_mode);
-        render.adaptive_resampling_hard_recover_high_in_far_mode =
-            Some(requested.adaptive.hard_recover_high_in_far_mode);
-        render.adaptive_resampling_hard_recover_low_in_far_mode =
-            Some(requested.adaptive.hard_recover_low_in_far_mode);
-        render.adaptive_resampling_far_mode_return_fade_in_ms =
-            Some(requested.adaptive.far_mode_return_fade_in_ms);
-        render.latency_target = requested.latency_target_ms;
-        render.adaptive_resampling_kp_near = Some(requested.adaptive.kp_near as f32);
-        render.adaptive_resampling_ki = Some(requested.adaptive.ki as f32);
-        render.adaptive_resampling_integral_discharge_ratio =
-            Some(requested.adaptive.integral_discharge_ratio as f32);
-        render.adaptive_resampling_max_adjust = Some(requested.adaptive.max_adjust as f32);
-        render.adaptive_resampling_update_interval_callbacks =
-            Some(requested.adaptive.update_interval_callbacks);
-        render.adaptive_resampling_high_recover_entry_margin_ms =
-            Some(requested.adaptive.high_recover_entry_margin_ms);
-        render.adaptive_resampling_low_recover_settle_stable_ms =
-            Some(requested.adaptive.low_recover_settle_stable_ms);
-        render.adaptive_resampling_low_recover_entry_margin_ms =
-            Some(requested.adaptive.low_recover_entry_margin_ms);
-        render.adaptive_resampling_low_recover_exit_margin_ms =
-            Some(requested.adaptive.low_recover_exit_margin_ms);
-        render.adaptive_resampling_low_recover_settle_margin_ms =
-            Some(requested.adaptive.low_recover_settle_margin_ms);
-        render.adaptive_resampling_low_recover_refill_delta_alpha =
-            Some(requested.adaptive.low_recover_refill_delta_alpha);
-        render.adaptive_resampling_control_smoothing_cutoff_hz =
-            Some(requested.adaptive.control_smoothing_cutoff_hz as f32);
-        render.adaptive_resampling_control_smoothing_order =
-            Some(requested.adaptive.control_smoothing_order);
-        render.adaptive_resampling_use_pre_bridge_clock =
-            Some(requested.adaptive.use_pre_bridge_clock);
-        render.adaptive_resampling_use_output_pacing =
-            Some(requested.adaptive.use_output_pacing);
-        render.adaptive_resampling_disable_backpressure =
-            Some(requested.adaptive.disable_backpressure);
-    }
-
-    if let Some(input_control) = input_control {
-        let requested = input_control.requested_snapshot();
-        render.input_mode = Some(match requested.mode {
-            InputMode::Bridge => renderer::config::InputModeConfig::Bridge,
-            InputMode::Live => renderer::config::InputModeConfig::Live,
-            InputMode::PipewireBridge => renderer::config::InputModeConfig::PipewireBridge,
-        });
-        render.live_input = Some(renderer::config::LiveInputConfig {
-            backend: requested.backend.map(|backend| match backend {
-                InputBackend::Pipewire => renderer::config::InputBackendConfig::Pipewire,
-                InputBackend::Asio => renderer::config::InputBackendConfig::Asio,
-            }),
-            node: requested.node_name,
-            description: requested.node_description,
-            layout: requested.layout_path,
-            current_layout: requested.current_layout,
-            clock_mode: Some(match requested.clock_mode {
-                InputClockMode::Dac => renderer::config::InputClockModeConfig::Dac,
-                InputClockMode::Pipewire => renderer::config::InputClockModeConfig::Pipewire,
-                InputClockMode::Upstream => renderer::config::InputClockModeConfig::Upstream,
-            }),
-            channels: requested.channels,
-            sample_rate: requested.sample_rate_hz,
-            sample_format: requested.sample_format.map(|format| match format {
-                InputSampleFormat::F32 => "f32".to_string(),
-                InputSampleFormat::S16 => "s16".to_string(),
-            }),
-            map: Some(match requested.map_mode {
-                InputMapMode::SevenOneFixed => renderer::config::InputMapModeConfig::SevenOneFixed,
-            }),
-            lfe_mode: Some(match requested.lfe_mode {
-                InputLfeMode::Object => renderer::config::InputLfeModeConfig::Object,
-                InputLfeMode::Direct => renderer::config::InputLfeModeConfig::Direct,
-                InputLfeMode::Drop => renderer::config::InputLfeModeConfig::Drop,
-            }),
-        });
-    }
-
     drop(live);
+
+    // Audio output, live input, adaptive resampling, latency target — written
+    // by the host's `host_audio::HostAudio` (via the trait). The audio-free
+    // core never references those fields directly.
+    if let Some(h) = host {
+        h.amend_saved_config(render);
+    }
+
     config.save(&path)?;
     control.mark_clean();
 
     Ok(SaveLiveConfigResult {
         path,
-        state_bundle: build_live_state_bundle(control, audio_control, input_control),
         restart_required: false,
     })
 }

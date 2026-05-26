@@ -9,11 +9,8 @@ use cli::list_asio_devices::cmd_list_asio_devices;
 use log::{error, info};
 use std::ffi::OsString;
 
-mod bridge_loader;
 mod cli;
-mod events;
 mod input;
-mod runtime_osc;
 pub(crate) mod timestamp;
 
 fn normalize_cli_args<I>(args: I) -> Vec<OsString>

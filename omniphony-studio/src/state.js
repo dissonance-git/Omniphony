@@ -374,6 +374,27 @@ export function hasProducerDomain(domain) {
   return Array.isArray(domains) && domains.includes(domain);
 }
 
+export function hasControlConfig(key) {
+  const cfg = app.producerCapabilities?.controlConfig;
+  return Array.isArray(cfg) && cfg.includes(key);
+}
+
+// Renderer flavour from the capability handshake: "standalone" (the CLI/service,
+// which owns audio output, the resampler and input) or "embedded" (liborender in
+// mpv, where mpv owns those). Defaults to "standalone" before the handshake.
+export function producerVariant() {
+  return app.producerCapabilities?.variant || 'standalone';
+}
+
+// Optional host hint sent alongside the variant ("cli" / "mpv"), or null.
+export function producerHost() {
+  return app.producerCapabilities?.host || null;
+}
+
+export function isEmbeddedProducer() {
+  return producerVariant() === 'embedded';
+}
+
 export function supportsRealtimeKey(key) {
   const realtime = app.producerCapabilities?.realtime;
   return Array.isArray(realtime) && realtime.includes(key);

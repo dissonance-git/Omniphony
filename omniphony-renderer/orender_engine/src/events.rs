@@ -1,7 +1,7 @@
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Event {
     id: Option<u32>,
-    pub(crate) sample_pos: Option<u64>,
+    sample_pos: Option<u64>,
     pos: Option<[f64; 3]>,
     gain_db: Option<i8>,
     /// Object spatial extent per axis (w, d, h), each in [0.0, 1.0].
@@ -36,6 +36,10 @@ impl Event {
 
     pub fn ramp_length(&self) -> Option<u32> {
         self.ramp_length
+    }
+
+    pub fn sample_pos(&self) -> Option<u64> {
+        self.sample_pos
     }
 
     pub fn set_sample_pos(&mut self, pos: u64) {

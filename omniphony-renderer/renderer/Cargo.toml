@@ -18,6 +18,7 @@ arc-swap = "1"
 libc = "0.2"
 parking_lot = "0.12"
 flate2 = "1.0"
+rayon = "1"
 sys = { path = "../sys" }
 
 [build-dependencies]

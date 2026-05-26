@@ -1,8 +1,5 @@
 use crate::context::RuntimeControlContext;
 use crate::heatmap_sub::HeatmapSubscription;
-use audio_input::{
-    InputBackend, InputClockMode, InputLfeMode, InputMapMode, InputMode, InputSampleFormat,
-};
 use renderer::crossover::{FreqBand, compute_bands};
 use renderer::live_params::{LiveEvaluationMode, RenderTopology};
 use renderer::render_backend::RenderBackendKind;
@@ -92,65 +89,8 @@ struct SpeakerHeatmapSubscribePayload {
     max_samples: Option<usize>,
 }
 
-#[derive(Debug, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct AdaptiveResamplingPatch {
-    enabled: Option<bool>,
-    enable_far_mode: Option<bool>,
-    force_silence_in_far_mode: Option<bool>,
-    hard_recover_high_in_far_mode: Option<bool>,
-    hard_recover_low_in_far_mode: Option<bool>,
-    far_mode_return_fade_in_ms: Option<u32>,
-    kp_near: Option<f64>,
-    ki: Option<f64>,
-    integral_discharge_ratio: Option<f64>,
-    max_adjust: Option<f64>,
-    #[serde(alias = "nearFarThresholdMs")]
-    high_recover_entry_margin_ms: Option<u32>,
-    update_interval_callbacks: Option<u32>,
-    low_recover_settle_stable_ms: Option<f32>,
-    low_recover_entry_margin_ms: Option<f32>,
-    low_recover_exit_margin_ms: Option<f32>,
-    low_recover_settle_margin_ms: Option<f32>,
-    low_recover_refill_delta_alpha: Option<f32>,
-    control_smoothing_cutoff_hz: Option<f32>,
-    control_smoothing_order: Option<u32>,
-    paused: Option<bool>,
-    use_pre_bridge_clock: Option<bool>,
-    use_output_pacing: Option<bool>,
-    disable_backpressure: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct AudioConfigPatch {
-    output_device: Option<Option<String>>,
-    sample_rate: Option<Option<u32>>,
-    latency_target_ms: Option<Option<u32>>,
-    adaptive_resampling: Option<AdaptiveResamplingPatch>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct LiveInputPatch {
-    backend: Option<Option<InputBackend>>,
-    node: Option<Option<String>>,
-    description: Option<Option<String>>,
-    layout: Option<Option<String>>,
-    clock_mode: Option<InputClockMode>,
-    channels: Option<Option<u16>>,
-    sample_rate: Option<Option<u32>>,
-    format: Option<Option<InputSampleFormat>>,
-    map: Option<InputMapMode>,
-    lfe_mode: Option<InputLfeMode>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct InputConfigPatch {
-    mode: Option<InputMode>,
-    live_input: Option<LiveInputPatch>,
-}
+// AdaptiveResamplingPatch / AudioConfigPatch / LiveInputPatch / InputConfigPatch
+// moved to the `host_audio` crate alongside their dispatch handlers.
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -706,7 +646,7 @@ pub fn republish_heatmap_if_changed(ctx: &RuntimeControlContext) -> Vec<Broadcas
     }
 }
 
-fn parse_bool_arg(arg: Option<&OscType>) -> Option<bool> {
+pub fn parse_bool_arg(arg: Option<&OscType>) -> Option<bool> {
     match arg {
         Some(OscType::Int(i)) => Some(*i != 0),
         Some(OscType::Float(f)) => Some(*f != 0.0),
@@ -714,7 +654,7 @@ fn parse_bool_arg(arg: Option<&OscType>) -> Option<bool> {
     }
 }
 
-fn parse_positive_u32_arg(arg: Option<&OscType>) -> Option<u32> {
+pub fn parse_positive_u32_arg(arg: Option<&OscType>) -> Option<u32> {
     match arg {
         Some(OscType::Int(i)) if *i > 0 => Some(*i as u32),
         Some(OscType::Float(f)) if *f > 0.0 => Some(*f as u32),
@@ -722,7 +662,7 @@ fn parse_positive_u32_arg(arg: Option<&OscType>) -> Option<u32> {
     }
 }
 
-fn parse_nonnegative_u32_arg(arg: Option<&OscType>) -> Option<u32> {
+pub fn parse_nonnegative_u32_arg(arg: Option<&OscType>) -> Option<u32> {
     match arg {
         Some(OscType::Int(i)) if *i >= 0 => Some(*i as u32),
         Some(OscType::Float(f)) if *f >= 0.0 => Some(*f as u32),
@@ -730,7 +670,7 @@ fn parse_nonnegative_u32_arg(arg: Option<&OscType>) -> Option<u32> {
     }
 }
 
-fn parse_positive_f32_arg(arg: Option<&OscType>) -> Option<f32> {
+pub fn parse_positive_f32_arg(arg: Option<&OscType>) -> Option<f32> {
     match arg {
         Some(OscType::Float(f)) if *f > 0.0 => Some(*f),
         Some(OscType::Int(i)) if *i > 0 => Some(*i as f32),
@@ -738,7 +678,7 @@ fn parse_positive_f32_arg(arg: Option<&OscType>) -> Option<f32> {
     }
 }
 
-fn parse_nonnegative_f32_arg(arg: Option<&OscType>) -> Option<f32> {
+pub fn parse_nonnegative_f32_arg(arg: Option<&OscType>) -> Option<f32> {
     match arg {
         Some(OscType::Float(f)) if *f >= 0.0 => Some(*f),
         Some(OscType::Int(i)) if *i >= 0 => Some(*i as f32),
@@ -746,7 +686,7 @@ fn parse_nonnegative_f32_arg(arg: Option<&OscType>) -> Option<f32> {
     }
 }
 
-fn parse_f32_arg(arg: Option<&OscType>) -> Option<f32> {
+pub fn parse_f32_arg(arg: Option<&OscType>) -> Option<f32> {
     match arg {
         Some(OscType::Float(f)) => Some(*f),
         Some(OscType::Int(i)) => Some(*i as f32),
@@ -754,7 +694,7 @@ fn parse_f32_arg(arg: Option<&OscType>) -> Option<f32> {
     }
 }
 
-fn parse_string_arg(arg: Option<&OscType>) -> Option<String> {
+pub fn parse_string_arg(arg: Option<&OscType>) -> Option<String> {
     match arg {
         Some(OscType::String(s)) => {
             let trimmed = s.trim();
@@ -768,7 +708,7 @@ fn parse_string_arg(arg: Option<&OscType>) -> Option<String> {
     }
 }
 
-fn parse_input_layout_arg(
+pub fn parse_input_layout_arg(
     arg: Option<&OscType>,
 ) -> Option<renderer::speaker_layout::SpeakerLayout> {
     let raw = parse_string_arg(arg)?;
@@ -811,112 +751,15 @@ fn remap_live_speakers_remove(
     *speakers = next;
 }
 
-fn parse_json_string_arg<T: for<'de> Deserialize<'de>>(arg: Option<&OscType>) -> Option<T> {
+pub fn parse_json_string_arg<T: for<'de> Deserialize<'de>>(arg: Option<&OscType>) -> Option<T> {
     let OscType::String(value) = arg? else {
         return None;
     };
     serde_json::from_str(value).ok()
 }
 
-fn build_audio_state_json(audio: &audio_output::AudioControl) -> String {
-    let requested = audio.requested_snapshot();
-    let (_, sample_format) = audio.audio_state();
-    serde_json::json!({
-        "outputDevices": audio.available_output_devices(),
-        "outputDevice": requested.output_device,
-        "outputDeviceEffective": audio.effective_output_device(),
-        "sampleRate": requested.output_sample_rate_hz,
-        "sampleFormat": sample_format,
-        "error": audio.audio_error(),
-        "adaptiveResampling": {
-            "enabled": requested.adaptive_enabled,
-            "enableFarMode": requested.adaptive.enable_far_mode,
-            "forceSilenceInFarMode": requested.adaptive.force_silence_in_far_mode,
-            "hardRecoverHighInFarMode": requested.adaptive.hard_recover_high_in_far_mode,
-            "hardRecoverLowInFarMode": requested.adaptive.hard_recover_low_in_far_mode,
-            "farModeReturnFadeInMs": requested.adaptive.far_mode_return_fade_in_ms,
-            "kpNear": requested.adaptive.kp_near,
-            "ki": requested.adaptive.ki,
-            "integralDischargeRatio": requested.adaptive.integral_discharge_ratio,
-            "maxAdjust": requested.adaptive.max_adjust,
-            "updateIntervalCallbacks": requested.adaptive.update_interval_callbacks,
-            "highRecoverEntryMarginMs": requested.adaptive.high_recover_entry_margin_ms,
-            "lowRecoverSettleStableMs": requested.adaptive.low_recover_settle_stable_ms,
-            "lowRecoverEntryMarginMs": requested.adaptive.low_recover_entry_margin_ms,
-            "lowRecoverExitMarginMs": requested.adaptive.low_recover_exit_margin_ms,
-            "lowRecoverSettleMarginMs": requested.adaptive.low_recover_settle_margin_ms,
-            "lowRecoverRefillDeltaAlpha": requested.adaptive.low_recover_refill_delta_alpha,
-            "controlSmoothingCutoffHz": requested.adaptive.control_smoothing_cutoff_hz,
-            "controlSmoothingOrder": requested.adaptive.control_smoothing_order,
-            "paused": requested.adaptive.paused,
-            "usePreBridgeClock": requested.adaptive.use_pre_bridge_clock,
-            "useOutputPacing": requested.adaptive.use_output_pacing,
-            "disableBackpressure": requested.adaptive.disable_backpressure
-        },
-        "latencyTargetMs": requested.latency_target_ms
-    })
-    .to_string()
-}
-
-fn build_input_state_json(input: &audio_input::InputControl) -> String {
-    let requested = input.requested_snapshot();
-    let applied = input.applied_snapshot();
-    serde_json::json!({
-        "mode": requested.mode,
-        "activeMode": applied.active_mode,
-        "applyPending": input.is_apply_pending(),
-        "requested": {
-            "backend": requested.backend,
-            "node": requested.node_name,
-            "description": requested.node_description,
-            "layout": requested.layout_path.as_ref().map(|path| path.display().to_string()),
-            "clockMode": requested.clock_mode,
-            "channels": requested.channels,
-            "sampleRate": requested.sample_rate_hz,
-            "format": requested.sample_format,
-            "map": requested.map_mode,
-            "lfeMode": requested.lfe_mode
-        },
-        "applied": {
-            "backend": applied.backend,
-            "channels": applied.channels,
-            "sampleRate": applied.sample_rate_hz,
-            "node": applied.node_name,
-            "description": applied.node_description,
-            "streamFormat": applied.stream_format,
-            "error": applied.input_error
-        }
-    })
-    .to_string()
-}
-
-fn push_audio_domain_broadcasts(
-    effects: &mut ControlEffects,
-    audio: &audio_output::AudioControl,
-    include_logical_apply: bool,
-) {
-    effects.broadcasts.push(BroadcastUpdate {
-        addr: "/omniphony/state/audio".to_string(),
-        value: BroadcastValue::String(build_audio_state_json(audio)),
-    });
-    if include_logical_apply {
-        effects.log_message = Some("OSC: audio config staged".to_string());
-    }
-}
-
-fn push_input_domain_broadcasts(
-    effects: &mut ControlEffects,
-    input: &audio_input::InputControl,
-    include_logical_apply: bool,
-) {
-    effects.broadcasts.push(BroadcastUpdate {
-        addr: "/omniphony/state/input".to_string(),
-        value: BroadcastValue::String(build_input_state_json(input)),
-    });
-    if include_logical_apply {
-        effects.log_message = Some("OSC: input config staged".to_string());
-    }
-}
+// build_audio_state_json / build_input_state_json / push_audio_domain_broadcasts
+// / push_input_domain_broadcasts moved to the `host_audio` crate.
 
 fn remap_live_speakers_move(
     speakers: &mut std::collections::HashMap<usize, renderer::live_params::SpeakerLiveParams>,
@@ -1126,209 +969,6 @@ pub fn apply_simple_osc_control(
     let addr = msg.addr.as_str();
     let mut effects = ControlEffects::default();
 
-    if addr == "/omniphony/control/config/audio" {
-        let patch = parse_json_string_arg::<AudioConfigPatch>(msg.args.first());
-        if let (Some(audio), Some(patch)) = (ctx.audio.as_ref(), patch) {
-            if let Some(output_device) = patch.output_device {
-                audio.set_requested_output_device(output_device.and_then(|value| {
-                    let trimmed = value.trim();
-                    if trimmed.is_empty() {
-                        None
-                    } else {
-                        Some(trimmed.to_string())
-                    }
-                }));
-            }
-            if let Some(sample_rate) = patch.sample_rate {
-                audio.set_requested_output_sample_rate(sample_rate.filter(|value| *value > 0));
-            }
-            if let Some(latency_target_ms) = patch.latency_target_ms {
-                audio.set_requested_latency_target_ms(latency_target_ms.filter(|value| *value > 0));
-            }
-            if let Some(adaptive) = patch.adaptive_resampling {
-                if let Some(enabled) = adaptive.enabled {
-                    audio.set_requested_adaptive_resampling(enabled);
-                }
-                if let Some(enabled) = adaptive.enable_far_mode {
-                    audio.set_requested_adaptive_resampling_enable_far_mode(enabled);
-                }
-                if let Some(enabled) = adaptive.force_silence_in_far_mode {
-                    audio.set_requested_adaptive_resampling_force_silence_in_far_mode(enabled);
-                }
-                if let Some(enabled) = adaptive.hard_recover_high_in_far_mode {
-                    audio.set_requested_adaptive_resampling_hard_recover_high_in_far_mode(enabled);
-                }
-                if let Some(enabled) = adaptive.hard_recover_low_in_far_mode {
-                    audio.set_requested_adaptive_resampling_hard_recover_low_in_far_mode(enabled);
-                }
-                if let Some(value) = adaptive.far_mode_return_fade_in_ms {
-                    audio.set_requested_adaptive_resampling_far_mode_return_fade_in_ms(value);
-                }
-                if let Some(value) = adaptive.kp_near.filter(|value| *value > 0.0) {
-                    audio.set_requested_adaptive_resampling_kp_near(value as f32);
-                }
-                if let Some(value) = adaptive.ki.filter(|value| *value >= 0.0) {
-                    audio.set_requested_adaptive_resampling_ki(value as f32);
-                }
-                if let Some(value) = adaptive
-                    .integral_discharge_ratio
-                    .map(|value| value.clamp(0.0, 1.0))
-                {
-                    audio.set_requested_adaptive_resampling_integral_discharge_ratio(value as f32);
-                }
-                if let Some(value) = adaptive.max_adjust.filter(|value| *value > 0.0) {
-                    audio.set_requested_adaptive_resampling_max_adjust(value as f32);
-                }
-                if let Some(value) = adaptive.high_recover_entry_margin_ms.filter(|value| *value > 0) {
-                    audio.set_requested_adaptive_resampling_high_recover_entry_margin_ms(value);
-                }
-                if let Some(value) = adaptive
-                    .update_interval_callbacks
-                    .filter(|value| *value > 0)
-                {
-                    audio.set_requested_adaptive_resampling_update_interval_callbacks(value);
-                }
-                if let Some(value) = adaptive
-                    .low_recover_settle_stable_ms
-                    .filter(|value| value.is_finite() && *value >= 0.0)
-                {
-                    audio.set_requested_adaptive_resampling_low_recover_settle_stable_ms(value);
-                }
-                if let Some(value) = adaptive
-                    .low_recover_entry_margin_ms
-                    .filter(|value| value.is_finite() && *value >= 0.0)
-                {
-                    audio.set_requested_adaptive_resampling_low_recover_entry_margin_ms(value);
-                }
-                if let Some(value) = adaptive
-                    .low_recover_exit_margin_ms
-                    .filter(|value| value.is_finite() && *value >= 0.0)
-                {
-                    audio.set_requested_adaptive_resampling_low_recover_exit_margin_ms(value);
-                }
-                if let Some(value) = adaptive
-                    .low_recover_settle_margin_ms
-                    .filter(|value| value.is_finite() && *value >= 0.0)
-                {
-                    audio.set_requested_adaptive_resampling_low_recover_settle_margin_ms(value);
-                }
-                if let Some(value) = adaptive
-                    .low_recover_refill_delta_alpha
-                    .map(|value| value.clamp(0.0, 1.0))
-                {
-                    audio.set_requested_adaptive_resampling_low_recover_refill_delta_alpha(value);
-                }
-                if let Some(value) = adaptive
-                    .control_smoothing_cutoff_hz
-                    .map(|value| value.clamp(0.001, 1000.0))
-                {
-                    audio.set_requested_adaptive_resampling_control_smoothing_cutoff_hz(value);
-                }
-                if let Some(value) = adaptive.control_smoothing_order {
-                    audio.set_requested_adaptive_resampling_control_smoothing_order(value);
-                }
-                if let Some(paused) = adaptive.paused {
-                    audio.set_requested_adaptive_resampling_paused(paused);
-                }
-                if let Some(enabled) = adaptive.use_pre_bridge_clock {
-                    audio.set_requested_adaptive_resampling_use_pre_bridge_clock(enabled);
-                }
-                if let Some(enabled) = adaptive.use_output_pacing {
-                    audio.set_requested_adaptive_resampling_use_output_pacing(enabled);
-                }
-                if let Some(disabled) = adaptive.disable_backpressure {
-                    audio.set_requested_adaptive_resampling_disable_backpressure(disabled);
-                }
-            }
-            effects.mark_dirty = true;
-            push_audio_domain_broadcasts(&mut effects, audio, true);
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/config/audio/apply" {
-        if let Some(audio) = ctx.audio.as_ref() {
-            push_audio_domain_broadcasts(&mut effects, audio, false);
-            effects.log_message = Some("OSC: audio config apply".to_string());
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/config/input" {
-        let patch = parse_json_string_arg::<InputConfigPatch>(msg.args.first());
-        if let (Some(input), Some(patch)) = (ctx.input.as_ref(), patch) {
-            if let Some(mode) = patch.mode {
-                input.set_requested_mode(mode);
-            }
-            if let Some(live_input) = patch.live_input {
-                if let Some(backend) = live_input.backend {
-                    input.set_requested_backend(backend);
-                }
-                if let Some(node) = live_input.node {
-                    input.set_requested_node_name(node.and_then(|value| {
-                        let trimmed = value.trim();
-                        if trimmed.is_empty() {
-                            None
-                        } else {
-                            Some(trimmed.to_string())
-                        }
-                    }));
-                }
-                if let Some(description) = live_input.description {
-                    input.set_requested_node_description(description.and_then(|value| {
-                        let trimmed = value.trim();
-                        if trimmed.is_empty() {
-                            None
-                        } else {
-                            Some(trimmed.to_string())
-                        }
-                    }));
-                }
-                if let Some(layout) = live_input.layout {
-                    input.set_requested_layout_path(layout.and_then(|value| {
-                        let trimmed = value.trim();
-                        if trimmed.is_empty() {
-                            None
-                        } else {
-                            Some(std::path::PathBuf::from(trimmed))
-                        }
-                    }));
-                    input.set_requested_current_layout(None);
-                }
-                if let Some(clock_mode) = live_input.clock_mode {
-                    input.set_requested_clock_mode(clock_mode);
-                }
-                if let Some(channels) = live_input.channels {
-                    input.set_requested_channels(channels.filter(|value| *value > 0));
-                }
-                if let Some(sample_rate) = live_input.sample_rate {
-                    input.set_requested_sample_rate_hz(sample_rate.filter(|value| *value > 0));
-                }
-                if let Some(sample_format) = live_input.format {
-                    input.set_requested_sample_format(sample_format);
-                }
-                if let Some(map_mode) = live_input.map {
-                    input.set_requested_map_mode(map_mode);
-                }
-                if let Some(lfe_mode) = live_input.lfe_mode {
-                    input.set_requested_lfe_mode(lfe_mode);
-                }
-            }
-            effects.mark_dirty = true;
-            push_input_domain_broadcasts(&mut effects, input, true);
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/config/input/apply" {
-        if let Some(input) = ctx.input.as_ref() {
-            input.request_apply();
-            effects.mark_dirty = true;
-            push_input_domain_broadcasts(&mut effects, input, false);
-            effects.log_message = Some("OSC: input config apply requested".to_string());
-        }
-        return Some(effects);
-    }
 
     if addr == "/omniphony/control/config/layout" {
         let patch = parse_json_string_arg::<LayoutConfigPatch>(msg.args.first());
@@ -1489,63 +1129,10 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
-    if addr == "/omniphony/control/audio/output_devices/refresh" {
-        if let Some(audio) = ctx.audio.as_ref() {
-            if let Some(devices) = audio.refresh_available_output_devices() {
-                effects.broadcasts.push(BroadcastUpdate {
-                    addr: "/omniphony/state/audio".to_string(),
-                    value: BroadcastValue::String(build_audio_state_json(audio)),
-                });
-                effects.log_message = Some(format!(
-                    "OSC: output_devices/refresh → {} device(s)",
-                    devices.len()
-                ));
-            }
-        }
-        return Some(effects);
-    }
 
-    if addr == "/omniphony/control/audio/output_device" {
-        let requested = msg.args.first().and_then(|arg| match arg {
-            OscType::String(s) => {
-                let trimmed = s.trim();
-                if trimmed.is_empty() {
-                    None
-                } else {
-                    Some(trimmed.to_string())
-                }
-            }
-            _ => None,
-        });
-        if let Some(audio) = ctx.audio.as_ref() {
-            audio.set_requested_output_device(requested.clone());
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/metering/rate_hz" {
-        if let (Some(audio), Some(hz)) = (ctx.audio.as_ref(), parse_positive_f32_arg(msg.args.first()))
-        {
-            audio.set_meter_rate_hz(hz);
-            log::info!("OSC metering rate set to {:.1} Hz", audio.meter_rate_hz());
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/diag/rate_hz" {
-        if let (Some(audio), Some(hz)) = (ctx.audio.as_ref(), parse_positive_f32_arg(msg.args.first()))
-        {
-            audio.set_diag_publish_rate_hz(hz);
-            log::info!(
-                "OSC diag publication rate set to {:.1} Hz",
-                audio.diag_publish_rate_hz()
-            );
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
+    // metering/rate_hz and diag/rate_hz are handled by the OSC layer
+    // (orender_engine::osc::dispatch) against RendererControl — the single
+    // source of truth for both, persisted to config.
 
     if addr == "/omniphony/control/render_backend" {
         let requested = parse_string_arg(msg.args.first())
@@ -1675,29 +1262,6 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
-    if addr == "/omniphony/control/input/mode" {
-        let requested = parse_string_arg(msg.args.first()).and_then(|value| {
-            match value.to_ascii_lowercase().as_str() {
-                "bridge" | "pipe_bridge" => Some(InputMode::Bridge),
-                "live" | "pipewire" => Some(InputMode::Live),
-                "pipewire_bridge" => Some(InputMode::PipewireBridge),
-                _ => None,
-            }
-        });
-        if let (Some(input), Some(requested)) = (ctx.input.as_ref(), requested) {
-            input.set_requested_mode(requested);
-            effects.mark_dirty = true;
-            effects.log_message = Some(format!(
-                "OSC: input mode staged → {}",
-                match requested {
-                    InputMode::Bridge => "pipe_bridge",
-                    InputMode::Live => "pipewire",
-                    InputMode::PipewireBridge => "pipewire_bridge",
-                }
-            ));
-        }
-        return Some(effects);
-    }
 
     if addr == "/omniphony/control/input/drc_mode" {
         let requested = parse_string_arg(msg.args.first());
@@ -1725,149 +1289,6 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
-    if addr == "/omniphony/control/input/live/backend" {
-        let requested = parse_string_arg(msg.args.first()).and_then(|value| {
-            match value.to_ascii_lowercase().as_str() {
-                "pipewire" => Some(InputBackend::Pipewire),
-                "asio" => Some(InputBackend::Asio),
-                _ => None,
-            }
-        });
-        if let (Some(input), Some(requested)) = (ctx.input.as_ref(), requested) {
-            input.set_requested_backend(Some(requested));
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/input/live/node" {
-        let requested = parse_string_arg(msg.args.first());
-        if let Some(input) = ctx.input.as_ref() {
-            input.set_requested_node_name(requested.clone());
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/input/live/description" {
-        let requested = parse_string_arg(msg.args.first());
-        if let Some(input) = ctx.input.as_ref() {
-            input.set_requested_node_description(requested.clone());
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/input/live/layout" {
-        let requested = parse_string_arg(msg.args.first()).map(std::path::PathBuf::from);
-        if let Some(input) = ctx.input.as_ref() {
-            input.set_requested_layout_path(requested);
-            input.set_requested_current_layout(None);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/input/live/layout_import" {
-        let requested = parse_input_layout_arg(msg.args.first());
-        if let Some(input) = ctx.input.as_ref() {
-            input.set_requested_current_layout(requested);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/input/live/channels" {
-        let requested = match msg.args.first() {
-            Some(OscType::Int(i)) if *i > 0 => Some(*i as u16),
-            Some(OscType::Float(f)) if *f > 0.0 => Some(*f as u16),
-            _ => None,
-        };
-        if let (Some(input), Some(requested)) = (ctx.input.as_ref(), requested) {
-            input.set_requested_channels(Some(requested));
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/input/live/sample_rate" {
-        let requested = parse_positive_u32_arg(msg.args.first());
-        if let (Some(input), Some(requested)) = (ctx.input.as_ref(), requested) {
-            input.set_requested_sample_rate_hz(Some(requested));
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/input/live/format" {
-        let requested = parse_string_arg(msg.args.first()).and_then(|value| {
-            match value.to_ascii_lowercase().as_str() {
-                "f32" => Some(InputSampleFormat::F32),
-                "s16" => Some(InputSampleFormat::S16),
-                _ => None,
-            }
-        });
-        if let (Some(input), Some(requested)) = (ctx.input.as_ref(), requested) {
-            input.set_requested_sample_format(Some(requested));
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/input/live/map" {
-        let requested = parse_string_arg(msg.args.first()).and_then(|value| {
-            match value.to_ascii_lowercase().as_str() {
-                "7.1-fixed" => Some(InputMapMode::SevenOneFixed),
-                _ => None,
-            }
-        });
-        if let (Some(input), Some(requested)) = (ctx.input.as_ref(), requested) {
-            input.set_requested_map_mode(requested);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/input/live/lfe_mode" {
-        let requested = parse_string_arg(msg.args.first()).and_then(|value| {
-            match value.to_ascii_lowercase().as_str() {
-                "object" => Some(InputLfeMode::Object),
-                "direct" => Some(InputLfeMode::Direct),
-                "drop" => Some(InputLfeMode::Drop),
-                _ => None,
-            }
-        });
-        if let (Some(input), Some(requested)) = (ctx.input.as_ref(), requested) {
-            input.set_requested_lfe_mode(requested);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/input/live/clock_mode" {
-        let requested = parse_string_arg(msg.args.first()).and_then(|value| {
-            match value.to_ascii_lowercase().as_str() {
-                "dac" => Some(InputClockMode::Dac),
-                "pipewire" => Some(InputClockMode::Pipewire),
-                "upstream" => Some(InputClockMode::Upstream),
-                _ => None,
-            }
-        });
-        if let (Some(input), Some(requested)) = (ctx.input.as_ref(), requested) {
-            input.set_requested_clock_mode(requested);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/input/apply" {
-        if let Some(input) = ctx.input.as_ref() {
-            input.request_apply();
-            effects.mark_dirty = true;
-            effects.log_message = Some("OSC: input apply requested".to_string());
-        }
-        return Some(effects);
-    }
 
     if addr == "/omniphony/control/ramp_mode" {
         let Some(mode) = msg.args.first().and_then(|arg| match arg {
@@ -1883,158 +1304,6 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
-    if addr == "/omniphony/control/audio/sample_rate" {
-        let requested_hz = match msg.args.first() {
-            Some(OscType::Int(i)) if *i > 0 => Some(*i as u32),
-            Some(OscType::Float(f)) if *f > 0.0 => Some(*f as u32),
-            Some(OscType::Int(_)) | Some(OscType::Float(_)) => None,
-            _ => None,
-        };
-        if let Some(audio) = ctx.audio.as_ref() {
-            audio.set_requested_output_sample_rate(requested_hz);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/adaptive_resampling" {
-        let enabled = parse_bool_arg(msg.args.first());
-        if let (Some(audio), Some(enabled)) = (ctx.audio.as_ref(), enabled) {
-            audio.set_requested_adaptive_resampling(enabled);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/adaptive_resampling/enable_far_mode" {
-        let enabled = parse_bool_arg(msg.args.first());
-        if let (Some(audio), Some(enabled)) = (ctx.audio.as_ref(), enabled) {
-            audio.set_requested_adaptive_resampling_enable_far_mode(enabled);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/adaptive_resampling/force_silence_in_far_mode" {
-        let enabled = parse_bool_arg(msg.args.first());
-        if let (Some(audio), Some(enabled)) = (ctx.audio.as_ref(), enabled) {
-            audio.set_requested_adaptive_resampling_force_silence_in_far_mode(enabled);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/adaptive_resampling/hard_recover_high_in_far_mode"
-        || addr == "/omniphony/control/adaptive_resampling/hard_recover_in_far_mode"
-    {
-        let enabled = parse_bool_arg(msg.args.first());
-        if let (Some(audio), Some(enabled)) = (ctx.audio.as_ref(), enabled) {
-            audio.set_requested_adaptive_resampling_hard_recover_high_in_far_mode(enabled);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/adaptive_resampling/hard_recover_low_in_far_mode" {
-        let enabled = parse_bool_arg(msg.args.first());
-        if let (Some(audio), Some(enabled)) = (ctx.audio.as_ref(), enabled) {
-            audio.set_requested_adaptive_resampling_hard_recover_low_in_far_mode(enabled);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/adaptive_resampling/far_mode_return_fade_in_ms" {
-        let value = parse_nonnegative_u32_arg(msg.args.first());
-        if let (Some(audio), Some(value)) = (ctx.audio.as_ref(), value) {
-            audio.set_requested_adaptive_resampling_far_mode_return_fade_in_ms(value);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/adaptive_resampling/kp_near" {
-        let value = parse_positive_f32_arg(msg.args.first());
-        if let (Some(audio), Some(value)) = (ctx.audio.as_ref(), value) {
-            audio.set_requested_adaptive_resampling_kp_near(value);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/adaptive_resampling/ki" {
-        let value = parse_nonnegative_f32_arg(msg.args.first());
-        if let (Some(audio), Some(value)) = (ctx.audio.as_ref(), value) {
-            audio.set_requested_adaptive_resampling_ki(value);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/adaptive_resampling/integral_discharge_ratio" {
-        let value = parse_nonnegative_f32_arg(msg.args.first()).map(|v| v.min(1.0));
-        if let (Some(audio), Some(value)) = (ctx.audio.as_ref(), value) {
-            audio.set_requested_adaptive_resampling_integral_discharge_ratio(value);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/adaptive_resampling/max_adjust" {
-        let value = parse_positive_f32_arg(msg.args.first());
-        if let (Some(audio), Some(value)) = (ctx.audio.as_ref(), value) {
-            audio.set_requested_adaptive_resampling_max_adjust(value);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/adaptive_resampling/update_interval_callbacks" {
-        let value = parse_positive_u32_arg(msg.args.first());
-        if let (Some(audio), Some(value)) = (ctx.audio.as_ref(), value) {
-            audio.set_requested_adaptive_resampling_update_interval_callbacks(value);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/adaptive_resampling/high_recover_entry_margin_ms"
-        // Back-compat: this control was previously named near_far_threshold_ms.
-        || addr == "/omniphony/control/adaptive_resampling/near_far_threshold_ms"
-    {
-        let value = parse_positive_u32_arg(msg.args.first());
-        if let (Some(audio), Some(value)) = (ctx.audio.as_ref(), value) {
-            audio.set_requested_adaptive_resampling_high_recover_entry_margin_ms(value);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/adaptive_resampling/pause" {
-        let paused = parse_bool_arg(msg.args.first());
-        if let (Some(audio), Some(paused)) = (ctx.audio.as_ref(), paused) {
-            audio.set_requested_adaptive_resampling_paused(paused);
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/adaptive_resampling/reset_ratio" {
-        if let Some(audio) = ctx.audio.as_ref() {
-            audio.request_ratio_reset();
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
-
-    if addr == "/omniphony/control/latency_target" {
-        let latency_ms = parse_positive_u32_arg(msg.args.first());
-        if let (Some(audio), Some(latency_ms)) = (ctx.audio.as_ref(), latency_ms) {
-            audio.set_requested_latency_target_ms(Some(latency_ms));
-            effects.mark_dirty = true;
-        }
-        return Some(effects);
-    }
 
     if addr == "/omniphony/control/layout/radius_m" {
         if let Some(v) = parse_f32_arg(msg.args.first()).map(|f| f.max(0.01)) {

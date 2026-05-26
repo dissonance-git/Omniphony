@@ -7,7 +7,7 @@ use super::decoder_thread::{
 use super::handler::DecodeHandler;
 use super::live_input::{LiveBridgeRuntimeConfig, spawn_live_input_manager};
 use super::state::{FrameHandlerContext, WriterState};
-use crate::bridge_loader::{LoadedBridge, resolve_bridge_path};
+use orender_engine::bridge_loader::{LoadedBridge, resolve_bridge_path};
 use crate::cli::command::{Cli, EvaluationModeArg, OutputBackend, RenderArgSources, RenderArgs};
 use anyhow::Result;
 use log::Level;

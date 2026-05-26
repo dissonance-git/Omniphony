@@ -217,8 +217,12 @@ impl<'a> WriterLifecycleCoordinator<'a> {
                 .osc_sender
                 .as_ref()
                 .expect("osc_sender present");
-            if let Err(e) = osc_sender.send_audio_state(effective_rate, sample_format) {
-                log::warn!("Failed to send OSC audio state: {}", e);
+            // The audio-state broadcast lives in host_audio's extend_snapshot;
+            // re-emit the full live-state bundle to refresh it after the
+            // output stream is (re)configured.
+            let _ = (effective_rate, sample_format);
+            if let Err(e) = osc_sender.send_live_state_bundle() {
+                log::warn!("Failed to send OSC state bundle: {}", e);
             }
         }
     }

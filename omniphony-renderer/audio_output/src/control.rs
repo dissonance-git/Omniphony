@@ -1,17 +1,8 @@
 use crate::AdaptiveResamplingConfig;
-use std::sync::Arc;
 use std::sync::{
     Mutex,
-    atomic::{AtomicBool, AtomicU32, Ordering},
+    atomic::{AtomicBool, Ordering},
 };
-
-/// Default audio-meter update rate. Polled by `AudioMeter::poll()` each call
-/// so it can be updated live via OSC without restarting the renderer.
-pub const DEFAULT_METER_RATE_HZ: f32 = 50.0;
-
-/// Default diag-publication rate. Independent of the audio-meter rate so the
-/// diag plot can be sampled faster (or slower) than the level meters.
-pub const DEFAULT_DIAG_RATE_HZ: f32 = 50.0;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct OutputDeviceOption {
@@ -54,14 +45,6 @@ pub struct AudioControl {
     available_output_devices: Mutex<Vec<OutputDeviceOption>>,
     device_list_fetcher: Mutex<Option<Box<dyn Fn() -> Vec<OutputDeviceOption> + Send + Sync>>>,
     reset_ratio_pending: AtomicBool,
-    /// Audio-meter update rate in Hz, stored as `f32::to_bits`. Shared with
-    /// `AudioMeter`, which re-reads it each `poll()` so changes take effect
-    /// immediately without a restart.
-    meter_rate_hz_bits: Arc<AtomicU32>,
-    /// Diag-publication rate in Hz, stored as `f32::to_bits`. Independent of
-    /// `meter_rate_hz_bits` so diag (output_*, latency_*, bridge_*) and audio
-    /// levels can be sampled at separate cadences.
-    diag_publish_rate_hz_bits: Arc<AtomicU32>,
 }
 
 impl Default for AudioControl {
@@ -78,49 +61,7 @@ impl AudioControl {
             available_output_devices: Mutex::new(Vec::new()),
             device_list_fetcher: Mutex::new(None),
             reset_ratio_pending: AtomicBool::new(false),
-            meter_rate_hz_bits: Arc::new(AtomicU32::new(DEFAULT_METER_RATE_HZ.to_bits())),
-            diag_publish_rate_hz_bits: Arc::new(AtomicU32::new(
-                DEFAULT_DIAG_RATE_HZ.to_bits(),
-            )),
         }
-    }
-
-    /// Shared atomic holding the audio-meter update rate (Hz, encoded as
-    /// `f32::to_bits`). `AudioMeter` clones this and reads it each `poll()`.
-    pub fn meter_rate_atomic(&self) -> Arc<AtomicU32> {
-        Arc::clone(&self.meter_rate_hz_bits)
-    }
-
-    pub fn meter_rate_hz(&self) -> f32 {
-        f32::from_bits(self.meter_rate_hz_bits.load(Ordering::Relaxed))
-    }
-
-    /// Update the audio-meter rate. Clamped to a sane range so a typo on the
-    /// OSC side can't lock the writer thread (rate 0 would never tick) or
-    /// flood the network (rate 10_000 would).
-    pub fn set_meter_rate_hz(&self, hz: f32) {
-        let clamped = hz.clamp(1.0, 1000.0);
-        self.meter_rate_hz_bits
-            .store(clamped.to_bits(), Ordering::Relaxed);
-    }
-
-    /// Shared atomic holding the diag-publication rate (Hz, encoded as
-    /// `f32::to_bits`). The decoder-side diag publisher clones this and
-    /// recomputes its interval whenever the value changes.
-    pub fn diag_publish_rate_atomic(&self) -> Arc<AtomicU32> {
-        Arc::clone(&self.diag_publish_rate_hz_bits)
-    }
-
-    pub fn diag_publish_rate_hz(&self) -> f32 {
-        f32::from_bits(self.diag_publish_rate_hz_bits.load(Ordering::Relaxed))
-    }
-
-    /// Update the diag-publication rate, with the same `[1, 1000]` clamp
-    /// as `set_meter_rate_hz` for the same reasons.
-    pub fn set_diag_publish_rate_hz(&self, hz: f32) {
-        let clamped = hz.clamp(1.0, 1000.0);
-        self.diag_publish_rate_hz_bits
-            .store(clamped.to_bits(), Ordering::Relaxed);
     }
 
     pub fn requested_snapshot(&self) -> RequestedAudioOutputConfig {

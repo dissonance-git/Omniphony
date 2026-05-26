@@ -9,7 +9,6 @@ mod sample_write;
 mod session_run;
 mod spatial_metadata;
 pub mod state;
-mod virtual_bed;
 mod writer_lifecycle;
 
 // Re-export the main render function

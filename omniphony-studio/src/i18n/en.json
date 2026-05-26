@@ -108,6 +108,7 @@
   "section.audioInput": "Audio Input",
   "section.audioOutput": "Audio Output",
   "section.latency": "Latency",
+  "section.diagnostics": "Diagnostics",
   "section.renderer": "Renderer",
   "section.speakers": "Speakers",
   "section.speakerEditor": "Speaker Editor",

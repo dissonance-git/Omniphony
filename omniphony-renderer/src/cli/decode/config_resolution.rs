@@ -505,6 +505,9 @@ pub(super) fn effective_to_config(
         output_sample_rate: args.output_sample_rate,
         drc_mode: existing_render_cfg.and_then(|cfg| cfg.drc_mode.clone()),
         drc_weight: existing_render_cfg.and_then(|cfg| cfg.drc_weight),
+        // No CLI surface; persisted/round-tripped via the live save path.
+        meter_rate: existing_render_cfg.and_then(|cfg| cfg.meter_rate),
+        diag_rate: existing_render_cfg.and_then(|cfg| cfg.diag_rate),
         ramp_mode: if args.ramp_mode != RampModeArg::Sample {
             Some(match args.ramp_mode {
                 RampModeArg::Off => "off".to_string(),

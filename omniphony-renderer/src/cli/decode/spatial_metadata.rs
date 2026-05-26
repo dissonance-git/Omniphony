@@ -1,6 +1,6 @@
 use super::state::SpatialState;
-use crate::events::{Configuration, Event};
-use crate::runtime_osc::{ObjectMeta, OscSender};
+use orender_engine::events::{Configuration, Event};
+use orender_engine::osc::{ObjectMeta, OscSender};
 use anyhow::Result;
 use bridge_api::{RCoordinateFormat, RMetadataFrame};
 
@@ -199,53 +199,15 @@ impl<'a> SpatialMetadataCoordinator<'a> {
 
         if self.spatial_renderer.is_some() {
             let bed_indices = self.spatial.bed_indices.as_deref().unwrap_or(&[]);
-            let bed_id_to_channel: std::collections::HashMap<usize, usize> = bed_indices
-                .iter()
-                .enumerate()
-                .map(|(idx, &bid)| (bid, idx))
-                .collect();
-            let num_beds = bed_indices.len();
-
-            for event in &conf.events {
-                let object_id = match event.id() {
-                    Some(id) => id as usize,
-                    None => continue,
-                };
-                let (channel_idx, is_bed) = if object_id < 10 {
-                    match bed_id_to_channel.get(&object_id) {
-                        Some(&ch) => (ch, true),
-                        None => continue,
-                    }
-                } else {
-                    (num_beds + (object_id - 10), false)
-                };
-                self.spatial
-                    .frame_events
-                    .push(renderer::spatial_renderer::SpatialChannelEvent {
-                        channel_idx,
-                        is_bed,
-                        gain_db: event.gain_db(),
-                        ramp_length: event.ramp_length(),
-                        size: event
-                            .size()
-                            .map(|s| [s[0] as f32, s[1] as f32, s[2] as f32]),
-                        position: Self::event_pos_as_adm_cartesian(coordinate_format, event),
-                        sample_pos: event.sample_pos,
-                    });
-            }
+            orender_engine::spatial::build_spatial_channel_events(
+                &conf,
+                coordinate_format,
+                bed_indices,
+                &mut self.spatial.frame_events,
+            );
         }
 
         Ok(())
-    }
-
-    fn normalize_azimuth_deg(mut azimuth_deg: f32) -> f32 {
-        while azimuth_deg < -180.0 {
-            azimuth_deg += 360.0;
-        }
-        while azimuth_deg > 180.0 {
-            azimuth_deg -= 360.0;
-        }
-        azimuth_deg
     }
 
     fn event_pos_raw(_coordinate_format: RCoordinateFormat, event: &Event) -> Option<[f64; 3]> {
@@ -254,26 +216,5 @@ impl<'a> SpatialMetadataCoordinator<'a> {
             return None;
         }
         Some([p[0], p[1], p[2]])
-    }
-
-    fn event_pos_as_adm_cartesian(
-        coordinate_format: RCoordinateFormat,
-        event: &Event,
-    ) -> Option<[f64; 3]> {
-        let p = event.pos()?;
-        if p.len() < 3 {
-            return None;
-        }
-
-        match coordinate_format {
-            RCoordinateFormat::Cartesian => Some([p[0], p[1], p[2]]),
-            RCoordinateFormat::Polar => {
-                let az = Self::normalize_azimuth_deg(p[0] as f32);
-                let el = (p[1] as f32).clamp(-90.0, 90.0);
-                let dist = (p[2] as f32).max(0.0);
-                let (x, y, z) = renderer::spatial_vbap::spherical_to_adm(az, el, dist);
-                Some([x as f64, y as f64, z as f64])
-            }
-        }
     }
 }

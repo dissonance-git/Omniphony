@@ -10,11 +10,7 @@ impl OscSender {
             Some(ref c) => c,
             None => return Ok(()),
         };
-        let bytes = build_live_state_bundle(
-            control,
-            self.audio_control.as_ref(),
-            self.input_control.as_ref(),
-        );
+        let bytes = build_live_state_bundle(control, self.host_handler.as_ref());
         self.send_to_all(&bytes);
         Ok(())
     }
@@ -312,59 +308,6 @@ impl OscSender {
         });
         let bytes = rosc::encoder::encode(&packet)?;
         self.send_to_metering_clients(&bytes);
-        Ok(())
-    }
-
-    pub fn send_audio_state(&self, sample_rate_hz: u32, sample_format: &str) -> Result<()> {
-        let output_device = self
-            .audio_control
-            .as_ref()
-            .and_then(|control| control.requested_output_device());
-        let output_device_effective = self
-            .audio_control
-            .as_ref()
-            .and_then(|control| control.effective_output_device());
-        let audio_error = self
-            .audio_control
-            .as_ref()
-            .and_then(|control| control.audio_error());
-        let output_devices = self
-            .audio_control
-            .as_ref()
-            .map(|control| control.available_output_devices())
-            .unwrap_or_default();
-        let requested_latency_target_ms = self
-            .audio_control
-            .as_ref()
-            .and_then(|control| control.requested_latency_target_ms());
-        let announced_rate = self
-            .audio_control
-            .as_ref()
-            .and_then(|control| control.requested_output_sample_rate())
-            .unwrap_or(sample_rate_hz);
-        let payload = json!({
-            "outputDevices": output_devices,
-            "outputDevice": output_device,
-            "outputDeviceEffective": output_device_effective,
-            "sampleRate": announced_rate,
-            "sampleFormat": sample_format,
-            "error": audio_error,
-            "latencyTargetMs": requested_latency_target_ms
-        })
-        .to_string();
-        let content = vec![OscPacket::Message(OscMessage {
-            addr: "/omniphony/state/audio".to_string(),
-            args: vec![OscType::String(payload)],
-        })];
-        let bundle = OscPacket::Bundle(OscBundle {
-            timetag: OscTime {
-                seconds: 0,
-                fractional: 1,
-            },
-            content,
-        });
-        let bytes = rosc::encoder::encode(&bundle)?;
-        self.send_to_all(&bytes);
         Ok(())
     }
 }

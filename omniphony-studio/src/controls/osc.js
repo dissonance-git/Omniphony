@@ -10,7 +10,7 @@
  *     functions (launchOrenderFromPanel, installOrenderServiceFromPanel, etc.)
  */
 
-import { app, dirty, isLinux } from '../state.js';
+import { app, dirty, isLinux, producerHost, producerVariant } from '../state.js';
 import { t, tf } from '../i18n.js';
 import { scheduleUIFlush } from '../flush.js';
 import { pushLog, normalizeLogError, normalizeLogLevel, logState } from '../log.js';
@@ -49,7 +49,16 @@ export function renderOscStatus() {
   const oscRestartPipewireBtnEl = getOscRestartPipewireBtnEl();
   const oscLaunchRendererBtnEl = getOscLaunchRendererBtnEl();
   syncRuntimeConnectionLock();
-  if (statusEl) statusEl.textContent = t(`status.${app.oscStatusState}`);
+  if (statusEl) {
+    let statusText = t(`status.${app.oscStatusState}`);
+    // Label the connected renderer flavour (e.g. "connected · mpv" for the
+    // embedded variant vs "connected · cli" for the standalone service).
+    if (app.oscStatusState === 'connected' && app.producerCapabilities) {
+      const flavour = producerHost() || producerVariant();
+      if (flavour) statusText += ` · ${flavour}`;
+    }
+    statusEl.textContent = statusText;
+  }
   if (pipeStatusEl && document.activeElement !== pipeStatusEl) {
     pipeStatusEl.value = app.orenderInputPipe || '';
   }
@@ -522,11 +531,10 @@ function applyMeterRateToSelect(value) {
 const initialOscMeteringRateSelectEl = getOscMeteringRateSelectEl();
 if (initialOscMeteringRateSelectEl) {
   const initialRate = loadMeterRateHzFromStorage();
+  // Pre-connect default for the UI only. The renderer is the source of truth:
+  // its persisted value arrives via /state/monitoring (syncMeterRateFromRenderer)
+  // and overrides this. We no longer push localStorage to the renderer on boot.
   applyMeterRateToSelect(initialRate);
-  // Push the persisted rate to the renderer at boot so it matches the UI.
-  // Failures (renderer not connected yet) are silent — the renderer defaults
-  // to 50 Hz anyway, and any later user interaction will push again.
-  invoke('control_metering_rate_hz', { value: initialRate }).catch(() => {});
   initialOscMeteringRateSelectEl.addEventListener('change', () => {
     const sel = getOscMeteringRateSelectEl();
     if (!sel) return;
@@ -537,4 +545,14 @@ if (initialOscMeteringRateSelectEl) {
       console.error('[meter rate]', e);
     });
   });
+}
+
+// Sync the meter-rate select from the renderer's authoritative value
+// (/omniphony/state/monitoring). Mirrors it into localStorage so the UI memory
+// tracks the renderer rather than overriding it.
+export function syncMeterRateFromRenderer(hz) {
+  const rounded = Math.round(Number(hz));
+  if (!Number.isFinite(rounded) || !METER_RATE_OPTIONS_HZ.includes(rounded)) return;
+  applyMeterRateToSelect(rounded);
+  try { localStorage.setItem(METER_RATE_STORAGE_KEY, String(rounded)); } catch (_) { /* ignore */ }
 }

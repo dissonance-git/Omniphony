@@ -2140,3 +2140,23 @@
         border: 2px solid transparent;
         background-clip: padding-box;
       }
+
+/* ---------------------------------------------------------------------------
+ * Renderer-variant adaptation (capability handshake).
+ *
+ * The embedded renderer (liborender inside mpv) owns no audio-output stage —
+ * mpv does — so it advertises no `audio` domain and no `adaptive_resampling`
+ * controlConfig. Studio toggles these body classes from the handshake
+ * (see applyProducerCapabilityVisibility) to HIDE the inapplicable panels.
+ * !important so it wins over the panels' own open/close display toggles.
+ * --------------------------------------------------------------------------- */
+body.cap-no-audio #audioOutputSection {
+  display: none !important;
+}
+/* The whole Latency section (latency meter + resample meter + adaptive
+ * resampler + latency-target) is output-stage only, so hide it wholesale on
+ * the embedded variant. The diagnostics plot lives in its own #diagSection
+ * (generalised well beyond latency) and stays visible in both variants. */
+body.cap-no-resampler #latencySection {
+  display: none !important;
+}

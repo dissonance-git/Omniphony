@@ -1,7 +1,10 @@
 use abi_stable::library::RootModule;
 use abi_stable::std_types::RStr;
 use anyhow::{Context, Result, bail};
-use bridge_api::{BridgeHostLogSink, BridgeLibRef, FormatBridgeBox, RLogLevel};
+use bridge_api::{
+    BridgeHostLogSink, BridgeLibRef, FormatBridgeBox, RLogLevel, RVbapCartesianDefaults,
+    RVbapTableMode,
+};
 use std::path::{Path, PathBuf};
 
 /// Loaded bridge library + live bridge instance.
@@ -28,9 +31,24 @@ impl LoadedBridge {
         let bridge = new_bridge(strict);
         Ok(Self { lib, bridge })
     }
+
+    /// Set a bridge configuration option. Must be called before the first packet.
+    pub fn configure(&mut self, key: &str, value: &str) -> bool {
+        self.bridge.configure(key.into(), value.into())
+    }
+
+    /// Default Cartesian VBAP grid dimensions suggested by the bridge.
+    pub fn vbap_cartesian_defaults(&self) -> RVbapCartesianDefaults {
+        self.bridge.vbap_cartesian_defaults()
+    }
+
+    /// Preferred VBAP table mode suggested by the bridge.
+    pub fn preferred_vbap_table_mode(&self) -> RVbapTableMode {
+        self.bridge.preferred_vbap_table_mode()
+    }
 }
 
-pub(crate) fn install_bridge_host_log_sink(lib: &BridgeLibRef) {
+pub fn install_bridge_host_log_sink(lib: &BridgeLibRef) {
     let Some(set_host_log_sink) = lib.set_host_log_sink() else {
         return;
     };
@@ -53,6 +71,10 @@ extern "C" fn forward_bridge_log_to_host(level: RLogLevel, target: RStr<'_>, mes
 /// Search order:
 /// 1. `--bridge-path` / config-provided explicit file path
 /// 2. Any file matching `*_bridge.so` / `.dll` / `.dylib` next to the executable
+///
+/// Note: the exe-relative fallback (2) only makes sense when the host is the
+/// `orender` binary. Library hosts (e.g. mpv loading `liborender.so`) must pass
+/// an explicit path, because `current_exe()` would resolve to the host program.
 pub fn resolve_bridge_path(explicit: Option<&Path>) -> Result<PathBuf> {
     // 1. Explicit path from CLI/config
     if let Some(path) = explicit {
