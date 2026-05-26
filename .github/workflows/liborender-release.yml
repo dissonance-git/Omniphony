@@ -1,0 +1,97 @@
+name: liborender Release
+
+# Triggered by a liborender-v* tag.
+# Builds liborender.so (Linux) + orender.dll (Windows), bundles each with the
+# cbindgen-generated orender.h header, and creates a draft GitHub release.
+#
+# Unlike the Studio release workflow, this build needs NO PipeWire / ASIO /
+# Tauri toolchains: orender_ffi only pulls orender_engine (audio-free by
+# design — see runtime_control::HostControlHandler).
+on:
+  push:
+    tags:
+      - 'liborender-v*'
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build orender_ffi (release)
+        run: cargo build --release -p orender_ffi
+        working-directory: omniphony-renderer
+        env:
+          RUSTFLAGS: -D warnings
+
+      - name: Package (zip)
+        run: |
+          mkdir -p staging
+          cp omniphony-renderer/target/release/liborender.so staging/
+          cp omniphony-renderer/orender_ffi/include/orender.h staging/
+          cd staging
+          zip "../${GITHUB_REF_NAME}-linux-x86_64.zip" liborender.so orender.h
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: liborender-linux-x86_64
+          path: liborender-*-linux-x86_64.zip
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build orender_ffi (release)
+        run: cargo build --release -p orender_ffi
+        working-directory: omniphony-renderer
+        env:
+          RUSTFLAGS: -D warnings
+
+      - name: Package (zip)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path staging | Out-Null
+          Copy-Item omniphony-renderer/target/release/orender.dll staging/
+          Copy-Item omniphony-renderer/orender_ffi/include/orender.h staging/
+          Compress-Archive -Path staging/orender.dll, staging/orender.h `
+            -DestinationPath "${env:GITHUB_REF_NAME}-windows-x86_64.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: liborender-windows-x86_64
+          path: liborender-*-windows-x86_64.zip
+
+  release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: liborender-linux-x86_64
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: liborender-windows-x86_64
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: ${{ github.ref_name }}
+          files: |
+            liborender-*-linux-x86_64.zip
+            liborender-*-windows-x86_64.zip
