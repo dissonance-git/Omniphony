@@ -33,7 +33,10 @@ pub struct SpatialRendererParams {
     pub evaluation_polar_elevation_resolution: i32,
     pub evaluation_polar_distance_res: i32,
     pub evaluation_polar_distance_max: f32,
-    pub render_evaluation_mode: EvalMode,
+    /// Evaluation table mode chosen by the user (CLI flag or config YAML).
+    /// `None` means "no explicit choice" — the engine then follows the
+    /// `preferred_evaluation_mode` advertised by the format bridge.
+    pub render_evaluation_mode: Option<EvalMode>,
     pub evaluation_mode_explicit: bool,
     pub evaluation_cartesian_x_size: Option<usize>,
     pub evaluation_cartesian_y_size: Option<usize>,
@@ -67,8 +70,10 @@ impl SpatialRendererParams {
     /// so the FFI and CLI build an identical renderer from the same config.
     ///
     /// `log_object_positions` and precomputed `vbap_table` loading are CLI-only
-    /// and stay off here. `render_evaluation_mode` selects the table mode; like
-    /// the CLI, a config-only mode is not treated as "explicit", so the live
+    /// and stay off here. `render_evaluation_mode` is `None` when the config
+    /// doesn't specify one — the engine then defers to the bridge's
+    /// preferred mode (cartesian for OAMD/spatial sources). A config-set mode
+    /// is honored but, like the CLI, not treated as "explicit" so the live
     /// evaluation mode starts at `Auto`.
     pub fn from_render_config(cfg: Option<&RenderConfig>) -> Self {
         let mode = cfg.and_then(|c| c.render_evaluation_mode.as_deref());
@@ -77,9 +82,15 @@ impl SpatialRendererParams {
                 if v.eq_ignore_ascii_case("precomputed_cartesian")
                     || v.eq_ignore_ascii_case("cartesian") =>
             {
-                EvalMode::Cartesian
+                Some(EvalMode::Cartesian)
             }
-            _ => EvalMode::Polar,
+            Some(v)
+                if v.eq_ignore_ascii_case("precomputed_polar")
+                    || v.eq_ignore_ascii_case("polar") =>
+            {
+                Some(EvalMode::Polar)
+            }
+            _ => None,
         };
         Self {
             vbap_table: None,
@@ -168,6 +179,7 @@ fn parse_room_ratio(params: &SpatialRendererParams) -> Result<([f32; 3], f32, f3
 fn resolve_evaluation_table_mode(
     params: &SpatialRendererParams,
     vbap_cartesian_defaults: RVbapCartesianDefaults,
+    preferred_evaluation_mode: RVbapTableMode,
 ) -> Result<(VbapTableMode, bool)> {
     let vbap_allow_negative_z = if params.vbap_allow_negative_z {
         true
@@ -176,7 +188,17 @@ fn resolve_evaluation_table_mode(
     } else {
         vbap_cartesian_defaults.allow_negative_z
     };
-    let vbap_table_mode = match params.render_evaluation_mode {
+    // If the user didn't pick a mode (CLI default + no config entry),
+    // honor the format bridge's preference — cartesian for OAMD/spatial
+    // sources, which is dramatically faster to precompute than the polar
+    // grid (the polar default could take ~6 s for 12 speakers).
+    let effective_mode = params.render_evaluation_mode.unwrap_or_else(|| {
+        match preferred_evaluation_mode {
+            RVbapTableMode::Cartesian => EvalMode::Cartesian,
+            RVbapTableMode::Polar => EvalMode::Polar,
+        }
+    });
+    let vbap_table_mode = match effective_mode {
         EvalMode::Polar => VbapTableMode::Polar,
         EvalMode::Cartesian => {
             let x_cells = params
@@ -224,8 +246,11 @@ pub fn build_spatial_renderer(
     let (room_ratio, room_ratio_rear, room_ratio_lower, room_ratio_center_blend) =
         parse_room_ratio(params)?;
 
-    let (vbap_table_mode, vbap_allow_negative_z) =
-        resolve_evaluation_table_mode(params, vbap_cartesian_defaults)?;
+    let (vbap_table_mode, vbap_allow_negative_z) = resolve_evaluation_table_mode(
+        params,
+        vbap_cartesian_defaults,
+        preferred_evaluation_mode,
+    )?;
 
     log::info!("VBAP allow_negative_z: {}", vbap_allow_negative_z);
 
@@ -288,8 +313,11 @@ pub fn build_spatial_renderer(
             },
             if params.evaluation_mode_explicit {
                 match params.render_evaluation_mode {
-                    EvalMode::Polar => LiveEvaluationMode::PrecomputedPolar,
-                    EvalMode::Cartesian => LiveEvaluationMode::PrecomputedCartesian,
+                    Some(EvalMode::Polar) => LiveEvaluationMode::PrecomputedPolar,
+                    Some(EvalMode::Cartesian) => LiveEvaluationMode::PrecomputedCartesian,
+                    // evaluation_mode_explicit but no mode set is a logic error
+                    // upstream; fall back to Auto rather than panicking.
+                    None => LiveEvaluationMode::Auto,
                 }
             } else {
                 LiveEvaluationMode::Auto

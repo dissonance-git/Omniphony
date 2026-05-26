@@ -256,9 +256,17 @@ fn init_spatial_renderer(
         evaluation_polar_elevation_resolution: args.evaluation_polar_elevation_resolution,
         evaluation_polar_distance_res: args.evaluation_polar_distance_res,
         evaluation_polar_distance_max: args.evaluation_polar_distance_max,
-        render_evaluation_mode: match args.render_evaluation_mode {
-            EvaluationModeArg::Polar => orender_engine::renderer_build::EvalMode::Polar,
-            EvaluationModeArg::Cartesian => orender_engine::renderer_build::EvalMode::Cartesian,
+        // None lets the engine follow the bridge's preferred mode (cartesian
+        // for OAMD/spatial). Only commit to a concrete EvalMode when the user
+        // explicitly picked one via CLI or config, so an unset --eval-mode
+        // doesn't lock the pre-compute to the CLI's default Polar.
+        render_evaluation_mode: if evaluation_mode_explicit {
+            Some(match args.render_evaluation_mode {
+                EvaluationModeArg::Polar => orender_engine::renderer_build::EvalMode::Polar,
+                EvaluationModeArg::Cartesian => orender_engine::renderer_build::EvalMode::Cartesian,
+            })
+        } else {
+            None
         },
         evaluation_mode_explicit,
         evaluation_cartesian_x_size: args.evaluation_cartesian_x_size,
