@@ -40,7 +40,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: liborender-linux-x86_64
-          path: liborender-*-linux-x86_64.zip
+          path: ${{ github.ref_name }}-linux-x86_64.zip
 
   build-windows:
     runs-on: windows-latest
@@ -69,7 +69,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: liborender-windows-x86_64
-          path: liborender-*-windows-x86_64.zip
+          path: ${{ github.ref_name }}-windows-x86_64.zip
 
   release:
     needs: [build-linux, build-windows]
@@ -93,5 +93,5 @@ jobs:
           draft: true
           name: ${{ github.ref_name }}
           files: |
-            liborender-*-linux-x86_64.zip
-            liborender-*-windows-x86_64.zip
+            ${{ github.ref_name }}-linux-x86_64.zip
+            ${{ github.ref_name }}-windows-x86_64.zip
