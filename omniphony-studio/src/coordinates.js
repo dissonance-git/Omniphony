@@ -158,6 +158,28 @@ export function normalizedOmniphonyToScenePosition(position) {
   return mapRoomPosition(rawScene);
 }
 
+// Tolerance for snapping a normalized cartesian component to {-1, 0, 1}.
+// The pipeline is cartesian end-to-end (config + bridge + evaluation), but
+// two Studio paths leak polar precision into stored cart values:
+//   1. `inverseMapRoomDepth` is a 28-iter bisection (~2^-29 ≈ 1.86e-9 error
+//      around the ±rear/front edges) — that's where the `1.86e-9` LFE y came
+//      from.
+//   2. The polar edit gizmo runs everything through `sphericalToCartesianDeg`
+//      even when `coord_mode === cartesian`, so an elevation handle drag on
+//      a "cube corner" speaker round-trips through Math.sin/cos and lands at
+//      `1.0 − 1 ULP_f32 ≈ 0.99999994` instead of an exact `1.0`.
+// The snap tolerance is much smaller than any UI-meaningful precision (~0.01)
+// so it can't mask a legitimate fine-tuning value.
+const GRID_SNAP_TOLERANCE = 1e-5;
+
+function snapToCardinal(value) {
+  if (!Number.isFinite(value)) return value;
+  if (Math.abs(value - 1) < GRID_SNAP_TOLERANCE) return 1;
+  if (Math.abs(value + 1) < GRID_SNAP_TOLERANCE) return -1;
+  if (Math.abs(value) < GRID_SNAP_TOLERANCE) return 0;
+  return value;
+}
+
 export function scenePositionToNormalizedOmniphony(position) {
   const rawScene = {
     x: inverseMapRoomDepth(Number(position?.x) || 0),
@@ -168,9 +190,9 @@ export function scenePositionToNormalizedOmniphony(position) {
   };
   const omni = sceneToOmniphonyCartesian(rawScene);
   return {
-    x: clampNumber(omni.x, -1, 1),
-    y: clampNumber(omni.y, -1, 1),
-    z: clampNumber(omni.z, -1, 1)
+    x: snapToCardinal(clampNumber(omni.x, -1, 1)),
+    y: snapToCardinal(clampNumber(omni.y, -1, 1)),
+    z: snapToCardinal(clampNumber(omni.z, -1, 1))
   };
 }
 
