@@ -311,6 +311,18 @@ export function setupTauriBridge() {
 
   listen('vbap:recomputing', ({ payload }) => {
     app.vbapRecomputing = payload.enabled === true;
+    if (app.vbapRecomputing) {
+      app.recomputeError = null;
+    }
+    renderVbapStatus();
+  });
+
+  listen('speakers:recompute_error', ({ payload }) => {
+    const message = typeof payload?.message === 'string' ? payload.message.trim() : '';
+    app.recomputeError = message.length > 0 ? message : null;
+    if (app.recomputeError) {
+      app.vbapRecomputing = false;
+    }
     renderVbapStatus();
   });
 
@@ -500,6 +512,18 @@ export function setupTauriBridge() {
 
   listen('config:saved', ({ payload }) => {
     app.configSaved = payload.saved !== 0;
+    app.saveError = null;
+    app.saveRequested = false;
+    updateConfigSavedUI();
+  });
+
+  listen('config:save_error', ({ payload }) => {
+    const message = typeof payload?.message === 'string' ? payload.message.trim() : '';
+    app.saveError = message.length > 0 ? message : null;
+    app.saveRequested = false;
+    if (app.saveError) {
+      pushLog('error', app.saveError);
+    }
     updateConfigSavedUI();
   });
 

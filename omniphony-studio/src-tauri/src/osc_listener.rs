@@ -1891,6 +1891,20 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     removed_ids,
                 )
             }
+            OscEvent::StateSpeakersRecomputeError { message } => {
+                s.recompute_error = if message.is_empty() {
+                    None
+                } else {
+                    Some(message.clone())
+                };
+                (
+                    Some((
+                        "speakers:recompute_error",
+                        serde_json::json!({ "message": message }),
+                    )),
+                    removed_ids,
+                )
+            }
             OscEvent::StateAdaptiveResampling { enabled } => {
                 s.adaptive_resampling = Some(if enabled { 1 } else { 0 });
                 (
@@ -2059,6 +2073,21 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     Some((
                         "config:saved",
                         serde_json::json!({ "saved": if saved { 1 } else { 0 } }),
+                    )),
+                    removed_ids,
+                )
+            }
+
+            OscEvent::StateConfigSaveError { message } => {
+                s.save_error = if message.is_empty() {
+                    None
+                } else {
+                    Some(message.clone())
+                };
+                (
+                    Some((
+                        "config:save_error",
+                        serde_json::json!({ "message": message }),
                     )),
                     removed_ids,
                 )

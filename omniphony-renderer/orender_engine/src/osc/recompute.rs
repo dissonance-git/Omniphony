@@ -47,6 +47,12 @@ pub(crate) fn trigger_layout_recompute(
         .recomputing
         .store(true, std::sync::atomic::Ordering::Relaxed);
     broadcast_int(socket, clients, "/omniphony/state/speakers/recomputing", 1);
+    broadcast_string(
+        socket,
+        clients,
+        "/omniphony/state/speakers/recompute_error",
+        "",
+    );
 
     let control_clone = Arc::clone(control);
     let socket_clone = Arc::clone(socket);
@@ -62,7 +68,22 @@ pub(crate) fn trigger_layout_recompute(
                 "Render backend recompute started ({})",
                 rebuild_plan_for_thread.log_summary()
             );
-            match rebuild_plan_for_thread.build_topology() {
+            let build_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                rebuild_plan_for_thread.build_topology()
+            }))
+            .unwrap_or_else(|payload| {
+                let detail = if let Some(msg) = payload.downcast_ref::<&'static str>() {
+                    (*msg).to_string()
+                } else if let Some(msg) = payload.downcast_ref::<String>() {
+                    msg.clone()
+                } else {
+                    "panic with non-string payload".to_string()
+                };
+                Err(anyhow::anyhow!(
+                    "render backend panicked during build_topology: {detail}"
+                ))
+            });
+            match build_result {
                 Ok(new_topology) => {
                     control_clone.publish_topology(new_topology);
                     control_clone
@@ -129,10 +150,21 @@ pub(crate) fn trigger_layout_recompute(
                     log::info!("Render backend recompute completed");
                 }
                 Err(e) => {
-                    log::error!("Render backend recompute failed: {}", e);
+                    let message = format!(
+                        "Render backend {} recompute failed: {}",
+                        rebuild_plan_for_thread.backend_id(),
+                        e
+                    );
+                    log::error!("{message}");
                     control_clone
                         .recomputing
                         .store(false, std::sync::atomic::Ordering::Relaxed);
+                    broadcast_string(
+                        &socket_clone,
+                        &clients_clone,
+                        "/omniphony/state/speakers/recompute_error",
+                        &message,
+                    );
                     broadcast_int(
                         &socket_clone,
                         &clients_clone,

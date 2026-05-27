@@ -16,11 +16,20 @@ export function renderConfigSavedUI() {
   const reloadConfigBtnEl = getReloadConfigBtnEl();
   const runtimeConnected = app.oscSnapshotReady === true;
   if (configSavedIndicatorEl) {
-    configSavedIndicatorEl.textContent = '';
+    if (typeof app.saveError === 'string' && app.saveError.length > 0) {
+      configSavedIndicatorEl.textContent = app.saveError;
+      configSavedIndicatorEl.title = app.saveError;
+      configSavedIndicatorEl.style.color = '#ff7676';
+    } else {
+      configSavedIndicatorEl.textContent = '';
+      configSavedIndicatorEl.removeAttribute('title');
+      configSavedIndicatorEl.style.color = '';
+    }
   }
   if (saveConfigBtnEl) {
     const alreadySaved = app.configSaved === true;
-    const enabled = runtimeConnected && !alreadySaved;
+    const pending = app.saveRequested === true;
+    const enabled = runtimeConnected && !alreadySaved && !pending;
     saveConfigBtnEl.disabled = !enabled;
     saveConfigBtnEl.style.opacity = enabled ? '1' : '0.5';
     saveConfigBtnEl.style.cursor = enabled ? 'pointer' : 'default';

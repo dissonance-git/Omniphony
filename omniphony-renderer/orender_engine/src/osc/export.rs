@@ -7,7 +7,7 @@ use rosc::{OscBundle, OscMessage, OscPacket, OscTime, OscType};
 use runtime_control::HostControlHandler;
 
 use super::client_registry::OscClientRegistry;
-use super::transport::{broadcast_int, send_raw};
+use super::transport::{broadcast_int, broadcast_string, send_raw};
 
 /// Compose the live-state snapshot bundle: core messages (renderer/layout/
 /// speakers/loudness/DRC/monitoring/objects) + the host handler's extra
@@ -45,6 +45,9 @@ pub(crate) fn save_live_config(
     clients: &OscClientRegistry,
 ) {
     let host_ref: Option<&dyn HostControlHandler> = host.map(|h| h.as_ref());
+    // Clear any previous save error so the UI returns to a clean state for
+    // this attempt (mirrors what we do at the start of a recompute).
+    broadcast_string(socket, clients, "/omniphony/state/config/save_error", "");
     match runtime_control::persist::save_live_config(control, host_ref) {
         Ok(result) => {
             broadcast_int(socket, clients, "/omniphony/state/config/saved", 1);
@@ -57,7 +60,14 @@ pub(crate) fn save_live_config(
             }
         }
         Err(e) => {
-            log::error!("OSC: failed to save config: {}", e);
+            let message = format!("config save failed: {e}");
+            log::error!("OSC: {message}");
+            broadcast_string(
+                socket,
+                clients,
+                "/omniphony/state/config/save_error",
+                &message,
+            );
         }
     }
 }

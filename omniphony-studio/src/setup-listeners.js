@@ -14,6 +14,7 @@ import {
   normalizeLogLevel, normalizeLogError, setLogExpanded, copyLogsToClipboard, setLogFilterText
 } from './log.js';
 import { setOscStatus } from './controls/osc.js';
+import { updateConfigSavedUI } from './controls/config.js';
 import { setupAudioPanelListeners } from './listeners/audio-panel-listeners.js';
 import { setupInputPanelListeners } from './listeners/input-panel-listeners.js';
 import { setupRendererPanelListeners } from './listeners/renderer-panel-listeners.js';
@@ -48,7 +49,10 @@ export function setupUIListeners() {
     saveConfigBtnEl.addEventListener('click', () => {
       if (!app.oscSnapshotReady) return;
       pushLog('info', t('log.saveRequested'));
+      app.saveRequested = true;
+      app.saveError = null;
       invoke('control_save_config');
+      updateConfigSavedUI();
     });
   }
 

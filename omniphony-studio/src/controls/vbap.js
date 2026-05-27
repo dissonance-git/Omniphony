@@ -171,15 +171,24 @@ function formatEvaluationModeLabel(mode) {
 export function renderVbapStatus() {
   const vbapStatusEl = getVbapStatusEl();
   if (!vbapStatusEl) return;
-  vbapStatusEl.classList.remove('computing', 'ready');
-  if (app.vbapRecomputing === true) {
+  vbapStatusEl.classList.remove('computing', 'ready', 'error');
+  vbapStatusEl.removeAttribute('title');
+  if (typeof app.recomputeError === 'string' && app.recomputeError.length > 0) {
+    vbapStatusEl.textContent = app.recomputeError;
+    vbapStatusEl.classList.add('error');
+    vbapStatusEl.title = app.recomputeError;
+    vbapStatusEl.style.color = '#ff7676';
+  } else if (app.vbapRecomputing === true) {
     vbapStatusEl.textContent = t('vbap.status.computing');
     vbapStatusEl.classList.add('computing');
+    vbapStatusEl.style.color = '';
   } else if (app.vbapRecomputing === false) {
     vbapStatusEl.textContent = t('vbap.status.ready');
     vbapStatusEl.classList.add('ready');
+    vbapStatusEl.style.color = '';
   } else {
     vbapStatusEl.textContent = t('vbap.status.idle');
+    vbapStatusEl.style.color = '';
   }
 }
 

@@ -376,6 +376,10 @@ pub struct AppState {
     pub adaptive_resampling_disable_backpressure: Option<u8>,
     #[serde(rename = "vbapRecomputing")]
     pub vbap_recomputing: Option<bool>,
+    #[serde(rename = "recomputeError", skip_serializing_if = "Option::is_none")]
+    pub recompute_error: Option<String>,
+    #[serde(rename = "saveError", skip_serializing_if = "Option::is_none")]
+    pub save_error: Option<String>,
     #[serde(rename = "configSaved")]
     pub config_saved: Option<u8>,
     #[serde(flatten)]
@@ -636,6 +640,8 @@ impl Default for AppState {
             adaptive_resampling_use_output_pacing: Some(0),
             adaptive_resampling_disable_backpressure: Some(0),
             vbap_recomputing: None,
+            recompute_error: None,
+            save_error: None,
             config_saved: None,
             latency: RuntimeLatencyState::default(),
             decode_time_ms: None,

@@ -139,6 +139,9 @@ export const app = {
   vbapPositionInterpolation: null,
   vbapAllowNegativeZ: null,
   vbapRecomputing: null,
+  recomputeError: null,
+  saveRequested: false,
+  saveError: null,
   vbapCartesianFaceGridEnabled: false,
 
   // Spread

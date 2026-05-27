@@ -298,6 +298,10 @@ pub enum OscEvent {
     StateVbapAllowNegativeZ { enabled: bool },
     #[serde(rename = "state:speakers:recomputing")]
     StateSpeakersRecomputing { enabled: bool },
+    #[serde(rename = "state:speakers:recompute_error")]
+    StateSpeakersRecomputeError { message: String },
+    #[serde(rename = "state:config:save_error")]
+    StateConfigSaveError { message: String },
     #[serde(rename = "state:adaptive_resampling")]
     StateAdaptiveResampling { enabled: bool },
     #[serde(rename = "state:adaptive_resampling:enable_far_mode")]
@@ -677,6 +681,14 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
         }),
         (4, "speakers") if parts[3] == "recomputing" => Some(OscEvent::StateSpeakersRecomputing {
             enabled: to_number(args[0])? != 0.0,
+        }),
+        (4, "speakers") if parts[3] == "recompute_error" => {
+            Some(OscEvent::StateSpeakersRecomputeError {
+                message: raw_args.first().and_then(unwrap_string).unwrap_or_default(),
+            })
+        }
+        (4, "config") if parts[3] == "save_error" => Some(OscEvent::StateConfigSaveError {
+            message: raw_args.first().and_then(unwrap_string).unwrap_or_default(),
         }),
         (3, "adaptive_resampling") => Some(OscEvent::StateAdaptiveResampling {
             enabled: to_number(args[0])? != 0.0,
