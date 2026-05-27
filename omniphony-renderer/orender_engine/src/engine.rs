@@ -207,6 +207,18 @@ impl Engine {
         // Seed monitoring cadences from config (renderer is the source of
         // truth); embedded default is 10 Hz.
         let control = renderer.renderer_control();
+        // Propagate config_path + bridge_path so that the OSC SaveConfig
+        // command can persist the live state (CLI bootstrap does this in
+        // cli/decode/bootstrap.rs; any embedder of this engine — FFI,
+        // mpv-omniphony, future hosts — needs it too). Without these,
+        // `persist::save_live_config` either aborts with "no config path
+        // available", or — worse — succeeds while erasing
+        // `render.bridge_path` from the YAML because `control.bridge_path()`
+        // returns None and gets serialised verbatim.
+        if let Some(path) = config_yaml_path {
+            control.set_config_path(path.to_path_buf());
+        }
+        control.set_bridge_path(Some(resolved_bridge.clone()));
         control.set_meter_rate_hz(render_cfg.as_ref().and_then(|c| c.meter_rate).unwrap_or(10.0));
         control.set_diag_rate_hz(render_cfg.as_ref().and_then(|c| c.diag_rate).unwrap_or(10.0));
 
