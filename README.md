@@ -69,6 +69,8 @@ opt-in spatial audio decoder that hands raw access units to
 `liborender` (the C shared-library form of this renderer) for
 VBAP object rendering instead of letting FFmpeg downmix.
 
+[![mpv-omniphony — mpv playing a spatial mix, supervised by Omniphony Studio](https://github.com/mgth/mpv-omniphony/raw/main/mpv-omniphony-1200.png)](https://github.com/mgth/mpv-omniphony)
+
 - Opt-in via `--ad=orender`; plain streams keep playing through
   the standard mpv decoders.
 - Reads the same per-user config as the standalone `orender` CLI
