@@ -294,6 +294,7 @@ pub(super) fn effective_to_config(
             None
         },
         strict: if cli.strict { Some(true) } else { None },
+        extra: Default::default(),
     };
 
     let render = RenderConfig {
@@ -538,6 +539,7 @@ pub(super) fn effective_to_config(
         experimental_distance_position_error_floor: None,
         experimental_distance_position_error_nearest_scale: None,
         experimental_distance_position_error_span_scale: None,
+        extra: Default::default(),
     };
 
     let global_opt =
@@ -550,5 +552,6 @@ pub(super) fn effective_to_config(
     Ok(Config {
         global: global_opt,
         render: Some(render),
+        extra: Default::default(),
     })
 }

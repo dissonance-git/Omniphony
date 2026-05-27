@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use serde_yaml_ng::Mapping;
 
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
 pub struct Config {
@@ -8,6 +9,13 @@ pub struct Config {
     pub global: Option<GlobalConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub render: Option<RenderConfig>,
+    /// Captures any top-level key not modelled above so a load → mutate
+    /// → save round-trip preserves it verbatim. Without this, every
+    /// embedder of the engine that triggers `persist::save_live_config`
+    /// (FFI in mpv-omniphony, future hosts, …) would silently strip
+    /// CLI-only or host-specific keys from the user's config YAML.
+    #[serde(flatten, default, skip_serializing_if = "Mapping::is_empty")]
+    pub extra: Mapping,
 }
 
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
@@ -18,6 +26,9 @@ pub struct GlobalConfig {
     pub log_format: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strict: Option<bool>,
+    /// See `Config::extra` — preserve unknown keys through round-trips.
+    #[serde(flatten, default, skip_serializing_if = "Mapping::is_empty")]
+    pub extra: Mapping,
 }
 
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
@@ -203,6 +214,12 @@ pub struct RenderConfig {
     pub experimental_distance_position_error_nearest_scale: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub experimental_distance_position_error_span_scale: Option<f32>,
+    /// See `Config::extra` — preserve unknown keys through round-trips.
+    /// This matters most for `render.*`: any field added by a future
+    /// version of the CLI / a host that we haven't migrated into this
+    /// struct yet survives a save from another embedder.
+    #[serde(flatten, default, skip_serializing_if = "Mapping::is_empty")]
+    pub extra: Mapping,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -334,5 +351,68 @@ pub fn default_config_path() -> Option<PathBuf> {
                     .map(|h| PathBuf::from(h).join(".config"))
             })?;
         Some(base.join("omniphony").join("config.yaml"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unknown_fields_survive_round_trip_at_top_level() {
+        let yaml = "\
+cli_only_marker: keep-me
+render:
+  bridge_path: /tmp/x.so
+  some_future_key:
+    nested: value
+";
+        let cfg: Config = serde_yaml_ng::from_str(yaml).expect("parse");
+        // Known field still typed.
+        assert_eq!(
+            cfg.render.as_ref().unwrap().bridge_path,
+            Some(PathBuf::from("/tmp/x.so"))
+        );
+        // Unknown top-level + nested-unknown are captured.
+        assert!(cfg.extra.contains_key("cli_only_marker"));
+        assert!(
+            cfg.render
+                .as_ref()
+                .unwrap()
+                .extra
+                .contains_key("some_future_key")
+        );
+
+        let out = serde_yaml_ng::to_string(&cfg).expect("serialize");
+        assert!(
+            out.contains("cli_only_marker: keep-me"),
+            "top-level unknown key dropped:\n{out}"
+        );
+        assert!(
+            out.contains("some_future_key"),
+            "nested unknown key dropped:\n{out}"
+        );
+        assert!(
+            out.contains("bridge_path: /tmp/x.so"),
+            "typed field missing:\n{out}"
+        );
+    }
+
+    #[test]
+    fn save_round_trip_preserves_unknown_fields() {
+        let yaml = "\
+render:
+  bridge_path: /tmp/x.so
+  cli_specific_thing: 42
+";
+        let mut cfg: Config = serde_yaml_ng::from_str(yaml).expect("parse");
+        // Mutate a known field, as `persist::save_live_config` would.
+        cfg.render.as_mut().unwrap().bridge_path = Some(PathBuf::from("/tmp/y.so"));
+        let out = serde_yaml_ng::to_string(&cfg).expect("serialize");
+        assert!(out.contains("bridge_path: /tmp/y.so"), "{out}");
+        assert!(
+            out.contains("cli_specific_thing: 42"),
+            "unknown field erased on save:\n{out}"
+        );
     }
 }
