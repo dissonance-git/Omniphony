@@ -342,7 +342,9 @@ impl VbapPanner {
                 let (azimuth, elevation, _) = adm_to_spherical(x, y, z);
                 self.get_gains_with_spread(azimuth, elevation, spread)
             }
-            VbapTableMode::Cartesian { .. } => self.get_gains_from_cartesian_cache(x, y, z),
+            VbapTableMode::Cartesian { .. } => {
+                self.get_gains_from_cartesian_cache(x, y, z, spread)
+            }
         };
 
         VbapPanner::apply_gain(
@@ -406,11 +408,11 @@ impl VbapPanner {
 
     // ── Cache lookups ───────────────────────────────────────────────────────
 
-    fn get_gains_from_cartesian_cache(&self, x: f32, y: f32, z: f32) -> Gains {
+    fn get_gains_from_cartesian_cache(&self, x: f32, y: f32, z: f32, spread: f32) -> Gains {
         let Some(cache) = self.cartesian_cache.as_ref() else {
             let z = if self.allow_negative_z { z } else { z.max(0.0) };
             let (azimuth, elevation, _) = adm_to_spherical(x, y, z);
-            return self.get_gains_with_spread(azimuth, elevation, 0.0);
+            return self.get_gains_with_spread(azimuth, elevation, spread);
         };
 
         let raw_x = x.clamp(-1.0, 1.0);
@@ -424,18 +426,26 @@ impl VbapPanner {
         let (x0, x1, tx) = Self::axis_lookup(&cache.x_coords, raw_x);
         let (y0, y1, ty) = Self::axis_lookup(&cache.y_coords, raw_y);
         let (z0, z1, tz) = Self::axis_lookup(&cache.z_coords, raw_z);
+        let (sp0_idx, sp1_idx, spt) = self.get_spread_idx(spread);
 
         if !self.position_interpolation {
-            return self.lookup_cartesian_nearest(
-                cache,
-                0,
-                Self::nearest_idx(x0, x1, tx),
-                Self::nearest_idx(y0, y1, ty),
-                Self::nearest_idx(z0, z1, tz),
-            );
+            let xi = Self::nearest_idx(x0, x1, tx);
+            let yi = Self::nearest_idx(y0, y1, ty);
+            let zi = Self::nearest_idx(z0, z1, tz);
+            if sp0_idx == sp1_idx {
+                return self.lookup_cartesian_nearest(cache, sp0_idx, xi, yi, zi);
+            }
+            let g0 = self.lookup_cartesian_nearest(cache, sp0_idx, xi, yi, zi);
+            let g1 = self.lookup_cartesian_nearest(cache, sp1_idx, xi, yi, zi);
+            return self.interpol(&g0, &g1, spt);
         }
 
-        self.lookup_cartesian_table(cache, 0, x0, x1, tx, y0, y1, ty, z0, z1, tz)
+        if sp0_idx == sp1_idx {
+            return self.lookup_cartesian_table(cache, sp0_idx, x0, x1, tx, y0, y1, ty, z0, z1, tz);
+        }
+        let g0 = self.lookup_cartesian_table(cache, sp0_idx, x0, x1, tx, y0, y1, ty, z0, z1, tz);
+        let g1 = self.lookup_cartesian_table(cache, sp1_idx, x0, x1, tx, y0, y1, ty, z0, z1, tz);
+        self.interpol(&g0, &g1, spt)
     }
 
     #[inline]
