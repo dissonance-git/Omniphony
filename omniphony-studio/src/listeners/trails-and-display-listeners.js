@@ -29,6 +29,8 @@ export function setupTrailsAndDisplayListeners() {
   const trailModeSelectEl = document.getElementById('trailModeSelect');
   const trailTtlSliderEl = document.getElementById('trailTtlSlider');
   const trailTtlValEl = document.getElementById('trailTtlVal');
+  const trailTeleportSliderEl = document.getElementById('trailTeleportSlider');
+  const trailTeleportValEl = document.getElementById('trailTeleportVal');
   const localeSelectEl = document.getElementById('localeSelect');
   const speakerHeatmapSlicesToggleEl = document.getElementById('speakerHeatmapSlicesToggle');
   const speakerHeatmapVolumeToggleEl = document.getElementById('speakerHeatmapVolumeToggle');
@@ -112,7 +114,10 @@ export function setupTrailsAndDisplayListeners() {
         }
       });
       persistTrailPrefs();
-      pushMpvOverlayTrailPrefs(app.trailsEnabled, app.trailPointTtlMs, app.trailRenderMode);
+      pushMpvOverlayTrailPrefs(
+        app.trailsEnabled, app.trailPointTtlMs,
+        app.trailRenderMode, app.trailTeleportThreshold
+      );
     });
   }
 
@@ -244,7 +249,10 @@ export function setupTrailsAndDisplayListeners() {
         }
       });
       persistTrailPrefs();
-      pushMpvOverlayTrailPrefs(app.trailsEnabled, app.trailPointTtlMs, app.trailRenderMode);
+      pushMpvOverlayTrailPrefs(
+        app.trailsEnabled, app.trailPointTtlMs,
+        app.trailRenderMode, app.trailTeleportThreshold
+      );
     });
   }
 
@@ -254,7 +262,31 @@ export function setupTrailsAndDisplayListeners() {
       app.trailPointTtlMs = Math.max(500, seconds * 1000);
       if (trailTtlValEl) trailTtlValEl.textContent = `${seconds.toFixed(1)}s`;
       persistTrailPrefs();
-      pushMpvOverlayTrailPrefs(app.trailsEnabled, app.trailPointTtlMs, app.trailRenderMode);
+      pushMpvOverlayTrailPrefs(
+        app.trailsEnabled, app.trailPointTtlMs,
+        app.trailRenderMode, app.trailTeleportThreshold
+      );
+    });
+  }
+
+  if (trailTeleportSliderEl) {
+    trailTeleportSliderEl.addEventListener('input', () => {
+      const value = Number(trailTeleportSliderEl.value);
+      app.trailTeleportThreshold = Math.max(0.05, Math.min(2.0, Number.isFinite(value) ? value : 0.5));
+      if (trailTeleportValEl) {
+        trailTeleportValEl.textContent = app.trailTeleportThreshold.toFixed(2);
+      }
+      // Rebuild every visible trail so the new threshold takes effect on
+      // already-buffered points (we evaluate breaks at rebuild time from
+      // the raw consecutive positions).
+      sourceTrails.forEach((_trail, id) => {
+        rebuildTrailGeometry(id);
+      });
+      persistTrailPrefs();
+      pushMpvOverlayTrailPrefs(
+        app.trailsEnabled, app.trailPointTtlMs,
+        app.trailRenderMode, app.trailTeleportThreshold
+      );
     });
   }
 
@@ -325,5 +357,8 @@ export function setupTrailsAndDisplayListeners() {
   // Seed Rust with the current trail prefs so they're already stashed for
   // the first mpv overlay (re)connect — even if the user never touches the
   // trail UI this session.
-  pushMpvOverlayTrailPrefs(app.trailsEnabled, app.trailPointTtlMs, app.trailRenderMode);
+  pushMpvOverlayTrailPrefs(
+    app.trailsEnabled, app.trailPointTtlMs,
+    app.trailRenderMode, app.trailTeleportThreshold
+  );
 }

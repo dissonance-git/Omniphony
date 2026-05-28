@@ -211,6 +211,7 @@
   "trail.show": "Afficher",
   "trail.mode": "Mode",
   "trail.duration": "Durée",
+  "trail.teleport": "Seuil de téléportation",
   "trail.mode.diffuse": "Diffuse",
   "trail.mode.line": "Ligne",
   "effectiveRender.title": "Rendu effectif",

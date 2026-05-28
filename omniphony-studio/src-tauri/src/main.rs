@@ -2363,11 +2363,13 @@ fn mpv_overlay_set_trail_prefs(
     enabled: bool,
     ttl_ms: u32,
     mode: String,
+    teleport_threshold: f32,
 ) -> Result<(), String> {
     state.mpv_overlay.set_trail_prefs(TrailPrefs {
         enabled,
         ttl_ms,
         mode,
+        teleport_threshold,
     })
 }
 

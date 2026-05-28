@@ -79,6 +79,10 @@ pub struct TrailPrefs {
     pub ttl_ms: u32,
     /// "diffuse" or "line"; anything else falls back to "line" lua-side.
     pub mode: String,
+    /// Max XYZ displacement (normalised units) between two consecutive
+    /// trail points before the connecting segment is treated as a
+    /// teleport and skipped lua-side.
+    pub teleport_threshold: f32,
 }
 
 impl MpvOverlayState {
@@ -109,11 +113,16 @@ impl MpvOverlayState {
             "diffuse" => "diffuse",
             _ => "line",
         };
+        // Clamp the threshold to the same range Studio uses, then format
+        // with a few decimals — the lua parser is strict about the wire
+        // format and won't accept scientific notation.
+        let threshold = prefs.teleport_threshold.clamp(0.0, 4.0);
         let line = format!(
-            r#"{{"command":["set_property","user-data/omniphony/overlay/trail-config","{}|{}|{}"]}}"#,
+            r#"{{"command":["set_property","user-data/omniphony/overlay/trail-config","{}|{}|{}|{:.3}"]}}"#,
             if prefs.enabled { 1 } else { 0 },
             prefs.ttl_ms,
-            mode
+            mode,
+            threshold
         );
         self.send_line(line)
     }

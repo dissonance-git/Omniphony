@@ -186,6 +186,7 @@
   "trail.show": "Mostrar",
   "trail.mode": "Modo",
   "trail.duration": "Duração",
+  "trail.teleport": "Limiar de teletransporte",
   "trail.mode.diffuse": "Difuso",
   "trail.mode.line": "Linha",
   "effectiveRender.title": "Renderização efetiva",

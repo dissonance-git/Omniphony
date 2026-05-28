@@ -211,6 +211,7 @@
   "trail.show": "Show",
   "trail.mode": "Mode",
   "trail.duration": "Duration",
+  "trail.teleport": "Teleport threshold",
   "trail.mode.diffuse": "Diffuse",
   "trail.mode.line": "Line",
   "effectiveRender.title": "Effective render",

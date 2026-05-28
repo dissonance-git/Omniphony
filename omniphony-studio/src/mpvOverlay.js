@@ -146,12 +146,16 @@ export async function setMpvOverlaySocketPath(path) {
   }
 }
 
-export async function pushMpvOverlayTrailPrefs(enabled, ttlMs, mode) {
+export async function pushMpvOverlayTrailPrefs(enabled, ttlMs, mode, teleportThreshold) {
   try {
+    const thresholdNum = Number(teleportThreshold);
     await invoke('mpv_overlay_set_trail_prefs', {
       enabled: Boolean(enabled),
       ttlMs: Math.max(500, Math.round(Number(ttlMs) || 7000)),
-      mode: mode === 'diffuse' ? 'diffuse' : 'line'
+      mode: mode === 'diffuse' ? 'diffuse' : 'line',
+      teleportThreshold: Number.isFinite(thresholdNum)
+        ? Math.max(0.05, Math.min(2.0, thresholdNum))
+        : 0.5
     });
   } catch (_) {
     // Best-effort; if mpv isn't connected the Rust side just stashes

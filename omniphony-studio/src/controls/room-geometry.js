@@ -56,6 +56,8 @@ function getTrailToggleEl() { return inDisplayPanel('trailToggle'); }
 function getTrailModeSelectEl() { return inDisplayPanel('trailModeSelect'); }
 function getTrailTtlSliderEl() { return inDisplayPanel('trailTtlSlider'); }
 function getTrailTtlValEl() { return inDisplayPanel('trailTtlVal'); }
+function getTrailTeleportSliderEl() { return inDisplayPanel('trailTeleportSlider'); }
+function getTrailTeleportValEl() { return inDisplayPanel('trailTeleportVal'); }
 function getEffectiveRenderToggleEl() { return inDisplayPanel('effectiveRenderToggle'); }
 function getObjectColorsToggleEl() { return inDisplayPanel('objectColorsToggle'); }
 function getObjectDisplayModeSelectEl() { return inDisplayPanel('objectDisplayModeSelect'); }
@@ -122,7 +124,8 @@ export function persistTrailPrefs() {
     const payload = {
       enabled: app.trailsEnabled,
       mode: app.trailRenderMode === 'line' ? 'line' : 'diffuse',
-      duration_ms: app.trailPointTtlMs
+      duration_ms: app.trailPointTtlMs,
+      teleport_threshold: app.trailTeleportThreshold
     };
     localStorage.setItem(TRAIL_PREFS_STORAGE_KEY, JSON.stringify(payload));
   } catch (_e) {
@@ -157,6 +160,8 @@ export function applyTrailPrefsToUi() {
   const trailModeSelectEl = getTrailModeSelectEl();
   const trailTtlSliderEl = getTrailTtlSliderEl();
   const trailTtlValEl = getTrailTtlValEl();
+  const trailTeleportSliderEl = getTrailTeleportSliderEl();
+  const trailTeleportValEl = getTrailTeleportValEl();
   if (trailToggleEl) {
     trailToggleEl.checked = app.trailsEnabled;
   }
@@ -168,6 +173,12 @@ export function applyTrailPrefsToUi() {
   }
   if (trailTtlValEl) {
     trailTtlValEl.textContent = `${(app.trailPointTtlMs / 1000).toFixed(1)}s`;
+  }
+  if (trailTeleportSliderEl) {
+    trailTeleportSliderEl.value = app.trailTeleportThreshold.toFixed(2);
+  }
+  if (trailTeleportValEl) {
+    trailTeleportValEl.textContent = app.trailTeleportThreshold.toFixed(2);
   }
 }
 
@@ -253,6 +264,10 @@ export function loadTrailPrefs() {
     const durationMs = Number(parsed?.duration_ms);
     if (Number.isFinite(durationMs)) {
       app.trailPointTtlMs = Math.max(500, durationMs);
+    }
+    const teleport = Number(parsed?.teleport_threshold);
+    if (Number.isFinite(teleport)) {
+      app.trailTeleportThreshold = Math.max(0.05, Math.min(2.0, teleport));
     }
   } catch (_e) {
     // Ignore malformed payloads.

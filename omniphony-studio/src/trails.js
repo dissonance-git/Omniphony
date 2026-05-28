@@ -65,7 +65,10 @@ export function createLineTrailRenderable() {
     depthTest: false,
     depthWrite: false
   });
-  const line = new THREE.Line(new THREE.BufferGeometry(), material);
+  // LineSegments rather than Line so we can omit teleport segments without
+  // hacks (NaN positions, two-Line objects). Each visible edge contributes
+  // exactly two vertices.
+  const line = new THREE.LineSegments(new THREE.BufferGeometry(), material);
   line.renderOrder = 15;
   line.frustumCulled = false;
   return line;
@@ -129,28 +132,51 @@ function isAudibleDiffuseTrailPoint(raw) {
 
 // ── Geometry rebuilders ───────────────────────────────────────────────
 
-export function rebuildLineTrailGeometry(trail, mappedPositions, pointColors) {
-  const positions = new Float32Array(mappedPositions.length * 3);
-  const colors = new Float32Array(mappedPositions.length * 3);
-  for (let i = 0; i < mappedPositions.length; i++) {
-    const point = mappedPositions[i];
-    const t = mappedPositions.length > 1 ? i / (mappedPositions.length - 1) : 1;
-    const color = pointColors[i];
-    positions[i * 3] = point.x;
-    positions[i * 3 + 1] = point.y;
-    positions[i * 3 + 2] = point.z;
-    colors[i * 3] = color.r * (0.2 + 0.8 * t);
-    colors[i * 3 + 1] = color.g * (0.2 + 0.8 * t);
-    colors[i * 3 + 2] = color.b * (0.2 + 0.8 * t);
+// True when the normalised XYZ jump between two consecutive raw points
+// exceeds the user's teleport threshold. Same definition used by the mpv
+// overlay so both views break at the same spots.
+function isTrailTeleport(prevRaw, currRaw) {
+  if (!prevRaw || !currRaw) return false;
+  const thr = Number(app.trailTeleportThreshold) || 0;
+  if (thr <= 0) return false;
+  const dx = (Number(currRaw.x) || 0) - (Number(prevRaw.x) || 0);
+  const dy = (Number(currRaw.y) || 0) - (Number(prevRaw.y) || 0);
+  const dz = (Number(currRaw.z) || 0) - (Number(prevRaw.z) || 0);
+  return (dx * dx + dy * dy + dz * dz) > (thr * thr);
+}
+
+export function rebuildLineTrailGeometry(trail, mappedPositions, pointColors, rawPositions) {
+  // LineSegments: each visible edge contributes two vertices (start/end).
+  // Edges that span a teleport are skipped so the trail breaks visibly
+  // without throwing the underlying point history away.
+  const segCount = Math.max(0, mappedPositions.length - 1);
+  const positions = [];
+  const colors = [];
+  const count = mappedPositions.length;
+  for (let i = 0; i < segCount; i++) {
+    if (rawPositions && isTrailTeleport(rawPositions[i], rawPositions[i + 1])) {
+      continue;
+    }
+    const t1 = count > 1 ? i / (count - 1) : 1;
+    const t2 = count > 1 ? (i + 1) / (count - 1) : 1;
+    const p1 = mappedPositions[i];
+    const p2 = mappedPositions[i + 1];
+    const c1 = pointColors[i];
+    const c2 = pointColors[i + 1];
+    positions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+    colors.push(
+      c1.r * (0.2 + 0.8 * t1), c1.g * (0.2 + 0.8 * t1), c1.b * (0.2 + 0.8 * t1),
+      c2.r * (0.2 + 0.8 * t2), c2.g * (0.2 + 0.8 * t2), c2.b * (0.2 + 0.8 * t2)
+    );
   }
   trail.line.geometry.dispose();
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(colors), 3));
   trail.line.geometry = geometry;
 }
 
-export function rebuildDiffuseTrailGeometry(trail, mappedPositions, pointColors, sourceScale) {
+export function rebuildDiffuseTrailGeometry(trail, mappedPositions, pointColors, sourceScale, rawPositions) {
   if (mappedPositions.length < 2) {
     trail.line.geometry.dispose();
     trail.line.geometry = new THREE.BufferGeometry();
@@ -166,6 +192,11 @@ export function rebuildDiffuseTrailGeometry(trail, mappedPositions, pointColors,
     const baseT = count > 1 ? i / (count - 1) : 1;
     expanded.push({ position: current, color: currentColor, t: baseT });
     if (i >= mappedPositions.length - 1) {
+      continue;
+    }
+    // Skip the interpolation across a teleport — leaves a visible gap
+    // between the two endpoint dots instead of bridging them.
+    if (rawPositions && isTrailTeleport(rawPositions[i], rawPositions[i + 1])) {
       continue;
     }
     const next = mappedPositions[i + 1];
@@ -227,13 +258,13 @@ export function rebuildTrailGeometry(id) {
   if (app.trailRenderMode === 'line') {
     const mappedPositions = trail.positions.map((raw) => mapTrailRawToScene(raw));
     const pointColors = trail.positions.map((raw) => trailPointColorFromRaw(raw, fallbackColor));
-    rebuildLineTrailGeometry(trail, mappedPositions, pointColors);
+    rebuildLineTrailGeometry(trail, mappedPositions, pointColors, trail.positions);
     return;
   }
   const audiblePositions = trail.positions.filter((raw) => isAudibleDiffuseTrailPoint(raw));
   const mappedPositions = audiblePositions.map((raw) => mapTrailRawToScene(raw));
   const pointColors = audiblePositions.map((raw) => trailPointColorFromRaw(raw, fallbackColor));
-  rebuildDiffuseTrailGeometry(trail, mappedPositions, pointColors, sourceScale);
+  rebuildDiffuseTrailGeometry(trail, mappedPositions, pointColors, sourceScale, audiblePositions);
 }
 
 export function replaceTrailRenderable(id) {

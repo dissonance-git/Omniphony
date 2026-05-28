@@ -338,6 +338,10 @@ export const app = {
   trailsEnabled: true,
   trailRenderMode: 'diffuse',
   trailPointTtlMs: 7000,
+  // Max XYZ displacement (normalised Omniphony units) between two consecutive
+  // trail points before the connecting segment is considered a teleport and
+  // skipped. Same value drives the 3D view and the mpv overlay.
+  trailTeleportThreshold: 0.5,
   speakerHeatmapSlicesEnabled: true,
   speakerHeatmapVolumeEnabled: false,
   speakerHeatmapBandIndex: 0,
