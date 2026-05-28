@@ -146,6 +146,19 @@ export async function setMpvOverlaySocketPath(path) {
   }
 }
 
+export async function pushMpvOverlayTrailPrefs(enabled, ttlMs, mode) {
+  try {
+    await invoke('mpv_overlay_set_trail_prefs', {
+      enabled: Boolean(enabled),
+      ttlMs: Math.max(500, Math.round(Number(ttlMs) || 7000)),
+      mode: mode === 'diffuse' ? 'diffuse' : 'line'
+    });
+  } catch (_) {
+    // Best-effort; if mpv isn't connected the Rust side just stashes
+    // them for the next reconnect.
+  }
+}
+
 export function getMpvOverlayStatus() {
   return {
     enabled: overlay.enabled,

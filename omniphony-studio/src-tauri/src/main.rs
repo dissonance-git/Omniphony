@@ -16,7 +16,7 @@ use std::{fs, fs::File, process::Command as ProcessCommand, process::Stdio};
 use app_state::AppState;
 use config::{load_config, save_config, OscConfig};
 use layouts::Layout;
-use mpv_overlay::{MpvOverlayState, OverlayPrefs, SharedOverlay};
+use mpv_overlay::{MpvOverlayState, OverlayPrefs, SharedOverlay, TrailPrefs};
 use osc_listener::{spawn_osc_task, OscControlMsg};
 use rfd::FileDialog;
 use tauri::{Manager, State};
@@ -2357,6 +2357,20 @@ fn mpv_overlay_save_prefs(
     mpv_overlay::save_prefs(&state.config_dir, &prefs)
 }
 
+#[tauri::command]
+fn mpv_overlay_set_trail_prefs(
+    state: State<SharedState>,
+    enabled: bool,
+    ttl_ms: u32,
+    mode: String,
+) -> Result<(), String> {
+    state.mpv_overlay.set_trail_prefs(TrailPrefs {
+        enabled,
+        ttl_ms,
+        mode,
+    })
+}
+
 // ── main ─────────────────────────────────────────────────────────────────
 
 fn main() {
@@ -2565,6 +2579,7 @@ fn main() {
             mpv_overlay_is_connected,
             mpv_overlay_load_prefs,
             mpv_overlay_save_prefs,
+            mpv_overlay_set_trail_prefs,
         ])
         .run(tauri::generate_context!())
         .expect("error running Tauri application");

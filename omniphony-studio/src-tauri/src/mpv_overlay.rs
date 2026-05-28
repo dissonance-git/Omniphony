@@ -51,20 +51,34 @@ pub fn save_prefs(config_dir: &Path, prefs: &OverlayPrefs) -> Result<(), String>
     std::fs::write(prefs_path(config_dir), data).map_err(|e| e.to_string())
 }
 
-/// Minimum gap between two pushed frames. Keeps IPC traffic tame when the
-/// engine streams positions faster than the eye can follow. ~60 Hz cap.
-const MIN_FRAME_GAP: Duration = Duration::from_millis(16);
-
 enum WriterMsg {
     Send(String),
     Shutdown,
 }
 
 /// Holds the writer-thread channel. A `None` value means "not connected".
+///
+/// `reconnect_path` is the path of the last user-initiated connect. It is
+/// kept across a transient connection loss (mpv restart) so the tick thread
+/// can re-establish the link without bothering the user, and cleared only
+/// on a user-initiated disconnect.
 #[derive(Default)]
 pub struct MpvOverlayState {
     inner: Mutex<Option<std::sync::mpsc::Sender<WriterMsg>>>,
-    last_send: Mutex<Option<Instant>>,
+    reconnect_path: Mutex<Option<String>>,
+    last_reconnect_at: Mutex<Option<Instant>>,
+    /// Last trail prefs pushed by JS. Re-sent on every successful
+    /// (re)connect so a fresh mpv picks them up without needing JS to
+    /// re-push.
+    trail_prefs: Mutex<Option<TrailPrefs>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TrailPrefs {
+    pub enabled: bool,
+    pub ttl_ms: u32,
+    /// "diffuse" or "line"; anything else falls back to "line" lua-side.
+    pub mode: String,
 }
 
 impl MpvOverlayState {
@@ -72,9 +86,40 @@ impl MpvOverlayState {
         Self::default()
     }
 
-    /// Open the mpv IPC socket at `path`. Disconnects any prior session.
+    /// Open the mpv IPC socket at `path`. Disconnects any prior session
+    /// and stores the path so the tick thread can auto-reconnect if mpv
+    /// later restarts.
     pub fn connect(&self, path: &str) -> Result<(), String> {
-        self.disconnect();
+        *self.reconnect_path.lock().unwrap() = Some(path.to_string());
+        self.connect_inner(path)
+    }
+
+    pub fn set_trail_prefs(&self, prefs: TrailPrefs) -> Result<(), String> {
+        // Best-effort push to mpv. Ignore the error — if we're not
+        // connected, the next successful (re)connect will resend the
+        // stashed copy.
+        let _ = self.send_trail_prefs_now(&prefs);
+        *self.trail_prefs.lock().unwrap() = Some(prefs);
+        Ok(())
+    }
+
+    fn send_trail_prefs_now(&self, prefs: &TrailPrefs) -> Result<(), String> {
+        // Sanitise the mode to a known token to keep the lua parser strict.
+        let mode = match prefs.mode.as_str() {
+            "diffuse" => "diffuse",
+            _ => "line",
+        };
+        let line = format!(
+            r#"{{"command":["set_property","user-data/omniphony/overlay/trail-config","{}|{}|{}"]}}"#,
+            if prefs.enabled { 1 } else { 0 },
+            prefs.ttl_ms,
+            mode
+        );
+        self.send_line(line)
+    }
+
+    fn connect_inner(&self, path: &str) -> Result<(), String> {
+        self.drop_connection();
 
         #[cfg(unix)]
         {
@@ -120,6 +165,13 @@ impl MpvOverlayState {
                 })
                 .map_err(|e| format!("spawn writer thread: {e}"))?;
             *self.inner.lock().unwrap() = Some(tx);
+            // Re-push the last trail prefs so a fresh mpv (or one whose
+            // user-data was wiped on restart) lines up with what Studio
+            // thinks they are.
+            let prefs_snapshot = self.trail_prefs.lock().unwrap().clone();
+            if let Some(prefs) = prefs_snapshot {
+                let _ = self.send_trail_prefs_now(&prefs);
+            }
             Ok(())
         }
 
@@ -130,11 +182,46 @@ impl MpvOverlayState {
         }
     }
 
-    /// Close the writer thread. No-op if already disconnected.
+    /// User-initiated disconnect: close the writer thread AND wipe the
+    /// stored path so the auto-reconnect loop stops trying.
     pub fn disconnect(&self) {
+        *self.reconnect_path.lock().unwrap() = None;
+        self.drop_connection();
+    }
+
+    /// Close the writer thread but keep `reconnect_path` so the tick
+    /// thread can re-establish the link transparently when the other end
+    /// comes back.
+    fn drop_connection(&self) {
         if let Some(tx) = self.inner.lock().unwrap().take() {
             let _ = tx.send(WriterMsg::Shutdown);
         }
+    }
+
+    /// Attempt to reconnect to the stored path. Called by the tick thread
+    /// when the connection has been lost but the user hasn't disabled the
+    /// overlay. Rate-limited internally to avoid hammering the socket.
+    pub fn try_reconnect(&self) -> bool {
+        if self.is_connected() {
+            return false;
+        }
+        let path = match self.reconnect_path.lock().unwrap().clone() {
+            Some(p) => p,
+            None => return false,
+        };
+        let now = Instant::now();
+        {
+            let mut last = self.last_reconnect_at.lock().unwrap();
+            if let Some(prev) = *last {
+                if now.duration_since(prev) < Duration::from_secs(2) {
+                    return false;
+                }
+            }
+            *last = Some(now);
+        }
+        // `connect` would clobber `reconnect_path`; call the inner path
+        // directly so a transient failure here does not erase it.
+        self.connect_inner(&path).is_ok()
     }
 
     /// Push one already-serialized JSON IPC line. Drops it silently if not
@@ -151,7 +238,9 @@ impl MpvOverlayState {
         };
         if send_res.is_err() {
             // Writer is dead — drop our half so future calls short-circuit.
-            self.disconnect();
+            // Keep `reconnect_path` so the tick thread can re-establish the
+            // link when mpv comes back.
+            self.drop_connection();
             return Err("writer thread gone".into());
         }
         Ok(())
@@ -161,21 +250,13 @@ impl MpvOverlayState {
         self.inner.lock().unwrap().is_some()
     }
 
-    /// Throttled send, used by the OSC thread to push overlay frames at
-    /// ~60 Hz max. Returns `true` if the line was actually queued.
+    /// Send used by the OSC thread to push overlay frames. Pacing is up
+    /// to the caller (driven by the renderer's metering rate) — no rate
+    /// limit applied here.
     pub fn try_send_throttled(&self, line: String) -> bool {
         if !self.is_connected() {
             return false;
         }
-        let now = Instant::now();
-        let mut last = self.last_send.lock().unwrap();
-        if let Some(prev) = *last {
-            if now.duration_since(prev) < MIN_FRAME_GAP {
-                return false;
-            }
-        }
-        *last = Some(now);
-        drop(last);
         self.send_line(line).is_ok()
     }
 }

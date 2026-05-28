@@ -9,7 +9,8 @@ import { subscribeSpeakerHeatmap, syncSpeakerHeatmapBandSelect } from '../scene/
 import {
   getMpvOverlayStatus,
   setMpvOverlayEnabled,
-  setMpvOverlaySocketPath
+  setMpvOverlaySocketPath,
+  pushMpvOverlayTrailPrefs
 } from '../mpvOverlay.js';
 
 export function setupTrailsAndDisplayListeners() {
@@ -111,6 +112,7 @@ export function setupTrailsAndDisplayListeners() {
         }
       });
       persistTrailPrefs();
+      pushMpvOverlayTrailPrefs(app.trailsEnabled, app.trailPointTtlMs, app.trailRenderMode);
     });
   }
 
@@ -242,6 +244,7 @@ export function setupTrailsAndDisplayListeners() {
         }
       });
       persistTrailPrefs();
+      pushMpvOverlayTrailPrefs(app.trailsEnabled, app.trailPointTtlMs, app.trailRenderMode);
     });
   }
 
@@ -251,6 +254,7 @@ export function setupTrailsAndDisplayListeners() {
       app.trailPointTtlMs = Math.max(500, seconds * 1000);
       if (trailTtlValEl) trailTtlValEl.textContent = `${seconds.toFixed(1)}s`;
       persistTrailPrefs();
+      pushMpvOverlayTrailPrefs(app.trailsEnabled, app.trailPointTtlMs, app.trailRenderMode);
     });
   }
 
@@ -317,4 +321,9 @@ export function setupTrailsAndDisplayListeners() {
       persistEffectiveRenderPrefs();
     });
   }
+
+  // Seed Rust with the current trail prefs so they're already stashed for
+  // the first mpv overlay (re)connect — even if the user never touches the
+  // trail UI this session.
+  pushMpvOverlayTrailPrefs(app.trailsEnabled, app.trailPointTtlMs, app.trailRenderMode);
 }
