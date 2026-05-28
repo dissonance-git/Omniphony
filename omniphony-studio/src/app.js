@@ -53,6 +53,7 @@ import {
 
 // ── Initialization & wiring ─────────────────────────────────────────────────
 import { applyInitState } from './init.js';
+import { initMpvOverlay } from './mpvOverlay.js';
 import { setupTauriBridge } from './tauri-bridge.js';
 import { setupUIListeners } from './setup-listeners.js';
 import { setupPointerListeners } from './picking.js';
@@ -238,6 +239,9 @@ setupUIListeners();
 setupPointerListeners();
 setupNumericWheelEditing();
 setupVisualRecovery();
+
+// Reconnect to mpv overlay if the user had it enabled in a previous session.
+initMpvOverlay();
 
 // Register Tauri backend event listeners
 setupTauriBridge();

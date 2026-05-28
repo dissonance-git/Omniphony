@@ -6,6 +6,11 @@ import { scene } from '../scene/setup.js';
 import { applySpeakerLevel, updateSourceDecorations, updateSourceSelectionStyles } from '../sources.js';
 import { refreshOverlayLists, updateSpeakerVisualsFromState } from '../speakers.js';
 import { subscribeSpeakerHeatmap, syncSpeakerHeatmapBandSelect } from '../scene/speaker-heatmap.js';
+import {
+  getMpvOverlayStatus,
+  setMpvOverlayEnabled,
+  setMpvOverlaySocketPath
+} from '../mpvOverlay.js';
 
 export function setupTrailsAndDisplayListeners() {
   const trailToggleEl = document.getElementById('trailToggle');
@@ -30,6 +35,58 @@ export function setupTrailsAndDisplayListeners() {
   const speakerHeatmapSampleCountInputEl = document.getElementById('speakerHeatmapSampleCountInput');
   const speakerHeatmapMaxSphereSizeSliderEl = document.getElementById('speakerHeatmapMaxSphereSizeSlider');
   const speakerHeatmapMaxSphereSizeValEl = document.getElementById('speakerHeatmapMaxSphereSizeVal');
+  const mpvOverlayToggleEl = document.getElementById('mpvOverlayToggle');
+  const mpvOverlaySocketInputEl = document.getElementById('mpvOverlaySocketInput');
+  const mpvOverlayStatusEl = document.getElementById('mpvOverlayStatus');
+
+  function refreshMpvOverlayUI() {
+    const s = getMpvOverlayStatus();
+    // Keep the input / toggle in sync with backend state. Prefs load
+    // asynchronously after this listener registers, so on first ticks the
+    // controls would otherwise be stuck on their empty initial values.
+    if (mpvOverlayToggleEl && mpvOverlayToggleEl.checked !== s.enabled) {
+      mpvOverlayToggleEl.checked = s.enabled;
+    }
+    if (
+      mpvOverlaySocketInputEl
+      && document.activeElement !== mpvOverlaySocketInputEl
+      && mpvOverlaySocketInputEl.value !== s.socketPath
+    ) {
+      mpvOverlaySocketInputEl.value = s.socketPath;
+    }
+    if (!mpvOverlayStatusEl) return;
+    if (!s.enabled) {
+      mpvOverlayStatusEl.textContent = 'disabled';
+    } else if (s.connected) {
+      mpvOverlayStatusEl.textContent = `connected → ${s.socketPath}`;
+    } else if (s.lastError) {
+      mpvOverlayStatusEl.textContent = `error: ${s.lastError}`;
+    } else {
+      mpvOverlayStatusEl.textContent = 'connecting…';
+    }
+  }
+
+  refreshMpvOverlayUI();
+  setInterval(refreshMpvOverlayUI, 500);
+
+  if (mpvOverlayToggleEl) {
+    mpvOverlayToggleEl.addEventListener('change', async () => {
+      // <input> only fires "change" on blur, so if the user typed a path then
+      // clicked the toggle the path is still pending — flush it first.
+      if (mpvOverlaySocketInputEl) {
+        await setMpvOverlaySocketPath(mpvOverlaySocketInputEl.value);
+      }
+      await setMpvOverlayEnabled(mpvOverlayToggleEl.checked);
+      refreshMpvOverlayUI();
+    });
+  }
+
+  if (mpvOverlaySocketInputEl) {
+    mpvOverlaySocketInputEl.addEventListener('change', async () => {
+      await setMpvOverlaySocketPath(mpvOverlaySocketInputEl.value);
+      refreshMpvOverlayUI();
+    });
+  }
 
   function applyObjectDetailsVisibility(enabled) {
     app.showObjectDetails = Boolean(enabled);

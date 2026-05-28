@@ -283,6 +283,21 @@
                 </div>
               </div>
             </div>
+            <div id="mpvOverlaySection" style="display:grid;gap:0.3rem">
+              <div class="inline-toggle" style="margin-top:0">
+                <div class="title-with-info" style="min-width:0">
+                  <span data-i18n="mpvOverlay.title">mpv overlay</span>
+                </div>
+                <input id="mpvOverlayToggle" type="checkbox" />
+              </div>
+              <div id="mpvOverlaySectionContent" class="conditional-params open" style="margin-top:0.15rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
+                <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
+                  <label for="mpvOverlaySocketInput" style="font-size:12px;white-space:nowrap" data-i18n="mpvOverlay.socket">IPC socket</label>
+                  <input id="mpvOverlaySocketInput" type="text" style="flex:1;min-width:0" />
+                </div>
+                <div id="mpvOverlayStatus" style="font-size:10px;color:#8fa6bd;font-family:ui-monospace, monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">not connected</div>
+              </div>
+            </div>
             <div id="trailSection" style="display:grid;gap:0.3rem">
               <div class="inline-toggle" style="margin-top:0">
                 <div class="title-with-info" style="min-width:0">
