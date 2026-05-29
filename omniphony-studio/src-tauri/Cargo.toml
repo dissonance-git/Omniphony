@@ -1,6 +1,6 @@
 [package]
 name = "omniphony-studio"
-version = "0.2.8"
+version = "0.2.9"
 edition = "2021"
 
 [[bin]]
@@ -16,6 +16,18 @@ tokio = { version = "1", features = ["sync", "rt", "macros"] }
 log = "0.4"
 image = { version = "0.25", default-features = false, features = ["png"] }
 rfd = "0.15"
+
+[target.'cfg(windows)'.dependencies]
+# Overlapped pipe I/O for the mpv IPC bridge so writes can't park the
+# writer thread when mpv's 4 KB IPC reader buffer fills under heavy
+# decode load (see mpv_overlay::windows_pipe).
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",            # CreateFileW / CreateEventW take SECURITY_ATTRIBUTES
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Threading",
+] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

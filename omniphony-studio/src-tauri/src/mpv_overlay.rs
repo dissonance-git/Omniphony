@@ -31,9 +31,9 @@ pub const DEFAULT_SOCKET_PATH: &str = r"\\.\pipe\omniphony-mpv";
 
 /// Open the mpv IPC endpoint at `path` and return a (reader, writer) pair
 /// of owned byte streams. On Unix the path is a Unix domain socket; on
-/// Windows it's a named pipe (`\\.\pipe\<name>`) — `OpenOptions` opens it
-/// in byte mode, and `try_clone()` duplicates the underlying HANDLE so
-/// the reader and writer threads each own their half.
+/// Windows it's a named pipe (`\\.\pipe\<name>`) opened in overlapped
+/// mode (see [`windows_pipe`]) so the writer can time out instead of
+/// parking the whole thread when mpv's 4 KB IPC buffer fills.
 fn open_ipc(
     path: &str,
 ) -> std::io::Result<(Box<dyn Read + Send>, Box<dyn Write + Send>)> {
@@ -45,12 +45,8 @@ fn open_ipc(
     }
     #[cfg(windows)]
     {
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(path)?;
-        let read = file.try_clone()?;
-        Ok((Box::new(read), Box::new(file)))
+        let (reader, writer) = windows_pipe::open(path)?;
+        Ok((Box::new(reader), Box::new(writer)))
     }
     #[cfg(not(any(unix, windows)))]
     {
@@ -59,6 +55,201 @@ fn open_ipc(
             std::io::ErrorKind::Unsupported,
             "mpv overlay IPC requires Unix sockets or Windows named pipes",
         ))
+    }
+}
+
+/// Windows-specific named-pipe I/O with overlapped writes.
+///
+/// mpv's IPC server creates the pipe with a 4 KB buffer in each
+/// direction (`input/ipc-win.c`: `bufsiz = 4096`). Under heavy decode
+/// load mpv's per-client IPC thread is slow to drain, the buffer fills,
+/// and a blocking `WriteFile` from our side parks the writer thread —
+/// frames stop flowing until something (typically a seek) unblocks mpv.
+///
+/// The fix: open the pipe with `FILE_FLAG_OVERLAPPED` and bound each
+/// write with a small timeout via `GetOverlappedResult`. A pending
+/// write that doesn't complete in time is cancelled with `CancelIoEx`
+/// and the frame is silently dropped — the next snapshot will overwrite
+/// the mailbox slot anyway. The reader stays blocking (infinite wait)
+/// so we keep draining mpv's replies the same way as before.
+///
+/// Both reader and writer must use overlapped I/O because a single
+/// `FILE_FLAG_OVERLAPPED` handle rejects synchronous calls.
+#[cfg(windows)]
+mod windows_pipe {
+    use std::io::{self, Read, Write};
+    use std::os::windows::ffi::OsStrExt;
+    use std::sync::Arc;
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_IO_PENDING, GENERIC_READ, GENERIC_WRITE, HANDLE,
+        INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    };
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_FLAG_OVERLAPPED, OPEN_EXISTING, ReadFile, WriteFile,
+    };
+    use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
+    use windows_sys::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+
+    /// Drop the frame if the underlying WriteFile is still pending after
+    /// this many ms — picked well above a typical 4 KB-buffer drain at
+    /// 30 Hz but short enough to keep the writer responsive.
+    const WRITE_TIMEOUT_MS: u32 = 200;
+
+    /// Owned overlapped HANDLE shared between the reader and writer
+    /// halves; `CloseHandle` runs on Drop of the last `Arc`.
+    struct OwnedHandle(HANDLE);
+    unsafe impl Send for OwnedHandle {}
+    unsafe impl Sync for OwnedHandle {}
+    impl Drop for OwnedHandle {
+        fn drop(&mut self) {
+            if !self.0.is_null() && self.0 != INVALID_HANDLE_VALUE {
+                unsafe {
+                    CloseHandle(self.0);
+                }
+            }
+        }
+    }
+
+    pub struct Reader {
+        h: Arc<OwnedHandle>,
+    }
+    pub struct Writer {
+        h: Arc<OwnedHandle>,
+    }
+
+    pub fn open(path: &str) -> io::Result<(Reader, Writer)> {
+        let wide: Vec<u16> = std::ffi::OsStr::new(path)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let raw = unsafe {
+            CreateFileW(
+                wide.as_ptr(),
+                GENERIC_READ | GENERIC_WRITE,
+                0,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_FLAG_OVERLAPPED,
+                std::ptr::null_mut(),
+            )
+        };
+        if raw.is_null() || raw == INVALID_HANDLE_VALUE {
+            return Err(io::Error::last_os_error());
+        }
+        let h = Arc::new(OwnedHandle(raw));
+        Ok((Reader { h: h.clone() }, Writer { h }))
+    }
+
+    /// RAII wrapper around a manual-reset event used by a single
+    /// overlapped op. Closed on Drop.
+    struct Event(HANDLE);
+    impl Event {
+        fn new() -> io::Result<Self> {
+            let h = unsafe { CreateEventW(std::ptr::null(), 1, 0, std::ptr::null()) };
+            if h.is_null() {
+                Err(io::Error::last_os_error())
+            } else {
+                Ok(Self(h))
+            }
+        }
+    }
+    impl Drop for Event {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe {
+                    CloseHandle(self.0);
+                }
+            }
+        }
+    }
+
+    impl Read for Reader {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let event = Event::new()?;
+            let mut ol: OVERLAPPED = unsafe { std::mem::zeroed() };
+            ol.hEvent = event.0;
+            let ok = unsafe {
+                ReadFile(
+                    self.h.0,
+                    buf.as_mut_ptr(),
+                    buf.len() as u32,
+                    std::ptr::null_mut(),
+                    &mut ol,
+                )
+            };
+            if ok == 0 {
+                let err = io::Error::last_os_error();
+                if err.raw_os_error() != Some(ERROR_IO_PENDING as i32) {
+                    return Err(err);
+                }
+            }
+            // Block until completion — we want the reader to behave just
+            // like a normal blocking read so mpv's replies keep draining.
+            let mut transferred: u32 = 0;
+            let ok = unsafe { GetOverlappedResult(self.h.0, &ol, &mut transferred, 1) };
+            if ok == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(transferred as usize)
+        }
+    }
+
+    impl Write for Writer {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            let event = Event::new()?;
+            let mut ol: OVERLAPPED = unsafe { std::mem::zeroed() };
+            ol.hEvent = event.0;
+            let ok = unsafe {
+                WriteFile(
+                    self.h.0,
+                    buf.as_ptr(),
+                    buf.len() as u32,
+                    std::ptr::null_mut(),
+                    &mut ol,
+                )
+            };
+            if ok == 0 {
+                let err = io::Error::last_os_error();
+                if err.raw_os_error() != Some(ERROR_IO_PENDING as i32) {
+                    return Err(err);
+                }
+            }
+            // Bounded wait — if mpv's IPC buffer is full, give up rather
+            // than block the writer thread indefinitely.
+            let waited = unsafe { WaitForSingleObject(event.0, WRITE_TIMEOUT_MS) };
+            if waited == WAIT_TIMEOUT {
+                // The kernel hasn't drained anything yet; abort the
+                // queued I/O so the handle is back to a clean state and
+                // pretend the write succeeded. The mailbox semantics
+                // make this safe: the next overlay snapshot will replace
+                // whatever we just dropped.
+                unsafe {
+                    CancelIoEx(self.h.0, &ol);
+                    GetOverlappedResult(self.h.0, &ol, &mut 0u32, 1);
+                }
+                return Ok(buf.len());
+            } else if waited != WAIT_OBJECT_0 {
+                return Err(io::Error::last_os_error());
+            }
+            let mut transferred: u32 = 0;
+            let ok = unsafe { GetOverlappedResult(self.h.0, &ol, &mut transferred, 0) };
+            if ok == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if (transferred as usize) != buf.len() {
+                // Partial write would corrupt mpv's byte-mode parser —
+                // surface the error so the caller drops the connection
+                // and reconnects fresh.
+                return Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "partial overlapped write to mpv pipe",
+                ));
+            }
+            Ok(transferred as usize)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
     }
 }
 
