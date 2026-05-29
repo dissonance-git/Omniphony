@@ -72,11 +72,15 @@ extern "C" fn forward_bridge_log_to_host(level: RLogLevel, target: RStr<'_>, mes
 /// 1. `--bridge-path` / config-provided explicit file path
 /// 2. Any file matching `*_bridge.so` / `.dll` / `.dylib` next to the executable
 ///
-/// Note: the exe-relative fallback (2) only makes sense when the host is the
-/// `orender` binary. Library hosts (e.g. mpv loading `liborender.so`) must pass
-/// an explicit path, because `current_exe()` would resolve to the host program.
+/// The exe-relative fallback applies to *any* host: the `orender` CLI, but
+/// also library hosts like mpv loading `liborender.dll`/`.so`. On Windows in
+/// particular the typical install pattern (extract a release zip into a single
+/// folder) lands `mpv.exe`, `orender.dll` and the bridge `.dll` side by side,
+/// so `current_exe()` -> mpv.exe's parent dir is exactly where the bridge
+/// sits. On systems where the host binary is in a system path that won't
+/// contain bridge plugins (e.g. `/usr/bin/mpv` on Linux), the fallback simply
+/// finds nothing and the caller gets the regular missing-bridge error.
 pub fn resolve_bridge_path(explicit: Option<&Path>) -> Result<PathBuf> {
-    // 1. Explicit path from CLI/config
     if let Some(path) = explicit {
         if path.is_file() {
             return Ok(path.to_path_buf());
@@ -86,23 +90,27 @@ pub fn resolve_bridge_path(explicit: Option<&Path>) -> Result<PathBuf> {
             path.display()
         );
     }
+    find_bridge_next_to_exe()
+        .context("Provide --bridge-path <FILE> or set render.bridge_path in config")
+}
 
-    // 2. Search next to the executable
+/// Look for a `*_bridge.{so,dll,dylib}` next to the current executable.
+/// Used as a fallback both by [`resolve_bridge_path`] and by
+/// [`crate::engine::Engine::from_paths`] when no explicit / config-provided
+/// path exists or the one provided no longer points at a real file.
+pub fn find_bridge_next_to_exe() -> Result<PathBuf> {
     let exe = std::env::current_exe().context("Cannot determine executable path")?;
     let dir = exe.parent().context("Executable has no parent directory")?;
     let mut matches = find_bridge_candidates(dir)?;
     matches.sort();
-    if let Some(path) = matches.into_iter().next() {
-        return Ok(path);
-    }
-
-    bail!(
-        "No bridge plugin found.\n\
-         Searched in: {}\n\
-         Expected one file matching: *_bridge.so / *_bridge.dll / *_bridge.dylib\n\
-         Provide --bridge-path <FILE> or set render.bridge_path in config.",
-        dir.display(),
-    )
+    matches.into_iter().next().ok_or_else(|| {
+        anyhow::anyhow!(
+            "No bridge plugin found.\n\
+             Searched in: {}\n\
+             Expected one file matching: *_bridge.so / *_bridge.dll / *_bridge.dylib",
+            dir.display()
+        )
+    })
 }
 
 fn find_bridge_candidates(dir: &Path) -> Result<Vec<PathBuf>> {

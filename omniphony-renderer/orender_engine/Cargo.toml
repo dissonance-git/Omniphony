@@ -1,6 +1,6 @@
 [package]
 name = "orender_engine"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 license = "GPL-3.0-only"
 description = "Headless decode→render engine for the orender spatial audio renderer (host-agnostic, no audio I/O)"
