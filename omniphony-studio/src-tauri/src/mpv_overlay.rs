@@ -13,9 +13,10 @@
 //! No normalisation — the user types the literal mpv was launched with,
 //! same convention as the audio input pipe.
 
+use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]
@@ -94,11 +95,87 @@ pub fn save_prefs(config_dir: &Path, prefs: &OverlayPrefs) -> Result<(), String>
 }
 
 enum WriterMsg {
-    Send(String),
+    /// Overlay snapshot — droppable. A new Frame *overwrites* any
+    /// pending Frame already in the inbox so the writer thread always
+    /// pulls the most recent state, never a backlog.
+    Frame(String),
+    /// Trail prefs, reconnect re-push, etc. Must reach mpv; queued in
+    /// FIFO order alongside frames.
+    Control(String),
     Shutdown,
 }
 
-/// Holds the writer-thread channel. A `None` value means "not connected".
+/// Single-producer-many-consumers-style mailbox used between the OSC
+/// tick thread (frames) / Tauri command handlers (control) and the
+/// writer thread that owns the pipe handle.
+///
+/// `Frame` messages are *latest-value*: a fresh push replaces any
+/// already-pending Frame, so even if the writer is briefly blocked on a
+/// slow mpv IPC the queue can't accumulate stale snapshots.
+/// `Control` messages keep FIFO order — trail prefs in particular must
+/// not be silently dropped or coalesced.
+struct Inbox {
+    queue: Mutex<Option<VecDeque<WriterMsg>>>, // `None` ≡ inbox closed
+    cv: Condvar,
+}
+
+impl Inbox {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            queue: Mutex::new(Some(VecDeque::new())),
+            cv: Condvar::new(),
+        })
+    }
+
+    /// Replace any pending Frame with this one (latest-value),
+    /// otherwise append. Returns `false` if the inbox is closed.
+    fn push_frame(&self, line: String) -> bool {
+        let mut g = self.queue.lock().unwrap();
+        let Some(q) = g.as_mut() else { return false };
+        for slot in q.iter_mut() {
+            if let WriterMsg::Frame(s) = slot {
+                *s = line;
+                self.cv.notify_one();
+                return true;
+            }
+        }
+        q.push_back(WriterMsg::Frame(line));
+        self.cv.notify_one();
+        true
+    }
+
+    fn push_back(&self, msg: WriterMsg) -> bool {
+        let mut g = self.queue.lock().unwrap();
+        let Some(q) = g.as_mut() else { return false };
+        q.push_back(msg);
+        self.cv.notify_one();
+        true
+    }
+
+    /// Block until a message is available; returns `None` when the
+    /// inbox is closed and drained.
+    fn pop(&self) -> Option<WriterMsg> {
+        let mut g = self.queue.lock().unwrap();
+        loop {
+            if g.is_none() {
+                return None;
+            }
+            if let Some(msg) = g.as_mut().unwrap().pop_front() {
+                return Some(msg);
+            }
+            g = self.cv.wait(g).unwrap();
+        }
+    }
+
+    /// Close the inbox so any sleeping writer wakes up and exits.
+    fn close(&self) {
+        let mut g = self.queue.lock().unwrap();
+        *g = None;
+        self.cv.notify_all();
+    }
+}
+
+/// Holds the writer-thread mailbox. A `None` value means "not connected".
 ///
 /// `reconnect_path` is the path of the last user-initiated connect. It is
 /// kept across a transient connection loss (mpv restart) so the tick thread
@@ -106,7 +183,7 @@ enum WriterMsg {
 /// on a user-initiated disconnect.
 #[derive(Default)]
 pub struct MpvOverlayState {
-    inner: Mutex<Option<std::sync::mpsc::Sender<WriterMsg>>>,
+    inner: Mutex<Option<Arc<Inbox>>>,
     reconnect_path: Mutex<Option<String>>,
     last_reconnect_at: Mutex<Option<Instant>>,
     /// Last trail prefs pushed by JS. Re-sent on every successful
@@ -192,25 +269,27 @@ impl MpvOverlayState {
                 }
             })
             .map_err(|e| format!("spawn reader thread: {e}"))?;
-        let (tx, rx) = std::sync::mpsc::channel::<WriterMsg>();
+        let inbox = Inbox::new();
+        let writer_inbox = inbox.clone();
         std::thread::Builder::new()
             .name("mpv-overlay-writer".into())
             .spawn(move || {
-                for msg in rx {
-                    match msg {
-                        WriterMsg::Send(line) => {
-                            if write_handle.write_all(line.as_bytes()).is_err()
-                                || write_handle.write_all(b"\n").is_err()
-                            {
-                                break;
-                            }
-                        }
+                while let Some(msg) = writer_inbox.pop() {
+                    let line = match msg {
+                        WriterMsg::Frame(s) | WriterMsg::Control(s) => s,
                         WriterMsg::Shutdown => break,
+                    };
+                    if write_handle.write_all(line.as_bytes()).is_err()
+                        || write_handle.write_all(b"\n").is_err()
+                    {
+                        break;
                     }
                 }
+                // Make sure no producer keeps blocking on a closed pipe.
+                writer_inbox.close();
             })
             .map_err(|e| format!("spawn writer thread: {e}"))?;
-        *self.inner.lock().unwrap() = Some(tx);
+        *self.inner.lock().unwrap() = Some(inbox);
         // Re-push the last trail prefs so a fresh mpv (or one whose
         // user-data was wiped on restart) lines up with what Studio
         // thinks they are.
@@ -232,8 +311,12 @@ impl MpvOverlayState {
     /// thread can re-establish the link transparently when the other end
     /// comes back.
     fn drop_connection(&self) {
-        if let Some(tx) = self.inner.lock().unwrap().take() {
-            let _ = tx.send(WriterMsg::Shutdown);
+        if let Some(inbox) = self.inner.lock().unwrap().take() {
+            // Queue an in-band shutdown so anything still pending gets
+            // a chance to flush in FIFO order, then close so the writer
+            // wakes immediately even if the queue was empty.
+            let _ = inbox.push_back(WriterMsg::Shutdown);
+            inbox.close();
         }
     }
 
@@ -263,22 +346,20 @@ impl MpvOverlayState {
         self.connect_inner(&path).is_ok()
     }
 
-    /// Push one already-serialized JSON IPC line. Drops it silently if not
-    /// connected — overlay traffic is best-effort. If the writer thread is
-    /// gone (mpv closed the socket), we tear down the connection state so
-    /// the tick thread stops queuing into a dead channel.
+    /// Push a control-class message (trail prefs, etc.) — queued FIFO,
+    /// must-deliver. Drops silently if not connected. If the writer
+    /// thread is gone (mpv closed the socket), we tear down the
+    /// connection state so the tick thread stops queuing into a dead
+    /// inbox.
     pub fn send_line(&self, line: String) -> Result<(), String> {
-        let send_res = {
+        let pushed = {
             let guard = self.inner.lock().unwrap();
-            let Some(tx) = guard.as_ref() else {
+            let Some(inbox) = guard.as_ref() else {
                 return Err("not connected".into());
             };
-            tx.send(WriterMsg::Send(line))
+            inbox.push_back(WriterMsg::Control(line))
         };
-        if send_res.is_err() {
-            // Writer is dead — drop our half so future calls short-circuit.
-            // Keep `reconnect_path` so the tick thread can re-establish the
-            // link when mpv comes back.
+        if !pushed {
             self.drop_connection();
             return Err("writer thread gone".into());
         }
@@ -289,14 +370,23 @@ impl MpvOverlayState {
         self.inner.lock().unwrap().is_some()
     }
 
-    /// Send used by the OSC thread to push overlay frames. Pacing is up
-    /// to the caller (driven by the renderer's metering rate) — no rate
-    /// limit applied here.
+    /// Send used by the OSC tick thread to push the latest overlay
+    /// snapshot. Frames are *latest-value*: if a frame is already
+    /// pending in the inbox we overwrite it, so a temporarily slow
+    /// mpv-side reader can't bury the writer under a backlog. Pacing is
+    /// up to the caller (driven by the renderer's metering rate).
     pub fn try_send_throttled(&self, line: String) -> bool {
-        if !self.is_connected() {
-            return false;
+        let pushed = {
+            let guard = self.inner.lock().unwrap();
+            let Some(inbox) = guard.as_ref() else {
+                return false;
+            };
+            inbox.push_frame(line)
+        };
+        if !pushed {
+            self.drop_connection();
         }
-        self.send_line(line).is_ok()
+        pushed
     }
 }
 
