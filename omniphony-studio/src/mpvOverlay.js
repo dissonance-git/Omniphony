@@ -1,14 +1,16 @@
 /**
  * mpv overlay bridge — UI side.
  *
- * Only owns the enable toggle, the socket path, and the connection lifecycle.
- * The per-frame payload is built and pushed to mpv directly by the Rust OSC
- * thread (`src-tauri/src/osc_listener.rs` → `push_mpv_overlay_frame`) so that
- * the frame stream keeps flowing when the webview is in the background
- * (WebKitGTK throttles JS timers there, including event-driven callbacks).
+ * Only owns the enable toggle, the IPC endpoint (Unix socket path on
+ * Linux / macOS, named pipe path on Windows), and the connection
+ * lifecycle. The per-frame payload is built and pushed to mpv directly
+ * by the Rust OSC thread (`src-tauri/src/osc_listener.rs` →
+ * `push_mpv_overlay_frame`) so that the frame stream keeps flowing when
+ * the webview is in the background (WebKitGTK throttles JS timers
+ * there, including event-driven callbacks).
  *
- * Studio remembers the socket path and toggle in localStorage; nothing here
- * touches the renderer YAML config.
+ * Studio remembers the endpoint and toggle in a file under the
+ * config dir; nothing here touches the renderer YAML config.
  */
 
 import { invoke } from '@tauri-apps/api/core';

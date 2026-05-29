@@ -42,6 +42,16 @@ export function setupTrailsAndDisplayListeners() {
   const mpvOverlaySocketInputEl = document.getElementById('mpvOverlaySocketInput');
   const mpvOverlayStatusEl = document.getElementById('mpvOverlayStatus');
 
+  if (mpvOverlaySocketInputEl) {
+    // Placeholder shows the OS-native default mpv writes when launched
+    // with `--input-ipc-server=…`. Same convention as the audio input
+    // pipe: the user types the literal mpv was given, no normalisation.
+    const isWindows = /windows/i.test(navigator.userAgent || '');
+    mpvOverlaySocketInputEl.placeholder = isWindows
+      ? String.raw`\\.\pipe\omniphony-mpv`
+      : '/tmp/omniphony-mpv.sock';
+  }
+
   function refreshMpvOverlayUI() {
     const s = getMpvOverlayStatus();
     // Keep the input / toggle in sync with backend state. Prefs load

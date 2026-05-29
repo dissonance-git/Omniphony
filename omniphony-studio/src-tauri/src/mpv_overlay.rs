@@ -6,7 +6,12 @@
 //! video.
 //!
 //! The socket path is whatever mpv was launched with
-//! (`--input-ipc-server=…`). Studio remembers it in `localStorage`.
+//! (`--input-ipc-server=…`):
+//!  - Unix: a filesystem path to a Unix domain socket (e.g.
+//!    `/tmp/omniphony-mpv.sock`).
+//!  - Windows: a named pipe path (e.g. `\\.\pipe\omniphony-mpv`).
+//! No normalisation — the user types the literal mpv was launched with,
+//! same convention as the audio input pipe.
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -17,7 +22,44 @@ use std::time::{Duration, Instant};
 use std::os::unix::net::UnixStream;
 
 const PREFS_FILENAME: &str = "mpv_overlay.json";
+
+#[cfg(unix)]
 pub const DEFAULT_SOCKET_PATH: &str = "/tmp/omniphony-mpv.sock";
+#[cfg(windows)]
+pub const DEFAULT_SOCKET_PATH: &str = r"\\.\pipe\omniphony-mpv";
+
+/// Open the mpv IPC endpoint at `path` and return a (reader, writer) pair
+/// of owned byte streams. On Unix the path is a Unix domain socket; on
+/// Windows it's a named pipe (`\\.\pipe\<name>`) — `OpenOptions` opens it
+/// in byte mode, and `try_clone()` duplicates the underlying HANDLE so
+/// the reader and writer threads each own their half.
+fn open_ipc(
+    path: &str,
+) -> std::io::Result<(Box<dyn Read + Send>, Box<dyn Write + Send>)> {
+    #[cfg(unix)]
+    {
+        let stream = UnixStream::connect(path)?;
+        let read = stream.try_clone()?;
+        Ok((Box::new(read), Box::new(stream)))
+    }
+    #[cfg(windows)]
+    {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)?;
+        let read = file.try_clone()?;
+        Ok((Box::new(read), Box::new(file)))
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = path;
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "mpv overlay IPC requires Unix sockets or Windows named pipes",
+        ))
+    }
+}
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct OverlayPrefs {
@@ -130,65 +172,53 @@ impl MpvOverlayState {
     fn connect_inner(&self, path: &str) -> Result<(), String> {
         self.drop_connection();
 
-        #[cfg(unix)]
-        {
-            let mut stream =
-                UnixStream::connect(path).map_err(|e| format!("connect {path}: {e}"))?;
-            // mpv writes a JSON response for every command we send. If we
-            // don't read them, mpv's reply socket buffer fills (~25 s at
-            // 20 Hz) and its main thread blocks trying to write the next
-            // reply — which silently freezes the whole IPC. We share the
-            // fd via try_clone and spawn a reader that just drains.
-            let mut read_stream = stream
-                .try_clone()
-                .map_err(|e| format!("clone stream: {e}"))?;
-            std::thread::Builder::new()
-                .name("mpv-overlay-reader".into())
-                .spawn(move || {
-                    let mut buf = [0u8; 4096];
-                    loop {
-                        match read_stream.read(&mut buf) {
-                            Ok(0) => break, // EOF — mpv closed the socket
-                            Ok(_) => {}
-                            Err(_) => break,
-                        }
+        let (mut read_handle, mut write_handle) =
+            open_ipc(path).map_err(|e| format!("connect {path}: {e}"))?;
+        // mpv writes a JSON response for every command we send. If we
+        // don't read them, mpv's reply buffer fills (~25 s at 20 Hz) and
+        // its main thread blocks trying to write the next reply — which
+        // silently freezes the whole IPC. The dedicated reader thread
+        // just drains.
+        std::thread::Builder::new()
+            .name("mpv-overlay-reader".into())
+            .spawn(move || {
+                let mut buf = [0u8; 4096];
+                loop {
+                    match read_handle.read(&mut buf) {
+                        Ok(0) => break, // EOF — mpv closed the endpoint
+                        Ok(_) => {}
+                        Err(_) => break,
                     }
-                })
-                .map_err(|e| format!("spawn reader thread: {e}"))?;
-            let (tx, rx) = std::sync::mpsc::channel::<WriterMsg>();
-            std::thread::Builder::new()
-                .name("mpv-overlay-writer".into())
-                .spawn(move || {
-                    for msg in rx {
-                        match msg {
-                            WriterMsg::Send(line) => {
-                                if stream.write_all(line.as_bytes()).is_err()
-                                    || stream.write_all(b"\n").is_err()
-                                {
-                                    break;
-                                }
+                }
+            })
+            .map_err(|e| format!("spawn reader thread: {e}"))?;
+        let (tx, rx) = std::sync::mpsc::channel::<WriterMsg>();
+        std::thread::Builder::new()
+            .name("mpv-overlay-writer".into())
+            .spawn(move || {
+                for msg in rx {
+                    match msg {
+                        WriterMsg::Send(line) => {
+                            if write_handle.write_all(line.as_bytes()).is_err()
+                                || write_handle.write_all(b"\n").is_err()
+                            {
+                                break;
                             }
-                            WriterMsg::Shutdown => break,
                         }
+                        WriterMsg::Shutdown => break,
                     }
-                })
-                .map_err(|e| format!("spawn writer thread: {e}"))?;
-            *self.inner.lock().unwrap() = Some(tx);
-            // Re-push the last trail prefs so a fresh mpv (or one whose
-            // user-data was wiped on restart) lines up with what Studio
-            // thinks they are.
-            let prefs_snapshot = self.trail_prefs.lock().unwrap().clone();
-            if let Some(prefs) = prefs_snapshot {
-                let _ = self.send_trail_prefs_now(&prefs);
-            }
-            Ok(())
+                }
+            })
+            .map_err(|e| format!("spawn writer thread: {e}"))?;
+        *self.inner.lock().unwrap() = Some(tx);
+        // Re-push the last trail prefs so a fresh mpv (or one whose
+        // user-data was wiped on restart) lines up with what Studio
+        // thinks they are.
+        let prefs_snapshot = self.trail_prefs.lock().unwrap().clone();
+        if let Some(prefs) = prefs_snapshot {
+            let _ = self.send_trail_prefs_now(&prefs);
         }
-
-        #[cfg(not(unix))]
-        {
-            let _ = path;
-            Err("mpv overlay IPC is only supported on Unix sockets right now".into())
-        }
+        Ok(())
     }
 
     /// User-initiated disconnect: close the writer thread AND wipe the
