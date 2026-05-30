@@ -33,6 +33,10 @@ const HEADER_FONT_SIZE: i32 = 14;
 // centred on the object. Scales with resolution so it looks the same on 4K.
 const LABEL_FONT_RATIO: f64 = 0.06;
 const CINEMA_ASPECT: f64 = 2.35; // pseudo-3D depth squeezes Y=+1 into this band
+// Aspect cap for the depth squeeze. Without it, as the frame widens toward
+// CINEMA_ASPECT the squeeze (and the perceived depth) shrinks to nothing; capping
+// at 16:9 keeps screens wider than 16:9 at the same vertical perspective as 16:9.
+const PERSPECTIVE_MAX_ASPECT: f64 = 16.0 / 9.0;
 
 // ── object energy heatmap (mpv overlay = depth slices only, 3 planes) ─────
 // Mirror of Studio's client-side `object-energy-heatmap.js`, restricted here to
@@ -490,6 +494,14 @@ fn dbfs_to_scale(dbfs: f64, min_scale: f64, max_scale: f64) -> f64 {
     min_scale + n * (max_scale - min_scale)
 }
 
+/// Depth-squeeze span for the pseudo-3D projection (how much the far plane,
+/// Y=+1, shrinks). The aspect is capped at 16:9 so wider screens keep the same
+/// vertical perspective as 16:9 instead of flattening out toward CINEMA_ASPECT.
+fn depth_span_for(res_x: f64, res_y: f64) -> f64 {
+    let aspect = (res_x / res_y).min(PERSPECTIVE_MAX_ASPECT);
+    1.0 - (aspect / CINEMA_ASPECT).min(1.0)
+}
+
 /// Pseudo-3D front-view projection (identical to the former Lua `project_vertex`
 /// / `project_trail_point`): X drives screen X, Z drives screen Y, Y drives the
 /// depth-squeeze factor `s`.
@@ -637,8 +649,7 @@ pub struct HeatmapBitmap {
 fn build_heatmap_bitmap(s: &OverlayState, res_x: f64, res_y: f64) -> Option<HeatmapBitmap> {
     let cx = res_x / 2.0;
     let cy = res_y / 2.0;
-    let band_h_frac = ((res_x / res_y) / CINEMA_ASPECT).min(1.0);
-    let depth_span = 1.0 - band_h_frac;
+    let depth_span = depth_span_for(res_x, res_y);
 
     // Gather audible objects as (x, y, z, linear energy). Silence floor mirrors
     // Studio (RMS ≤ -100 dBFS ⇒ no contribution).
@@ -972,8 +983,7 @@ fn build_trail_diffuse(
 fn render(s: &mut OverlayState, res_x: f64, res_y: f64, now: f64) -> String {
     let cx = res_x / 2.0;
     let cy = res_y / 2.0;
-    let band_h_frac = ((res_x / res_y) / CINEMA_ASPECT).min(1.0);
-    let depth_span = 1.0 - band_h_frac;
+    let depth_span = depth_span_for(res_x, res_y);
     let base_radius = (res_y * BASE_RADIUS_RATIO).max(8.0);
     let label_fs = (res_y * LABEL_FONT_RATIO).round().max(12.0);
 
@@ -1142,6 +1152,21 @@ mod tests {
     }
 
     #[test]
+    fn depth_span_frozen_at_or_above_16_9() {
+        let base = depth_span_for(1920.0, 1080.0); // 16:9
+        assert!(base > 0.0, "16:9 keeps a real perspective squeeze");
+        // Screens wider than 16:9 keep the exact 16:9 vertical perspective.
+        for (w, h) in [(2560.0, 1080.0), (3440.0, 1440.0), (4000.0, 1000.0)] {
+            assert!(
+                (depth_span_for(w, h) - base).abs() < 1e-9,
+                "wider-than-16:9 must not flatten the perspective"
+            );
+        }
+        // Narrower than 16:9 keeps the previous (stronger) perspective.
+        assert!(depth_span_for(1440.0, 1080.0) > base); // 4:3
+    }
+
+    #[test]
     fn heatmap_bitmap_none_when_disabled() {
         let _g = guard();
         update_positions(vec![(0, 0.0, 0.0, 0.5, String::new())]);
@@ -1269,7 +1294,7 @@ mod tests {
         let t = s.trails.get(&0).unwrap();
 
         let (res_x, res_y) = (1920.0_f64, 1080.0_f64);
-        let depth_span = 1.0 - ((res_x / res_y) / CINEMA_ASPECT).min(1.0);
+        let depth_span = depth_span_for(res_x, res_y);
         let ttl = 30.0;
         let now = (n as f64 - 1.0) * 0.08;
         let evt = build_trail_diffuse(
