@@ -1057,12 +1057,17 @@ export function updateRoomDimensionGuides(preview = null) {
 // Apply room ratio to 3D scene objects
 // ---------------------------------------------------------------------------
 
-export function applyRoomRatioToScene() {
-  const xMax = Math.max(0.001, Number(app.roomRatio.length) || 1);
-  const xMin = -Math.max(0.001, Number(app.roomRatio.rear) || 1);
-  const yMax = Math.max(0.001, Number(app.roomRatio.height) || 1);
-  const yMin = -Math.max(0.001, Number(app.roomRatio.lower) || 0.5);
-  const halfZ = Math.max(0.001, Number(app.roomRatio.width) || 1);
+export function applyRoomRatioToScene(preview = null, { refit = true } = {}) {
+  // `preview` (the result of computeRoomGeometryFromInputs) drives the box and
+  // guides from typed, uncommitted values for a live preview while editing; with
+  // no preview it renders the committed ratios. `refit` is skipped during the
+  // live preview so the camera doesn't jump on every keystroke.
+  const r = preview?.ratio ?? app.roomRatio;
+  const xMax = Math.max(0.001, Number(r.length) || 1);
+  const xMin = -Math.max(0.001, Number(r.rear) || 1);
+  const yMax = Math.max(0.001, Number(r.height) || 1);
+  const yMin = -Math.max(0.001, Number(r.lower) || 0.5);
+  const halfZ = Math.max(0.001, Number(r.width) || 1);
   const depthHalfX = Math.max(0.001, (xMax - xMin) * 0.5);
   const xCenter = (xMin + xMax) * 0.5;
   const yCenter = (yMin + yMax) * 0.5;
@@ -1095,13 +1100,27 @@ export function applyRoomRatioToScene() {
   roomFaces.negZ.position.set(xCenter, yCenter, -halfZ);
   roomFaces.negZ.scale.set(depthHalfX, totalHeight, 1);
 
-  fitScreenToUpperHalf();
-  updateRoomDimensionGuides();
+  if (refit) fitScreenToUpperHalf();
+  updateRoomDimensionGuides(preview);
   updateVbapCartesianFaceGrid();
   redrawHybridDistanceShape();
   if (typeof flushCallbacks.refreshSpeakerHeatmapScene === 'function') {
     flushCallbacks.refreshSpeakerHeatmapScene();
   }
+}
+
+/**
+ * Live scene preview while editing room inputs — refreshes the 3D box, guides,
+ * master m/u readout and summary from the typed (uncommitted) values WITHOUT
+ * rewriting the input fields or pushing to orender. The value is committed on
+ * blur / Enter (the input listeners' 'change' path). This is what lets a partial
+ * keystroke stand instead of being reset mid-edit.
+ */
+export function previewRoomGeometryScene() {
+  const preview = computeRoomGeometryFromInputs();
+  applyRoomRatioToScene(preview, { refit: false });
+  renderRoomGeometryMasterMpu(preview);
+  renderRoomGeometrySummary(preview);
 }
 
 // ---------------------------------------------------------------------------

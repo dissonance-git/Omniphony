@@ -4,7 +4,7 @@ import {
   normalizeRoomGeometryInputDisplays, updateRoomGeometryButtonsState,
   applyRoomGeometryNow, scheduleRoomGeometryApply, applyRoomGeometryStateToInputs,
   updateRoomGeometryLivePreview, refreshRoomGeometryInputState, setRoomGeometryExpanded,
-  getRoomDriverValue
+  getRoomDriverValue, previewRoomGeometryScene
 } from '../controls/room-geometry.js';
 
 export function setupRoomGeometryListeners() {
@@ -96,11 +96,13 @@ export function setupRoomGeometryListeners() {
     roomRatioLowerInputEl
   ].forEach((el) => {
     if (!el) return;
+    // While typing: only preview the 3D scene from the typed (uncommitted)
+    // values — no field rewrite, no push to orender — so a partial keystroke
+    // isn't reset mid-edit. Commit on blur ('change') or Enter.
     el.addEventListener('input', () => {
       if (isRoomRatioFrozen()) return;
-      updateRoomGeometryLivePreview();
+      previewRoomGeometryScene();
       updateRoomGeometryButtonsState();
-      scheduleRoomGeometryApply();
     });
     el.addEventListener('change', () => {
       if (isRoomRatioFrozen()) return;
@@ -108,6 +110,12 @@ export function setupRoomGeometryListeners() {
       updateRoomGeometryLivePreview();
       updateRoomGeometryButtonsState();
       applyRoomGeometryNow();
+    });
+    el.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      if (isRoomRatioFrozen()) return;
+      e.preventDefault();
+      el.blur(); // fires 'change' → commit
     });
   });
 
