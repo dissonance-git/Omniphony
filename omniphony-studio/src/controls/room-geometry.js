@@ -739,18 +739,8 @@ export function computeRoomGeometryFromInputs() {
 
 export function updateRoomGeometryLivePreview() {
   const preview = computeRoomGeometryFromInputs();
-  const axes = ['width', 'length', 'height', 'rear', 'lower'];
-  axes.forEach((axis) => {
-    const isMaster = axis === app.roomMasterAxis;
-    const driver = app.roomAxisDrivers[axis] === 'ratio' ? 'ratio' : 'size';
-    const sizeEditable = isMaster || driver === 'size';
-    const ratioEditable = isMaster || driver === 'ratio';
-    const sizeEl = getRoomSizeInputEl(axis);
-    const ratioEl = getRoomRatioInputEl(axis);
-    if (!sizeEditable && sizeEl) sizeEl.value = formatNumber(preview.size[axis], 2);
-    if (!ratioEditable && ratioEl) ratioEl.value = formatNumber(preview.ratio[axis], 2);
-  });
-  renderRoomGeometryMasterMpu(preview);
+  // Metres-only model: every field is a direct, independent input — nothing is
+  // derived, so there is no field to overwrite here.
   renderRoomGeometrySummary(preview);
   updateRoomDimensionGuides(preview);
   updateCenterBlendVisibility(preview.ratio.length, preview.ratio.rear);
@@ -799,32 +789,14 @@ function syncRoomMasterAxisUI() {
 }
 
 export function refreshRoomGeometryInputState() {
-  const roomMasterAxisInputs = getRoomMasterAxisInputs();
   const roomRatioCenterBlendSliderEl = getRoomRatioCenterBlendSliderEl();
   const roomGeometryCancelBtnEl = getRoomGeometryCancelBtnEl();
   const axes = ['width', 'length', 'height', 'rear', 'lower'];
-  syncRoomMasterAxisUI();
   const frozen = isRoomRatioFrozen();
 
-  axes.forEach((axis) => {
-    const isMaster = axis === app.roomMasterAxis;
-    const sizeEl = getRoomSizeInputEl(axis);
-    const ratioEl = getRoomRatioInputEl(axis);
-    const driverEl = getRoomDriverEl(axis);
-    const driver = app.roomAxisDrivers[axis] === 'ratio' ? 'ratio' : 'size';
-
-    if (driverEl) {
-      setRoomDriverValue(axis, driver);
-      driverEl.disabled = frozen || isMaster;
-    }
-    const sizeEditable = isMaster || driver === 'size';
-    const ratioEditable = isMaster || driver === 'ratio';
-    setRoomFieldEditable(sizeEl, !frozen && sizeEditable);
-    setRoomFieldEditable(ratioEl, !frozen && ratioEditable);
-  });
-  roomMasterAxisInputs.forEach((input) => {
-    input.disabled = frozen;
-  });
+  // Metres-only model: every dimension field is directly editable (no derived
+  // size/ratio split anymore), unless the renderer has frozen the room ratio.
+  axes.forEach((axis) => setRoomFieldEditable(getRoomSizeInputEl(axis), !frozen));
   if (roomRatioCenterBlendSliderEl) {
     roomRatioCenterBlendSliderEl.disabled = frozen;
   }
