@@ -33,6 +33,25 @@ const HEADER_FONT_SIZE: i32 = 14;
 // centred on the object. Scales with resolution so it looks the same on 4K.
 const LABEL_FONT_RATIO: f64 = 0.06;
 const CINEMA_ASPECT: f64 = 2.35; // pseudo-3D depth squeezes Y=+1 into this band
+// Aspect cap for the depth squeeze. Without it, as the frame widens toward
+// CINEMA_ASPECT the squeeze (and the perceived depth) shrinks to nothing; capping
+// at 16:9 keeps screens wider than 16:9 at the same vertical perspective as 16:9.
+const PERSPECTIVE_MAX_ASPECT: f64 = 16.0 / 9.0;
+
+// ── object energy heatmap (mpv overlay = depth slices only, 3 planes) ─────
+// Mirror of Studio's client-side `object-energy-heatmap.js`, restricted here to
+// the "depth" axis (Omniphony Y, the into-screen direction of the pseudo-3D
+// projection) with exactly 3 planes. The planes are flattened into a single
+// BGRA bitmap (colour + alpha track the theoretical inverse-square energy) and
+// drawn under the ASS layer via mpv's `overlay-add`.
+const FIELD_BANDS: usize = 3; // default number of flattened depth planes (1..=12)
+const FIELD_FALLOFF_R: f64 = 0.12; // inverse-square cap radius (normalised units)
+const FIELD_OPACITY: f64 = 0.5; // global alpha multiplier over the energy alpha
+// Internal raster size cap per axis. The flattened bitmap is rendered at the
+// front plane's on-screen size, clamped to this; the field is smooth so mpv
+// upscales to the display rect with no visible loss. Bounds CPU on big windows /
+// constrained hardware.
+const FIELD_BITMAP_MAX: usize = 256;
 
 /// Bezier-approximated unit circle of radius 100, scaled per object via
 /// `\fscx/\fscy` so libass keeps the path parse cached.
@@ -130,6 +149,14 @@ struct OverlayState {
     labels: HashMap<u32, String>,
     /// Whether object labels are drawn (mirrors Studio's `objectLabelsEnabled`).
     labels_enabled: bool,
+    /// Whether the objects themselves (markers + labels + trails + depth lines)
+    /// are drawn. A display-only switch (mirrors Studio's "show objects"); it does
+    /// not change `labels_enabled` or the trail config, so those come back as set
+    /// when objects are shown again. The energy heatmap is unaffected.
+    objects_visible: bool,
+    /// Number of flattened depth planes in the energy heatmap (1..=12). Mirrors
+    /// Studio's "Planes per axis" slider; defaults to `FIELD_BANDS`.
+    heatmap_bands: usize,
     cfg: TrailCfg,
 }
 
@@ -141,7 +168,9 @@ impl Default for OverlayState {
             trails: HashMap::new(),
             tags: HashMap::new(),
             labels: HashMap::new(),
-            labels_enabled: true, // on by default, like Studio's 3D view
+            labels_enabled: true,  // on by default, like Studio's 3D view
+            objects_visible: true, // on by default
+            heatmap_bands: FIELD_BANDS,
             cfg: TrailCfg::default(),
         }
     }
@@ -237,6 +266,24 @@ pub fn set_labels_enabled(on: bool) {
     save_prefs();
 }
 
+/// Show/hide the objects (markers + labels + trails + depth lines). Display-only:
+/// does not touch `labels_enabled` or the trail config, and leaves the energy
+/// heatmap alone. Transient (not persisted) — Studio owns the value and re-pushes
+/// it; orender defaults to showing objects.
+pub fn set_objects_visible(on: bool) {
+    if let Ok(mut s) = overlay().state.lock() {
+        s.objects_visible = on;
+    }
+}
+
+/// Set the number of flattened depth planes in the energy heatmap (clamped to
+/// 1..=12, mirroring Studio's "Planes per axis" slider). Transient.
+pub fn set_heatmap_bands(count: usize) {
+    if let Ok(mut s) = overlay().state.lock() {
+        s.heatmap_bands = count.clamp(1, 12);
+    }
+}
+
 /// Apply trail configuration (mirror of Studio's wire fields).
 pub fn set_trail_config(enabled: bool, ttl_ms: u32, diffuse: bool, teleport_threshold: f64) {
     if let Ok(mut s) = overlay().state.lock() {
@@ -271,7 +318,9 @@ pub fn load_prefs(path: &Path) {
     };
     if let Ok(mut s) = o.state.lock() {
         for line in text.lines() {
-            let Some((k, v)) = line.split_once('=') else { continue };
+            let Some((k, v)) = line.split_once('=') else {
+                continue;
+            };
             let (k, v) = (k.trim(), v.trim());
             match k {
                 "enabled" => o.enabled.store(v != "0", Ordering::Relaxed),
@@ -282,11 +331,13 @@ pub fn load_prefs(path: &Path) {
                         s.cfg.ttl_s = ms as f64 / 1000.0;
                     }
                 }
-                "mode" => s.cfg.mode = if v.eq_ignore_ascii_case("diffuse") {
-                    TrailMode::Diffuse
-                } else {
-                    TrailMode::Line
-                },
+                "mode" => {
+                    s.cfg.mode = if v.eq_ignore_ascii_case("diffuse") {
+                        TrailMode::Diffuse
+                    } else {
+                        TrailMode::Line
+                    }
+                }
                 "teleport" => {
                     if let Ok(th) = v.parse::<f64>() {
                         if th > 0.0 {
@@ -366,7 +417,9 @@ fn format_object_label(name: &str) -> String {
     let mut name = name.trim();
     // Strip ^[av][_:-]
     let b = name.as_bytes();
-    if b.len() >= 2 && matches!(b[0], b'a' | b'A' | b'v' | b'V') && matches!(b[1], b'_' | b':' | b'-')
+    if b.len() >= 2
+        && matches!(b[0], b'a' | b'A' | b'v' | b'V')
+        && matches!(b[1], b'_' | b':' | b'-')
     {
         name = &name[2..];
     }
@@ -439,6 +492,14 @@ fn dbfs_to_scale(dbfs: f64, min_scale: f64, max_scale: f64) -> f64 {
     let c = clamp(dbfs, -100.0, 0.0);
     let n = (c + 100.0) / 100.0;
     min_scale + n * (max_scale - min_scale)
+}
+
+/// Depth-squeeze span for the pseudo-3D projection (how much the far plane,
+/// Y=+1, shrinks). The aspect is capped at 16:9 so wider screens keep the same
+/// vertical perspective as 16:9 instead of flattening out toward CINEMA_ASPECT.
+fn depth_span_for(res_x: f64, res_y: f64) -> f64 {
+    let aspect = (res_x / res_y).min(PERSPECTIVE_MAX_ASPECT);
+    1.0 - (aspect / CINEMA_ASPECT).min(1.0)
 }
 
 /// Pseudo-3D front-view projection (identical to the former Lua `project_vertex`
@@ -534,6 +595,196 @@ m {:.1} {:.1} l {:.1} {:.1} m {:.1} {:.1} l {:.1} {:.1}{{\\p0}}",
         tx2,
         ty2
     )
+}
+
+// ── object energy heatmap ──────────────────────────────────────────────────
+
+/// Heatmap ramp (port of Studio's `heatmapColor`), `t` ∈ [0, 1]. Colour stops
+/// blue → cyan → green → yellow → red, interpolated in RGB. Adjacent stops share
+/// a channel at 1.0 so every transition stays vivid (no dark bands), and the
+/// stop spacing widens the warm (yellow) band, which a uniform hue sweep renders
+/// too narrow.
+const HEATMAP_STOPS: [(f64, f64, f64, f64); 5] = [
+    (0.00, 0.0, 0.0, 1.0), // blue
+    (0.25, 0.0, 1.0, 1.0), // cyan
+    (0.48, 0.0, 1.0, 0.0), // green
+    (0.70, 1.0, 1.0, 0.0), // yellow
+    (1.00, 1.0, 0.0, 0.0), // red
+];
+
+fn heatmap_rgb(t: f64) -> (u8, u8, u8) {
+    let t = clamp(t, 0.0, 1.0);
+    let mut i = 0;
+    while i + 1 < HEATMAP_STOPS.len() && t > HEATMAP_STOPS[i + 1].0 {
+        i += 1;
+    }
+    let (t0, r0, g0, b0) = HEATMAP_STOPS[i];
+    let (t1, r1, g1, b1) = HEATMAP_STOPS[(i + 1).min(HEATMAP_STOPS.len() - 1)];
+    let f = if t1 > t0 { (t - t0) / (t1 - t0) } else { 0.0 };
+    (
+        ((r0 + (r1 - r0) * f) * 255.0).round() as u8,
+        ((g0 + (g1 - g0) * f) * 255.0).round() as u8,
+        ((b0 + (b1 - b0) * f) * 255.0).round() as u8,
+    )
+}
+
+/// A finished heatmap bitmap ready for mpv's `overlay-add` (BGRA, premultiplied
+/// alpha). `pixels` is `w*h*4` bytes; mpv scales the `w×h` source to the on-screen
+/// `dw×dh` rect at `(x, y)`.
+pub struct HeatmapBitmap {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+    pub dw: i32,
+    pub dh: i32,
+    pub pixels: Vec<u8>,
+}
+
+/// Render the depth-sliced energy field, flattened into a single BGRA bitmap.
+/// The three depth planes (slicing along Omniphony Y, the into-screen axis) are
+/// composited back → front into one image sized to the front plane's on-screen
+/// rect; nearer planes appear larger and blend over farther ones. Returns `None`
+/// when there is no audible object.
+fn build_heatmap_bitmap(s: &OverlayState, res_x: f64, res_y: f64) -> Option<HeatmapBitmap> {
+    let cx = res_x / 2.0;
+    let cy = res_y / 2.0;
+    let depth_span = depth_span_for(res_x, res_y);
+
+    // Gather audible objects as (x, y, z, linear energy). Silence floor mirrors
+    // Studio (RMS ≤ -100 dBFS ⇒ no contribution).
+    let objs: Vec<(f64, f64, f64, f64)> = s
+        .positions
+        .iter()
+        .filter_map(|&(id, x, y, z)| {
+            let rms = s.levels.get(&id).copied().unwrap_or(-100.0);
+            if rms <= -100.0 {
+                return None;
+            }
+            Some((x, y, z, 10f64.powf(rms / 10.0)))
+        })
+        .collect();
+    if objs.is_empty() {
+        return None;
+    }
+    let r2 = FIELD_FALLOFF_R * FIELD_FALLOFF_R;
+    let bands_n = s.heatmap_bands.clamp(1, 12);
+
+    // Per-band depth Y and its on-screen scale `s_k` (front plane has the largest
+    // scale → biggest rect, and contains the others since all are centred).
+    let bands: Vec<(f64, f64)> = (0..bands_n)
+        .map(|b| {
+            let yb = -1.0 + (2.0 * b as f64 + 1.0) / bands_n as f64;
+            let depth_t = clamp((yb + 1.0) * 0.5, 0.0, 1.0);
+            (yb, 1.0 - depth_t * depth_span)
+        })
+        .collect();
+    let s_front = bands.iter().fold(0.0f64, |m, &(_, sk)| m.max(sk));
+    if s_front <= 0.0 {
+        return None;
+    }
+
+    // Display rect (front plane) and internal raster size (adaptive, capped).
+    let dw = (res_x * s_front).round().max(1.0);
+    let dh = (res_y * s_front).round().max(1.0);
+    let x = (cx - dw * 0.5).round();
+    let y = (cy - dh * 0.5).round();
+    let w = (dw as usize).clamp(8, FIELD_BITMAP_MAX);
+    let h = (dh as usize).clamp(8, FIELD_BITMAP_MAX);
+    let cxg = w as f64 * 0.5;
+    let cyg = h as f64 * 0.5;
+
+    // Pass 1: energy per band per pixel (0 outside the band's centred sub-rect),
+    // tracking the global max for normalisation.
+    let mut grids: Vec<Vec<f32>> = Vec::with_capacity(bands_n);
+    let mut max_e = 0.0f64;
+    for &(yb, sk) in &bands {
+        let scale = sk / s_front; // ≤ 1
+        let half_w = cxg * scale;
+        let half_h = cyg * scale;
+        let mut g = vec![0f32; w * h];
+        if half_w >= 0.5 && half_h >= 0.5 {
+            for j in 0..h {
+                let v = (j as f64 + 0.5 - cyg) / half_h; // [-1, 1]
+                if !(-1.0..=1.0).contains(&v) {
+                    continue;
+                }
+                let zc = 0.5 - v * 0.5; // top → Z=1, bottom → Z=0
+                for i in 0..w {
+                    let u = (i as f64 + 0.5 - cxg) / half_w; // [-1, 1] → X
+                    if !(-1.0..=1.0).contains(&u) {
+                        continue;
+                    }
+                    let mut e = 0.0;
+                    for &(ox, oy, oz, oe) in &objs {
+                        let dx = u - ox;
+                        let dy = yb - oy;
+                        let dz = zc - oz;
+                        e += oe / (dx * dx + dy * dy + dz * dz + r2);
+                    }
+                    if e > max_e {
+                        max_e = e;
+                    }
+                    g[j * w + i] = e as f32;
+                }
+            }
+        }
+        grids.push(g);
+    }
+    if max_e <= 0.0 {
+        return None;
+    }
+    let inv = 1.0 / max_e;
+
+    // Pass 2: combine the depth planes by the strongest energy per pixel, then
+    // colourise once. Alpha-over compositing of separately-coloured translucent
+    // planes muddied overlaps — complementary hues (e.g. yellow over cyan) blend
+    // toward dark, and the alpha accumulates so overlaps turned more opaque and
+    // darker. A single ramp hue per pixel from the combined field avoids that
+    // entirely, with alpha bounded by FIELD_OPACITY, while the planes' nested
+    // on-screen extents still convey the pseudo-3D depth.
+    let mut pixels = vec![0u8; w * h * 4];
+    for idx in 0..w * h {
+        let mut e = 0.0f32;
+        for g in grids.iter().take(bands_n) {
+            if g[idx] > e {
+                e = g[idx];
+            }
+        }
+        let t = clamp(e as f64 * inv, 0.0, 1.0);
+        if t < 0.01 {
+            continue; // leave fully transparent
+        }
+        let (r8, g8, b8) = heatmap_rgb(t);
+        let a = t * FIELD_OPACITY; // [0, FIELD_OPACITY]
+        let o = idx * 4;
+        // Premultiplied BGRA.
+        pixels[o] = (b8 as f64 * a).round() as u8;
+        pixels[o + 1] = (g8 as f64 * a).round() as u8;
+        pixels[o + 2] = (r8 as f64 * a).round() as u8;
+        pixels[o + 3] = (a * 255.0).round() as u8;
+    }
+
+    Some(HeatmapBitmap {
+        x: x as i32,
+        y: y as i32,
+        w: w as i32,
+        h: h as i32,
+        dw: dw as i32,
+        dh: dh as i32,
+        pixels,
+    })
+}
+
+/// Public entry: lock the scene and render the flattened heatmap bitmap. Does
+/// not touch the trails or the pull clock (the ASS pull already advances those).
+pub fn build_heatmap(res_x: u32, res_y: u32) -> Option<HeatmapBitmap> {
+    let o = overlay();
+    if !o.enabled.load(Ordering::Relaxed) || res_x == 0 || res_y == 0 {
+        return None;
+    }
+    let s = o.state.lock().ok()?;
+    build_heatmap_bitmap(&s, res_x as f64, res_y as f64)
 }
 
 // ── trails ───────────────────────────────────────────────────────────────
@@ -713,7 +964,8 @@ fn build_trail_diffuse(
     // trail exceeds it, in which case we keep the newest `cap` candidates and
     // drop the oldest — which are already faded toward transparency by age, so
     // the drop is invisible (no hard cutoff).
-    let cap = ((ttl_s * DIFFUSE_DOTS_PER_S).round() as usize).clamp(DIFFUSE_MIN_DOTS, DIFFUSE_MAX_DOTS);
+    let cap =
+        ((ttl_s * DIFFUSE_DOTS_PER_S).round() as usize).clamp(DIFFUSE_MIN_DOTS, DIFFUSE_MAX_DOTS);
     let n = cands.len();
     let start = n.saturating_sub(cap);
 
@@ -731,68 +983,82 @@ fn build_trail_diffuse(
 fn render(s: &mut OverlayState, res_x: f64, res_y: f64, now: f64) -> String {
     let cx = res_x / 2.0;
     let cy = res_y / 2.0;
-    let band_h_frac = ((res_x / res_y) / CINEMA_ASPECT).min(1.0);
-    let depth_span = 1.0 - band_h_frac;
+    let depth_span = depth_span_for(res_x, res_y);
     let base_radius = (res_y * BASE_RADIUS_RATIO).max(8.0);
     let label_fs = (res_y * LABEL_FONT_RATIO).round().max(12.0);
 
     let mut out: Vec<String> = Vec::new();
+    // The energy heatmap is a separate BGRA bitmap overlay (built via
+    // `build_heatmap`), composited by mpv *under* this ASS layer — see the Lua
+    // shim. The ASS layer only draws the cube wireframe, objects and trails.
     out.push(build_wireframe(cx, cy, res_x, res_y, depth_span));
 
     // Snapshot the scene so we can mutate trails while iterating.
     let positions = s.positions.clone();
-    let mut n_obj = 0;
-    for &(id, x, y, z) in &positions {
-        let (r, g, b) = object_color(id, s.tags.get(&id).copied());
-        let col = ass_color(r, g, b);
-        n_obj += 1;
+    let n_obj = positions.len();
+    // Objects (markers + labels + trails + depth lines) are a display-only group:
+    // when hidden the cube wireframe and header remain, and the energy heatmap is
+    // untouched. Mirrors Studio's "show objects" switch.
+    if s.objects_visible {
+        for &(id, x, y, z) in &positions {
+            let (r, g, b) = object_color(id, s.tags.get(&id).copied());
+            let col = ass_color(r, g, b);
 
-        let (sx, sy, sdepth) = project(x, y, z, cx, cy, res_x, res_y, depth_span);
-        let rms = s.levels.get(&id).copied().unwrap_or(-100.0);
-        let level_scale = dbfs_to_scale(rms, 0.5, 2.4);
-        let pct = base_radius * level_scale * sdepth;
+            let (sx, sy, sdepth) = project(x, y, z, cx, cy, res_x, res_y, depth_span);
+            let rms = s.levels.get(&id).copied().unwrap_or(-100.0);
+            let level_scale = dbfs_to_scale(rms, 0.5, 2.4);
+            let pct = base_radius * level_scale * sdepth;
 
-        // Sample into the trail buffer, then draw the trail under the circle.
-        trail_append(s, id, x, y, z, now);
-        if s.cfg.enabled {
-            if let Some(t) = s.trails.get(&id) {
-                if t.points.len() >= 2 {
-                    let evt = match s.cfg.mode {
-                        TrailMode::Diffuse => build_trail_diffuse(
-                            t, cx, cy, res_x, res_y, depth_span, s.cfg.ttl_s, now, base_radius,
-                            &col,
-                        ),
-                        TrailMode::Line => {
-                            build_trail_line(t, cx, cy, res_x, res_y, depth_span, r, g, b)
+            // Sample into the trail buffer, then draw the trail under the circle.
+            trail_append(s, id, x, y, z, now);
+            if s.cfg.enabled {
+                if let Some(t) = s.trails.get(&id) {
+                    if t.points.len() >= 2 {
+                        let evt = match s.cfg.mode {
+                            TrailMode::Diffuse => build_trail_diffuse(
+                                t,
+                                cx,
+                                cy,
+                                res_x,
+                                res_y,
+                                depth_span,
+                                s.cfg.ttl_s,
+                                now,
+                                base_radius,
+                                &col,
+                            ),
+                            TrailMode::Line => {
+                                build_trail_line(t, cx, cy, res_x, res_y, depth_span, r, g, b)
+                            }
+                        };
+                        if let Some(evt) = evt {
+                            out.push(evt);
                         }
-                    };
-                    if let Some(evt) = evt {
-                        out.push(evt);
                     }
                 }
             }
-        }
 
-        out.push(build_y_axis_line(
-            x, z, cx, cy, res_x, res_y, depth_span, r, g, b,
-        ));
+            out.push(build_y_axis_line(
+                x, z, cx, cy, res_x, res_y, depth_span, r, g, b,
+            ));
 
-        out.push(format!(
+            out.push(format!(
             "{{\\an7\\pos({:.1},{:.1})\\bord1\\fscx{:.1}\\fscy{:.1}\\1c{}\\3c&H000000&\\1a&H30&\\3a&H80&\\p1}}{}{{\\p0}}",
             sx, sy, pct, pct, col, UNIT_CIRCLE
         ));
 
-        // Object label centred on the object (like Studio's 3D view), large,
-        // white text + black outline for readability over the video.
-        if s.labels_enabled {
-            if let Some(label) = s.labels.get(&id) {
-                out.push(format!(
-                    "{{\\an5\\pos({:.1},{:.1})\\fs{:.0}\\bord2\\1c&HFFFFFF&\\3c&H000000&}}{}",
-                    sx,
-                    sy,
-                    label_fs,
-                    ass_escape(label)
-                ));
+            // Object label centred on the object (like Studio's 3D view), large,
+            // white text + black outline for readability over the video.
+            if s.labels_enabled {
+                if let Some(label) = s.labels.get(&id) {
+                    out.push(format!(
+                        "{{\\an5\\pos({:.1},{:.1})\\fs{:.0}\\bord2\\1c&HFFFFFF&\\3c&H000000&}}{}",
+                        sx,
+                        sy,
+                        label_fs,
+                        ass_escape(label)
+                    ));
+                }
             }
         }
     }
@@ -855,6 +1121,89 @@ mod tests {
     fn zero_resolution_returns_empty() {
         let _g = guard();
         assert!(build_ass(0, 0).is_empty());
+    }
+
+    // The energy heatmap is now a separate BGRA bitmap (drawn under the ASS via
+    // mpv's overlay-add), not part of the ASS string.
+    #[test]
+    fn heatmap_bitmap_renders_for_audible_object() {
+        let _g = guard();
+        update_positions(vec![(0, 0.0, 0.0, 0.5, String::new())]);
+        update_levels(&[(0, -6.0)]);
+        let bmp = build_heatmap(1920, 1080).expect("audible object yields a heatmap bitmap");
+        assert_eq!(bmp.pixels.len(), (bmp.w * bmp.h * 4) as usize);
+        assert!(bmp.w > 0 && bmp.h > 0 && bmp.dw > 0 && bmp.dh > 0);
+        // At least one pixel must be non-transparent (alpha byte set).
+        assert!(
+            bmp.pixels.chunks_exact(4).any(|p| p[3] > 0),
+            "heatmap should have visible (non-zero alpha) pixels"
+        );
+    }
+
+    #[test]
+    fn heatmap_bitmap_absent_when_silent() {
+        let _g = guard();
+        update_positions(vec![(0, 0.0, 0.0, 0.5, String::new())]);
+        update_levels(&[(0, -120.0)]);
+        assert!(
+            build_heatmap(1920, 1080).is_none(),
+            "no heatmap when every object is below the silence floor"
+        );
+    }
+
+    #[test]
+    fn depth_span_frozen_at_or_above_16_9() {
+        let base = depth_span_for(1920.0, 1080.0); // 16:9
+        assert!(base > 0.0, "16:9 keeps a real perspective squeeze");
+        // Screens wider than 16:9 keep the exact 16:9 vertical perspective.
+        for (w, h) in [(2560.0, 1080.0), (3440.0, 1440.0), (4000.0, 1000.0)] {
+            assert!(
+                (depth_span_for(w, h) - base).abs() < 1e-9,
+                "wider-than-16:9 must not flatten the perspective"
+            );
+        }
+        // Narrower than 16:9 keeps the previous (stronger) perspective.
+        assert!(depth_span_for(1440.0, 1080.0) > base); // 4:3
+    }
+
+    #[test]
+    fn heatmap_bitmap_none_when_disabled() {
+        let _g = guard();
+        update_positions(vec![(0, 0.0, 0.0, 0.5, String::new())]);
+        update_levels(&[(0, -6.0)]);
+        set_enabled(false);
+        assert!(build_heatmap(1920, 1080).is_none());
+    }
+
+    #[test]
+    fn heatmap_bitmap_honours_band_count() {
+        let _g = guard();
+        update_positions(vec![(0, 0.0, 0.0, 0.5, String::new())]);
+        update_levels(&[(0, -6.0)]);
+        // Exercise the band-count extremes (1 and 12) — the composite loop must
+        // index exactly `bands_n` grids, never the const default.
+        for bands in [1usize, 5, 12] {
+            set_heatmap_bands(bands);
+            let bmp = build_heatmap(1920, 1080).expect("bitmap for any band count");
+            assert_eq!(bmp.pixels.len(), (bmp.w * bmp.h * 4) as usize);
+        }
+        // Out-of-range is clamped, not panicking.
+        set_heatmap_bands(999);
+        assert!(build_heatmap(1920, 1080).is_some());
+    }
+
+    #[test]
+    fn objects_hidden_keeps_cube_and_header() {
+        let _g = guard();
+        update_positions(vec![(0, 0.5, 0.0, 0.5, "a_obj_Voice".to_string())]);
+        crate::overlay::set_objects_visible(false);
+        let ass = build_ass(1920, 1080);
+        assert!(ass.contains("1 objects"), "header still reports the count");
+        // The object circle uses `\fscx`; hidden objects must not emit one.
+        assert!(
+            !ass.contains("\\fscx"),
+            "no object marker drawn when hidden"
+        );
     }
 
     #[test]
@@ -945,22 +1294,41 @@ mod tests {
         let t = s.trails.get(&0).unwrap();
 
         let (res_x, res_y) = (1920.0_f64, 1080.0_f64);
-        let depth_span = 1.0 - ((res_x / res_y) / CINEMA_ASPECT).min(1.0);
+        let depth_span = depth_span_for(res_x, res_y);
         let ttl = 30.0;
         let now = (n as f64 - 1.0) * 0.08;
         let evt = build_trail_diffuse(
-            t, res_x / 2.0, res_y / 2.0, res_x, res_y, depth_span, ttl, now, 16.0, "&H0000FF&",
+            t,
+            res_x / 2.0,
+            res_y / 2.0,
+            res_x,
+            res_y,
+            depth_span,
+            ttl,
+            now,
+            16.0,
+            "&H0000FF&",
         )
         .expect("long diffuse trail renders");
 
         let last = t.points.last().unwrap();
-        let (hx, hy, _) = project(last.x, last.y, last.z, res_x / 2.0, res_y / 2.0, res_x, res_y, depth_span);
+        let (hx, hy, _) = project(
+            last.x,
+            last.y,
+            last.z,
+            res_x / 2.0,
+            res_y / 2.0,
+            res_x,
+            res_y,
+            depth_span,
+        );
         assert!(
             evt.contains(&format!("\\pos({:.1},{:.1})", hx, hy)),
             "the head dot (newest point) is always drawn"
         );
         // Particle count stays within the (TTL-scaled) budget ceiling.
-        let cap = ((ttl * DIFFUSE_DOTS_PER_S).round() as usize).clamp(DIFFUSE_MIN_DOTS, DIFFUSE_MAX_DOTS);
+        let cap =
+            ((ttl * DIFFUSE_DOTS_PER_S).round() as usize).clamp(DIFFUSE_MIN_DOTS, DIFFUSE_MAX_DOTS);
         assert!(evt.matches("\\p1").count() <= cap);
     }
 
@@ -968,7 +1336,10 @@ mod tests {
     fn prefs_round_trip_via_file() {
         let _g = guard();
         let mut path = std::env::temp_dir();
-        path.push(format!("omniphony-overlay-test-{}.conf", std::process::id()));
+        path.push(format!(
+            "omniphony-overlay-test-{}.conf",
+            std::process::id()
+        ));
 
         // A live change auto-persists to the file.
         load_prefs(&path);

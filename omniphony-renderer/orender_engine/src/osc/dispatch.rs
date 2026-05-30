@@ -87,6 +87,25 @@ pub(crate) fn handle_control_message(
         crate::overlay::set_labels_enabled(enabled);
         return;
     }
+    if addr == "/omniphony/control/overlay/objects" {
+        let visible = match msg.args.first() {
+            Some(OscType::Int(i)) => *i != 0,
+            Some(OscType::Float(f)) => *f != 0.0,
+            Some(OscType::Bool(b)) => *b,
+            _ => return,
+        };
+        crate::overlay::set_objects_visible(visible);
+        return;
+    }
+    if addr == "/omniphony/control/overlay/heatmap_bands" {
+        let count = match msg.args.first() {
+            Some(OscType::Int(i)) if *i > 0 => *i as usize,
+            Some(OscType::Float(f)) if *f > 0.0 => *f as usize,
+            _ => return,
+        };
+        crate::overlay::set_heatmap_bands(count);
+        return;
+    }
     if addr == "/omniphony/control/overlay/trails" {
         // Args mirror Studio's former wire fields: enabled, ttl_ms, mode, teleport.
         let enabled = match msg.args.first() {
@@ -123,7 +142,10 @@ pub(crate) fn handle_control_message(
             return;
         };
         let tag = match msg.args.get(1) {
-            Some(OscType::String(s)) => s.chars().next().filter(|c| matches!(c, 'A' | 'a' | 'B' | 'b')),
+            Some(OscType::String(s)) => s
+                .chars()
+                .next()
+                .filter(|c| matches!(c, 'A' | 'a' | 'B' | 'b')),
             _ => None,
         };
         crate::overlay::set_tag(id, tag);
@@ -389,9 +411,7 @@ pub(crate) fn handle_control_message(
 
     if let Some(command) = parse_process_command(msg) {
         match command {
-            RuntimeCommand::SaveConfig => {
-                save_live_config(control, host, socket, clients)
-            }
+            RuntimeCommand::SaveConfig => save_live_config(control, host, socket, clients),
             RuntimeCommand::ReloadConfig => {
                 log::info!("OSC reload_config requested");
                 sys::shutdown::request_restart_from_config();

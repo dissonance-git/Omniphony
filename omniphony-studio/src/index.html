@@ -201,6 +201,10 @@
               <div id="objectAppearanceSectionContent" class="conditional-params open">
                 <div style="margin-top:0.15rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
                   <div class="inline-toggle" style="margin-top:0">
+                    <div data-i18n="display.showObjects">Show objects</div>
+                    <input id="showObjectsToggle" type="checkbox" checked />
+                  </div>
+                  <div class="inline-toggle" style="margin-top:0">
                     <div data-i18n="display.objectColors">Object colors</div>
                     <input id="objectColorsToggle" type="checkbox" />
                   </div>
@@ -319,6 +323,38 @@
                   <div class="control-row" style="margin-top:0.1rem;grid-template-columns:auto 1fr;gap:0.3rem">
                     <label for="speakerHeatmapMaxSphereSizeSlider" style="font-size:12px;white-space:nowrap">Max sphere size <span id="speakerHeatmapMaxSphereSizeVal">0.062</span></label>
                     <input id="speakerHeatmapMaxSphereSizeSlider" type="range" min="0.01" max="0.2" step="0.002" value="0.062" class="gain-slider" />
+                  </div>
+                  <div class="inline-toggle" style="margin-top:0.2rem">
+                    <div data-i18n="heatmap.objectEnergy">Objects energy field</div>
+                    <input id="objectEnergyHeatmapToggle" type="checkbox" />
+                  </div>
+                  <div class="inline-toggle" style="margin-top:0">
+                    <div data-i18n="heatmap.objectEnergy.axisX">Width slices</div>
+                    <input id="objectEnergyHeatmapAxisXToggle" type="checkbox" checked />
+                  </div>
+                  <div class="inline-toggle" style="margin-top:0">
+                    <div data-i18n="heatmap.objectEnergy.axisY">Depth slices</div>
+                    <input id="objectEnergyHeatmapAxisYToggle" type="checkbox" />
+                  </div>
+                  <div class="inline-toggle" style="margin-top:0">
+                    <div data-i18n="heatmap.objectEnergy.axisZ">Height slices</div>
+                    <input id="objectEnergyHeatmapAxisZToggle" type="checkbox" />
+                  </div>
+                  <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
+                    <label for="objectEnergyHeatmapBandCountSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.bandCount">Planes per axis</span> <span id="objectEnergyHeatmapBandCountVal">3</span></label>
+                    <input id="objectEnergyHeatmapBandCountSlider" type="range" min="1" max="12" step="1" value="3" class="gain-slider" />
+                  </div>
+                  <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
+                    <label for="objectEnergyHeatmapResolutionSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.resolution">Field resolution</span> <span id="objectEnergyHeatmapResolutionVal">24</span></label>
+                    <input id="objectEnergyHeatmapResolutionSlider" type="range" min="8" max="64" step="2" value="24" class="gain-slider" />
+                  </div>
+                  <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
+                    <label for="objectEnergyHeatmapRadiusSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.radius">Falloff radius</span> <span id="objectEnergyHeatmapRadiusVal">0.12</span></label>
+                    <input id="objectEnergyHeatmapRadiusSlider" type="range" min="0.02" max="0.5" step="0.01" value="0.12" class="gain-slider" />
+                  </div>
+                  <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
+                    <label for="objectEnergyHeatmapOpacitySlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.opacity">Field opacity</span> <span id="objectEnergyHeatmapOpacityVal">0.55</span></label>
+                    <input id="objectEnergyHeatmapOpacitySlider" type="range" min="0.05" max="1.0" step="0.05" value="0.55" class="gain-slider" />
                   </div>
                 </div>
               </div>
@@ -777,7 +813,8 @@
         <div class="info-modal-text" data-i18n-html="heatmap.infoBody">
           Heatmaps visualize how the renderer distributes energy across the listening area or volume.<br /><br />
           <strong>Heatmap slices</strong> shows sectional planes, <strong>Heatmap volume</strong> shows volumetric sampling, and <strong>Heatmap band</strong> selects which frequency band is displayed.<br /><br />
-          <strong>Heatmap values</strong> controls sampling density, and <strong>Max sphere size</strong> caps the display size of each sample point. Some views are only meaningful when the current evaluation mode has the required precomputed data.
+          <strong>Heatmap values</strong> controls sampling density, and <strong>Max sphere size</strong> caps the display size of each sample point. Some views are only meaningful when the current evaluation mode has the required precomputed data.<br /><br />
+          <strong>Objects energy field</strong> shows the theoretical acoustic energy radiated by the objects themselves (inverse-square from each object's current level), accumulated into stacks of slices that can be cut along any of the three axes (<strong>Width</strong>, <strong>Depth</strong>, <strong>Height</strong>). <strong>Planes per axis</strong>, <strong>Field resolution</strong>, <strong>Falloff radius</strong> and <strong>Field opacity</strong> tune the display.
         </div>
         <div class="info-modal-actions">
           <button id="heatmapInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>

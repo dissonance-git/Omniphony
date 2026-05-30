@@ -358,8 +358,24 @@ export const app = {
   speakerHeatmapBandIndex: 0,
   speakerHeatmapSampleCount: 3072,
   speakerHeatmapMaxSphereSize: 0.062,
+  // Object energy heatmap (client-side theoretical field, 3 depth bands).
+  objectEnergyHeatmapEnabled: false,
+  // Which slicing axes are rendered (depth / width / height stacks).
+  objectEnergyHeatmapAxisX: true,
+  objectEnergyHeatmapAxisY: false,
+  objectEnergyHeatmapAxisZ: false,
+  objectEnergyHeatmapBandCount: 3,
+  objectEnergyHeatmapResolution: 24,
+  objectEnergyHeatmapDepthSubsamples: 4,
+  objectEnergyHeatmapFalloffRadius: 0.12,
+  objectEnergyHeatmapOpacity: 0.55,
+  lastObjectEnergyHeatmapAt: 0,
   speakerSize: 0.08,
   effectiveRenderEnabled: false,
+  // Display-only master switch: when false, objects + their labels + trails are
+  // hidden in the 3D view and on the mpv overlay, without touching
+  // objectLabelsEnabled / trailsEnabled (they return as set when shown again).
+  objectsVisible: true,
   objectColorsEnabled: false,
   objectLabelsEnabled: true,
   showObjectDetails: true,

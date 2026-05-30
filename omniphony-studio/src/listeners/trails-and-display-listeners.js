@@ -3,9 +3,10 @@ import { setLocale } from '../i18n.js';
 import { persistTrailPrefs, persistEffectiveRenderPrefs, refreshEffectiveRenderVisibility } from '../controls/room-geometry.js';
 import { rebuildTrailGeometry, createTrailRenderable } from '../trails.js';
 import { scene } from '../scene/setup.js';
-import { applySpeakerLevel, updateSourceDecorations, updateSourceSelectionStyles } from '../sources.js';
+import { applySpeakerLevel, updateSourceDecorations, updateSourceSelectionStyles, applyObjectsVisibility } from '../sources.js';
 import { refreshOverlayLists, updateSpeakerVisualsFromState } from '../speakers.js';
 import { subscribeSpeakerHeatmap, syncSpeakerHeatmapBandSelect } from '../scene/speaker-heatmap.js';
+import { refreshObjectEnergyHeatmap } from '../scene/object-energy-heatmap.js';
 import {
   getMpvOverlayStatus,
   setMpvOverlayEnabled,
@@ -16,6 +17,7 @@ import { invoke } from '@tauri-apps/api/core';
 export function setupTrailsAndDisplayListeners() {
   const trailToggleEl = document.getElementById('trailToggle');
   const effectiveRenderToggleEl = document.getElementById('effectiveRenderToggle');
+  const showObjectsToggleEl = document.getElementById('showObjectsToggle');
   const objectColorsToggleEl = document.getElementById('objectColorsToggle');
   const objectDisplayModeSelectEl = document.getElementById('objectDisplayModeSelect');
   const objectSphereSizeSliderEl = document.getElementById('objectSphereSizeSlider');
@@ -38,6 +40,18 @@ export function setupTrailsAndDisplayListeners() {
   const speakerHeatmapSampleCountInputEl = document.getElementById('speakerHeatmapSampleCountInput');
   const speakerHeatmapMaxSphereSizeSliderEl = document.getElementById('speakerHeatmapMaxSphereSizeSlider');
   const speakerHeatmapMaxSphereSizeValEl = document.getElementById('speakerHeatmapMaxSphereSizeVal');
+  const objectEnergyHeatmapToggleEl = document.getElementById('objectEnergyHeatmapToggle');
+  const objectEnergyHeatmapAxisXToggleEl = document.getElementById('objectEnergyHeatmapAxisXToggle');
+  const objectEnergyHeatmapAxisYToggleEl = document.getElementById('objectEnergyHeatmapAxisYToggle');
+  const objectEnergyHeatmapAxisZToggleEl = document.getElementById('objectEnergyHeatmapAxisZToggle');
+  const objectEnergyHeatmapBandCountSliderEl = document.getElementById('objectEnergyHeatmapBandCountSlider');
+  const objectEnergyHeatmapBandCountValEl = document.getElementById('objectEnergyHeatmapBandCountVal');
+  const objectEnergyHeatmapResolutionSliderEl = document.getElementById('objectEnergyHeatmapResolutionSlider');
+  const objectEnergyHeatmapResolutionValEl = document.getElementById('objectEnergyHeatmapResolutionVal');
+  const objectEnergyHeatmapRadiusSliderEl = document.getElementById('objectEnergyHeatmapRadiusSlider');
+  const objectEnergyHeatmapRadiusValEl = document.getElementById('objectEnergyHeatmapRadiusVal');
+  const objectEnergyHeatmapOpacitySliderEl = document.getElementById('objectEnergyHeatmapOpacitySlider');
+  const objectEnergyHeatmapOpacityValEl = document.getElementById('objectEnergyHeatmapOpacityVal');
   const mpvOverlayToggleEl = document.getElementById('mpvOverlayToggle');
 
   if (mpvOverlayToggleEl) {
@@ -81,6 +95,16 @@ export function setupTrailsAndDisplayListeners() {
     effectiveRenderToggleEl.addEventListener('change', () => {
       app.effectiveRenderEnabled = effectiveRenderToggleEl.checked;
       refreshEffectiveRenderVisibility();
+      persistEffectiveRenderPrefs();
+    });
+  }
+
+  if (showObjectsToggleEl) {
+    showObjectsToggleEl.checked = app.objectsVisible !== false;
+    showObjectsToggleEl.addEventListener('change', () => {
+      app.objectsVisible = showObjectsToggleEl.checked;
+      applyObjectsVisibility();
+      invoke('mpv_overlay_set_objects', { visible: app.objectsVisible }).catch(() => {});
       persistEffectiveRenderPrefs();
     });
   }
@@ -308,6 +332,101 @@ export function setupTrailsAndDisplayListeners() {
         speakerHeatmapMaxSphereSizeValEl.textContent = app.speakerHeatmapMaxSphereSize.toFixed(3);
       }
       subscribeSpeakerHeatmap();
+      persistEffectiveRenderPrefs();
+    });
+  }
+
+  // Force the next refresh tick to rebuild immediately rather than wait out the
+  // throttle window, so UI changes feel instant.
+  const refreshObjectEnergyHeatmapNow = () => {
+    app.lastObjectEnergyHeatmapAt = 0;
+    refreshObjectEnergyHeatmap(performance.now());
+  };
+
+  if (objectEnergyHeatmapToggleEl) {
+    objectEnergyHeatmapToggleEl.checked = app.objectEnergyHeatmapEnabled;
+    objectEnergyHeatmapToggleEl.addEventListener('change', () => {
+      app.objectEnergyHeatmapEnabled = objectEnergyHeatmapToggleEl.checked;
+      refreshObjectEnergyHeatmapNow();
+      persistEffectiveRenderPrefs();
+    });
+  }
+
+  const bindAxisToggle = (el, key) => {
+    if (!el) return;
+    el.checked = app[key];
+    el.addEventListener('change', () => {
+      app[key] = el.checked;
+      refreshObjectEnergyHeatmapNow();
+      persistEffectiveRenderPrefs();
+    });
+  };
+  bindAxisToggle(objectEnergyHeatmapAxisXToggleEl, 'objectEnergyHeatmapAxisX');
+  bindAxisToggle(objectEnergyHeatmapAxisYToggleEl, 'objectEnergyHeatmapAxisY');
+  bindAxisToggle(objectEnergyHeatmapAxisZToggleEl, 'objectEnergyHeatmapAxisZ');
+
+  if (objectEnergyHeatmapBandCountSliderEl) {
+    objectEnergyHeatmapBandCountSliderEl.value = String(app.objectEnergyHeatmapBandCount);
+    if (objectEnergyHeatmapBandCountValEl) {
+      objectEnergyHeatmapBandCountValEl.textContent = String(app.objectEnergyHeatmapBandCount);
+    }
+    objectEnergyHeatmapBandCountSliderEl.addEventListener('input', () => {
+      const next = Number(objectEnergyHeatmapBandCountSliderEl.value);
+      app.objectEnergyHeatmapBandCount = Math.max(1, Math.min(12, Math.round(Number.isFinite(next) ? next : 3)));
+      if (objectEnergyHeatmapBandCountValEl) {
+        objectEnergyHeatmapBandCountValEl.textContent = String(app.objectEnergyHeatmapBandCount);
+      }
+      refreshObjectEnergyHeatmapNow();
+      // Also drives the mpv overlay's depth-plane count.
+      invoke('mpv_overlay_set_heatmap_bands', { count: app.objectEnergyHeatmapBandCount }).catch(() => {});
+      persistEffectiveRenderPrefs();
+    });
+  }
+
+  if (objectEnergyHeatmapResolutionSliderEl) {
+    objectEnergyHeatmapResolutionSliderEl.value = String(app.objectEnergyHeatmapResolution);
+    if (objectEnergyHeatmapResolutionValEl) {
+      objectEnergyHeatmapResolutionValEl.textContent = String(app.objectEnergyHeatmapResolution);
+    }
+    objectEnergyHeatmapResolutionSliderEl.addEventListener('input', () => {
+      const next = Number(objectEnergyHeatmapResolutionSliderEl.value);
+      app.objectEnergyHeatmapResolution = Math.max(8, Math.min(64, Math.round(Number.isFinite(next) ? next : 24)));
+      if (objectEnergyHeatmapResolutionValEl) {
+        objectEnergyHeatmapResolutionValEl.textContent = String(app.objectEnergyHeatmapResolution);
+      }
+      refreshObjectEnergyHeatmapNow();
+      persistEffectiveRenderPrefs();
+    });
+  }
+
+  if (objectEnergyHeatmapRadiusSliderEl) {
+    objectEnergyHeatmapRadiusSliderEl.value = String(app.objectEnergyHeatmapFalloffRadius);
+    if (objectEnergyHeatmapRadiusValEl) {
+      objectEnergyHeatmapRadiusValEl.textContent = app.objectEnergyHeatmapFalloffRadius.toFixed(2);
+    }
+    objectEnergyHeatmapRadiusSliderEl.addEventListener('input', () => {
+      const next = Number(objectEnergyHeatmapRadiusSliderEl.value);
+      app.objectEnergyHeatmapFalloffRadius = Math.max(0.02, Math.min(0.5, Number.isFinite(next) ? next : 0.12));
+      if (objectEnergyHeatmapRadiusValEl) {
+        objectEnergyHeatmapRadiusValEl.textContent = app.objectEnergyHeatmapFalloffRadius.toFixed(2);
+      }
+      refreshObjectEnergyHeatmapNow();
+      persistEffectiveRenderPrefs();
+    });
+  }
+
+  if (objectEnergyHeatmapOpacitySliderEl) {
+    objectEnergyHeatmapOpacitySliderEl.value = String(app.objectEnergyHeatmapOpacity);
+    if (objectEnergyHeatmapOpacityValEl) {
+      objectEnergyHeatmapOpacityValEl.textContent = app.objectEnergyHeatmapOpacity.toFixed(2);
+    }
+    objectEnergyHeatmapOpacitySliderEl.addEventListener('input', () => {
+      const next = Number(objectEnergyHeatmapOpacitySliderEl.value);
+      app.objectEnergyHeatmapOpacity = Math.max(0.05, Math.min(1.0, Number.isFinite(next) ? next : 0.55));
+      if (objectEnergyHeatmapOpacityValEl) {
+        objectEnergyHeatmapOpacityValEl.textContent = app.objectEnergyHeatmapOpacity.toFixed(2);
+      }
+      refreshObjectEnergyHeatmapNow();
       persistEffectiveRenderPrefs();
     });
   }

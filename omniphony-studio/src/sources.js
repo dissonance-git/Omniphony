@@ -464,6 +464,45 @@ export function updateSourceDecorations(id) {
 }
 
 // ---------------------------------------------------------------------------
+// Objects display master switch
+// ---------------------------------------------------------------------------
+
+// When objects are display-hidden, force every per-object visual off. Called each
+// frame from the animation loop — a cheap no-op when objects are shown (the normal
+// updaters own visibility then), so it never fights them in the common case.
+// Display-only: leaves objectLabelsEnabled / trailsEnabled untouched.
+export function enforceObjectsVisibilityIfHidden() {
+  if (app.objectsVisible !== false) {
+    return;
+  }
+  sourceMeshes.forEach((mesh) => {
+    mesh.visible = false;
+    const halo = mesh.userData?.diffuseHalo;
+    if (halo) {
+      halo.visible = false;
+    }
+  });
+  sourceLabels.forEach((label) => { label.visible = false; });
+  sourceOutlines.forEach((outline) => { outline.visible = false; });
+  sourceTrails.forEach((trail) => { if (trail?.line) trail.line.visible = false; });
+  sourceEffectiveMarkers.forEach((marker) => { marker.visible = false; });
+  sourceEffectiveLines.forEach((line) => { line.visible = false; });
+}
+
+// Apply the current objectsVisible state immediately (on toggle): either force
+// everything hidden, or recompute the normal per-object visuals so they reappear
+// exactly as configured.
+export function applyObjectsVisibility() {
+  if (app.objectsVisible === false) {
+    enforceObjectsVisibilityIfHidden();
+    return;
+  }
+  updateSourceColorsFromSelection();
+  updateSourceSelectionStyles();
+  sourceMeshes.forEach((_mesh, id) => updateSourceDecorations(id));
+}
+
+// ---------------------------------------------------------------------------
 // Level / gain helpers
 // ---------------------------------------------------------------------------
 

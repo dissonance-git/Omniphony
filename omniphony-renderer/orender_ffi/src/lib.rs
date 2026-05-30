@@ -63,7 +63,8 @@ pub struct OrenderConfig {
 
 const VERSION_MAJOR: u32 = 0;
 // 2: added orender_overlay_ass / orender_overlay_set_enabled (in-process overlay).
-const VERSION_MINOR: u32 = 2;
+// 3: added orender_overlay_heatmap_bgra (BGRA energy-field bitmap for overlay-add).
+const VERSION_MINOR: u32 = 3;
 
 unsafe fn opt_str<'a>(p: *const c_char) -> Option<&'a str> {
     if p.is_null() {
@@ -358,6 +359,51 @@ pub extern "C" fn orender_overlay_set_enabled(enabled: c_int) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         orender_engine::overlay::set_enabled(enabled != 0);
     }));
+}
+
+/// Render the object energy heatmap as a single flattened BGRA bitmap
+/// (premultiplied alpha) for mpv's `overlay-add`, drawn *under* the ASS overlay.
+///
+/// On success copies `w*h*4` BGRA bytes into `out` and writes the geometry into
+/// `geom` (6 × i32: `[x, y, w, h, dw, dh]` — top-left position, source size, and
+/// the on-screen display size mpv scales the source to), then returns the number
+/// of bytes written. Returns 0 — and writes nothing — when the overlay is
+/// disabled, the resolution is zero, the buffers are too small, or there is no
+/// audible object. The bitmap is bounded (`FIELD_BITMAP_MAX²·4` ≈ 256 KiB).
+///
+/// Read-only with respect to the scene: unlike `orender_overlay_ass`, this does
+/// not advance trails or the pull clock (the ASS pull already does), so the host
+/// may call it alongside the ASS redraw.
+#[no_mangle]
+pub unsafe extern "C" fn orender_overlay_heatmap_bgra(
+    res_x: u32,
+    res_y: u32,
+    out: *mut u8,
+    cap: usize,
+    geom: *mut i32,
+) -> usize {
+    catch_unwind(AssertUnwindSafe(|| {
+        if out.is_null() || geom.is_null() {
+            return 0;
+        }
+        let Some(bmp) = orender_engine::overlay::build_heatmap(res_x, res_y) else {
+            return 0;
+        };
+        let n = bmp.pixels.len();
+        if n == 0 || n > cap {
+            return 0;
+        }
+        std::slice::from_raw_parts_mut(out, n).copy_from_slice(&bmp.pixels);
+        let g = std::slice::from_raw_parts_mut(geom, 6);
+        g[0] = bmp.x;
+        g[1] = bmp.y;
+        g[2] = bmp.w;
+        g[3] = bmp.h;
+        g[4] = bmp.dw;
+        g[5] = bmp.dh;
+        n
+    }))
+    .unwrap_or(0)
 }
 
 /// ABI major version. A bump means a breaking change (new soname).
