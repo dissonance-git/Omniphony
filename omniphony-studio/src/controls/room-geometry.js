@@ -506,6 +506,16 @@ export function renderRoomCenterBlendControl(value = app.roomRatio.centerBlend) 
   }
 }
 
+// The Y center blend only matters when Front and Rear differ — when they are
+// equal the blend has no effect on the renderer (room_transform: center_ratio
+// collapses to front and the cubic terms vanish), so we hide the control.
+function updateCenterBlendVisibility(frontRatio = app.roomRatio.length, rearRatio = app.roomRatio.rear) {
+  const row = inRoomGeometryPanel('roomCenterBlendRow');
+  if (!row) return;
+  const symmetric = Math.abs((Number(frontRatio) || 0) - (Number(rearRatio) || 0)) < 1e-6;
+  row.style.display = symmetric ? 'none' : '';
+}
+
 export function roomGeometryStateFromInputs() {
   const axes = ['width', 'length', 'height', 'rear', 'lower'];
   const preview = computeRoomGeometryFromInputs();
@@ -679,96 +689,51 @@ export function applyRoomGeometryStateToInputs(state) {
 }
 
 /**
- * Room geometry model — master axis + per-axis size/ratio drivers.
+ * Room geometry model — dimensions in metres, Width is the implicit reference.
  *
- * Five axes: `width` (X, left↔right), `length` (Y+, front), `rear` (Y−, back),
- * `height` (Z+, up), `lower` (Z−, down). Each axis exposes TWO linked fields —
- * a size (m) and a ratio (unitless) — tied by one global scale `metersPerUnit`
- * (mpu):
+ * The room is entered as five plain metre dimensions: Width (full left↔right
+ * span), Front (Y+, `length`), Rear (Y−), Height (Z+), Lower (Z−). There is no
+ * master selector and no ratio field anymore — Width pins the scale and the
+ * renderer's ratios are derived on the fly:
  *
- *     size = ratio × mpu × roomAxisFactor(axis)
+ *     mpu = radius_m = Width / 2          (so ratio_width is always 1)
+ *     ratio_front  = Front  / mpu         ratio_height = Height / mpu
+ *     ratio_rear   = Rear   / mpu         ratio_lower  = Lower  / mpu
  *
- * roomAxisFactor() is 2 for `width`, 1 for the rest: the normalized cube spans
- * [-1,+1] (two units) across width, but only [0,+1] (one unit) on each
- * front/back/up/down half-axis.
- *
- * MASTER AXIS (app.roomMasterAxis): the axis that pins the scale. Its own
- * (size, ratio) pair defines mpu = masterSize / (masterRatio × masterFactor).
- * Both of its fields are directly editable — it anchors meters-per-unit.
- *
- * PER-AXIS DRIVER (app.roomAxisDrivers[axis] ∈ 'size' | 'ratio'): for every
- * NON-master axis, picks which field you type; the other is derived from mpu:
- *   'size'  → type meters;          ratio = size / (mpu × factor)
- *   'ratio' → type the proportion;  size  = ratio × mpu × factor
- *
- * Persisted: only the *choices* (master axis + drivers) go to localStorage.
- * The resulting ratios are pushed to the renderer (control_room_ratio*), and
- * mpu is pushed as the layout radius_m (control_layout_radius_m).
+ * (Width carries factor 2 — the normalised cube spans [-1,+1] across width but
+ * only [0,+1] on each front/back/up/down half-axis.) Only the ratios + radius_m
+ * are pushed to / persisted by the renderer (unchanged wire format); Studio
+ * keeps no ratio of its own. Returns the legacy {master,mpu,ratio,size} shape so
+ * the downstream apply/preview/summary code stays untouched.
  */
 export function computeRoomGeometryFromInputs() {
-  const axes = ['width', 'length', 'height', 'rear', 'lower'];
-  const metersPerUnit = app.metersPerUnit ?? 1;
+  const mpuNow = app.metersPerUnit ?? 1;
   const safeNumber = (value, fallback, min = 0.01) => {
     const n = Number(value);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(min, n);
   };
 
-  const inputData = {};
-  axes.forEach((axis) => {
-    const ratioNow = axis === 'width' ? app.roomRatio.width
-      : axis === 'length' ? app.roomRatio.length
-        : axis === 'height' ? app.roomRatio.height
-          : axis === 'rear' ? app.roomRatio.rear
-            : app.roomRatio.lower;
-    const defaultSize = ratioNow * metersPerUnit * roomAxisFactor(axis);
-    const sizeEl = getRoomSizeInputEl(axis);
-    const ratioEl = getRoomRatioInputEl(axis);
-    inputData[axis] = {
-      size: safeNumber(sizeEl?.value, Math.max(0.01, defaultSize)),
-      ratio: safeNumber(ratioEl?.value, Math.max(0.01, ratioNow))
-    };
-  });
+  const widthM = safeNumber(getRoomSizeInputEl('width')?.value, app.roomRatio.width * mpuNow * 2);
+  const frontM = safeNumber(getRoomSizeInputEl('length')?.value, app.roomRatio.length * mpuNow);
+  const rearM = safeNumber(getRoomSizeInputEl('rear')?.value, app.roomRatio.rear * mpuNow);
+  const heightM = safeNumber(getRoomSizeInputEl('height')?.value, app.roomRatio.height * mpuNow);
+  const lowerM = safeNumber(getRoomSizeInputEl('lower')?.value, app.roomRatio.lower * mpuNow);
 
-  let master = app.roomMasterAxis;
-  if (!axes.includes(master)) master = 'width';
-
-  const masterRatio = inputData[master].ratio;
-  const masterSize = inputData[master].size;
-  const masterFactor = roomAxisFactor(master);
-  const mpu = safeNumber(masterSize / Math.max(0.01, masterRatio * masterFactor), Number(metersPerUnit) || 1);
-
-  const ratios = {};
-  axes.forEach((axis) => {
-    if (axis === master) {
-      ratios[axis] = masterRatio;
-      return;
-    }
-    const driver = app.roomAxisDrivers[axis] === 'ratio' ? 'ratio' : 'size';
-    if (driver === 'ratio') {
-      ratios[axis] = inputData[axis].ratio;
-    } else {
-      ratios[axis] = safeNumber(inputData[axis].size / Math.max(0.01, mpu * roomAxisFactor(axis)), 1);
-    }
-  });
+  const mpu = Math.max(0.01, widthM / 2);
+  const ratio = {
+    width: 1,
+    length: safeNumber(frontM / mpu, 1),
+    height: safeNumber(heightM / mpu, 1),
+    rear: safeNumber(rearM / mpu, 1),
+    lower: safeNumber(lowerM / mpu, 0.5)
+  };
 
   return {
-    master,
+    master: 'width',
     mpu,
-    ratio: {
-      width: ratios.width,
-      length: ratios.length,
-      height: ratios.height,
-      rear: ratios.rear,
-      lower: ratios.lower
-    },
-    size: {
-      width: ratios.width * mpu * roomAxisFactor('width'),
-      length: ratios.length * mpu * roomAxisFactor('length'),
-      height: ratios.height * mpu * roomAxisFactor('height'),
-      rear: ratios.rear * mpu * roomAxisFactor('rear'),
-      lower: ratios.lower * mpu * roomAxisFactor('lower')
-    }
+    ratio,
+    size: { width: widthM, length: frontM, height: heightM, rear: rearM, lower: lowerM }
   };
 }
 
@@ -788,6 +753,7 @@ export function updateRoomGeometryLivePreview() {
   renderRoomGeometryMasterMpu(preview);
   renderRoomGeometrySummary(preview);
   updateRoomDimensionGuides(preview);
+  updateCenterBlendVisibility(preview.ratio.length, preview.ratio.rear);
 }
 
 export function renderRoomGeometryMasterMpu(preview = null) {
@@ -897,6 +863,7 @@ export function renderRoomRatioDisplay() {
   if (roomRatioRearInputEl) roomRatioRearInputEl.value = formatNumber(app.roomRatio.rear, 2);
   if (roomRatioLowerInputEl) roomRatioLowerInputEl.value = formatNumber(app.roomRatio.lower, 2);
   renderRoomCenterBlendControl(app.roomRatio.centerBlend);
+  updateCenterBlendVisibility();
   renderRoomGeometryMasterMpu();
   renderRoomGeometrySummary();
   normalizeRoomGeometryInputDisplays();
@@ -1119,8 +1086,8 @@ export function applyRoomRatioToScene(preview = null, { refit = true } = {}) {
 export function previewRoomGeometryScene() {
   const preview = computeRoomGeometryFromInputs();
   applyRoomRatioToScene(preview, { refit: false });
-  renderRoomGeometryMasterMpu(preview);
   renderRoomGeometrySummary(preview);
+  updateCenterBlendVisibility(preview.ratio.length, preview.ratio.rear);
 }
 
 // ---------------------------------------------------------------------------

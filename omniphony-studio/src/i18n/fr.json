@@ -100,7 +100,7 @@
   "room.centerBlend": "Blend centre Y",
   "room.centerBlend.resetTitle": "Double-clic pour réinitialiser à 50/50",
   "room.infoTitle": "Géométrie de la pièce",
-  "room.infoBody": "La géométrie de la pièce définit les dimensions physiques utilisées pour mapper les coordonnées normalisées de la scène en mètres.<br><br>L’<strong>axe maître</strong> définit l’échelle de référence en mètres par unité, et les autres axes suivent via leurs ratios.<br><br>Ces valeurs affectent les traitements basés sur la distance et l’interprétation spatiale de la scène 3D.",
+  "room.infoBody": "La géométrie de la pièce définit les dimensions physiques, en mètres, utilisées pour mapper les coordonnées normalisées de la scène en mètres.<br><br>La <strong>largeur</strong> est la référence et fixe l’échelle ; Avant, Arrière, Hauteur et Bas se saisissent directement en mètres. Le <strong>center blend Y</strong> n’apparaît que lorsque Avant et Arrière diffèrent.<br><br>Ces valeurs affectent les traitements basés sur la distance et l’interprétation spatiale de la scène 3D.",
   "section.objects": "Objets",
   "section.display": "Affichage",
   "section.drc": "DRC",

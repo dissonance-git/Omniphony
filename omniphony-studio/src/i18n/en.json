@@ -100,7 +100,7 @@
   "room.centerBlend": "Y center blend",
   "room.centerBlend.resetTitle": "Double click to reset 50/50",
   "room.infoTitle": "Room Geometry",
-  "room.infoBody": "Room geometry defines the physical room dimensions used to map normalized scene coordinates to meters.<br><br>The <strong>master axis</strong> sets the reference scale in meters per unit, and the other axes follow through their ratios.<br><br>These values affect distance-based processing and the spatial interpretation of the 3D scene.",
+  "room.infoBody": "Room geometry defines the physical room dimensions, in meters, used to map normalized scene coordinates to meters.<br><br><strong>Width</strong> is the reference and pins the scale; Front, Rear, Height and Lower are entered directly in meters. The <strong>Y center blend</strong> only appears when Front and Rear differ.<br><br>These values affect distance-based processing and the spatial interpretation of the 3D scene.",
   "section.objects": "Objects",
   "section.display": "Display",
   "section.drc": "DRC",

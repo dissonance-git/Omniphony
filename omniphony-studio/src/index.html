@@ -94,73 +94,31 @@
       </div>
       <div id="roomGeometrySummary" class="room-geometry-summary">
         <div class="room-geometry-summary-row">
-          <div class="room-geometry-summary-label" data-i18n="room.summary.scale">Scale</div>
-          <div id="roomGeometrySummaryScale" class="room-geometry-summary-value">m/u: —</div>
-        </div>
-        <div class="room-geometry-summary-row">
           <div class="room-geometry-summary-label" data-i18n="room.summary.size">Size</div>
           <div id="roomGeometrySummarySize" class="room-geometry-summary-value">X: — | Y+: — | Y-: — | Z+: — | Z-: —</div>
         </div>
-        <div class="room-geometry-summary-row">
-          <div class="room-geometry-summary-label" data-i18n="room.summary.ratio">Ratio</div>
-          <div id="roomGeometrySummaryRatio" class="room-geometry-summary-value">X: — | Y+: — | Y-: — | Z+: — | Z-: —</div>
-        </div>
       </div>
       <div id="roomGeometryForm" class="room-geometry-form">
-        <div style="margin-top:0.25rem;display:grid;grid-template-columns:3.2rem 4.8rem max-content max-content max-content max-content;gap:0.2rem 0.35rem;align-items:center">
-        <div style="font-size:11px;opacity:0.72;text-align:center" data-i18n="room.master">Master</div>
+        <div style="margin-top:0.25rem;display:grid;grid-template-columns:max-content 5rem;gap:0.25rem 0.55rem;align-items:center">
         <div style="font-size:11px;opacity:0.72" data-i18n="room.axis">Axis</div>
         <div style="font-size:11px;opacity:0.72" data-i18n="room.sizeMeters">Size (m)</div>
-        <div></div>
-        <div style="font-size:11px;opacity:0.72" data-i18n="room.summary.ratio">Ratio</div>
-        <div style="font-size:11px;opacity:0.72" data-i18n="room.mpu">m/u</div>
 
-        <div style="text-align:center"><input id="roomMasterWidth" type="radio" name="roomMasterAxis" value="width" /></div>
-        <label for="roomMasterWidth" style="font-size:11px;opacity:0.9" data-i18n="room.axis.width">X +/-</label>
-        <input id="roomDimWidthInput" class="delay-input" type="number" min="0.01" step="0.01" value="1.00" />
-        <div class="axis-driver">
-          <input id="roomDriverWidth" type="checkbox" aria-label="Driver width (S/R)" />
-        </div>
-        <input id="roomRatioWidthInput" class="delay-input" type="number" min="0.01" step="0.01" value="1.00" />
-        <div id="roomMasterMpuWidth" style="font-size:11px;color:#d9ecff"></div>
+        <label for="roomDimWidthInput" style="font-size:11px;opacity:0.9" data-i18n="room.axis.width">X +/-</label>
+        <input id="roomDimWidthInput" class="delay-input" type="number" min="0.01" step="0.01" value="2.00" />
 
-        <div style="text-align:center"><input id="roomMasterLength" type="radio" name="roomMasterAxis" value="length" /></div>
-        <label for="roomMasterLength" style="font-size:11px;opacity:0.9" data-i18n="room.axis.length">Y+ front</label>
+        <label for="roomDimLengthInput" style="font-size:11px;opacity:0.9" data-i18n="room.axis.length">Y+ front</label>
         <input id="roomDimLengthInput" class="delay-input" type="number" min="0.01" step="0.01" value="2.00" />
-        <div class="axis-driver">
-          <input id="roomDriverLength" type="checkbox" aria-label="Driver length (S/R)" />
-        </div>
-        <input id="roomRatioLengthInput" class="delay-input" type="number" min="0.01" step="0.01" value="2.00" />
-        <div id="roomMasterMpuLength" style="font-size:11px;color:#d9ecff"></div>
 
-        <div style="text-align:center"><input id="roomMasterRear" type="radio" name="roomMasterAxis" value="rear" /></div>
-        <label for="roomMasterRear" style="font-size:11px;opacity:0.9" data-i18n="room.axis.rear">Y- rear</label>
+        <label for="roomDimRearInput" style="font-size:11px;opacity:0.9" data-i18n="room.axis.rear">Y- rear</label>
         <input id="roomDimRearInput" class="delay-input" type="number" min="0.01" step="0.01" value="1.00" title="Rear depth (m)" />
-        <div class="axis-driver">
-          <input id="roomDriverRear" type="checkbox" aria-label="Driver rear (S/R)" />
-        </div>
-        <input id="roomRatioRearInput" class="delay-input" type="number" min="0.01" step="0.01" value="1.00" />
-        <div id="roomMasterMpuRear" style="font-size:11px;color:#d9ecff"></div>
 
-        <div style="text-align:center"><input id="roomMasterHeight" type="radio" name="roomMasterAxis" value="height" /></div>
-        <label for="roomMasterHeight" style="font-size:11px;opacity:0.9" data-i18n="room.axis.height">Z+ height</label>
+        <label for="roomDimHeightInput" style="font-size:11px;opacity:0.9" data-i18n="room.axis.height">Z+ height</label>
         <input id="roomDimHeightInput" class="delay-input" type="number" min="0.01" step="0.01" value="1.00" />
-        <div class="axis-driver">
-          <input id="roomDriverHeight" type="checkbox" aria-label="Driver height (S/R)" />
-        </div>
-        <input id="roomRatioHeightInput" class="delay-input" type="number" min="0.01" step="0.01" value="1.00" />
-        <div id="roomMasterMpuHeight" style="font-size:11px;color:#d9ecff"></div>
 
-        <div style="text-align:center"><input id="roomMasterLower" type="radio" name="roomMasterAxis" value="lower" /></div>
-        <label for="roomMasterLower" style="font-size:11px;opacity:0.9" data-i18n="room.axis.lower">Z- lower</label>
+        <label for="roomDimLowerInput" style="font-size:11px;opacity:0.9" data-i18n="room.axis.lower">Z- lower</label>
         <input id="roomDimLowerInput" class="delay-input" type="number" min="0.01" step="0.01" value="0.50" />
-        <div class="axis-driver">
-          <input id="roomDriverLower" type="checkbox" aria-label="Driver lower (S/R)" />
         </div>
-        <input id="roomRatioLowerInput" class="delay-input" type="number" min="0.01" step="0.01" value="0.50" />
-        <div id="roomMasterMpuLower" style="font-size:11px;color:#d9ecff"></div>
-        </div>
-        <div style="margin-top:0.25rem;display:flex;align-items:center;gap:0.45rem">
+        <div id="roomCenterBlendRow" style="margin-top:0.25rem;display:flex;align-items:center;gap:0.45rem">
           <label for="roomRatioCenterBlendSlider" style="font-size:12px;white-space:nowrap;opacity:0.9" data-i18n="room.centerBlend">Y center blend</label>
           <input id="roomRatioCenterBlendSlider" type="range" min="0" max="100" step="1" value="50" class="gain-slider" style="flex:1 1 auto;min-width:0" />
           <span id="roomRatioCenterBlendValue" style="min-width:3.5rem;text-align:right;font-size:11px;color:#d9ecff;cursor:default" data-i18n-title="room.centerBlend.resetTitle" title="Double click to reset 50/50">50/50</span>
@@ -644,8 +602,8 @@
       <div class="info-modal-card">
         <div class="info-modal-title" data-i18n="room.infoTitle">Room Geometry</div>
         <div class="info-modal-text" data-i18n-html="room.infoBody">
-          Room geometry defines the physical room dimensions used to map normalized scene coordinates to meters.<br /><br />
-          The <strong>master axis</strong> sets the reference scale in meters per unit, and the other axes follow through their ratios.<br /><br />
+          Room geometry defines the physical room dimensions, in meters, used to map normalized scene coordinates to meters.<br /><br />
+          <strong>Width</strong> is the reference and pins the scale; Front, Rear, Height and Lower are entered directly in meters. The <strong>Y center blend</strong> only appears when Front and Rear differ.<br /><br />
           These values affect distance-based processing and the spatial interpretation of the 3D scene.
         </div>
         <div class="info-modal-actions">
