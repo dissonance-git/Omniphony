@@ -1787,6 +1787,12 @@ export function renderLayout(key) {
   set_currentLayoutSpeakers(newSpeakers);
   syncSpeakerHeatmapBandSelect();
   sceneState.metersPerUnit = Math.max(0.01, Number(layout.radius_m) || 1.0);
+  // orender owns the world scale (persisted as the layout radius_m); mirror it
+  // into the room-geometry scale so the room inputs read real meters instead of
+  // snapping to the default 1.0 unit on (re)connect or layout switch.
+  app.metersPerUnit = sceneState.metersPerUnit;
+  dirty.roomRatio = true;
+  scheduleUIFlush();
   speakerDelays.clear();
   newSpeakers.forEach((speaker, index) => {
     const speakerId = String(speaker?.id ?? index);
@@ -1989,6 +1995,10 @@ function patchCurrentLayout(key) {
   set_currentLayoutSpeakers(nextSpeakers);
   syncSpeakerHeatmapBandSelect();
   sceneState.metersPerUnit = Math.max(0.01, Number(layout.radius_m) || 1.0);
+  // Keep the room-geometry scale in sync with orender's world scale (see renderLayout).
+  app.metersPerUnit = sceneState.metersPerUnit;
+  dirty.roomRatio = true;
+  scheduleUIFlush();
   speakerDelays.clear();
   nextSpeakers.forEach((speaker, index) => {
     hydrateSpeakerCoordinateState(speaker);
