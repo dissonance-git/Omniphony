@@ -2469,6 +2469,33 @@ fn mpv_overlay_set_labels(state: State<SharedState>, enabled: bool) {
     );
 }
 
+/// Show/hide the objects (markers + labels + trails) on the mpv overlay — a
+/// display-only switch that does not change the label/trail config. Travels as
+/// OSC control to the renderer.
+#[tauri::command]
+fn mpv_overlay_set_objects(state: State<SharedState>, visible: bool) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendInt {
+            address: "/omniphony/control/overlay/objects".to_string(),
+            value: if visible { 1 } else { 0 },
+        },
+    );
+}
+
+/// Set the number of depth planes in the mpv overlay's energy heatmap. Travels
+/// as OSC control to the renderer.
+#[tauri::command]
+fn mpv_overlay_set_heatmap_bands(state: State<SharedState>, count: i32) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendInt {
+            address: "/omniphony/control/overlay/heatmap_bands".to_string(),
+            value: count.clamp(1, 12),
+        },
+    );
+}
+
 // ── main ─────────────────────────────────────────────────────────────────
 
 fn main() {
@@ -2678,6 +2705,8 @@ fn main() {
             mpv_overlay_set_trail_prefs,
             mpv_overlay_set_active,
             mpv_overlay_set_labels,
+            mpv_overlay_set_objects,
+            mpv_overlay_set_heatmap_bands,
         ])
         .run(tauri::generate_context!())
         .expect("error running Tauri application");

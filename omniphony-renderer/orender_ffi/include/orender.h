@@ -160,6 +160,27 @@ uintptr_t orender_overlay_ass(uint32_t res_x, uint32_t res_y, uint8_t *out, uint
 void orender_overlay_set_enabled(int enabled);
 
 /**
+ * Render the object energy heatmap as a single flattened BGRA bitmap
+ * (premultiplied alpha) for mpv's `overlay-add`, drawn *under* the ASS overlay.
+ *
+ * On success copies `w*h*4` BGRA bytes into `out` and writes the geometry into
+ * `geom` (6 × i32: `[x, y, w, h, dw, dh]` — top-left position, source size, and
+ * the on-screen display size mpv scales the source to), then returns the number
+ * of bytes written. Returns 0 — and writes nothing — when the overlay is
+ * disabled, the resolution is zero, the buffers are too small, or there is no
+ * audible object. The bitmap is bounded (`FIELD_BITMAP_MAX²·4` ≈ 256 KiB).
+ *
+ * Read-only with respect to the scene: unlike `orender_overlay_ass`, this does
+ * not advance trails or the pull clock (the ASS pull already does), so the host
+ * may call it alongside the ASS redraw.
+ */
+uintptr_t orender_overlay_heatmap_bgra(uint32_t res_x,
+                                       uint32_t res_y,
+                                       uint8_t *out,
+                                       uintptr_t cap,
+                                       int32_t *geom);
+
+/**
  * ABI major version. A bump means a breaking change (new soname).
  */
 uint32_t orender_version_major(void);

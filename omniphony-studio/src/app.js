@@ -24,6 +24,7 @@ import {
 } from './scene/setup.js';
 import './scene/axes.js';
 import { refreshSpeakerHeatmapScene } from './scene/speaker-heatmap.js';
+import { refreshObjectEnergyHeatmap } from './scene/object-energy-heatmap.js';
 
 // ── Domain modules (imported for side-effects & to register into state) ─────
 import {
@@ -87,7 +88,8 @@ import {
   getObjectDisplayName,
   refreshEffectiveRenderDecorations,
   sourceCallbacks,
-  setSelectedSource
+  setSelectedSource,
+  enforceObjectsVisibilityIfHidden
 } from './sources.js';
 import { updateVbapCartesianFaceGrid, renderVbapCartesianGridToggle } from './scene/gizmos.js';
 import { updateObjectMeterUI, updateObjectPositionUI, updateObjectSizeUI, updateObjectLabelUI } from './flush.js';
@@ -298,6 +300,8 @@ function animate() {
   const now = performance.now();
   decayTrails(now);
   decayMeters(now);
+  refreshObjectEnergyHeatmap(now);
+  enforceObjectsVisibilityIfHidden();
 
   sourceOutlines.forEach((outline) => {
     outline.quaternion.copy(camera.quaternion);
