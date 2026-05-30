@@ -4,7 +4,6 @@
 mod app_state;
 mod config;
 mod layouts;
-mod mpv_overlay;
 mod osc_listener;
 mod osc_parser;
 
@@ -16,7 +15,6 @@ use std::{fs, fs::File, process::Command as ProcessCommand, process::Stdio};
 use app_state::AppState;
 use config::{load_config, save_config, OscConfig};
 use layouts::Layout;
-use mpv_overlay::{MpvOverlayState, OverlayPrefs, SharedOverlay, TrailPrefs};
 use osc_listener::{spawn_osc_task, OscControlMsg};
 use rfd::FileDialog;
 use tauri::{Manager, State};
@@ -31,7 +29,6 @@ struct SharedState {
     listen_port: Arc<Mutex<u16>>,
     realtime_seq: AtomicI32,
     auto_tune_snapshot: Arc<Mutex<Option<serde_json::Value>>>,
-    mpv_overlay: SharedOverlay,
 }
 
 // ── helper ────────────────────────────────────────────────────────────────
@@ -672,6 +669,30 @@ fn control_distance_model(state: State<SharedState>, value: String) {
     );
 }
 
+fn send_distance_metric(state: &State<SharedState>, address: &str, value: String) {
+    let normalized = value.trim().to_ascii_lowercase();
+    if !matches!(normalized.as_str(), "spherical" | "chebyshev") {
+        return;
+    }
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: address.to_string(),
+            value: normalized,
+        },
+    );
+}
+
+#[tauri::command]
+fn control_distance_model_metric(state: State<SharedState>, value: String) {
+    send_distance_metric(&state, "/omniphony/control/distance_model_metric", value);
+}
+
+#[tauri::command]
+fn control_distance_diffuse_metric(state: State<SharedState>, value: String) {
+    send_distance_metric(&state, "/omniphony/control/distance_diffuse/metric", value);
+}
+
 #[tauri::command]
 fn control_experimental_distance_distance_floor(state: State<SharedState>, value: f32) {
     send_control(
@@ -744,6 +765,79 @@ fn control_experimental_distance_position_error_span_scale(state: State<SharedSt
 }
 
 #[tauri::command]
+fn control_hybrid_external_backend(state: State<SharedState>, value: String) {
+    let normalized = value.trim().to_ascii_lowercase();
+    if !matches!(
+        normalized.as_str(),
+        "vbap" | "barycenter" | "experimental_distance"
+    ) {
+        return;
+    }
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/hybrid/external_backend".to_string(),
+            value: normalized,
+        },
+    );
+}
+
+#[tauri::command]
+fn control_hybrid_internal_backend(state: State<SharedState>, value: String) {
+    let normalized = value.trim().to_ascii_lowercase();
+    if !matches!(
+        normalized.as_str(),
+        "vbap" | "barycenter" | "experimental_distance"
+    ) {
+        return;
+    }
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/hybrid/internal_backend".to_string(),
+            value: normalized,
+        },
+    );
+}
+
+#[tauri::command]
+fn control_hybrid_metric(state: State<SharedState>, value: String) {
+    send_distance_metric(&state, "/omniphony/control/hybrid/metric", value);
+}
+
+#[tauri::command]
+fn control_hybrid_curve_smoothing(state: State<SharedState>, value: f32) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendFloat {
+            address: "/omniphony/control/hybrid/curve_smoothing".to_string(),
+            value: value.clamp(0.0, 1.0),
+        },
+    );
+}
+
+#[tauri::command]
+fn control_hybrid_curve(state: State<SharedState>, points: Vec<[f32; 2]>) {
+    // Flatten (x, y) control points into a single float list, clamped to [0, 1].
+    let args = points
+        .iter()
+        .flat_map(|point| {
+            [
+                rosc::OscType::Float(point[0].clamp(0.0, 1.0)),
+                rosc::OscType::Float(point[1].clamp(0.0, 1.0)),
+            ]
+        })
+        .collect();
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/hybrid/curve".to_string(),
+            args,
+        },
+    );
+}
+
+#[tauri::command]
 fn control_render_evaluation_cartesian_x_size(state: State<SharedState>, value: i32) {
     send_control(
         &state.osc_tx,
@@ -792,7 +886,7 @@ fn control_render_backend(state: State<SharedState>, value: String) {
     let normalized = value.trim().to_ascii_lowercase();
     if !matches!(
         normalized.as_str(),
-        "vbap" | "barycenter" | "experimental_distance"
+        "vbap" | "barycenter" | "experimental_distance" | "hybrid"
     ) {
         return;
     }
@@ -2325,52 +2419,54 @@ fn stop_orender(state: State<SharedState>) {
 // ── mpv overlay IPC ──────────────────────────────────────────────────────
 
 #[tauri::command]
-fn mpv_overlay_connect(state: State<SharedState>, path: String) -> Result<(), String> {
-    state.mpv_overlay.connect(&path)
-}
-
-#[tauri::command]
-fn mpv_overlay_disconnect(state: State<SharedState>) {
-    state.mpv_overlay.disconnect();
-}
-
-#[tauri::command]
-fn mpv_overlay_send(state: State<SharedState>, line: String) -> Result<(), String> {
-    state.mpv_overlay.send_line(line)
-}
-
-#[tauri::command]
-fn mpv_overlay_is_connected(state: State<SharedState>) -> bool {
-    state.mpv_overlay.is_connected()
-}
-
-#[tauri::command]
-fn mpv_overlay_load_prefs(state: State<SharedState>) -> OverlayPrefs {
-    mpv_overlay::load_prefs(&state.config_dir)
-}
-
-#[tauri::command]
-fn mpv_overlay_save_prefs(
-    state: State<SharedState>,
-    prefs: OverlayPrefs,
-) -> Result<(), String> {
-    mpv_overlay::save_prefs(&state.config_dir, &prefs)
-}
-
-#[tauri::command]
 fn mpv_overlay_set_trail_prefs(
     state: State<SharedState>,
     enabled: bool,
     ttl_ms: u32,
     mode: String,
     teleport_threshold: f32,
-) -> Result<(), String> {
-    state.mpv_overlay.set_trail_prefs(TrailPrefs {
-        enabled,
-        ttl_ms,
-        mode,
-        teleport_threshold,
-    })
+) {
+    // The mpv overlay is generated in-process by orender and owns its own
+    // (persisted) display prefs, so trail config travels purely as OSC control.
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/overlay/trails".to_string(),
+            args: vec![
+                rosc::OscType::Int(if enabled { 1 } else { 0 }),
+                rosc::OscType::Int(ttl_ms as i32),
+                rosc::OscType::String(mode),
+                rosc::OscType::Float(teleport_threshold),
+            ],
+        },
+    );
+}
+
+/// Show/hide the whole mpv overlay. The overlay is now drawn in-process by
+/// orender, so the on/off toggle travels as OSC control to the renderer (not
+/// over the mpv IPC socket, which doesn't reach an atmos-ranker-launched mpv).
+#[tauri::command]
+fn mpv_overlay_set_active(state: State<SharedState>, enabled: bool) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendInt {
+            address: "/omniphony/control/overlay/enabled".to_string(),
+            value: if enabled { 1 } else { 0 },
+        },
+    );
+}
+
+/// Show/hide object labels in the mpv overlay (mirrors the 3D view's label
+/// toggle). Travels as OSC control to the renderer.
+#[tauri::command]
+fn mpv_overlay_set_labels(state: State<SharedState>, enabled: bool) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendInt {
+            address: "/omniphony/control/overlay/labels".to_string(),
+            value: if enabled { 1 } else { 0 },
+        },
+    );
 }
 
 // ── main ─────────────────────────────────────────────────────────────────
@@ -2414,7 +2510,6 @@ fn main() {
             let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<OscControlMsg>();
             *osc_tx.lock().unwrap() = Some(tx);
 
-            let mpv_overlay = Arc::new(MpvOverlayState::new());
             let shared = SharedState {
                 inner: app_state.clone(),
                 osc_tx: osc_tx.clone(),
@@ -2422,7 +2517,6 @@ fn main() {
                 listen_port: listen_port.clone(),
                 realtime_seq: AtomicI32::new(0),
                 auto_tune_snapshot: Arc::new(Mutex::new(None)),
-                mpv_overlay: mpv_overlay.clone(),
             };
             app.manage(shared);
 
@@ -2434,7 +2528,6 @@ fn main() {
                 osc_cfg.osc_rx_port,
                 rx,
                 listen_port.clone(),
-                mpv_overlay,
             );
 
             Ok(())
@@ -2494,12 +2587,19 @@ fn main() {
             control_spread_distance_curve,
             control_size_to_spread_mode,
             control_distance_model,
+            control_distance_model_metric,
+            control_distance_diffuse_metric,
             control_experimental_distance_distance_floor,
             control_experimental_distance_min_active_speakers,
             control_experimental_distance_max_active_speakers,
             control_experimental_distance_position_error_floor,
             control_experimental_distance_position_error_nearest_scale,
             control_experimental_distance_position_error_span_scale,
+            control_hybrid_external_backend,
+            control_hybrid_internal_backend,
+            control_hybrid_curve,
+            control_hybrid_metric,
+            control_hybrid_curve_smoothing,
             control_render_evaluation_cartesian_x_size,
             control_render_evaluation_cartesian_y_size,
             control_render_evaluation_cartesian_z_size,
@@ -2575,13 +2675,9 @@ fn main() {
             auto_tune_snapshot_save,
             auto_tune_snapshot_take,
             auto_tune_snapshot_peek,
-            mpv_overlay_connect,
-            mpv_overlay_disconnect,
-            mpv_overlay_send,
-            mpv_overlay_is_connected,
-            mpv_overlay_load_prefs,
-            mpv_overlay_save_prefs,
             mpv_overlay_set_trail_prefs,
+            mpv_overlay_set_active,
+            mpv_overlay_set_labels,
         ])
         .run(tauri::generate_context!())
         .expect("error running Tauri application");

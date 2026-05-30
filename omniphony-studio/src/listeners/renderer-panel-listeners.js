@@ -11,6 +11,7 @@ import {
   updateVbapPolar,
   updateVbapPositionInterpolation
 } from '../controls/vbap.js';
+import { renderHybridCurve, setupHybridCurveEditor } from '../controls/hybrid-curve.js';
 import { updateSpreadDisplay } from '../controls/spread.js';
 import { updateDistanceModelUI } from '../controls/master.js';
 import { updateDistanceDiffuseUI } from '../controls/distance-diffuse.js';
@@ -24,6 +25,8 @@ export function setupRendererPanelListeners() {
   const spreadDistanceCurveSliderEl = document.getElementById('spreadDistanceCurveSlider');
   const sizeToSpreadModeSelectEl = document.getElementById('sizeToSpreadModeSelect');
   const distanceModelSelectEl = document.getElementById('distanceModelSelect');
+  const distanceModelMetricSelectEl = document.getElementById('distanceModelMetricSelect');
+  const distanceDiffuseMetricSelectEl = document.getElementById('distanceDiffuseMetricSelect');
   const vbapCartXSizeInputEl = document.getElementById('vbapCartXSizeInput');
   const vbapCartYSizeInputEl = document.getElementById('vbapCartYSizeInput');
   const vbapCartZSizeInputEl = document.getElementById('vbapCartZSizeInput');
@@ -49,6 +52,11 @@ export function setupRendererPanelListeners() {
   const experimentalDistanceErrorFloorInputEl = document.getElementById('experimentalDistanceErrorFloorInput');
   const experimentalDistanceNearestScaleInputEl = document.getElementById('experimentalDistanceNearestScaleInput');
   const experimentalDistanceSpanScaleInputEl = document.getElementById('experimentalDistanceSpanScaleInput');
+  const hybridExternalBackendSelectEl = document.getElementById('hybridExternalBackendSelect');
+  const hybridInternalBackendSelectEl = document.getElementById('hybridInternalBackendSelect');
+  const hybridMetricSelectEl = document.getElementById('hybridMetricSelect');
+  const hybridCurveSmoothingSliderEl = document.getElementById('hybridCurveSmoothingSlider');
+  const hybridCurveSmoothingValEl = document.getElementById('hybridCurveSmoothingVal');
 
   if (spreadMinSliderEl) {
     spreadMinSliderEl.addEventListener('input', () => {
@@ -134,6 +142,30 @@ export function setupRendererPanelListeners() {
       app.vbapRecomputing = true;
       renderVbapStatus();
       invoke('control_distance_model', { value });
+    });
+  }
+
+  if (distanceModelMetricSelectEl) {
+    distanceModelMetricSelectEl.addEventListener('change', () => {
+      const value = String(distanceModelMetricSelectEl.value || '').trim().toLowerCase();
+      if (!['spherical', 'chebyshev'].includes(value)) return;
+      app.distanceModelMetric = value;
+      updateDistanceModelUI();
+      app.vbapRecomputing = true;
+      renderVbapStatus();
+      invoke('control_distance_model_metric', { value });
+    });
+  }
+
+  if (distanceDiffuseMetricSelectEl) {
+    distanceDiffuseMetricSelectEl.addEventListener('change', () => {
+      const value = String(distanceDiffuseMetricSelectEl.value || '').trim().toLowerCase();
+      if (!['spherical', 'chebyshev'].includes(value)) return;
+      app.distanceDiffuseState.metric = value;
+      updateDistanceDiffuseUI();
+      app.vbapRecomputing = true;
+      renderVbapStatus();
+      invoke('control_distance_diffuse_metric', { value });
     });
   }
 
@@ -283,6 +315,61 @@ export function setupRendererPanelListeners() {
       invoke('control_render_backend', { value });
     });
   }
+
+  if (hybridExternalBackendSelectEl) {
+    hybridExternalBackendSelectEl.addEventListener('change', () => {
+      const value = String(hybridExternalBackendSelectEl.value || '').trim().toLowerCase();
+      if (!['vbap', 'barycenter', 'experimental_distance'].includes(value)) return;
+      app.renderBackendState.hybrid.externalBackend = value;
+      app.vbapRecomputing = true;
+      renderVbapStatus();
+      updateRenderBackend();
+      invoke('control_hybrid_external_backend', { value });
+    });
+  }
+
+  if (hybridInternalBackendSelectEl) {
+    hybridInternalBackendSelectEl.addEventListener('change', () => {
+      const value = String(hybridInternalBackendSelectEl.value || '').trim().toLowerCase();
+      if (!['vbap', 'barycenter', 'experimental_distance'].includes(value)) return;
+      app.renderBackendState.hybrid.internalBackend = value;
+      app.vbapRecomputing = true;
+      renderVbapStatus();
+      updateRenderBackend();
+      invoke('control_hybrid_internal_backend', { value });
+    });
+  }
+
+  if (hybridMetricSelectEl) {
+    hybridMetricSelectEl.addEventListener('change', () => {
+      const value = String(hybridMetricSelectEl.value || '').trim().toLowerCase();
+      if (!['spherical', 'chebyshev'].includes(value)) return;
+      app.renderBackendState.hybrid.metric = value;
+      app.vbapRecomputing = true;
+      renderVbapStatus();
+      updateRenderBackend();
+      invoke('control_hybrid_metric', { value });
+    });
+  }
+
+  if (hybridCurveSmoothingSliderEl) {
+    // Live preview on input (local redraw only); push to the renderer on release.
+    hybridCurveSmoothingSliderEl.addEventListener('input', () => {
+      const value = Math.min(1, Math.max(0, Number(hybridCurveSmoothingSliderEl.value) || 0));
+      app.renderBackendState.hybrid.curveSmoothing = value;
+      if (hybridCurveSmoothingValEl) hybridCurveSmoothingValEl.textContent = formatNumber(value, 2);
+      renderHybridCurve();
+    });
+    hybridCurveSmoothingSliderEl.addEventListener('change', () => {
+      const value = Math.min(1, Math.max(0, Number(hybridCurveSmoothingSliderEl.value) || 0));
+      app.renderBackendState.hybrid.curveSmoothing = value;
+      app.vbapRecomputing = true;
+      renderVbapStatus();
+      invoke('control_hybrid_curve_smoothing', { value });
+    });
+  }
+
+  setupHybridCurveEditor();
 
   if (restoreBackendBtnEl) {
     restoreBackendBtnEl.addEventListener('click', () => {

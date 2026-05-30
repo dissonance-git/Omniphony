@@ -202,6 +202,12 @@ pub struct RenderConfig {
     pub distance_diffuse_threshold: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub distance_diffuse_curve: Option<f32>,
+    /// Distance metric (spherical / chebyshev) for the distance model stage.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub distance_model_metric: Option<String>,
+    /// Distance metric (spherical / chebyshev) for the distance diffuse stage.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub distance_diffuse_metric: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub experimental_distance_distance_floor: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -214,6 +220,21 @@ pub struct RenderConfig {
     pub experimental_distance_position_error_nearest_scale: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub experimental_distance_position_error_span_scale: Option<f32>,
+    /// Hybrid backend: id of the backend mixed in at ratio = 1 (cube surface).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hybrid_external_backend: Option<String>,
+    /// Hybrid backend: id of the backend mixed in at ratio = 0 (centre).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hybrid_internal_backend: Option<String>,
+    /// Hybrid backend: editable blend curve as `(distance, ratio)` control points.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hybrid_curve: Option<Vec<[f32; 2]>>,
+    /// Hybrid backend: blend curve smoothing in `[0, 1]`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hybrid_curve_smoothing: Option<f32>,
+    /// Hybrid backend: blend distance metric (spherical / chebyshev).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hybrid_metric: Option<String>,
     /// See `Config::extra` — preserve unknown keys through round-trips.
     /// This matters most for `render.*`: any field added by a future
     /// version of the CLI / a host that we haven't migrated into this

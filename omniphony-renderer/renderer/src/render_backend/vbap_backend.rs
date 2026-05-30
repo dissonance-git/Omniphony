@@ -4,7 +4,8 @@ use super::{
     BackendCapabilities, GainModel, GainModelKind, RenderRequest, RenderResponse,
     reduce_size_to_spread,
 };
-use crate::spatial_vbap::{Gains, VbapPanner, adm_to_spherical};
+use super::room_transform::map_depth_with_room_ratios;
+use crate::spatial_vbap::{VbapPanner, adm_to_spherical};
 use crate::speaker_layout::SpeakerLayout;
 
 pub struct VbapBackend {
@@ -58,53 +59,11 @@ impl VbapBackend {
             (req.spread_min + intrinsic * (req.spread_max - req.spread_min)).clamp(0.0, 1.0)
         };
 
-        let direct_gains = self.panner.get_gains_cartesian(
-            scaled_x,
-            scaled_y,
-            scaled_z,
-            effective_spread,
-            req.distance_model,
-        );
-
-        let gains = if req.use_distance_diffuse {
-            let [rx, ry, rz] = rendering_position;
-            let adm_dist = ((rx * rx + ry * ry + rz * rz) as f32).sqrt();
-            let t = (adm_dist / req.distance_diffuse_threshold.max(1e-6))
-                .min(1.0)
-                .powf(req.distance_diffuse_curve);
-            let alpha = 0.5 + 0.5 * t;
-            let w_direct = alpha.sqrt();
-            let w_mirror = (1.0 - alpha).sqrt();
-            let mirror_gains = self.panner.get_gains_cartesian(
-                -scaled_x,
-                -scaled_y,
-                scaled_z,
-                effective_spread,
-                req.distance_model,
-            );
-
-            let n = direct_gains.len();
-            let mut blended = Gains::zeroed(n);
-            let mut energy_direct = 0.0f32;
-            let mut energy_blended = 0.0f32;
-            for i in 0..n {
-                let g = w_direct * direct_gains[i] + w_mirror * mirror_gains[i];
-                blended.set(i, g);
-                energy_direct += direct_gains[i] * direct_gains[i];
-                energy_blended += g * g;
-            }
-
-            if energy_blended > 1e-12 {
-                let scale = (energy_direct / energy_blended).sqrt();
-                for g in blended.iter_mut() {
-                    *g *= scale;
-                }
-            }
-
-            blended
-        } else {
-            direct_gains
-        };
+        // Distance diffuse blending is applied by the shared DistanceDiffuseModel
+        // decorator; VBAP returns pure panning gains.
+        let gains =
+            self.panner
+                .get_gains_cartesian(scaled_x, scaled_y, scaled_z, effective_spread);
 
         RenderResponse { gains }
     }
@@ -159,28 +118,5 @@ impl GainModel for VbapBackend {
 
     fn save_to_file(&self, path: &std::path::Path, speaker_layout: &SpeakerLayout) -> Result<()> {
         VbapBackend::save_to_file(self, path, speaker_layout)
-    }
-}
-
-#[inline]
-fn map_depth_with_room_ratios(
-    depth: f32,
-    front_ratio: f32,
-    rear_ratio: f32,
-    center_blend: f32,
-) -> f32 {
-    let d = depth.clamp(-1.0, 1.0);
-    let blend = center_blend.clamp(0.0, 1.0);
-    let center_ratio = rear_ratio + (front_ratio - rear_ratio) * blend;
-    if d >= 0.0 {
-        let t = d;
-        let a = center_ratio - front_ratio;
-        let b = 2.0 * (front_ratio - center_ratio);
-        a * t * t * t + b * t * t + center_ratio * t
-    } else {
-        let t = -d;
-        let a = center_ratio - rear_ratio;
-        let b = 2.0 * (rear_ratio - center_ratio);
-        -(a * t * t * t + b * t * t + center_ratio * t)
     }
 }

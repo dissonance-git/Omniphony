@@ -190,6 +190,17 @@ pub fn save_live_config(
     } else {
         None
     };
+    let default_metric = renderer::spatial_vbap::DistanceMetric::default();
+    render.distance_model_metric = if live.distance_model_metric != default_metric {
+        Some(live.distance_model_metric.to_string())
+    } else {
+        None
+    };
+    render.distance_diffuse_metric = if live.distance_diffuse_metric != default_metric {
+        Some(live.distance_diffuse_metric.to_string())
+    } else {
+        None
+    };
     let experimental_defaults = renderer::live_params::ExperimentalDistanceLiveParams::default();
     render.experimental_distance_distance_floor =
         if (live.experimental_distance.distance_floor - experimental_defaults.distance_floor).abs()
@@ -245,6 +256,35 @@ pub fn save_live_config(
         } else {
             None
         };
+    let hybrid_defaults = renderer::live_params::HybridLiveParams::default();
+    render.hybrid_external_backend =
+        if live.hybrid.external_backend_id != hybrid_defaults.external_backend_id {
+            Some(live.hybrid.external_backend_id.clone())
+        } else {
+            None
+        };
+    render.hybrid_internal_backend =
+        if live.hybrid.internal_backend_id != hybrid_defaults.internal_backend_id {
+            Some(live.hybrid.internal_backend_id.clone())
+        } else {
+            None
+        };
+    render.hybrid_curve = if live.hybrid.curve != hybrid_defaults.curve {
+        Some(live.hybrid.curve.clone())
+    } else {
+        None
+    };
+    render.hybrid_curve_smoothing =
+        if (live.hybrid.curve_smoothing - hybrid_defaults.curve_smoothing).abs() > 1e-4 {
+            Some(live.hybrid.curve_smoothing)
+        } else {
+            None
+        };
+    render.hybrid_metric = if live.hybrid.metric != hybrid_defaults.metric {
+        Some(live.hybrid.metric.to_string())
+    } else {
+        None
+    };
     render.ramp_mode = match control.requested_ramp_mode() {
         RampMode::Frame => None,
         mode => Some(mode.as_str().to_string()),

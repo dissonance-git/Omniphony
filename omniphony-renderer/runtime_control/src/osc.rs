@@ -1560,6 +1560,17 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
+    if addr == "/omniphony/control/distance_model_metric" {
+        if let Some(OscType::String(metric)) = msg.args.first() {
+            if let Ok(metric) = metric.parse::<renderer::spatial_vbap::DistanceMetric>() {
+                ctx.renderer.live.write().unwrap().distance_model_metric = metric;
+                effects.mark_dirty = true;
+                effects.trigger_layout_recompute = true;
+            }
+        }
+        return Some(effects);
+    }
+
     if let Some(rest) = addr.strip_prefix("/omniphony/control/experimental_distance/") {
         let mut live = ctx.renderer.live.write().unwrap();
         let mut changed = false;
@@ -1656,6 +1667,84 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
+    if let Some(rest) = addr.strip_prefix("/omniphony/control/hybrid/") {
+        let mut live = ctx.renderer.live.write().unwrap();
+        let mut changed = false;
+        match rest {
+            "external_backend" | "internal_backend" => {
+                if let Some(value) = parse_string_arg(msg.args.first()) {
+                    let normalized = value.trim().to_ascii_lowercase();
+                    // Only concrete backends are valid inner models (no nested hybrid).
+                    if matches!(
+                        normalized.as_str(),
+                        "vbap" | "barycenter" | "experimental_distance"
+                    ) {
+                        let slot = if rest == "external_backend" {
+                            &mut live.hybrid.external_backend_id
+                        } else {
+                            &mut live.hybrid.internal_backend_id
+                        };
+                        if *slot != normalized {
+                            *slot = normalized.clone();
+                            changed = true;
+                            effects.log_message = Some(format!("OSC: hybrid/{rest} -> {normalized}"));
+                        }
+                    }
+                }
+            }
+            "curve_smoothing" => {
+                if let Some(v) = parse_f32_arg(msg.args.first()).map(|f| f.clamp(0.0, 1.0)) {
+                    if (live.hybrid.curve_smoothing - v).abs() > 1e-6 {
+                        live.hybrid.curve_smoothing = v;
+                        changed = true;
+                        effects.log_message =
+                            Some(format!("OSC: hybrid/curve_smoothing -> {v}"));
+                    }
+                }
+            }
+            "metric" => {
+                if let Some(OscType::String(metric)) = msg.args.first() {
+                    if let Ok(metric) = metric.parse::<renderer::spatial_vbap::DistanceMetric>() {
+                        if live.hybrid.metric != metric {
+                            live.hybrid.metric = metric;
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            "curve" => {
+                // Flat list of (x, y) pairs: x0, y0, x1, y1, …
+                let mut values: Vec<f32> = Vec::with_capacity(msg.args.len());
+                let mut valid = true;
+                for arg in &msg.args {
+                    match parse_f32_arg(Some(arg)) {
+                        Some(v) => values.push(v),
+                        None => {
+                            valid = false;
+                            break;
+                        }
+                    }
+                }
+                if valid && values.len() >= 4 && values.len() % 2 == 0 {
+                    live.hybrid.curve = values
+                        .chunks_exact(2)
+                        .map(|pair| [pair[0].clamp(0.0, 1.0), pair[1].clamp(0.0, 1.0)])
+                        .collect();
+                    changed = true;
+                    effects.log_message =
+                        Some(format!("OSC: hybrid/curve -> {} points", live.hybrid.curve.len()));
+                }
+            }
+            _ => {}
+        }
+
+        if changed {
+            effects.mark_dirty = true;
+            effects.trigger_layout_recompute = true;
+        }
+        return Some(effects);
+    }
+
     if addr == "/omniphony/control/room_ratio" {
         if msg.args.len() >= 3 {
             let w = parse_f32_arg(msg.args.first());
@@ -1708,6 +1797,18 @@ pub fn apply_simple_osc_control(
                     ctx.renderer.live.write().unwrap().use_distance_diffuse = v;
                     effects.mark_dirty = true;
                     effects.trigger_layout_recompute = true;
+                }
+                return Some(effects);
+            }
+            "metric" => {
+                if let Some(OscType::String(metric)) = msg.args.first() {
+                    if let Ok(metric) =
+                        metric.parse::<renderer::spatial_vbap::DistanceMetric>()
+                    {
+                        ctx.renderer.live.write().unwrap().distance_diffuse_metric = metric;
+                        effects.mark_dirty = true;
+                        effects.trigger_layout_recompute = true;
+                    }
                 }
                 return Some(effects);
             }

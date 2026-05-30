@@ -1,6 +1,10 @@
 mod barycenter_backend;
+mod distance_attenuation;
+mod distance_diffuse;
 mod evaluation_artifact;
 mod experimental_distance_backend;
+mod hybrid_backend;
+mod room_transform;
 pub mod size_to_spread;
 mod vbap_backend;
 
@@ -11,10 +15,13 @@ use rayon::prelude::*;
 use serde::Serialize;
 
 pub use barycenter_backend::BarycenterBackend;
+use distance_attenuation::DistanceAttenuatedModel;
+use distance_diffuse::DistanceDiffuseModel;
 pub use evaluation_artifact::{
     BackendRestoreSnapshot, SerializedEvaluationMode, build_backend_restore_snapshot,
 };
 pub use experimental_distance_backend::ExperimentalDistanceBackend;
+pub use hybrid_backend::{BlendCurve, HybridBackend};
 pub use size_to_spread::{SizeToSpreadMode, reduce_size_to_spread};
 pub use vbap_backend::VbapBackend;
 
@@ -49,6 +56,7 @@ pub enum GainModelKind {
     Vbap,
     Barycenter,
     ExperimentalDistance,
+    Hybrid,
 }
 
 impl GainModelKind {
@@ -64,6 +72,7 @@ impl GainModelKind {
         match normalized.as_str() {
             "barycentre" | "barycenter" => Some(Self::Barycenter),
             "distance" | "distance_based" => Some(Self::ExperimentalDistance),
+            "hybrid" => Some(Self::Hybrid),
             _ => None,
         }
     }
@@ -75,6 +84,7 @@ pub enum RenderBackendKind {
     Vbap,
     Barycenter,
     ExperimentalDistance,
+    Hybrid,
 }
 
 impl RenderBackendKind {
@@ -90,6 +100,7 @@ impl RenderBackendKind {
         match normalized.as_str() {
             "barycentre" | "barycenter" => Some(Self::Barycenter),
             "distance" | "distance_based" => Some(Self::ExperimentalDistance),
+            "hybrid" => Some(Self::Hybrid),
             _ => None,
         }
     }
@@ -109,6 +120,7 @@ impl From<GainModelKind> for RenderBackendKind {
             GainModelKind::Vbap => Self::Vbap,
             GainModelKind::Barycenter => Self::Barycenter,
             GainModelKind::ExperimentalDistance => Self::ExperimentalDistance,
+            GainModelKind::Hybrid => Self::Hybrid,
         }
     }
 }
@@ -119,7 +131,7 @@ impl From<RenderBackendKind> for GainModelKind {
     }
 }
 
-const BACKEND_DESCRIPTORS: [BackendDescriptor; 3] = [
+const BACKEND_DESCRIPTORS: [BackendDescriptor; 4] = [
     BackendDescriptor {
         kind: RenderBackendKind::Vbap,
         gain_model_kind: GainModelKind::Vbap,
@@ -137,6 +149,12 @@ const BACKEND_DESCRIPTORS: [BackendDescriptor; 3] = [
         gain_model_kind: GainModelKind::ExperimentalDistance,
         id: "experimental_distance",
         label: "Distance",
+    },
+    BackendDescriptor {
+        kind: RenderBackendKind::Hybrid,
+        gain_model_kind: GainModelKind::Hybrid,
+        id: "hybrid",
+        label: "Hybrid",
     },
 ];
 
@@ -240,6 +258,10 @@ pub struct EvaluationBuildConfig {
     pub position_interpolation: bool,
     pub cartesian: CartesianEvaluationConfig,
     pub polar: PolarEvaluationConfig,
+    /// Metric used to reduce a position to a scalar distance for the distance
+    /// model and distance diffuse output stages (Spherical / Chebyshev).
+    pub distance_model_metric: crate::spatial_vbap::DistanceMetric,
+    pub distance_diffuse_metric: crate::spatial_vbap::DistanceMetric,
 }
 
 pub trait GainModel: Send + Sync + 'static {
@@ -823,6 +845,15 @@ pub fn build_prepared_render_engine(
     evaluation_mode: EffectiveEvaluationMode,
     config: &EvaluationBuildConfig,
 ) -> Result<PreparedRenderEngine> {
+    // Wrap the backend with the shared output stages, applied uniformly for
+    // every backend. Order matters: distance diffuse blends + renormalizes, so
+    // distance attenuation must wrap it (be applied last) or the renorm would
+    // cancel the attenuation. Identity/metadata still delegate to the inner
+    // backend; capabilities gain `supports_distance_diffuse` / `_model`.
+    let model: Box<dyn GainModel> =
+        Box::new(DistanceDiffuseModel::new(model, config.distance_diffuse_metric));
+    let model: Box<dyn GainModel> =
+        Box::new(DistanceAttenuatedModel::new(model, config.distance_model_metric));
     let gain_model_kind = model.kind();
     let backend_id = model.backend_id();
     let backend_label = model.backend_label();

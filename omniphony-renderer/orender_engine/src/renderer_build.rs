@@ -374,7 +374,39 @@ pub fn build_spatial_renderer(
                 .max(0.0),
         }
     });
-    if configured_backend.is_some() || configured_evaluation.is_some() {
+    let hybrid_cfg = render_cfg.map(|cfg| {
+        let defaults = renderer::live_params::HybridLiveParams::default();
+        let valid_inner = |id: &str| {
+            matches!(id, "vbap" | "barycenter" | "experimental_distance")
+        };
+        renderer::live_params::HybridLiveParams {
+            external_backend_id: cfg
+                .hybrid_external_backend
+                .clone()
+                .filter(|id| valid_inner(id))
+                .unwrap_or(defaults.external_backend_id),
+            internal_backend_id: cfg
+                .hybrid_internal_backend
+                .clone()
+                .filter(|id| valid_inner(id))
+                .unwrap_or(defaults.internal_backend_id),
+            curve: cfg
+                .hybrid_curve
+                .clone()
+                .filter(|points| points.len() >= 2)
+                .unwrap_or(defaults.curve),
+            curve_smoothing: cfg
+                .hybrid_curve_smoothing
+                .map(|v| v.clamp(0.0, 1.0))
+                .unwrap_or(defaults.curve_smoothing),
+            metric: cfg
+                .hybrid_metric
+                .as_deref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(defaults.metric),
+        }
+    });
+    {
         let control = renderer.renderer_control();
         let mut requires_rebuild = false;
         {
@@ -414,6 +446,35 @@ pub fn build_spatial_renderer(
                     requires_rebuild = true;
                 }
             }
+            if let Some(hybrid) = hybrid_cfg {
+                if live.hybrid.external_backend_id != hybrid.external_backend_id
+                    || live.hybrid.internal_backend_id != hybrid.internal_backend_id
+                    || live.hybrid.curve != hybrid.curve
+                    || (live.hybrid.curve_smoothing - hybrid.curve_smoothing).abs() > 1e-6
+                    || live.hybrid.metric != hybrid.metric
+                {
+                    live.hybrid = hybrid;
+                    requires_rebuild = true;
+                }
+            }
+            if let Some(metric) = render_cfg
+                .and_then(|cfg| cfg.distance_model_metric.as_deref())
+                .and_then(|s| s.parse::<renderer::spatial_vbap::DistanceMetric>().ok())
+            {
+                if live.distance_model_metric != metric {
+                    live.distance_model_metric = metric;
+                    requires_rebuild = true;
+                }
+            }
+            if let Some(metric) = render_cfg
+                .and_then(|cfg| cfg.distance_diffuse_metric.as_deref())
+                .and_then(|s| s.parse::<renderer::spatial_vbap::DistanceMetric>().ok())
+            {
+                if live.distance_diffuse_metric != metric {
+                    live.distance_diffuse_metric = metric;
+                    requires_rebuild = true;
+                }
+            }
         }
         if requires_rebuild {
             if let Some(plan) = control.prepare_topology_rebuild() {
@@ -421,16 +482,6 @@ pub fn build_spatial_renderer(
                 control.publish_topology(topology);
             }
         }
-    } else if let Some(mut experimental_distance) = experimental_distance_cfg {
-        if experimental_distance.max_active_speakers < experimental_distance.min_active_speakers {
-            experimental_distance.max_active_speakers = experimental_distance.min_active_speakers;
-        }
-        renderer
-            .renderer_control()
-            .live
-            .write()
-            .unwrap()
-            .experimental_distance = experimental_distance;
     }
 
     Ok(renderer)

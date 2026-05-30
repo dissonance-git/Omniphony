@@ -141,10 +141,22 @@ export function updateLoudnessDisplay() {
 
 export function renderDistanceModelUI() {
   const distanceModelSelectEl = getDistanceModelSelectEl();
-  if (!distanceModelSelectEl) return;
-  distanceModelSelectEl.value = ['none', 'linear', 'quadratic', 'inverse-square'].includes(app.distanceModel)
-    ? app.distanceModel
-    : 'none';
+  if (distanceModelSelectEl) {
+    distanceModelSelectEl.value = ['none', 'linear', 'quadratic', 'inverse-square'].includes(app.distanceModel)
+      ? app.distanceModel
+      : 'none';
+  }
+  const distanceModelMetricSelectEl = inRendererPanel('distanceModelMetricSelect');
+  if (distanceModelMetricSelectEl) {
+    distanceModelMetricSelectEl.value = ['spherical', 'chebyshev'].includes(app.distanceModelMetric)
+      ? app.distanceModelMetric
+      : 'spherical';
+  }
+  // The metric is irrelevant with no attenuation, so hide it when model is none.
+  const distanceModelMetricRowEl = inRendererPanel('distanceModelMetricRow');
+  if (distanceModelMetricRowEl) {
+    distanceModelMetricRowEl.style.display = app.distanceModel === 'none' ? 'none' : '';
+  }
 }
 
 export function updateDistanceModelUI() {

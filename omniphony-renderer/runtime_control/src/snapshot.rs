@@ -25,6 +25,15 @@ pub struct BarycenterOptionsSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct HybridOptionsSnapshot {
+    pub external_backend: String,
+    pub internal_backend: String,
+    pub curve: Vec<[f32; 2]>,
+    pub curve_smoothing: f32,
+    pub metric: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct RenderBackendStateSnapshot {
     pub selection: String,
     pub effective: String,
@@ -36,6 +45,7 @@ pub struct RenderBackendStateSnapshot {
     pub restore_backend_available: bool,
     pub barycenter: BarycenterOptionsSnapshot,
     pub experimental_distance: ExperimentalDistanceOptionsSnapshot,
+    pub hybrid: HybridOptionsSnapshot,
 }
 
 fn allowed_evaluation_modes(
@@ -82,6 +92,13 @@ pub fn build_render_backend_state_snapshot(
             position_error_nearest_scale: live.experimental_distance.position_error_nearest_scale,
             position_error_span_scale: live.experimental_distance.position_error_span_scale,
         },
+        hybrid: HybridOptionsSnapshot {
+            external_backend: live.hybrid.external_backend_id.clone(),
+            internal_backend: live.hybrid.internal_backend_id.clone(),
+            curve: live.hybrid.curve.clone(),
+            curve_smoothing: live.hybrid.curve_smoothing,
+            metric: live.hybrid.metric.to_string(),
+        },
     }
 }
 
@@ -105,6 +122,7 @@ pub fn build_renderer_state_json(live: &LiveParams, active_topology: &RenderTopo
         "masterGain": live.master_gain,
         "rampMode": live.ramp_mode.as_str(),
         "distanceModel": live.distance_model.to_string(),
+        "distanceModelMetric": live.distance_model_metric.to_string(),
         "roomRatio": {
             "width": live.room_ratio[0],
             "length": live.room_ratio[1],
@@ -124,7 +142,8 @@ pub fn build_renderer_state_json(live: &LiveParams, active_topology: &RenderTopo
         "distanceDiffuse": {
             "enabled": live.use_distance_diffuse,
             "threshold": live.distance_diffuse_threshold,
-            "curve": live.distance_diffuse_curve
+            "curve": live.distance_diffuse_curve,
+            "metric": live.distance_diffuse_metric.to_string()
         },
         "vbapCartesian": {
             "xSize": live.evaluation.cartesian.x_size,

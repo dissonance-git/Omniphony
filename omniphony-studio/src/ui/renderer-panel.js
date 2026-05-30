@@ -145,25 +145,14 @@ export function rendererPanelMarkup() {
 	                <option value="vbap">VBAP</option>
 	                <option value="barycenter">Barycenter</option>
 	                <option value="experimental_distance">Distance</option>
+	                <option value="hybrid">Hybrid</option>
 	              </select>
               <button id="restoreBackendBtn" type="button" class="secondary-btn" style="display:none;white-space:nowrap">Restore backend</button>
               <div id="renderBackendEffective" class="vbap-step" style="min-width:5.4rem;text-align:right">—</div>
             </div>
           </div>
             <div id="backendParametersSectionContent" class="conditional-params open">
-          <div id="backendSpecificParamsSection">
-          <div class="control-row" id="distanceModelControlRow" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
-            <div class="title-with-info" style="font-size:12px;font-weight:600;min-width:0">
-              <label for="distanceModelSelect" style="font-size:12px;font-weight:600;white-space:nowrap;color:#ffffff" data-i18n="distance.model">Distance model</label>
-              <button id="distanceModelInfoBtn" type="button" class="info-icon-btn" data-i18n-title="distance.modelInfoButton" title="Distance model info">i</button>
-            </div>
-            <select id="distanceModelSelect" class="delay-input" style="min-width:11rem">
-              <option value="none" data-i18n="distance.model.none">None</option>
-              <option value="linear" data-i18n="distance.model.linear">Linear</option>
-              <option value="quadratic" data-i18n="distance.model.quadratic">Quadratic</option>
-              <option value="inverse-square" data-i18n="distance.model.inverseSquare">Inverse-square</option>
-            </select>
-          </div>
+          <div id="backendSpecificParamsSection" style="display:flex;flex-direction:column">
           <div class="info-section" id="spreadSection" style="margin:0;padding:0;border:none;background:none">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
               <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff" data-i18n="spread.title">Spread</div>
@@ -180,25 +169,6 @@ export function rendererPanelMarkup() {
                 <input id="spreadMaxSlider" type="range" min="0" max="180" step="1" value="180" class="gain-slider" />
               </div>
             </div>
-            </div>
-          </div>
-          <div class="info-section" id="distanceDiffuseSection" style="margin:0;padding:0;border:none;background:none">
-            <div class="title-with-info" style="font-size:12px;font-weight:600;color:#ffffff">
-              <span data-i18n="distance.title">Distance Diffuse</span>
-              <div class="inline-toggle" style="display:flex;align-items:center;gap:0.35rem">
-                <button id="distanceDiffuseInfoBtn" type="button" class="info-icon-btn" data-i18n-title="distance.infoButton" title="Distance diffuse info">i</button>
-                <input id="distanceDiffuseToggle" type="checkbox" />
-              </div>
-            </div>
-            <div id="distanceDiffuseParams" class="conditional-params">
-              <div class="control-row" style="margin-top:0.2rem">
-                <label style="font-size:12px;white-space:nowrap"><span data-i18n="distance.threshold">Threshold</span> <span id="distanceDiffuseThresholdVal">1.00</span></label>
-                <input id="distanceDiffuseThresholdSlider" type="range" min="0.1" max="2.0" step="0.01" value="1.0" class="gain-slider" />
-              </div>
-              <div class="control-row" style="margin-top:0.15rem">
-                <label style="font-size:12px;white-space:nowrap"><span data-i18n="distance.curve">Curve</span> <span id="distanceDiffuseCurveVal">1.00</span></label>
-                <input id="distanceDiffuseCurveSlider" type="range" min="0.5" max="2.0" step="0.05" value="1.0" class="gain-slider" />
-              </div>
             </div>
           </div>
           <div class="info-section" id="spreadFromDistanceSection" style="margin:0;padding:0;border:none;background:none">
@@ -280,8 +250,116 @@ export function rendererPanelMarkup() {
               </div>
             </div>
           </div>
+          <div class="info-section" id="hybridSection" style="margin:0;padding:0;border:none;background:none;display:none;order:-1">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
+              <div class="title-with-info" style="margin:0;font-size:12px;font-weight:600;color:#ffffff">
+                <span data-i18n="hybrid.title">Hybrid backend</span>
+                <button id="hybridInfoBtn" type="button" class="info-icon-btn" data-i18n-title="hybrid.infoButton" title="Hybrid backend info">i</button>
+              </div>
+            </div>
+            <div id="hybridSectionContent" class="conditional-params open">
+              <div id="hybridParamTabs" style="display:flex;gap:0.25rem;margin-top:0.25rem;flex-wrap:wrap"></div>
+              <div id="hybridConfigPanel">
+                <div style="margin-top:0.2rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.3rem">
+                  <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
+                    <label for="hybridExternalBackendSelect" style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="hybrid.external">External backend (ratio = 1)</label>
+                    <select id="hybridExternalBackendSelect" class="delay-input" style="min-width:9rem">
+                      <option value="vbap">VBAP</option>
+                      <option value="barycenter">Barycenter</option>
+                      <option value="experimental_distance">Distance</option>
+                    </select>
+                  </div>
+                  <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
+                    <label for="hybridInternalBackendSelect" style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="hybrid.internal">Internal backend (ratio = 0)</label>
+                    <select id="hybridInternalBackendSelect" class="delay-input" style="min-width:9rem">
+                      <option value="vbap">VBAP</option>
+                      <option value="barycenter">Barycenter</option>
+                      <option value="experimental_distance">Distance</option>
+                    </select>
+                  </div>
+                  <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
+                    <label for="hybridMetricSelect" style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="distance.metric">Distance metric</label>
+                    <select id="hybridMetricSelect" class="delay-input" style="min-width:9rem">
+                      <option value="chebyshev" data-i18n="distance.metric.chebyshev">Chebyshev</option>
+                      <option value="spherical" data-i18n="distance.metric.spherical">Spherical</option>
+                    </select>
+                  </div>
+                  <div class="control-row" style="margin-top:0">
+                    <label style="font-size:12px;white-space:nowrap"><span data-i18n="hybrid.smoothing">Curve smoothing</span> <span id="hybridCurveSmoothingVal">0.00</span></label>
+                    <input id="hybridCurveSmoothingSlider" type="range" min="0" max="1" step="0.01" value="0" class="gain-slider" />
+                  </div>
+                  <div style="font-size:11px;color:#b8b8b8;margin-top:0.1rem">
+                    <span data-i18n="hybrid.curveHint">Blend curve — X: distance (center → cube surface), Y: external ratio. Double-click to add a point, double-click a point to remove it.</span>
+                  </div>
+                  <canvas id="hybridCurveCanvas" width="320" height="180" style="width:100%;height:180px;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.12);border-radius:6px;cursor:crosshair;touch-action:none"></canvas>
+                  <div id="hybridPointEditor" style="display:none;align-items:center;gap:0.3rem;font-size:11px;color:#ffffff">
+                    <span data-i18n="hybrid.selectedPoint">Point</span>
+                    <label for="hybridPointXInput" data-i18n="hybrid.pointDistance">d</label>
+                    <input id="hybridPointXInput" class="delay-input" type="number" step="0.01" style="width:4.5rem" disabled />
+                    <label for="hybridPointYInput" data-i18n="hybrid.pointRatio">ratio</label>
+                    <input id="hybridPointYInput" class="delay-input" type="number" min="0" max="1" step="0.01" style="width:4.5rem" disabled />
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
           </div>
+          </div>
+          </div>
+          <div class="info-section renderer-subpanel" id="distanceDiffuseSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
+            <div class="renderer-subpanel-bar" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
+              <div class="title-with-info" style="margin:0;font-size:12px;font-weight:600;color:#ffffff">
+                <span data-i18n="distance.title">Distance Diffuse</span>
+                <button id="distanceDiffuseInfoBtn" type="button" class="info-icon-btn" data-i18n-title="distance.infoButton" title="Distance diffuse info">i</button>
+              </div>
+              <div class="renderer-subpanel-actions" style="display:flex;align-items:center;gap:0.35rem">
+                <input id="distanceDiffuseToggle" type="checkbox" />
+              </div>
+            </div>
+            <div id="distanceDiffuseParams" class="conditional-params">
+              <div class="renderer-subpanel-body" style="margin-top:0.25rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
+                <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
+                  <label for="distanceDiffuseMetricSelect" style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="distance.metric">Distance metric</label>
+                  <select id="distanceDiffuseMetricSelect" class="delay-input" style="min-width:9rem">
+                    <option value="spherical" data-i18n="distance.metric.spherical">Spherical</option>
+                    <option value="chebyshev" data-i18n="distance.metric.chebyshev">Chebyshev</option>
+                  </select>
+                </div>
+                <div class="control-row" style="margin-top:0">
+                  <label style="font-size:12px;white-space:nowrap"><span data-i18n="distance.threshold">Threshold</span> <span id="distanceDiffuseThresholdVal">1.00</span></label>
+                  <input id="distanceDiffuseThresholdSlider" type="range" min="0.1" max="2.0" step="0.01" value="1.0" class="gain-slider" />
+                </div>
+                <div class="control-row" style="margin-top:0.15rem">
+                  <label style="font-size:12px;white-space:nowrap"><span data-i18n="distance.curve">Curve</span> <span id="distanceDiffuseCurveVal">1.00</span></label>
+                  <input id="distanceDiffuseCurveSlider" type="range" min="0.5" max="2.0" step="0.05" value="1.0" class="gain-slider" />
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="info-section renderer-subpanel" id="distanceModelSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
+            <div class="renderer-subpanel-bar" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
+              <div class="title-with-info" style="margin:0;font-size:12px;font-weight:600;color:#ffffff">
+                <span data-i18n="distance.model">Distance model</span>
+                <button id="distanceModelInfoBtn" type="button" class="info-icon-btn" data-i18n-title="distance.modelInfoButton" title="Distance model info">i</button>
+              </div>
+              <div class="renderer-subpanel-actions" style="display:flex;align-items:center;gap:0.35rem">
+                <select id="distanceModelSelect" class="delay-input" style="width:auto;min-width:10.5rem;text-align:left">
+                  <option value="none" data-i18n="distance.model.none">None</option>
+                  <option value="linear" data-i18n="distance.model.linear">Linear</option>
+                  <option value="quadratic" data-i18n="distance.model.quadratic">Quadratic</option>
+                  <option value="inverse-square" data-i18n="distance.model.inverseSquare">Inverse-square</option>
+                </select>
+              </div>
+            </div>
+            <div id="distanceModelMetricRow" class="renderer-subpanel-body" style="margin-top:0.25rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
+              <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
+                <label for="distanceModelMetricSelect" style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="distance.metric">Distance metric</label>
+                <select id="distanceModelMetricSelect" class="delay-input" style="min-width:9rem">
+                  <option value="spherical" data-i18n="distance.metric.spherical">Spherical</option>
+                  <option value="chebyshev" data-i18n="distance.metric.chebyshev">Chebyshev</option>
+                </select>
+              </div>
+            </div>
           </div>
           </div>
         </div>

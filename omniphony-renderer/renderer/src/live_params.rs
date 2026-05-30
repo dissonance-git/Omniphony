@@ -195,6 +195,37 @@ impl Default for BarycenterLiveParams {
     }
 }
 
+/// Runtime tuning parameters for the hybrid backend, which blends two concrete
+/// backends ("external"/"internal") as a function of normalised distance.
+#[derive(Debug, Clone)]
+pub struct HybridLiveParams {
+    /// Backend id mixed in at ratio = 1 (cube surface end of the curve).
+    pub external_backend_id: String,
+    /// Backend id mixed in at ratio = 0 (centre end of the curve).
+    pub internal_backend_id: String,
+    /// Editable blend curve: `(normalised_distance, ratio)` control points,
+    /// ratio = weight of the external backend.
+    pub curve: Vec<[f32; 2]>,
+    /// Curve smoothing in `[0, 1]`: 0 = piecewise-linear, 1 = full spline.
+    pub curve_smoothing: f32,
+    /// Metric used to reduce a position to the (normalised) blend distance.
+    /// Chebyshev (default) reaches 1 on the cube surface; spherical reaches √3
+    /// at a corner.
+    pub metric: crate::spatial_vbap::DistanceMetric,
+}
+
+impl Default for HybridLiveParams {
+    fn default() -> Self {
+        Self {
+            external_backend_id: "vbap".to_string(),
+            internal_backend_id: "barycenter".to_string(),
+            curve: vec![[0.0, 0.0], [1.0, 1.0]],
+            curve_smoothing: 0.0,
+            metric: crate::spatial_vbap::DistanceMetric::Chebyshev,
+        }
+    }
+}
+
 /// Live-tunable rendering parameters.
 ///
 /// Written (exclusively) by the OSC listener thread, read via snapshot by the
@@ -240,6 +271,13 @@ pub struct LiveParams {
 
     /// Distance attenuation model currently applied by the renderer.
     pub distance_model: crate::spatial_vbap::DistanceModel,
+
+    /// Metric (spherical / chebyshev) used to reduce a position to a scalar
+    /// distance for the distance model stage.
+    pub distance_model_metric: crate::spatial_vbap::DistanceMetric,
+
+    /// Metric (spherical / chebyshev) used by the distance diffuse stage.
+    pub distance_diffuse_metric: crate::spatial_vbap::DistanceMetric,
 
     /// Per-speaker live parameters: gain, mute, delay.
     /// Absent entries use `SpeakerLiveParams::default()` (gain=1.0, muted=false, delay=0 ms).
@@ -288,6 +326,9 @@ pub struct LiveParams {
 
     /// Runtime tuning parameters for the barycenter backend.
     pub barycenter: BarycenterLiveParams,
+
+    /// Runtime tuning parameters for the hybrid backend.
+    pub hybrid: HybridLiveParams,
 
     /// Selected Dynamic Range Control mode (as string).
     pub drc_mode: String,
@@ -425,6 +466,8 @@ fn evaluation_build_config_from_live(
             distance_max: live.evaluation.polar.distance_max.max(0.01),
             allow_negative_z,
         },
+        distance_model_metric: live.distance_model_metric,
+        distance_diffuse_metric: live.distance_diffuse_metric,
     }
 }
 

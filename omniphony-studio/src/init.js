@@ -14,7 +14,8 @@ import {
   speakerGainCache,
   dirty,
   hasProducerDomain,
-  hasControlConfig
+  hasControlConfig,
+  isEmbeddedProducer
 } from './state.js';
 
 import { updateSource, updateSourceLevel, updateSourceGains } from './sources.js';
@@ -71,6 +72,10 @@ export function applyProducerCapabilityVisibility() {
   const known = !!app.producerCapabilities;
   document.body.classList.toggle('cap-no-audio', known && !hasProducerDomain('audio'));
   document.body.classList.toggle('cap-no-resampler', known && !hasControlConfig('adaptive_resampling'));
+  // Embedded (mpv) host: Studio doesn't manage the orender process or audio
+  // input, so the connect/service/launch buttons and the audio-input controls
+  // are hidden; only the decoder bridge path stays accessible.
+  document.body.classList.toggle('cap-embedded', known && isEmbeddedProducer());
 }
 
 export function applyInitState(payload) {
@@ -177,6 +182,7 @@ export function applyInitState(payload) {
         selection === 'vbap'
         || selection === 'barycenter'
         || selection === 'experimental_distance'
+        || selection === 'hybrid'
       ) {
         app.renderBackendState.selection = selection;
       }
@@ -187,6 +193,7 @@ export function applyInitState(payload) {
         effective === 'vbap'
         || effective === 'barycenter'
         || effective === 'experimental_distance'
+        || effective === 'hybrid'
       ) {
         app.renderBackendState.effective = effective;
       }
@@ -224,6 +231,37 @@ export function applyInitState(payload) {
         typeof experimentalDistance.positionErrorNearestScale === 'number' ? experimentalDistance.positionErrorNearestScale : null;
       app.renderBackendState.experimentalDistance.positionErrorSpanScale =
         typeof experimentalDistance.positionErrorSpanScale === 'number' ? experimentalDistance.positionErrorSpanScale : null;
+    }
+    const hybrid = payload.renderBackendState.hybrid;
+    if (hybrid && typeof hybrid === 'object') {
+      const validInner = (id) =>
+        id === 'vbap' || id === 'barycenter' || id === 'experimental_distance';
+      const external = typeof hybrid.externalBackend === 'string'
+        ? hybrid.externalBackend.trim().toLowerCase()
+        : null;
+      const internal = typeof hybrid.internalBackend === 'string'
+        ? hybrid.internalBackend.trim().toLowerCase()
+        : null;
+      app.renderBackendState.hybrid.externalBackend = validInner(external) ? external : null;
+      app.renderBackendState.hybrid.internalBackend = validInner(internal) ? internal : null;
+      app.renderBackendState.hybrid.curve = Array.isArray(hybrid.curve)
+        ? hybrid.curve
+          .filter((point) => Array.isArray(point) && point.length === 2
+            && Number.isFinite(point[0]) && Number.isFinite(point[1]))
+          .map((point) => [
+            Math.min(1, Math.max(0, point[0])),
+            Math.min(1, Math.max(0, point[1]))
+          ])
+        : null;
+      if (typeof hybrid.metric === 'string') {
+        const metric = hybrid.metric.trim().toLowerCase();
+        if (['spherical', 'chebyshev'].includes(metric)) {
+          app.renderBackendState.hybrid.metric = metric;
+        }
+      }
+      if (Number.isFinite(hybrid.curveSmoothing)) {
+        app.renderBackendState.hybrid.curveSmoothing = Math.min(1, Math.max(0, hybrid.curveSmoothing));
+      }
     }
   }
   if (payload.renderEvaluationModeState && typeof payload.renderEvaluationModeState === 'object') {
@@ -302,6 +340,16 @@ export function applyInitState(payload) {
       app.distanceModel = value;
     }
   }
+  const distanceModelMetric =
+    typeof payload.distanceModelMetric === 'string'
+      ? payload.distanceModelMetric
+      : payload?.distanceModel?.metric;
+  if (typeof distanceModelMetric === 'string') {
+    const metric = distanceModelMetric.trim().toLowerCase();
+    if (['spherical', 'chebyshev'].includes(metric)) {
+      app.distanceModelMetric = metric;
+    }
+  }
   updateDistanceModelUI();
   if (payload.distanceDiffuse) {
     if (typeof payload.distanceDiffuse.enabled === 'boolean') {
@@ -312,6 +360,12 @@ export function applyInitState(payload) {
     }
     if (typeof payload.distanceDiffuse.curve === 'number') {
       app.distanceDiffuseState.curve = payload.distanceDiffuse.curve;
+    }
+    if (typeof payload.distanceDiffuse.metric === 'string') {
+      const metric = payload.distanceDiffuse.metric.trim().toLowerCase();
+      if (['spherical', 'chebyshev'].includes(metric)) {
+        app.distanceDiffuseState.metric = metric;
+      }
     }
   }
   updateDistanceDiffuseUI();
