@@ -430,6 +430,12 @@ function updateCenterBlendVisibility(frontRatio = app.roomRatio.length, rearRati
   row.style.display = symmetric ? 'none' : '';
 }
 
+// m/u (metres per unit) = the world scale = Width / 2, shown under the X column.
+function renderRoomMpu(mpuValue = app.metersPerUnit ?? 1) {
+  const el = inRoomGeometryPanel('roomMpuValue');
+  if (el) el.textContent = formatNumber(Number(mpuValue) || 1, 2);
+}
+
 export function roomGeometryStateFromInputs() {
   const axes = ['width', 'length', 'height', 'rear', 'lower'];
   const preview = computeRoomGeometryFromInputs();
@@ -639,6 +645,7 @@ export function updateRoomGeometryLivePreview() {
   renderRoomGeometrySummary(preview);
   updateRoomDimensionGuides(preview);
   updateCenterBlendVisibility(preview.ratio.length, preview.ratio.rear);
+  renderRoomMpu(preview.mpu);
 }
 
 function setRoomFieldEditable(inputEl, editable) {
@@ -691,6 +698,7 @@ export function renderRoomRatioDisplay() {
   if (roomDimLowerInputEl) roomDimLowerInputEl.value = formatNumber(dimLower, 2);
   renderRoomCenterBlendControl(app.roomRatio.centerBlend);
   updateCenterBlendVisibility();
+  renderRoomMpu();
   renderRoomGeometrySummary();
   normalizeRoomGeometryInputDisplays();
   refreshRoomGeometryInputState();
@@ -914,6 +922,7 @@ export function previewRoomGeometryScene() {
   applyRoomRatioToScene(preview, { refit: false });
   renderRoomGeometrySummary(preview);
   updateCenterBlendVisibility(preview.ratio.length, preview.ratio.rear);
+  renderRoomMpu(preview.mpu);
 }
 
 // ---------------------------------------------------------------------------
