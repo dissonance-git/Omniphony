@@ -17,10 +17,9 @@ import { updateSourceDecorations } from '../sources.js';
 import { rebuildTrailGeometry } from '../trails.js';
 import { renderSpeakerEditor } from '../speakers.js';
 import { emitOverlayLayoutChanged } from '../ui/layout/overlay-layout-state.js';
-import { inDisplayPanel, inRoomGeometryPanel, roomGeometryPanelQueryAll } from '../ui/panel-roots.js';
+import { inDisplayPanel, inRoomGeometryPanel } from '../ui/panel-roots.js';
 import { syncSpeakerHeatmapBandSelect } from '../scene/speaker-heatmap.js';
 
-const ROOM_GEOM_PREFS_STORAGE_KEY = 'spatialviz.room_geometry_prefs';
 const TRAIL_PREFS_STORAGE_KEY = 'spatialviz.trail_prefs';
 const EFFECTIVE_RENDER_PREFS_STORAGE_KEY = 'spatialviz.effective_render_prefs';
 
@@ -34,24 +33,8 @@ function getRoomDimLengthInputEl() { return inRoomGeometryPanel('roomDimLengthIn
 function getRoomDimHeightInputEl() { return inRoomGeometryPanel('roomDimHeightInput'); }
 function getRoomDimRearInputEl() { return inRoomGeometryPanel('roomDimRearInput'); }
 function getRoomDimLowerInputEl() { return inRoomGeometryPanel('roomDimLowerInput'); }
-function getRoomRatioWidthInputEl() { return inRoomGeometryPanel('roomRatioWidthInput'); }
-function getRoomRatioLengthInputEl() { return inRoomGeometryPanel('roomRatioLengthInput'); }
-function getRoomRatioHeightInputEl() { return inRoomGeometryPanel('roomRatioHeightInput'); }
-function getRoomRatioRearInputEl() { return inRoomGeometryPanel('roomRatioRearInput'); }
-function getRoomRatioLowerInputEl() { return inRoomGeometryPanel('roomRatioLowerInput'); }
 function getRoomRatioCenterBlendSliderEl() { return inRoomGeometryPanel('roomRatioCenterBlendSlider'); }
 function getRoomRatioCenterBlendValueEl() { return inRoomGeometryPanel('roomRatioCenterBlendValue'); }
-function getRoomMasterAxisInputs() { return roomGeometryPanelQueryAll('input[name="roomMasterAxis"]'); }
-function getRoomDriverWidthEl() { return inRoomGeometryPanel('roomDriverWidth'); }
-function getRoomDriverLengthEl() { return inRoomGeometryPanel('roomDriverLength'); }
-function getRoomDriverHeightEl() { return inRoomGeometryPanel('roomDriverHeight'); }
-function getRoomDriverRearEl() { return inRoomGeometryPanel('roomDriverRear'); }
-function getRoomDriverLowerEl() { return inRoomGeometryPanel('roomDriverLower'); }
-function getRoomMasterMpuWidthEl() { return inRoomGeometryPanel('roomMasterMpuWidth'); }
-function getRoomMasterMpuLengthEl() { return inRoomGeometryPanel('roomMasterMpuLength'); }
-function getRoomMasterMpuRearEl() { return inRoomGeometryPanel('roomMasterMpuRear'); }
-function getRoomMasterMpuHeightEl() { return inRoomGeometryPanel('roomMasterMpuHeight'); }
-function getRoomMasterMpuLowerEl() { return inRoomGeometryPanel('roomMasterMpuLower'); }
 function getRoomGeometryCancelBtnEl() { return inRoomGeometryPanel('roomGeometryCancelBtn'); }
 function getTrailToggleEl() { return inDisplayPanel('trailToggle'); }
 function getTrailModeSelectEl() { return inDisplayPanel('trailModeSelect'); }
@@ -92,46 +75,6 @@ function getObjectEnergyHeatmapOpacityValEl() { return inDisplayPanel('objectEne
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function roomAxisFactor(axis) {
-  return axis === 'width' ? 2 : 1;
-}
-
-export function persistRoomGeometryPrefs() {
-  try {
-    const payload = {
-      master: app.roomMasterAxis,
-      drivers: {
-        width: app.roomAxisDrivers.width === 'ratio' ? 'ratio' : 'size',
-        length: app.roomAxisDrivers.length === 'ratio' ? 'ratio' : 'size',
-        height: app.roomAxisDrivers.height === 'ratio' ? 'ratio' : 'size',
-        rear: app.roomAxisDrivers.rear === 'ratio' ? 'ratio' : 'size',
-        lower: app.roomAxisDrivers.lower === 'ratio' ? 'ratio' : 'size'
-      }
-    };
-    localStorage.setItem(ROOM_GEOM_PREFS_STORAGE_KEY, JSON.stringify(payload));
-  } catch (_e) {
-    // Ignore storage errors (private mode, quota, etc.).
-  }
-}
-
-export function loadRoomGeometryPrefs() {
-  try {
-    const raw = localStorage.getItem(ROOM_GEOM_PREFS_STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    const axes = ['width', 'length', 'height', 'rear', 'lower'];
-    if (axes.includes(parsed?.master)) {
-      app.roomMasterAxis = parsed.master;
-    }
-    const drivers = parsed?.drivers || {};
-    axes.forEach((axis) => {
-      app.roomAxisDrivers[axis] = drivers[axis] === 'ratio' ? 'ratio' : 'size';
-    });
-  } catch (_e) {
-    // Ignore malformed payloads.
-  }
-}
 
 export function persistTrailPrefs() {
   try {
@@ -441,41 +384,12 @@ export function refreshEffectiveRenderVisibility() {
   }
 }
 
-function getRoomDriverEl(axis) {
-  if (axis === 'width') return getRoomDriverWidthEl();
-  if (axis === 'length') return getRoomDriverLengthEl();
-  if (axis === 'height') return getRoomDriverHeightEl();
-  if (axis === 'rear') return getRoomDriverRearEl();
-  if (axis === 'lower') return getRoomDriverLowerEl();
-  return null;
-}
-
-export function getRoomDriverValue(axis) {
-  const el = getRoomDriverEl(axis);
-  return el?.checked ? 'ratio' : 'size';
-}
-
-function setRoomDriverValue(axis, value) {
-  const el = getRoomDriverEl(axis);
-  if (!el) return;
-  el.checked = value === 'ratio';
-}
-
 export function getRoomSizeInputEl(axis) {
   if (axis === 'width') return getRoomDimWidthInputEl();
   if (axis === 'length') return getRoomDimLengthInputEl();
   if (axis === 'height') return getRoomDimHeightInputEl();
   if (axis === 'rear') return getRoomDimRearInputEl();
   if (axis === 'lower') return getRoomDimLowerInputEl();
-  return null;
-}
-
-export function getRoomRatioInputEl(axis) {
-  if (axis === 'width') return getRoomRatioWidthInputEl();
-  if (axis === 'length') return getRoomRatioLengthInputEl();
-  if (axis === 'height') return getRoomRatioHeightInputEl();
-  if (axis === 'rear') return getRoomRatioRearInputEl();
-  if (axis === 'lower') return getRoomRatioLowerInputEl();
   return null;
 }
 
@@ -521,16 +435,11 @@ export function roomGeometryStateFromInputs() {
   const preview = computeRoomGeometryFromInputs();
   const state = {
     mpu: roundRoomGeom(preview.mpu),
-    master: app.roomMasterAxis,
     centerBlend: roundRoomGeom(getRoomCenterBlendFromInput()),
-    drivers: {},
-    size: {},
-    ratio: {}
+    size: {}
   };
   axes.forEach((axis) => {
-    state.drivers[axis] = app.roomAxisDrivers[axis] === 'ratio' ? 'ratio' : 'size';
     state.size[axis] = roundRoomGeom(getRoomSizeInputEl(axis)?.value);
-    state.ratio[axis] = roundRoomGeom(getRoomRatioInputEl(axis)?.value);
   });
   return state;
 }
@@ -541,12 +450,7 @@ export function normalizeRoomGeometryInputDisplays() {
     getRoomDimLengthInputEl(),
     getRoomDimHeightInputEl(),
     getRoomDimRearInputEl(),
-    getRoomDimLowerInputEl(),
-    getRoomRatioWidthInputEl(),
-    getRoomRatioLengthInputEl(),
-    getRoomRatioHeightInputEl(),
-    getRoomRatioRearInputEl(),
-    getRoomRatioLowerInputEl()
+    getRoomDimLowerInputEl()
   ].forEach((el) => {
     if (!el) return;
     const n = Number(el.value);
@@ -559,11 +463,8 @@ export function roomGeometryStateKey(state) {
   const s = state || roomGeometryStateFromInputs();
   return JSON.stringify({
     mpu: s.mpu,
-    master: s.master,
     centerBlend: s.centerBlend,
-    drivers: s.drivers,
-    size: s.size,
-    ratio: s.ratio
+    size: s.size
   });
 }
 
@@ -591,7 +492,6 @@ export function applyRoomGeometryNow() {
     return;
   }
   const preview = computeRoomGeometryFromInputs();
-  app.roomMasterAxis = preview.master;
   const width = preview.ratio.width;
   const length = preview.ratio.length;
   const height = preview.ratio.height;
@@ -673,13 +573,9 @@ export function renderRoomGeometrySummary(preview = null) {
 export function applyRoomGeometryStateToInputs(state) {
   if (!state) return;
   const axes = ['width', 'length', 'height', 'rear', 'lower'];
-  app.roomMasterAxis = axes.includes(state.master) ? state.master : app.roomMasterAxis;
   axes.forEach((axis) => {
-    app.roomAxisDrivers[axis] = state.drivers?.[axis] === 'ratio' ? 'ratio' : 'size';
     const sizeEl = getRoomSizeInputEl(axis);
-    const ratioEl = getRoomRatioInputEl(axis);
     if (sizeEl && Number.isFinite(state.size?.[axis])) sizeEl.value = String(state.size[axis]);
-    if (ratioEl && Number.isFinite(state.ratio?.[axis])) ratioEl.value = String(state.ratio[axis]);
   });
   const centerBlend = Number.isFinite(state.centerBlend) ? state.centerBlend : app.roomRatio.centerBlend;
   renderRoomCenterBlendControl(centerBlend);
@@ -730,7 +626,6 @@ export function computeRoomGeometryFromInputs() {
   };
 
   return {
-    master: 'width',
     mpu,
     ratio,
     size: { width: widthM, length: frontM, height: heightM, rear: rearM, lower: lowerM }
@@ -746,29 +641,6 @@ export function updateRoomGeometryLivePreview() {
   updateCenterBlendVisibility(preview.ratio.length, preview.ratio.rear);
 }
 
-export function renderRoomGeometryMasterMpu(preview = null) {
-  const roomMasterMpuWidthEl = getRoomMasterMpuWidthEl();
-  const roomMasterMpuLengthEl = getRoomMasterMpuLengthEl();
-  const roomMasterMpuRearEl = getRoomMasterMpuRearEl();
-  const roomMasterMpuHeightEl = getRoomMasterMpuHeightEl();
-  const roomMasterMpuLowerEl = getRoomMasterMpuLowerEl();
-  const metersPerUnit = app.metersPerUnit ?? 1;
-  const mpuValue = Number(preview?.mpu ?? metersPerUnit) || 1;
-  const text = `m/u ${formatNumber(mpuValue, 2)}`;
-  const values = {
-    width: app.roomMasterAxis === 'width' ? text : '',
-    length: app.roomMasterAxis === 'length' ? text : '',
-    rear: app.roomMasterAxis === 'rear' ? text : '',
-    height: app.roomMasterAxis === 'height' ? text : '',
-    lower: app.roomMasterAxis === 'lower' ? text : ''
-  };
-  if (roomMasterMpuWidthEl) roomMasterMpuWidthEl.textContent = values.width;
-  if (roomMasterMpuLengthEl) roomMasterMpuLengthEl.textContent = values.length;
-  if (roomMasterMpuRearEl) roomMasterMpuRearEl.textContent = values.rear;
-  if (roomMasterMpuHeightEl) roomMasterMpuHeightEl.textContent = values.height;
-  if (roomMasterMpuLowerEl) roomMasterMpuLowerEl.textContent = values.lower;
-}
-
 function setRoomFieldEditable(inputEl, editable) {
   if (!inputEl) return;
   inputEl.readOnly = !editable;
@@ -779,13 +651,6 @@ function setRoomFieldEditable(inputEl, editable) {
   inputEl.style.border = editable ? '1px solid rgba(255,255,255,0.2)' : '1px solid transparent';
   inputEl.style.color = editable ? '#dfe8f3' : 'rgba(223,232,243,0.88)';
   inputEl.style.boxShadow = 'none';
-}
-
-function syncRoomMasterAxisUI() {
-  const roomMasterAxisInputs = getRoomMasterAxisInputs();
-  roomMasterAxisInputs.forEach((input) => {
-    input.checked = input.value === app.roomMasterAxis;
-  });
 }
 
 export function refreshRoomGeometryInputState() {
@@ -813,11 +678,6 @@ export function renderRoomRatioDisplay() {
   const roomDimHeightInputEl = getRoomDimHeightInputEl();
   const roomDimRearInputEl = getRoomDimRearInputEl();
   const roomDimLowerInputEl = getRoomDimLowerInputEl();
-  const roomRatioWidthInputEl = getRoomRatioWidthInputEl();
-  const roomRatioLengthInputEl = getRoomRatioLengthInputEl();
-  const roomRatioHeightInputEl = getRoomRatioHeightInputEl();
-  const roomRatioRearInputEl = getRoomRatioRearInputEl();
-  const roomRatioLowerInputEl = getRoomRatioLowerInputEl();
   const metersPerUnit = app.metersPerUnit ?? 1;
   const dimW = app.roomRatio.width * metersPerUnit * 2;
   const dimL = app.roomRatio.length * metersPerUnit;
@@ -829,14 +689,8 @@ export function renderRoomRatioDisplay() {
   if (roomDimHeightInputEl) roomDimHeightInputEl.value = formatNumber(dimH, 2);
   if (roomDimRearInputEl) roomDimRearInputEl.value = formatNumber(dimRear, 2);
   if (roomDimLowerInputEl) roomDimLowerInputEl.value = formatNumber(dimLower, 2);
-  if (roomRatioWidthInputEl) roomRatioWidthInputEl.value = formatNumber(app.roomRatio.width, 2);
-  if (roomRatioLengthInputEl) roomRatioLengthInputEl.value = formatNumber(app.roomRatio.length, 2);
-  if (roomRatioHeightInputEl) roomRatioHeightInputEl.value = formatNumber(app.roomRatio.height, 2);
-  if (roomRatioRearInputEl) roomRatioRearInputEl.value = formatNumber(app.roomRatio.rear, 2);
-  if (roomRatioLowerInputEl) roomRatioLowerInputEl.value = formatNumber(app.roomRatio.lower, 2);
   renderRoomCenterBlendControl(app.roomRatio.centerBlend);
   updateCenterBlendVisibility();
-  renderRoomGeometryMasterMpu();
   renderRoomGeometrySummary();
   normalizeRoomGeometryInputDisplays();
   refreshRoomGeometryInputState();

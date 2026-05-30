@@ -97,21 +97,10 @@ export const app = {
   producerCapabilities: null,
   producerSession: null,
 
-  // Room geometry
+  // Room geometry — metres-only model (see computeRoomGeometryFromInputs() in
+  // controls/room-geometry.js): Width is the implicit reference that pins the
+  // scale (radius_m = Width/2). roomRatio holds the renderer-facing ratios.
   roomRatio: { width: 1, length: 2, height: 1, rear: 1, lower: 0.5, centerBlend: 0.5 },
-  // Vestigial / fixed: the room UI is now metres-only (see
-  // computeRoomGeometryFromInputs() in controls/room-geometry.js). Width is the
-  // implicit reference, so the master is always 'width' and every axis is
-  // size-driven — these fields are no longer user-editable, kept only so the
-  // legacy state/baseline helpers keep working.
-  roomMasterAxis: 'width',
-  roomAxisDrivers: {
-    width: 'size',
-    length: 'size',
-    height: 'size',
-    rear: 'size',
-    lower: 'size'
-  },
   roomGeometryExpanded: false,
   roomGeometryBaselineKey: '',
   roomGeometryApplyTimer: null,

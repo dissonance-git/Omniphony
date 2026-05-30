@@ -38,7 +38,7 @@ import { decayMeters } from './speakers.js';
 // ── Controls ────────────────────────────────────────────────────────────────
 import { setOscStatus, loadOscConfigIntoPanel, renderOscStatus } from './controls/osc.js';
 import {
-  loadRoomGeometryPrefs, loadTrailPrefs, loadEffectiveRenderPrefs, refreshRoomGeometryInputState, setRoomGeometryExpanded,
+  loadTrailPrefs, loadEffectiveRenderPrefs, refreshRoomGeometryInputState, setRoomGeometryExpanded,
   renderRoomRatioDisplay, refreshEffectiveRenderVisibility, updateRoomDimensionGuides, applyRoomRatio
 } from './controls/room-geometry.js';
 
@@ -221,7 +221,6 @@ applyStaticTranslations(renderLogLevelControl, renderLogPanel);
 setOscStatus('initializing');
 pushLog('info', t('log.boot'));
 
-loadRoomGeometryPrefs();
 loadTrailPrefs();
 loadEffectiveRenderPrefs();
 bindDrcListeners();
