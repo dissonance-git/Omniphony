@@ -9,6 +9,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { app } from './state.js';
 import { pushLog } from './log.js';
 
 const overlay = {
@@ -50,4 +51,21 @@ export async function pushMpvOverlayTrailPrefs(enabled, ttlMs, mode, teleportThr
 
 export function getMpvOverlayStatus() {
   return { enabled: overlay.enabled };
+}
+
+// Push Studio's current overlay display prefs to the renderer. The overlay
+// controls are otherwise only sent on manual toggle, so without this the
+// renderer keeps its defaults after a (re)connect or orender restart — the
+// persisted Studio values would not apply until the user touched each control.
+// Call on connection (snapshot ready). All sends are best-effort.
+export function syncMpvOverlayPrefs() {
+  invoke('mpv_overlay_set_objects', { visible: app.objectsVisible !== false }).catch(() => {});
+  invoke('mpv_overlay_set_heatmap_bands', { count: app.objectEnergyHeatmapBandCount }).catch(() => {});
+  invoke('mpv_overlay_set_labels', { enabled: app.objectLabelsEnabled }).catch(() => {});
+  pushMpvOverlayTrailPrefs(
+    app.trailsEnabled,
+    app.trailPointTtlMs,
+    app.trailRenderMode,
+    app.trailTeleportThreshold
+  );
 }

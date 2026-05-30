@@ -61,6 +61,7 @@ import { updateConfigSavedUI } from './controls/config.js';
 import { normalizeLogLevel, renderLogLevelControl, logState } from './log.js';
 import { syncRuntimeConnectionLock } from './runtime-connection.js';
 import { setInputSectionOpen } from './modals.js';
+import { syncMpvOverlayPrefs } from './mpvOverlay.js';
 
 // Show/hide panels that only apply to a renderer with an audio-output stage.
 // The embedded (mpv/liborender) variant advertises no `audio` domain and no
@@ -661,4 +662,8 @@ export function applyInitState(payload) {
   refreshOverlayLists();
   updateMasterMeterUI();
   renderSpeakerEditor();
+
+  // Push the persisted overlay display prefs to the renderer on (re)connect, so
+  // they apply at startup rather than only on manual toggle.
+  syncMpvOverlayPrefs();
 }
