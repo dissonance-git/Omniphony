@@ -57,6 +57,7 @@ import { setOscStatus } from './controls/osc.js';
 import { renderDrcUI } from './controls/drc.js';
 import { updateLoudnessDisplay, updateDistanceModelUI } from './controls/master.js';
 import { updateRoomRatioDisplay, applyRoomRatio, applyRoomRatioToScene } from './controls/room-geometry.js';
+import { sceneState } from './scene/setup.js';
 import { updateConfigSavedUI } from './controls/config.js';
 import { normalizeLogLevel, renderLogLevelControl, logState } from './log.js';
 import { syncRuntimeConnectionLock } from './runtime-connection.js';
@@ -659,6 +660,16 @@ export function applyInitState(payload) {
   renderLogLevelControl();
 
   hydrateLayoutSelect(payload.layouts || [], payload.selectedLayoutKey);
+  if (app.roomScaleNeedsRestore) {
+    // orender owns the world scale (the active layout's radius_m, just applied by
+    // hydrateLayoutSelect). Adopt it into the room-geometry scale once per
+    // (re)connect so the room inputs read real meters instead of the 1.0-unit
+    // default; the flag keeps later state echoes from reverting a committed edit
+    // with a stale broadcast radius.
+    app.metersPerUnit = sceneState.metersPerUnit;
+    app.roomScaleNeedsRestore = false;
+    updateRoomRatioDisplay();
+  }
   refreshOverlayLists();
   updateMasterMeterUI();
   renderSpeakerEditor();

@@ -219,6 +219,11 @@ export function setOscStatus(next) {
   app.oscStatusState = next;
   if (next !== 'connected') {
     app.oscSnapshotReady = false;
+    // Re-arm the room-scale restore on any disconnect, so the NEXT connection's
+    // first snapshot reseeds metersPerUnit from orender exactly once. Staying
+    // connected (routine echoes) never re-arms it, so a committed room edit is
+    // owned by the session and never reverted by a stale broadcast radius.
+    app.roomScaleNeedsRestore = true;
   }
   updateConfigSavedUI();
   renderOscStatus();

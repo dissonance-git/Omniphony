@@ -114,6 +114,12 @@ export const app = {
   roomGeometryBaselineKey: '',
   roomGeometryApplyTimer: null,
   metersPerUnit: 1.0,
+  // One-shot: adopt orender's world scale (the active layout's radius_m) into
+  // metersPerUnit on the next snapshot after a (re)connection only — never on
+  // routine state echoes, which can carry a stale radius and revert a just-
+  // committed room edit. Armed by setOscStatus('connected'), consumed in
+  // applyInitState.
+  roomScaleNeedsRestore: true,
 
   // VBAP
   vbapCartesianState: { xSize: null, ySize: null, zSize: null, zNegSize: 0 },
