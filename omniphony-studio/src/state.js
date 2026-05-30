@@ -99,6 +99,9 @@ export const app = {
 
   // Room geometry
   roomRatio: { width: 1, length: 2, height: 1, rear: 1, lower: 0.5, centerBlend: 0.5 },
+  // roomMasterAxis / roomAxisDrivers drive the size↔ratio model documented above
+  // computeRoomGeometryFromInputs() in controls/room-geometry.js: the master axis
+  // anchors the meters-per-unit scale, each other axis is typed as size or ratio.
   roomMasterAxis: 'width',
   roomAxisDrivers: {
     width: 'size',

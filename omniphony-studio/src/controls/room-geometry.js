@@ -678,6 +678,33 @@ export function applyRoomGeometryStateToInputs(state) {
   updateRoomGeometryButtonsState();
 }
 
+/**
+ * Room geometry model — master axis + per-axis size/ratio drivers.
+ *
+ * Five axes: `width` (X, left↔right), `length` (Y+, front), `rear` (Y−, back),
+ * `height` (Z+, up), `lower` (Z−, down). Each axis exposes TWO linked fields —
+ * a size (m) and a ratio (unitless) — tied by one global scale `metersPerUnit`
+ * (mpu):
+ *
+ *     size = ratio × mpu × roomAxisFactor(axis)
+ *
+ * roomAxisFactor() is 2 for `width`, 1 for the rest: the normalized cube spans
+ * [-1,+1] (two units) across width, but only [0,+1] (one unit) on each
+ * front/back/up/down half-axis.
+ *
+ * MASTER AXIS (app.roomMasterAxis): the axis that pins the scale. Its own
+ * (size, ratio) pair defines mpu = masterSize / (masterRatio × masterFactor).
+ * Both of its fields are directly editable — it anchors meters-per-unit.
+ *
+ * PER-AXIS DRIVER (app.roomAxisDrivers[axis] ∈ 'size' | 'ratio'): for every
+ * NON-master axis, picks which field you type; the other is derived from mpu:
+ *   'size'  → type meters;          ratio = size / (mpu × factor)
+ *   'ratio' → type the proportion;  size  = ratio × mpu × factor
+ *
+ * Persisted: only the *choices* (master axis + drivers) go to localStorage.
+ * The resulting ratios are pushed to the renderer (control_room_ratio*), and
+ * mpu is pushed as the layout radius_m (control_layout_radius_m).
+ */
 export function computeRoomGeometryFromInputs() {
   const axes = ['width', 'length', 'height', 'rear', 'lower'];
   const metersPerUnit = app.metersPerUnit ?? 1;
