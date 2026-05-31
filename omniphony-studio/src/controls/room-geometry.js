@@ -930,6 +930,14 @@ export function previewRoomGeometryScene() {
 // ---------------------------------------------------------------------------
 
 export function applyRoomRatio(nextRatio) {
+  // Adopt the room scale (m/u = radius_m) straight from the renderer's room
+  // domain when present (the snapshot/echo carries scaleM). This is the reliable
+  // restore path; a local commit calls applyRoomRatio without scaleM, so it
+  // keeps the metersPerUnit the edit just set.
+  const scaleM = Number(nextRatio.scaleM);
+  if (Number.isFinite(scaleM) && scaleM > 0) {
+    app.metersPerUnit = scaleM;
+  }
   app.roomRatio.width = Number(nextRatio.width) || 1;
   app.roomRatio.length = Number(nextRatio.length) || 1;
   app.roomRatio.height = Number(nextRatio.height) || 1;

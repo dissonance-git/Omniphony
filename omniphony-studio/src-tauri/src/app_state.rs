@@ -45,6 +45,14 @@ pub struct RoomRatio {
     pub lower: f64,
     #[serde(rename = "centerBlend")]
     pub center_blend: f64,
+    // Room scale (metres-per-unit = radius_m = Width/2), broadcast by the
+    // renderer in the room domain so Studio restores the m/u reliably.
+    #[serde(rename = "scaleM", default = "default_room_scale_m")]
+    pub scale_m: f64,
+}
+
+fn default_room_scale_m() -> f64 {
+    1.0
 }
 
 impl Default for RoomRatio {
@@ -56,6 +64,7 @@ impl Default for RoomRatio {
             rear: 1.0,
             lower: 0.5,
             center_blend: 0.5,
+            scale_m: 1.0,
         }
     }
 }
@@ -491,6 +500,7 @@ impl AppState {
                 rear: 1.0,
                 lower: 0.5,
                 center_blend: 0.5,
+                scale_m: 1.0,
             },
             ..Default::default()
         }

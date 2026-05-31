@@ -110,7 +110,11 @@ pub fn build_render_backend_state_json(
         .unwrap_or_else(|_| "{}".to_string())
 }
 
-pub fn build_renderer_state_json(live: &LiveParams, active_topology: &RenderTopology) -> String {
+pub fn build_renderer_state_json(
+    live: &LiveParams,
+    active_topology: &RenderTopology,
+    room_scale_m: f32,
+) -> String {
     let effective_backend = active_topology.backend.kind().as_str();
     let effective_evaluation_mode = active_topology.backend.evaluation_mode().as_str();
     let render_backend_state_json = build_render_backend_state_json(live, active_topology);
@@ -129,7 +133,12 @@ pub fn build_renderer_state_json(live: &LiveParams, active_topology: &RenderTopo
             "height": live.room_ratio[2],
             "rear": live.room_ratio_rear,
             "lower": live.room_ratio_lower,
-            "centerBlend": live.room_ratio_center_blend
+            "centerBlend": live.room_ratio_center_blend,
+            // The room scale (metres-per-unit = radius_m = Width/2), broadcast
+            // here in the reliable room domain so Studio restores it directly
+            // instead of via the fragile layout-radius path. Live (editable)
+            // value, so an in-session edit isn't reverted by a stale topology.
+            "scaleM": room_scale_m
         },
         "spread": {
             "min": live.spread_min,
@@ -289,7 +298,8 @@ pub fn build_live_state_bundle(
         (true, Some(dl)) => 10.0_f32.powf((-31 - dl as i32) as f32 / 20.0),
         _ => 1.0,
     };
-    let renderer_state_json = build_renderer_state_json(&live, &active_topology);
+    let renderer_state_json =
+        build_renderer_state_json(&live, &active_topology, editable_layout.radius_m);
 
     let mut messages = vec![
         OscPacket::Message(OscMessage {

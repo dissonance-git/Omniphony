@@ -150,17 +150,25 @@ pub fn save_live_config(
         } else {
             None
         };
+    // Room geometry is persisted in metres. Width is the reference and the room
+    // scale is Width/2 = the layout radius, so metres = ratio × radius × factor
+    // (factor 2 for width). The legacy `room_ratio*` are dropped — `Config::load`
+    // re-derives the runtime ratios from these metres.
     let [w, l, h] = live.room_ratio;
-    let w = round6(w);
-    let l = round6(l);
-    let h = round6(h);
-    let r = round6(live.room_ratio_rear);
-    let lower = round6(live.room_ratio_lower);
-    let cb = round6(live.room_ratio_center_blend);
-    render.room_ratio = Some(format!("{w:.6},{l:.6},{h:.6}"));
-    render.room_ratio_rear = Some(r);
-    render.room_ratio_lower = Some(lower);
-    render.room_ratio_center_blend = Some(cb);
+    let radius = render
+        .current_layout
+        .as_ref()
+        .map(|layout| layout.radius_m)
+        .unwrap_or(1.0);
+    render.room_width_m = Some(round6(w * radius * 2.0));
+    render.room_front_m = Some(round6(l * radius));
+    render.room_rear_m = Some(round6(live.room_ratio_rear * radius));
+    render.room_height_m = Some(round6(h * radius));
+    render.room_lower_m = Some(round6(live.room_ratio_lower * radius));
+    render.room_ratio_center_blend = Some(round6(live.room_ratio_center_blend));
+    render.room_ratio = None;
+    render.room_ratio_rear = None;
+    render.room_ratio_lower = None;
     render.drc_weight = if (live.drc_weight - 1.0).abs() > 1e-4 {
         Some(round6(live.drc_weight))
     } else {

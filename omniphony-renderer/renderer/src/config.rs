@@ -86,6 +86,21 @@ pub struct RenderConfig {
     pub vbap_distance_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub master_gain: Option<f32>,
+    /// Room geometry, stored in metres. Width is the reference (the room scale,
+    /// a.k.a. radius_m, is Width/2). On load these are normalised into the
+    /// renderer-facing `room_ratio*` + `current_layout.radius_m` so the rest of
+    /// the pipeline is unchanged; `room_ratio*` below is legacy (read for
+    /// migration, dropped on the next save).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub room_width_m: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub room_front_m: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub room_rear_m: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub room_height_m: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub room_lower_m: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub room_ratio: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -309,10 +324,37 @@ pub struct LiveInputConfig {
     pub lfe_mode: Option<InputLfeModeConfig>,
 }
 
+impl RenderConfig {
+    /// When the room geometry is stored in metres (`room_*_m`), derive the
+    /// renderer-facing ratios + the layout radius from them so the rest of the
+    /// pipeline keeps consuming `room_ratio` + `current_layout.radius_m`
+    /// unchanged. Width is the reference: `radius = Width/2` (so width ratio is
+    /// always 1). A no-op when the metre fields are absent (legacy config).
+    pub fn normalize_room_meters(&mut self) {
+        let Some(width_m) = self.room_width_m else {
+            return;
+        };
+        let radius = (width_m / 2.0).max(0.01);
+        let front = self.room_front_m.unwrap_or(2.0 * radius).max(0.0);
+        let rear = self.room_rear_m.unwrap_or(radius).max(0.0);
+        let height = self.room_height_m.unwrap_or(radius).max(0.0);
+        let lower = self.room_lower_m.unwrap_or(0.5 * radius).max(0.0);
+        self.room_ratio = Some(format!("1.0,{:.6},{:.6}", front / radius, height / radius));
+        self.room_ratio_rear = Some((rear / radius).max(0.01));
+        self.room_ratio_lower = Some((lower / radius).max(0.01));
+        if let Some(layout) = self.current_layout.as_mut() {
+            layout.radius_m = radius;
+        }
+    }
+}
+
 impl Config {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
-        let config: Self = serde_yaml_ng::from_str(&content)?;
+        let mut config: Self = serde_yaml_ng::from_str(&content)?;
+        if let Some(render) = config.render.as_mut() {
+            render.normalize_room_meters();
+        }
         Ok(config)
     }
 
@@ -378,6 +420,40 @@ pub fn default_config_path() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn room_metres_normalize_to_ratios_and_radius() {
+        let mut rc = RenderConfig {
+            room_width_m: Some(4.0),
+            room_front_m: Some(4.0),
+            room_rear_m: Some(2.0),
+            room_height_m: Some(2.0),
+            room_lower_m: Some(1.0),
+            current_layout: Some(crate::speaker_layout::SpeakerLayout {
+                radius_m: 1.0,
+                speakers: vec![],
+            }),
+            ..Default::default()
+        };
+        rc.normalize_room_meters();
+        // radius = Width / 2 = 2, so width ratio = 1 and the others = m / radius.
+        assert_eq!(rc.current_layout.as_ref().unwrap().radius_m, 2.0);
+        assert_eq!(rc.room_ratio.as_deref(), Some("1.0,2.000000,1.000000"));
+        assert_eq!(rc.room_ratio_rear, Some(1.0));
+        assert_eq!(rc.room_ratio_lower, Some(0.5));
+    }
+
+    #[test]
+    fn room_legacy_without_metres_is_noop() {
+        let mut rc = RenderConfig {
+            room_ratio: Some("1.0,2.0,1.0".to_string()),
+            room_ratio_rear: Some(1.0),
+            ..Default::default()
+        };
+        rc.normalize_room_meters();
+        assert_eq!(rc.room_ratio.as_deref(), Some("1.0,2.0,1.0"));
+        assert_eq!(rc.room_ratio_rear, Some(1.0));
+    }
 
     #[test]
     fn unknown_fields_survive_round_trip_at_top_level() {

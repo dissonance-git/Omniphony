@@ -379,6 +379,12 @@ pub(super) fn effective_to_config(
         } else {
             None
         },
+        // The CLI works in ratios; metres are a save-time representation only.
+        room_width_m: None,
+        room_front_m: None,
+        room_rear_m: None,
+        room_height_m: None,
+        room_lower_m: None,
         room_ratio: if args.room_ratio != "1.0,2.0,1.0" {
             Some(args.room_ratio.clone())
         } else {
