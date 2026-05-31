@@ -19,6 +19,7 @@ import { renderSpeakerEditor } from '../speakers.js';
 import { emitOverlayLayoutChanged } from '../ui/layout/overlay-layout-state.js';
 import { inDisplayPanel, inRoomGeometryPanel } from '../ui/panel-roots.js';
 import { syncSpeakerHeatmapBandSelect } from '../scene/speaker-heatmap.js';
+import { createSmallLabelSprite, setLabelSpriteText } from '../scene/labels.js';
 
 const TRAIL_PREFS_STORAGE_KEY = 'spatialviz.trail_prefs';
 const EFFECTIVE_RENDER_PREFS_STORAGE_KEY = 'spatialviz.effective_render_prefs';
@@ -736,7 +737,7 @@ export function setRoomGeometryExpanded(expanded) {
   if (roomGeometryToggleBtnEl) {
     roomGeometryToggleBtnEl.textContent = app.roomGeometryExpanded ? '\u25be' : '\u25b8';
   }
-  roomDimensionGroup.visible = false;
+  roomDimensionGroup.visible = app.roomGeometryExpanded;
   emitOverlayLayoutChanged('room-geometry-toggle');
 }
 
@@ -750,10 +751,13 @@ function createRoomDimensionGuide(color = 0x9dd3ff) {
     new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85, depthTest: false })
   );
   line.renderOrder = 30;
+  const label = createSmallLabelSprite('');
+  label.renderOrder = 31;
   const group = new THREE.Group();
   group.add(line);
+  group.add(label);
   roomDimensionGroup.add(group);
-  return { group, line };
+  return { group, line, label };
 }
 
 const roomDimensionGuides = {
@@ -774,7 +778,7 @@ export function rebuildRoomDimensionGuideResources() {
   });
 }
 
-function updateRoomDimensionGuide(guide, start, end, tickDir, _labelText) {
+function updateRoomDimensionGuide(guide, start, end, tickDir, labelText) {
   const tick = tickDir.clone().normalize().multiplyScalar(0.04);
   const points = [
     start, end,
@@ -783,6 +787,9 @@ function updateRoomDimensionGuide(guide, start, end, tickDir, _labelText) {
   ];
   guide.line.geometry.dispose();
   guide.line.geometry = new THREE.BufferGeometry().setFromPoints(points);
+  const mid = start.clone().add(end).multiplyScalar(0.5).add(tick.clone().multiplyScalar(2.2));
+  guide.label.position.copy(mid);
+  setLabelSpriteText(guide.label, labelText);
 }
 
 export function updateRoomDimensionGuides(preview = null) {
@@ -851,7 +858,7 @@ export function updateRoomDimensionGuides(preview = null) {
     `${formatNumber((ratioHeight + ratioLower) * mpuValue, 2)}m`
   );
 
-  roomDimensionGroup.visible = false;
+  roomDimensionGroup.visible = app.roomGeometryExpanded;
 }
 
 // ---------------------------------------------------------------------------
