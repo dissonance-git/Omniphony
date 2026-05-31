@@ -271,6 +271,9 @@ export const app = {
   oscStatusState: 'initializing',
   oscConfigAutoOpenTimer: null,
   oscLaunchPending: false,
+  // Safety timer so a launch that never reaches 'connected' (orender failed to
+  // come up) doesn't leave the connection buttons disabled forever.
+  oscLaunchPendingTimer: null,
   oscConfiguredOrenderPath: '',
   oscConfigBaselineKey: '',
   orenderServiceInstalled: false,

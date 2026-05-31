@@ -165,6 +165,16 @@ export function clearOscConfigAutoOpenTimer() {
   }
 }
 
+// Clear the "launching" state + its safety timer, so the connection buttons
+// (launch / service / config) become usable again.
+function clearOscLaunchPending() {
+  if (app.oscLaunchPendingTimer !== null) {
+    clearTimeout(app.oscLaunchPendingTimer);
+    app.oscLaunchPendingTimer = null;
+  }
+  app.oscLaunchPending = false;
+}
+
 export function scheduleOscConfigAutoOpen() {
   clearOscConfigAutoOpenTimer();
   app.oscConfigAutoOpenTimer = setTimeout(() => {
@@ -227,12 +237,17 @@ export function setOscStatus(next) {
   if (next !== 'connected') {
     app.oscSnapshotReady = false;
   }
+  // Leaving 'connected' (a disconnect) ends any launch: clear the pending flag +
+  // safety timer before re-rendering so the connection buttons come back.
+  if (previous === 'connected' && next !== 'connected') {
+    clearOscLaunchPending();
+  }
   updateConfigSavedUI();
   renderOscStatus();
   if (next === 'connected') {
     clearOscConfigAutoOpenTimer();
     if (app.oscLaunchPending) {
-      app.oscLaunchPending = false;
+      clearOscLaunchPending();
       closeOscConfigPanel();
     }
   } else if (next === 'initializing') {
@@ -245,7 +260,7 @@ export function setOscStatus(next) {
   } else if (next === 'error') {
     clearOscConfigAutoOpenTimer();
     openOscConfigPanel();
-    app.oscLaunchPending = false;
+    clearOscLaunchPending();
   }
   if (changed) {
     pushLog('info', tf('log.oscStatus', { status: t(`status.${next}`) }));
@@ -267,6 +282,17 @@ export function launchOrenderFromPanel(orenderPathOverride = null) {
     logLevel: normalizeLogLevel(logState.backendLogLevel)
   };
   app.oscLaunchPending = true;
+  // Safety net: if orender never reaches 'connected', re-enable the buttons.
+  if (app.oscLaunchPendingTimer !== null) {
+    clearTimeout(app.oscLaunchPendingTimer);
+  }
+  app.oscLaunchPendingTimer = window.setTimeout(() => {
+    app.oscLaunchPendingTimer = null;
+    if (app.oscLaunchPending) {
+      app.oscLaunchPending = false;
+      renderOscStatus();
+    }
+  }, 12000);
   return invoke('launch_orender', payload)
     .then((result) => {
       app.oscConfiguredOrenderPath = String(payload.orenderPath || app.oscConfiguredOrenderPath || '').trim();
@@ -277,7 +303,7 @@ export function launchOrenderFromPanel(orenderPathOverride = null) {
       }
     })
     .catch((e) => {
-      app.oscLaunchPending = false;
+      clearOscLaunchPending();
       const message = normalizeLogError(e);
       if (message.includes('orender binary not found')) {
         openOscConfigPanel();
