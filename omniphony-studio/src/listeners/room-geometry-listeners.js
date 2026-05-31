@@ -2,14 +2,13 @@ import { app, isRoomRatioFrozen } from '../state.js';
 import {
   getRoomCenterBlendFromInput, renderRoomCenterBlendControl,
   normalizeRoomGeometryInputDisplays, updateRoomGeometryButtonsState,
-  applyRoomGeometryNow, scheduleRoomGeometryApply, applyRoomGeometryStateToInputs,
+  applyRoomGeometryNow, scheduleRoomGeometryApply,
   updateRoomGeometryLivePreview, setRoomGeometryExpanded,
   previewRoomGeometryScene
 } from '../controls/room-geometry.js';
 
 export function setupRoomGeometryListeners() {
   const roomGeometryToggleBtnEl = document.getElementById('roomGeometryToggleBtn');
-  const roomGeometryCancelBtnEl = document.getElementById('roomGeometryCancelBtn');
   const roomDimWidthInputEl = document.getElementById('roomDimWidthInput');
   const roomDimLengthInputEl = document.getElementById('roomDimLengthInput');
   const roomDimHeightInputEl = document.getElementById('roomDimHeightInput');
@@ -21,22 +20,6 @@ export function setupRoomGeometryListeners() {
   if (roomGeometryToggleBtnEl) {
     roomGeometryToggleBtnEl.addEventListener('click', () => {
       setRoomGeometryExpanded(!app.roomGeometryExpanded);
-    });
-  }
-
-  if (roomGeometryCancelBtnEl) {
-    roomGeometryCancelBtnEl.addEventListener('click', () => {
-      if (isRoomRatioFrozen()) return;
-      if (roomGeometryCancelBtnEl.disabled || !app.roomGeometryBaselineKey) return;
-      if (app.roomGeometryApplyTimer !== null) {
-        clearTimeout(app.roomGeometryApplyTimer);
-        app.roomGeometryApplyTimer = null;
-      }
-      try {
-        const baseline = JSON.parse(app.roomGeometryBaselineKey);
-        applyRoomGeometryStateToInputs(baseline);
-      } catch (_e) {
-      }
     });
   }
 
