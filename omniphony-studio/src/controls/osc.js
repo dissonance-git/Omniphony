@@ -59,6 +59,13 @@ export function renderOscStatus() {
     }
     statusEl.textContent = statusText;
   }
+  const oscConnectingHintEl = inOscPanel('oscConnectingHint');
+  if (oscConnectingHintEl) {
+    // While no renderer is connected, tell the user how to bring one up.
+    const connecting = app.oscStatusState === 'reconnecting'
+      || app.oscStatusState === 'initializing';
+    oscConnectingHintEl.style.display = connecting ? '' : 'none';
+  }
   if (pipeStatusEl && document.activeElement !== pipeStatusEl) {
     pipeStatusEl.value = app.orenderInputPipe || '';
   }
