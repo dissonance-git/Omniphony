@@ -268,6 +268,12 @@ pub enum OscEvent {
     StateResampleRatio { value: f64 },
     #[serde(rename = "state:render:bridge_path")]
     StateRenderBridgePath { value: String },
+    #[serde(rename = "state:render:config_path")]
+    StateRenderConfigPath { value: String },
+    #[serde(rename = "state:render:config_status")]
+    StateRenderConfigStatus { value: String },
+    #[serde(rename = "state:render:version")]
+    StateRenderVersion { value: String },
     #[serde(rename = "state:input_pipe")]
     StateInputPipe { value: String },
     #[serde(rename = "state:osc:metering")]
@@ -754,6 +760,17 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
             saved: to_number(args[0])? != 0.0,
         }),
         (4, "render") if parts[3] == "bridge_path" => Some(OscEvent::StateRenderBridgePath {
+            value: raw_args.first().and_then(unwrap_string)?,
+        }),
+        (4, "render") if parts[3] == "config_path" => Some(OscEvent::StateRenderConfigPath {
+            value: raw_args.first().and_then(unwrap_string)?,
+        }),
+        (4, "render") if parts[3] == "config_status" => {
+            Some(OscEvent::StateRenderConfigStatus {
+                value: raw_args.first().and_then(unwrap_string)?,
+            })
+        }
+        (4, "render") if parts[3] == "version" => Some(OscEvent::StateRenderVersion {
             value: raw_args.first().and_then(unwrap_string)?,
         }),
         (3, "input_pipe") => {

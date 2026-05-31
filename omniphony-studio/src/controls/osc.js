@@ -10,7 +10,7 @@
  *     functions (launchOrenderFromPanel, installOrenderServiceFromPanel, etc.)
  */
 
-import { app, dirty, isLinux, producerHost, producerVariant } from '../state.js';
+import { app, dirty, isLinux, producerHost, producerVariant, isEmbeddedProducer } from '../state.js';
 import { t, tf } from '../i18n.js';
 import { scheduleUIFlush } from '../flush.js';
 import { pushLog, normalizeLogError, normalizeLogLevel, logState } from '../log.js';
@@ -18,6 +18,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { syncRuntimeConnectionLock } from '../runtime-connection.js';
 import { inObjectsPanel, inOscPanel } from '../ui/panel-roots.js';
 import { updateConfigSavedUI } from './config.js';
+import { applyProducerCapabilityVisibility } from '../init.js';
 
 // DOM refs
 function getStatusEl() { return inOscPanel('status'); }
@@ -49,6 +50,11 @@ export function renderOscStatus() {
   const oscRestartPipewireBtnEl = getOscRestartPipewireBtnEl();
   const oscLaunchRendererBtnEl = getOscLaunchRendererBtnEl();
   syncRuntimeConnectionLock();
+  // The connect/launch/service buttons are hidden only while connected to an
+  // embedded (mpv) host; on disconnect they must come back. Capability changes
+  // arrive via the handshake, but a disconnect arrives only as a status change,
+  // so re-evaluate the cap-embedded gate here too.
+  applyProducerCapabilityVisibility();
   if (statusEl) {
     let statusText = t(`status.${app.oscStatusState}`);
     // Label the connected renderer flavour (e.g. "connected · mpv" for the
@@ -239,7 +245,8 @@ export function setOscStatus(next) {
   }
   // Leaving 'connected' (a disconnect) ends any launch: clear the pending flag +
   // safety timer before re-rendering so the connection buttons come back.
-  if (previous === 'connected' && next !== 'connected') {
+  const disconnected = previous === 'connected' && next !== 'connected';
+  if (disconnected) {
     clearOscLaunchPending();
   }
   updateConfigSavedUI();
@@ -250,11 +257,21 @@ export function setOscStatus(next) {
       clearOscLaunchPending();
       closeOscConfigPanel();
     }
+    // Embedded (mpv) host owns the renderer lifecycle, so the OSC host/port
+    // form has nothing actionable (its connect/launch/service buttons are
+    // hidden). Close it once the link is up so we don't leave a dead config
+    // panel hanging open.
+    if (isEmbeddedProducer()) {
+      closeOscConfigPanel();
+    }
   } else if (next === 'initializing') {
     clearOscConfigAutoOpenTimer();
     openOscConfigPanel();
   } else if (next === 'reconnecting') {
-    if (previous === 'initializing' || app.oscLaunchPending) {
+    // Auto-surface the config panel again on a drop. On the embedded (mpv)
+    // host it was closed while connected, so reopening it is what brings the
+    // (now un-hidden) connect buttons back without the user hunting the gear.
+    if (previous === 'initializing' || app.oscLaunchPending || disconnected) {
       scheduleOscConfigAutoOpen();
     }
   } else if (next === 'error') {

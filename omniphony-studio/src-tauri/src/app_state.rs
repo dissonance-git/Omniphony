@@ -454,6 +454,12 @@ pub struct AppState {
     pub input_error: Option<String>,
     #[serde(rename = "renderBridgePath")]
     pub render_bridge_path: Option<String>,
+    #[serde(rename = "renderConfigPath")]
+    pub render_config_path: Option<String>,
+    #[serde(rename = "renderConfigStatus")]
+    pub render_config_status: Option<String>,
+    #[serde(rename = "renderVersion")]
+    pub render_version: Option<String>,
     #[serde(rename = "liveInput")]
     pub live_input: LiveInputState,
     #[serde(rename = "orenderInputPipe")]
@@ -695,6 +701,9 @@ impl Default for AppState {
             input_stream_format: None,
             input_error: None,
             render_bridge_path: None,
+            render_config_path: None,
+            render_config_status: None,
+            render_version: None,
             live_input: LiveInputState::default(),
             orender_input_pipe: None,
             osc_status: Some("initializing".to_string()),

@@ -430,6 +430,40 @@ pub fn build_live_state_bundle(
                     .unwrap_or_default(),
             )],
         }),
+        OscPacket::Message(OscMessage {
+            // The config file this renderer instance actually loaded. Empty
+            // means it booted on built-in defaults (no config). Studio shows
+            // this in About so a CLI-vs-host config mismatch (e.g. mpv falling
+            // back to defaults while the CLI used ~/.config/omniphony) is
+            // immediately visible.
+            addr: "/omniphony/state/render/config_path".to_string(),
+            args: vec![OscType::String(
+                control
+                    .config_path()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_default(),
+            )],
+        }),
+        OscPacket::Message(OscMessage {
+            // Did that config actually load? "loaded" / "missing" /
+            // "parse_error", or "" when no config path was given (defaults by
+            // design). A non-"loaded" value means the renderer is on built-in
+            // defaults despite config_path looking valid — Studio flags it red.
+            addr: "/omniphony/state/render/config_status".to_string(),
+            args: vec![OscType::String(control.config_status().unwrap_or_default())],
+        }),
+        OscPacket::Message(OscMessage {
+            // Build fingerprint of THIS renderer (git-describe + build time,
+            // stamped into runtime_control which both the CLI binary and the
+            // mpv-embedded liborender link). Studio shows it in About so a
+            // liborender-vs-orender version skew is visible at a glance.
+            addr: "/omniphony/state/render/version".to_string(),
+            args: vec![OscType::String(format!(
+                "{} (built {})",
+                env!("VERGEN_GIT_DESCRIBE"),
+                env!("BUILD_TIMESTAMP"),
+            ))],
+        }),
     ];
 
     // DRC is a decode-stage control owned by the core (lives in liborender).

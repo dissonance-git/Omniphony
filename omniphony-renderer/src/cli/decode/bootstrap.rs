@@ -426,6 +426,11 @@ fn init_osc_runtime(
         handler.input_control = Some(Arc::clone(&input_control));
         if let Some(path) = config_path {
             ctrl.set_config_path(path.clone());
+            // Mirror the engine (FFI/mpv) path: record whether the config
+            // actually loaded so Studio's About can compare CLI vs host.
+            ctrl.set_config_status(Some(
+                renderer::config::Config::load_status(path).as_str().to_string(),
+            ));
         }
         if let Some(sender) = &mut handler.telemetry.osc_sender {
             sender.attach_renderer_control(Arc::clone(&ctrl));

@@ -57,7 +57,7 @@ import { setOscStatus } from './controls/osc.js';
 import { renderDrcUI } from './controls/drc.js';
 import { updateLoudnessDisplay, updateDistanceModelUI } from './controls/master.js';
 import { updateRoomRatioDisplay, applyRoomRatio, applyRoomRatioToScene } from './controls/room-geometry.js';
-import { updateConfigSavedUI } from './controls/config.js';
+import { updateConfigSavedUI, updateAboutConfigPath, updateAboutRendererVersion } from './controls/config.js';
 import { normalizeLogLevel, renderLogLevelControl, logState } from './log.js';
 import { syncRuntimeConnectionLock } from './runtime-connection.js';
 import { setInputSectionOpen } from './modals.js';
@@ -75,8 +75,15 @@ export function applyProducerCapabilityVisibility() {
   document.body.classList.toggle('cap-no-resampler', known && !hasControlConfig('adaptive_resampling'));
   // Embedded (mpv) host: Studio doesn't manage the orender process or audio
   // input, so the connect/service/launch buttons and the audio-input controls
-  // are hidden; only the decoder bridge path stays accessible.
-  document.body.classList.toggle('cap-embedded', known && isEmbeddedProducer());
+  // are hidden; only the decoder bridge path stays accessible. This only holds
+  // while the link is actually up: the capability handshake is NOT re-sent on
+  // disconnect, so the moment we leave 'connected' (reconnecting/error/
+  // initializing) the buttons must reappear so the user can bring up a
+  // standalone renderer. Hence the live-status gate, not capabilities alone.
+  document.body.classList.toggle(
+    'cap-embedded',
+    known && isEmbeddedProducer() && app.oscStatusState === 'connected'
+  );
 }
 
 export function applyInitState(payload) {
@@ -588,6 +595,17 @@ export function applyInitState(payload) {
   if (typeof payload.renderBridgePath === 'string') {
     app.renderBridgePath = payload.renderBridgePath.trim() || null;
   }
+  if (typeof payload.renderConfigPath === 'string') {
+    app.renderConfigPath = payload.renderConfigPath.trim() || null;
+  }
+  if (typeof payload.renderConfigStatus === 'string') {
+    app.renderConfigStatus = payload.renderConfigStatus.trim() || null;
+  }
+  if (typeof payload.renderVersion === 'string') {
+    app.renderVersion = payload.renderVersion.trim() || null;
+  }
+  updateAboutConfigPath();
+  updateAboutRendererVersion();
   if (payload.liveInput && typeof payload.liveInput === 'object') {
     if (typeof payload.liveInput.backend === 'string') {
       app.liveInput.backend = payload.liveInput.backend.trim().toLowerCase() || app.liveInput.backend;

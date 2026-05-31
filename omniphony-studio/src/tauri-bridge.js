@@ -62,7 +62,7 @@ import { updateDrcMeterUI } from './controls/drc.js';
 import { updateAdaptiveResamplingUI } from './controls/adaptive.js';
 import { updateDistanceDiffuseUI } from './controls/distance-diffuse.js';
 import { renderOscStatus, setOscStatus } from './controls/osc.js';
-import { updateConfigSavedUI } from './controls/config.js';
+import { updateConfigSavedUI, updateAboutConfigPath, updateAboutRendererVersion } from './controls/config.js';
 import {
   updateRoomRatioDisplay,
   applyRoomRatio,
@@ -299,6 +299,21 @@ export function setupTauriBridge() {
   listen('render:bridge_path', ({ payload }) => {
     app.renderBridgePath = String(payload?.value ?? '').trim() || null;
     updateInputControlUI();
+  });
+
+  listen('render:config_path', ({ payload }) => {
+    app.renderConfigPath = String(payload?.value ?? '').trim() || null;
+    updateAboutConfigPath();
+  });
+
+  listen('render:config_status', ({ payload }) => {
+    app.renderConfigStatus = String(payload?.value ?? '').trim() || null;
+    updateAboutConfigPath();
+  });
+
+  listen('render:version', ({ payload }) => {
+    app.renderVersion = String(payload?.value ?? '').trim() || null;
+    updateAboutRendererVersion();
   });
 
   // -----------------------------------------------------------------------

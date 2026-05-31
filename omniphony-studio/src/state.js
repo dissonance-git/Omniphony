@@ -251,6 +251,16 @@ export const app = {
   drcGain: 1.0,
   drcWeight: 1.0,
   renderBridgePath: null,
+  // Config YAML the connected renderer actually loaded (null = built-in
+  // defaults). Surfaced in About to diagnose CLI-vs-host config mismatches.
+  renderConfigPath: null,
+  // Whether that path actually loaded: 'loaded' | 'missing' | 'parse_error' |
+  // null (no path → defaults by design). A non-loaded value = the renderer is
+  // on defaults despite having a config path.
+  renderConfigStatus: null,
+  // Build fingerprint of the connected renderer (git-describe + build time).
+  // Lets About expose a liborender-vs-orender version skew.
+  renderVersion: null,
   liveInput: {
     backend: 'pipewire',
     node: '',

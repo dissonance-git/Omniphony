@@ -348,6 +348,28 @@ impl RenderConfig {
     }
 }
 
+/// Outcome of resolving a config file, for diagnostics (see [`Config::load_status`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConfigLoadStatus {
+    /// File present and parsed — the renderer is running on it.
+    Loaded,
+    /// No file at the resolved path → renderer fell back to built-in defaults.
+    Missing,
+    /// File present but failed to parse → renderer fell back to built-in
+    /// defaults (the classic symptom of a stale host whose schema diverged).
+    ParseError,
+}
+
+impl ConfigLoadStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ConfigLoadStatus::Loaded => "loaded",
+            ConfigLoadStatus::Missing => "missing",
+            ConfigLoadStatus::ParseError => "parse_error",
+        }
+    }
+}
+
 impl Config {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
@@ -375,6 +397,22 @@ impl Config {
                 );
                 Self::default()
             }
+        }
+    }
+
+    /// Diagnose what `load_or_default` would actually do for `path`, without
+    /// keeping the result. `load_or_default` silently swallows both a missing
+    /// file and a parse error into `Config::default()` (no current_layout → the
+    /// default speaker preset + room), which is exactly how a host can end up on
+    /// the wrong geometry while looking like it "has" a config path. Studio
+    /// surfaces this in About so the silent fallback becomes visible.
+    pub fn load_status(path: &Path) -> ConfigLoadStatus {
+        if !path.exists() {
+            return ConfigLoadStatus::Missing;
+        }
+        match Self::load(path) {
+            Ok(_) => ConfigLoadStatus::Loaded,
+            Err(_) => ConfigLoadStatus::ParseError,
         }
     }
 

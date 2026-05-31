@@ -580,6 +580,12 @@ pub struct RendererControl {
     /// Set after construction via `set_config_path()`.
     pub config_path: Mutex<Option<PathBuf>>,
 
+    /// Diagnostic: did the active config path actually load, or did the host
+    /// silently fall back to defaults? One of "loaded"/"missing"/"parse_error",
+    /// or `None` when no config path was provided (defaults by design). Set at
+    /// construction; broadcast to Studio's About panel.
+    pub config_status: Mutex<Option<String>>,
+
     /// Actual renderer input path used for this process.
     pub input_path: Mutex<Option<String>>,
     /// Requested format bridge path to be persisted into render.bridge_path.
@@ -621,6 +627,7 @@ impl RendererControl {
             object_params_generation: std::sync::atomic::AtomicU64::new(1),
             speaker_params_generation: std::sync::atomic::AtomicU64::new(1),
             config_path: Mutex::new(None),
+            config_status: Mutex::new(None),
             input_path: Mutex::new(None),
             bridge_path: Mutex::new(None),
             bridge_supported_drc_modes: Mutex::new(Vec::new()),
@@ -661,6 +668,23 @@ impl RendererControl {
     /// Store the active config file path so the save-config OSC handler can use it.
     pub fn set_config_path(&self, path: PathBuf) {
         *self.config_path.lock().unwrap() = Some(path);
+    }
+
+    /// The active config file path, if one was resolved at construction. `None`
+    /// means the renderer is running on built-in defaults (no config loaded) —
+    /// the very condition Studio surfaces in About to diagnose CLI-vs-host
+    /// config mismatches.
+    pub fn config_path(&self) -> Option<PathBuf> {
+        self.config_path.lock().unwrap().clone()
+    }
+
+    /// Record whether the active config path actually loaded (see field docs).
+    pub fn set_config_status(&self, status: Option<String>) {
+        *self.config_status.lock().unwrap() = status;
+    }
+
+    pub fn config_status(&self) -> Option<String> {
+        self.config_status.lock().unwrap().clone()
     }
 
     pub fn active_topology(&self) -> Arc<RenderTopology> {

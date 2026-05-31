@@ -5,6 +5,7 @@
 import { app, dirty } from '../state.js';
 import { scheduleUIFlush, flushCallbacks } from '../flush.js';
 import { inAudioPanel, inSaveFooter } from '../ui/panel-roots.js';
+import { t } from '../i18n.js';
 
 function getConfigSavedIndicatorEl() { return inAudioPanel('configSavedIndicator'); }
 function getSaveConfigBtnEl() { return inSaveFooter('saveConfigBtn'); }
@@ -44,6 +45,55 @@ export function renderConfigSavedUI() {
 export function updateConfigSavedUI() {
   dirty.configSaved = true;
   scheduleUIFlush();
+}
+
+// Reflect the connected renderer's effective config path + load status in the
+// About modal. A path that didn't actually load (missing / parse_error) is the
+// smoking gun for a CLI-vs-host (e.g. mpv) mismatch — the renderer silently
+// runs on built-in defaults — so we call it out in red rather than showing a
+// reassuring-looking path.
+export function updateAboutConfigPath() {
+  const el = document.getElementById('aboutConfigPath');
+  if (!el) return;
+  const path = typeof app.renderConfigPath === 'string' ? app.renderConfigPath.trim() : '';
+  const status = typeof app.renderConfigStatus === 'string' ? app.renderConfigStatus.trim() : '';
+  if (path) {
+    if (status === 'missing' || status === 'parse_error') {
+      const label = status === 'missing' ? t('about.configMissing') : t('about.configParseError');
+      const text = `${path} — ${label}`;
+      el.textContent = text;
+      el.title = text;
+      el.style.color = '#ff7676';
+    } else {
+      el.textContent = path;
+      el.title = path;
+      el.style.color = '';
+    }
+  } else if (app.oscStatusState === 'connected') {
+    el.textContent = t('about.configDefaults');
+    el.title = t('about.configDefaults');
+    el.style.color = '#ffb347';
+  } else {
+    el.textContent = '—';
+    el.removeAttribute('title');
+    el.style.color = '';
+  }
+}
+
+// Reflect the connected renderer's build fingerprint in About. Compare CLI vs
+// mpv here to spot a stale liborender (the version skew that makes one host load
+// the config while the other silently falls back to defaults).
+export function updateAboutRendererVersion() {
+  const el = document.getElementById('aboutRendererVersion');
+  if (!el) return;
+  const version = typeof app.renderVersion === 'string' ? app.renderVersion.trim() : '';
+  if (version) {
+    el.textContent = version;
+    el.title = version;
+  } else {
+    el.textContent = '—';
+    el.removeAttribute('title');
+  }
 }
 
 // Wire render function into the flush callback registry.

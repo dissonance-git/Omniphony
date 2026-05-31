@@ -241,6 +241,19 @@ impl Engine {
         // returns None and gets serialised verbatim.
         if let Some(path) = config_yaml_path {
             control.set_config_path(path.to_path_buf());
+            // Diagnose whether that path actually loaded or silently fell back
+            // to defaults — `render_cfg` above can't tell us, since
+            // `load_or_default` collapses missing/parse-error into defaults.
+            // Surfaced in Studio's About to catch host config mismatches.
+            let status = renderer::config::Config::load_status(path);
+            if status != renderer::config::ConfigLoadStatus::Loaded {
+                log::warn!(
+                    "config '{}' not loaded ({}); running on built-in defaults",
+                    path.display(),
+                    status.as_str()
+                );
+            }
+            control.set_config_status(Some(status.as_str().to_string()));
         }
 
         // Overlay display prefs (enable / labels / trails) are owned and
