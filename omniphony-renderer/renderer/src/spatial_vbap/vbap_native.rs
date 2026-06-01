@@ -196,10 +196,7 @@ pub fn invert_ls_mtx_3d(u_spkr: &[[f32; 3]], ls_groups: &[[usize; 3]]) -> Vec<[f
         .collect()
 }
 
-fn valid_triplet_count(
-    ls_dirs_deg: &[[f32; 2]],
-    omit_large_triangles: bool,
-) -> Option<usize> {
+fn valid_triplet_count(ls_dirs_deg: &[[f32; 2]], omit_large_triangles: bool) -> Option<usize> {
     let (_, ls_groups) = find_ls_triplets(ls_dirs_deg, omit_large_triangles)?;
     if ls_groups.is_empty() {
         None
@@ -209,7 +206,9 @@ fn valid_triplet_count(
 }
 
 fn has_pole(ls_dirs_deg: &[[f32; 2]], pole_el_deg: f32) -> bool {
-    ls_dirs_deg.iter().any(|d| (d[1] - pole_el_deg).abs() < 1e-3)
+    ls_dirs_deg
+        .iter()
+        .any(|d| (d[1] - pole_el_deg).abs() < 1e-3)
 }
 
 fn try_dirs_with_optional_dummy(
@@ -244,7 +243,8 @@ pub fn prepare_effective_speaker_dirs(
     omit_large_triangles: bool,
     enable_dummies: bool,
 ) -> Option<(Vec<[f32; 2]>, Vec<bool>)> {
-    if let Some(result) = try_dirs_with_optional_dummy(ls_dirs_deg, omit_large_triangles, false, false)
+    if let Some(result) =
+        try_dirs_with_optional_dummy(ls_dirs_deg, omit_large_triangles, false, false)
     {
         return Some(result);
     }

@@ -15,8 +15,8 @@ use anyhow::{Result, anyhow, bail};
 use bridge_api::{RChannelLabel, RCoordinateFormat, RDecodedFrame, RInputTransport};
 use renderer::config::Config;
 use renderer::metering::AudioMeter;
-use renderer::speaker_layout::SpeakerLayout;
 use renderer::spatial_renderer::{SpatialChannelEvent, SpatialRenderer};
+use renderer::speaker_layout::SpeakerLayout;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -245,8 +245,18 @@ impl Engine {
         }
 
         control.set_bridge_path(Some(resolved_bridge.clone()));
-        control.set_meter_rate_hz(render_cfg.as_ref().and_then(|c| c.meter_rate).unwrap_or(10.0));
-        control.set_diag_rate_hz(render_cfg.as_ref().and_then(|c| c.diag_rate).unwrap_or(10.0));
+        control.set_meter_rate_hz(
+            render_cfg
+                .as_ref()
+                .and_then(|c| c.meter_rate)
+                .unwrap_or(10.0),
+        );
+        control.set_diag_rate_hz(
+            render_cfg
+                .as_ref()
+                .and_then(|c| c.diag_rate)
+                .unwrap_or(10.0),
+        );
 
         // DRC: seed the live params from config and publish the bridge's
         // supported modes (so studio shows the DRC control). The decode-side

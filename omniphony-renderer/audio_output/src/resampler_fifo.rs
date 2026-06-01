@@ -26,7 +26,8 @@ impl ResamplerFifoEngine {
     }
 
     pub fn pending_input_samples(&self) -> usize {
-        self.input_frames_collected.saturating_mul(self.channel_count)
+        self.input_frames_collected
+            .saturating_mul(self.channel_count)
     }
 
     pub fn reset(&mut self) {

@@ -57,10 +57,7 @@ impl AudioMeter {
     /// Like `new`, but the rate is read from a shared atomic on every
     /// `poll()` — letting OSC clients update the metering cadence at runtime
     /// (e.g. via `/omniphony/control/metering/rate_hz`).
-    pub fn new_with_rate_atomic(
-        num_speakers: usize,
-        rate_hz_bits: Arc<AtomicU32>,
-    ) -> Self {
+    pub fn new_with_rate_atomic(num_speakers: usize, rate_hz_bits: Arc<AtomicU32>) -> Self {
         let initial = f32::from_bits(rate_hz_bits.load(Ordering::Relaxed)).max(1.0);
         Self {
             num_channels: 0,

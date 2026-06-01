@@ -1,10 +1,10 @@
 use anyhow::Result;
 
+use super::room_transform::map_depth_with_room_ratios;
 use super::{
     BackendCapabilities, GainModel, GainModelKind, RenderRequest, RenderResponse,
     reduce_size_to_spread,
 };
-use super::room_transform::map_depth_with_room_ratios;
 use crate::spatial_vbap::{VbapPanner, adm_to_spherical};
 use crate::speaker_layout::SpeakerLayout;
 
@@ -61,9 +61,9 @@ impl VbapBackend {
 
         // Distance diffuse blending is applied by the shared DistanceDiffuseModel
         // decorator; VBAP returns pure panning gains.
-        let gains =
-            self.panner
-                .get_gains_cartesian(scaled_x, scaled_y, scaled_z, effective_spread);
+        let gains = self
+            .panner
+            .get_gains_cartesian(scaled_x, scaled_y, scaled_z, effective_spread);
 
         RenderResponse { gains }
     }

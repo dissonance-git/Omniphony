@@ -255,7 +255,11 @@ impl HostAudio {
         audio: Arc<AudioControl>,
         input: Arc<InputControl>,
     ) -> Self {
-        Self { renderer, audio, input }
+        Self {
+            renderer,
+            audio,
+            input,
+        }
     }
 }
 
@@ -272,14 +276,20 @@ impl HostControlHandler for HostAudio {
                 if let Some(output_device) = patch.output_device {
                     audio.set_requested_output_device(output_device.and_then(|value| {
                         let trimmed = value.trim();
-                        if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+                        if trimmed.is_empty() {
+                            None
+                        } else {
+                            Some(trimmed.to_string())
+                        }
                     }));
                 }
                 if let Some(sample_rate) = patch.sample_rate {
                     audio.set_requested_output_sample_rate(sample_rate.filter(|value| *value > 0));
                 }
                 if let Some(latency_target_ms) = patch.latency_target_ms {
-                    audio.set_requested_latency_target_ms(latency_target_ms.filter(|value| *value > 0));
+                    audio.set_requested_latency_target_ms(
+                        latency_target_ms.filter(|value| *value > 0),
+                    );
                 }
                 if let Some(adaptive) = patch.adaptive_resampling {
                     if let Some(enabled) = adaptive.enabled {
@@ -292,10 +302,14 @@ impl HostControlHandler for HostAudio {
                         audio.set_requested_adaptive_resampling_force_silence_in_far_mode(enabled);
                     }
                     if let Some(enabled) = adaptive.hard_recover_high_in_far_mode {
-                        audio.set_requested_adaptive_resampling_hard_recover_high_in_far_mode(enabled);
+                        audio.set_requested_adaptive_resampling_hard_recover_high_in_far_mode(
+                            enabled,
+                        );
                     }
                     if let Some(enabled) = adaptive.hard_recover_low_in_far_mode {
-                        audio.set_requested_adaptive_resampling_hard_recover_low_in_far_mode(enabled);
+                        audio.set_requested_adaptive_resampling_hard_recover_low_in_far_mode(
+                            enabled,
+                        );
                     }
                     if let Some(value) = adaptive.far_mode_return_fade_in_ms {
                         audio.set_requested_adaptive_resampling_far_mode_return_fade_in_ms(value);
@@ -310,7 +324,9 @@ impl HostControlHandler for HostAudio {
                         .integral_discharge_ratio
                         .map(|value| value.clamp(0.0, 1.0))
                     {
-                        audio.set_requested_adaptive_resampling_integral_discharge_ratio(value as f32);
+                        audio.set_requested_adaptive_resampling_integral_discharge_ratio(
+                            value as f32,
+                        );
                     }
                     if let Some(value) = adaptive.max_adjust.filter(|value| *value > 0.0) {
                         audio.set_requested_adaptive_resampling_max_adjust(value as f32);
@@ -355,7 +371,9 @@ impl HostControlHandler for HostAudio {
                         .low_recover_refill_delta_alpha
                         .map(|value| value.clamp(0.0, 1.0))
                     {
-                        audio.set_requested_adaptive_resampling_low_recover_refill_delta_alpha(value);
+                        audio.set_requested_adaptive_resampling_low_recover_refill_delta_alpha(
+                            value,
+                        );
                     }
                     if let Some(value) = adaptive
                         .control_smoothing_cutoff_hz
@@ -404,19 +422,31 @@ impl HostControlHandler for HostAudio {
                     if let Some(node) = live_input.node {
                         input.set_requested_node_name(node.and_then(|value| {
                             let trimmed = value.trim();
-                            if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+                            if trimmed.is_empty() {
+                                None
+                            } else {
+                                Some(trimmed.to_string())
+                            }
                         }));
                     }
                     if let Some(description) = live_input.description {
                         input.set_requested_node_description(description.and_then(|value| {
                             let trimmed = value.trim();
-                            if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+                            if trimmed.is_empty() {
+                                None
+                            } else {
+                                Some(trimmed.to_string())
+                            }
                         }));
                     }
                     if let Some(layout) = live_input.layout {
                         input.set_requested_layout_path(layout.and_then(|value| {
                             let trimmed = value.trim();
-                            if trimmed.is_empty() { None } else { Some(PathBuf::from(trimmed)) }
+                            if trimmed.is_empty() {
+                                None
+                            } else {
+                                Some(PathBuf::from(trimmed))
+                            }
                         }));
                         input.set_requested_current_layout(None);
                     }
@@ -471,7 +501,11 @@ impl HostControlHandler for HostAudio {
             let requested = msg.args.first().and_then(|arg| match arg {
                 OscType::String(s) => {
                     let trimmed = s.trim();
-                    if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+                    if trimmed.is_empty() {
+                        None
+                    } else {
+                        Some(trimmed.to_string())
+                    }
                 }
                 _ => None,
             });
@@ -711,9 +745,7 @@ impl HostControlHandler for HostAudio {
         }
 
         if addr == "/omniphony/control/adaptive_resampling/integral_discharge_ratio" {
-            if let Some(value) =
-                parse_nonnegative_f32_arg(msg.args.first()).map(|v| v.min(1.0))
-            {
+            if let Some(value) = parse_nonnegative_f32_arg(msg.args.first()).map(|v| v.min(1.0)) {
                 audio.set_requested_adaptive_resampling_integral_discharge_ratio(value);
                 effects.mark_dirty = true;
             }

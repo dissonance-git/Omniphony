@@ -143,7 +143,10 @@ impl<'a> SampleWriteCoordinator<'a> {
             // latency traces.
             if let Some(target_ms) = current_latency_target_ms {
                 diag.register("latency_target_ms", "Target latency", "latency", "ms")
-                    .store((target_ms as f64).to_bits(), std::sync::atomic::Ordering::Relaxed);
+                    .store(
+                        (target_ms as f64).to_bits(),
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
             }
             // Tier classification (renderer-declared): the obvious,
             // clearly-meaningful signals go in the diag plot's "base" tab;

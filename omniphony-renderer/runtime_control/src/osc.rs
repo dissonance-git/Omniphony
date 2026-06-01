@@ -969,7 +969,6 @@ pub fn apply_simple_osc_control(
     let addr = msg.addr.as_str();
     let mut effects = ControlEffects::default();
 
-
     if addr == "/omniphony/control/config/layout" {
         let patch = parse_json_string_arg::<LayoutConfigPatch>(msg.args.first());
         if let Some(patch) = patch {
@@ -1129,7 +1128,6 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
-
     // metering/rate_hz and diag/rate_hz are handled by the OSC layer
     // (orender_engine::osc::dispatch) against RendererControl — the single
     // source of truth for both, persisted to config.
@@ -1262,7 +1260,6 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
-
     if addr == "/omniphony/control/input/drc_mode" {
         let requested = parse_string_arg(msg.args.first());
         if let Some(requested) = requested {
@@ -1289,7 +1286,6 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
-
     if addr == "/omniphony/control/ramp_mode" {
         let Some(mode) = msg.args.first().and_then(|arg| match arg {
             OscType::String(s) => renderer::live_params::RampMode::from_str(s),
@@ -1303,7 +1299,6 @@ pub fn apply_simple_osc_control(
         effects.log_message = Some(format!("OSC: ramp_mode → {}", mode.as_str()));
         return Some(effects);
     }
-
 
     if addr == "/omniphony/control/layout/radius_m" {
         if let Some(v) = parse_f32_arg(msg.args.first()).map(|f| f.max(0.01)) {
@@ -1687,7 +1682,8 @@ pub fn apply_simple_osc_control(
                         if *slot != normalized {
                             *slot = normalized.clone();
                             changed = true;
-                            effects.log_message = Some(format!("OSC: hybrid/{rest} -> {normalized}"));
+                            effects.log_message =
+                                Some(format!("OSC: hybrid/{rest} -> {normalized}"));
                         }
                     }
                 }
@@ -1697,8 +1693,7 @@ pub fn apply_simple_osc_control(
                     if (live.hybrid.curve_smoothing - v).abs() > 1e-6 {
                         live.hybrid.curve_smoothing = v;
                         changed = true;
-                        effects.log_message =
-                            Some(format!("OSC: hybrid/curve_smoothing -> {v}"));
+                        effects.log_message = Some(format!("OSC: hybrid/curve_smoothing -> {v}"));
                     }
                 }
             }
@@ -1731,8 +1726,10 @@ pub fn apply_simple_osc_control(
                         .map(|pair| [pair[0].clamp(0.0, 1.0), pair[1].clamp(0.0, 1.0)])
                         .collect();
                     changed = true;
-                    effects.log_message =
-                        Some(format!("OSC: hybrid/curve -> {} points", live.hybrid.curve.len()));
+                    effects.log_message = Some(format!(
+                        "OSC: hybrid/curve -> {} points",
+                        live.hybrid.curve.len()
+                    ));
                 }
             }
             _ => {}
@@ -1802,9 +1799,7 @@ pub fn apply_simple_osc_control(
             }
             "metric" => {
                 if let Some(OscType::String(metric)) = msg.args.first() {
-                    if let Ok(metric) =
-                        metric.parse::<renderer::spatial_vbap::DistanceMetric>()
-                    {
+                    if let Ok(metric) = metric.parse::<renderer::spatial_vbap::DistanceMetric>() {
                         ctx.renderer.live.write().unwrap().distance_diffuse_metric = metric;
                         effects.mark_dirty = true;
                         effects.trigger_layout_recompute = true;

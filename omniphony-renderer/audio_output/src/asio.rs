@@ -20,8 +20,7 @@ use crate::{
         note_refill_or_underrun, output_to_input_domain_samples, paused_rate_adjust,
         postprocess_interleaved_output, reset_adaptive_runtime, run_adaptive_servo,
         should_run_adaptive_servo, store_latency_metrics_from_control_available,
-        update_far_mode_state, update_latency_metrics,
-        zero_pad_tail,
+        update_far_mode_state, update_latency_metrics, zero_pad_tail,
     },
     adaptive_runtime_state_code, adaptive_runtime_state_name_from_code,
     clamp_ratio_for_local_resampler, local_resampler_ratio_bounds,
@@ -843,7 +842,10 @@ impl AsioWriter {
     /// Local resampler pending input samples expressed as ms
     /// (third component of `control_available`).
     pub fn resampler_pending_audio_delay_ms(&self) -> f32 {
-        f32::from_bits(self.resampler_pending_latency_ms_bits.load(Ordering::Relaxed))
+        f32::from_bits(
+            self.resampler_pending_latency_ms_bits
+                .load(Ordering::Relaxed),
+        )
     }
 
     /// Signal the audio thread to snap the resampling ratio back to base and reset the integrator.

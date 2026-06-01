@@ -106,8 +106,10 @@ impl PacerHandle {
             }
         }
         let prev_drain = f64::from_bits(self.diag_drain_total.load(Ordering::Relaxed));
-        self.diag_drain_total
-            .store((prev_drain + drain_samples as f64).to_bits(), Ordering::Relaxed);
+        self.diag_drain_total.store(
+            (prev_drain + drain_samples as f64).to_bits(),
+            Ordering::Relaxed,
+        );
         if underruns > 0 {
             let prev_under = f64::from_bits(self.diag_underrun_total.load(Ordering::Relaxed));
             self.diag_underrun_total

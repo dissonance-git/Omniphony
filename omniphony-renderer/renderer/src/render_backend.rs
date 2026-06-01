@@ -850,10 +850,14 @@ pub fn build_prepared_render_engine(
     // distance attenuation must wrap it (be applied last) or the renorm would
     // cancel the attenuation. Identity/metadata still delegate to the inner
     // backend; capabilities gain `supports_distance_diffuse` / `_model`.
-    let model: Box<dyn GainModel> =
-        Box::new(DistanceDiffuseModel::new(model, config.distance_diffuse_metric));
-    let model: Box<dyn GainModel> =
-        Box::new(DistanceAttenuatedModel::new(model, config.distance_model_metric));
+    let model: Box<dyn GainModel> = Box::new(DistanceDiffuseModel::new(
+        model,
+        config.distance_diffuse_metric,
+    ));
+    let model: Box<dyn GainModel> = Box::new(DistanceAttenuatedModel::new(
+        model,
+        config.distance_model_metric,
+    ));
     let gain_model_kind = model.kind();
     let backend_id = model.backend_id();
     let backend_label = model.backend_label();

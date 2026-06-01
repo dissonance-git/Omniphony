@@ -416,7 +416,8 @@ mod tests {
     #[test]
     fn build_precomputed_cartesian_with_vbap_inner_completes() {
         use crate::render_backend::{
-            EffectiveEvaluationMode, EvaluationBuildConfig, VbapBackend, build_prepared_render_engine,
+            EffectiveEvaluationMode, EvaluationBuildConfig, VbapBackend,
+            build_prepared_render_engine,
         };
         use crate::spatial_vbap::{VbapPanner, VbapTableMode};
 
@@ -438,13 +439,12 @@ mod tests {
         .with_position_interpolation(true);
         let external: Box<dyn GainModel> = Box::new(VbapBackend::new(panner));
         let internal: Box<dyn GainModel> = Box::new(BarycenterBackend::new(speakers()));
-        let model: Box<dyn GainModel> =
-            Box::new(HybridBackend::new(
-                external,
-                internal,
-                BlendCurve::default(),
-                crate::spatial_vbap::DistanceMetric::Chebyshev,
-            ));
+        let model: Box<dyn GainModel> = Box::new(HybridBackend::new(
+            external,
+            internal,
+            BlendCurve::default(),
+            crate::spatial_vbap::DistanceMetric::Chebyshev,
+        ));
 
         let config = EvaluationBuildConfig {
             request_template: request([0.0, 0.0, 0.0]),

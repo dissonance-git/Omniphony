@@ -336,9 +336,7 @@ impl VbapPanner {
                 let (azimuth, elevation, _) = adm_to_spherical(x, y, z);
                 self.get_gains_with_spread(azimuth, elevation, spread)
             }
-            VbapTableMode::Cartesian { .. } => {
-                self.get_gains_from_cartesian_cache(x, y, z, spread)
-            }
+            VbapTableMode::Cartesian { .. } => self.get_gains_from_cartesian_cache(x, y, z, spread),
         }
     }
 

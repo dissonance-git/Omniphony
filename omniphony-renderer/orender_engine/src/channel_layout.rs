@@ -82,7 +82,9 @@ mod tests {
         let labels: Vec<_> = names.iter().map(|n| label_for_speaker_name(n)).collect();
         assert_eq!(
             labels,
-            vec![L, R, C, LFE, Lw, Rw, Ls, Rs, Lb, Rb, Tfl, Tfr, Tsl, Tsr, Tbl, Tbr]
+            vec![
+                L, R, C, LFE, Lw, Rw, Ls, Rs, Lb, Rb, Tfl, Tfr, Tsl, Tsr, Tbl, Tbr
+            ]
         );
     }
 

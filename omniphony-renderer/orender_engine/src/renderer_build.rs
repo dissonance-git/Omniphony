@@ -9,11 +9,13 @@
 use anyhow::{Result, anyhow, bail};
 use bridge_api::{RVbapCartesianDefaults, RVbapTableMode};
 use renderer::config::RenderConfig;
+use renderer::live_params::{
+    ExperimentalDistanceLiveParams, LiveEvaluationMode, PreferredEvaluationMode,
+};
 use renderer::render_backend::RenderBackendKind;
-use renderer::live_params::{ExperimentalDistanceLiveParams, LiveEvaluationMode, PreferredEvaluationMode};
-use renderer::speaker_layout::SpeakerLayout;
 use renderer::spatial_renderer::SpatialRenderer;
 use renderer::spatial_vbap::{DistanceModel, VbapTableMode};
+use renderer::speaker_layout::SpeakerLayout;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -167,7 +169,10 @@ fn parse_room_ratio(params: &SpatialRendererParams) -> Result<([f32; 3], f32, f3
     ];
     let room_ratio_rear = params.room_ratio_rear.unwrap_or(room_ratio[1]).max(0.01);
     let room_ratio_lower = params.room_ratio_lower.unwrap_or(0.5).max(0.01);
-    let room_ratio_center_blend = params.room_ratio_center_blend.unwrap_or(0.5).clamp(0.0, 1.0);
+    let room_ratio_center_blend = params
+        .room_ratio_center_blend
+        .unwrap_or(0.5)
+        .clamp(0.0, 1.0);
     Ok((
         room_ratio,
         room_ratio_rear,
@@ -192,12 +197,13 @@ fn resolve_evaluation_table_mode(
     // honor the format bridge's preference — cartesian for OAMD/spatial
     // sources, which is dramatically faster to precompute than the polar
     // grid (the polar default could take ~6 s for 12 speakers).
-    let effective_mode = params.render_evaluation_mode.unwrap_or_else(|| {
-        match preferred_evaluation_mode {
-            RVbapTableMode::Cartesian => EvalMode::Cartesian,
-            RVbapTableMode::Polar => EvalMode::Polar,
-        }
-    });
+    let effective_mode =
+        params
+            .render_evaluation_mode
+            .unwrap_or_else(|| match preferred_evaluation_mode {
+                RVbapTableMode::Cartesian => EvalMode::Cartesian,
+                RVbapTableMode::Polar => EvalMode::Polar,
+            });
     let vbap_table_mode = match effective_mode {
         EvalMode::Polar => VbapTableMode::Polar,
         EvalMode::Cartesian => {
@@ -246,11 +252,8 @@ pub fn build_spatial_renderer(
     let (room_ratio, room_ratio_rear, room_ratio_lower, room_ratio_center_blend) =
         parse_room_ratio(params)?;
 
-    let (vbap_table_mode, vbap_allow_negative_z) = resolve_evaluation_table_mode(
-        params,
-        vbap_cartesian_defaults,
-        preferred_evaluation_mode,
-    )?;
+    let (vbap_table_mode, vbap_allow_negative_z) =
+        resolve_evaluation_table_mode(params, vbap_cartesian_defaults, preferred_evaluation_mode)?;
 
     log::info!("VBAP allow_negative_z: {}", vbap_allow_negative_z);
 
@@ -376,9 +379,7 @@ pub fn build_spatial_renderer(
     });
     let hybrid_cfg = render_cfg.map(|cfg| {
         let defaults = renderer::live_params::HybridLiveParams::default();
-        let valid_inner = |id: &str| {
-            matches!(id, "vbap" | "barycenter" | "experimental_distance")
-        };
+        let valid_inner = |id: &str| matches!(id, "vbap" | "barycenter" | "experimental_distance");
         renderer::live_params::HybridLiveParams {
             external_backend_id: cfg
                 .hybrid_external_backend

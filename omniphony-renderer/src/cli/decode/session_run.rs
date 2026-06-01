@@ -7,10 +7,10 @@ use super::decoder_thread::{
 use super::handler::DecodeHandler;
 use super::live_input::{LiveBridgeRuntimeConfig, spawn_live_input_manager};
 use super::state::{FrameHandlerContext, WriterState};
-use orender_engine::bridge_loader::{LoadedBridge, resolve_bridge_path};
 use crate::cli::command::{Cli, EvaluationModeArg, OutputBackend, RenderArgSources, RenderArgs};
 use anyhow::Result;
 use log::Level;
+use orender_engine::bridge_loader::{LoadedBridge, resolve_bridge_path};
 use std::sync::mpsc;
 use std::sync::{Arc, atomic::AtomicU64};
 use std::time::Duration;
@@ -635,8 +635,10 @@ fn spawn_pacer_drain_thread(
                 let drain_frames = exact_frames.floor();
                 frac_frames = exact_frames - drain_frames;
                 let drain_samples = drain_frames as usize * pacer.out_channels as usize;
-                diag.emitted_us
-                    .store((emitted_us as f64).to_bits(), std::sync::atomic::Ordering::Relaxed);
+                diag.emitted_us.store(
+                    (emitted_us as f64).to_bits(),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
                 diag.drain_samples.store(
                     (drain_samples as f64).to_bits(),
                     std::sync::atomic::Ordering::Relaxed,

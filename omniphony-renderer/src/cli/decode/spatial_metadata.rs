@@ -1,8 +1,8 @@
 use super::state::SpatialState;
-use orender_engine::events::{Configuration, Event};
-use orender_engine::osc::{ObjectMeta, OscSender};
 use anyhow::Result;
 use bridge_api::{RCoordinateFormat, RMetadataFrame};
+use orender_engine::events::{Configuration, Event};
+use orender_engine::osc::{ObjectMeta, OscSender};
 
 pub struct SpatialMetadataCoordinator<'a> {
     spatial: &'a mut SpatialState,

@@ -111,7 +111,12 @@ mod tests {
     }
 
     fn speakers() -> Vec<[f32; 3]> {
-        vec![[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, -1.0, 0.0]]
+        vec![
+            [-1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, -1.0, 0.0],
+        ]
     }
 
     fn wrapped() -> DistanceAttenuatedModel {
@@ -124,7 +129,9 @@ mod tests {
     #[test]
     fn none_model_is_a_noop() {
         let position = [0.4, 0.2, 0.1];
-        let decorated = wrapped().compute_gains(&request(position, DistanceModel::None)).gains;
+        let decorated = wrapped()
+            .compute_gains(&request(position, DistanceModel::None))
+            .gains;
         let bare = BarycenterBackend::new(speakers())
             .compute_gains(&request(position, DistanceModel::None))
             .gains;
@@ -138,12 +145,17 @@ mod tests {
         // The distance model now works for any backend, not just VBAP.
         let position = [0.6, 0.0, 0.0];
         let model = wrapped();
-        let gains = model.compute_gains(&request(position, DistanceModel::Linear)).gains;
+        let gains = model
+            .compute_gains(&request(position, DistanceModel::Linear))
+            .gains;
         let energy: f32 = gains.iter().map(|g| g * g).sum();
         // Barycenter alone is unit energy; Linear attenuation at distance 0.6 is
         // 1/(1+0.6) ≈ 0.625, so energy ≈ 0.625² ≈ 0.39 < 1.
         let expected = (1.0f32 / 1.6).powi(2);
-        assert!((energy - expected).abs() < 1e-3, "energy={energy}, expected≈{expected}");
+        assert!(
+            (energy - expected).abs() < 1e-3,
+            "energy={energy}, expected≈{expected}"
+        );
     }
 
     #[test]
@@ -155,10 +167,15 @@ mod tests {
             Box::new(BarycenterBackend::new(speakers())),
             DistanceMetric::Chebyshev,
         );
-        let gains = chebyshev.compute_gains(&request(position, DistanceModel::Linear)).gains;
+        let gains = chebyshev
+            .compute_gains(&request(position, DistanceModel::Linear))
+            .gains;
         let energy: f32 = gains.iter().map(|g| g * g).sum();
         let expected = (1.0f32 / (1.0 + 0.6)).powi(2);
-        assert!((energy - expected).abs() < 1e-3, "energy={energy}, expected≈{expected}");
+        assert!(
+            (energy - expected).abs() < 1e-3,
+            "energy={energy}, expected≈{expected}"
+        );
     }
 
     #[test]

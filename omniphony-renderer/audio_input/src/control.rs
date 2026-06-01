@@ -1,9 +1,9 @@
-use sys::diag::DiagRegistry;
 use std::path::PathBuf;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering},
 };
+use sys::diag::DiagRegistry;
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub enum InputMode {
@@ -167,12 +167,7 @@ impl InputControl {
                 // OSC chain is alive. If the chips row is non-empty but the
                 // IEC958/bridge metrics are missing, the bridge register sites
                 // are not being reached.
-                let alive = r.register(
-                    "_diag_alive",
-                    "diag alive (sentinel)",
-                    "_diag",
-                    "",
-                );
+                let alive = r.register("_diag_alive", "diag alive (sentinel)", "_diag", "");
                 alive.store((1.0_f64).to_bits(), Ordering::Relaxed);
                 r
             },
@@ -256,7 +251,6 @@ impl InputControl {
     pub fn set_direct_trigger_active(&self, active: bool) {
         self.direct_trigger_active.store(active, Ordering::Relaxed);
     }
-
 
     fn bump_state_generation(&self) {
         self.state_generation.fetch_add(1, Ordering::Relaxed);

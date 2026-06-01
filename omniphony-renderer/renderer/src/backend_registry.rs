@@ -309,8 +309,11 @@ fn build_vbap_build_plan(
         rebuild.az_res_deg.clamp(1, 360)
     };
     let elevation_resolution = if live.evaluation.polar.elevation_values > 0 {
-        (((if rebuild.allow_negative_z { 180.0 } else { 90.0 })
-            / (live.evaluation.polar.elevation_values as f32))
+        (((if rebuild.allow_negative_z {
+            180.0
+        } else {
+            90.0
+        }) / (live.evaluation.polar.elevation_values as f32))
             .round() as i32)
             .clamp(1, if rebuild.allow_negative_z { 180 } else { 90 })
     } else {

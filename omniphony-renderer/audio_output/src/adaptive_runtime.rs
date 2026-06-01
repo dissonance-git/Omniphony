@@ -232,10 +232,8 @@ pub fn update_latency_metrics(
         graph_latency_ms,
         targets,
     );
-    let control_latency_ms = (display_control_available as f32
-        / channel_count as f32
-        / sample_rate as f32)
-        * 1000.0;
+    let control_latency_ms =
+        (display_control_available as f32 / channel_count as f32 / sample_rate as f32) * 1000.0;
     let measured_latency_ms = control_latency_ms + graph_latency_ms;
 
     LatencyMetrics {
@@ -512,13 +510,13 @@ pub fn update_far_mode_state(
                     .unwrap_or(0) as f32;
                 if state.low_recover_refill_last_control_available.is_some() {
                     let alpha = adaptive_config.low_recover_refill_delta_alpha;
-                    state.low_recover_refill_delta_ema =
-                        (state.low_recover_refill_delta_ema * (1.0 - alpha))
-                            + (refill_delta * alpha);
+                    state.low_recover_refill_delta_ema = (state.low_recover_refill_delta_ema
+                        * (1.0 - alpha))
+                        + (refill_delta * alpha);
                 }
                 state.low_recover_refill_last_control_available = Some(control_available);
-                let predicted_next_control = (control_available as f32)
-                    + state.low_recover_refill_delta_ema.max(0.0);
+                let predicted_next_control =
+                    (control_available as f32) + state.low_recover_refill_delta_ema.max(0.0);
                 if control_available >= low_recover_exit_threshold
                     || predicted_next_control >= low_recover_exit_threshold as f32
                 {
@@ -551,10 +549,8 @@ pub fn update_far_mode_state(
                 // Dwell stability is judged on the smoothed level so the
                 // input-burst / decoder-batching sawtooth does not keep
                 // re-arming the settle timer. See the function doc comment.
-                let lower_bound =
-                    target_buffer_fill.saturating_sub(settle_tolerance_input_samples);
-                let upper_bound =
-                    target_buffer_fill.saturating_add(settle_tolerance_input_samples);
+                let lower_bound = target_buffer_fill.saturating_sub(settle_tolerance_input_samples);
+                let upper_bound = target_buffer_fill.saturating_add(settle_tolerance_input_samples);
                 if smoothed_control_available < lower_bound {
                     state.low_recover_phase = LowRecoverPhase::Refill;
                     state.low_recover_settle_stable_ms = 0.0;
@@ -577,7 +573,8 @@ pub fn update_far_mode_state(
                         state.low_recover_phase = LowRecoverPhase::Inactive;
                         state.low_recover_settle_stable_ms = 0.0;
                         reset_low_recover_refill_tracking(state);
-                        state.recovery_reacquire_pending = adaptive_config.force_silence_in_far_mode;
+                        state.recovery_reacquire_pending =
+                            adaptive_config.force_silence_in_far_mode;
                     }
                 }
             }

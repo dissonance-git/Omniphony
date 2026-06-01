@@ -22,10 +22,10 @@ pub mod spatial;
 pub mod virtual_bed;
 
 pub use channel_layout::label_for_speaker_name;
+pub use engine::{Engine, OscOptions, RenderedAudio};
+pub use osc::{ObjectMeta, OscSender};
 /// The shared omniphony config (`~/.config/omniphony/config.yaml`) + its path,
 /// re-exported so hosts default to the SAME config as the `orender` CLI + studio
 /// (bridge path, layout, OSC settings, render params).
 pub use renderer::config::{Config, default_config_path};
-pub use engine::{Engine, OscOptions, RenderedAudio};
-pub use osc::{ObjectMeta, OscSender};
 pub use virtual_bed::{build_virtual_bed_events, build_virtual_bed_objects};

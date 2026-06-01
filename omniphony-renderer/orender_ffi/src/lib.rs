@@ -15,7 +15,7 @@ use orender_engine::Engine;
 use anyhow::Result;
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int};
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::ptr;
 
@@ -104,8 +104,7 @@ fn build_engine(cfg: &OrenderConfig) -> Result<Engine> {
         .as_deref()
         .map(orender_engine::Config::load_or_default)
         .and_then(|c| c.render);
-    let osc_on =
-        cfg.osc_enabled != 0 || render_cfg.as_ref().and_then(|c| c.osc).unwrap_or(false);
+    let osc_on = cfg.osc_enabled != 0 || render_cfg.as_ref().and_then(|c| c.osc).unwrap_or(false);
     if osc_on {
         let host = unsafe { opt_str(cfg.osc_host) }
             .map(str::to_string)
@@ -119,9 +118,16 @@ fn build_engine(cfg: &OrenderConfig) -> Result<Engine> {
         let port_in = if cfg.osc_port_in != 0 {
             cfg.osc_port_in
         } else {
-            render_cfg.as_ref().and_then(|c| c.osc_rx_port).unwrap_or(9000)
+            render_cfg
+                .as_ref()
+                .and_then(|c| c.osc_rx_port)
+                .unwrap_or(9000)
         };
-        engine.enable_osc(orender_engine::OscOptions { host, port_out, port_in })?;
+        engine.enable_osc(orender_engine::OscOptions {
+            host,
+            port_out,
+            port_in,
+        })?;
     }
 
     Ok(engine)
@@ -135,10 +141,8 @@ fn init_logging() {
     use std::sync::Once;
     static INIT: Once = Once::new();
     INIT.call_once(|| {
-        let _ = env_logger::Builder::from_env(
-            env_logger::Env::default().default_filter_or("warn"),
-        )
-        .try_init();
+        let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
+            .try_init();
     });
 }
 
@@ -182,7 +186,11 @@ pub unsafe extern "C" fn orender_is_spatial(r: *const OrenderRenderer) -> c_int 
             return -1;
         }
         let engine = &*(r as *const Engine);
-        if engine.is_spatial() { 1 } else { 0 }
+        if engine.is_spatial() {
+            1
+        } else {
+            0
+        }
     }))
     .unwrap_or(-1)
 }

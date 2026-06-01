@@ -211,7 +211,9 @@ impl AudioControl {
     }
 
     pub fn requested_adaptive_resampling_high_recover_entry_margin_ms(&self) -> u32 {
-        self.requested_snapshot().adaptive.high_recover_entry_margin_ms
+        self.requested_snapshot()
+            .adaptive
+            .high_recover_entry_margin_ms
     }
 
     pub fn set_requested_adaptive_resampling_low_recover_settle_stable_ms(&self, value: f32) {
@@ -281,7 +283,9 @@ impl AudioControl {
     }
 
     pub fn requested_adaptive_resampling_control_smoothing_cutoff_hz(&self) -> f64 {
-        self.requested_snapshot().adaptive.control_smoothing_cutoff_hz
+        self.requested_snapshot()
+            .adaptive
+            .control_smoothing_cutoff_hz
     }
 
     pub fn set_requested_adaptive_resampling_control_smoothing_order(&self, value: u32) {
@@ -303,9 +307,7 @@ impl AudioControl {
     }
 
     pub fn set_requested_adaptive_resampling_use_pre_bridge_clock(&self, enabled: bool) {
-        self.update_requested(|requested| {
-            requested.adaptive.use_pre_bridge_clock = enabled
-        });
+        self.update_requested(|requested| requested.adaptive.use_pre_bridge_clock = enabled);
     }
 
     pub fn requested_adaptive_resampling_use_pre_bridge_clock(&self) -> bool {
@@ -313,9 +315,7 @@ impl AudioControl {
     }
 
     pub fn set_requested_adaptive_resampling_use_output_pacing(&self, enabled: bool) {
-        self.update_requested(|requested| {
-            requested.adaptive.use_output_pacing = enabled
-        });
+        self.update_requested(|requested| requested.adaptive.use_output_pacing = enabled);
     }
 
     pub fn requested_adaptive_resampling_use_output_pacing(&self) -> bool {
@@ -323,9 +323,7 @@ impl AudioControl {
     }
 
     pub fn set_requested_adaptive_resampling_disable_backpressure(&self, disabled: bool) {
-        self.update_requested(|requested| {
-            requested.adaptive.disable_backpressure = disabled
-        });
+        self.update_requested(|requested| requested.adaptive.disable_backpressure = disabled);
     }
 
     pub fn requested_adaptive_resampling_disable_backpressure(&self) -> bool {

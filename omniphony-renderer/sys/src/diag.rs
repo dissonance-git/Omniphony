@@ -64,13 +64,7 @@ impl DiagRegistry {
     /// Register (or look up) a metric. Returns a shared atomic holding the
     /// metric value as `f64` bits — store via `(value as f64).to_bits()`.
     /// Idempotent: calling twice with the same name returns the same handle.
-    pub fn register(
-        &self,
-        name: &str,
-        label: &str,
-        group: &str,
-        unit: &str,
-    ) -> Arc<AtomicU64> {
+    pub fn register(&self, name: &str, label: &str, group: &str, unit: &str) -> Arc<AtomicU64> {
         let mut entries = self.entries.lock().unwrap();
         if let Some(existing) = entries.get(name) {
             return Arc::clone(&existing.value);
@@ -166,7 +160,12 @@ impl DiagRegistry {
         }
         let obj: BTreeMap<&str, f64> = entries
             .iter()
-            .map(|(name, e)| (name.as_str(), f64::from_bits(e.value.load(Ordering::Relaxed))))
+            .map(|(name, e)| {
+                (
+                    name.as_str(),
+                    f64::from_bits(e.value.load(Ordering::Relaxed)),
+                )
+            })
             .collect();
         serde_json::to_string(&obj).ok()
     }

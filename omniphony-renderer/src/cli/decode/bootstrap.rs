@@ -1,6 +1,5 @@
 use super::handler::DecodeHandler;
 use crate::cli::command::{EvaluationModeArg, OutputBackend, RenderArgs};
-use orender_engine::osc::OscSender;
 use anyhow::Result;
 use audio_input::{
     InputBackend, InputClockMode, InputControl, InputLfeMode, InputMapMode, InputMode,
@@ -11,6 +10,7 @@ use audio_output::pipewire::{PipewireBufferConfig, list_pipewire_output_devices}
 use audio_output::{
     AdaptiveResamplingConfig, AudioControl, OutputDeviceOption, RequestedAudioOutputConfig,
 };
+use orender_engine::osc::OscSender;
 use renderer::metering::AudioMeter;
 use renderer::speaker_layout::SpeakerLayout;
 use std::sync::Arc;
@@ -365,8 +365,18 @@ fn init_osc_runtime(
 
         // Monitoring cadences: seed RendererControl from config (CLI default
         // 50 Hz). Renderer is the source of truth — OSC-adjustable + persisted.
-        ctrl.set_meter_rate_hz(render_cfg.as_ref().and_then(|cfg| cfg.meter_rate).unwrap_or(50.0));
-        ctrl.set_diag_rate_hz(render_cfg.as_ref().and_then(|cfg| cfg.diag_rate).unwrap_or(50.0));
+        ctrl.set_meter_rate_hz(
+            render_cfg
+                .as_ref()
+                .and_then(|cfg| cfg.meter_rate)
+                .unwrap_or(50.0),
+        );
+        ctrl.set_diag_rate_hz(
+            render_cfg
+                .as_ref()
+                .and_then(|cfg| cfg.diag_rate)
+                .unwrap_or(50.0),
+        );
 
         ctrl.set_requested_ramp_mode(args.ramp_mode.into());
         ctrl.live.write().unwrap().ramp_mode = args.ramp_mode.into();
@@ -429,7 +439,9 @@ fn init_osc_runtime(
             // Mirror the engine (FFI/mpv) path: record whether the config
             // actually loaded so Studio's About can compare CLI vs host.
             ctrl.set_config_status(Some(
-                renderer::config::Config::load_status(path).as_str().to_string(),
+                renderer::config::Config::load_status(path)
+                    .as_str()
+                    .to_string(),
             ));
         }
         if let Some(sender) = &mut handler.telemetry.osc_sender {

@@ -405,7 +405,8 @@ mod tests {
             assert!(!ev.is_bed);
             let pos = ev.position.expect("virtual event carries a position");
             assert!(
-                pos.iter().all(|c| c.is_finite() && (-1.0..=1.0).contains(c)),
+                pos.iter()
+                    .all(|c| c.is_finite() && (-1.0..=1.0).contains(c)),
                 "position {pos:?} must be finite and within the unit room"
             );
         }

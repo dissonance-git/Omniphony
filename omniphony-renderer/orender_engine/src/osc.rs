@@ -192,9 +192,8 @@ impl OscSender {
                     .last()
                     .map(|record| record.seq)
                     .unwrap_or(0);
-                let mut last_host_state_generation = host_handler
-                    .as_ref()
-                    .map(|h| h.state_generation());
+                let mut last_host_state_generation =
+                    host_handler.as_ref().map(|h| h.state_generation());
 
                 let mut buf = [0u8; 4096];
                 loop {
@@ -207,8 +206,7 @@ impl OscSender {
                         if last_host_state_generation != Some(generation) {
                             last_host_state_generation = Some(generation);
                             if let Some(ref ctrl) = control {
-                                let state_bytes =
-                                    build_live_state_bundle(ctrl, Some(host));
+                                let state_bytes = build_live_state_bundle(ctrl, Some(host));
                                 send_raw_filtered(&socket, &clients, &state_bytes, |_| true);
                             }
                         }
@@ -228,10 +226,8 @@ impl OscSender {
                                     force_full_next.store(true, Ordering::Relaxed);
                                     // Send the current state bundle, including layout and speakers.
                                     if let Some(ref ctrl) = control {
-                                        let state_bytes = build_live_state_bundle(
-                                            ctrl,
-                                            host_handler.as_ref(),
-                                        );
+                                        let state_bytes =
+                                            build_live_state_bundle(ctrl, host_handler.as_ref());
                                         if let Err(e) = socket.send_to(&state_bytes, client) {
                                             log::warn!(
                                                 "Failed to send live state to {}: {}",

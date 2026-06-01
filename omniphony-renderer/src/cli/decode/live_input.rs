@@ -1,8 +1,6 @@
 use super::decoder_thread::DecoderMessage;
 #[cfg(target_os = "linux")]
 use super::decoder_thread::{DecodedAudioData, DecodedSource};
-#[cfg(target_os = "linux")]
-use orender_engine::bridge_loader::install_bridge_host_log_sink;
 use anyhow::Result;
 #[cfg(target_os = "linux")]
 use anyhow::anyhow;
@@ -27,6 +25,8 @@ use audio_output::AudioControl;
 use audio_output::pipewire::PipewireBufferConfig;
 #[cfg(target_os = "linux")]
 use bridge_api::{FormatBridgeBox, RChannelLabel, RDecodedFrame};
+#[cfg(target_os = "linux")]
+use orender_engine::bridge_loader::install_bridge_host_log_sink;
 #[cfg(target_os = "linux")]
 use pipewire as pw;
 #[cfg(target_os = "linux")]

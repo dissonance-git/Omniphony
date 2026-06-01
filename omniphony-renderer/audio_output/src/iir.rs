@@ -32,13 +32,7 @@ impl IirLowPassState {
     /// First call seeds all internal states to `input` so the output
     /// settles instantly on a meaningful value rather than ramping up
     /// from zero.
-    pub fn step(
-        &mut self,
-        input: f64,
-        cutoff_hz: f64,
-        dt_s: f64,
-        order: u32,
-    ) -> f64 {
+    pub fn step(&mut self, input: f64, cutoff_hz: f64, dt_s: f64, order: u32) -> f64 {
         if !self.initialized {
             self.y1 = input;
             self.y2 = input;

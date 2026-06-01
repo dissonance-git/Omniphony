@@ -305,8 +305,7 @@ pub fn build_live_state_bundle(
         OscPacket::Message(OscMessage {
             addr: "/omniphony/state/capabilities".to_string(),
             args: vec![OscType::String(build_renderer_capabilities_json(
-                has_audio,
-                has_input,
+                has_audio, has_input,
             ))],
         }),
         OscPacket::Message(OscMessage {

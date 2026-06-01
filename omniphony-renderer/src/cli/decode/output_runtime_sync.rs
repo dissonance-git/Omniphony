@@ -367,15 +367,9 @@ impl<'a> OutputRuntimeCoordinator<'a> {
                 self.runtime
                     .adaptive_resampling_config
                     .control_smoothing_order,
-                self.runtime
-                    .adaptive_resampling_config
-                    .use_pre_bridge_clock,
-                self.runtime
-                    .adaptive_resampling_config
-                    .use_output_pacing,
-                self.runtime
-                    .adaptive_resampling_config
-                    .disable_backpressure,
+                self.runtime.adaptive_resampling_config.use_pre_bridge_clock,
+                self.runtime.adaptive_resampling_config.use_output_pacing,
+                self.runtime.adaptive_resampling_config.disable_backpressure,
             );
 
             // Apply live on the running audio thread — no restart needed.

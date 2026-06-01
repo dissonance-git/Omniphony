@@ -4,8 +4,8 @@
 use crate::events::{Configuration, Event};
 use crate::osc::ObjectMeta;
 use bridge_api::RCoordinateFormat;
-use renderer::speaker_layout::SpeakerLayout;
 use renderer::spatial_renderer::SpatialChannelEvent;
+use renderer::speaker_layout::SpeakerLayout;
 use std::collections::HashMap;
 
 /// Wrap an azimuth in degrees into `[-180, 180]`.
@@ -42,7 +42,9 @@ pub fn build_object_metas(
     layout: Option<&SpeakerLayout>,
     object_names: &HashMap<u32, String>,
 ) -> Vec<ObjectMeta> {
-    let bed_to_speaker = layout.map(|l| l.bed_to_speaker_mapping()).unwrap_or_default();
+    let bed_to_speaker = layout
+        .map(|l| l.bed_to_speaker_mapping())
+        .unwrap_or_default();
     conf.events
         .iter()
         .enumerate()

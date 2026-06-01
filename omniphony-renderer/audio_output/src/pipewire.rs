@@ -17,8 +17,7 @@ use std::time::{Duration, Instant};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{
-    ADAPTIVE_BAND_FAR, AdaptiveResamplingConfig,
-    LOCAL_RESAMPLER_MAX_RELATIVE_RATIO,
+    ADAPTIVE_BAND_FAR, AdaptiveResamplingConfig, LOCAL_RESAMPLER_MAX_RELATIVE_RATIO,
     adaptive_runtime::{
         AdaptiveRuntimeState, FarModeDecision, LatencyMetricTargets, LowRecoverPhase,
         MAX_INTEGRAL_TERM, PRE_BRIDGE_CALIBRATION_CALLBACKS, adaptive_runtime_state_name,
@@ -31,7 +30,9 @@ use crate::{
     adaptive_runtime_state_code, adaptive_runtime_state_name_from_code,
     clamp_ratio_for_local_resampler, local_resampler_ratio_bounds,
     resampler_fifo::{RESAMPLER_CHUNK_SIZE, ResamplerFifoEngine},
-    ring_buffer_io::{flush_ring_buffer, push_samples_drop_overflow, push_samples_with_backpressure},
+    ring_buffer_io::{
+        flush_ring_buffer, push_samples_drop_overflow, push_samples_with_backpressure,
+    },
 };
 
 // FFI bindings for PipeWire thread-safe rate control and stream timing
@@ -468,24 +469,17 @@ impl PipewireWriter {
         let output_fifo_latency_clone = output_fifo_latency_ms_bits.clone();
         let resampler_pending_latency_ms_bits = Arc::new(AtomicU32::new(0u32));
         let resampler_pending_latency_clone = resampler_pending_latency_ms_bits.clone();
-        let cumulative_written_input_samples =
-            Arc::new(std::sync::atomic::AtomicU64::new(0));
-        let cumulative_drained_input_samples =
-            Arc::new(std::sync::atomic::AtomicU64::new(0));
-        let cumulative_drained_input_samples_clone =
-            cumulative_drained_input_samples.clone();
-        let cumulative_written_input_samples_clone =
-            cumulative_written_input_samples.clone();
-        let cumulative_flow_control_available_bits =
-            Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let cumulative_written_input_samples = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let cumulative_drained_input_samples = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let cumulative_drained_input_samples_clone = cumulative_drained_input_samples.clone();
+        let cumulative_written_input_samples_clone = cumulative_written_input_samples.clone();
+        let cumulative_flow_control_available_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let cumulative_flow_control_available_clone =
             cumulative_flow_control_available_bits.clone();
         let output_callback_dt_us_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let output_callback_dt_us_clone = output_callback_dt_us_bits.clone();
-        let output_fifo_input_domain_samples_bits =
-            Arc::new(std::sync::atomic::AtomicU64::new(0));
-        let output_fifo_input_domain_samples_clone =
-            output_fifo_input_domain_samples_bits.clone();
+        let output_fifo_input_domain_samples_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let output_fifo_input_domain_samples_clone = output_fifo_input_domain_samples_bits.clone();
         let output_resampler_pending_input_samples_bits =
             Arc::new(std::sync::atomic::AtomicU64::new(0));
         let output_resampler_pending_input_samples_clone =
@@ -500,8 +494,7 @@ impl PipewireWriter {
         let diag_latency_avail_input_ms_clone = diag_latency_avail_input_ms_bits.clone();
         let diag_latency_output_fifo_ms_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let diag_latency_output_fifo_ms_clone = diag_latency_output_fifo_ms_bits.clone();
-        let diag_latency_resampler_pending_ms_bits =
-            Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let diag_latency_resampler_pending_ms_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let diag_latency_resampler_pending_ms_clone =
             diag_latency_resampler_pending_ms_bits.clone();
         let output_effective_ratio_ppm_bits = Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -865,20 +858,18 @@ impl PipewireWriter {
         // resume with stale audio on the next toggle. On false → true,
         // re-arm pre-roll so we always grow the buffer before the input
         // thread starts pulling real samples.
-        let was = self
-            .pacer_enabled
-            .swap(enabled, Ordering::Relaxed);
+        let was = self.pacer_enabled.swap(enabled, Ordering::Relaxed);
         if was != enabled {
             while self.pacer_fifo.pop().is_some() {}
-            self.pacer_pre_roll_complete
-                .store(false, Ordering::Relaxed);
+            self.pacer_pre_roll_complete.store(false, Ordering::Relaxed);
         }
     }
 
     /// Hot-swap the back-pressure disable flag. Called when
     /// `AdaptiveResamplingConfig::disable_backpressure` flips via OSC.
     pub fn set_backpressure_disabled(&self, disabled: bool) {
-        self.backpressure_disabled.store(disabled, Ordering::Relaxed);
+        self.backpressure_disabled
+            .store(disabled, Ordering::Relaxed);
     }
 
     pub fn adaptive_band(&self) -> Option<&'static str> {
@@ -924,7 +915,10 @@ impl PipewireWriter {
 
     /// EMA-smoothed control latency in ms (the value the servo actually tracks).
     pub fn smoothed_control_audio_delay_ms(&self) -> f32 {
-        f32::from_bits(self.smoothed_control_latency_ms_bits.load(Ordering::Relaxed))
+        f32::from_bits(
+            self.smoothed_control_latency_ms_bits
+                .load(Ordering::Relaxed),
+        )
     }
 
     /// Ring-buffer occupancy converted to ms (first component of `control_available`).
@@ -941,7 +935,10 @@ impl PipewireWriter {
     /// Local resampler pending input samples expressed as ms
     /// (third component of `control_available`).
     pub fn resampler_pending_audio_delay_ms(&self) -> f32 {
-        f32::from_bits(self.resampler_pending_latency_ms_bits.load(Ordering::Relaxed))
+        f32::from_bits(
+            self.resampler_pending_latency_ms_bits
+                .load(Ordering::Relaxed),
+        )
     }
 
     /// Signal the audio thread to snap the resampling ratio back to base and reset the integrator.
