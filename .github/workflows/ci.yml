@@ -1,0 +1,104 @@
+name: CI
+
+# Integration gate for the `main` (integration) and `release` branches.
+# Fast, Linux-only validation that the renderer workspace builds + its tests
+# pass, and that the Studio frontend builds. Deliberately does NOT bundle Tauri,
+# build the Windows/ASIO target, or run doctests — those are covered by the
+# heavier tag-triggered release.yml.
+#
+# NOTE on scope (kept green on purpose, see CI_NOTES below):
+#   * Doctests are excluded (`--lib --bins --tests`): several `///` examples are
+#     illustrative pseudo-code that does not compile.
+#   * `cargo fmt --check` / `clippy -D warnings` are NOT gated yet: the repo has
+#     a pre-existing repo-wide rustfmt edition drift (~37 files). Normalising it
+#     is a separate, opt-in cleanup; until then a fmt gate would be red for
+#     reasons unrelated to correctness.
+on:
+  push:
+    branches: [main, release]
+  pull_request:
+    branches: [main, release]
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save Actions minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            omniphony-renderer/target
+          key: ${{ runner.os }}-ci-cargo-${{ hashFiles('omniphony-renderer/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-ci-cargo-
+
+      # ── Platform dependencies ─────────────────────────────────────────────
+      # Same PipeWire PPA as release.yml: ubuntu-22.04 ships PipeWire 0.3.48 but
+      # pipewire-rs 0.9.x needs >= 0.3.65. The GUI/Tauri libs are kept too so the
+      # whole workspace links exactly as in the release build (cheap, robust).
+      - name: Install Linux system dependencies
+        run: |
+          for attempt in 1 2 3; do
+            if sudo add-apt-repository ppa:pipewire-debian/pipewire-upstream -y; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Failed to add PipeWire PPA after $attempt attempts" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          for attempt in 1 2 3; do
+            if sudo apt-get update; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "apt-get update failed after $attempt attempts" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libpipewire-0.3-dev \
+            pkg-config
+
+      # ── Rust: build + test (strict gate) ──────────────────────────────────
+      - name: Build renderer workspace
+        working-directory: omniphony-renderer
+        run: cargo build --workspace --locked
+
+      # Excludes doctests on purpose (see header note).
+      - name: Test renderer workspace
+        working-directory: omniphony-renderer
+        run: cargo test --workspace --lib --bins --tests --locked
+
+      # ── Studio frontend build (no Tauri bundling / no sidecar) ─────────────
+      - name: Install Studio npm dependencies
+        working-directory: omniphony-studio
+        run: npm ci
+
+      - name: Build Studio frontend
+        working-directory: omniphony-studio
+        run: npm run build
