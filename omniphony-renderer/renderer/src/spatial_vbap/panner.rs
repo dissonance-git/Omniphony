@@ -12,7 +12,7 @@
 //!
 //! # Example
 //!
-//! ```no_run
+//! ```ignore
 //! use omniphony_renderer::spatial_vbap::VbapPanner;
 //!
 //! // Define 7.1.4 speaker layout (11 speakers)

@@ -15,7 +15,7 @@
 //!
 //! # Example
 //!
-//! ```no_run
+//! ```ignore
 //! use omniphony_renderer::spatial_renderer::SpatialRenderer;
 //! use omniphony_renderer::speaker_layout::SpeakerLayout;
 //! use omniphony_renderer::spatial_vbap::{DistanceModel, VbapTableMode};

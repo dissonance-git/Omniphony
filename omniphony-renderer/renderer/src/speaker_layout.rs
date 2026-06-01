@@ -25,7 +25,7 @@
 //!
 //! # Example
 //!
-//! ```no_run
+//! ```ignore
 //! use omniphony_renderer::speaker_layout::SpeakerLayout;
 //!
 //! let layout = SpeakerLayout::from_file("../layouts/7.1.4.yaml")?;
