@@ -1097,6 +1097,7 @@ mod tests {
         clear();
         set_enabled(true);
         set_labels_enabled(true);
+        set_objects_visible(true);
         g
     }
 
