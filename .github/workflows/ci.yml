@@ -1,18 +1,16 @@
 name: CI
 
 # Integration gate for the `main` (integration) and `release` branches.
-# Fast, Linux-only validation that the renderer workspace builds + its tests
-# pass, and that the Studio frontend builds. Deliberately does NOT bundle Tauri,
-# build the Windows/ASIO target, or run doctests — those are covered by the
-# heavier tag-triggered release.yml.
+# Fast, Linux-only validation that formatting is clean, the renderer workspace
+# builds + all its tests pass (including doctests), and the Studio frontend
+# builds. Deliberately does NOT bundle Tauri or build the Windows/ASIO target —
+# those are covered by the heavier tag-triggered release.yml.
 #
-# NOTE on scope (kept green on purpose, see CI_NOTES below):
-#   * Doctests are excluded (`--lib --bins --tests`): several `///` examples are
-#     illustrative pseudo-code that does not compile.
-#   * `cargo fmt --check` / `clippy -D warnings` are NOT gated yet: the repo has
-#     a pre-existing repo-wide rustfmt edition drift (~37 files). Normalising it
-#     is a separate, opt-in cleanup; until then a fmt gate would be red for
-#     reasons unrelated to correctness.
+# NOTE on scope: `clippy` is NOT gated yet — the workspace currently has ~70
+# clippy warnings plus a couple of deny-level lints, several inside hot audio
+# loops where the lint suggestions are not obviously safe. Cleaning that up is a
+# separate, careful pass; until then a clippy gate would block merges for
+# reasons unrelated to correctness.
 on:
   push:
     branches: [main, release]
@@ -25,19 +23,26 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Opt every JavaScript action into the Node 24 runtime (actions/cache@v4 still
+# ships a Node 20 entrypoint; checkout/setup-node are pinned to Node 24 majors).
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build-and-test:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -50,6 +55,11 @@ jobs:
           # manifests instead (cache invalidates when a dependency changes).
           key: ${{ runner.os }}-ci-cargo-${{ hashFiles('omniphony-renderer/**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-ci-cargo-
+
+      # Fast fail before the heavy build if formatting drifts.
+      - name: Check formatting
+        working-directory: omniphony-renderer
+        run: cargo fmt --all -- --check
 
       # ── Platform dependencies ─────────────────────────────────────────────
       # Same PipeWire PPA as release.yml: ubuntu-22.04 ships PipeWire 0.3.48 but
@@ -93,10 +103,9 @@ jobs:
         working-directory: omniphony-renderer
         run: cargo build --workspace
 
-      # Excludes doctests on purpose (see header note).
       - name: Test renderer workspace
         working-directory: omniphony-renderer
-        run: cargo test --workspace --lib --bins --tests
+        run: cargo test --workspace
 
       # ── Studio frontend build (no Tauri bundling / no sidecar) ─────────────
       - name: Install Studio npm dependencies
