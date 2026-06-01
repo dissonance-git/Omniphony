@@ -154,6 +154,23 @@ unsafe fn opt_str<'a>(p: *const c_char) -> Option<&'a str> {
     CStr::from_ptr(p).to_str().ok()
 }
 
+/// Diagnostics about how the *host* process (mpv) was launched, appended to the
+/// degraded bridge-error so Studio can show it. liborender runs inside mpv, so
+/// `current_dir()`/`args()` are mpv's own CWD and argv — exactly what's needed
+/// to explain a relative `bridge_path` that resolves against the wrong folder.
+///
+/// Caveat: `args()` only sees the actual command line. Options coming from
+/// `mpv.conf` / portable_config are read internally by mpv and won't appear
+/// here — hence we surface the CWD too (which explains relative-path failures
+/// regardless of where the path was set).
+fn host_launch_diagnostics() -> String {
+    let cwd = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "<unknown>".to_string());
+    let cmdline = std::env::args().collect::<Vec<_>>().join(" ");
+    format!("\n\nWorking dir: {cwd}\nCommand line: {cmdline}")
+}
+
 fn build_engine(cfg: &OrenderConfig) -> Result<Engine> {
     // Optional override; NULL → taken from the config YAML's render.bridge_path.
     let bridge_path = unsafe { opt_str(cfg.bridge_path) };
@@ -199,7 +216,7 @@ fn build_engine(cfg: &OrenderConfig) -> Result<Engine> {
                     config_path.clone(),
                     sample_rate,
                     opts,
-                    format!("{e:#}"),
+                    format!("{e:#}{}", host_launch_diagnostics()),
                 );
             }
             return Err(e);

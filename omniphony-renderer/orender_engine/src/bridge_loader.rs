@@ -89,42 +89,101 @@ pub fn resolve_bridge_path(explicit: Option<&Path>) -> Result<PathBuf> {
 ///
 /// Order of precedence — an *explicitly requested* path (CLI `--bridge-path`,
 /// FFI param, or `render.bridge_path` in the config) is taken **as a strict
-/// instruction**: if it does not point at an existing file, that is an error,
-/// not a cue to silently search elsewhere. Only when no path is requested at all
-/// do we auto-discover a `*_bridge.{so,dll,dylib}` next to the host executable
-/// (the "drop the bundle in one folder" install, CWD-independent — works for a
-/// double-clicked file, an external launcher, etc.).
+/// instruction**: it must point at an existing file (the *named* one — we never
+/// substitute a different bridge), else error. We do not fall through to the
+/// auto-discovery glob when a path was requested. Only when no path is requested
+/// at all do we auto-discover a `*_bridge.{so,dll,dylib}` next to the host
+/// executable (the "drop the bundle in one folder" install).
 ///
-/// 1. `explicit` set → must be a file, else error.
-/// 2. else `config` (`render.bridge_path`) set → must be a file, else error.
+/// A requested path that is **relative** is resolved CWD-independently — against
+/// the process working dir first, then the host executable's directory (see
+/// [`resolve_requested`]) — so a bare `harletty_bridge.dll` next to `mpv.exe`
+/// works regardless of which folder the host was launched from. This is the
+/// common real-world footgun: a relative `render.bridge_path` / `--bridge-path`
+/// that previously only resolved against the CWD.
+///
+/// 1. `explicit` set → must resolve to a file, else error.
+/// 2. else `config` (`render.bridge_path`) set → must resolve to a file, else error.
 /// 3. else → [`find_bridge_next_to_exe`].
 pub fn resolve_bridge(explicit: Option<&Path>, config: Option<&Path>) -> Result<PathBuf> {
     if let Some(path) = explicit {
-        if path.is_file() {
-            return Ok(path.to_path_buf());
+        if let Some(found) = resolve_requested(path) {
+            return Ok(found);
         }
         bail!(
-            "bridge path '{}' does not exist or is not a file. \
-             Give an absolute path to the decoder bridge, or remove the explicit \
-             path and drop a *_bridge.{{so,dll,dylib}} next to the host binary.",
-            path.display()
+            "bridge path '{}' does not exist or is not a file{}. \
+             Give an absolute path to the decoder bridge, or drop a \
+             *_bridge.{{so,dll,dylib}} next to the host binary and remove the \
+             explicit path.",
+            path.display(),
+            searched_locations_hint(path),
         );
     }
     if let Some(path) = config {
-        if path.is_file() {
-            return Ok(path.to_path_buf());
+        if let Some(found) = resolve_requested(path) {
+            return Ok(found);
         }
         bail!(
-            "render.bridge_path '{}' (from config) does not exist or is not a file. \
+            "render.bridge_path '{}' (from config) does not exist or is not a file{}. \
              Fix it to an existing file (an absolute path is safest), or remove it \
              and drop a *_bridge.{{so,dll,dylib}} next to the host binary.",
-            path.display()
+            path.display(),
+            searched_locations_hint(path),
         );
     }
     find_bridge_next_to_exe().context(
         "no decoder bridge requested (no explicit path, no render.bridge_path) and \
          none found next to the host binary",
     )
+}
+
+/// Resolve a *requested* bridge path (CLI `--bridge-path`, FFI param, or
+/// `render.bridge_path`). An absolute path is taken verbatim. A **relative**
+/// path is resolved deterministically and CWD-independently: tried against the
+/// process working dir first (back-compat) then the host executable's directory,
+/// so a bare filename like `harletty_bridge.dll` dropped next to `mpv.exe` /
+/// `orender` is found no matter which folder the host was launched from. Returns
+/// the first candidate that is an existing file, else `None`.
+fn resolve_requested(path: &Path) -> Option<PathBuf> {
+    if path.is_absolute() {
+        return path.is_file().then(|| path.to_path_buf());
+    }
+    requested_search_bases()
+        .into_iter()
+        .map(|base| base.join(path))
+        .find(|cand| cand.is_file())
+}
+
+/// Base directories a *relative* requested bridge path is resolved against, in
+/// priority order: the process CWD, then the host executable's directory.
+fn requested_search_bases() -> Vec<PathBuf> {
+    let mut bases = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        bases.push(cwd);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            bases.push(dir.to_path_buf());
+        }
+    }
+    bases
+}
+
+/// For error messages: list the absolute candidates a *relative* path was tried
+/// at (empty for absolute paths, which are self-explanatory).
+fn searched_locations_hint(path: &Path) -> String {
+    if path.is_absolute() {
+        return String::new();
+    }
+    let tried: Vec<String> = requested_search_bases()
+        .iter()
+        .map(|base| base.join(path).display().to_string())
+        .collect();
+    if tried.is_empty() {
+        String::new()
+    } else {
+        format!(" (searched: {})", tried.join(", "))
+    }
 }
 
 /// Look for a `*_bridge.{so,dll,dylib}` next to the current executable.
@@ -233,5 +292,20 @@ mod tests {
         let missing = Path::new("missing_explicit_bridge.so");
         assert!(resolve_bridge(Some(missing), Some(&cfg)).is_err());
         fs::remove_file(&cfg).ok();
+    }
+
+    // A *relative* requested name (the real-world footgun: `harletty_bridge.dll`)
+    // must resolve against the host executable's directory, not just the CWD —
+    // so it's found wherever the host was launched from. We drop a uniquely-named
+    // file next to the test binary and request it by bare relative name.
+    #[test]
+    fn relative_resolves_next_to_exe() {
+        let dir = std::env::current_exe().unwrap().parent().unwrap().to_path_buf();
+        let name = format!("orender_{}_reltest_bridge.so", std::process::id());
+        let full = dir.join(&name);
+        fs::write(&full, b"x").unwrap();
+        let got = resolve_bridge(Some(Path::new(&name)), None);
+        fs::remove_file(&full).ok();
+        assert_eq!(got.unwrap(), full);
     }
 }
