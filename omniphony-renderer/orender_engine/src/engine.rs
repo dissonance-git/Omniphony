@@ -5,7 +5,7 @@
 //! It performs no audio I/O: the host (the `orender` CLI, or `liborender.so`
 //! inside mpv) feeds packets in and consumes rendered samples.
 
-use crate::bridge_loader::{LoadedBridge, find_bridge_next_to_exe};
+use crate::bridge_loader::{LoadedBridge, resolve_bridge};
 use crate::events::Configuration;
 use crate::osc::{ObjectMeta, OscSender};
 use crate::overlay;
@@ -168,37 +168,13 @@ impl Engine {
             SpeakerLayout::preset("7.1.4")?
         };
 
-        // Resolve the bridge path:
-        //  1. explicit override (CLI / FFI param) — strict, must exist or error
-        //  2. config render.bridge_path — used when it points at a real file
-        //  3. exe-relative fallback — *_bridge.{so,dll,dylib} next to the host
-        //     binary (covers Windows-bundle installs without a config)
+        // Resolve the bridge path with the shared strict policy (identical for
+        // the CLI and this FFI/mpv host): an explicitly requested path (FFI
+        // param or config render.bridge_path) must exist or it's an error; only
+        // when nothing is requested do we auto-discover *_bridge.* next to the
+        // host binary. See `bridge_loader::resolve_bridge`.
         let config_bridge = render_cfg.as_ref().and_then(|c| c.bridge_path.clone());
-        let resolved_bridge = if let Some(explicit) = bridge_path {
-            if !explicit.is_file() {
-                bail!(
-                    "Bridge path '{}' does not exist or is not a file",
-                    explicit.display()
-                );
-            }
-            explicit.to_path_buf()
-        } else if let Some(p) = config_bridge.as_ref().filter(|p| p.is_file()) {
-            p.clone()
-        } else {
-            find_bridge_next_to_exe().map_err(|fallback_err| match &config_bridge {
-                Some(stale) => anyhow!(
-                    "render.bridge_path '{}' does not exist, and exe-relative \
-                     fallback failed: {fallback_err}",
-                    stale.display()
-                ),
-                None => anyhow!(
-                    "no decoder bridge path: pass one explicitly, set \
-                     render.bridge_path in the config YAML, or drop a \
-                     *_bridge.{{so,dll,dylib}} next to the host binary.\n\
-                     Fallback details: {fallback_err}"
-                ),
-            })?
-        };
+        let resolved_bridge = resolve_bridge(bridge_path, config_bridge.as_deref())?;
 
         // The renderer's table mode/defaults come from the bridge, so load and
         // configure it before building the renderer.

@@ -81,17 +81,50 @@ extern "C" fn forward_bridge_log_to_host(level: RLogLevel, target: RStr<'_>, mes
 /// contain bridge plugins (e.g. `/usr/bin/mpv` on Linux), the fallback simply
 /// finds nothing and the caller gets the regular missing-bridge error.
 pub fn resolve_bridge_path(explicit: Option<&Path>) -> Result<PathBuf> {
+    resolve_bridge(explicit, None)
+}
+
+/// Unified, strict bridge-path resolution shared by the CLI (`resolve_bridge_path`)
+/// and the FFI/mpv host (`Engine::from_paths`), so both behave identically.
+///
+/// Order of precedence — an *explicitly requested* path (CLI `--bridge-path`,
+/// FFI param, or `render.bridge_path` in the config) is taken **as a strict
+/// instruction**: if it does not point at an existing file, that is an error,
+/// not a cue to silently search elsewhere. Only when no path is requested at all
+/// do we auto-discover a `*_bridge.{so,dll,dylib}` next to the host executable
+/// (the "drop the bundle in one folder" install, CWD-independent — works for a
+/// double-clicked file, an external launcher, etc.).
+///
+/// 1. `explicit` set → must be a file, else error.
+/// 2. else `config` (`render.bridge_path`) set → must be a file, else error.
+/// 3. else → [`find_bridge_next_to_exe`].
+pub fn resolve_bridge(explicit: Option<&Path>, config: Option<&Path>) -> Result<PathBuf> {
     if let Some(path) = explicit {
         if path.is_file() {
             return Ok(path.to_path_buf());
         }
         bail!(
-            "Bridge path '{}' does not exist or is not a file",
+            "bridge path '{}' does not exist or is not a file. \
+             Give an absolute path to the decoder bridge, or remove the explicit \
+             path and drop a *_bridge.{{so,dll,dylib}} next to the host binary.",
             path.display()
         );
     }
-    find_bridge_next_to_exe()
-        .context("Provide --bridge-path <FILE> or set render.bridge_path in config")
+    if let Some(path) = config {
+        if path.is_file() {
+            return Ok(path.to_path_buf());
+        }
+        bail!(
+            "render.bridge_path '{}' (from config) does not exist or is not a file. \
+             Fix it to an existing file (an absolute path is safest), or remove it \
+             and drop a *_bridge.{{so,dll,dylib}} next to the host binary.",
+            path.display()
+        );
+    }
+    find_bridge_next_to_exe().context(
+        "no decoder bridge requested (no explicit path, no render.bridge_path) and \
+         none found next to the host binary",
+    )
 }
 
 /// Look for a `*_bridge.{so,dll,dylib}` next to the current executable.
@@ -135,4 +168,70 @@ fn find_bridge_candidates(dir: &Path) -> Result<Vec<PathBuf>> {
 
 fn is_bridge_filename(name: &str) -> bool {
     name.ends_with("_bridge.so") || name.ends_with("_bridge.dll") || name.ends_with("_bridge.dylib")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    // Unique temp file per call so parallel tests don't collide.
+    fn tmp_bridge(stem: &str) -> PathBuf {
+        static N: AtomicU32 = AtomicU32::new(0);
+        let mut p = std::env::temp_dir();
+        p.push(format!(
+            "orender_{}_{}_{}_bridge.so",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed),
+            stem
+        ));
+        fs::write(&p, b"x").unwrap();
+        p
+    }
+
+    #[test]
+    fn explicit_existing_is_used() {
+        let f = tmp_bridge("expl");
+        assert_eq!(resolve_bridge(Some(&f), None).unwrap(), f);
+        fs::remove_file(&f).ok();
+    }
+
+    #[test]
+    fn explicit_missing_errors() {
+        let missing = Path::new("definitely_nonexistent_bridge.so");
+        assert!(resolve_bridge(Some(missing), None).is_err());
+    }
+
+    #[test]
+    fn config_used_when_no_explicit() {
+        let f = tmp_bridge("cfg");
+        assert_eq!(resolve_bridge(None, Some(&f)).unwrap(), f);
+        fs::remove_file(&f).ok();
+    }
+
+    #[test]
+    fn config_missing_errors() {
+        let missing = Path::new("nonexistent_cfg_bridge.so");
+        assert!(resolve_bridge(None, Some(missing)).is_err());
+    }
+
+    #[test]
+    fn explicit_wins_over_config() {
+        let expl = tmp_bridge("prec_expl");
+        let cfg = tmp_bridge("prec_cfg");
+        assert_eq!(resolve_bridge(Some(&expl), Some(&cfg)).unwrap(), expl);
+        fs::remove_file(&expl).ok();
+        fs::remove_file(&cfg).ok();
+    }
+
+    // Strict: a requested-but-missing explicit path is an error, NOT a cue to
+    // silently fall back to a valid config path.
+    #[test]
+    fn missing_explicit_does_not_fall_through_to_config() {
+        let cfg = tmp_bridge("ft_cfg");
+        let missing = Path::new("missing_explicit_bridge.so");
+        assert!(resolve_bridge(Some(missing), Some(&cfg)).is_err());
+        fs::remove_file(&cfg).ok();
+    }
 }
