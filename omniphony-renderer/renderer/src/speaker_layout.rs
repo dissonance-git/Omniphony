@@ -743,10 +743,10 @@ mod tests {
         assert_eq!(positions.len(), 12);
 
         // Check first speaker (FL)
-        assert_eq!(positions[0], [-30.0, 0.0]);
+        assert_eq!(positions[0], [-26.565052, 0.0]);
 
         // Check height speaker (TFL)
-        assert_eq!(positions[8], [-30.0, 45.0]);
+        assert_eq!(positions[8], [-45.0, 35.26439]);
     }
 
     #[test]
@@ -755,8 +755,8 @@ mod tests {
         let positions = layout.positions();
 
         assert_eq!(positions.len(), 6);
-        assert_eq!(positions[0], [-30.0, 0.0]); // FL
-        assert_eq!(positions[1], [30.0, 0.0]); // FR
+        assert_eq!(positions[0], [-26.565052, 0.0]); // FL
+        assert_eq!(positions[1], [26.565052, 0.0]); // FR
         assert_eq!(positions[2], [0.0, 0.0]); // C
     }
 
@@ -777,7 +777,12 @@ mod integration_tests {
     use std::path::PathBuf;
 
     fn layout_path(name: &str) -> PathBuf {
+        // CARGO_MANIFEST_DIR is the `renderer` crate dir
+        // (`<repo>/omniphony-renderer/renderer`); the shipped layouts live at
+        // the repo root (`<repo>/layouts`), so climb two levels up.
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
             .parent()
             .unwrap()
             .join("layouts")
