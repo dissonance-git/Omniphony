@@ -463,6 +463,16 @@ pub fn build_live_state_bundle(
                 env!("BUILD_TIMESTAMP"),
             ))],
         }),
+        OscPacket::Message(OscMessage {
+            // Non-empty when this renderer came up in the degraded "no decoder"
+            // state because the bridge couldn't be resolved/loaded. The embedded
+            // (mpv) host returns NULL from orender_create in that case (so mpv
+            // falls back to its native decoder), but a process-global degraded
+            // reporter still serves OSC so Studio can show a red banner with this
+            // message. Empty in normal operation.
+            addr: "/omniphony/state/render/bridge_error".to_string(),
+            args: vec![OscType::String(control.bridge_error().unwrap_or_default())],
+        }),
     ];
 
     // DRC is a decode-stage control owned by the core (lives in liborender).

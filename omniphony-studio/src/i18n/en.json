@@ -420,6 +420,7 @@
   "status.reconnecting": "Reconnecting...",
   "status.error": "Error",
   "status.connectingHint": "No renderer connected. Either run <strong>orender</strong> to create a SPDIF audio input, or launch <strong>mpv-omniphony</strong>, which embeds its own renderer.",
+  "status.bridgeErrorTitle": "Decoder bridge not found — spatial audio disabled",
   "status.audioFormat": "audio: {rate} / {format}",
   "status.latencyFallback": "latency: raw {raw} | ctrl {ctrl}",
   "status.minValue": "min {value}",

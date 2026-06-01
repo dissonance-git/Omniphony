@@ -261,6 +261,10 @@ export const app = {
   // Build fingerprint of the connected renderer (git-describe + build time).
   // Lets About expose a liborender-vs-orender version skew.
   renderVersion: null,
+  // Non-empty when the renderer came up degraded (decoder bridge missing) —
+  // drives a red banner under the OSC status. Cleared when a healthy renderer
+  // reports an empty value.
+  renderBridgeError: null,
   liveInput: {
     backend: 'pipewire',
     node: '',

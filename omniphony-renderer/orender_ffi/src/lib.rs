@@ -10,7 +10,7 @@
 
 #![allow(clippy::missing_safety_doc)]
 
-use orender_engine::Engine;
+use orender_engine::{start_degraded_reporter, DegradedReporter, Engine, OscOptions};
 
 use anyhow::Result;
 use std::ffi::CStr;
@@ -18,6 +18,87 @@ use std::os::raw::{c_char, c_int};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::ptr;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+
+// Process-global decoder-less OSC reporter, brought up when the bridge can't be
+// loaded so Studio can show a red banner (orender_create still returns NULL, so
+// mpv falls back to its native decoder). One per process; lives until a real
+// engine starts (which reclaims the OSC port) or the host exits.
+static DEGRADED_REPORTER: Mutex<Option<DegradedReporter>> = Mutex::new(None);
+static DEGRADED_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+// Bring up the degraded reporter once. The renderer build (VBAP table) takes a
+// moment, so do it on a detached thread — the caller returns NULL immediately
+// and mpv falls back without waiting.
+fn start_degraded_reporter_global(
+    config_path: Option<PathBuf>,
+    sample_rate: u32,
+    opts: OscOptions,
+    message: String,
+) {
+    // Claim the single slot; bail if a reporter is already active/starting.
+    if DEGRADED_ACTIVE
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    std::thread::spawn(move || {
+        match start_degraded_reporter(config_path.as_deref(), sample_rate, opts, message) {
+            Ok(reporter) => {
+                // A real engine may have started while we were building; only
+                // keep ours if the slot is still claimed (else drop → free port).
+                if DEGRADED_ACTIVE.load(Ordering::SeqCst) {
+                    *DEGRADED_REPORTER.lock().unwrap() = Some(reporter);
+                }
+            }
+            Err(e) => {
+                eprintln!("degraded reporter failed to start: {e:#}");
+                DEGRADED_ACTIVE.store(false, Ordering::SeqCst);
+            }
+        }
+    });
+}
+
+// Tear down the degraded reporter (releases its OSC port) when a real engine is
+// coming up.
+fn stop_degraded_reporter_global() {
+    if DEGRADED_ACTIVE.swap(false, Ordering::SeqCst) {
+        *DEGRADED_REPORTER.lock().unwrap() = None;
+    }
+}
+
+// Resolve OSC options from the C override → config → defaults, or None when OSC
+// is off. Shared by the normal path and the degraded reporter.
+fn resolve_osc_opts(
+    cfg: &OrenderConfig,
+    render_cfg: Option<&orender_engine::RenderConfig>,
+) -> Option<OscOptions> {
+    let osc_on = cfg.osc_enabled != 0 || render_cfg.and_then(|c| c.osc).unwrap_or(false);
+    if !osc_on {
+        return None;
+    }
+    let host = unsafe { opt_str(cfg.osc_host) }
+        .map(str::to_string)
+        .or_else(|| render_cfg.and_then(|c| c.osc_host.clone()))
+        .unwrap_or_else(|| "127.0.0.1".to_string());
+    let port_out = if cfg.osc_port_out != 0 {
+        cfg.osc_port_out
+    } else {
+        render_cfg.and_then(|c| c.osc_port).unwrap_or(9000)
+    };
+    let port_in = if cfg.osc_port_in != 0 {
+        cfg.osc_port_in
+    } else {
+        render_cfg.and_then(|c| c.osc_rx_port).unwrap_or(9000)
+    };
+    Some(OscOptions {
+        host,
+        port_out,
+        port_in,
+    })
+}
 
 /// Opaque handle to a decode→render session. Created by [`orender_create`],
 /// freed by [`orender_destroy`]. Internally a boxed [`Engine`].
@@ -89,45 +170,48 @@ fn build_engine(cfg: &OrenderConfig) -> Result<Engine> {
         cfg.sample_rate
     };
 
-    let mut engine = Engine::from_paths(
+    // Load the shared config once: drives OSC settings (C override → config →
+    // defaults) and seeds the degraded reporter below.
+    let render_cfg = config_path
+        .as_deref()
+        .map(orender_engine::Config::load_or_default)
+        .and_then(|c| c.render);
+    // Resolve OSC up front so we can also reach Studio with a degraded reporter
+    // if the bridge fails. `None` when OSC is off.
+    let osc_opts = resolve_osc_opts(cfg, render_cfg.as_ref());
+
+    let mut engine = match Engine::from_paths(
         config_path.as_deref(),
         layout_path.map(Path::new),
         bridge_path.map(Path::new),
         codec,
         sample_rate,
-    )?;
+    ) {
+        Ok(engine) => engine,
+        Err(e) => {
+            // The decoder bridge couldn't be resolved/loaded. Returning the
+            // error makes orender_create yield NULL, so mpv falls back to its
+            // native decoder (audio keeps working). But bring up a decoder-less
+            // OSC reporter so Studio can show *why* spatial didn't engage —
+            // Studio registers normally, so its address is known (no guessing).
+            if let Some(opts) = osc_opts {
+                start_degraded_reporter_global(
+                    config_path.clone(),
+                    sample_rate,
+                    opts,
+                    format!("{e:#}"),
+                );
+            }
+            return Err(e);
+        }
+    };
 
-    // OSC: an explicit C override wins; otherwise it follows the shared config's
-    // `render.osc` (so the CLI + studio + mpv all enable OSC the same way).
-    // Host/ports likewise fall back C-override → config → CLI defaults.
-    let render_cfg = config_path
-        .as_deref()
-        .map(orender_engine::Config::load_or_default)
-        .and_then(|c| c.render);
-    let osc_on = cfg.osc_enabled != 0 || render_cfg.as_ref().and_then(|c| c.osc).unwrap_or(false);
-    if osc_on {
-        let host = unsafe { opt_str(cfg.osc_host) }
-            .map(str::to_string)
-            .or_else(|| render_cfg.as_ref().and_then(|c| c.osc_host.clone()))
-            .unwrap_or_else(|| "127.0.0.1".to_string());
-        let port_out = if cfg.osc_port_out != 0 {
-            cfg.osc_port_out
-        } else {
-            render_cfg.as_ref().and_then(|c| c.osc_port).unwrap_or(9000)
-        };
-        let port_in = if cfg.osc_port_in != 0 {
-            cfg.osc_port_in
-        } else {
-            render_cfg
-                .as_ref()
-                .and_then(|c| c.osc_rx_port)
-                .unwrap_or(9000)
-        };
-        engine.enable_osc(orender_engine::OscOptions {
-            host,
-            port_out,
-            port_in,
-        })?;
+    // A real engine is starting; release any degraded reporter holding the OSC
+    // port before we bind it.
+    stop_degraded_reporter_global();
+
+    if let Some(opts) = osc_opts {
+        engine.enable_osc(opts)?;
     }
 
     Ok(engine)

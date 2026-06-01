@@ -586,6 +586,11 @@ pub struct RendererControl {
     /// construction; broadcast to Studio's About panel.
     pub config_status: Mutex<Option<String>>,
 
+    /// Non-empty when the renderer is running in the degraded "no decoder" mode
+    /// because the bridge could not be resolved/loaded. Broadcast over OSC so
+    /// Studio can surface a red banner. `None`/empty in normal operation.
+    pub bridge_error: Mutex<Option<String>>,
+
     /// Actual renderer input path used for this process.
     pub input_path: Mutex<Option<String>>,
     /// Requested format bridge path to be persisted into render.bridge_path.
@@ -628,6 +633,7 @@ impl RendererControl {
             speaker_params_generation: std::sync::atomic::AtomicU64::new(1),
             config_path: Mutex::new(None),
             config_status: Mutex::new(None),
+            bridge_error: Mutex::new(None),
             input_path: Mutex::new(None),
             bridge_path: Mutex::new(None),
             bridge_supported_drc_modes: Mutex::new(Vec::new()),
@@ -685,6 +691,15 @@ impl RendererControl {
 
     pub fn config_status(&self) -> Option<String> {
         self.config_status.lock().unwrap().clone()
+    }
+
+    /// Record the degraded "no decoder" bridge error (see field docs).
+    pub fn set_bridge_error(&self, message: Option<String>) {
+        *self.bridge_error.lock().unwrap() = message;
+    }
+
+    pub fn bridge_error(&self) -> Option<String> {
+        self.bridge_error.lock().unwrap().clone()
     }
 
     pub fn active_topology(&self) -> Arc<RenderTopology> {

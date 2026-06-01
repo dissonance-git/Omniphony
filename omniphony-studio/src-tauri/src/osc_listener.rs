@@ -7,8 +7,8 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::app_state::OutputDeviceOption;
 use crate::app_state::{
-    AppState, DistanceDiffuse, Meter, RenderBackendState, RoomRatio, SpreadState,
-    VbapCartesian, VbapPolar,
+    AppState, DistanceDiffuse, Meter, RenderBackendState, RoomRatio, SpreadState, VbapCartesian,
+    VbapPolar,
 };
 use crate::layouts::{Layout, Speaker};
 use crate::osc_parser::{
@@ -1181,7 +1181,11 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 (Some(("source:update", payload)), removed_ids)
             }
 
-            OscEvent::UpdateSize { id, size, generation } => {
+            OscEvent::UpdateSize {
+                id,
+                size,
+                generation,
+            } => {
                 let payload = serde_json::json!({
                     "id": id,
                     "size": { "w": size[0], "d": size[1], "h": size[2] },
@@ -1277,10 +1281,7 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
             }
 
             OscEvent::MeterDrcGain { value } => (
-                Some((
-                    "meter:drc_gain",
-                    serde_json::json!({ "value": value }),
-                )),
+                Some(("meter:drc_gain", serde_json::json!({ "value": value }))),
                 removed_ids,
             ),
 
@@ -1655,7 +1656,10 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
             OscEvent::StateLatencyDownstream { value } => {
                 let rounded = s.set_latency_downstream_value(value);
                 (
-                    Some(("latency:downstream", serde_json::json!({ "value": rounded }))),
+                    Some((
+                        "latency:downstream",
+                        serde_json::json!({ "value": rounded }),
+                    )),
                     removed_ids,
                 )
             }
@@ -1676,21 +1680,30 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
             OscEvent::StateLatencyAvailInput { value } => {
                 let stored = s.set_latency_avail_input_value(value);
                 (
-                    Some(("latency:avail_input", serde_json::json!({ "value": stored }))),
+                    Some((
+                        "latency:avail_input",
+                        serde_json::json!({ "value": stored }),
+                    )),
                     removed_ids,
                 )
             }
             OscEvent::StateLatencyOutputFifo { value } => {
                 let stored = s.set_latency_output_fifo_value(value);
                 (
-                    Some(("latency:output_fifo", serde_json::json!({ "value": stored }))),
+                    Some((
+                        "latency:output_fifo",
+                        serde_json::json!({ "value": stored }),
+                    )),
                     removed_ids,
                 )
             }
             OscEvent::StateLatencyResamplerPending { value } => {
                 let stored = s.set_latency_resampler_pending_value(value);
                 (
-                    Some(("latency:resampler_pending", serde_json::json!({ "value": stored }))),
+                    Some((
+                        "latency:resampler_pending",
+                        serde_json::json!({ "value": stored }),
+                    )),
                     removed_ids,
                 )
             }
@@ -1800,6 +1813,17 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 };
                 (
                     Some(("render:version", serde_json::json!({ "value": value }))),
+                    removed_ids,
+                )
+            }
+            OscEvent::StateRenderBridgeError { value } => {
+                s.render_bridge_error = if value.trim().is_empty() {
+                    None
+                } else {
+                    Some(value.clone())
+                };
+                (
+                    Some(("render:bridge_error", serde_json::json!({ "value": value }))),
                     removed_ids,
                 )
             }

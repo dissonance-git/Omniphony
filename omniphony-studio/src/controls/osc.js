@@ -66,11 +66,22 @@ export function renderOscStatus() {
     statusEl.textContent = statusText;
   }
   const oscConnectingHintEl = inOscPanel('oscConnectingHint');
+  const bridgeError = typeof app.renderBridgeError === 'string' ? app.renderBridgeError.trim() : '';
   if (oscConnectingHintEl) {
-    // While no renderer is connected, tell the user how to bring one up.
+    // While no renderer is connected, tell the user how to bring one up — but
+    // not when we already have a more specific bridge-error banner to show.
     const connecting = app.oscStatusState === 'reconnecting'
       || app.oscStatusState === 'initializing';
-    oscConnectingHintEl.style.display = connecting ? '' : 'none';
+    oscConnectingHintEl.style.display = (connecting && !bridgeError) ? '' : 'none';
+  }
+  // Decoder bridge missing → the renderer came up degraded (no spatial). Show a
+  // prominent red banner with the underlying error (from the degraded reporter's
+  // /state/render/bridge_error). Mirrors the "no orender server" hint styling.
+  const bridgeErrorBannerEl = inOscPanel('bridgeErrorBanner');
+  if (bridgeErrorBannerEl) {
+    bridgeErrorBannerEl.style.display = bridgeError ? '' : 'none';
+    const detailEl = inOscPanel('bridgeErrorDetail');
+    if (detailEl) detailEl.textContent = bridgeError;
   }
   if (pipeStatusEl && document.activeElement !== pipeStatusEl) {
     pipeStatusEl.value = app.orenderInputPipe || '';

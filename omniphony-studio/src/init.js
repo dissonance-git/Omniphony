@@ -604,6 +604,9 @@ export function applyInitState(payload) {
   if (typeof payload.renderVersion === 'string') {
     app.renderVersion = payload.renderVersion.trim() || null;
   }
+  if (typeof payload.renderBridgeError === 'string') {
+    app.renderBridgeError = payload.renderBridgeError.trim() || null;
+  }
   updateAboutConfigPath();
   updateAboutRendererVersion();
   if (payload.liveInput && typeof payload.liveInput === 'object') {

@@ -496,7 +496,8 @@ fn control_adaptive_resampling_high_recover_entry_margin_ms(state: State<SharedS
     send_control(
         &state.osc_tx,
         OscControlMsg::SendInt {
-            address: "/omniphony/control/adaptive_resampling/high_recover_entry_margin_ms".to_string(),
+            address: "/omniphony/control/adaptive_resampling/high_recover_entry_margin_ms"
+                .to_string(),
             value: value.max(1),
         },
     );

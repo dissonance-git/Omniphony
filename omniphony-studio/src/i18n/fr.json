@@ -418,6 +418,7 @@
   "status.reconnecting": "Reconnexion...",
   "status.error": "Erreur",
   "status.connectingHint": "Aucun renderer connecté. Lance soit <strong>orender</strong> pour créer une entrée audio SPDIF, soit <strong>mpv-omniphony</strong> qui embarque son propre renderer.",
+  "status.bridgeErrorTitle": "Bridge décodeur introuvable — audio spatial désactivé",
   "status.audioFormat": "audio : {rate} / {format}",
   "status.latencyFallback": "latence : raw {raw} | ctrl {ctrl}",
   "status.minValue": "min {value}",

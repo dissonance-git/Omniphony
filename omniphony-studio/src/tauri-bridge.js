@@ -316,6 +316,11 @@ export function setupTauriBridge() {
     updateAboutRendererVersion();
   });
 
+  listen('render:bridge_error', ({ payload }) => {
+    app.renderBridgeError = String(payload?.value ?? '').trim() || null;
+    renderOscStatus();
+  });
+
   // -----------------------------------------------------------------------
   // Room ratio
   // -----------------------------------------------------------------------
