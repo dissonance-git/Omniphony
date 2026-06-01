@@ -46,7 +46,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             omniphony-renderer/target
-          key: ${{ runner.os }}-ci-cargo-${{ hashFiles('omniphony-renderer/Cargo.lock') }}
+          # omniphony-renderer/Cargo.lock is gitignored, so key off the tracked
+          # manifests instead (cache invalidates when a dependency changes).
+          key: ${{ runner.os }}-ci-cargo-${{ hashFiles('omniphony-renderer/**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-ci-cargo-
 
       # ── Platform dependencies ─────────────────────────────────────────────
@@ -85,14 +87,16 @@ jobs:
             pkg-config
 
       # ── Rust: build + test (strict gate) ──────────────────────────────────
+      # No --locked: omniphony-renderer/Cargo.lock is gitignored (matches
+      # release.yml, which also resolves dependencies fresh).
       - name: Build renderer workspace
         working-directory: omniphony-renderer
-        run: cargo build --workspace --locked
+        run: cargo build --workspace
 
       # Excludes doctests on purpose (see header note).
       - name: Test renderer workspace
         working-directory: omniphony-renderer
-        run: cargo test --workspace --lib --bins --tests --locked
+        run: cargo test --workspace --lib --bins --tests
 
       # ── Studio frontend build (no Tauri bundling / no sidecar) ─────────────
       - name: Install Studio npm dependencies
