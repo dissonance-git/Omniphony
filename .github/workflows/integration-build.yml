@@ -5,6 +5,10 @@ name: Integration Build
 # tag and marked as a pre-release, so GitHub never shows it as the "Latest"
 # release (Latest = newest non-prerelease, non-draft). Testers always grab the
 # same URL; assets are replaced each run, not accumulated.
+#
+# Assets are renamed to `Omniphony-Studio-integration-<os>-x86_64.<ext>` rather
+# than the version-stamped names tauri-action emits, so they can't be mistaken
+# for a stable release (consistent with mpv-omniphony's integration bundles).
 on:
   workflow_dispatch:
   schedule:
@@ -16,23 +20,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  # Reset the rolling release + tag so it is recreated fresh at the current main
-  # commit (assets replaced, not piled up). Runs once before the matrix builds.
-  reset-release:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Delete previous integration release + tag (if any)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release delete integration --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
-
   build-studio:
-    needs: reset-release
-    permissions:
-      contents: write
-
     strategy:
       fail-fast: false
       matrix:
@@ -120,22 +108,79 @@ jobs:
           SDK_DIR=$(ls -d "$RUNNER_TEMP/asio_sdk/"*/ | head -1)
           echo "CPAL_ASIO_DIR=$SDK_DIR" >> "$GITHUB_ENV"
 
-      # ── Build ─────────────────────────────────────────────────────────────
+      # ── Build (no publish — we rename + publish ourselves below) ──────────
 
       - name: Install npm dependencies
         working-directory: omniphony-studio
         run: npm install
 
-      # tauri-action runs tauri.conf.json's beforeBuildCommand (build + sidecar).
-      # Publishes to the rolling `integration` tag as a PRE-RELEASE (never Latest).
-      - name: Build and publish (rolling integration pre-release)
+      # No tagName → tauri-action only builds (runs beforeBuildCommand: frontend
+      # build + prepare-sidecar), leaving bundles under src-tauri/target/.../bundle/.
+      - name: Build Studio bundles
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: omniphony-studio
-          tagName: integration
-          releaseName: 'Omniphony (integration build)'
-          releaseBody: 'Rolling integration build from `main` — for testers, NOT a stable release. Rebuilt daily and on demand; assets here are replaced each run.'
-          releaseDraft: false
+
+      # Rename to clear, version-less `integration` names so testers don't mistake
+      # them for a stable release. Each platform emits a distinct set of extensions.
+      - name: Stage renamed bundles
+        shell: bash
+        run: |
+          set -e
+          B=omniphony-studio/src-tauri/target/release/bundle
+          mkdir -p staging
+          shopt -s nullglob
+          copy_one() { # <glob> <dest>
+            local matches=( $1 )
+            if [ ${#matches[@]} -gt 0 ]; then
+              cp "${matches[0]}" "staging/$2"
+              echo "staged $2  <-  ${matches[0]}"
+            fi
+          }
+          copy_one "$B/deb/*.deb"            "Omniphony-Studio-integration-linux-x86_64.deb"
+          copy_one "$B/appimage/*.AppImage"  "Omniphony-Studio-integration-linux-x86_64.AppImage"
+          copy_one "$B/rpm/*.rpm"            "Omniphony-Studio-integration-linux-x86_64.rpm"
+          copy_one "$B/msi/*.msi"            "Omniphony-Studio-integration-windows-x86_64.msi"
+          copy_one "$B/nsis/*-setup.exe"     "Omniphony-Studio-integration-windows-x86_64-setup.exe"
+          ls -la staging/
+
+      - name: Upload bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-bundles-${{ runner.os }}
+          path: staging/*
+
+  publish-integration:
+    needs: build-studio
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: studio-bundles-*
+          merge-multiple: true
+          path: dist
+
+      # Reset the rolling release + tag so assets are replaced, not accumulated.
+      - name: Delete previous integration release + tag (if any)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete integration --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
+
+      - name: Publish rolling integration pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: integration
+          name: 'Omniphony Studio (integration build)'
           prerelease: true
+          make_latest: false
+          body: |
+            Rolling integration build of Omniphony Studio from `main` — for testers,
+            NOT a stable release. Rebuilt daily and on demand; assets here are
+            replaced each run. File names carry `integration` rather than a version
+            so they can't be confused with the official release.
+          files: dist/*
