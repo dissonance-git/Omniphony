@@ -1,0 +1,141 @@
+name: Integration Build
+
+# Rolling pre-release test build for testers, built from `main` (integration).
+# Manual on demand + once daily. Published under a single rolling `integration`
+# tag and marked as a pre-release, so GitHub never shows it as the "Latest"
+# release (Latest = newest non-prerelease, non-draft). Testers always grab the
+# same URL; assets are replaced each run, not accumulated.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * *' # daily 04:00 UTC
+
+# Opt every JavaScript action into the Node 24 runtime (actions/cache@v4 and
+# tauri-action still ship Node 20 entrypoints).
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  # Reset the rolling release + tag so it is recreated fresh at the current main
+  # commit (assets replaced, not piled up). Runs once before the matrix builds.
+  reset-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Delete previous integration release + tag (if any)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete integration --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
+
+  build-studio:
+    needs: reset-release
+    permissions:
+      contents: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+          - platform: windows-latest
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # ── Toolchains ────────────────────────────────────────────────────────
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            omniphony-renderer/target
+            omniphony-studio/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('omniphony-renderer/Cargo.lock', 'omniphony-studio/src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # ── Platform dependencies ─────────────────────────────────────────────
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          # PPA required: ubuntu-22.04 ships PipeWire 0.3.48 but pipewire-rs 0.9.x
+          # needs >= 0.3.65. This PPA provides a compatible 0.3.85+ build.
+          for attempt in 1 2 3; do
+            if sudo add-apt-repository ppa:pipewire-debian/pipewire-upstream -y; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Failed to add PipeWire PPA after $attempt attempts" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          for attempt in 1 2 3; do
+            if sudo apt-get update; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "apt-get update failed after $attempt attempts" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libpipewire-0.3-dev \
+            pkg-config
+
+      # ASIO SDK (Steinberg) — required to compile cpal with ASIO on Windows.
+      - name: Setup ASIO SDK (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.ASIO_SDK_TOKEN }}
+          ASIO_SDK_URL: ${{ secrets.ASIO_SDK_URL }}
+        run: |
+          REPO=$(echo "$ASIO_SDK_URL" | sed 's|https://github.com/\([^/]*/[^/]*\)/.*|\1|')
+          TAG=$(echo "$ASIO_SDK_URL" | sed 's|.*/releases/download/\([^/]*\)/.*|\1|')
+          FILENAME=$(basename "$ASIO_SDK_URL")
+          echo "Downloading $FILENAME from $REPO @ $TAG"
+          gh release download "$TAG" --repo "$REPO" --pattern "$FILENAME" --dir "$RUNNER_TEMP"
+          7z x "$RUNNER_TEMP/$FILENAME" -o"$RUNNER_TEMP/asio_sdk"
+          ls "$RUNNER_TEMP/asio_sdk/"
+          SDK_DIR=$(ls -d "$RUNNER_TEMP/asio_sdk/"*/ | head -1)
+          echo "CPAL_ASIO_DIR=$SDK_DIR" >> "$GITHUB_ENV"
+
+      # ── Build ─────────────────────────────────────────────────────────────
+
+      - name: Install npm dependencies
+        working-directory: omniphony-studio
+        run: npm install
+
+      # tauri-action runs tauri.conf.json's beforeBuildCommand (build + sidecar).
+      # Publishes to the rolling `integration` tag as a PRE-RELEASE (never Latest).
+      - name: Build and publish (rolling integration pre-release)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: omniphony-studio
+          tagName: integration
+          releaseName: 'Omniphony (integration build)'
+          releaseBody: 'Rolling integration build from `main` — for testers, NOT a stable release. Rebuilt daily and on demand; assets here are replaced each run.'
+          releaseDraft: false
+          prerelease: true
