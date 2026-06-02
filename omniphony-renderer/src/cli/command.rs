@@ -373,7 +373,7 @@ pub struct RenderArgs {
     #[arg(
         long,
         value_name = "DB",
-        default_value_t = 0.0,
+        default_value_t = renderer::config_fields::master_gain::DEFAULT,
         allow_hyphen_values = true
     )]
     pub master_gain: f32,

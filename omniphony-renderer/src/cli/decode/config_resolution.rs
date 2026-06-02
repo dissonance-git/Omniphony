@@ -141,7 +141,7 @@ pub(super) fn merge_render_config(
         }
     }
     if !arg_sources.is_explicit("master_gain") {
-        if let Some(v) = cfg.master_gain {
+        if let Some(v) = renderer::config_fields::master_gain::get(cfg) {
             args.master_gain = v;
         }
     }
@@ -219,13 +219,15 @@ pub(super) fn merge_render_config(
     }
     // use_loudness
     if !arg_sources.is_explicit("use_loudness") && !arg_sources.is_explicit("no_loudness") {
-        args.use_loudness = cfg.use_loudness.unwrap_or(false);
+        args.use_loudness = renderer::config_fields::use_loudness::get(cfg)
+            .unwrap_or(renderer::config_fields::use_loudness::DEFAULT);
     } else if args.no_loudness {
         args.use_loudness = false;
     }
     // auto_gain
     if !arg_sources.is_explicit("auto_gain") && !arg_sources.is_explicit("no_auto_gain") {
-        args.auto_gain = cfg.auto_gain.unwrap_or(false);
+        args.auto_gain = renderer::config_fields::auto_gain::get(cfg)
+            .unwrap_or(renderer::config_fields::auto_gain::DEFAULT);
     } else if args.no_auto_gain {
         args.auto_gain = false;
     }
@@ -371,11 +373,7 @@ pub(super) fn effective_to_config(
         None
     };
     renderer::config_fields::vbap_distance_model::store(&mut render, &args.vbap_distance_model);
-    render.master_gain = if args.master_gain != 0.0 {
-        Some(args.master_gain)
-    } else {
-        None
-    };
+    renderer::config_fields::master_gain::store(&mut render, args.master_gain);
     // The CLI works in ratios; metres are a save-time representation only, so
     // clear any metre fields a prior Studio save left behind to keep the ratio
     // representation authoritative on the next load.
@@ -415,8 +413,8 @@ pub(super) fn effective_to_config(
         render.latency_target = args.latency_target_ms;
     }
     render.continuous = if args.continuous { Some(true) } else { None };
-    render.use_loudness = if args.use_loudness { Some(true) } else { None };
-    render.auto_gain = if args.auto_gain { Some(true) } else { None };
+    renderer::config_fields::use_loudness::store(&mut render, args.use_loudness);
+    renderer::config_fields::auto_gain::store(&mut render, args.auto_gain);
     render.bed_conform = if args.bed_conform { Some(true) } else { None };
     render.spread_from_distance = if args.spread_from_distance {
         Some(true)

@@ -205,6 +205,33 @@ render_field_str! {
     field = vbap_distance_model
 }
 
+// ── Lot 3: gain / loudness ──
+
+render_field! {
+    /// Master output gain in dB (`render.master_gain`). The CLI writer used
+    /// exact `!= 0.0`, the live writer a 0.01 dB tolerance (it derives dB from
+    /// the linear live gain); unified on 0.01 dB (sub-0.01 dB is inaudible).
+    pub master_gain: f32 = 0.0,
+    field = master_gain,
+    eq = |a: &f32, b: &f32| (a - b).abs() <= 0.01
+}
+
+render_field! {
+    /// Automatic gain reduction to avoid clipping (`render.auto_gain`).
+    /// Note: only the CLI writer persists this; the live path leaves it
+    /// untouched (preserved from the existing config).
+    pub auto_gain: bool = false,
+    field = auto_gain,
+    eq = bool::eq
+}
+
+render_field! {
+    /// Loudness metadata correction toward -31 dBFS (`render.use_loudness`).
+    pub use_loudness: bool = false,
+    field = use_loudness,
+    eq = bool::eq
+}
+
 #[cfg(test)]
 mod tests {
     use crate::config::RenderConfig;

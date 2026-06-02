@@ -149,9 +149,15 @@ impl SpatialRendererParams {
             room_ratio_rear: cfg.and_then(|c| c.room_ratio_rear),
             room_ratio_lower: cfg.and_then(|c| c.room_ratio_lower),
             room_ratio_center_blend: cfg.and_then(|c| c.room_ratio_center_blend),
-            master_gain: cfg.and_then(|c| c.master_gain).unwrap_or(0.0),
-            auto_gain: cfg.and_then(|c| c.auto_gain).unwrap_or(false),
-            use_loudness: cfg.and_then(|c| c.use_loudness).unwrap_or(false),
+            master_gain: cfg
+                .and_then(renderer::config_fields::master_gain::get)
+                .unwrap_or(renderer::config_fields::master_gain::DEFAULT),
+            auto_gain: cfg
+                .and_then(renderer::config_fields::auto_gain::get)
+                .unwrap_or(renderer::config_fields::auto_gain::DEFAULT),
+            use_loudness: cfg
+                .and_then(renderer::config_fields::use_loudness::get)
+                .unwrap_or(renderer::config_fields::use_loudness::DEFAULT),
             distance_diffuse: cfg
                 .and_then(renderer::config_fields::distance_diffuse::get)
                 .unwrap_or(renderer::config_fields::distance_diffuse::DEFAULT),

@@ -55,11 +55,7 @@ pub fn save_live_config(
     render.speaker_layout = None;
 
     let master_gain_db = 20.0_f32 * live.master_gain.log10();
-    render.master_gain = if master_gain_db.abs() > 0.01 {
-        Some(master_gain_db)
-    } else {
-        None
-    };
+    renderer::config_fields::master_gain::store(render, master_gain_db);
 
     renderer::config_fields::vbap_spread_min::store(render, live.spread_min);
     renderer::config_fields::vbap_spread_max::store(render, live.spread_max);
@@ -126,7 +122,7 @@ pub fn save_live_config(
         } else {
             None
         };
-    render.use_loudness = if live.use_loudness { Some(true) } else { None };
+    renderer::config_fields::use_loudness::store(render, live.use_loudness);
     renderer::config_fields::vbap_distance_model::store(render, live.distance_model.to_string());
     // Room geometry is persisted in metres. Width is the reference and the room
     // scale is Width/2 = the layout radius, so metres = ratio × radius × factor
