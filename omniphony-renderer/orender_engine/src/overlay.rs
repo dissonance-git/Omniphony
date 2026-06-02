@@ -157,6 +157,10 @@ struct OverlayState {
     /// Number of flattened depth planes in the energy heatmap (1..=12). Mirrors
     /// Studio's "Planes per axis" slider; defaults to `FIELD_BANDS`.
     heatmap_bands: usize,
+    /// Colour gradient index for the energy heatmap, mirroring Studio's
+    /// `OBJECT_ENERGY_COLORMAPS`: 0 heatmap, 1 blue→white, 2 white→red,
+    /// 3 red (alpha-only). See `heatmap_rgb`.
+    heatmap_colormap: u8,
     cfg: TrailCfg,
 }
 
@@ -171,6 +175,7 @@ impl Default for OverlayState {
             labels_enabled: true,  // on by default, like Studio's 3D view
             objects_visible: true, // on by default
             heatmap_bands: FIELD_BANDS,
+            heatmap_colormap: 1, // blue→white, like Studio's default
             cfg: TrailCfg::default(),
         }
     }
@@ -281,6 +286,15 @@ pub fn set_objects_visible(on: bool) {
 pub fn set_heatmap_bands(count: usize) {
     if let Ok(mut s) = overlay().state.lock() {
         s.heatmap_bands = count.clamp(1, 12);
+    }
+}
+
+/// Set the energy-heatmap colour gradient (mirrors Studio's gradient selector).
+/// Index follows `OBJECT_ENERGY_COLORMAPS`: 0 heatmap, 1 blue→white, 2 white→red,
+/// 3 red (alpha-only). Transient — Studio owns the value and re-pushes it.
+pub fn set_heatmap_colormap(idx: usize) {
+    if let Ok(mut s) = overlay().state.lock() {
+        s.heatmap_colormap = idx.min(3) as u8;
     }
 }
 
@@ -612,20 +626,28 @@ const HEATMAP_STOPS: [(f64, f64, f64, f64); 5] = [
     (1.00, 1.0, 0.0, 0.0), // red
 ];
 
-fn heatmap_rgb(t: f64) -> (u8, u8, u8) {
+/// Map `t` ∈ [0, 1] to an RGB colour for the selected `colormap` (mirror of
+/// Studio's `objectEnergyColor`). The alpha is applied by the caller (it always
+/// encodes the value); colormap 3 (red) keeps the colour constant so only the
+/// alpha conveys energy.
+fn heatmap_rgb(t: f64, colormap: u8) -> (u8, u8, u8) {
     let t = clamp(t, 0.0, 1.0);
-    let mut i = 0;
-    while i + 1 < HEATMAP_STOPS.len() && t > HEATMAP_STOPS[i + 1].0 {
-        i += 1;
+    let to8 = |v: f64| (v * 255.0).round() as u8;
+    match colormap {
+        3 => (255, 0, 0),                          // red: alpha-only
+        2 => (255, to8(1.0 - t), to8(1.0 - t)),    // white → red
+        1 => (to8(t), to8(t), 255),                // blue → white
+        _ => {
+            let mut i = 0;
+            while i + 1 < HEATMAP_STOPS.len() && t > HEATMAP_STOPS[i + 1].0 {
+                i += 1;
+            }
+            let (t0, r0, g0, b0) = HEATMAP_STOPS[i];
+            let (t1, r1, g1, b1) = HEATMAP_STOPS[(i + 1).min(HEATMAP_STOPS.len() - 1)];
+            let f = if t1 > t0 { (t - t0) / (t1 - t0) } else { 0.0 };
+            (to8(r0 + (r1 - r0) * f), to8(g0 + (g1 - g0) * f), to8(b0 + (b1 - b0) * f))
+        }
     }
-    let (t0, r0, g0, b0) = HEATMAP_STOPS[i];
-    let (t1, r1, g1, b1) = HEATMAP_STOPS[(i + 1).min(HEATMAP_STOPS.len() - 1)];
-    let f = if t1 > t0 { (t - t0) / (t1 - t0) } else { 0.0 };
-    (
-        ((r0 + (r1 - r0) * f) * 255.0).round() as u8,
-        ((g0 + (g1 - g0) * f) * 255.0).round() as u8,
-        ((b0 + (b1 - b0) * f) * 255.0).round() as u8,
-    )
 }
 
 /// A finished heatmap bitmap ready for mpv's `overlay-add` (BGRA, premultiplied
@@ -743,6 +765,7 @@ fn build_heatmap_bitmap(s: &OverlayState, res_x: f64, res_y: f64) -> Option<Heat
     // darker. A single ramp hue per pixel from the combined field avoids that
     // entirely, with alpha bounded by FIELD_OPACITY, while the planes' nested
     // on-screen extents still convey the pseudo-3D depth.
+    let colormap = s.heatmap_colormap;
     let mut pixels = vec![0u8; w * h * 4];
     for idx in 0..w * h {
         let mut e = 0.0f32;
@@ -755,7 +778,7 @@ fn build_heatmap_bitmap(s: &OverlayState, res_x: f64, res_y: f64) -> Option<Heat
         if t < 0.01 {
             continue; // leave fully transparent
         }
-        let (r8, g8, b8) = heatmap_rgb(t);
+        let (r8, g8, b8) = heatmap_rgb(t, colormap);
         let a = t * FIELD_OPACITY; // [0, FIELD_OPACITY]
         let o = idx * 4;
         // Premultiplied BGRA.

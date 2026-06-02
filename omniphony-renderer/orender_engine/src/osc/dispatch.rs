@@ -106,6 +106,15 @@ pub(crate) fn handle_control_message(
         crate::overlay::set_heatmap_bands(count);
         return;
     }
+    if addr == "/omniphony/control/overlay/heatmap_colormap" {
+        let idx = match msg.args.first() {
+            Some(OscType::Int(i)) if *i >= 0 => *i as usize,
+            Some(OscType::Float(f)) if *f >= 0.0 => *f as usize,
+            _ => return,
+        };
+        crate::overlay::set_heatmap_colormap(idx);
+        return;
+    }
     if addr == "/omniphony/control/overlay/trails" {
         // Args mirror Studio's former wire fields: enabled, ttl_ms, mode, teleport.
         let enabled = match msg.args.first() {

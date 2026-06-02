@@ -11,6 +11,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { app } from './state.js';
 import { pushLog } from './log.js';
+import { colormapIndex } from './scene/object-energy-shared.js';
 
 const overlay = {
   enabled: true
@@ -61,6 +62,7 @@ export function getMpvOverlayStatus() {
 export function syncMpvOverlayPrefs() {
   invoke('mpv_overlay_set_objects', { visible: app.objectsVisible !== false }).catch(() => {});
   invoke('mpv_overlay_set_heatmap_bands', { count: app.objectEnergyHeatmapBandCount }).catch(() => {});
+  invoke('mpv_overlay_set_heatmap_colormap', { colormap: colormapIndex(app.objectEnergyColormap) }).catch(() => {});
   invoke('mpv_overlay_set_labels', { enabled: app.objectLabelsEnabled }).catch(() => {});
   pushMpvOverlayTrailPrefs(
     app.trailsEnabled,

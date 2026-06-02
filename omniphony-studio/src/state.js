@@ -371,17 +371,22 @@ export const app = {
   speakerHeatmapBandIndex: 0,
   speakerHeatmapSampleCount: 3072,
   speakerHeatmapMaxSphereSize: 0.062,
-  // Object energy heatmap (client-side theoretical field, 3 depth bands).
+  // Object energy field (client-side theoretical field, ray-marched 3D volume).
   objectEnergyHeatmapEnabled: false,
-  // Which slicing axes are rendered (depth / width / height stacks).
-  objectEnergyHeatmapAxisX: true,
-  objectEnergyHeatmapAxisY: false,
-  objectEnergyHeatmapAxisZ: false,
-  objectEnergyHeatmapBandCount: 3,
-  objectEnergyHeatmapResolution: 24,
-  objectEnergyHeatmapDepthSubsamples: 4,
-  objectEnergyHeatmapFalloffRadius: 0.12,
-  objectEnergyHeatmapOpacity: 0.55,
+  // Colour gradient: 'heatmap' | 'blueWhite' | 'whiteRed' | 'red'.
+  objectEnergyColormap: 'blueWhite',
+  // Both projections (accumulate front-to-back + peak/MIP) are computed together
+  // and blended by `objectEnergyVolumeMix` (0 = pure accumulate, 1 = pure peak).
+  // They have different alpha semantics (one sample vs the whole ray), so each
+  // keeps its own γ — a single value isn't comparable between them.
+  objectEnergyVolumeMix: 0.6,
+  objectEnergyVolumeGammaAccumulate: 4,
+  objectEnergyVolumeGammaMip: 3,
+  objectEnergyHeatmapResolution: 64,
+  objectEnergyHeatmapFalloffRadius: 0.5,
+  objectEnergyHeatmapOpacity: 1,
+  // Drives the mpv overlay's depth-plane count (not the Studio 3D view).
+  objectEnergyHeatmapBandCount: 12,
   lastObjectEnergyHeatmapAt: 0,
   speakerSize: 0.08,
   effectiveRenderEnabled: false,

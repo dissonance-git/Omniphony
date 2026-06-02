@@ -6,7 +6,8 @@ import { scene } from '../scene/setup.js';
 import { applySpeakerLevel, updateSourceDecorations, updateSourceSelectionStyles, applyObjectsVisibility } from '../sources.js';
 import { refreshOverlayLists, updateSpeakerVisualsFromState } from '../speakers.js';
 import { subscribeSpeakerHeatmap, syncSpeakerHeatmapBandSelect } from '../scene/speaker-heatmap.js';
-import { refreshObjectEnergyHeatmap } from '../scene/object-energy-heatmap.js';
+import { refreshObjectEnergyVolume } from '../scene/object-energy-volume.js';
+import { clampVolumeGamma, colormapIndex } from '../scene/object-energy-shared.js';
 import {
   getMpvOverlayStatus,
   setMpvOverlayEnabled,
@@ -41,11 +42,13 @@ export function setupTrailsAndDisplayListeners() {
   const speakerHeatmapMaxSphereSizeSliderEl = document.getElementById('speakerHeatmapMaxSphereSizeSlider');
   const speakerHeatmapMaxSphereSizeValEl = document.getElementById('speakerHeatmapMaxSphereSizeVal');
   const objectEnergyHeatmapToggleEl = document.getElementById('objectEnergyHeatmapToggle');
-  const objectEnergyHeatmapAxisXToggleEl = document.getElementById('objectEnergyHeatmapAxisXToggle');
-  const objectEnergyHeatmapAxisYToggleEl = document.getElementById('objectEnergyHeatmapAxisYToggle');
-  const objectEnergyHeatmapAxisZToggleEl = document.getElementById('objectEnergyHeatmapAxisZToggle');
-  const objectEnergyHeatmapBandCountSliderEl = document.getElementById('objectEnergyHeatmapBandCountSlider');
-  const objectEnergyHeatmapBandCountValEl = document.getElementById('objectEnergyHeatmapBandCountVal');
+  const objectEnergyColormapEl = document.getElementById('objectEnergyColormap');
+  const objectEnergyVolumeMixSliderEl = document.getElementById('objectEnergyVolumeMixSlider');
+  const objectEnergyVolumeMixValEl = document.getElementById('objectEnergyVolumeMixVal');
+  const objectEnergyVolumeGammaAccumulateSliderEl = document.getElementById('objectEnergyVolumeGammaAccumulateSlider');
+  const objectEnergyVolumeGammaAccumulateValEl = document.getElementById('objectEnergyVolumeGammaAccumulateVal');
+  const objectEnergyVolumeGammaMipSliderEl = document.getElementById('objectEnergyVolumeGammaMipSlider');
+  const objectEnergyVolumeGammaMipValEl = document.getElementById('objectEnergyVolumeGammaMipVal');
   const objectEnergyHeatmapResolutionSliderEl = document.getElementById('objectEnergyHeatmapResolutionSlider');
   const objectEnergyHeatmapResolutionValEl = document.getElementById('objectEnergyHeatmapResolutionVal');
   const objectEnergyHeatmapRadiusSliderEl = document.getElementById('objectEnergyHeatmapRadiusSlider');
@@ -340,7 +343,7 @@ export function setupTrailsAndDisplayListeners() {
   // throttle window, so UI changes feel instant.
   const refreshObjectEnergyHeatmapNow = () => {
     app.lastObjectEnergyHeatmapAt = 0;
-    refreshObjectEnergyHeatmap(performance.now());
+    refreshObjectEnergyVolume(performance.now());
   };
 
   if (objectEnergyHeatmapToggleEl) {
@@ -352,36 +355,52 @@ export function setupTrailsAndDisplayListeners() {
     });
   }
 
-  const bindAxisToggle = (el, key) => {
-    if (!el) return;
-    el.checked = app[key];
-    el.addEventListener('change', () => {
-      app[key] = el.checked;
+  // Colour gradient — applies to the Studio 3D volume and the mpv overlay.
+  if (objectEnergyColormapEl) {
+    objectEnergyColormapEl.value = app.objectEnergyColormap;
+    objectEnergyColormapEl.addEventListener('change', () => {
+      app.objectEnergyColormap = objectEnergyColormapEl.value;
+      refreshObjectEnergyHeatmapNow();
+      invoke('mpv_overlay_set_heatmap_colormap', { colormap: colormapIndex(app.objectEnergyColormap) }).catch(() => {});
+      persistEffectiveRenderPrefs();
+    });
+  }
+
+  // Mix slider: 0 = pure accumulate … 1 = pure peak. Both components render at
+  // once and are blended in the shader.
+  if (objectEnergyVolumeMixSliderEl) {
+    objectEnergyVolumeMixSliderEl.value = String(app.objectEnergyVolumeMix);
+    if (objectEnergyVolumeMixValEl) {
+      objectEnergyVolumeMixValEl.textContent = app.objectEnergyVolumeMix.toFixed(2);
+    }
+    objectEnergyVolumeMixSliderEl.addEventListener('input', () => {
+      const next = Number(objectEnergyVolumeMixSliderEl.value);
+      app.objectEnergyVolumeMix = Math.max(0, Math.min(1, Number.isFinite(next) ? next : 0));
+      if (objectEnergyVolumeMixValEl) {
+        objectEnergyVolumeMixValEl.textContent = app.objectEnergyVolumeMix.toFixed(2);
+      }
+      refreshObjectEnergyHeatmapNow();
+      persistEffectiveRenderPrefs();
+    });
+  }
+
+  // Each component keeps its own γ (own range): peak weighs one sample, accumulate
+  // integrates the whole ray, so a shared value isn't comparable.
+  const bindVolumeGamma = (sliderEl, valEl, field, projection, digits) => {
+    if (!sliderEl) return;
+    sliderEl.value = String(app[field]);
+    if (valEl) valEl.textContent = app[field].toFixed(digits);
+    sliderEl.addEventListener('input', () => {
+      app[field] = clampVolumeGamma(projection, sliderEl.value);
+      if (valEl) valEl.textContent = app[field].toFixed(digits);
       refreshObjectEnergyHeatmapNow();
       persistEffectiveRenderPrefs();
     });
   };
-  bindAxisToggle(objectEnergyHeatmapAxisXToggleEl, 'objectEnergyHeatmapAxisX');
-  bindAxisToggle(objectEnergyHeatmapAxisYToggleEl, 'objectEnergyHeatmapAxisY');
-  bindAxisToggle(objectEnergyHeatmapAxisZToggleEl, 'objectEnergyHeatmapAxisZ');
-
-  if (objectEnergyHeatmapBandCountSliderEl) {
-    objectEnergyHeatmapBandCountSliderEl.value = String(app.objectEnergyHeatmapBandCount);
-    if (objectEnergyHeatmapBandCountValEl) {
-      objectEnergyHeatmapBandCountValEl.textContent = String(app.objectEnergyHeatmapBandCount);
-    }
-    objectEnergyHeatmapBandCountSliderEl.addEventListener('input', () => {
-      const next = Number(objectEnergyHeatmapBandCountSliderEl.value);
-      app.objectEnergyHeatmapBandCount = Math.max(1, Math.min(12, Math.round(Number.isFinite(next) ? next : 3)));
-      if (objectEnergyHeatmapBandCountValEl) {
-        objectEnergyHeatmapBandCountValEl.textContent = String(app.objectEnergyHeatmapBandCount);
-      }
-      refreshObjectEnergyHeatmapNow();
-      // Also drives the mpv overlay's depth-plane count.
-      invoke('mpv_overlay_set_heatmap_bands', { count: app.objectEnergyHeatmapBandCount }).catch(() => {});
-      persistEffectiveRenderPrefs();
-    });
-  }
+  bindVolumeGamma(objectEnergyVolumeGammaAccumulateSliderEl, objectEnergyVolumeGammaAccumulateValEl,
+    'objectEnergyVolumeGammaAccumulate', 'accumulate', 1);
+  bindVolumeGamma(objectEnergyVolumeGammaMipSliderEl, objectEnergyVolumeGammaMipValEl,
+    'objectEnergyVolumeGammaMip', 'mip', 2);
 
   if (objectEnergyHeatmapResolutionSliderEl) {
     objectEnergyHeatmapResolutionSliderEl.value = String(app.objectEnergyHeatmapResolution);

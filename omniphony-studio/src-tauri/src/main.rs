@@ -2497,6 +2497,20 @@ fn mpv_overlay_set_heatmap_bands(state: State<SharedState>, count: i32) {
     );
 }
 
+/// Set the energy-heatmap colour gradient in the mpv overlay. The index mirrors
+/// Studio's `OBJECT_ENERGY_COLORMAPS` (0 heatmap, 1 blue→white, 2 white→red,
+/// 3 red). Travels as OSC control to the renderer.
+#[tauri::command]
+fn mpv_overlay_set_heatmap_colormap(state: State<SharedState>, colormap: i32) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendInt {
+            address: "/omniphony/control/overlay/heatmap_colormap".to_string(),
+            value: colormap.clamp(0, 3),
+        },
+    );
+}
+
 // ── main ─────────────────────────────────────────────────────────────────
 
 fn main() {
@@ -2708,6 +2722,7 @@ fn main() {
             mpv_overlay_set_labels,
             mpv_overlay_set_objects,
             mpv_overlay_set_heatmap_bands,
+            mpv_overlay_set_heatmap_colormap,
         ])
         .run(tauri::generate_context!())
         .expect("error running Tauri application");
