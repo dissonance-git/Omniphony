@@ -97,13 +97,17 @@ impl SpatialRendererParams {
         Self {
             vbap_table: None,
             evaluation_polar_azimuth_resolution: cfg
-                .and_then(|c| c.vbap_azimuth_resolution)
-                .unwrap_or(360),
+                .and_then(renderer::config_fields::vbap_azimuth_resolution::get)
+                .unwrap_or(renderer::config_fields::vbap_azimuth_resolution::DEFAULT),
             evaluation_polar_elevation_resolution: cfg
-                .and_then(|c| c.vbap_elevation_resolution)
-                .unwrap_or(180),
-            evaluation_polar_distance_res: cfg.and_then(|c| c.vbap_distance_res).unwrap_or(8),
-            evaluation_polar_distance_max: cfg.and_then(|c| c.vbap_distance_max).unwrap_or(2.0),
+                .and_then(renderer::config_fields::vbap_elevation_resolution::get)
+                .unwrap_or(renderer::config_fields::vbap_elevation_resolution::DEFAULT),
+            evaluation_polar_distance_res: cfg
+                .and_then(renderer::config_fields::vbap_distance_res::get)
+                .unwrap_or(renderer::config_fields::vbap_distance_res::DEFAULT),
+            evaluation_polar_distance_max: cfg
+                .and_then(renderer::config_fields::vbap_distance_max::get)
+                .unwrap_or(renderer::config_fields::vbap_distance_max::DEFAULT),
             render_evaluation_mode,
             evaluation_mode_explicit: false,
             evaluation_cartesian_x_size: cfg.and_then(|c| c.evaluation_cartesian_x_size),
@@ -116,16 +120,30 @@ impl SpatialRendererParams {
                 Some(false)
             ),
             render_evaluation_position_interpolation: cfg
-                .and_then(|c| c.render_evaluation_position_interpolation)
-                .unwrap_or(true),
+                .and_then(renderer::config_fields::render_evaluation_position_interpolation::get)
+                .unwrap_or(
+                    renderer::config_fields::render_evaluation_position_interpolation::DEFAULT,
+                ),
             vbap_distance_model: cfg
-                .and_then(|c| c.vbap_distance_model.clone())
-                .unwrap_or_else(|| "none".to_string()),
-            spread_from_distance: cfg.and_then(|c| c.spread_from_distance).unwrap_or(false),
-            spread_distance_range: cfg.and_then(|c| c.spread_distance_range).unwrap_or(1.0),
-            spread_distance_curve: cfg.and_then(|c| c.spread_distance_curve).unwrap_or(1.0),
-            vbap_spread_min: cfg.and_then(|c| c.vbap_spread_min).unwrap_or(0.0),
-            vbap_spread_max: cfg.and_then(|c| c.vbap_spread_max).unwrap_or(1.0),
+                .and_then(renderer::config_fields::vbap_distance_model::get)
+                .unwrap_or_else(|| {
+                    renderer::config_fields::vbap_distance_model::DEFAULT.to_string()
+                }),
+            spread_from_distance: cfg
+                .and_then(renderer::config_fields::spread_from_distance::get)
+                .unwrap_or(renderer::config_fields::spread_from_distance::DEFAULT),
+            spread_distance_range: cfg
+                .and_then(renderer::config_fields::spread_distance_range::get)
+                .unwrap_or(renderer::config_fields::spread_distance_range::DEFAULT),
+            spread_distance_curve: cfg
+                .and_then(renderer::config_fields::spread_distance_curve::get)
+                .unwrap_or(renderer::config_fields::spread_distance_curve::DEFAULT),
+            vbap_spread_min: cfg
+                .and_then(renderer::config_fields::vbap_spread_min::get)
+                .unwrap_or(renderer::config_fields::vbap_spread_min::DEFAULT),
+            vbap_spread_max: cfg
+                .and_then(renderer::config_fields::vbap_spread_max::get)
+                .unwrap_or(renderer::config_fields::vbap_spread_max::DEFAULT),
             log_object_positions: false,
             room_ratio: cfg
                 .and_then(|c| c.room_ratio.clone())
@@ -133,14 +151,24 @@ impl SpatialRendererParams {
             room_ratio_rear: cfg.and_then(|c| c.room_ratio_rear),
             room_ratio_lower: cfg.and_then(|c| c.room_ratio_lower),
             room_ratio_center_blend: cfg.and_then(|c| c.room_ratio_center_blend),
-            master_gain: cfg.and_then(|c| c.master_gain).unwrap_or(0.0),
-            auto_gain: cfg.and_then(|c| c.auto_gain).unwrap_or(false),
-            use_loudness: cfg.and_then(|c| c.use_loudness).unwrap_or(false),
-            distance_diffuse: cfg.and_then(|c| c.distance_diffuse).unwrap_or(false),
+            master_gain: cfg
+                .and_then(renderer::config_fields::master_gain::get)
+                .unwrap_or(renderer::config_fields::master_gain::DEFAULT),
+            auto_gain: cfg
+                .and_then(renderer::config_fields::auto_gain::get)
+                .unwrap_or(renderer::config_fields::auto_gain::DEFAULT),
+            use_loudness: cfg
+                .and_then(renderer::config_fields::use_loudness::get)
+                .unwrap_or(renderer::config_fields::use_loudness::DEFAULT),
+            distance_diffuse: cfg
+                .and_then(renderer::config_fields::distance_diffuse::get)
+                .unwrap_or(renderer::config_fields::distance_diffuse::DEFAULT),
             distance_diffuse_threshold: cfg
-                .and_then(|c| c.distance_diffuse_threshold)
-                .unwrap_or(1.0),
-            distance_diffuse_curve: cfg.and_then(|c| c.distance_diffuse_curve).unwrap_or(1.0),
+                .and_then(renderer::config_fields::distance_diffuse_threshold::get)
+                .unwrap_or(renderer::config_fields::distance_diffuse_threshold::DEFAULT),
+            distance_diffuse_curve: cfg
+                .and_then(renderer::config_fields::distance_diffuse_curve::get)
+                .unwrap_or(renderer::config_fields::distance_diffuse_curve::DEFAULT),
         }
     }
 }

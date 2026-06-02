@@ -300,7 +300,11 @@ mod tests {
     // file next to the test binary and request it by bare relative name.
     #[test]
     fn relative_resolves_next_to_exe() {
-        let dir = std::env::current_exe().unwrap().parent().unwrap().to_path_buf();
+        let dir = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf();
         let name = format!("orender_{}_reltest_bridge.so", std::process::id());
         let full = dir.join(&name);
         fs::write(&full, b"x").unwrap();
