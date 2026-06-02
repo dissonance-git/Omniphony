@@ -125,11 +125,17 @@ impl SpatialRendererParams {
                     renderer::config_fields::render_evaluation_position_interpolation::DEFAULT,
                 ),
             vbap_distance_model: cfg
-                .and_then(|c| c.vbap_distance_model.clone())
-                .unwrap_or_else(|| "none".to_string()),
+                .and_then(renderer::config_fields::vbap_distance_model::get)
+                .unwrap_or_else(|| {
+                    renderer::config_fields::vbap_distance_model::DEFAULT.to_string()
+                }),
             spread_from_distance: cfg.and_then(|c| c.spread_from_distance).unwrap_or(false),
-            spread_distance_range: cfg.and_then(|c| c.spread_distance_range).unwrap_or(1.0),
-            spread_distance_curve: cfg.and_then(|c| c.spread_distance_curve).unwrap_or(1.0),
+            spread_distance_range: cfg
+                .and_then(renderer::config_fields::spread_distance_range::get)
+                .unwrap_or(renderer::config_fields::spread_distance_range::DEFAULT),
+            spread_distance_curve: cfg
+                .and_then(renderer::config_fields::spread_distance_curve::get)
+                .unwrap_or(renderer::config_fields::spread_distance_curve::DEFAULT),
             vbap_spread_min: cfg
                 .and_then(renderer::config_fields::vbap_spread_min::get)
                 .unwrap_or(renderer::config_fields::vbap_spread_min::DEFAULT),
@@ -146,11 +152,15 @@ impl SpatialRendererParams {
             master_gain: cfg.and_then(|c| c.master_gain).unwrap_or(0.0),
             auto_gain: cfg.and_then(|c| c.auto_gain).unwrap_or(false),
             use_loudness: cfg.and_then(|c| c.use_loudness).unwrap_or(false),
-            distance_diffuse: cfg.and_then(|c| c.distance_diffuse).unwrap_or(false),
+            distance_diffuse: cfg
+                .and_then(renderer::config_fields::distance_diffuse::get)
+                .unwrap_or(renderer::config_fields::distance_diffuse::DEFAULT),
             distance_diffuse_threshold: cfg
-                .and_then(|c| c.distance_diffuse_threshold)
-                .unwrap_or(1.0),
-            distance_diffuse_curve: cfg.and_then(|c| c.distance_diffuse_curve).unwrap_or(1.0),
+                .and_then(renderer::config_fields::distance_diffuse_threshold::get)
+                .unwrap_or(renderer::config_fields::distance_diffuse_threshold::DEFAULT),
+            distance_diffuse_curve: cfg
+                .and_then(renderer::config_fields::distance_diffuse_curve::get)
+                .unwrap_or(renderer::config_fields::distance_diffuse_curve::DEFAULT),
         }
     }
 }

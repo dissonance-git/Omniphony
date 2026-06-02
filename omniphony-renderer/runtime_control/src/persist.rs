@@ -118,16 +118,8 @@ pub fn save_live_config(
     } else {
         None
     };
-    render.spread_distance_range = if (live.spread_distance_range - 1.0).abs() > 1e-4 {
-        Some(live.spread_distance_range)
-    } else {
-        None
-    };
-    render.spread_distance_curve = if (live.spread_distance_curve - 1.0).abs() > 1e-4 {
-        Some(live.spread_distance_curve)
-    } else {
-        None
-    };
+    renderer::config_fields::spread_distance_range::store(render, live.spread_distance_range);
+    renderer::config_fields::spread_distance_curve::store(render, live.spread_distance_curve);
     render.size_to_spread_mode =
         if live.size_to_spread_mode != renderer::render_backend::SizeToSpreadMode::default() {
             Some(live.size_to_spread_mode)
@@ -135,12 +127,7 @@ pub fn save_live_config(
             None
         };
     render.use_loudness = if live.use_loudness { Some(true) } else { None };
-    render.vbap_distance_model =
-        if live.distance_model != renderer::spatial_vbap::DistanceModel::None {
-            Some(live.distance_model.to_string())
-        } else {
-            None
-        };
+    renderer::config_fields::vbap_distance_model::store(render, live.distance_model.to_string());
     // Room geometry is persisted in metres. Width is the reference and the room
     // scale is Width/2 = the layout radius, so metres = ratio × radius × factor
     // (factor 2 for width). The legacy `room_ratio*` are dropped — `Config::load`
@@ -174,21 +161,12 @@ pub fn save_live_config(
     // persist the current values (read lock-free from RendererControl).
     render.meter_rate = Some(round6(control.meter_rate_hz()));
     render.diag_rate = Some(round6(control.diag_rate_hz()));
-    render.distance_diffuse = if live.use_distance_diffuse {
-        Some(true)
-    } else {
-        None
-    };
-    render.distance_diffuse_threshold = if (live.distance_diffuse_threshold - 1.0).abs() > 1e-4 {
-        Some(live.distance_diffuse_threshold)
-    } else {
-        None
-    };
-    render.distance_diffuse_curve = if (live.distance_diffuse_curve - 1.0).abs() > 1e-4 {
-        Some(live.distance_diffuse_curve)
-    } else {
-        None
-    };
+    renderer::config_fields::distance_diffuse::store(render, live.use_distance_diffuse);
+    renderer::config_fields::distance_diffuse_threshold::store(
+        render,
+        live.distance_diffuse_threshold,
+    );
+    renderer::config_fields::distance_diffuse_curve::store(render, live.distance_diffuse_curve);
     let default_metric = renderer::spatial_vbap::DistanceMetric::default();
     render.distance_model_metric = if live.distance_model_metric != default_metric {
         Some(live.distance_model_metric.to_string())

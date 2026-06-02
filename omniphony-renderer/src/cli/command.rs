@@ -310,7 +310,7 @@ pub struct RenderArgs {
     pub no_vbap_allow_negative_z: bool,
 
     /// Distance attenuation model (none, linear, quadratic, inverse-square)
-    #[arg(long, value_name = "MODEL", default_value = "none")]
+    #[arg(long, value_name = "MODEL", default_value = renderer::config_fields::vbap_distance_model::DEFAULT)]
     pub vbap_distance_model: String,
 
     /// Calculate spread from distance (1.0 at distance=0, 0.0 at distance>=1.0)
@@ -324,12 +324,12 @@ pub struct RenderArgs {
 
     /// Distance at which spread reaches 0.0 (only used with --spread-from-distance)
     /// Lower values = objects become localized sooner, higher values = stay diffuse longer
-    #[arg(long, value_name = "DISTANCE", default_value_t = 1.0)]
+    #[arg(long, value_name = "DISTANCE", default_value_t = renderer::config_fields::spread_distance_range::DEFAULT)]
     pub spread_distance_range: f32,
 
     /// Curve exponent for distance-based spread (only used with --spread-from-distance)
     /// 1.0 = linear, 2.0 = quadratic (slower near, faster far), 0.5 = sqrt (faster near, slower far)
-    #[arg(long, value_name = "EXPONENT", default_value_t = 1.0)]
+    #[arg(long, value_name = "EXPONENT", default_value_t = renderer::config_fields::spread_distance_curve::DEFAULT)]
     pub spread_distance_curve: f32,
 
     /// Minimum VBAP spread applied when the object spread is 0.0 (point source)
@@ -406,12 +406,12 @@ pub struct RenderArgs {
 
     /// ADM distance at which distance-diffuse blend reaches 100% direct.
     /// (pre-room_ratio, 1.0 = surface of the ADM unit sphere)
-    #[arg(long, value_name = "DISTANCE", default_value_t = 1.0)]
+    #[arg(long, value_name = "DISTANCE", default_value_t = renderer::config_fields::distance_diffuse_threshold::DEFAULT)]
     pub distance_diffuse_threshold: f32,
 
     /// Curve exponent for distance-diffuse blend weight.
     /// 1.0 = linear, 2.0 = slow-near (stays diffuse longer), 0.5 = fast-near.
-    #[arg(long, value_name = "EXPONENT", default_value_t = 1.0)]
+    #[arg(long, value_name = "EXPONENT", default_value_t = renderer::config_fields::distance_diffuse_curve::DEFAULT)]
     pub distance_diffuse_curve: f32,
 
     /// Ramp processing mode for object transitions.

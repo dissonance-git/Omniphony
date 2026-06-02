@@ -61,6 +61,42 @@ macro_rules! render_field {
     };
 }
 
+/// Declare a `String`-typed config option. Same `{ DEFAULT, get, store }`
+/// shape as [`render_field!`], but `DEFAULT` is a `&'static str` (String is
+/// not const-constructible) and `store` accepts any `AsRef<str>` so call sites
+/// can pass a `&str` or an owned `String`.
+macro_rules! render_field_str {
+    (
+        $(#[$meta:meta])*
+        $vis:vis $name:ident = $default:expr,
+        field = $field:ident
+    ) => {
+        $(#[$meta])*
+        $vis mod $name {
+            use super::RenderConfig;
+
+            /// Canonical default — the single copy of this field's default.
+            pub const DEFAULT: &str = $default;
+
+            /// Read the configured value, if present.
+            pub fn get(cfg: &RenderConfig) -> Option<String> {
+                cfg.$field.clone()
+            }
+
+            /// Store `value`, writing `Some` only when it differs from
+            /// [`DEFAULT`] (skip-if-default), `None` otherwise.
+            pub fn store(cfg: &mut RenderConfig, value: impl AsRef<str>) {
+                let value = value.as_ref();
+                cfg.$field = if value == DEFAULT {
+                    None
+                } else {
+                    Some(value.to_string())
+                };
+            }
+        }
+    };
+}
+
 render_field! {
     /// Number of distance cells across the polar VBAP precompute table
     /// (`render.vbap_distance_res`). Pilot field for the descriptor scheme.
@@ -119,6 +155,54 @@ render_field! {
     pub render_evaluation_position_interpolation: bool = true,
     field = render_evaluation_position_interpolation,
     eq = bool::eq
+}
+
+// ── Lot 2: distance / spread ──
+
+render_field! {
+    /// Distance at which distance-based spread reaches 0.0
+    /// (`render.spread_distance_range`). The CLI writer used exact `!= 1.0`,
+    /// the live writer a 1e-4 tolerance; unified on 1e-4.
+    pub spread_distance_range: f32 = 1.0,
+    field = spread_distance_range,
+    eq = |a: &f32, b: &f32| (a - b).abs() < 1e-4
+}
+
+render_field! {
+    /// Curve exponent for distance-based spread (`render.spread_distance_curve`).
+    pub spread_distance_curve: f32 = 1.0,
+    field = spread_distance_curve,
+    eq = |a: &f32, b: &f32| (a - b).abs() < 1e-4
+}
+
+render_field! {
+    /// Enable distance-based antipodal diffuse blending (`render.distance_diffuse`).
+    pub distance_diffuse: bool = false,
+    field = distance_diffuse,
+    eq = bool::eq
+}
+
+render_field! {
+    /// ADM distance at which the distance-diffuse blend reaches 100% direct
+    /// (`render.distance_diffuse_threshold`).
+    pub distance_diffuse_threshold: f32 = 1.0,
+    field = distance_diffuse_threshold,
+    eq = |a: &f32, b: &f32| (a - b).abs() < 1e-4
+}
+
+render_field! {
+    /// Curve exponent for the distance-diffuse blend weight
+    /// (`render.distance_diffuse_curve`).
+    pub distance_diffuse_curve: f32 = 1.0,
+    field = distance_diffuse_curve,
+    eq = |a: &f32, b: &f32| (a - b).abs() < 1e-4
+}
+
+render_field_str! {
+    /// Distance attenuation model id (`render.vbap_distance_model`), e.g.
+    /// "none", "linear", "quadratic", "inverse-square".
+    pub vbap_distance_model = "none",
+    field = vbap_distance_model
 }
 
 #[cfg(test)]
@@ -184,5 +268,18 @@ mod tests {
         // Disabling it IS persisted (the previous CLI writer dropped this).
         super::render_evaluation_position_interpolation::store(&mut cfg, false);
         assert_eq!(cfg.render_evaluation_position_interpolation, Some(false));
+    }
+
+    #[test]
+    fn string_field_skips_default_and_accepts_str_or_string() {
+        let mut cfg = RenderConfig::default();
+        super::vbap_distance_model::store(&mut cfg, "none"); // &str, == default
+        assert_eq!(cfg.vbap_distance_model, None);
+        super::vbap_distance_model::store(&mut cfg, "inverse-square".to_string()); // String
+        assert_eq!(cfg.vbap_distance_model.as_deref(), Some("inverse-square"));
+        assert_eq!(
+            super::vbap_distance_model::get(&cfg).as_deref(),
+            Some("inverse-square")
+        );
     }
 }

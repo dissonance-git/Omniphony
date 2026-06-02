@@ -136,8 +136,8 @@ pub(super) fn merge_render_config(
         }
     }
     if !arg_sources.is_explicit("vbap_distance_model") {
-        if let Some(ref v) = cfg.vbap_distance_model {
-            args.vbap_distance_model = v.clone();
+        if let Some(v) = renderer::config_fields::vbap_distance_model::get(cfg) {
+            args.vbap_distance_model = v;
         }
     }
     if !arg_sources.is_explicit("master_gain") {
@@ -160,12 +160,12 @@ pub(super) fn merge_render_config(
         args.room_ratio_center_blend = cfg.room_ratio_center_blend;
     }
     if !arg_sources.is_explicit("spread_distance_range") {
-        if let Some(v) = cfg.spread_distance_range {
+        if let Some(v) = renderer::config_fields::spread_distance_range::get(cfg) {
             args.spread_distance_range = v;
         }
     }
     if !arg_sources.is_explicit("spread_distance_curve") {
-        if let Some(v) = cfg.spread_distance_curve {
+        if let Some(v) = renderer::config_fields::spread_distance_curve::get(cfg) {
             args.spread_distance_curve = v;
         }
     }
@@ -253,18 +253,19 @@ pub(super) fn merge_render_config(
     }
     // distance_diffuse (bool flag — no --no- override needed, just the flag)
     if !arg_sources.is_explicit("distance_diffuse") {
-        args.distance_diffuse = cfg.distance_diffuse.unwrap_or(false);
+        args.distance_diffuse = renderer::config_fields::distance_diffuse::get(cfg)
+            .unwrap_or(renderer::config_fields::distance_diffuse::DEFAULT);
     }
     if args.no_vbap_allow_negative_z {
         args.vbap_allow_negative_z = false;
     }
     if !arg_sources.is_explicit("distance_diffuse_threshold") {
-        if let Some(v) = cfg.distance_diffuse_threshold {
+        if let Some(v) = renderer::config_fields::distance_diffuse_threshold::get(cfg) {
             args.distance_diffuse_threshold = v;
         }
     }
     if !arg_sources.is_explicit("distance_diffuse_curve") {
-        if let Some(v) = cfg.distance_diffuse_curve {
+        if let Some(v) = renderer::config_fields::distance_diffuse_curve::get(cfg) {
             args.distance_diffuse_curve = v;
         }
     }
@@ -369,11 +370,7 @@ pub(super) fn effective_to_config(
     } else {
         None
     };
-    render.vbap_distance_model = if args.vbap_distance_model != "none" {
-        Some(args.vbap_distance_model.clone())
-    } else {
-        None
-    };
+    renderer::config_fields::vbap_distance_model::store(&mut render, &args.vbap_distance_model);
     render.master_gain = if args.master_gain != 0.0 {
         Some(args.master_gain)
     } else {
@@ -426,16 +423,8 @@ pub(super) fn effective_to_config(
     } else {
         None
     };
-    render.spread_distance_range = if args.spread_distance_range != 1.0 {
-        Some(args.spread_distance_range)
-    } else {
-        None
-    };
-    render.spread_distance_curve = if args.spread_distance_curve != 1.0 {
-        Some(args.spread_distance_curve)
-    } else {
-        None
-    };
+    renderer::config_fields::spread_distance_range::store(&mut render, args.spread_distance_range);
+    renderer::config_fields::spread_distance_curve::store(&mut render, args.spread_distance_curve);
     renderer::config_fields::vbap_spread_min::store(&mut render, args.vbap_spread_min);
     renderer::config_fields::vbap_spread_max::store(&mut render, args.vbap_spread_max);
     render.enable_adaptive_resampling = if args.enable_adaptive_resampling {
@@ -455,21 +444,15 @@ pub(super) fn effective_to_config(
     } else {
         None
     };
-    render.distance_diffuse = if args.distance_diffuse {
-        Some(true)
-    } else {
-        None
-    };
-    render.distance_diffuse_threshold = if args.distance_diffuse_threshold != 1.0 {
-        Some(args.distance_diffuse_threshold)
-    } else {
-        None
-    };
-    render.distance_diffuse_curve = if args.distance_diffuse_curve != 1.0 {
-        Some(args.distance_diffuse_curve)
-    } else {
-        None
-    };
+    renderer::config_fields::distance_diffuse::store(&mut render, args.distance_diffuse);
+    renderer::config_fields::distance_diffuse_threshold::store(
+        &mut render,
+        args.distance_diffuse_threshold,
+    );
+    renderer::config_fields::distance_diffuse_curve::store(
+        &mut render,
+        args.distance_diffuse_curve,
+    );
 
     let global_opt =
         if global.loglevel.is_none() && global.log_format.is_none() && global.strict.is_none() {
