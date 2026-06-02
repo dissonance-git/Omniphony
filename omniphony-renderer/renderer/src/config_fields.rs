@@ -271,6 +271,51 @@ render_field! {
     eq = u16::eq
 }
 
+// ── Lot 5a: remaining simple scalar bools/floats ──
+
+render_field! {
+    /// Enable VBAP spatial rendering (`render.enable_vbap`).
+    pub enable_vbap: bool = false,
+    field = enable_vbap,
+    eq = bool::eq
+}
+
+render_field! {
+    /// Deprecated fixed VBAP spread coefficient (`render.vbap_spread`).
+    pub vbap_spread: f32 = 0.0,
+    field = vbap_spread,
+    eq = |a: &f32, b: &f32| *a == *b
+}
+
+render_field! {
+    /// Continuous mode: keep waiting for new data at stream end
+    /// (`render.continuous`).
+    pub continuous: bool = false,
+    field = continuous,
+    eq = bool::eq
+}
+
+render_field! {
+    /// Bed conformance for spatial content (`render.bed_conform`).
+    pub bed_conform: bool = false,
+    field = bed_conform,
+    eq = bool::eq
+}
+
+render_field! {
+    /// Derive spread from object distance (`render.spread_from_distance`).
+    pub spread_from_distance: bool = false,
+    field = spread_from_distance,
+    eq = bool::eq
+}
+
+render_field! {
+    /// Enable adaptive resampling PI controller (`render.enable_adaptive_resampling`).
+    pub enable_adaptive_resampling: bool = false,
+    field = enable_adaptive_resampling,
+    eq = bool::eq
+}
+
 #[cfg(test)]
 mod tests {
     use crate::config::RenderConfig;

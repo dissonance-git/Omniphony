@@ -244,7 +244,7 @@ pub struct RenderArgs {
 
     /// VBAP spreading coefficient (0.0 = point source, 1.0 = maximum spread)
     /// Deprecated: Use --vbap-distance-res instead for dynamic per-object spread
-    #[arg(long, value_name = "SPREAD", default_value_t = 0.0)]
+    #[arg(long, value_name = "SPREAD", default_value_t = renderer::config_fields::vbap_spread::DEFAULT)]
     pub vbap_spread: f32,
 
     /// Number of distance cells across full range [0, vbap-distance-max]

@@ -78,7 +78,7 @@ pub(super) fn merge_render_config(
         }
     }
     if !arg_sources.is_explicit("vbap_spread") {
-        if let Some(v) = cfg.vbap_spread {
+        if let Some(v) = renderer::config_fields::vbap_spread::get(cfg) {
             args.vbap_spread = v;
         }
     }
@@ -195,7 +195,8 @@ pub(super) fn merge_render_config(
     // --- Bool fields: CLI enable/disable flags override config; absent → use config ---
     // enable_vbap
     if !arg_sources.is_explicit("enable_vbap") && !arg_sources.is_explicit("disable_vbap") {
-        args.enable_vbap = cfg.enable_vbap.unwrap_or(false);
+        args.enable_vbap = renderer::config_fields::enable_vbap::get(cfg)
+            .unwrap_or(renderer::config_fields::enable_vbap::DEFAULT);
     } else if args.disable_vbap {
         args.enable_vbap = false;
     }
@@ -221,7 +222,8 @@ pub(super) fn merge_render_config(
     }
     // continuous
     if !arg_sources.is_explicit("continuous") && !arg_sources.is_explicit("no_continuous") {
-        args.continuous = cfg.continuous.unwrap_or(false);
+        args.continuous = renderer::config_fields::continuous::get(cfg)
+            .unwrap_or(renderer::config_fields::continuous::DEFAULT);
     } else if args.no_continuous {
         args.continuous = false;
     }
@@ -241,7 +243,8 @@ pub(super) fn merge_render_config(
     }
     // bed_conform
     if !arg_sources.is_explicit("bed_conform") && !arg_sources.is_explicit("no_bed_conform") {
-        args.bed_conform = cfg.bed_conform.unwrap_or(false);
+        args.bed_conform = renderer::config_fields::bed_conform::get(cfg)
+            .unwrap_or(renderer::config_fields::bed_conform::DEFAULT);
     } else if args.no_bed_conform {
         args.bed_conform = false;
     }
@@ -249,7 +252,9 @@ pub(super) fn merge_render_config(
     if !arg_sources.is_explicit("enable_adaptive_resampling")
         && !arg_sources.is_explicit("disable_adaptive_resampling")
     {
-        args.enable_adaptive_resampling = cfg.enable_adaptive_resampling.unwrap_or(false);
+        args.enable_adaptive_resampling =
+            renderer::config_fields::enable_adaptive_resampling::get(cfg)
+                .unwrap_or(renderer::config_fields::enable_adaptive_resampling::DEFAULT);
     } else if args.disable_adaptive_resampling {
         args.enable_adaptive_resampling = false;
     }
@@ -257,7 +262,8 @@ pub(super) fn merge_render_config(
     if !arg_sources.is_explicit("spread_from_distance")
         && !arg_sources.is_explicit("no_spread_from_distance")
     {
-        args.spread_from_distance = cfg.spread_from_distance.unwrap_or(false);
+        args.spread_from_distance = renderer::config_fields::spread_from_distance::get(cfg)
+            .unwrap_or(renderer::config_fields::spread_from_distance::DEFAULT);
     } else if args.no_spread_from_distance {
         args.spread_from_distance = false;
     }
@@ -330,7 +336,7 @@ pub(super) fn effective_to_config(
         None
     };
     render.bridge_path = args.bridge_path.clone();
-    render.enable_vbap = if args.enable_vbap { Some(true) } else { None };
+    renderer::config_fields::enable_vbap::store(&mut render, args.enable_vbap);
     // Persist the embedded layout instead of a path link. Only override when a
     // layout path is supplied on the CLI; otherwise keep the config's existing
     // embedded `current_layout` (Studio-saved) intact.
@@ -347,11 +353,7 @@ pub(super) fn effective_to_config(
         &mut render,
         args.evaluation_polar_elevation_resolution,
     );
-    render.vbap_spread = if args.vbap_spread != 0.0 {
-        Some(args.vbap_spread)
-    } else {
-        None
-    };
+    renderer::config_fields::vbap_spread::store(&mut render, args.vbap_spread);
     renderer::config_fields::vbap_distance_res::store(
         &mut render,
         args.evaluation_polar_distance_res,
@@ -408,24 +410,19 @@ pub(super) fn effective_to_config(
         render.output_device = args.output_device.clone();
         render.latency_target = args.latency_target_ms;
     }
-    render.continuous = if args.continuous { Some(true) } else { None };
+    renderer::config_fields::continuous::store(&mut render, args.continuous);
     renderer::config_fields::use_loudness::store(&mut render, args.use_loudness);
     renderer::config_fields::auto_gain::store(&mut render, args.auto_gain);
-    render.bed_conform = if args.bed_conform { Some(true) } else { None };
-    render.spread_from_distance = if args.spread_from_distance {
-        Some(true)
-    } else {
-        None
-    };
+    renderer::config_fields::bed_conform::store(&mut render, args.bed_conform);
+    renderer::config_fields::spread_from_distance::store(&mut render, args.spread_from_distance);
     renderer::config_fields::spread_distance_range::store(&mut render, args.spread_distance_range);
     renderer::config_fields::spread_distance_curve::store(&mut render, args.spread_distance_curve);
     renderer::config_fields::vbap_spread_min::store(&mut render, args.vbap_spread_min);
     renderer::config_fields::vbap_spread_max::store(&mut render, args.vbap_spread_max);
-    render.enable_adaptive_resampling = if args.enable_adaptive_resampling {
-        Some(true)
-    } else {
-        None
-    };
+    renderer::config_fields::enable_adaptive_resampling::store(
+        &mut render,
+        args.enable_adaptive_resampling,
+    );
     render.adaptive_resampling_update_interval_callbacks =
         args.adaptive_resampling_update_interval_callbacks;
     render.output_sample_rate = args.output_sample_rate;

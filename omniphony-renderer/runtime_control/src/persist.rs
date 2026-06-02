@@ -109,11 +109,7 @@ pub fn save_live_config(
         render.evaluation_cartesian_z_size = None;
         render.evaluation_cartesian_z_neg_size = None;
     }
-    render.spread_from_distance = if live.spread_from_distance {
-        Some(true)
-    } else {
-        None
-    };
+    renderer::config_fields::spread_from_distance::store(render, live.spread_from_distance);
     renderer::config_fields::spread_distance_range::store(render, live.spread_distance_range);
     renderer::config_fields::spread_distance_curve::store(render, live.spread_distance_curve);
     render.size_to_spread_mode =

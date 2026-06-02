@@ -905,7 +905,10 @@ impl HostControlHandler for HostAudio {
         let requested = audio.requested_snapshot();
         render.output_device = requested.output_device;
         render.output_sample_rate = requested.output_sample_rate_hz;
-        render.enable_adaptive_resampling = Some(requested.adaptive_enabled);
+        renderer::config_fields::enable_adaptive_resampling::store(
+            render,
+            requested.adaptive_enabled,
+        );
         render.adaptive_resampling_enable_far_mode = Some(requested.adaptive.enable_far_mode);
         render.adaptive_resampling_force_silence_in_far_mode =
             Some(requested.adaptive.force_silence_in_far_mode);

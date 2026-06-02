@@ -129,7 +129,9 @@ impl SpatialRendererParams {
                 .unwrap_or_else(|| {
                     renderer::config_fields::vbap_distance_model::DEFAULT.to_string()
                 }),
-            spread_from_distance: cfg.and_then(|c| c.spread_from_distance).unwrap_or(false),
+            spread_from_distance: cfg
+                .and_then(renderer::config_fields::spread_from_distance::get)
+                .unwrap_or(renderer::config_fields::spread_from_distance::DEFAULT),
             spread_distance_range: cfg
                 .and_then(renderer::config_fields::spread_distance_range::get)
                 .unwrap_or(renderer::config_fields::spread_distance_range::DEFAULT),
