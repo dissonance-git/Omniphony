@@ -102,7 +102,25 @@ orender input.bin \
   --osc \
   --osc-host 127.0.0.1 \
   --osc-port 9000
+
+# Select a non-VBAP render backend and its parameters (CLI parity with Studio/OSC)
+orender input.bin \
+  --bridge-path ./libformat_bridge.so \
+  --enable-vbap \
+  --render-backend hybrid \
+  --hybrid-external-backend vbap --hybrid-internal-backend barycenter \
+  --hybrid-metric chebyshev \
+  --distance-model-metric chebyshev \
+  --size-to-spread-mode mean
 ```
+
+The render backend (`--render-backend vbap|barycenter|experimental_distance|hybrid`),
+its per-backend parameters (`--barycenter-localize`, `--hybrid-*`,
+`--experimental-distance-*`), the distance metrics (`--distance-model-metric`,
+`--distance-diffuse-metric`), `--size-to-spread-mode` and the adaptive-resampling
+PI tuning (`--adaptive-resampling-*`) are all exposable on the CLI as well as via
+OSC/Studio. See `docs/option-surface-parity.fr.md` for the full per-surface
+parity matrix. Run `orender render --help` for the complete flag list.
 
 ## Configuration
 
