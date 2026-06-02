@@ -61,36 +61,28 @@ pub fn save_live_config(
         None
     };
 
-    render.vbap_spread_min = if live.spread_min != 0.0 {
-        Some(live.spread_min)
-    } else {
-        None
-    };
-    render.vbap_spread_max = if live.spread_max != 1.0 {
-        Some(live.spread_max)
-    } else {
-        None
-    };
-    render.vbap_azimuth_resolution = if live.evaluation.polar.azimuth_values != 360 {
-        Some(live.evaluation.polar.azimuth_values.max(1))
-    } else {
-        None
-    };
-    render.vbap_elevation_resolution = if live.evaluation.polar.elevation_values != 180 {
-        Some(live.evaluation.polar.elevation_values.max(1))
-    } else {
-        None
-    };
+    renderer::config_fields::vbap_spread_min::store(render, live.spread_min);
+    renderer::config_fields::vbap_spread_max::store(render, live.spread_max);
+    renderer::config_fields::vbap_azimuth_resolution::store(
+        render,
+        live.evaluation.polar.azimuth_values.max(1),
+    );
+    renderer::config_fields::vbap_elevation_resolution::store(
+        render,
+        live.evaluation.polar.elevation_values.max(1),
+    );
     renderer::config_fields::vbap_distance_res::store(
         render,
         live.evaluation.polar.distance_res.max(1),
     );
-    render.vbap_distance_max = if (live.evaluation.polar.distance_max - 2.0).abs() > 1e-4 {
-        Some(live.evaluation.polar.distance_max.max(0.01))
-    } else {
-        None
-    };
-    render.render_evaluation_position_interpolation = Some(live.evaluation.position_interpolation);
+    renderer::config_fields::vbap_distance_max::store(
+        render,
+        live.evaluation.polar.distance_max.max(0.01),
+    );
+    renderer::config_fields::render_evaluation_position_interpolation::store(
+        render,
+        live.evaluation.position_interpolation,
+    );
     render.render_backend = match live.backend_id() {
         "vbap" => None,
         other => Some(other.to_string()),

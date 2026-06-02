@@ -69,6 +69,58 @@ render_field! {
     eq = i32::eq
 }
 
+render_field! {
+    /// Polar VBAP azimuth cell count across [-180°, +180°]
+    /// (`render.vbap_azimuth_resolution`).
+    pub vbap_azimuth_resolution: i32 = 360,
+    field = vbap_azimuth_resolution,
+    eq = i32::eq
+}
+
+render_field! {
+    /// Polar VBAP elevation cell count (`render.vbap_elevation_resolution`).
+    pub vbap_elevation_resolution: i32 = 180,
+    field = vbap_elevation_resolution,
+    eq = i32::eq
+}
+
+render_field! {
+    /// Maximum distance covered by the polar VBAP table
+    /// (`render.vbap_distance_max`). Float field: the live writer used a 1e-4
+    /// tolerance and the CLI writer `f32::EPSILON`; unified here on 1e-4 (the
+    /// more robust threshold — only sub-1e-4 float noise is now treated as the
+    /// default on the CLI side).
+    pub vbap_distance_max: f32 = 2.0,
+    field = vbap_distance_max,
+    eq = |a: &f32, b: &f32| (a - b).abs() < 1e-4
+}
+
+render_field! {
+    /// Minimum VBAP spread floor for point sources (`render.vbap_spread_min`).
+    pub vbap_spread_min: f32 = 0.0,
+    field = vbap_spread_min,
+    eq = |a: &f32, b: &f32| *a == *b
+}
+
+render_field! {
+    /// Maximum VBAP spread cap for fully-diffuse objects
+    /// (`render.vbap_spread_max`).
+    pub vbap_spread_max: f32 = 1.0,
+    field = vbap_spread_max,
+    eq = |a: &f32, b: &f32| *a == *b
+}
+
+render_field! {
+    /// Interpolate between neighbouring VBAP table cells on lookup
+    /// (`render.render_evaluation_position_interpolation`). Default is *on*
+    /// (true), so only an explicit `false` is persisted. This also fixes a CLI
+    /// writer asymmetry where disabling interpolation was previously dropped
+    /// (it wrote `Some(true)` / `None`, never `Some(false)`).
+    pub render_evaluation_position_interpolation: bool = true,
+    field = render_evaluation_position_interpolation,
+    eq = bool::eq
+}
+
 #[cfg(test)]
 mod tests {
     use crate::config::RenderConfig;
@@ -107,5 +159,30 @@ mod tests {
         super::vbap_distance_res::store(&mut from_cli, 12); // CLI: args value
         super::vbap_distance_res::store(&mut from_live, 12); // live: LiveParams value
         assert_eq!(from_cli.vbap_distance_res, from_live.vbap_distance_res);
+    }
+
+    #[test]
+    fn float_field_uses_tolerance() {
+        let mut cfg = RenderConfig::default();
+        super::vbap_distance_max::store(&mut cfg, 2.0);
+        assert_eq!(cfg.vbap_distance_max, None, "exact default cleared");
+        super::vbap_distance_max::store(&mut cfg, 2.000_05);
+        assert_eq!(
+            cfg.vbap_distance_max, None,
+            "within 1e-4 treated as default"
+        );
+        super::vbap_distance_max::store(&mut cfg, 3.0);
+        assert_eq!(cfg.vbap_distance_max, Some(3.0));
+    }
+
+    #[test]
+    fn interpolation_default_is_on_and_false_persists() {
+        let mut cfg = RenderConfig::default();
+        // Default (on) is not written.
+        super::render_evaluation_position_interpolation::store(&mut cfg, true);
+        assert_eq!(cfg.render_evaluation_position_interpolation, None);
+        // Disabling it IS persisted (the previous CLI writer dropped this).
+        super::render_evaluation_position_interpolation::store(&mut cfg, false);
+        assert_eq!(cfg.render_evaluation_position_interpolation, Some(false));
     }
 }

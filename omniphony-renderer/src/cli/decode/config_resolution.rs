@@ -68,12 +68,12 @@ pub(super) fn merge_render_config(
         }
     }
     if !arg_sources.is_explicit("evaluation_polar_azimuth_resolution") {
-        if let Some(v) = cfg.vbap_azimuth_resolution {
+        if let Some(v) = renderer::config_fields::vbap_azimuth_resolution::get(cfg) {
             args.evaluation_polar_azimuth_resolution = v;
         }
     }
     if !arg_sources.is_explicit("evaluation_polar_elevation_resolution") {
-        if let Some(v) = cfg.vbap_elevation_resolution {
+        if let Some(v) = renderer::config_fields::vbap_elevation_resolution::get(cfg) {
             args.evaluation_polar_elevation_resolution = v;
         }
     }
@@ -88,7 +88,7 @@ pub(super) fn merge_render_config(
         }
     }
     if !arg_sources.is_explicit("evaluation_polar_distance_max") {
-        if let Some(v) = cfg.vbap_distance_max {
+        if let Some(v) = renderer::config_fields::vbap_distance_max::get(cfg) {
             args.evaluation_polar_distance_max = v;
         }
     }
@@ -96,7 +96,9 @@ pub(super) fn merge_render_config(
         && !arg_sources.is_explicit("no_render_evaluation_position_interpolation")
     {
         args.render_evaluation_position_interpolation =
-            cfg.render_evaluation_position_interpolation.unwrap_or(true);
+            renderer::config_fields::render_evaluation_position_interpolation::get(cfg).unwrap_or(
+                renderer::config_fields::render_evaluation_position_interpolation::DEFAULT,
+            );
     } else if args.no_render_evaluation_position_interpolation {
         args.render_evaluation_position_interpolation = false;
     }
@@ -168,12 +170,12 @@ pub(super) fn merge_render_config(
         }
     }
     if !arg_sources.is_explicit("vbap_spread_min") {
-        if let Some(v) = cfg.vbap_spread_min {
+        if let Some(v) = renderer::config_fields::vbap_spread_min::get(cfg) {
             args.vbap_spread_min = v;
         }
     }
     if !arg_sources.is_explicit("vbap_spread_max") {
-        if let Some(v) = cfg.vbap_spread_max {
+        if let Some(v) = renderer::config_fields::vbap_spread_max::get(cfg) {
             args.vbap_spread_max = v;
         }
     }
@@ -326,16 +328,14 @@ pub(super) fn effective_to_config(
         render.speaker_layout = None;
     }
     render.vbap_table = args.vbap_table.clone();
-    render.vbap_azimuth_resolution = if args.evaluation_polar_azimuth_resolution != 360 {
-        Some(args.evaluation_polar_azimuth_resolution)
-    } else {
-        None
-    };
-    render.vbap_elevation_resolution = if args.evaluation_polar_elevation_resolution != 180 {
-        Some(args.evaluation_polar_elevation_resolution)
-    } else {
-        None
-    };
+    renderer::config_fields::vbap_azimuth_resolution::store(
+        &mut render,
+        args.evaluation_polar_azimuth_resolution,
+    );
+    renderer::config_fields::vbap_elevation_resolution::store(
+        &mut render,
+        args.evaluation_polar_elevation_resolution,
+    );
     render.vbap_spread = if args.vbap_spread != 0.0 {
         Some(args.vbap_spread)
     } else {
@@ -345,17 +345,14 @@ pub(super) fn effective_to_config(
         &mut render,
         args.evaluation_polar_distance_res,
     );
-    render.vbap_distance_max = if (args.evaluation_polar_distance_max - 2.0).abs() > f32::EPSILON {
-        Some(args.evaluation_polar_distance_max)
-    } else {
-        None
-    };
-    render.render_evaluation_position_interpolation =
-        if args.render_evaluation_position_interpolation {
-            Some(true)
-        } else {
-            None
-        };
+    renderer::config_fields::vbap_distance_max::store(
+        &mut render,
+        args.evaluation_polar_distance_max,
+    );
+    renderer::config_fields::render_evaluation_position_interpolation::store(
+        &mut render,
+        args.render_evaluation_position_interpolation,
+    );
     render.render_evaluation_mode = if args.render_evaluation_mode != EvaluationModeArg::Polar {
         Some(format!("{:?}", args.render_evaluation_mode).to_lowercase())
     } else {
@@ -439,16 +436,8 @@ pub(super) fn effective_to_config(
     } else {
         None
     };
-    render.vbap_spread_min = if args.vbap_spread_min != 0.0 {
-        Some(args.vbap_spread_min)
-    } else {
-        None
-    };
-    render.vbap_spread_max = if args.vbap_spread_max != 1.0 {
-        Some(args.vbap_spread_max)
-    } else {
-        None
-    };
+    renderer::config_fields::vbap_spread_min::store(&mut render, args.vbap_spread_min);
+    renderer::config_fields::vbap_spread_max::store(&mut render, args.vbap_spread_max);
     render.enable_adaptive_resampling = if args.enable_adaptive_resampling {
         Some(true)
     } else {

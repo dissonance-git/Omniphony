@@ -229,7 +229,7 @@ pub struct RenderArgs {
     #[arg(
         long = "evaluation-polar-azimuth-resolution",
         value_name = "DEG",
-        default_value_t = 360
+        default_value_t = renderer::config_fields::vbap_azimuth_resolution::DEFAULT
     )]
     pub evaluation_polar_azimuth_resolution: i32,
 
@@ -238,7 +238,7 @@ pub struct RenderArgs {
     #[arg(
         long = "evaluation-polar-elevation-resolution",
         value_name = "DEG",
-        default_value_t = 180
+        default_value_t = renderer::config_fields::vbap_elevation_resolution::DEFAULT
     )]
     pub evaluation_polar_elevation_resolution: i32,
 
@@ -260,7 +260,7 @@ pub struct RenderArgs {
     #[arg(
         long = "evaluation-polar-distance-max",
         value_name = "DISTANCE",
-        default_value_t = 2.0
+        default_value_t = renderer::config_fields::vbap_distance_max::DEFAULT
     )]
     pub evaluation_polar_distance_max: f32,
 
@@ -334,12 +334,12 @@ pub struct RenderArgs {
 
     /// Minimum VBAP spread applied when the object spread is 0.0 (point source)
     /// Allows setting a spread floor so objects are never fully localized
-    #[arg(long, value_name = "SPREAD", default_value_t = 0.0)]
+    #[arg(long, value_name = "SPREAD", default_value_t = renderer::config_fields::vbap_spread_min::DEFAULT)]
     pub vbap_spread_min: f32,
 
     /// Maximum VBAP spread applied when the object spread is 1.0 (fully diffuse)
     /// Allows capping spread so objects never fully decorrelate
-    #[arg(long, value_name = "SPREAD", default_value_t = 1.0)]
+    #[arg(long, value_name = "SPREAD", default_value_t = renderer::config_fields::vbap_spread_max::DEFAULT)]
     pub vbap_spread_max: f32,
 
     /// Enable detailed logging of object positions during VBAP spatialization

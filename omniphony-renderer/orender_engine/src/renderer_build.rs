@@ -97,15 +97,17 @@ impl SpatialRendererParams {
         Self {
             vbap_table: None,
             evaluation_polar_azimuth_resolution: cfg
-                .and_then(|c| c.vbap_azimuth_resolution)
-                .unwrap_or(360),
+                .and_then(renderer::config_fields::vbap_azimuth_resolution::get)
+                .unwrap_or(renderer::config_fields::vbap_azimuth_resolution::DEFAULT),
             evaluation_polar_elevation_resolution: cfg
-                .and_then(|c| c.vbap_elevation_resolution)
-                .unwrap_or(180),
+                .and_then(renderer::config_fields::vbap_elevation_resolution::get)
+                .unwrap_or(renderer::config_fields::vbap_elevation_resolution::DEFAULT),
             evaluation_polar_distance_res: cfg
                 .and_then(renderer::config_fields::vbap_distance_res::get)
                 .unwrap_or(renderer::config_fields::vbap_distance_res::DEFAULT),
-            evaluation_polar_distance_max: cfg.and_then(|c| c.vbap_distance_max).unwrap_or(2.0),
+            evaluation_polar_distance_max: cfg
+                .and_then(renderer::config_fields::vbap_distance_max::get)
+                .unwrap_or(renderer::config_fields::vbap_distance_max::DEFAULT),
             render_evaluation_mode,
             evaluation_mode_explicit: false,
             evaluation_cartesian_x_size: cfg.and_then(|c| c.evaluation_cartesian_x_size),
@@ -118,16 +120,22 @@ impl SpatialRendererParams {
                 Some(false)
             ),
             render_evaluation_position_interpolation: cfg
-                .and_then(|c| c.render_evaluation_position_interpolation)
-                .unwrap_or(true),
+                .and_then(renderer::config_fields::render_evaluation_position_interpolation::get)
+                .unwrap_or(
+                    renderer::config_fields::render_evaluation_position_interpolation::DEFAULT,
+                ),
             vbap_distance_model: cfg
                 .and_then(|c| c.vbap_distance_model.clone())
                 .unwrap_or_else(|| "none".to_string()),
             spread_from_distance: cfg.and_then(|c| c.spread_from_distance).unwrap_or(false),
             spread_distance_range: cfg.and_then(|c| c.spread_distance_range).unwrap_or(1.0),
             spread_distance_curve: cfg.and_then(|c| c.spread_distance_curve).unwrap_or(1.0),
-            vbap_spread_min: cfg.and_then(|c| c.vbap_spread_min).unwrap_or(0.0),
-            vbap_spread_max: cfg.and_then(|c| c.vbap_spread_max).unwrap_or(1.0),
+            vbap_spread_min: cfg
+                .and_then(renderer::config_fields::vbap_spread_min::get)
+                .unwrap_or(renderer::config_fields::vbap_spread_min::DEFAULT),
+            vbap_spread_max: cfg
+                .and_then(renderer::config_fields::vbap_spread_max::get)
+                .unwrap_or(renderer::config_fields::vbap_spread_max::DEFAULT),
             log_object_positions: false,
             room_ratio: cfg
                 .and_then(|c| c.room_ratio.clone())
