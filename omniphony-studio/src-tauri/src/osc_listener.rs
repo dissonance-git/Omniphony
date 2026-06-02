@@ -1080,6 +1080,127 @@ fn handle_packet(
     }
 }
 
+// ── speaker gain table reassembly (chunked, compressed artifact over OSC) ──────
+// Chunks arrive as `[version u32 LE][chunk_index u32 LE][artifact bytes]`. We
+// reassemble per version, then inflate + decode the evaluation-artifact byte
+// format (mirror of renderer's evaluation_artifact: MAGIC "OEVL" + version +
+// metadata_len + payload_len + metadata JSON + zlib payload of f32 positions and
+// gains) and emit the whole table to JS once. Kept in a module static — the OSC
+// receive path is the only writer — to avoid threading a buffer through AppState.
+struct GainTableAsm {
+    version: u32,
+    chunk_count: usize,
+    chunks: std::collections::BTreeMap<u32, Vec<u8>>,
+}
+
+static GAINTABLE: Mutex<GainTableAsm> = Mutex::new(GainTableAsm {
+    version: 0,
+    chunk_count: 0,
+    chunks: std::collections::BTreeMap::new(),
+});
+
+fn gaintable_on_meta(json: &str) {
+    let v: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
+    let version = v.get("version").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+    let chunk_count = v.get("chunk_count").and_then(|x| x.as_u64()).unwrap_or(0) as usize;
+    if let Ok(mut g) = GAINTABLE.lock() {
+        g.version = version;
+        g.chunk_count = chunk_count;
+        g.chunks.clear();
+    }
+}
+
+fn gaintable_on_chunk(bytes: &[u8]) -> Option<serde_json::Value> {
+    if bytes.len() < 8 {
+        return None;
+    }
+    let version = u32::from_le_bytes(bytes[0..4].try_into().ok()?);
+    let index = u32::from_le_bytes(bytes[4..8].try_into().ok()?);
+    let mut g = GAINTABLE.lock().ok()?;
+    if g.chunk_count == 0 || version != g.version {
+        return None; // stale/foreign chunk (meta not seen, or newer table in flight)
+    }
+    g.chunks.insert(index, bytes[8..].to_vec());
+    if g.chunks.len() != g.chunk_count {
+        return None;
+    }
+    let mut artifact = Vec::new();
+    for c in g.chunks.values() {
+        artifact.extend_from_slice(c);
+    }
+    g.chunks.clear();
+    g.chunk_count = 0;
+    drop(g);
+    decode_evaluation_artifact(&artifact, version)
+}
+
+fn decode_evaluation_artifact(bytes: &[u8], version: u32) -> Option<serde_json::Value> {
+    if bytes.len() < 16 || &bytes[0..4] != b"OEVL" {
+        return None;
+    }
+    let metadata_len = u32::from_le_bytes(bytes[8..12].try_into().ok()?) as usize;
+    let payload_len = u32::from_le_bytes(bytes[12..16].try_into().ok()?) as usize;
+    let meta_end = 16 + metadata_len;
+    let payload_end = meta_end + payload_len;
+    if bytes.len() < payload_end {
+        return None;
+    }
+    let metadata: serde_json::Value = serde_json::from_slice(&bytes[16..meta_end]).ok()?;
+
+    let mut raw = Vec::new();
+    {
+        use std::io::Read as _;
+        let mut dec = flate2::read::ZlibDecoder::new(&bytes[meta_end..payload_end]);
+        dec.read_to_end(&mut raw).ok()?;
+    }
+
+    let domain = metadata.get("domain")?;
+    let kind = domain.get("kind")?.as_str()?;
+    let dim = |k: &str| domain.get(k).and_then(|x| x.as_u64()).map(|x| x as usize);
+    let mut off = 0usize;
+    let mut read_f32 = |count: usize| -> Option<Vec<f32>> {
+        let end = off + count * 4;
+        if end > raw.len() {
+            return None;
+        }
+        let mut v = Vec::with_capacity(count);
+        for i in 0..count {
+            let b = off + i * 4;
+            v.push(f32::from_le_bytes(raw[b..b + 4].try_into().ok()?));
+        }
+        off = end;
+        Some(v)
+    };
+
+    match kind {
+        "cartesian" => {
+            let (xc, yc, zc, sc) = (dim("x_count")?, dim("y_count")?, dim("z_count")?, dim("speaker_count")?);
+            let xs = read_f32(xc)?;
+            let ys = read_f32(yc)?;
+            let zs = read_f32(zc)?;
+            let gains = read_f32(xc * yc * zc * sc)?;
+            Some(serde_json::json!({
+                "version": version, "domain": "cartesian", "speakerCount": sc,
+                "xCount": xc, "yCount": yc, "zCount": zc,
+                "xPositions": xs, "yPositions": ys, "zPositions": zs, "gains": gains,
+            }))
+        }
+        "polar" => {
+            let (ac, ec, dc, sc) = (dim("azimuth_count")?, dim("elevation_count")?, dim("distance_count")?, dim("speaker_count")?);
+            let az = read_f32(ac)?;
+            let el = read_f32(ec)?;
+            let di = read_f32(dc)?;
+            let gains = read_f32(ac * ec * dc * sc)?;
+            Some(serde_json::json!({
+                "version": version, "domain": "polar", "speakerCount": sc,
+                "azimuthCount": ac, "elevationCount": ec, "distanceCount": dc,
+                "azimuthPositions": az, "elevationPositions": el, "distancePositions": di, "gains": gains,
+            }))
+        }
+        _ => None,
+    }
+}
+
 fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
     // Update state under the lock, collect emit data, then release before emitting.
     let (to_emit, removed_ids): (Option<(&'static str, serde_json::Value)>, Vec<String>) = {
@@ -1586,6 +1707,27 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
             OscEvent::StateDebugSpeakerHeatmapUnavailable { value } => (
                 Some((
                     "speaker_heatmap:unavailable",
+                    serde_json::from_str(&value).unwrap_or_else(|_| serde_json::json!({})),
+                )),
+                removed_ids,
+            ),
+
+            OscEvent::StateDebugSpeakerGaintableMeta { value } => {
+                gaintable_on_meta(&value);
+                (None, removed_ids)
+            }
+
+            OscEvent::StateDebugSpeakerGaintableChunk { bytes } => {
+                // Reassemble in Rust; only emit once the full table is decoded.
+                (
+                    gaintable_on_chunk(&bytes).map(|v| ("speaker_gaintable", v)),
+                    removed_ids,
+                )
+            }
+
+            OscEvent::StateDebugSpeakerGaintableUnavailable { value } => (
+                Some((
+                    "speaker_gaintable:unavailable",
                     serde_json::from_str(&value).unwrap_or_else(|_| serde_json::json!({})),
                 )),
                 removed_ids,

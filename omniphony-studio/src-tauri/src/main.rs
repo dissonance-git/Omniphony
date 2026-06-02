@@ -1063,6 +1063,19 @@ fn unsubscribe_speaker_heatmap(state: State<SharedState>) {
     );
 }
 
+/// Ask the renderer to (re)send the full precomputed gain table. It replies with
+/// `state/debug/speaker_gaintable/{meta,chunk}` which the OSC listener reassembles
+/// and decodes, emitting a single `speaker_gaintable` event to the UI.
+#[tauri::command]
+fn request_speaker_gaintable(state: State<SharedState>) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendNoArgs {
+            address: "/omniphony/control/debug/speaker_gaintable/request".to_string(),
+        },
+    );
+}
+
 #[tauri::command]
 fn control_distance_diffuse_enabled(state: State<SharedState>, enable: i32) {
     send_control(
@@ -2658,6 +2671,7 @@ fn main() {
             request_speaker_heatmap,
             subscribe_speaker_heatmap,
             unsubscribe_speaker_heatmap,
+            request_speaker_gaintable,
             control_distance_diffuse_enabled,
             control_distance_diffuse_threshold,
             control_distance_diffuse_curve,
