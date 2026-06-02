@@ -252,7 +252,7 @@ pub struct RenderArgs {
     #[arg(
         long = "evaluation-polar-distance-res",
         value_name = "RESOLUTION",
-        default_value_t = 8
+        default_value_t = renderer::config_fields::vbap_distance_res::DEFAULT
     )]
     pub evaluation_polar_distance_res: i32,
 

@@ -102,7 +102,9 @@ impl SpatialRendererParams {
             evaluation_polar_elevation_resolution: cfg
                 .and_then(|c| c.vbap_elevation_resolution)
                 .unwrap_or(180),
-            evaluation_polar_distance_res: cfg.and_then(|c| c.vbap_distance_res).unwrap_or(8),
+            evaluation_polar_distance_res: cfg
+                .and_then(renderer::config_fields::vbap_distance_res::get)
+                .unwrap_or(renderer::config_fields::vbap_distance_res::DEFAULT),
             evaluation_polar_distance_max: cfg.and_then(|c| c.vbap_distance_max).unwrap_or(2.0),
             render_evaluation_mode,
             evaluation_mode_explicit: false,

@@ -1,5 +1,6 @@
 pub mod backend_registry;
 pub mod config;
+pub mod config_fields;
 pub mod crossover;
 pub mod delay_line;
 pub mod live_params;

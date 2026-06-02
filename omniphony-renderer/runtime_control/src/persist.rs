@@ -81,11 +81,10 @@ pub fn save_live_config(
     } else {
         None
     };
-    render.vbap_distance_res = if live.evaluation.polar.distance_res != 8 {
-        Some(live.evaluation.polar.distance_res.max(1))
-    } else {
-        None
-    };
+    renderer::config_fields::vbap_distance_res::store(
+        render,
+        live.evaluation.polar.distance_res.max(1),
+    );
     render.vbap_distance_max = if (live.evaluation.polar.distance_max - 2.0).abs() > 1e-4 {
         Some(live.evaluation.polar.distance_max.max(0.01))
     } else {

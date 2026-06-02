@@ -83,7 +83,7 @@ pub(super) fn merge_render_config(
         }
     }
     if !arg_sources.is_explicit("evaluation_polar_distance_res") {
-        if let Some(v) = cfg.vbap_distance_res {
+        if let Some(v) = renderer::config_fields::vbap_distance_res::get(cfg) {
             args.evaluation_polar_distance_res = v;
         }
     }
@@ -273,14 +273,8 @@ pub(super) fn effective_to_config(
     cli: &Cli,
     existing_render_cfg: Option<&renderer::config::RenderConfig>,
 ) -> Result<renderer::config::Config> {
-    use renderer::config::{Config, GlobalConfig, RenderConfig};
+    use renderer::config::{Config, GlobalConfig};
     use renderer::speaker_layout::SpeakerLayout;
-
-    let current_layout = if let Some(ref layout_path) = args.speaker_layout {
-        Some(SpeakerLayout::from_file(layout_path)?)
-    } else {
-        None
-    };
 
     let global = GlobalConfig {
         loglevel: if cli.loglevel != LogLevel::default() {
@@ -297,262 +291,195 @@ pub(super) fn effective_to_config(
         extra: Default::default(),
     };
 
-    let render = RenderConfig {
-        input_mode: None,
-        input_pipe: if args.continuous {
-            args.input.clone()
-        } else {
-            None
-        },
-        live_input: None,
-        output_backend: match args.output_backend {
-            Some(value) if Some(value) != OutputBackend::platform_default() => {
-                Some(format!("{:?}", value).to_lowercase())
-            }
-            _ => None,
-        },
-        presentation: if args.presentation != "best" {
-            args.presentation.parse::<u8>().ok()
-        } else {
-            None
-        },
-        bridge_path: args.bridge_path.clone(),
-        enable_vbap: if args.enable_vbap { Some(true) } else { None },
-        // Persist embedded layout instead of path link.
-        speaker_layout: None,
-        current_layout,
-        vbap_table: args.vbap_table.clone(),
-        vbap_azimuth_resolution: if args.evaluation_polar_azimuth_resolution != 360 {
-            Some(args.evaluation_polar_azimuth_resolution)
-        } else {
-            None
-        },
-        vbap_elevation_resolution: if args.evaluation_polar_elevation_resolution != 180 {
-            Some(args.evaluation_polar_elevation_resolution)
-        } else {
-            None
-        },
-        vbap_spread: if args.vbap_spread != 0.0 {
-            Some(args.vbap_spread)
-        } else {
-            None
-        },
-        vbap_distance_res: if args.evaluation_polar_distance_res != 8 {
-            Some(args.evaluation_polar_distance_res)
-        } else {
-            None
-        },
-        vbap_distance_max: if (args.evaluation_polar_distance_max - 2.0).abs() > f32::EPSILON {
-            Some(args.evaluation_polar_distance_max)
-        } else {
-            None
-        },
-        render_evaluation_position_interpolation: if args.render_evaluation_position_interpolation {
+    // Start from the existing config so every field the CLI cannot express
+    // (live_input, embedded current_layout, render_backend, hybrid_*,
+    // experimental_*, distance metrics, adaptive tuning, DRC, monitoring
+    // cadences, size_to_spread, and any unknown `extra` keys) is preserved
+    // verbatim instead of being erased. `merge_render_config` has already
+    // folded the on-disk config into `args`, so re-storing the args value
+    // re-persists anything the user did not explicitly override on the CLI.
+    let mut render = existing_render_cfg.cloned().unwrap_or_default();
+
+    render.input_pipe = if args.continuous {
+        args.input.clone()
+    } else {
+        None
+    };
+    render.output_backend = match args.output_backend {
+        Some(value) if Some(value) != OutputBackend::platform_default() => {
+            Some(format!("{:?}", value).to_lowercase())
+        }
+        _ => None,
+    };
+    render.presentation = if args.presentation != "best" {
+        args.presentation.parse::<u8>().ok()
+    } else {
+        None
+    };
+    render.bridge_path = args.bridge_path.clone();
+    render.enable_vbap = if args.enable_vbap { Some(true) } else { None };
+    // Persist the embedded layout instead of a path link. Only override when a
+    // layout path is supplied on the CLI; otherwise keep the config's existing
+    // embedded `current_layout` (Studio-saved) intact.
+    if let Some(ref layout_path) = args.speaker_layout {
+        render.current_layout = Some(SpeakerLayout::from_file(layout_path)?);
+        render.speaker_layout = None;
+    }
+    render.vbap_table = args.vbap_table.clone();
+    render.vbap_azimuth_resolution = if args.evaluation_polar_azimuth_resolution != 360 {
+        Some(args.evaluation_polar_azimuth_resolution)
+    } else {
+        None
+    };
+    render.vbap_elevation_resolution = if args.evaluation_polar_elevation_resolution != 180 {
+        Some(args.evaluation_polar_elevation_resolution)
+    } else {
+        None
+    };
+    render.vbap_spread = if args.vbap_spread != 0.0 {
+        Some(args.vbap_spread)
+    } else {
+        None
+    };
+    renderer::config_fields::vbap_distance_res::store(
+        &mut render,
+        args.evaluation_polar_distance_res,
+    );
+    render.vbap_distance_max = if (args.evaluation_polar_distance_max - 2.0).abs() > f32::EPSILON {
+        Some(args.evaluation_polar_distance_max)
+    } else {
+        None
+    };
+    render.render_evaluation_position_interpolation =
+        if args.render_evaluation_position_interpolation {
             Some(true)
         } else {
             None
-        },
-        render_backend: None,
-        render_evaluation_mode: if args.render_evaluation_mode != EvaluationModeArg::Polar {
-            Some(format!("{:?}", args.render_evaluation_mode).to_lowercase())
-        } else {
-            None
-        },
-        evaluation_cartesian_x_size: args.evaluation_cartesian_x_size,
-        evaluation_cartesian_y_size: args.evaluation_cartesian_y_size,
-        evaluation_cartesian_z_size: args.evaluation_cartesian_z_size,
-        evaluation_cartesian_z_neg_size: args.evaluation_cartesian_z_neg_size,
-        vbap_allow_negative_z: if args.vbap_allow_negative_z {
-            Some(true)
-        } else if args.no_vbap_allow_negative_z {
-            Some(false)
-        } else {
-            None
-        },
-        vbap_distance_model: if args.vbap_distance_model != "none" {
-            Some(args.vbap_distance_model.clone())
-        } else {
-            None
-        },
-        master_gain: if args.master_gain != 0.0 {
-            Some(args.master_gain)
-        } else {
-            None
-        },
-        // The CLI works in ratios; metres are a save-time representation only.
-        room_width_m: None,
-        room_front_m: None,
-        room_rear_m: None,
-        room_height_m: None,
-        room_lower_m: None,
-        room_ratio: if args.room_ratio != "1.0,2.0,1.0" {
-            Some(args.room_ratio.clone())
-        } else {
-            None
-        },
-        room_ratio_rear: args.room_ratio_rear,
-        room_ratio_lower: args.room_ratio_lower,
-        room_ratio_center_blend: args.room_ratio_center_blend,
-        osc: if args.osc { Some(true) } else { None },
-        osc_metering: if args.osc_metering { Some(true) } else { None },
-        osc_rx_port: if args.osc_rx_port != 9000 {
-            Some(args.osc_rx_port)
-        } else {
-            None
-        },
-        osc_host: if args.osc_host != "127.0.0.1" {
-            Some(args.osc_host.clone())
-        } else {
-            None
-        },
-        osc_port: if args.osc_port != 9000 {
-            Some(args.osc_port)
-        } else {
-            None
-        },
-        output_device: {
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
-            {
-                args.output_device.clone()
-            }
-            #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-            {
-                None
-            }
-        },
-        latency_target: {
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
-            {
-                args.latency_target_ms
-            }
-            #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-            {
-                None
-            }
-        },
-        continuous: if args.continuous { Some(true) } else { None },
-        use_loudness: if args.use_loudness { Some(true) } else { None },
-        auto_gain: if args.auto_gain { Some(true) } else { None },
-        bed_conform: if args.bed_conform { Some(true) } else { None },
-        spread_from_distance: if args.spread_from_distance {
-            Some(true)
-        } else {
-            None
-        },
-        spread_distance_range: if args.spread_distance_range != 1.0 {
-            Some(args.spread_distance_range)
-        } else {
-            None
-        },
-        spread_distance_curve: if args.spread_distance_curve != 1.0 {
-            Some(args.spread_distance_curve)
-        } else {
-            None
-        },
-        vbap_spread_min: if args.vbap_spread_min != 0.0 {
-            Some(args.vbap_spread_min)
-        } else {
-            None
-        },
-        vbap_spread_max: if args.vbap_spread_max != 1.0 {
-            Some(args.vbap_spread_max)
-        } else {
-            None
-        },
-        // No CLI surface yet; preserve whatever the active config carries.
-        size_to_spread_mode: existing_render_cfg.and_then(|cfg| cfg.size_to_spread_mode),
-        enable_adaptive_resampling: if args.enable_adaptive_resampling {
-            Some(true)
-        } else {
-            None
-        },
-        // These adaptive tuning fields currently have no CLI surface, so a `save`
-        // round-trip must preserve whatever the active config already carries.
-        adaptive_resampling_enable_far_mode: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_enable_far_mode),
-        adaptive_resampling_force_silence_in_far_mode: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_force_silence_in_far_mode),
-        adaptive_resampling_hard_recover_high_in_far_mode: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_hard_recover_high_in_far_mode),
-        adaptive_resampling_hard_recover_low_in_far_mode: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_hard_recover_low_in_far_mode),
-        adaptive_resampling_far_mode_return_fade_in_ms: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_far_mode_return_fade_in_ms),
-        adaptive_resampling_kp_near: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_kp_near),
-        adaptive_resampling_ki: existing_render_cfg.and_then(|cfg| cfg.adaptive_resampling_ki),
-        adaptive_resampling_integral_discharge_ratio: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_integral_discharge_ratio),
-        adaptive_resampling_max_adjust: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_max_adjust),
-        adaptive_resampling_update_interval_callbacks: args
-            .adaptive_resampling_update_interval_callbacks,
-        adaptive_resampling_high_recover_entry_margin_ms: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_high_recover_entry_margin_ms),
-        adaptive_resampling_low_recover_settle_stable_ms: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_low_recover_settle_stable_ms),
-        adaptive_resampling_low_recover_entry_margin_ms: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_low_recover_entry_margin_ms),
-        adaptive_resampling_low_recover_exit_margin_ms: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_low_recover_exit_margin_ms),
-        adaptive_resampling_low_recover_settle_margin_ms: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_low_recover_settle_margin_ms),
-        adaptive_resampling_low_recover_refill_delta_alpha: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_low_recover_refill_delta_alpha),
-        adaptive_resampling_control_smoothing_cutoff_hz: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_control_smoothing_cutoff_hz),
-        adaptive_resampling_control_smoothing_order: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_control_smoothing_order),
-        adaptive_resampling_use_pre_bridge_clock: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_use_pre_bridge_clock),
-        adaptive_resampling_use_output_pacing: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_use_output_pacing),
-        adaptive_resampling_disable_backpressure: existing_render_cfg
-            .and_then(|cfg| cfg.adaptive_resampling_disable_backpressure),
-        output_sample_rate: args.output_sample_rate,
-        drc_mode: existing_render_cfg.and_then(|cfg| cfg.drc_mode.clone()),
-        drc_weight: existing_render_cfg.and_then(|cfg| cfg.drc_weight),
-        // No CLI surface; persisted/round-tripped via the live save path.
-        meter_rate: existing_render_cfg.and_then(|cfg| cfg.meter_rate),
-        diag_rate: existing_render_cfg.and_then(|cfg| cfg.diag_rate),
-        ramp_mode: if args.ramp_mode != RampModeArg::Sample {
-            Some(match args.ramp_mode {
-                RampModeArg::Off => "off".to_string(),
-                RampModeArg::Frame => "frame".to_string(),
-                RampModeArg::Sample => "sample".to_string(),
-            })
-        } else {
-            None
-        },
-        distance_diffuse: if args.distance_diffuse {
-            Some(true)
-        } else {
-            None
-        },
-        distance_diffuse_threshold: if args.distance_diffuse_threshold != 1.0 {
-            Some(args.distance_diffuse_threshold)
-        } else {
-            None
-        },
-        distance_diffuse_curve: if args.distance_diffuse_curve != 1.0 {
-            Some(args.distance_diffuse_curve)
-        } else {
-            None
-        },
-        experimental_distance_distance_floor: None,
-        experimental_distance_min_active_speakers: None,
-        experimental_distance_max_active_speakers: None,
-        experimental_distance_position_error_floor: None,
-        experimental_distance_position_error_nearest_scale: None,
-        experimental_distance_position_error_span_scale: None,
-        distance_model_metric: None,
-        distance_diffuse_metric: None,
-        hybrid_external_backend: None,
-        hybrid_internal_backend: None,
-        hybrid_curve: None,
-        hybrid_curve_smoothing: None,
-        hybrid_metric: None,
-        extra: Default::default(),
+        };
+    render.render_evaluation_mode = if args.render_evaluation_mode != EvaluationModeArg::Polar {
+        Some(format!("{:?}", args.render_evaluation_mode).to_lowercase())
+    } else {
+        None
+    };
+    render.evaluation_cartesian_x_size = args.evaluation_cartesian_x_size;
+    render.evaluation_cartesian_y_size = args.evaluation_cartesian_y_size;
+    render.evaluation_cartesian_z_size = args.evaluation_cartesian_z_size;
+    render.evaluation_cartesian_z_neg_size = args.evaluation_cartesian_z_neg_size;
+    render.vbap_allow_negative_z = if args.vbap_allow_negative_z {
+        Some(true)
+    } else if args.no_vbap_allow_negative_z {
+        Some(false)
+    } else {
+        None
+    };
+    render.vbap_distance_model = if args.vbap_distance_model != "none" {
+        Some(args.vbap_distance_model.clone())
+    } else {
+        None
+    };
+    render.master_gain = if args.master_gain != 0.0 {
+        Some(args.master_gain)
+    } else {
+        None
+    };
+    // The CLI works in ratios; metres are a save-time representation only, so
+    // clear any metre fields a prior Studio save left behind to keep the ratio
+    // representation authoritative on the next load.
+    render.room_width_m = None;
+    render.room_front_m = None;
+    render.room_rear_m = None;
+    render.room_height_m = None;
+    render.room_lower_m = None;
+    render.room_ratio = if args.room_ratio != "1.0,2.0,1.0" {
+        Some(args.room_ratio.clone())
+    } else {
+        None
+    };
+    render.room_ratio_rear = args.room_ratio_rear;
+    render.room_ratio_lower = args.room_ratio_lower;
+    render.room_ratio_center_blend = args.room_ratio_center_blend;
+    render.osc = if args.osc { Some(true) } else { None };
+    render.osc_metering = if args.osc_metering { Some(true) } else { None };
+    render.osc_rx_port = if args.osc_rx_port != 9000 {
+        Some(args.osc_rx_port)
+    } else {
+        None
+    };
+    render.osc_host = if args.osc_host != "127.0.0.1" {
+        Some(args.osc_host.clone())
+    } else {
+        None
+    };
+    render.osc_port = if args.osc_port != 9000 {
+        Some(args.osc_port)
+    } else {
+        None
+    };
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    {
+        render.output_device = args.output_device.clone();
+        render.latency_target = args.latency_target_ms;
+    }
+    render.continuous = if args.continuous { Some(true) } else { None };
+    render.use_loudness = if args.use_loudness { Some(true) } else { None };
+    render.auto_gain = if args.auto_gain { Some(true) } else { None };
+    render.bed_conform = if args.bed_conform { Some(true) } else { None };
+    render.spread_from_distance = if args.spread_from_distance {
+        Some(true)
+    } else {
+        None
+    };
+    render.spread_distance_range = if args.spread_distance_range != 1.0 {
+        Some(args.spread_distance_range)
+    } else {
+        None
+    };
+    render.spread_distance_curve = if args.spread_distance_curve != 1.0 {
+        Some(args.spread_distance_curve)
+    } else {
+        None
+    };
+    render.vbap_spread_min = if args.vbap_spread_min != 0.0 {
+        Some(args.vbap_spread_min)
+    } else {
+        None
+    };
+    render.vbap_spread_max = if args.vbap_spread_max != 1.0 {
+        Some(args.vbap_spread_max)
+    } else {
+        None
+    };
+    render.enable_adaptive_resampling = if args.enable_adaptive_resampling {
+        Some(true)
+    } else {
+        None
+    };
+    render.adaptive_resampling_update_interval_callbacks =
+        args.adaptive_resampling_update_interval_callbacks;
+    render.output_sample_rate = args.output_sample_rate;
+    render.ramp_mode = if args.ramp_mode != RampModeArg::Sample {
+        Some(match args.ramp_mode {
+            RampModeArg::Off => "off".to_string(),
+            RampModeArg::Frame => "frame".to_string(),
+            RampModeArg::Sample => "sample".to_string(),
+        })
+    } else {
+        None
+    };
+    render.distance_diffuse = if args.distance_diffuse {
+        Some(true)
+    } else {
+        None
+    };
+    render.distance_diffuse_threshold = if args.distance_diffuse_threshold != 1.0 {
+        Some(args.distance_diffuse_threshold)
+    } else {
+        None
+    };
+    render.distance_diffuse_curve = if args.distance_diffuse_curve != 1.0 {
+        Some(args.distance_diffuse_curve)
+    } else {
+        None
     };
 
     let global_opt =
@@ -567,4 +494,77 @@ pub(super) fn effective_to_config(
         render: Some(render),
         extra: Default::default(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::effective_to_config;
+    use crate::cli::command::{Commands, ParsedCli};
+
+    /// Build a fully-defaulted `render` arg set + `Cli` straight from clap, so
+    /// the test exercises the real defaults rather than a hand-rolled struct.
+    fn default_render_invocation() -> (crate::cli::command::Cli, crate::cli::command::RenderArgs) {
+        let parsed = ParsedCli::parse_from(["orender", "render"]).expect("parse defaults");
+        let cli = parsed.cli;
+        let args = match cli.command {
+            Commands::Render(ref a) => a.clone(),
+            _ => unreachable!("explicit render subcommand"),
+        };
+        (cli, args)
+    }
+
+    /// Regression guard for the report's §8.2: `--save-config` must NOT erase
+    /// fields the CLI cannot express. Previously `effective_to_config` rebuilt
+    /// the config from scratch and dropped these; now it mutates the existing
+    /// config, so they survive a save with no `--speaker-layout`.
+    #[test]
+    fn save_config_preserves_cli_unexpressible_fields() {
+        let (cli, args) = default_render_invocation();
+
+        let existing = renderer::config::RenderConfig {
+            live_input: Some(renderer::config::LiveInputConfig {
+                node: Some("omniphony_live".to_string()),
+                ..Default::default()
+            }),
+            input_mode: Some(renderer::config::InputModeConfig::Live),
+            current_layout: Some(renderer::speaker_layout::SpeakerLayout {
+                radius_m: 1.5,
+                speakers: vec![],
+            }),
+            hybrid_external_backend: Some("cube".to_string()),
+            experimental_distance_min_active_speakers: Some(3),
+            distance_model_metric: Some("chebyshev".to_string()),
+            render_backend: Some("barycenter".to_string()),
+            ..Default::default()
+        };
+
+        let out = effective_to_config(&args, &cli, Some(&existing)).expect("build config");
+        let render = out.render.expect("render section present");
+
+        assert!(render.live_input.is_some(), "live_input erased");
+        assert_eq!(
+            render.input_mode,
+            Some(renderer::config::InputModeConfig::Live)
+        );
+        assert_eq!(
+            render.current_layout.map(|l| l.radius_m),
+            Some(1.5),
+            "embedded current_layout erased"
+        );
+        assert_eq!(render.hybrid_external_backend.as_deref(), Some("cube"));
+        assert_eq!(render.experimental_distance_min_active_speakers, Some(3));
+        assert_eq!(render.distance_model_metric.as_deref(), Some("chebyshev"));
+        assert_eq!(render.render_backend.as_deref(), Some("barycenter"));
+    }
+
+    /// A CLI value still wins and is persisted (skip-if-default via the
+    /// descriptor) even when starting from an existing config.
+    #[test]
+    fn save_config_persists_pilot_field_from_args() {
+        let (cli, mut args) = default_render_invocation();
+        args.evaluation_polar_distance_res = 12;
+
+        let out = effective_to_config(&args, &cli, None).expect("build config");
+        assert_eq!(out.render.unwrap().vbap_distance_res, Some(12));
+    }
 }
