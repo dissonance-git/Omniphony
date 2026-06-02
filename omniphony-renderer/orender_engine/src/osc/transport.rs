@@ -66,6 +66,23 @@ pub(crate) fn broadcast_string(
     }
 }
 
+/// Broadcast a single OSC `blob` arg (raw bytes). For bulk binary payloads such
+/// as the chunked, compressed speaker gain table.
+pub(crate) fn broadcast_blob(
+    socket: &UdpSocket,
+    clients: &OscClientRegistry,
+    addr: &str,
+    bytes: &[u8],
+) {
+    let packet = OscPacket::Message(OscMessage {
+        addr: addr.to_string(),
+        args: vec![OscType::Blob(bytes.to_vec())],
+    });
+    if let Ok(data) = rosc::encoder::encode(&packet) {
+        send_raw(socket, clients, &data);
+    }
+}
+
 pub(crate) fn encode_log_record(record: &sys::live_log::BufferedLogRecord) -> Option<Vec<u8>> {
     let packet = OscPacket::Message(OscMessage {
         addr: "/omniphony/log".to_string(),

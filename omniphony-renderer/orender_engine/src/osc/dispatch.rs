@@ -17,7 +17,8 @@ use super::client_registry::OscClientRegistry;
 use super::export::{build_live_state_bundle, export_current_layout, save_live_config};
 use super::recompute::trigger_layout_recompute;
 use super::transport::{
-    broadcast_fff, broadcast_float, broadcast_int, broadcast_string, resolve_register_addr,
+    broadcast_blob, broadcast_fff, broadcast_float, broadcast_int, broadcast_string,
+    resolve_register_addr,
     send_diag_state, send_metering_state,
 };
 
@@ -501,6 +502,7 @@ fn apply_control_effects(
             BroadcastValue::String(value) => {
                 broadcast_string(socket, clients, &update.addr, &value)
             }
+            BroadcastValue::Blob(bytes) => broadcast_blob(socket, clients, &update.addr, &bytes),
         }
     }
     if let Some(message) = effects.log_message {

@@ -287,6 +287,13 @@ pub trait PreparedEvaluator: Send + Sync {
     fn speaker_count(&self) -> usize;
     fn compute_gains(&self, req: &RenderRequest) -> RenderResponse;
     fn save_to_file(&self, path: &std::path::Path, speaker_layout: &SpeakerLayout) -> Result<()>;
+    /// Serialize the precomputed evaluation table (gains grid + metadata) to the
+    /// portable artifact byte layout, so it can be shipped to clients (chunked) and
+    /// rebuilt verbatim. Default: unsupported (realtime evaluators hold no table).
+    fn artifact_bytes(&self, speaker_layout: &SpeakerLayout) -> Result<Vec<u8>> {
+        let _ = speaker_layout;
+        anyhow::bail!("evaluator has no precomputed table to serialize")
+    }
     fn cartesian_slices_for_speaker(
         &self,
         speaker_index: usize,
@@ -439,6 +446,11 @@ impl PreparedEvaluator for SampledCartesianEvaluator {
     }
 
     fn save_to_file(&self, path: &std::path::Path, speaker_layout: &SpeakerLayout) -> Result<()> {
+        std::fs::write(path, self.artifact_bytes(speaker_layout)?)?;
+        Ok(())
+    }
+
+    fn artifact_bytes(&self, speaker_layout: &SpeakerLayout) -> Result<Vec<u8>> {
         evaluation_artifact::LoadedEvaluationArtifact::from_sampled_cartesian(
             self.model.backend_id(),
             self.model.backend_label(),
@@ -452,7 +464,7 @@ impl PreparedEvaluator for SampledCartesianEvaluator {
             &self.gains,
             self.speaker_count,
         )?
-        .save_to_file(path)
+        .to_serialized_bytes()
     }
 
     fn cartesian_slices_for_speaker(
@@ -676,6 +688,11 @@ impl PreparedEvaluator for SampledPolarEvaluator {
     }
 
     fn save_to_file(&self, path: &std::path::Path, speaker_layout: &SpeakerLayout) -> Result<()> {
+        std::fs::write(path, self.artifact_bytes(speaker_layout)?)?;
+        Ok(())
+    }
+
+    fn artifact_bytes(&self, speaker_layout: &SpeakerLayout) -> Result<Vec<u8>> {
         evaluation_artifact::LoadedEvaluationArtifact::from_sampled_polar(
             self.model.backend_id(),
             self.model.backend_label(),
@@ -689,7 +706,7 @@ impl PreparedEvaluator for SampledPolarEvaluator {
             &self.gains,
             self.speaker_count,
         )?
-        .save_to_file(path)
+        .to_serialized_bytes()
     }
 }
 
@@ -818,6 +835,12 @@ impl PreparedRenderEngine {
         speaker_layout: &SpeakerLayout,
     ) -> Result<()> {
         self.evaluator.save_to_file(path, speaker_layout)
+    }
+
+    /// Serialize the precomputed evaluation table (gains grid) to portable artifact
+    /// bytes for shipping to clients. Errors on non-precomputed (realtime) backends.
+    pub fn artifact_bytes(&self, speaker_layout: &SpeakerLayout) -> Result<Vec<u8>> {
+        self.evaluator.artifact_bytes(speaker_layout)
     }
 
     pub fn cartesian_slices_for_speaker(

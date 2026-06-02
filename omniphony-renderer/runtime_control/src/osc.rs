@@ -15,6 +15,11 @@ pub enum BroadcastValue {
     Float(f32),
     Fff(f32, f32, f32),
     String(String),
+    /// Raw bytes sent as a single OSC `blob` arg. Used for bulk binary payloads
+    /// (e.g. the chunked, compressed speaker gain table) where text/float args
+    /// would be far too verbose. Any framing (version, chunk index, …) is encoded
+    /// inside the bytes by the producer.
+    Blob(Vec<u8>),
 }
 
 #[derive(Debug, Clone)]
@@ -585,6 +590,88 @@ fn push_volume_broadcasts(
             });
         }
     }
+}
+
+/// Payload bytes per gain-table chunk (excluding the 8-byte version+index header),
+/// kept well under the UDP MTU once OSC blob framing is added.
+const GAINTABLE_CHUNK_BYTES: usize = 1024;
+
+/// Stable 31-bit id of a serialized table, so a re-request returns the same
+/// version while a topology rebuild yields a new one.
+fn gaintable_version(bytes: &[u8]) -> u32 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    (hasher.finish() & 0x7fff_ffff) as u32
+}
+
+/// Serialize the active precomputed evaluation table and emit it as a chunked,
+/// compressed binary broadcast (mirrors the artifact file format, shipped over
+/// OSC blobs). `only` = `Some((version, missing))` for a NACK resend: re-emit just
+/// those chunk indices when the version still matches, else fall back to a full
+/// resend (the table changed). `None` = full send with `meta` header.
+///
+/// Stateless by design: `artifact_bytes()` is deterministic for a given topology,
+/// so chunking is reproducible without caching (a cache is a later optimization).
+pub fn build_speaker_gaintable_broadcasts(
+    ctx: &RuntimeControlContext,
+    only: Option<(u32, Vec<u32>)>,
+) -> Vec<BroadcastUpdate> {
+    let topology = ctx.renderer.active_topology();
+    let bytes = match topology.backend.artifact_bytes(&topology.speaker_layout) {
+        Ok(b) => b,
+        Err(e) => {
+            let json = serde_json::json!({ "reason": e.to_string() }).to_string();
+            return vec![BroadcastUpdate {
+                addr: "/omniphony/state/debug/speaker_gaintable/unavailable".to_string(),
+                value: BroadcastValue::String(json),
+            }];
+        }
+    };
+    let version = gaintable_version(&bytes);
+    let chunk_count = bytes.len().div_ceil(GAINTABLE_CHUNK_BYTES).max(1);
+
+    // Decide which chunks to send + whether to (re)send the meta header.
+    let (emit_meta, indices): (bool, Vec<usize>) = match &only {
+        None => (true, (0..chunk_count).collect()),
+        Some((req_version, missing)) if *req_version == version => (
+            false,
+            missing
+                .iter()
+                .map(|&i| i as usize)
+                .filter(|&i| i < chunk_count)
+                .collect(),
+        ),
+        // Version mismatch → the table changed under the client: full resend.
+        Some(_) => (true, (0..chunk_count).collect()),
+    };
+
+    let mut out = Vec::with_capacity(indices.len() + 1);
+    if emit_meta {
+        let meta = serde_json::json!({
+            "version": version,
+            "total_len": bytes.len(),
+            "chunk_count": chunk_count,
+            "chunk_bytes": GAINTABLE_CHUNK_BYTES,
+        })
+        .to_string();
+        out.push(BroadcastUpdate {
+            addr: "/omniphony/state/debug/speaker_gaintable/meta".to_string(),
+            value: BroadcastValue::String(meta),
+        });
+    }
+    for ci in indices {
+        let start = ci * GAINTABLE_CHUNK_BYTES;
+        let end = (start + GAINTABLE_CHUNK_BYTES).min(bytes.len());
+        let mut blob = Vec::with_capacity(8 + (end - start));
+        blob.extend_from_slice(&version.to_le_bytes());
+        blob.extend_from_slice(&(ci as u32).to_le_bytes());
+        blob.extend_from_slice(&bytes[start..end]);
+        out.push(BroadcastUpdate {
+            addr: "/omniphony/state/debug/speaker_gaintable/chunk".to_string(),
+            value: BroadcastValue::Blob(blob),
+        });
+    }
+    out
 }
 
 fn hash_broadcasts(broadcasts: &[BroadcastUpdate]) -> u64 {
@@ -1257,6 +1344,31 @@ pub fn apply_simple_osc_control(
     if addr == "/omniphony/control/debug/speaker_heatmap/unsubscribe" {
         ctx.heatmap_sub.clear();
         effects.log_message = Some("OSC: speaker heatmap unsubscribe".to_string());
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/debug/speaker_gaintable/request" {
+        effects
+            .broadcasts
+            .extend(build_speaker_gaintable_broadcasts(ctx, None));
+        effects.log_message = Some("OSC: speaker gain table requested".to_string());
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/debug/speaker_gaintable/nack" {
+        // Args: Int version, Int missing_index… — resend just the lost chunks.
+        let mut ints = msg.args.iter().filter_map(|a| match a {
+            OscType::Int(i) if *i >= 0 => Some(*i as u32),
+            _ => None,
+        });
+        if let Some(version) = ints.next() {
+            let missing: Vec<u32> = ints.collect();
+            if !missing.is_empty() {
+                effects
+                    .broadcasts
+                    .extend(build_speaker_gaintable_broadcasts(ctx, Some((version, missing))));
+            }
+        }
         return Some(effects);
     }
 
