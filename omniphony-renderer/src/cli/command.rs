@@ -161,16 +161,16 @@ pub struct RenderArgs {
     pub no_osc_metering: bool,
 
     /// OSC target host
-    #[arg(long, value_name = "HOST", default_value = "127.0.0.1")]
+    #[arg(long, value_name = "HOST", default_value = renderer::config_fields::osc_host::DEFAULT)]
     pub osc_host: String,
 
     /// OSC target port
-    #[arg(long, value_name = "PORT", default_value_t = 9000)]
+    #[arg(long, value_name = "PORT", default_value_t = renderer::config_fields::osc_port::DEFAULT)]
     pub osc_port: u16,
 
     /// OSC registration listener port. Clients register by sending /omniphony/register
     /// to this port and receive the speaker config + all subsequent broadcasts.
-    #[arg(long, value_name = "PORT", default_value_t = 9000)]
+    #[arg(long, value_name = "PORT", default_value_t = renderer::config_fields::osc_rx_port::DEFAULT)]
     pub osc_rx_port: u16,
 
     /// Output device or target name.
@@ -540,15 +540,15 @@ pub struct InputLiveArgs {
     pub no_osc_metering: bool,
 
     /// OSC target host
-    #[arg(long, value_name = "HOST", default_value = "127.0.0.1")]
+    #[arg(long, value_name = "HOST", default_value = renderer::config_fields::osc_host::DEFAULT)]
     pub osc_host: String,
 
     /// OSC target port
-    #[arg(long, value_name = "PORT", default_value_t = 9000)]
+    #[arg(long, value_name = "PORT", default_value_t = renderer::config_fields::osc_port::DEFAULT)]
     pub osc_port: u16,
 
     /// OSC registration listener port.
-    #[arg(long, value_name = "PORT", default_value_t = 9000)]
+    #[arg(long, value_name = "PORT", default_value_t = renderer::config_fields::osc_rx_port::DEFAULT)]
     pub osc_rx_port: u16,
 }
 

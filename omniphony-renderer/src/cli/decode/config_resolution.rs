@@ -58,12 +58,12 @@ pub(super) fn merge_render_config(
         }
     }
     if !arg_sources.is_explicit("osc_host") {
-        if let Some(ref h) = cfg.osc_host {
-            args.osc_host = h.clone();
+        if let Some(h) = renderer::config_fields::osc_host::get(cfg) {
+            args.osc_host = h;
         }
     }
     if !arg_sources.is_explicit("osc_port") {
-        if let Some(p) = cfg.osc_port {
+        if let Some(p) = renderer::config_fields::osc_port::get(cfg) {
             args.osc_port = p;
         }
     }
@@ -201,7 +201,8 @@ pub(super) fn merge_render_config(
     }
     // osc
     if !arg_sources.is_explicit("osc") && !arg_sources.is_explicit("no_osc") {
-        args.osc = cfg.osc.unwrap_or(false);
+        args.osc =
+            renderer::config_fields::osc::get(cfg).unwrap_or(renderer::config_fields::osc::DEFAULT);
     } else if args.no_osc {
         args.osc = false;
     }
@@ -214,7 +215,7 @@ pub(super) fn merge_render_config(
     }
     // osc_rx_port (config can override the default 9000)
     if !arg_sources.is_explicit("osc_rx_port") {
-        if let Some(p) = cfg.osc_rx_port {
+        if let Some(p) = renderer::config_fields::osc_rx_port::get(cfg) {
             args.osc_rx_port = p;
         }
     }
@@ -397,23 +398,11 @@ pub(super) fn effective_to_config(
     render.room_ratio_rear = args.room_ratio_rear;
     render.room_ratio_lower = args.room_ratio_lower;
     render.room_ratio_center_blend = args.room_ratio_center_blend;
-    render.osc = if args.osc { Some(true) } else { None };
+    renderer::config_fields::osc::store(&mut render, args.osc);
     renderer::config_fields::osc_metering::store(&mut render, args.osc_metering);
-    render.osc_rx_port = if args.osc_rx_port != 9000 {
-        Some(args.osc_rx_port)
-    } else {
-        None
-    };
-    render.osc_host = if args.osc_host != "127.0.0.1" {
-        Some(args.osc_host.clone())
-    } else {
-        None
-    };
-    render.osc_port = if args.osc_port != 9000 {
-        Some(args.osc_port)
-    } else {
-        None
-    };
+    renderer::config_fields::osc_rx_port::store(&mut render, args.osc_rx_port);
+    renderer::config_fields::osc_host::store(&mut render, &args.osc_host);
+    renderer::config_fields::osc_port::store(&mut render, args.osc_port);
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
         render.output_device = args.output_device.clone();

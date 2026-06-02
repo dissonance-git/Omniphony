@@ -244,6 +244,33 @@ render_field! {
     eq = bool::eq
 }
 
+render_field! {
+    /// Enable OSC metadata output (`render.osc`).
+    pub osc: bool = false,
+    field = osc,
+    eq = bool::eq
+}
+
+render_field_str! {
+    /// OSC target host (`render.osc_host`).
+    pub osc_host = "127.0.0.1",
+    field = osc_host
+}
+
+render_field! {
+    /// OSC target port (`render.osc_port`).
+    pub osc_port: u16 = 9000,
+    field = osc_port,
+    eq = u16::eq
+}
+
+render_field! {
+    /// OSC registration listener port (`render.osc_rx_port`).
+    pub osc_rx_port: u16 = 9000,
+    field = osc_rx_port,
+    eq = u16::eq
+}
+
 #[cfg(test)]
 mod tests {
     use crate::config::RenderConfig;
