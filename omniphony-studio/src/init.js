@@ -37,7 +37,7 @@ import {
   setFrameDurationMs,
   updateResampleRatioDisplay
 } from './controls/latency.js';
-import { updateMasterGainUI, updateMasterMeterUI } from './controls/master.js';
+import { updateMasterGainUI, updateMasterMeterUI, updateAutoGainUI } from './controls/master.js';
 import { updateSpreadDisplay } from './controls/spread.js';
 import {
   updateRenderBackend,
@@ -337,7 +337,11 @@ export function applyInitState(payload) {
   if (typeof payload.masterGain === 'number') {
     app.masterGain = payload.masterGain;
   }
+  if (typeof payload.autoGain === 'boolean') {
+    app.autoGain = payload.autoGain;
+  }
   updateMasterGainUI();
+  updateAutoGainUI();
   const distanceModelValue =
     typeof payload.distanceModel === 'string'
       ? payload.distanceModel

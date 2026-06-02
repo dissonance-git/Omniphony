@@ -320,6 +320,7 @@ struct LiveSnapshot<'a> {
     position_interpolation: bool,
     ramp_mode: RampMode,
     use_loudness: bool,
+    auto_gain: bool,
     speaker_params: &'a [crate::live_params::SpeakerLiveParams],
     room_ratio: [f32; 3],
     room_ratio_rear: f32,
@@ -365,9 +366,6 @@ pub struct SpatialRenderer {
     /// Dialog normalization gain in linear (1.0 = no normalization)
     /// Set dynamically when dialogue_level is received from the stream
     loudness_gain: std::sync::atomic::AtomicU32,
-
-    /// Enable automatic gain adjustment to prevent clipping
-    auto_gain: bool,
 
     /// Current auto-gain multiplier (adjusted dynamically when clipping detected)
     /// Stored as atomic for thread-safe updates
@@ -651,7 +649,6 @@ impl SpatialRenderer {
             sample_rate,
             distance_model,
             log_object_positions,
-            auto_gain,
             control,
         )?)
     }
@@ -790,6 +787,7 @@ impl SpatialRenderer {
                 },
             },
             use_loudness,
+            auto_gain,
             distance_model,
             distance_model_metric: crate::spatial_vbap::DistanceMetric::default(),
             distance_diffuse_metric: crate::spatial_vbap::DistanceMetric::default(),
@@ -866,7 +864,6 @@ impl SpatialRenderer {
         sample_rate: u32,
         distance_model: DistanceModel,
         log_object_positions: bool,
-        auto_gain: bool,
         control: Arc<RendererControl>,
     ) -> Result<Self> {
         let active_topology = control.active_topology();
@@ -889,7 +886,6 @@ impl SpatialRenderer {
             distance_model,
             log_object_positions,
             loudness_gain: std::sync::atomic::AtomicU32::new(1.0_f32.to_bits()),
-            auto_gain,
             current_auto_gain: std::sync::atomic::AtomicU32::new(1.0_f32.to_bits()),
             control,
             speaker_gains_buf: vec![0.0f32; num_speakers],
@@ -1249,6 +1245,7 @@ impl SpatialRenderer {
                 position_interpolation: g.evaluation.position_interpolation,
                 ramp_mode: g.ramp_mode,
                 use_loudness: g.use_loudness,
+                auto_gain: g.auto_gain,
                 speaker_params: &self.speaker_params_buf[..self.num_speakers],
                 room_ratio: g.room_ratio,
                 room_ratio_rear: g.room_ratio_rear,
@@ -1734,7 +1731,7 @@ impl SpatialRenderer {
 
         // Auto-gain adjustment: if clipping detected, reduce gain permanently (no recovery)
         // This acts as a "peak hold" - we keep the minimum gain needed to avoid clipping
-        if self.auto_gain && peak_sample > 1.0 {
+        if live.auto_gain && peak_sample > 1.0 {
             // Calculate the gain needed to bring this peak to exactly 1.0
             let required_gain = 1.0 / peak_sample;
             // New auto-gain = current * required (reduces further if needed)

@@ -269,6 +269,11 @@ pub struct LiveParams {
     /// Apply dialogue normalisation gain stored in the renderer.
     pub use_loudness: bool,
 
+    /// Automatic gain reduction: when set, the gain stage permanently lowers
+    /// output gain on detected clipping (peak hold, no recovery). Live-tunable
+    /// via `/omniphony/control/auto_gain`.
+    pub auto_gain: bool,
+
     /// Distance attenuation model currently applied by the renderer.
     pub distance_model: crate::spatial_vbap::DistanceModel,
 

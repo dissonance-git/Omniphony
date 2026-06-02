@@ -109,6 +109,7 @@ struct RendererDomainState {
     render_evaluation_mode: Option<String>,
     render_evaluation_mode_effective: Option<String>,
     master_gain: Option<f64>,
+    auto_gain: Option<bool>,
     ramp_mode: Option<String>,
     distance_model: Option<String>,
     distance_model_metric: Option<String>,
@@ -568,6 +569,9 @@ fn apply_renderer_domain_state(s: &mut AppState, value: &str) -> bool {
     }
     if let Some(master_gain) = parsed.master_gain {
         s.master_gain = Some(master_gain);
+    }
+    if let Some(auto_gain) = parsed.auto_gain {
+        s.auto_gain = Some(auto_gain);
     }
     if let Some(ramp_mode) = parsed.ramp_mode {
         s.audio.ramp_mode = Some(ramp_mode);

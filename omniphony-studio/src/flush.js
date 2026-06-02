@@ -53,6 +53,7 @@ export const flushCallbacks = {
   renderAudioFormatDisplay: null,
   renderDrcUI: null,
   renderMasterGainUI: null,
+  renderAutoGainUI: null,
   updateMasterMeterUI: null,
   updateObjectContributionUI: null,
   updateSpeakerContributionUI: null,
@@ -229,6 +230,10 @@ export function flushUI() {
     dirty.drcUI = false;
   }
 
+  if (dirty.autoGain) {
+    flushCallbacks.renderAutoGainUI?.();
+    dirty.autoGain = false;
+  }
   if (dirty.masterGain) {
     flushCallbacks.renderMasterGainUI?.();
     dirty.masterGain = false;

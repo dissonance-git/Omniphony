@@ -13,7 +13,7 @@ import {
 } from '../controls/vbap.js';
 import { renderHybridCurve, setupHybridCurveEditor } from '../controls/hybrid-curve.js';
 import { updateSpreadDisplay } from '../controls/spread.js';
-import { updateDistanceModelUI } from '../controls/master.js';
+import { updateDistanceModelUI, updateAutoGainUI } from '../controls/master.js';
 import { updateDistanceDiffuseUI } from '../controls/distance-diffuse.js';
 import { renderVbapCartesianGridToggle, updateVbapCartesianFaceGrid } from '../scene/gizmos.js';
 
@@ -40,6 +40,7 @@ export function setupRendererPanelListeners() {
   const vbapPolarDistanceResInputEl = document.getElementById('vbapPolarDistanceResInput');
   const vbapPolarDistanceMaxInputEl = document.getElementById('vbapPolarDistanceMaxInput');
   const vbapPositionInterpolationToggleEl = document.getElementById('vbapPositionInterpolationToggleEl');
+  const autoGainToggleEl = document.getElementById('autoGainToggle');
   const distanceDiffuseToggleEl = document.getElementById('distanceDiffuseToggle');
   const distanceDiffuseThresholdSliderEl = document.getElementById('distanceDiffuseThresholdSlider');
   const distanceDiffuseThresholdValEl = document.getElementById('distanceDiffuseThresholdVal');
@@ -166,6 +167,15 @@ export function setupRendererPanelListeners() {
       app.vbapRecomputing = true;
       renderVbapStatus();
       invoke('control_distance_diffuse_metric', { value });
+    });
+  }
+
+  if (autoGainToggleEl) {
+    autoGainToggleEl.addEventListener('change', () => {
+      const enabled = autoGainToggleEl.checked;
+      app.autoGain = enabled;
+      updateAutoGainUI();
+      invoke('control_auto_gain', { enable: enabled ? 1 : 0 });
     });
   }
 

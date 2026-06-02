@@ -218,8 +218,8 @@ render_field! {
 
 render_field! {
     /// Automatic gain reduction to avoid clipping (`render.auto_gain`).
-    /// Note: only the CLI writer persists this; the live path leaves it
-    /// untouched (preserved from the existing config).
+    /// Persisted by both the CLI writer and the live path (it is a live param,
+    /// tunable at runtime via `/omniphony/control/auto_gain`).
     pub auto_gain: bool = false,
     field = auto_gain,
     eq = bool::eq

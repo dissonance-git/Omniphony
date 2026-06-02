@@ -1365,6 +1365,15 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
+    if addr == "/omniphony/control/auto_gain" {
+        if let Some(v) = parse_bool_arg(msg.args.first()) {
+            ctx.renderer.live.write().unwrap().auto_gain = v;
+            effects.mark_dirty = true;
+            // Per-frame gain-stage flag: no topology recompute.
+        }
+        return Some(effects);
+    }
+
     if let Some(rest) = addr.strip_prefix("/omniphony/control/render_evaluation/cartesian/") {
         let size = match msg.args.first() {
             Some(OscType::Int(i)) => Some((*i).max(1) as usize),

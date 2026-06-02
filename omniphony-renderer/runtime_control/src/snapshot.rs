@@ -124,6 +124,7 @@ pub fn build_renderer_state_json(
         "renderEvaluationMode": live.requested_evaluation_mode().as_str(),
         "renderEvaluationModeEffective": effective_evaluation_mode,
         "masterGain": live.master_gain,
+        "autoGain": live.auto_gain,
         "rampMode": live.ramp_mode.as_str(),
         "distanceModel": live.distance_model.to_string(),
         "distanceModelMetric": live.distance_model_metric.to_string(),

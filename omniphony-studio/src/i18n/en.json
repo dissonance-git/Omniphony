@@ -366,6 +366,7 @@
   "common.polar": "Polar:",
   "master.title": "Master",
   "distance.title": "Distance Diffuse",
+  "autoGain.title": "Auto-gain (anti-clip)",
   "distance.model": "Distance model",
   "distance.metric": "Distance metric",
   "distance.metric.spherical": "Spherical",

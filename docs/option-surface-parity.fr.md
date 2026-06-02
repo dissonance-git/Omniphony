@@ -70,7 +70,7 @@ Légende statut : ✅ OK · 🟡 écart **justifié** (ne pas corriger) · 🔴 
 |---|:--:|:--:|:--:|:--:|---|
 | `master_gain` | ✅ | ✅ | ✅ | ✅ | — |
 | `use_loudness` | ✅ | ✅ | ✅ | ✅ | — |
-| `auto_gain` | ✅ | 🔴 | 🔴 | 🔴 | CLI/config seulement, **aucun contrôle OSC** → impossible à toggler depuis Studio/mpv. **Partie 4b.** |
+| `auto_gain` | ✅ | ✅ | ✅ | ✅ | **Corrigé** : `auto_gain` est désormais un live param (`/omniphony/control/auto_gain`), toggle Studio + persisté. Renderer-domain → marche aussi en mpv. |
 
 ### Géométrie de la pièce
 
@@ -83,7 +83,7 @@ Légende statut : ✅ OK · 🟡 écart **justifié** (ne pas corriger) · 🔴 
 
 | Option | CLI | OSC/Studio | mpv | Statut | Pourquoi |
 |---|:--:|:--:|:--:|:--:|---|
-| `bed_conform` | ✅ | 🔴 | 🔴 | 🔴 | implémenté **uniquement dans le chemin de décodage CLI** (`src/cli/decode/`), absent d'`orender_engine` → **inopérant en mpv** ; et aucun contrôle OSC → non toggleable à chaud. **Partie 4a + 4b.** |
+| `bed_conform` | ✅ | — | — | 🟡 | **Écart justifié** (révisé) : `bed_conform` n'est pas un paramètre renderer-domain mais un mode de **conformance de sortie** couplé à l'écrivain audio du CLI (`src/cli/decode/` : sortie d'un bed 7.1.2 brut + canaux objets, recréation du writer sur changement de nb de canaux). Les beds eux-mêmes sont **déjà** gérés côté moteur dans le VBAP (`configure_beds`/`bed_indices`) — opérant en CLI comme en mpv. mpv possède sa propre chaîne de sortie, donc le mode de conformance brut ne s'y applique pas. Non porté. |
 
 ### Sortie audio / latence / resampling (host audio)
 
@@ -122,7 +122,7 @@ Légende statut : ✅ OK · 🟡 écart **justifié** (ne pas corriger) · 🔴 
 1. **Sélection de backend en CLI** : `--render-backend` + params barycenter / hybrid / experimental_distance → **Partie 1**.
 2. **Métriques & size_to_spread en CLI** : `--distance-model-metric`, `--distance-diffuse-metric`, `--size-to-spread-mode` → **Partie 2**.
 3. **Tuning resampling en CLI** (standalone) : flags PI au-delà de enable/update-interval → **Partie 3**.
-4. **`bed_conform` & `auto_gain`** : porter `bed_conform` dans le moteur (mpv) + contrôle live OSC/Studio des deux → **Partie 4**.
+4. **`auto_gain`** : contrôle live OSC/Studio (fait — Partie 4). `bed_conform` : **réévalué comme écart justifié** (mode de sortie couplé au CLI, beds déjà gérés côté moteur) → non porté.
 
 Hors-scope ce tour-ci (à corriger ultérieurement) : `meter_rate`/`diag_rate`,
 `drc_mode`/`drc_weight` en CLI.

@@ -75,7 +75,7 @@ import {
   renderVbapCartesian,
   renderVbapPolar
 } from './controls/vbap.js';
-import { renderLoudnessDisplay, renderDistanceModelUI, renderMasterGainUI, updateMasterMeterUI } from './controls/master.js';
+import { renderLoudnessDisplay, renderDistanceModelUI, renderMasterGainUI, renderAutoGainUI, updateMasterMeterUI } from './controls/master.js';
 import { renderAdaptiveResamplingUI } from './controls/adaptive.js';
 import { renderDistanceDiffuseUI } from './controls/distance-diffuse.js';
 import { renderConfigSavedUI } from './controls/config.js';
@@ -121,6 +121,7 @@ flushCallbacks.renderResampleRatioDisplay = renderResampleRatioDisplay;
 flushCallbacks.renderAudioFormatDisplay = renderAudioFormatDisplay;
 flushCallbacks.renderDrcUI = renderDrcUI;
 flushCallbacks.renderMasterGainUI = renderMasterGainUI;
+flushCallbacks.renderAutoGainUI = renderAutoGainUI;
 flushCallbacks.updateMasterMeterUI = updateMasterMeterUI;
 flushCallbacks.updateObjectContributionUI = updateObjectContributionUI;
 flushCallbacks.updateSpeakerContributionUI = updateSpeakerContributionUI;
@@ -167,6 +168,7 @@ onLocaleChange(() => {
   renderAudioFormatDisplay();
   renderLatencyMeterUI();
   renderMasterGainUI();
+  renderAutoGainUI();
   updateMasterMeterUI();
   renderSpeakersList();
   renderObjectsList();

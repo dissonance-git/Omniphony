@@ -45,6 +45,21 @@ export function updateMasterGainUI() {
   scheduleUIFlush();
 }
 
+function getAutoGainToggleEl() { return inRendererPanel('autoGainToggle'); }
+
+export function renderAutoGainUI() {
+  const autoGainToggleEl = getAutoGainToggleEl();
+  if (autoGainToggleEl) {
+    autoGainToggleEl.checked = app.autoGain === true;
+    autoGainToggleEl.disabled = !app.oscSnapshotReady;
+  }
+}
+
+export function updateAutoGainUI() {
+  dirty.autoGain = true;
+  scheduleUIFlush();
+}
+
 export function getAverageSpeakerRmsDb() {
   const valid = Array.from(speakerLevels.values()).filter(
     (meter) => meter && typeof meter.rmsDbfs === 'number'
