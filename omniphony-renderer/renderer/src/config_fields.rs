@@ -232,6 +232,18 @@ render_field! {
     eq = bool::eq
 }
 
+// ── Lot 4: OSC ──
+
+render_field! {
+    /// Pre-enable OSC audio-level metering for the configured default target
+    /// (`render.osc_metering`). Consumed by the CLI at startup
+    /// (`OscSender::set_default_metering`); the live path does not persist it
+    /// (Studio toggles metering per-client at runtime).
+    pub osc_metering: bool = false,
+    field = osc_metering,
+    eq = bool::eq
+}
+
 #[cfg(test)]
 mod tests {
     use crate::config::RenderConfig;

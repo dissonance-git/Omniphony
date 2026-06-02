@@ -205,6 +205,13 @@ pub(super) fn merge_render_config(
     } else if args.no_osc {
         args.osc = false;
     }
+    // osc_metering (was never read from config → the flag had no effect)
+    if !arg_sources.is_explicit("osc_metering") && !arg_sources.is_explicit("no_osc_metering") {
+        args.osc_metering = renderer::config_fields::osc_metering::get(cfg)
+            .unwrap_or(renderer::config_fields::osc_metering::DEFAULT);
+    } else if args.no_osc_metering {
+        args.osc_metering = false;
+    }
     // osc_rx_port (config can override the default 9000)
     if !arg_sources.is_explicit("osc_rx_port") {
         if let Some(p) = cfg.osc_rx_port {
@@ -391,7 +398,7 @@ pub(super) fn effective_to_config(
     render.room_ratio_lower = args.room_ratio_lower;
     render.room_ratio_center_blend = args.room_ratio_center_blend;
     render.osc = if args.osc { Some(true) } else { None };
-    render.osc_metering = if args.osc_metering { Some(true) } else { None };
+    renderer::config_fields::osc_metering::store(&mut render, args.osc_metering);
     render.osc_rx_port = if args.osc_rx_port != 9000 {
         Some(args.osc_rx_port)
     } else {
