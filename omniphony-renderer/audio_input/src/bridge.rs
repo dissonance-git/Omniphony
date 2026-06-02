@@ -57,20 +57,15 @@ pub struct BridgeDecodeDiag {
     pub push_packet_dt_us: Arc<AtomicU64>,
 }
 
-pub fn spawn_bridge_decode_worker<OnFrame, OnFlush, OnFatal>(
+pub fn spawn_bridge_decode_worker<OnFrame>(
     bridge: FormatBridgeBox,
     raw_rx: mpsc::Receiver<(u8, Vec<u8>)>,
     requested_drc_mode: Option<Arc<RwLock<String>>>,
-    strict_mode: bool,
     diag: Option<BridgeDecodeDiag>,
     mut on_frame: OnFrame,
-    mut on_flush: OnFlush,
-    mut on_fatal: OnFatal,
 ) -> Result<thread::JoinHandle<()>>
 where
     OnFrame: FnMut(RDecodedFrame, f32) + Send + 'static,
-    OnFlush: FnMut() + Send + 'static,
-    OnFatal: FnMut(anyhow::Error) + Send + 'static,
 {
     thread::Builder::new()
         .name("bridge-decode".to_string())
@@ -120,15 +115,8 @@ where
                         result.error_message
                     );
                 }
-                if result.did_reset {
-                    if strict_mode && !result.error_message.is_empty() {
-                        on_fatal(anyhow!("{}", result.error_message));
-                        return;
-                    }
-                    if strict_mode {
-                        on_flush();
-                    }
-                }
+                // Bridge reset: keep audio running, never abort or flush. In live
+                // rendering we never want a premature stop (strict mode removed).
                 let frame_count = result.frames.len().max(1) as f32;
                 let per_frame_decode_time_ms = decode_time_ms / frame_count;
                 for frame in result.frames {

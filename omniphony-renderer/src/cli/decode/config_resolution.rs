@@ -293,7 +293,6 @@ pub(super) fn effective_to_config(
         } else {
             None
         },
-        strict: if cli.strict { Some(true) } else { None },
         extra: Default::default(),
     };
 
@@ -555,12 +554,11 @@ pub(super) fn effective_to_config(
         extra: Default::default(),
     };
 
-    let global_opt =
-        if global.loglevel.is_none() && global.log_format.is_none() && global.strict.is_none() {
-            None
-        } else {
-            Some(global)
-        };
+    let global_opt = if global.loglevel.is_none() && global.log_format.is_none() {
+        None
+    } else {
+        Some(global)
+    };
 
     Ok(Config {
         global: global_opt,

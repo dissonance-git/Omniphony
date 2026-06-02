@@ -130,19 +130,9 @@ fn main() -> Result<()> {
             .unwrap_or(cli.log_format)
     };
 
-    // Resolve effective strict: --strict → true, --no-strict → false, else config.
-    let effective_strict = if parsed.is_explicit("strict") {
-        true
-    } else if parsed.is_explicit("no_strict") {
-        false
-    } else {
-        global_cfg.strict.unwrap_or(false)
-    };
-
     // Apply effective values back to cli so downstream code (cmd_render etc.) sees them.
     cli.loglevel = effective_loglevel;
     cli.log_format = effective_log_format;
-    cli.strict = effective_strict;
 
     let base_level = cli.loglevel.to_level_filter();
 

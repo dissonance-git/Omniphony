@@ -179,7 +179,7 @@ impl Engine {
         // The renderer's table mode/defaults come from the bridge, so load and
         // configure it before building the renderer.
         let t_bridge = std::time::Instant::now();
-        let mut bridge = LoadedBridge::load_with_params(&resolved_bridge, false)?;
+        let mut bridge = LoadedBridge::load_with_params(&resolved_bridge)?;
         bridge.configure("presentation", "best");
         if let Some(codec) = input_codec {
             // Disambiguates the bridge's `Raw` transport (no data_type byte).
