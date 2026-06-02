@@ -336,6 +336,13 @@ impl OscSender {
         self.clients.is_any_metering_live()
     }
 
+    /// Pre-enable (or disable) metering on the permanent default target so that
+    /// `--osc-metering` / `render.osc_metering` makes meter bundles flow to the
+    /// configured OSC host without requiring a runtime enable message.
+    pub fn set_default_metering(&self, enabled: bool) {
+        self.clients.set_metering_for_permanent(enabled);
+    }
+
     pub fn has_diag_clients(&self) -> bool {
         self.clients.is_any_diag_live()
     }

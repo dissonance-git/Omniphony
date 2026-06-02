@@ -324,6 +324,18 @@ fn init_osc_runtime(
         match OscSender::new(osc_addr) {
             Ok(sender) => {
                 log::info!("OSC output enabled: {}:{}", args.osc_host, args.osc_port);
+                if args.osc_metering {
+                    // Pre-subscribe the configured default target to meter
+                    // bundles. Without this, metering only flows once a client
+                    // (e.g. Studio) sends a runtime enable, so `--osc-metering`
+                    // had no effect on a headless/config-driven target.
+                    sender.set_default_metering(true);
+                    log::info!(
+                        "OSC metering pre-enabled for default target {}:{} (--osc-metering)",
+                        args.osc_host,
+                        args.osc_port
+                    );
+                }
                 handler.telemetry.osc_sender = Some(sender);
             }
             Err(e) => {

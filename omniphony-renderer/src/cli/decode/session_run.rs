@@ -148,7 +148,11 @@ fn is_bridge_unavailable_error(err: &anyhow::Error) -> bool {
     err.chain().any(|cause| {
         let text = cause.to_string();
         text.contains("No bridge plugin found")
-            || text.contains("Bridge path '")
+            // Matches both `resolve_bridge_path` messages: "bridge path '…'" (CLI)
+            // and "render.bridge_path '…' (from config)". The previous
+            // "Bridge path '" (capital B) matched neither, so a bad/missing
+            // bridge path hard-exited instead of entering the idle OSC runtime.
+            || text.contains("does not exist or is not a file")
             || text.contains("Failed to load bridge plugin from")
             || text.contains("Bridge plugin is missing the `new_bridge` export")
     })

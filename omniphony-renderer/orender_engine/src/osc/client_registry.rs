@@ -66,6 +66,19 @@ impl OscClientRegistry {
         }
     }
 
+    /// Enable/disable metering on all *permanent* clients (those registered via
+    /// [`insert_permanent`], i.e. the config-defined default OSC target). Lets
+    /// `--osc-metering` / `render.osc_metering` pre-subscribe the default target
+    /// to meter bundles without it having to send a runtime enable message.
+    pub(crate) fn set_metering_for_permanent(&self, enabled: bool) {
+        let mut clients = self.clients.lock().unwrap();
+        for client in clients.values_mut() {
+            if client.last_seen.is_none() {
+                client.metering_enabled = enabled;
+            }
+        }
+    }
+
     pub(crate) fn set_metering(&self, addr: SocketAddr, enabled: bool) -> bool {
         let mut clients = self.clients.lock().unwrap();
         if let Some(entry) = clients.get_mut(&addr) {
@@ -121,6 +134,15 @@ impl OscClientRegistry {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn metering_for(&self, addr: SocketAddr) -> Option<bool> {
+        self.clients
+            .lock()
+            .unwrap()
+            .get(&addr)
+            .map(|c| c.metering_enabled)
+    }
+
     pub(crate) fn send_filtered<F>(&self, socket: &std::net::UdpSocket, bytes: &[u8], predicate: F)
     where
         F: Fn(&OscClientState) -> bool,
@@ -145,5 +167,29 @@ impl OscClientRegistry {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn permanent_metering_toggle_drives_metering_live() {
+        let reg = OscClientRegistry::new(Duration::from_secs(5));
+        let addr: SocketAddr = "127.0.0.1:9000".parse().unwrap();
+        reg.insert_permanent(addr);
+
+        // Default target starts opted-out → no metering clients.
+        assert_eq!(reg.metering_for(addr), Some(false));
+        assert!(!reg.is_any_metering_live());
+
+        // `--osc-metering` pre-enables it → metering now flows to the target.
+        reg.set_metering_for_permanent(true);
+        assert_eq!(reg.metering_for(addr), Some(true));
+        assert!(reg.is_any_metering_live());
+
+        reg.set_metering_for_permanent(false);
+        assert!(!reg.is_any_metering_live());
     }
 }
