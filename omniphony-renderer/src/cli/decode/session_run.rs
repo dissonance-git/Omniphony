@@ -6,10 +6,9 @@ use super::decoder_thread::{
 };
 use super::handler::DecodeHandler;
 use super::live_input::{LiveBridgeRuntimeConfig, spawn_live_input_manager};
-use super::state::{FrameHandlerContext, WriterState};
+use super::state::FrameHandlerContext;
 use crate::cli::command::{Cli, EvaluationModeArg, OutputBackend, RenderArgSources, RenderArgs};
 use anyhow::Result;
-use log::Level;
 use orender_engine::bridge_loader::{LoadedBridge, resolve_bridge_path};
 use std::sync::mpsc;
 use std::sync::{Arc, atomic::AtomicU64};
@@ -34,7 +33,6 @@ const IDLE_BRIDGE_PREFERRED_EVALUATION_MODE: bridge_api::RVbapTableMode =
     bridge_api::RVbapTableMode::Cartesian;
 
 struct PreparedDecodeRun {
-    state: WriterState,
     tx: mpsc::SyncSender<Result<DecoderMessage>>,
     rx: mpsc::Receiver<Result<DecoderMessage>>,
     cmd_tx: mpsc::Sender<DecoderCommand>,
@@ -47,7 +45,6 @@ struct PreparedDecodeRun {
     _shutdown: sys::ShutdownHandle,
     bridge_lib: bridge_api::BridgeLibRef,
     input_path: std::path::PathBuf,
-    strict_mode: bool,
     presentation: String,
     is_spatial_presentation: bool,
     coordinate_format: bridge_api::RCoordinateFormat,
@@ -181,7 +178,7 @@ fn maybe_save_effective_config(
     Ok(true)
 }
 
-fn prepare_render_run(args: &RenderArgs, cli: &Cli) -> Result<PreparedDecodeRun> {
+fn prepare_render_run(args: &RenderArgs) -> Result<PreparedDecodeRun> {
     let input = args
         .input
         .as_ref()
@@ -189,9 +186,8 @@ fn prepare_render_run(args: &RenderArgs, cli: &Cli) -> Result<PreparedDecodeRun>
         .clone();
 
     log::info!(
-        "Decoding stream from file: {} (strict mode: {}, presentation: {})",
+        "Decoding stream from file: {} (presentation: {})",
         input.display(),
-        cli.strict,
         args.presentation
     );
 
@@ -205,18 +201,9 @@ fn prepare_render_run(args: &RenderArgs, cli: &Cli) -> Result<PreparedDecodeRun>
         ));
     }
 
-    let strict_mode = cli.strict;
-    let fail_level = if strict_mode {
-        Level::Warn
-    } else {
-        Level::Error
-    };
-    let state = WriterState { fail_level };
-
     let bridge_path = resolve_bridge_path(args.bridge_path.as_deref())?;
     log::info!("Loading format bridge: {}", bridge_path.display());
-    let LoadedBridge { lib, mut bridge } =
-        LoadedBridge::load_with_params(&bridge_path, strict_mode)?;
+    let LoadedBridge { lib, mut bridge } = LoadedBridge::load_with_params(&bridge_path)?;
     if !bridge.configure("presentation".into(), args.presentation.as_str().into()) {
         return Err(anyhow::anyhow!(
             "Bridge rejected presentation value '{}'",
@@ -274,7 +261,6 @@ fn prepare_render_run(args: &RenderArgs, cli: &Cli) -> Result<PreparedDecodeRun>
 
     let decode_thread = spawn_decoder_thread(DecoderThreadConfig {
         input_path: input.clone(),
-        strict_mode,
         continuous: args.continuous,
         drain_pipe: !args.no_drain_pipe,
         tx: tx.clone(),
@@ -286,7 +272,6 @@ fn prepare_render_run(args: &RenderArgs, cli: &Cli) -> Result<PreparedDecodeRun>
     });
 
     Ok(PreparedDecodeRun {
-        state,
         tx,
         rx,
         cmd_tx,
@@ -297,7 +282,6 @@ fn prepare_render_run(args: &RenderArgs, cli: &Cli) -> Result<PreparedDecodeRun>
         _shutdown: shutdown,
         bridge_lib: lib,
         input_path: input,
-        strict_mode,
         presentation: args.presentation.clone(),
         is_spatial_presentation,
         coordinate_format,
@@ -437,7 +421,6 @@ fn handle_stream_end(handler: &mut DecodeHandler, args: &RenderArgs) -> Result<(
 struct DecodeRunContext<'a> {
     args: &'a RenderArgs,
     effective_output_backend: OutputBackend,
-    state: &'a WriterState,
 }
 
 fn handle_audio_message(
@@ -462,7 +445,6 @@ fn handle_audio_message(
 
     let ctx = FrameHandlerContext {
         output_backend: ctx.effective_output_backend,
-        state: ctx.state,
         bed_conform: ctx.args.bed_conform,
         use_loudness: ctx.args.use_loudness,
         decode_time_ms: decoded.decode_time_ms,
@@ -566,7 +548,6 @@ fn run_render_message_phase(
     let run_ctx = DecodeRunContext {
         args,
         effective_output_backend,
-        state: &prepared.state,
     };
 
     sys::notify_ready();
@@ -770,7 +751,6 @@ fn run_prepared_render(
                 audio_control.clone(),
                 LiveBridgeRuntimeConfig {
                     lib: prepared.bridge_lib.clone(),
-                    strict_mode: prepared.strict_mode,
                     presentation: prepared.presentation.clone(),
                     clock_mode: input_control.requested_snapshot().clock_mode,
                     requested_drc_mode: live_drc_mode.clone(),
@@ -822,7 +802,7 @@ pub fn cmd_render(args: &RenderArgs, cli: &Cli, arg_sources: &RenderArgSources<'
             return Ok(());
         }
 
-        let bridge_path_after_run = match prepare_render_run(args, cli) {
+        let bridge_path_after_run = match prepare_render_run(args) {
             Ok(prepared) => run_prepared_render(
                 prepared,
                 args,

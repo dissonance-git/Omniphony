@@ -4,7 +4,6 @@ use audio_output::AdaptiveResamplingConfig;
 #[cfg(target_os = "linux")]
 use audio_output::pipewire::PipewireBufferConfig;
 use bridge_api::RCoordinateFormat;
-use log::Level;
 use orender_engine::osc::OscSender;
 use renderer::metering::AudioMeter;
 use std::sync::Arc;
@@ -51,10 +50,6 @@ impl DiagPublishCadence {
     pub fn mark_sent(&mut self, now: Instant) {
         self.last_send_at = Some(now);
     }
-}
-
-pub struct WriterState {
-    pub fail_level: Level,
 }
 
 #[derive(Clone)]
@@ -230,9 +225,8 @@ impl Default for DecodeSessionState {
     }
 }
 
-pub struct FrameHandlerContext<'a> {
+pub struct FrameHandlerContext {
     pub output_backend: OutputBackend,
-    pub state: &'a WriterState,
     pub bed_conform: bool,
     pub use_loudness: bool,
     pub decode_time_ms: f32,

@@ -31,14 +31,6 @@ pub struct Cli {
     #[arg(long, global = true, value_enum, default_value_t = LogLevel::Info)]
     pub loglevel: LogLevel,
 
-    /// Treat warnings as fatal errors (fail on first warning).
-    #[arg(long, global = true, conflicts_with = "no_strict")]
-    pub strict: bool,
-
-    /// Override config file 'strict' setting to false.
-    #[arg(long, global = true, conflicts_with = "strict")]
-    pub no_strict: bool,
-
     /// Log output format.
     #[arg(long, global = true, value_enum, default_value_t = LogFormat::Plain)]
     pub log_format: LogFormat,

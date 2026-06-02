@@ -64,7 +64,6 @@ pub struct PipeInputDiag {
 
 pub struct DecoderThreadConfig {
     pub input_path: std::path::PathBuf,
-    pub strict_mode: bool,
     pub continuous: bool,
     pub drain_pipe: bool,
     pub tx: mpsc::SyncSender<Result<DecoderMessage>>,
@@ -91,7 +90,6 @@ pub fn spawn_decoder_thread(config: DecoderThreadConfig) -> thread::JoinHandle<R
     thread::spawn(move || -> Result<()> {
         let DecoderThreadConfig {
             input_path,
-            strict_mode,
             continuous,
             drain_pipe,
             tx,
@@ -323,22 +321,11 @@ pub fn spawn_decoder_thread(config: DecoderThreadConfig) -> thread::JoinHandle<R
                     }
 
                     if result.did_reset {
-                        if strict_mode && !result.error_message.is_empty() {
-                            // Strict mode: propagate parse/decode error to handler.
-                            let _ = tx.send(Err(anyhow::anyhow!("{}", result.error_message)));
-                            return Ok(false);
-                        }
-                        // Non-strict: keep audio running through transient decoder resets.
-                        // Flushing here turns a recoverable bridge reset into an audible
-                        // dropout that can last much longer than the actual decode hiccup.
-                        if strict_mode {
-                            let _ =
-                                tx.send(Ok(DecoderMessage::FlushRequest(DecodedSource::Bridge)));
-                        } else {
-                            log::debug!(
-                                "Bridge reset in non-strict mode; keeping audio buffers intact"
-                            );
-                        }
+                        // Keep audio running through transient decoder resets — never
+                        // abort or flush. Flushing would turn a recoverable bridge reset
+                        // into an audible dropout much longer than the actual decode
+                        // hiccup; in live rendering we never want a premature stop.
+                        log::debug!("Bridge reset; keeping audio buffers intact");
                     }
 
                     let frame_count_in_packet = result.frames.len().max(1) as f32;

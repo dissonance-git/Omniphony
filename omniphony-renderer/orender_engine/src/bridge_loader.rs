@@ -19,16 +19,18 @@ pub struct LoadedBridge {
 }
 
 impl LoadedBridge {
-    /// Load a bridge plugin from `path` and create one instance with the given strict-mode flag.
+    /// Load a bridge plugin from `path` and create one instance.
     ///
     /// Format-specific options (e.g. presentation index) are applied afterwards via
     /// [`FormatBridgeBox::configure`] before the first [`FormatBridgeBox::push_packet`].
-    pub fn load_with_params(path: &Path, strict: bool) -> Result<Self> {
+    pub fn load_with_params(path: &Path) -> Result<Self> {
         let lib = BridgeLibRef::load_from_file(path)
             .with_context(|| format!("Failed to load bridge plugin from {}", path.display()))?;
         install_bridge_host_log_sink(&lib);
         let new_bridge = lib.new_bridge();
-        let bridge = new_bridge(strict);
+        // strict mode removed from the host; bridges ignore the flag. The ABI
+        // parameter is kept for compatibility and always passed as `false`.
+        let bridge = new_bridge(false);
         Ok(Self { lib, bridge })
     }
 

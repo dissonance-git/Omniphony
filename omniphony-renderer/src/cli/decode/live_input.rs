@@ -86,7 +86,6 @@ struct PipewirePcmInputConfig {
 #[derive(Clone)]
 pub struct LiveBridgeRuntimeConfig {
     pub lib: bridge_api::BridgeLibRef,
-    pub strict_mode: bool,
     pub presentation: String,
     pub clock_mode: InputClockMode,
     pub requested_drc_mode: Arc<std::sync::RwLock<String>>,
@@ -127,7 +126,6 @@ impl ActiveCaptureConfig {
                     && lhs.sample_rate_hz == rhs.sample_rate_hz
                     && lhs.target_latency_ms == rhs.target_latency_ms
                     && lhs.clock_mode == rhs.clock_mode
-                    && lhs.runtime.strict_mode == rhs.runtime.strict_mode
                     && lhs.runtime.presentation == rhs.runtime.presentation
             }
             _ => false,
@@ -731,7 +729,6 @@ fn run_pipewire_bridge_capture_loop(
     let (raw_tx, raw_rx) = mpsc::sync_channel::<(u8, Vec<u8>)>(256);
     let bridge = instantiate_live_bridge(&config.runtime)?;
     let tx_for_frame = tx.clone();
-    let tx_for_flush = tx.clone();
     // DIAG iec958-chain: capture bridge plugin output cadence. Registry-handed
     // diag metrics — updated each time the harletty plugin emits a decoded
     // PCM frame, so the Studio plot can see whether the plugin batches
@@ -760,7 +757,6 @@ fn run_pipewire_bridge_capture_loop(
         bridge,
         raw_rx,
         Some(config.runtime.requested_drc_mode.clone()),
-        config.runtime.strict_mode,
         Some(BridgeDecodeDiag {
             frames_per_push_packet: bridge_frames_per_push_packet_out,
             push_packet_dt_us: bridge_push_packet_dt_us_out,
@@ -797,12 +793,6 @@ fn run_pipewire_bridge_capture_loop(
                 decode_time_ms,
                 sent_at: Instant::now(),
             })));
-        },
-        move || {
-            let _ = tx_for_flush.try_send(Ok(DecoderMessage::FlushRequest(DecodedSource::Bridge)));
-        },
-        move |err| {
-            let _ = tx.try_send(Err(err));
         },
     )?;
     let ingest = LiveBridgeIngestRuntime::new(raw_tx);
@@ -1746,7 +1736,8 @@ fn run_pipewire_bridge_capture_stream(
 fn instantiate_live_bridge(runtime: &LiveBridgeRuntimeConfig) -> Result<FormatBridgeBox> {
     install_bridge_host_log_sink(&runtime.lib);
     let new_bridge = runtime.lib.new_bridge();
-    let mut bridge = new_bridge(runtime.strict_mode);
+    // strict mode removed: bridges ignore it; the host always requests non-strict.
+    let mut bridge = new_bridge(false);
     if !bridge.configure("presentation".into(), runtime.presentation.as_str().into()) {
         anyhow::bail!(
             "Bridge rejected presentation value '{}'",

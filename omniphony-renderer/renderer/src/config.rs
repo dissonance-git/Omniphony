@@ -24,8 +24,6 @@ pub struct GlobalConfig {
     pub loglevel: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_format: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub strict: Option<bool>,
     /// See `Config::extra` — preserve unknown keys through round-trips.
     #[serde(flatten, default, skip_serializing_if = "Mapping::is_empty")]
     pub extra: Mapping,
