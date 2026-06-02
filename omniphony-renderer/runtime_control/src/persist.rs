@@ -252,6 +252,13 @@ pub fn save_live_config(
     } else {
         None
     };
+    let barycenter_defaults = renderer::live_params::BarycenterLiveParams::default();
+    render.barycenter_localize =
+        if (live.barycenter.localize - barycenter_defaults.localize).abs() > 1e-4 {
+            Some(live.barycenter.localize)
+        } else {
+            None
+        };
     renderer::config_fields::ramp_mode::store(render, control.requested_ramp_mode().as_str());
 
     drop(live);

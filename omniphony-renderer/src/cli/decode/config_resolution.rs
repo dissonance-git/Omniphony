@@ -4,6 +4,133 @@ use crate::cli::command::{
 };
 use anyhow::Result;
 
+/// Apply the override-only render args onto a `RenderConfig`.
+///
+/// These options (backend selection + backend-specific params, distance
+/// metrics, size-to-spread) are sourced by the renderer from the *config*
+/// rather than from `RenderArgs` directly (`build_spatial_renderer` reads
+/// `render_cfg`). Each arg is `Option`: `Some` overrides, `None` keeps whatever
+/// the on-disk config (or another host) already set. Shared by the save path
+/// (`effective_to_config`) and the runtime path (`render_config_from_path`) so
+/// a CLI flag takes effect on a live run and on `--save-config` identically.
+pub(super) fn apply_render_cfg_overrides(
+    render: &mut renderer::config::RenderConfig,
+    args: &RenderArgs,
+) {
+    if let Some(backend) = args.render_backend {
+        render.render_backend = Some(backend.as_config_str().to_string());
+    }
+    if let Some(localize) = args.barycenter_localize {
+        render.barycenter_localize = Some(localize);
+    }
+    if let Some(b) = args.hybrid_external_backend {
+        render.hybrid_external_backend = Some(b.as_config_str().to_string());
+    }
+    if let Some(b) = args.hybrid_internal_backend {
+        render.hybrid_internal_backend = Some(b.as_config_str().to_string());
+    }
+    if let Some(s) = args.hybrid_curve_smoothing {
+        render.hybrid_curve_smoothing = Some(s);
+    }
+    if let Some(m) = args.hybrid_metric {
+        render.hybrid_metric = Some(m.as_config_str().to_string());
+    }
+    if let Some(v) = args.experimental_distance_distance_floor {
+        render.experimental_distance_distance_floor = Some(v);
+    }
+    if let Some(v) = args.experimental_distance_min_active_speakers {
+        render.experimental_distance_min_active_speakers = Some(v);
+    }
+    if let Some(v) = args.experimental_distance_max_active_speakers {
+        render.experimental_distance_max_active_speakers = Some(v);
+    }
+    if let Some(v) = args.experimental_distance_position_error_floor {
+        render.experimental_distance_position_error_floor = Some(v);
+    }
+    if let Some(v) = args.experimental_distance_position_error_nearest_scale {
+        render.experimental_distance_position_error_nearest_scale = Some(v);
+    }
+    if let Some(v) = args.experimental_distance_position_error_span_scale {
+        render.experimental_distance_position_error_span_scale = Some(v);
+    }
+    if let Some(m) = args.distance_model_metric {
+        render.distance_model_metric = Some(m.as_config_str().to_string());
+    }
+    if let Some(m) = args.distance_diffuse_metric {
+        render.distance_diffuse_metric = Some(m.as_config_str().to_string());
+    }
+    if let Some(mode) = args.size_to_spread_mode {
+        render.size_to_spread_mode = Some(mode.into());
+    }
+    apply_adaptive_resampling_overrides(render, args);
+}
+
+/// Apply the override-only adaptive-resampling PI tuning args onto a config.
+/// Standalone (host-audio) only; `build_adaptive_resampling_config` reads these
+/// from `render_cfg`. `integral_discharge_ratio` is intentionally not exposed.
+fn apply_adaptive_resampling_overrides(
+    render: &mut renderer::config::RenderConfig,
+    args: &RenderArgs,
+) {
+    if let Some(v) = args.adaptive_resampling_kp_near {
+        render.adaptive_resampling_kp_near = Some(v);
+    }
+    if let Some(v) = args.adaptive_resampling_ki {
+        render.adaptive_resampling_ki = Some(v);
+    }
+    if let Some(v) = args.adaptive_resampling_max_adjust {
+        render.adaptive_resampling_max_adjust = Some(v);
+    }
+    if let Some(v) = args.adaptive_resampling_enable_far_mode {
+        render.adaptive_resampling_enable_far_mode = Some(v);
+    }
+    if let Some(v) = args.adaptive_resampling_force_silence_in_far_mode {
+        render.adaptive_resampling_force_silence_in_far_mode = Some(v);
+    }
+    if let Some(v) = args.adaptive_resampling_hard_recover_high_in_far_mode {
+        render.adaptive_resampling_hard_recover_high_in_far_mode = Some(v);
+    }
+    if let Some(v) = args.adaptive_resampling_hard_recover_low_in_far_mode {
+        render.adaptive_resampling_hard_recover_low_in_far_mode = Some(v);
+    }
+    if let Some(v) = args.adaptive_resampling_far_mode_return_fade_in_ms {
+        render.adaptive_resampling_far_mode_return_fade_in_ms = Some(v);
+    }
+    if let Some(v) = args.adaptive_resampling_high_recover_entry_margin_ms {
+        render.adaptive_resampling_high_recover_entry_margin_ms = Some(v);
+    }
+    if let Some(v) = args.adaptive_resampling_low_recover_settle_stable_ms {
+        render.adaptive_resampling_low_recover_settle_stable_ms = Some(v);
+    }
+    if let Some(v) = args.adaptive_resampling_low_recover_entry_margin_ms {
+        render.adaptive_resampling_low_recover_entry_margin_ms = Some(v);
+    }
+    if let Some(v) = args.adaptive_resampling_low_recover_exit_margin_ms {
+        render.adaptive_resampling_low_recover_exit_margin_ms = Some(v);
+    }
+    if let Some(v) = args.adaptive_resampling_low_recover_settle_margin_ms {
+        render.adaptive_resampling_low_recover_settle_margin_ms = Some(v);
+    }
+    if let Some(v) = args.adaptive_resampling_low_recover_refill_delta_alpha {
+        render.adaptive_resampling_low_recover_refill_delta_alpha = Some(v);
+    }
+    if let Some(v) = args.adaptive_resampling_control_smoothing_cutoff_hz {
+        render.adaptive_resampling_control_smoothing_cutoff_hz = Some(v);
+    }
+    if let Some(v) = args.adaptive_resampling_control_smoothing_order {
+        render.adaptive_resampling_control_smoothing_order = Some(v);
+    }
+    if let Some(v) = args.adaptive_resampling_use_pre_bridge_clock {
+        render.adaptive_resampling_use_pre_bridge_clock = Some(v);
+    }
+    if let Some(v) = args.adaptive_resampling_use_output_pacing {
+        render.adaptive_resampling_use_output_pacing = Some(v);
+    }
+    if let Some(v) = args.adaptive_resampling_disable_backpressure {
+        render.adaptive_resampling_disable_backpressure = Some(v);
+    }
+}
+
 pub(super) fn merge_render_config(
     cfg: &renderer::config::RenderConfig,
     args: &mut RenderArgs,
@@ -438,6 +565,9 @@ pub(super) fn effective_to_config(
         &mut render,
         args.distance_diffuse_curve,
     );
+    // Backend selection, backend-specific params, distance metrics and
+    // size-to-spread: override-only fields shared with the runtime path.
+    apply_render_cfg_overrides(&mut render, args);
 
     let global_opt = if global.loglevel.is_none() && global.log_format.is_none() {
         None
