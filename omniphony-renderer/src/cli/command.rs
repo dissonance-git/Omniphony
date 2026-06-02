@@ -128,7 +128,7 @@ pub struct RenderArgs {
     /// Presentation or substream selector passed to the bridge plugin.
     /// "best" selects the richest available presentation (default).
     /// Pass a number to request a specific substream (bridge-defined).
-    #[arg(long, value_name = "VALUE", default_value = "best")]
+    #[arg(long, value_name = "VALUE", default_value = renderer::config_fields::presentation::DEFAULT)]
     pub presentation: String,
 
     /// Path to the format bridge plugin library.

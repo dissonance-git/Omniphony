@@ -316,6 +316,42 @@ render_field! {
     eq = bool::eq
 }
 
+// ── Lot 5c: special-cased options (custom descriptors) ──
+
+render_field_str! {
+    /// Object-transition ramp mode (`render.ramp_mode`): "off" | "frame" |
+    /// "sample". Default "frame". Note: this fixes a CLI/live disagreement —
+    /// the old CLI writer treated `Sample` as the default (persisted `Frame`!),
+    /// while the live writer (correctly) treats `Frame` as the default.
+    pub ramp_mode = "frame",
+    field = ramp_mode
+}
+
+/// Presentation / substream selector (`render.presentation`). Special-cased:
+/// the CLI works in strings ("best" or a number) while the config stores a
+/// `u8` (with "best" → absent). Not expressible via the generic macros.
+pub mod presentation {
+    use super::RenderConfig;
+
+    /// Canonical default — the single copy of this field's default.
+    pub const DEFAULT: &str = "best";
+
+    /// Read the configured substream number, if present.
+    pub fn get(cfg: &RenderConfig) -> Option<u8> {
+        cfg.presentation
+    }
+
+    /// Store the CLI string form: `DEFAULT` ("best") or an unparseable value
+    /// clears to `None`; a numeric string is stored as the `u8` substream.
+    pub fn store(cfg: &mut RenderConfig, value: &str) {
+        cfg.presentation = if value == DEFAULT {
+            None
+        } else {
+            value.parse::<u8>().ok()
+        };
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::config::RenderConfig;

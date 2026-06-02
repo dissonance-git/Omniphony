@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
-use renderer::live_params::{
-    LiveEvaluationMode, PreferredEvaluationMode, RampMode, RendererControl,
-};
+use renderer::live_params::{LiveEvaluationMode, PreferredEvaluationMode, RendererControl};
 
 use crate::HostControlHandler;
 
@@ -254,10 +252,7 @@ pub fn save_live_config(
     } else {
         None
     };
-    render.ramp_mode = match control.requested_ramp_mode() {
-        RampMode::Frame => None,
-        mode => Some(mode.as_str().to_string()),
-    };
+    renderer::config_fields::ramp_mode::store(render, control.requested_ramp_mode().as_str());
 
     drop(live);
 

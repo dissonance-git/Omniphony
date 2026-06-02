@@ -22,8 +22,8 @@ pub(super) fn merge_render_config(
         args.output_sample_rate = cfg.output_sample_rate;
     }
     if !arg_sources.is_explicit("ramp_mode") {
-        if let Some(ref v) = cfg.ramp_mode {
-            if let Some(mode) = renderer::live_params::RampMode::from_str(v) {
+        if let Some(v) = renderer::config_fields::ramp_mode::get(cfg) {
+            if let Some(mode) = renderer::live_params::RampMode::from_str(&v) {
                 args.ramp_mode = match mode {
                     renderer::live_params::RampMode::Off => RampModeArg::Off,
                     renderer::live_params::RampMode::Frame => RampModeArg::Frame,
@@ -53,7 +53,7 @@ pub(super) fn merge_render_config(
         }
     }
     if !arg_sources.is_explicit("presentation") {
-        if let Some(p) = cfg.presentation {
+        if let Some(p) = renderer::config_fields::presentation::get(cfg) {
             args.presentation = p.to_string();
         }
     }
@@ -330,11 +330,7 @@ pub(super) fn effective_to_config(
         }
         _ => None,
     };
-    render.presentation = if args.presentation != "best" {
-        args.presentation.parse::<u8>().ok()
-    } else {
-        None
-    };
+    renderer::config_fields::presentation::store(&mut render, &args.presentation);
     render.bridge_path = args.bridge_path.clone();
     renderer::config_fields::enable_vbap::store(&mut render, args.enable_vbap);
     // Persist the embedded layout instead of a path link. Only override when a
@@ -426,15 +422,14 @@ pub(super) fn effective_to_config(
     render.adaptive_resampling_update_interval_callbacks =
         args.adaptive_resampling_update_interval_callbacks;
     render.output_sample_rate = args.output_sample_rate;
-    render.ramp_mode = if args.ramp_mode != RampModeArg::Sample {
-        Some(match args.ramp_mode {
-            RampModeArg::Off => "off".to_string(),
-            RampModeArg::Frame => "frame".to_string(),
-            RampModeArg::Sample => "sample".to_string(),
-        })
-    } else {
-        None
-    };
+    renderer::config_fields::ramp_mode::store(
+        &mut render,
+        match args.ramp_mode {
+            RampModeArg::Off => "off",
+            RampModeArg::Frame => "frame",
+            RampModeArg::Sample => "sample",
+        },
+    );
     renderer::config_fields::distance_diffuse::store(&mut render, args.distance_diffuse);
     renderer::config_fields::distance_diffuse_threshold::store(
         &mut render,
