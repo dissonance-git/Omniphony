@@ -25,6 +25,7 @@ import {
 import './scene/axes.js';
 import { refreshSpeakerHeatmapScene } from './scene/speaker-heatmap.js';
 import { refreshObjectEnergyVolume } from './scene/object-energy-volume.js';
+import { refreshSpeakerEnergyVolume } from './scene/speaker-energy-volume.js';
 
 // ── Domain modules (imported for side-effects & to register into state) ─────
 import {
@@ -300,6 +301,7 @@ function animate() {
   decayTrails(now);
   decayMeters(now);
   refreshObjectEnergyVolume(now);
+  refreshSpeakerEnergyVolume(now);
   enforceObjectsVisibilityIfHidden();
 
   sourceOutlines.forEach((outline) => {

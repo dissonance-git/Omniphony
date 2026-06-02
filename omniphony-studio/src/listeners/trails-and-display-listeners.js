@@ -355,6 +355,20 @@ export function setupTrailsAndDisplayListeners() {
     });
   }
 
+  const speakerEnergyVolumeToggleEl = document.getElementById('speakerEnergyVolumeToggle');
+  if (speakerEnergyVolumeToggleEl) {
+    speakerEnergyVolumeToggleEl.checked = app.speakerEnergyVolumeEnabled;
+    speakerEnergyVolumeToggleEl.addEventListener('change', () => {
+      app.speakerEnergyVolumeEnabled = speakerEnergyVolumeToggleEl.checked;
+      app.lastSpeakerEnergyVolumeAt = 0; // rebuild on the next tick
+      if (app.speakerEnergyVolumeEnabled) {
+        // Pull the (static) gain table; the renderer replies with chunks that the
+        // Tauri backend reassembles into a `speaker_gaintable` event.
+        invoke('request_speaker_gaintable').catch(() => {});
+      }
+    });
+  }
+
   // Colour gradient — applies to the Studio 3D volume and the mpv overlay.
   if (objectEnergyColormapEl) {
     objectEnergyColormapEl.value = app.objectEnergyColormap;

@@ -388,6 +388,10 @@ export const app = {
   // Drives the mpv overlay's depth-plane count (not the Studio 3D view).
   objectEnergyHeatmapBandCount: 12,
   lastObjectEnergyHeatmapAt: 0,
+  // Speaker energy field 3D volume (gain table × live levels). Reuses the object
+  // field's gradient/mix/γ/opacity/resolution settings; only the toggle is its own.
+  speakerEnergyVolumeEnabled: false,
+  lastSpeakerEnergyVolumeAt: 0,
   speakerSize: 0.08,
   effectiveRenderEnabled: false,
   // Display-only master switch: when false, objects + their labels + trails are

@@ -56,6 +56,7 @@ import {
   updateVbapPositionInterpolation,
   renderVbapStatus
 } from './controls/vbap.js';
+import { setSpeakerGainTable } from './scene/speaker-energy-volume.js';
 import { updateAudioFormatDisplay } from './controls/audio.js';
 import { updateInputControlUI } from './controls/input.js';
 import { updateDrcMeterUI } from './controls/drc.js';
@@ -124,6 +125,10 @@ export function setupTauriBridge() {
 
   listen('source:meter', ({ payload }) => {
     updateSourceLevel(payload.id, payload.meter);
+  });
+
+  listen('speaker_gaintable', ({ payload }) => {
+    setSpeakerGainTable(payload);
   });
 
   listen('source:gains', ({ payload }) => {
