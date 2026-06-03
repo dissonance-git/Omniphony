@@ -56,7 +56,7 @@ import {
   updateVbapPositionInterpolation,
   renderVbapStatus
 } from './controls/vbap.js';
-import { setSpeakerGainTable } from './scene/speaker-energy-volume.js';
+import { setSpeakerGainTable } from './scene/speaker-gaintable.js';
 import { updateAudioFormatDisplay } from './controls/audio.js';
 import { updateInputControlUI } from './controls/input.js';
 import { updateDrcMeterUI } from './controls/drc.js';

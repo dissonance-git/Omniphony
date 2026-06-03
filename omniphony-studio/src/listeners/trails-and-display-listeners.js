@@ -6,6 +6,7 @@ import { scene } from '../scene/setup.js';
 import { applySpeakerLevel, updateSourceDecorations, updateSourceSelectionStyles, applyObjectsVisibility } from '../sources.js';
 import { refreshOverlayLists, updateSpeakerVisualsFromState } from '../speakers.js';
 import { subscribeSpeakerHeatmap, syncSpeakerHeatmapBandSelect } from '../scene/speaker-heatmap.js';
+import { hasSpeakerGainTable } from '../scene/speaker-gaintable.js';
 import { refreshObjectEnergyVolume } from '../scene/object-energy-volume.js';
 import { clampVolumeGamma, colormapIndex } from '../scene/object-energy-shared.js';
 import { pushLog } from '../log.js';
@@ -295,6 +296,11 @@ export function setupTrailsAndDisplayListeners() {
     speakerHeatmapVolumeToggleEl.checked = app.speakerHeatmapVolumeEnabled;
     speakerHeatmapVolumeToggleEl.addEventListener('change', () => {
       app.speakerHeatmapVolumeEnabled = speakerHeatmapVolumeToggleEl.checked;
+      app.lastSpeakerSoloVolumeAt = 0; // rebuild on the next tick
+      // The volume now renders locally from the gain table; pull it if not loaded.
+      if (app.speakerHeatmapVolumeEnabled && !hasSpeakerGainTable()) {
+        invoke('request_speaker_gaintable').catch(() => {});
+      }
       subscribeSpeakerHeatmap();
       persistEffectiveRenderPrefs();
     });
@@ -362,7 +368,7 @@ export function setupTrailsAndDisplayListeners() {
     speakerEnergyVolumeToggleEl.addEventListener('change', () => {
       app.speakerEnergyVolumeEnabled = speakerEnergyVolumeToggleEl.checked;
       app.lastSpeakerEnergyVolumeAt = 0; // rebuild on the next tick
-      if (app.speakerEnergyVolumeEnabled) {
+      if (app.speakerEnergyVolumeEnabled && !hasSpeakerGainTable()) {
         // Pull the (static) gain table; the renderer replies with chunks that the
         // Tauri backend reassembles into a `speaker_gaintable` event.
         invoke('request_speaker_gaintable')

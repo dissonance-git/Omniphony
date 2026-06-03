@@ -392,6 +392,9 @@ export const app = {
   // field's gradient/mix/γ/opacity/resolution settings; only the toggle is its own.
   speakerEnergyVolumeEnabled: false,
   lastSpeakerEnergyVolumeAt: 0,
+  // Per-speaker heatmap "volume" mode now renders the selected speaker's gain
+  // field from the local table (gain²) — see speaker-solo-volume.js.
+  lastSpeakerSoloVolumeAt: 0,
   speakerSize: 0.08,
   effectiveRenderEnabled: false,
   // Display-only master switch: when false, objects + their labels + trails are

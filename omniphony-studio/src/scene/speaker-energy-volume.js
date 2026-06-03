@@ -16,40 +16,14 @@
 import { app, speakerLevels } from '../state.js';
 import { EnergyVolume } from './energy-volume-core.js';
 import { MIN_REBUILD_INTERVAL_MS, clampVolumeGamma, colormapIndex } from './object-energy-shared.js';
+import { getSpeakerGainTable } from './speaker-gaintable.js';
 
 const SILENT_RMS_DBFS = -100;
 
 const volume = new EnergyVolume();
 
-// Decoded cartesian gain table, or null until the first `speaker_gaintable` event.
-let table = null;
 // Reused per-tick linear level array (grows to speakerCount).
 let levelLin = null;
-
-/**
- * Store the decoded gain table pushed by the Tauri backend. Cartesian only for
- * v1 (polar artifacts are ignored — the field falls back to hidden).
- */
-export function setSpeakerGainTable(payload) {
-  if (!payload || payload.domain !== 'cartesian') {
-    table = null;
-    return;
-  }
-  const nx = Number(payload.xCount) | 0;
-  const ny = Number(payload.yCount) | 0;
-  const nz = Number(payload.zCount) | 0;
-  const sc = Number(payload.speakerCount) | 0;
-  const gains = Array.isArray(payload.gains) ? Float32Array.from(payload.gains) : null;
-  if (nx < 1 || ny < 1 || nz < 1 || sc < 1 || !gains || gains.length < nx * ny * nz * sc) {
-    table = null;
-    return;
-  }
-  table = { nx, ny, nz, sc, gains };
-}
-
-export function hasSpeakerGainTable() {
-  return table !== null;
-}
 
 export function hideSpeakerEnergyVolume() {
   volume.hide();
@@ -66,6 +40,7 @@ function clampIdx(value, n) {
 }
 
 export function refreshSpeakerEnergyVolume(nowMs) {
+  const table = getSpeakerGainTable();
   if (!app.speakerEnergyVolumeEnabled || !table) {
     volume.hide();
     return;

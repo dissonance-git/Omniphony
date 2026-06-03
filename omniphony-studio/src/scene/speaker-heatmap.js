@@ -201,10 +201,12 @@ function hideAllHeatmap() {
 }
 
 function canShowHeatmap() {
+  // The "volume" mode now renders locally from the gain table (speaker-solo-volume.js);
+  // this OSC-sampled path only serves the slices now.
   return Number.isInteger(app.selectedSpeakerIndex)
     && app.selectedSpeakerIndex >= 0
     && app.evaluationModeState.effective === 'precomputed_cartesian'
-    && (app.speakerHeatmapSlicesEnabled || app.speakerHeatmapVolumeEnabled);
+    && app.speakerHeatmapSlicesEnabled;
 }
 
 function renderSlices(slices) {
@@ -291,10 +293,7 @@ function applyHeatmapData() {
     renderSlices(heatmapState.slices.data);
     hasVisibleContent = true;
   }
-  if (app.speakerHeatmapVolumeEnabled && heatmapState.volume.data) {
-    renderVolume(heatmapState.volume.data);
-    hasVisibleContent = true;
-  }
+  // 'volume' is rendered separately from the local gain table (speaker-solo-volume.js).
   heatmapGroup.visible = hasVisibleContent;
 }
 
@@ -408,7 +407,8 @@ export function subscribeSpeakerHeatmap() {
   const bandIndex = Math.max(0, Math.round(Number(app.speakerHeatmapBandIndex) || 0));
   const modes = [];
   if (app.speakerHeatmapSlicesEnabled) modes.push('slices');
-  if (app.speakerHeatmapVolumeEnabled) modes.push('volume');
+  // 'volume' is no longer pulled over OSC — it's rendered from the local gain
+  // table by speaker-solo-volume.js.
   if (modes.length === 0) {
     unsubscribeSpeakerHeatmap();
     clearSpeakerHeatmap();
