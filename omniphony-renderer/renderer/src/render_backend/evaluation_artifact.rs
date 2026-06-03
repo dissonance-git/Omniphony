@@ -6,8 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Read, Write};
 
 use super::{
-    BackendCapabilities, CartesianSpeakerHeatmapSlices, CartesianSpeakerHeatmapVolume,
-    EvaluationBuildConfig, PreparedEvaluator, RenderRequest, RenderResponse,
+    BackendCapabilities, EvaluationBuildConfig, PreparedEvaluator, RenderRequest, RenderResponse,
     sample_cartesian_table, sample_polar_table,
 };
 use crate::speaker_layout::SpeakerLayout;
@@ -261,7 +260,6 @@ impl LoadedEvaluationArtifact {
             supports_spread_from_distance: false,
             supports_event_size: false,
             supports_distance_diffuse: false,
-            supports_heatmap_cartesian: matches!(self, Self::Cartesian(_)),
             supports_table_export: true,
         }
     }
@@ -495,23 +493,6 @@ impl PreparedEvaluator for EvaluationArtifactEvaluator {
 
     fn save_to_file(&self, path: &std::path::Path, _speaker_layout: &SpeakerLayout) -> Result<()> {
         self.artifact.save_to_file(path)
-    }
-
-    fn cartesian_slices_for_speaker(
-        &self,
-        _speaker_index: usize,
-        _speaker_position: [f32; 3],
-    ) -> Option<CartesianSpeakerHeatmapSlices> {
-        None
-    }
-
-    fn cartesian_volume_for_speaker(
-        &self,
-        _speaker_index: usize,
-        _threshold: f32,
-        _max_samples: usize,
-    ) -> Option<CartesianSpeakerHeatmapVolume> {
-        None
     }
 }
 

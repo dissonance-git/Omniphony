@@ -3,8 +3,7 @@ use flate2::read::ZlibDecoder;
 use std::io::Read;
 
 use super::{
-    BackendCapabilities, CartesianSpeakerHeatmapSlices, CartesianSpeakerHeatmapVolume,
-    EffectiveEvaluationMode, PreparedEvaluator, RenderRequest, RenderResponse,
+    BackendCapabilities, EffectiveEvaluationMode, PreparedEvaluator, RenderRequest, RenderResponse,
 };
 use crate::spatial_vbap::{Gains, adm_to_spherical};
 use crate::speaker_layout::{Speaker, SpeakerLayout};
@@ -129,7 +128,6 @@ impl FileLoadedEvaluator {
             supports_spread: true,
             supports_spread_from_distance: true,
             supports_distance_diffuse: true,
-            supports_heatmap_cartesian: false,
             supports_table_export: true,
         }
     }
@@ -371,23 +369,6 @@ impl PreparedEvaluator for FileLoadedEvaluator {
     fn save_to_file(&self, path: &std::path::Path, _speaker_layout: &SpeakerLayout) -> Result<()> {
         std::fs::write(path, &self.file.raw_bytes)?;
         Ok(())
-    }
-
-    fn cartesian_slices_for_speaker(
-        &self,
-        _speaker_index: usize,
-        _speaker_position: [f32; 3],
-    ) -> Option<CartesianSpeakerHeatmapSlices> {
-        None
-    }
-
-    fn cartesian_volume_for_speaker(
-        &self,
-        _speaker_index: usize,
-        _threshold: f32,
-        _max_samples: usize,
-    ) -> Option<CartesianSpeakerHeatmapVolume> {
-        None
     }
 }
 

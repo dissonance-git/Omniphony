@@ -38,7 +38,6 @@ pub struct BackendCapabilities {
     /// w/d/h triplet) in addition to or instead of the global spread params.
     pub supports_event_size: bool,
     pub supports_distance_diffuse: bool,
-    pub supports_heatmap_cartesian: bool,
     pub supports_table_export: bool,
 }
 
@@ -294,23 +293,6 @@ pub trait PreparedEvaluator: Send + Sync {
         let _ = speaker_layout;
         anyhow::bail!("evaluator has no precomputed table to serialize")
     }
-    fn cartesian_slices_for_speaker(
-        &self,
-        speaker_index: usize,
-        speaker_position: [f32; 3],
-    ) -> Option<CartesianSpeakerHeatmapSlices> {
-        let _ = (speaker_index, speaker_position);
-        None
-    }
-    fn cartesian_volume_for_speaker(
-        &self,
-        speaker_index: usize,
-        threshold: f32,
-        max_samples: usize,
-    ) -> Option<CartesianSpeakerHeatmapVolume> {
-        let _ = (speaker_index, threshold, max_samples);
-        None
-    }
 }
 
 pub struct RealtimeEvaluator {
@@ -348,24 +330,6 @@ pub struct SampledCartesianEvaluator {
     position_interpolation: bool,
     frozen_request: RenderRequest,
     backend_restore_snapshot: Option<BackendRestoreSnapshot>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct CartesianSpeakerHeatmapSlices {
-    pub speaker_index: usize,
-    pub speaker_position: [f32; 3],
-    pub x_positions: Vec<f32>,
-    pub y_positions: Vec<f32>,
-    pub z_positions: Vec<f32>,
-    pub xy_values: Vec<f32>,
-    pub xz_values: Vec<f32>,
-    pub yz_values: Vec<f32>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct CartesianSpeakerHeatmapVolume {
-    pub speaker_index: usize,
-    pub samples: Vec<f32>,
 }
 
 impl SampledCartesianEvaluator {
@@ -465,141 +429,6 @@ impl PreparedEvaluator for SampledCartesianEvaluator {
             self.speaker_count,
         )?
         .to_serialized_bytes()
-    }
-
-    fn cartesian_slices_for_speaker(
-        &self,
-        speaker_index: usize,
-        speaker_position: [f32; 3],
-    ) -> Option<CartesianSpeakerHeatmapSlices> {
-        if speaker_index >= self.speaker_count {
-            return None;
-        }
-
-        let mut xy_values = Vec::with_capacity(self.x_positions.len() * self.y_positions.len());
-        for &y in &self.y_positions {
-            for &x in &self.x_positions {
-                xy_values.push(sample_cartesian_table_speaker_value(
-                    &self.gains,
-                    self.speaker_count,
-                    &self.x_positions,
-                    &self.y_positions,
-                    &self.z_positions,
-                    [x, y, speaker_position[2]],
-                    self.position_interpolation,
-                    speaker_index,
-                ));
-            }
-        }
-
-        let mut xz_values = Vec::with_capacity(self.x_positions.len() * self.z_positions.len());
-        for &z in &self.z_positions {
-            for &x in &self.x_positions {
-                xz_values.push(sample_cartesian_table_speaker_value(
-                    &self.gains,
-                    self.speaker_count,
-                    &self.x_positions,
-                    &self.y_positions,
-                    &self.z_positions,
-                    [x, speaker_position[1], z],
-                    self.position_interpolation,
-                    speaker_index,
-                ));
-            }
-        }
-
-        let mut yz_values = Vec::with_capacity(self.y_positions.len() * self.z_positions.len());
-        for &z in &self.z_positions {
-            for &y in &self.y_positions {
-                yz_values.push(sample_cartesian_table_speaker_value(
-                    &self.gains,
-                    self.speaker_count,
-                    &self.x_positions,
-                    &self.y_positions,
-                    &self.z_positions,
-                    [speaker_position[0], y, z],
-                    self.position_interpolation,
-                    speaker_index,
-                ));
-            }
-        }
-
-        Some(CartesianSpeakerHeatmapSlices {
-            speaker_index,
-            speaker_position,
-            x_positions: self.x_positions.clone(),
-            y_positions: self.y_positions.clone(),
-            z_positions: self.z_positions.clone(),
-            xy_values,
-            xz_values,
-            yz_values,
-        })
-    }
-
-    fn cartesian_volume_for_speaker(
-        &self,
-        speaker_index: usize,
-        threshold: f32,
-        max_samples: usize,
-    ) -> Option<CartesianSpeakerHeatmapVolume> {
-        if speaker_index >= self.speaker_count {
-            return None;
-        }
-        let mut weighted_samples = Vec::new();
-        let threshold = threshold.max(0.0);
-        for (z_index, &z) in self.z_positions.iter().enumerate() {
-            for (y_index, &y) in self.y_positions.iter().enumerate() {
-                for (x_index, &x) in self.x_positions.iter().enumerate() {
-                    let value = read_flat_sample_value(
-                        &self.gains,
-                        self.speaker_count,
-                        self.x_positions.len(),
-                        self.y_positions.len(),
-                        x_index,
-                        y_index,
-                        z_index,
-                        speaker_index,
-                    );
-                    if value >= threshold {
-                        weighted_samples.push((value, [x, y, z], x_index, y_index, z_index));
-                    }
-                }
-            }
-        }
-        if max_samples > 0 && weighted_samples.len() > max_samples {
-            let max_value = weighted_samples
-                .iter()
-                .map(|(value, _, _, _, _)| *value)
-                .fold(0.0_f32, f32::max)
-                .max(f32::EPSILON);
-            let mut scored = Vec::with_capacity(weighted_samples.len());
-            for sample @ (value, _position, x_index, y_index, z_index) in
-                weighted_samples.into_iter()
-            {
-                // Weighted deterministic reservoir sampling.
-                // We soften the distribution with sqrt so medium gains remain visible.
-                let weight = (value / max_value).clamp(0.0, 1.0).sqrt().max(1e-6);
-                let unit =
-                    deterministic_unit_float_3d(x_index as u32, y_index as u32, z_index as u32)
-                        as f64;
-                let key = unit.ln() / (weight as f64);
-                scored.push((key, sample));
-            }
-            scored.sort_by(|a, b| b.0.total_cmp(&a.0));
-            weighted_samples = scored
-                .into_iter()
-                .take(max_samples)
-                .map(|(_, sample)| sample)
-                .collect();
-        }
-        let mut samples = Vec::with_capacity(weighted_samples.len() * 4);
-        for (value, [x, y, z], _x_index, _y_index, _z_index) in weighted_samples {
-            samples.extend_from_slice(&[x, y, z, value]);
-        }
-        Some(CartesianSpeakerHeatmapVolume {
-            speaker_index,
-            samples,
-        })
     }
 }
 
@@ -842,25 +671,6 @@ impl PreparedRenderEngine {
     pub fn artifact_bytes(&self, speaker_layout: &SpeakerLayout) -> Result<Vec<u8>> {
         self.evaluator.artifact_bytes(speaker_layout)
     }
-
-    pub fn cartesian_slices_for_speaker(
-        &self,
-        speaker_index: usize,
-        speaker_position: [f32; 3],
-    ) -> Option<CartesianSpeakerHeatmapSlices> {
-        self.evaluator
-            .cartesian_slices_for_speaker(speaker_index, speaker_position)
-    }
-
-    pub fn cartesian_volume_for_speaker(
-        &self,
-        speaker_index: usize,
-        threshold: f32,
-        max_samples: usize,
-    ) -> Option<CartesianSpeakerHeatmapVolume> {
-        self.evaluator
-            .cartesian_volume_for_speaker(speaker_index, threshold, max_samples)
-    }
 }
 
 pub fn build_prepared_render_engine(
@@ -918,20 +728,6 @@ fn evenly_spaced_axis(count: usize, min: f32, max: f32) -> Vec<f32> {
     }
     let step = (max - min) / (count.saturating_sub(1) as f32);
     (0..count).map(|index| min + step * index as f32).collect()
-}
-
-fn deterministic_unit_float_3d(x: u32, y: u32, z: u32) -> f32 {
-    fn splitmix64(mut state: u64) -> u64 {
-        state = state.wrapping_add(0x9E3779B97F4A7C15);
-        let mut z = state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
-        z ^ (z >> 31)
-    }
-
-    let seed = ((x as u64) << 42) ^ ((y as u64) << 21) ^ (z as u64) ^ 0x6a09e667f3bcc909;
-    let mixed = splitmix64(seed);
-    ((mixed as f64 + 1.0) / (u64::MAX as f64 + 2.0)) as f32
 }
 
 fn cartesian_z_axis(z_size: usize, z_neg_size: usize) -> Vec<f32> {
@@ -1013,56 +809,6 @@ pub(crate) fn sample_cartesian_table(
     gains
 }
 
-fn sample_cartesian_table_speaker_value(
-    table: &[f32],
-    speaker_count: usize,
-    x_positions: &[f32],
-    y_positions: &[f32],
-    z_positions: &[f32],
-    position: [f32; 3],
-    interpolate: bool,
-    speaker_index: usize,
-) -> f32 {
-    let x = sample_axis(x_positions, position[0].clamp(-1.0, 1.0), interpolate);
-    let y = sample_axis(y_positions, position[1].clamp(-1.0, 1.0), interpolate);
-    let z = sample_axis(z_positions, position[2].clamp(-1.0, 1.0), interpolate);
-    if !interpolate {
-        return read_flat_sample_value(
-            table,
-            speaker_count,
-            x_positions.len(),
-            y_positions.len(),
-            x.lower,
-            y.lower,
-            z.lower,
-            speaker_index,
-        );
-    }
-
-    let mut value = 0.0;
-    for (iz, wz) in [(z.lower, 1.0 - z.fraction), (z.upper, z.fraction)] {
-        for (iy, wy) in [(y.lower, 1.0 - y.fraction), (y.upper, y.fraction)] {
-            for (ix, wx) in [(x.lower, 1.0 - x.fraction), (x.upper, x.fraction)] {
-                let weight = wx * wy * wz;
-                if weight <= 0.0 {
-                    continue;
-                }
-                value += read_flat_sample_value(
-                    table,
-                    speaker_count,
-                    x_positions.len(),
-                    y_positions.len(),
-                    ix,
-                    iy,
-                    iz,
-                    speaker_index,
-                ) * weight;
-            }
-        }
-    }
-    value
-}
-
 pub(crate) fn sample_polar_table(
     table: &[f32],
     speaker_count: usize,
@@ -1132,20 +878,6 @@ pub(crate) fn sample_polar_table(
         }
     }
     gains
-}
-
-fn read_flat_sample_value(
-    table: &[f32],
-    speaker_count: usize,
-    x_len: usize,
-    y_len: usize,
-    x_index: usize,
-    y_index: usize,
-    z_index: usize,
-    speaker_index: usize,
-) -> f32 {
-    let offset = (((z_index * y_len) + y_index) * x_len + x_index) * speaker_count + speaker_index;
-    table.get(offset).copied().unwrap_or(0.0)
 }
 
 fn write_flat_sample(

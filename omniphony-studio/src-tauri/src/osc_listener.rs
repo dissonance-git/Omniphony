@@ -1744,54 +1744,6 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 s.producer_session = serde_json::from_str(&value).ok();
                 (None, removed_ids)
             }
-            OscEvent::StateDebugSpeakerHeatmapMeta { value } => (
-                Some((
-                    "speaker_heatmap:meta",
-                    serde_json::from_str(&value).unwrap_or_else(|_| serde_json::json!({})),
-                )),
-                removed_ids,
-            ),
-
-            OscEvent::StateDebugSpeakerHeatmapSliceXy { value } => (
-                Some((
-                    "speaker_heatmap:slice_xy",
-                    serde_json::from_str(&value).unwrap_or_else(|_| serde_json::json!({})),
-                )),
-                removed_ids,
-            ),
-
-            OscEvent::StateDebugSpeakerHeatmapSliceXz { value } => (
-                Some((
-                    "speaker_heatmap:slice_xz",
-                    serde_json::from_str(&value).unwrap_or_else(|_| serde_json::json!({})),
-                )),
-                removed_ids,
-            ),
-
-            OscEvent::StateDebugSpeakerHeatmapSliceYz { value } => (
-                Some((
-                    "speaker_heatmap:slice_yz",
-                    serde_json::from_str(&value).unwrap_or_else(|_| serde_json::json!({})),
-                )),
-                removed_ids,
-            ),
-
-            OscEvent::StateDebugSpeakerHeatmapVolumeChunk { value } => (
-                Some((
-                    "speaker_heatmap:volume_chunk",
-                    serde_json::from_str(&value).unwrap_or_else(|_| serde_json::json!({})),
-                )),
-                removed_ids,
-            ),
-
-            OscEvent::StateDebugSpeakerHeatmapUnavailable { value } => (
-                Some((
-                    "speaker_heatmap:unavailable",
-                    serde_json::from_str(&value).unwrap_or_else(|_| serde_json::json!({})),
-                )),
-                removed_ids,
-            ),
-
             OscEvent::StateDebugSpeakerGaintableMeta { value } => {
                 gaintable_on_meta(&value);
                 (None, removed_ids)
@@ -1813,8 +1765,11 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 removed_ids,
             ),
 
-            OscEvent::StateDebugSpeakerGaintableInvalidated => (
-                Some(("speaker_gaintable:invalidated", serde_json::Value::Null)),
+            OscEvent::StateDebugSpeakerGaintableUptodate { version } => (
+                Some((
+                    "speaker_gaintable:uptodate",
+                    serde_json::json!({ "version": version }),
+                )),
                 removed_ids,
             ),
 

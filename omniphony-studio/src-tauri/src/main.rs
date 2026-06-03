@@ -995,83 +995,29 @@ fn control_render_evaluation_position_interpolation(state: State<SharedState>, e
     );
 }
 
+/// Subscribe to the precomputed gain table. `have_version` is the version already
+/// cached on this client (0 if none); the renderer pushes the full table only if
+/// it differs, then keeps pushing on every topology rebuild while subscribed. Sent
+/// once on first consumer + re-sent as a 5 s heartbeat (idempotent, self-healing).
 #[tauri::command]
-fn request_speaker_heatmap(
-    state: State<SharedState>,
-    speaker_index: i32,
-    request_id: i32,
-    band_index: i32,
-    mode: String,
-    max_samples: Option<i32>,
-) {
-    if speaker_index < 0 || request_id < 0 || band_index < 0 {
-        return;
-    }
-    let value = serde_json::json!({
-        "speaker_index": speaker_index,
-        "request_id": request_id,
-        "band_index": band_index,
-        "mode": mode,
-        "max_samples": max_samples,
-    })
-    .to_string();
+fn subscribe_speaker_gaintable(state: State<SharedState>, have_version: i32) {
     send_control(
         &state.osc_tx,
-        OscControlMsg::SendString {
-            address: "/omniphony/control/debug/speaker_heatmap/request".to_string(),
-            value,
+        OscControlMsg::SendInt {
+            address: "/omniphony/control/debug/speaker_gaintable/subscribe".to_string(),
+            value: have_version.max(0),
         },
     );
 }
 
+/// Unsubscribe from the gain-table push stream (last consumer released). The
+/// client keeps its cached table; a later re-subscribe negotiates by version.
 #[tauri::command]
-fn subscribe_speaker_heatmap(
-    state: State<SharedState>,
-    subscription_id: i32,
-    speaker_index: i32,
-    band_index: i32,
-    modes: Vec<String>,
-    max_samples: Option<i32>,
-) {
-    if speaker_index < 0 || subscription_id < 0 || band_index < 0 {
-        return;
-    }
-    let value = serde_json::json!({
-        "subscription_id": subscription_id,
-        "speaker_index": speaker_index,
-        "band_index": band_index,
-        "modes": modes,
-        "max_samples": max_samples,
-    })
-    .to_string();
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendString {
-            address: "/omniphony/control/debug/speaker_heatmap/subscribe".to_string(),
-            value,
-        },
-    );
-}
-
-#[tauri::command]
-fn unsubscribe_speaker_heatmap(state: State<SharedState>) {
+fn unsubscribe_speaker_gaintable(state: State<SharedState>) {
     send_control(
         &state.osc_tx,
         OscControlMsg::SendNoArgs {
-            address: "/omniphony/control/debug/speaker_heatmap/unsubscribe".to_string(),
-        },
-    );
-}
-
-/// Ask the renderer to (re)send the full precomputed gain table. It replies with
-/// `state/debug/speaker_gaintable/{meta,chunk}` which the OSC listener reassembles
-/// and decodes, emitting a single `speaker_gaintable` event to the UI.
-#[tauri::command]
-fn request_speaker_gaintable(state: State<SharedState>) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendNoArgs {
-            address: "/omniphony/control/debug/speaker_gaintable/request".to_string(),
+            address: "/omniphony/control/debug/speaker_gaintable/unsubscribe".to_string(),
         },
     );
 }
@@ -2668,10 +2614,8 @@ fn main() {
             control_render_evaluation_polar_distance_res,
             control_render_evaluation_polar_distance_max,
             control_render_evaluation_position_interpolation,
-            request_speaker_heatmap,
-            subscribe_speaker_heatmap,
-            unsubscribe_speaker_heatmap,
-            request_speaker_gaintable,
+            subscribe_speaker_gaintable,
+            unsubscribe_speaker_gaintable,
             control_distance_diffuse_enabled,
             control_distance_diffuse_threshold,
             control_distance_diffuse_curve,

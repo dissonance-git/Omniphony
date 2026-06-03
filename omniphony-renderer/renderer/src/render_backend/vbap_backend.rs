@@ -103,7 +103,6 @@ impl GainModel for VbapBackend {
             supports_spread_from_distance: true,
             supports_event_size: true,
             supports_distance_diffuse: true,
-            supports_heatmap_cartesian: true,
             supports_table_export: true,
         }
     }

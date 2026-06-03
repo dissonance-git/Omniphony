@@ -5,21 +5,20 @@ use std::sync::Arc;
 use renderer::live_params::RendererControl;
 use rosc::{OscMessage, OscType};
 use runtime_control::HostControlHandler;
-use runtime_control::band_topology_cache::BandTopologyCache;
 use runtime_control::command::{RuntimeCommand, parse_process_command};
 use runtime_control::context::RuntimeControlContext;
-use runtime_control::heatmap_sub::HeatmapSubscriptionState;
 use runtime_control::osc::{
-    BroadcastValue, ControlEffects, apply_simple_osc_control, republish_heatmap_if_changed,
+    BroadcastUpdate, BroadcastValue, ControlEffects, apply_simple_osc_control,
+    gaintable_chunk_broadcasts,
 };
 
 use super::client_registry::OscClientRegistry;
 use super::export::{build_live_state_bundle, export_current_layout, save_live_config};
+use super::gaintable::GaintableCache;
 use super::recompute::trigger_layout_recompute;
 use super::transport::{
     broadcast_blob, broadcast_fff, broadcast_float, broadcast_int, broadcast_string,
-    resolve_register_addr,
-    send_diag_state, send_metering_state,
+    resolve_register_addr, send_diag_state, send_metering_state, send_update_to_client,
 };
 
 #[derive(Default)]
@@ -27,8 +26,6 @@ pub(crate) struct RealtimeSeqState {
     pub master_gain: Option<i32>,
     pub speaker_gain: HashMap<usize, i32>,
     pub object_gain: HashMap<String, i32>,
-    pub heatmap_sub: Arc<HeatmapSubscriptionState>,
-    pub band_topology_cache: Arc<BandTopologyCache>,
 }
 
 pub(crate) fn handle_control_message(
@@ -39,6 +36,7 @@ pub(crate) fn handle_control_message(
     realtime_seq: &mut RealtimeSeqState,
     socket: &Arc<UdpSocket>,
     clients: &Arc<OscClientRegistry>,
+    gaintable_cache: &Arc<GaintableCache>,
 ) {
     let addr = msg.addr.as_str();
 
@@ -161,11 +159,53 @@ pub(crate) fn handle_control_message(
         crate::overlay::set_tag(id, tag);
         return;
     }
-    let runtime_ctx = RuntimeControlContext::with_shared_state(
-        Arc::clone(control),
-        Arc::clone(&realtime_seq.heatmap_sub),
-        Arc::clone(&realtime_seq.band_topology_cache),
-    );
+    let runtime_ctx = RuntimeControlContext::new(Arc::clone(control));
+
+    // Speaker gain-table pub/sub. A client subscribes (carrying the version it
+    // already has cached); the renderer pushes the full chunked table only if its
+    // version differs, then keeps pushing on every topology rebuild while the
+    // client stays subscribed (see `recompute.rs`). Targeted unicast — only the
+    // subscriber(s) receive the (potentially multi-MB) payload.
+    if addr == "/omniphony/control/debug/speaker_gaintable/subscribe" {
+        let have_version = match msg.args.first() {
+            Some(OscType::Int(i)) if *i >= 0 => Some(*i as u32),
+            _ => None,
+        };
+        let client = resolve_register_addr(src, &[]);
+        // Ensure the client exists in the registry (refreshes liveness) so the
+        // subscribe flag sticks and the 5 s heartbeat keeps it alive.
+        clients.register(client);
+        clients.set_gaintable(client, true);
+        push_gaintable_subscribe(socket, clients, gaintable_cache, &runtime_ctx, client, have_version);
+        return;
+    }
+
+    if addr == "/omniphony/control/debug/speaker_gaintable/unsubscribe" {
+        let client = resolve_register_addr(src, &[]);
+        clients.set_gaintable(client, false);
+        return;
+    }
+
+    if addr == "/omniphony/control/debug/speaker_gaintable/nack" {
+        // Args: Int version, Int missing_index… — resend just the lost chunks to
+        // the requesting client.
+        let mut ints = msg.args.iter().filter_map(|a| match a {
+            OscType::Int(i) if *i >= 0 => Some(*i as u32),
+            _ => None,
+        });
+        if let Some(version) = ints.next() {
+            let missing: Vec<u32> = ints.collect();
+            if !missing.is_empty() {
+                if let Some((_v, bytes)) = gaintable_cache.ensure(&runtime_ctx) {
+                    let client = resolve_register_addr(src, &[]);
+                    for update in gaintable_chunk_broadcasts(&bytes, Some((version, missing))) {
+                        send_update_to_client(socket, client, &update);
+                    }
+                }
+            }
+        }
+        return;
+    }
 
     if addr == "/omniphony/control/metering" {
         let enabled = match msg.args.first() {
@@ -448,13 +488,13 @@ pub(crate) fn handle_control_message(
     }
 
     if let Some(effects) = apply_simple_osc_control(msg, &runtime_ctx) {
-        apply_control_effects(effects, control, host, socket, clients, &runtime_ctx);
+        apply_control_effects(effects, control, host, socket, clients, gaintable_cache);
         return;
     }
 
     // Core didn't handle it — delegate to the host (audio output/input).
     if let Some(effects) = host.and_then(|h| h.handle(addr, msg)) {
-        apply_control_effects(effects, control, host, socket, clients, &runtime_ctx);
+        apply_control_effects(effects, control, host, socket, clients, gaintable_cache);
         return;
     }
 
@@ -487,7 +527,7 @@ fn apply_control_effects(
     host: Option<&Arc<dyn HostControlHandler>>,
     socket: &Arc<UdpSocket>,
     clients: &Arc<OscClientRegistry>,
-    runtime_ctx: &RuntimeControlContext,
+    gaintable_cache: &Arc<GaintableCache>,
 ) {
     if effects.mark_dirty {
         set_dirty(control, socket, clients);
@@ -509,24 +549,48 @@ fn apply_control_effects(
         log::info!("{message}");
     }
     if effects.trigger_layout_recompute {
-        trigger_layout_recompute(
-            control,
-            socket,
-            clients,
-            Arc::clone(&runtime_ctx.heatmap_sub),
-            Arc::clone(&runtime_ctx.band_topology_cache),
-        );
+        trigger_layout_recompute(control, socket, clients, gaintable_cache);
     }
-    // After any state change, republish the heatmap to the active subscription
-    // — but only if the recomputed payload differs from the last one cached.
-    // This is the keystone of the pub/sub model: edits that don't actually move
-    // the speaker (or otherwise change the heatmap) cost zero VBAP regen.
-    if effects.mark_dirty || effects.trigger_layout_recompute {
-        let pushes = republish_heatmap_if_changed(runtime_ctx);
-        for update in pushes {
-            if let BroadcastValue::String(value) = &update.value {
-                broadcast_string(socket, clients, &update.addr, value);
+}
+
+/// Reply to a gain-table subscribe: push the full chunked table if the client's
+/// cached `have_version` is stale (or absent), ack `uptodate` if it already has
+/// the current version, or `unavailable` if the active backend has no table.
+fn push_gaintable_subscribe(
+    socket: &UdpSocket,
+    clients: &OscClientRegistry,
+    gaintable_cache: &GaintableCache,
+    ctx: &RuntimeControlContext,
+    client: SocketAddr,
+    have_version: Option<u32>,
+) {
+    match gaintable_cache.ensure(ctx) {
+        Some((version, bytes)) => {
+            if have_version == Some(version) {
+                send_update_to_client(
+                    socket,
+                    client,
+                    &BroadcastUpdate {
+                        addr: "/omniphony/state/debug/speaker_gaintable/uptodate".to_string(),
+                        value: BroadcastValue::Int(version as i32),
+                    },
+                );
+            } else {
+                for update in gaintable_chunk_broadcasts(&bytes, None) {
+                    send_update_to_client(socket, client, &update);
+                }
+                clients.set_gaintable_version(client, version);
             }
         }
+        None => send_update_to_client(
+            socket,
+            client,
+            &BroadcastUpdate {
+                addr: "/omniphony/state/debug/speaker_gaintable/unavailable".to_string(),
+                value: BroadcastValue::String(
+                    "{\"reason\":\"no precomputed gain table for the active backend\"}".to_string(),
+                ),
+            },
+        ),
     }
 }

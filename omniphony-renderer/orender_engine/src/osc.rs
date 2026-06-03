@@ -12,6 +12,7 @@ use runtime_control::HostControlHandler;
 mod client_registry;
 mod dispatch;
 mod export;
+mod gaintable;
 mod metadata_emit;
 mod recompute;
 mod state_emit;
@@ -19,6 +20,7 @@ mod transport;
 
 use self::client_registry::OscClientRegistry;
 use self::dispatch::{RealtimeSeqState, handle_control_message};
+use self::gaintable::GaintableCache;
 use self::export::build_live_state_bundle;
 use self::transport::{
     flush_pending_logs, resolve_register_addr, send_buffered_logs_to_client, send_metering_state,
@@ -188,6 +190,10 @@ impl OscSender {
                 log::info!("OSC listener ready on port {}", rx_port);
 
                 let mut realtime_seq = RealtimeSeqState::default();
+                // Serialized gain table is cached here and shared with the
+                // recompute threads this loop spawns, so it's re-serialized only
+                // when the topology actually changes (not per push/heartbeat).
+                let gaintable_cache = Arc::new(GaintableCache::new());
                 let mut last_log_seq = sys::live_log::records_since(0)
                     .last()
                     .map(|record| record.seq)
@@ -283,6 +289,7 @@ impl OscSender {
                                             &mut realtime_seq,
                                             &socket,
                                             &clients,
+                                            &gaintable_cache,
                                         );
                                     }
                                 }
