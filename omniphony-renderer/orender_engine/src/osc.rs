@@ -20,8 +20,8 @@ mod transport;
 
 use self::client_registry::OscClientRegistry;
 use self::dispatch::{RealtimeSeqState, handle_control_message};
-use self::gaintable::GaintableCache;
 use self::export::build_live_state_bundle;
+use self::gaintable::GaintableCache;
 use self::transport::{
     flush_pending_logs, resolve_register_addr, send_buffered_logs_to_client, send_metering_state,
     send_raw_filtered,
