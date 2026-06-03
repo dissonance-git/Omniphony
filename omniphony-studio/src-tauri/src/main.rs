@@ -995,70 +995,33 @@ fn control_render_evaluation_position_interpolation(state: State<SharedState>, e
     );
 }
 
+/// Subscribe to one speaker's per-band gain field. `have_version` is the version
+/// already cached on this client (0 if none); `speaker_index` is the speaker to
+/// display. The renderer pushes that speaker's field only if the version differs,
+/// then on every topology rebuild while subscribed. Sent on first consumer, on
+/// speaker change, and as a 5 s heartbeat (idempotent, self-healing).
 #[tauri::command]
-fn request_speaker_heatmap(
-    state: State<SharedState>,
-    speaker_index: i32,
-    request_id: i32,
-    band_index: i32,
-    mode: String,
-    max_samples: Option<i32>,
-) {
-    if speaker_index < 0 || request_id < 0 || band_index < 0 {
-        return;
-    }
-    let value = serde_json::json!({
-        "speaker_index": speaker_index,
-        "request_id": request_id,
-        "band_index": band_index,
-        "mode": mode,
-        "max_samples": max_samples,
-    })
-    .to_string();
+fn subscribe_speaker_gaintable(state: State<SharedState>, have_version: i32, speaker_index: i32) {
     send_control(
         &state.osc_tx,
-        OscControlMsg::SendString {
-            address: "/omniphony/control/debug/speaker_heatmap/request".to_string(),
-            value,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/debug/speaker_gaintable/subscribe".to_string(),
+            args: vec![
+                rosc::OscType::Int(have_version.max(0)),
+                rosc::OscType::Int(speaker_index.max(0)),
+            ],
         },
     );
 }
 
+/// Unsubscribe from the gain-table push stream (last consumer released). The
+/// client keeps its cached table; a later re-subscribe negotiates by version.
 #[tauri::command]
-fn subscribe_speaker_heatmap(
-    state: State<SharedState>,
-    subscription_id: i32,
-    speaker_index: i32,
-    band_index: i32,
-    modes: Vec<String>,
-    max_samples: Option<i32>,
-) {
-    if speaker_index < 0 || subscription_id < 0 || band_index < 0 {
-        return;
-    }
-    let value = serde_json::json!({
-        "subscription_id": subscription_id,
-        "speaker_index": speaker_index,
-        "band_index": band_index,
-        "modes": modes,
-        "max_samples": max_samples,
-    })
-    .to_string();
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendString {
-            address: "/omniphony/control/debug/speaker_heatmap/subscribe".to_string(),
-            value,
-        },
-    );
-}
-
-#[tauri::command]
-fn unsubscribe_speaker_heatmap(state: State<SharedState>) {
+fn unsubscribe_speaker_gaintable(state: State<SharedState>) {
     send_control(
         &state.osc_tx,
         OscControlMsg::SendNoArgs {
-            address: "/omniphony/control/debug/speaker_heatmap/unsubscribe".to_string(),
+            address: "/omniphony/control/debug/speaker_gaintable/unsubscribe".to_string(),
         },
     );
 }
@@ -2484,6 +2447,19 @@ fn mpv_overlay_set_objects(state: State<SharedState>, visible: bool) {
     );
 }
 
+/// Enable/disable the mpv overlay's energy heatmap (mirrors Studio's "Object
+/// energy field" toggle). Travels as OSC control to the renderer.
+#[tauri::command]
+fn mpv_overlay_set_heatmap_enabled(state: State<SharedState>, enabled: bool) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendInt {
+            address: "/omniphony/control/overlay/heatmap_enabled".to_string(),
+            value: if enabled { 1 } else { 0 },
+        },
+    );
+}
+
 /// Set the number of depth planes in the mpv overlay's energy heatmap. Travels
 /// as OSC control to the renderer.
 #[tauri::command]
@@ -2493,6 +2469,34 @@ fn mpv_overlay_set_heatmap_bands(state: State<SharedState>, count: i32) {
         OscControlMsg::SendInt {
             address: "/omniphony/control/overlay/heatmap_bands".to_string(),
             value: count.clamp(1, 12),
+        },
+    );
+}
+
+/// Set the energy-heatmap colour gradient in the mpv overlay. The index mirrors
+/// Studio's `OBJECT_ENERGY_COLORMAPS` (0 heatmap, 1 blue→white, 2 white→red,
+/// 3 red, 4 custom). Travels as OSC control to the renderer.
+#[tauri::command]
+fn mpv_overlay_set_heatmap_colormap(state: State<SharedState>, colormap: i32) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendInt {
+            address: "/omniphony/control/overlay/heatmap_colormap".to_string(),
+            value: colormap.clamp(0, 4),
+        },
+    );
+}
+
+/// Push the custom-gradient stops (used by colormap index 4) to the mpv overlay.
+/// `stops` is a flat `[pos, r, g, b, …]` list in [0,1]; travels as OSC floats.
+#[tauri::command]
+fn mpv_overlay_set_heatmap_custom_stops(state: State<SharedState>, stops: Vec<f32>) {
+    let args = stops.into_iter().map(rosc::OscType::Float).collect();
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/overlay/heatmap_custom_stops".to_string(),
+            args,
         },
     );
 }
@@ -2641,9 +2645,8 @@ fn main() {
             control_render_evaluation_polar_distance_res,
             control_render_evaluation_polar_distance_max,
             control_render_evaluation_position_interpolation,
-            request_speaker_heatmap,
-            subscribe_speaker_heatmap,
-            unsubscribe_speaker_heatmap,
+            subscribe_speaker_gaintable,
+            unsubscribe_speaker_gaintable,
             control_distance_diffuse_enabled,
             control_distance_diffuse_threshold,
             control_distance_diffuse_curve,
@@ -2707,7 +2710,10 @@ fn main() {
             mpv_overlay_set_active,
             mpv_overlay_set_labels,
             mpv_overlay_set_objects,
+            mpv_overlay_set_heatmap_enabled,
+            mpv_overlay_set_heatmap_custom_stops,
             mpv_overlay_set_heatmap_bands,
+            mpv_overlay_set_heatmap_colormap,
         ])
         .run(tauri::generate_context!())
         .expect("error running Tauri application");

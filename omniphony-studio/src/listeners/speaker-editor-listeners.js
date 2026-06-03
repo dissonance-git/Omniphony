@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { app, isSpeakerLayoutFrozen, speakerBaseGains, speakerDelays } from '../state.js';
-import { syncSpeakerHeatmapBandSelect } from '../scene/speaker-heatmap.js';
+import { syncSpeakerHeatmapBandSelect } from '../scene/speaker-band-select.js';
 import {
   renderSpeakerEditor, requestAddSpeaker, requestMoveSpeaker, requestRemoveSpeaker,
   applySpeakerCartesianEdit, applySpeakerPolarEdit,

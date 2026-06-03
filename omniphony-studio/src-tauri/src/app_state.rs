@@ -154,11 +154,6 @@ pub struct BackendCapabilitiesState {
         alias = "supports_distance_diffuse"
     )]
     pub supports_distance_diffuse: bool,
-    #[serde(
-        rename = "supportsHeatmapCartesian",
-        alias = "supports_heatmap_cartesian"
-    )]
-    pub supports_heatmap_cartesian: bool,
     #[serde(rename = "supportsTableExport", alias = "supports_table_export")]
     pub supports_table_export: bool,
 }

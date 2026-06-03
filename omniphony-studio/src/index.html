@@ -161,6 +161,20 @@
                 <option value="zh-CN">简体中文</option>
               </select>
             </div>
+            <div id="mpvOverlaySection" style="display:grid;gap:0.3rem">
+              <div class="inline-toggle" style="margin-top:0">
+                <div class="title-with-info" style="min-width:0">
+                  <span data-i18n="mpvOverlay.title">mpv overlay</span>
+                </div>
+                <input id="mpvOverlayToggle" type="checkbox" />
+              </div>
+            </div>
+            <div id="gridDisplaySection" style="display:grid;gap:0.3rem">
+              <div class="inline-toggle" style="margin-top:0">
+                <div data-i18n="display.grid">Grid</div>
+                <input id="vbapCartesianGridToggleBtn" type="checkbox" />
+              </div>
+            </div>
             <div id="objectAppearanceSection" style="display:grid;gap:0.3rem">
               <div class="inline-toggle" style="margin-top:0">
                 <div data-i18n="display.objectAppearance">Object appearance</div>
@@ -195,32 +209,14 @@
                     <div data-i18n="display.showObjectDetails">Show object details</div>
                     <input id="showObjectDetailsToggle" type="checkbox" checked />
                   </div>
-                </div>
-              </div>
-            </div>
-            <div id="speakersDisplaySection" style="display:grid;gap:0.3rem">
-              <div class="inline-toggle" style="margin-top:0">
-                <div data-i18n="display.speakers">Speakers</div>
-              </div>
-              <div id="speakersDisplaySectionContent" class="conditional-params open">
-                <div style="margin-top:0.15rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
-                  <div class="inline-toggle" style="margin-top:0">
-                    <div data-i18n="display.speakerLabels">Speaker labels</div>
-                    <input id="speakerLabelsToggle" type="checkbox" />
-                  </div>
-                  <div class="control-row" style="margin-top:0.1rem;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="speakerSizeSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="display.speakerSize">Speaker size</span> <span id="speakerSizeVal">0.080</span></label>
-                    <input id="speakerSizeSlider" type="range" min="0.04" max="0.2" step="0.002" value="0.08" class="gain-slider" />
+                  <div class="inline-toggle" id="effectiveRenderSection" style="margin-top:0">
+                    <div class="title-with-info" style="min-width:0">
+                      <span data-i18n="effectiveRender.title">Effective render</span>
+                      <button id="effectiveRenderInfoBtn" type="button" class="info-icon-btn" data-i18n-title="effectiveRender.infoButton" title="Effective render info">i</button>
+                    </div>
+                    <input id="effectiveRenderToggle" type="checkbox" />
                   </div>
                 </div>
-              </div>
-            </div>
-            <div id="mpvOverlaySection" style="display:grid;gap:0.3rem">
-              <div class="inline-toggle" style="margin-top:0">
-                <div class="title-with-info" style="min-width:0">
-                  <span data-i18n="mpvOverlay.title">mpv overlay</span>
-                </div>
-                <input id="mpvOverlayToggle" type="checkbox" />
               </div>
             </div>
             <div id="trailSection" style="display:grid;gap:0.3rem">
@@ -249,9 +245,22 @@
                     <input id="trailTeleportSlider" type="range" min="0.05" max="2.0" step="0.05" value="0.5" class="gain-slider" />
                   </div>
                 </div>
-                <div class="inline-toggle" style="margin-top:0.2rem">
-                  <div data-i18n="display.grid">Grid</div>
-                  <input id="vbapCartesianGridToggleBtn" type="checkbox" />
+              </div>
+            </div>
+            <div id="speakersDisplaySection" style="display:grid;gap:0.3rem">
+              <div class="inline-toggle" style="margin-top:0">
+                <div data-i18n="display.speakers">Speakers</div>
+              </div>
+              <div id="speakersDisplaySectionContent" class="conditional-params open">
+                <div style="margin-top:0.15rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
+                  <div class="inline-toggle" style="margin-top:0">
+                    <div data-i18n="display.speakerLabels">Speaker labels</div>
+                    <input id="speakerLabelsToggle" type="checkbox" />
+                  </div>
+                  <div class="control-row" style="margin-top:0.1rem;grid-template-columns:auto 1fr;gap:0.3rem">
+                    <label for="speakerSizeSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="display.speakerSize">Speaker size</span> <span id="speakerSizeVal">0.080</span></label>
+                    <input id="speakerSizeSlider" type="range" min="0.04" max="0.2" step="0.002" value="0.08" class="gain-slider" />
+                  </div>
                 </div>
               </div>
             </div>
@@ -264,64 +273,74 @@
               </div>
               <div id="heatmapsSectionContent" class="conditional-params open">
                 <div style="margin-top:0.15rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
-                  <div class="inline-toggle" id="effectiveRenderSection" style="margin-top:0">
-                    <div class="title-with-info" style="min-width:0">
-                      <span data-i18n="effectiveRender.title">Effective render</span>
-                      <button id="effectiveRenderInfoBtn" type="button" class="info-icon-btn" data-i18n-title="effectiveRender.infoButton" title="Effective render info">i</button>
-                    </div>
-                    <input id="effectiveRenderToggle" type="checkbox" />
-                  </div>
-                  <div class="inline-toggle" style="margin-top:0">
-                    <div>Heatmap slices</div>
-                    <input id="speakerHeatmapSlicesToggle" type="checkbox" />
-                  </div>
+                  <div style="font-size:12px;font-weight:600;opacity:0.85" data-i18n="heatmap.speakers">Speakers</div>
                   <div class="inline-toggle" style="margin-top:0">
                     <div>Heatmap volume</div>
                     <input id="speakerHeatmapVolumeToggle" type="checkbox" />
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="speakerHeatmapBandSelect" style="font-size:12px;white-space:nowrap">Heatmap band</label>
+                    <label for="speakerHeatmapVolumeColormap" style="font-size:12px;white-space:nowrap" data-i18n="heatmap.objectEnergy.colormap">Gradient</label>
+                    <select id="speakerHeatmapVolumeColormap" style="flex:1;min-width:0">
+                      <option value="heatmap" selected data-i18n="heatmap.objectEnergy.colormapHeatmap">Heatmap</option>
+                      <option value="blueWhite" data-i18n="heatmap.objectEnergy.colormapBlueWhite">Blue → White</option>
+                      <option value="whiteRed" data-i18n="heatmap.objectEnergy.colormapWhiteRed">White → Red</option>
+                      <option value="red" data-i18n="heatmap.objectEnergy.colormapRed">Red (alpha only)</option>
+                      <option value="custom" data-i18n="heatmap.objectEnergy.colormapCustom">Custom</option>
+                    </select>
+                  </div>
+                  <div id="speakerGradientEditor" class="gradient-editor" style="display:none;margin-top:0.1rem"></div>
+                  <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
+                    <label for="speakerHeatmapBandSelect" style="font-size:12px;white-space:nowrap">Crossover band</label>
                     <select id="speakerHeatmapBandSelect" style="flex:1;min-width:0"></select>
                   </div>
-                  <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="speakerHeatmapSampleCountInput" style="font-size:12px;white-space:nowrap">Heatmap values</label>
-                    <input id="speakerHeatmapSampleCountInput" type="number" min="128" max="20000" step="128" value="3072" style="flex:1;min-width:0" />
-                  </div>
-                  <div class="control-row" style="margin-top:0.1rem;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="speakerHeatmapMaxSphereSizeSlider" style="font-size:12px;white-space:nowrap">Max sphere size <span id="speakerHeatmapMaxSphereSizeVal">0.062</span></label>
-                    <input id="speakerHeatmapMaxSphereSizeSlider" type="range" min="0.01" max="0.2" step="0.002" value="0.062" class="gain-slider" />
-                  </div>
-                  <div class="inline-toggle" style="margin-top:0.2rem">
+                </div>
+                <div style="margin-top:0.3rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
+                  <div style="font-size:12px;font-weight:600;opacity:0.85" data-i18n="heatmap.objects">Objects</div>
+                  <div class="inline-toggle" style="margin-top:0">
                     <div data-i18n="heatmap.objectEnergy">Objects energy field</div>
                     <input id="objectEnergyHeatmapToggle" type="checkbox" />
                   </div>
+                  <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
+                    <label for="objectEnergyColormap" style="font-size:12px;white-space:nowrap" data-i18n="heatmap.objectEnergy.colormap">Gradient</label>
+                    <select id="objectEnergyColormap" style="flex:1;min-width:0">
+                      <option value="heatmap" data-i18n="heatmap.objectEnergy.colormapHeatmap">Heatmap</option>
+                      <option value="blueWhite" selected data-i18n="heatmap.objectEnergy.colormapBlueWhite">Blue → White</option>
+                      <option value="whiteRed" data-i18n="heatmap.objectEnergy.colormapWhiteRed">White → Red</option>
+                      <option value="red" data-i18n="heatmap.objectEnergy.colormapRed">Red (alpha only)</option>
+                      <option value="custom" data-i18n="heatmap.objectEnergy.colormapCustom">Custom</option>
+                    </select>
+                  </div>
+                  <div id="objectGradientEditor" class="gradient-editor" style="display:none;margin-top:0.1rem"></div>
+                  <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
+                    <label for="objectEnergyHeatmapRadiusSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.radius">Falloff radius</span> <span id="objectEnergyHeatmapRadiusVal">0.50</span></label>
+                    <input id="objectEnergyHeatmapRadiusSlider" type="range" min="0.02" max="0.5" step="0.01" value="0.5" class="gain-slider" />
+                  </div>
+                </div>
+                <div style="margin-top:0.3rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
+                  <div style="font-size:12px;font-weight:600;opacity:0.85" data-i18n="heatmap.common">Common parameters</div>
                   <div class="inline-toggle" style="margin-top:0">
-                    <div data-i18n="heatmap.objectEnergy.axisX">Width slices</div>
-                    <input id="objectEnergyHeatmapAxisXToggle" type="checkbox" checked />
-                  </div>
-                  <div class="inline-toggle" style="margin-top:0">
-                    <div data-i18n="heatmap.objectEnergy.axisY">Depth slices</div>
-                    <input id="objectEnergyHeatmapAxisYToggle" type="checkbox" />
-                  </div>
-                  <div class="inline-toggle" style="margin-top:0">
-                    <div data-i18n="heatmap.objectEnergy.axisZ">Height slices</div>
-                    <input id="objectEnergyHeatmapAxisZToggle" type="checkbox" />
+                    <div data-i18n="heatmap.smooth">Smooth gradient</div>
+                    <input id="volumeSmoothToggle" type="checkbox" />
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="objectEnergyHeatmapBandCountSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.bandCount">Planes per axis</span> <span id="objectEnergyHeatmapBandCountVal">3</span></label>
-                    <input id="objectEnergyHeatmapBandCountSlider" type="range" min="1" max="12" step="1" value="3" class="gain-slider" />
+                    <label for="objectEnergyVolumeMixSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.mix">Accumulate ↔ Peak</span> <span id="objectEnergyVolumeMixVal">0.60</span></label>
+                    <input id="objectEnergyVolumeMixSlider" type="range" min="0" max="1" step="0.01" value="0.6" class="gain-slider" />
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="objectEnergyHeatmapResolutionSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.resolution">Field resolution</span> <span id="objectEnergyHeatmapResolutionVal">24</span></label>
-                    <input id="objectEnergyHeatmapResolutionSlider" type="range" min="8" max="64" step="2" value="24" class="gain-slider" />
+                    <label for="objectEnergyVolumeGammaAccumulateSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.gammaAccumulate">Accumulate γ</span> <span id="objectEnergyVolumeGammaAccumulateVal">4.0</span></label>
+                    <input id="objectEnergyVolumeGammaAccumulateSlider" type="range" min="1" max="10" step="0.1" value="4" class="gain-slider" />
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="objectEnergyHeatmapRadiusSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.radius">Falloff radius</span> <span id="objectEnergyHeatmapRadiusVal">0.12</span></label>
-                    <input id="objectEnergyHeatmapRadiusSlider" type="range" min="0.02" max="0.5" step="0.01" value="0.12" class="gain-slider" />
+                    <label for="objectEnergyVolumeGammaMipSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.gammaMip">Peak γ</span> <span id="objectEnergyVolumeGammaMipVal">3.00</span></label>
+                    <input id="objectEnergyVolumeGammaMipSlider" type="range" min="0.2" max="3" step="0.05" value="3" class="gain-slider" />
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="objectEnergyHeatmapOpacitySlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.opacity">Field opacity</span> <span id="objectEnergyHeatmapOpacityVal">0.55</span></label>
-                    <input id="objectEnergyHeatmapOpacitySlider" type="range" min="0.05" max="1.0" step="0.05" value="0.55" class="gain-slider" />
+                    <label for="objectEnergyHeatmapResolutionSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.resolution">Field resolution</span> <span id="objectEnergyHeatmapResolutionVal">64</span></label>
+                    <input id="objectEnergyHeatmapResolutionSlider" type="range" min="8" max="64" step="2" value="64" class="gain-slider" />
+                  </div>
+                  <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
+                    <label for="objectEnergyHeatmapOpacitySlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.opacity">Field opacity</span> <span id="objectEnergyHeatmapOpacityVal">1.00</span></label>
+                    <input id="objectEnergyHeatmapOpacitySlider" type="range" min="0.05" max="1.0" step="0.05" value="1.0" class="gain-slider" />
                   </div>
                 </div>
               </div>
