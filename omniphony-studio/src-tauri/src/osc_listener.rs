@@ -927,6 +927,12 @@ fn osc_thread(
         }
 
         // receive packet
+        // Re-request missing gain-table chunks if the transfer has stalled. Cheap
+        // to check every loop tick (≤50ms cadence via the recv timeout).
+        if let Some((version, missing)) = gaintable_check_nack(Instant::now()) {
+            send_gaintable_nack(&socket, &host, osc_rx_port, version, &missing);
+        }
+
         let n = match socket.recv_from(&mut buf) {
             Ok((n, _)) => n,
             Err(_) => continue, // timeout
@@ -1097,13 +1103,27 @@ struct GainTableAsm {
     version: u32,
     chunk_count: usize,
     chunks: std::collections::BTreeMap<u32, Vec<u8>>,
+    /// Last time a chunk (or the meta) arrived; drives the stall → NACK timer.
+    last_activity: Option<Instant>,
+    nack_rounds: u8,
 }
 
 static GAINTABLE: Mutex<GainTableAsm> = Mutex::new(GainTableAsm {
     version: 0,
     chunk_count: 0,
     chunks: std::collections::BTreeMap::new(),
+    last_activity: None,
+    nack_rounds: 0,
 });
+
+// Reliability for the chunked UDP transfer: if the burst stalls (lost datagrams),
+// re-request just the missing chunk indices. The receive buffer already absorbs the
+// burst itself; this recovers real network loss for the remote (Studio ≠ renderer
+// host) case. The renderer's `/nack` handler resends from a deterministic rebuild.
+const GAINTABLE_NACK_TIMEOUT: Duration = Duration::from_millis(120);
+const GAINTABLE_MAX_NACK_ROUNDS: u8 = 12;
+// Cap indices per NACK datagram to stay under a typical MTU.
+const GAINTABLE_NACK_MAX_INDICES: usize = 256;
 
 fn gaintable_on_meta(json: &str) {
     let v: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
@@ -1113,6 +1133,56 @@ fn gaintable_on_meta(json: &str) {
         g.version = version;
         g.chunk_count = chunk_count;
         g.chunks.clear();
+        g.last_activity = Some(Instant::now());
+        g.nack_rounds = 0;
+    }
+}
+
+/// If the current transfer has stalled, return `(version, missing_indices)` to
+/// re-request (and arm the next round); give up after `GAINTABLE_MAX_NACK_ROUNDS`.
+fn gaintable_check_nack(now: Instant) -> Option<(u32, Vec<u32>)> {
+    let mut g = GAINTABLE.lock().ok()?;
+    if g.chunk_count == 0 {
+        return None; // no active transfer (idle or just completed)
+    }
+    let last = g.last_activity?;
+    if now.duration_since(last) < GAINTABLE_NACK_TIMEOUT {
+        return None;
+    }
+    if g.nack_rounds >= GAINTABLE_MAX_NACK_ROUNDS {
+        log::warn!(
+            "[osc] gaintable transfer abandoned: {}/{} chunks after {} NACK rounds",
+            g.chunks.len(),
+            g.chunk_count,
+            g.nack_rounds
+        );
+        g.chunk_count = 0;
+        g.chunks.clear();
+        return None;
+    }
+    let total = g.chunk_count as u32;
+    let missing: Vec<u32> = (0..total).filter(|i| !g.chunks.contains_key(i)).collect();
+    if missing.is_empty() {
+        return None;
+    }
+    g.nack_rounds += 1;
+    g.last_activity = Some(now);
+    Some((g.version, missing))
+}
+
+fn send_gaintable_nack(socket: &UdpSocket, host: &str, rx_port: u16, version: u32, missing: &[u32]) {
+    use rosc::{encoder, OscMessage};
+    for group in missing.chunks(GAINTABLE_NACK_MAX_INDICES) {
+        let mut args = Vec::with_capacity(group.len() + 1);
+        args.push(OscType::Int(version as i32));
+        args.extend(group.iter().map(|&i| OscType::Int(i as i32)));
+        let msg = OscPacket::Message(OscMessage {
+            addr: "/omniphony/control/debug/speaker_gaintable/nack".to_string(),
+            args,
+        });
+        if let Ok(bytes) = encoder::encode(&msg) {
+            let _ = socket.send_to(&bytes, format!("{host}:{rx_port}"));
+        }
     }
 }
 
@@ -1129,6 +1199,7 @@ fn gaintable_on_chunk(bytes: &[u8]) -> Option<serde_json::Value> {
             return None; // stale/foreign chunk (meta not seen, or newer in flight)
         }
         g.chunks.insert(index, bytes[8..].to_vec());
+        g.last_activity = Some(Instant::now());
         if g.chunks.len() != g.chunk_count {
             return None;
         }
