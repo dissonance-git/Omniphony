@@ -163,8 +163,12 @@ struct OverlayState {
     heatmap_bands: usize,
     /// Colour gradient index for the energy heatmap, mirroring Studio's
     /// `OBJECT_ENERGY_COLORMAPS`: 0 heatmap, 1 blue→white, 2 white→red,
-    /// 3 red (alpha-only). See `heatmap_rgb`.
+    /// 3 red (alpha-only), 4 custom. See `heatmap_rgb`.
     heatmap_colormap: u8,
+    /// User-defined gradient stops `[pos, r, g, b]` (all in [0,1], sorted by pos)
+    /// used when `heatmap_colormap == 4`. Transient — Studio owns it and re-pushes
+    /// it on connect (`syncMpvOverlayPrefs`). Empty ⇒ greyscale fallback.
+    heatmap_custom_stops: Vec<[f32; 4]>,
     cfg: TrailCfg,
 }
 
@@ -181,6 +185,7 @@ impl Default for OverlayState {
             heatmap_enabled: false, // off by default; Studio pushes its toggle on connect
             heatmap_bands: FIELD_BANDS,
             heatmap_colormap: 1, // blue→white, like Studio's default
+            heatmap_custom_stops: Vec::new(),
             cfg: TrailCfg::default(),
         }
     }
@@ -307,7 +312,17 @@ pub fn set_heatmap_bands(count: usize) {
 /// 3 red (alpha-only). Transient — Studio owns the value and re-pushes it.
 pub fn set_heatmap_colormap(idx: usize) {
     if let Ok(mut s) = overlay().state.lock() {
-        s.heatmap_colormap = idx.min(3) as u8;
+        s.heatmap_colormap = idx.min(4) as u8;
+    }
+}
+
+/// Set the custom-gradient stops `[pos, r, g, b]` (used when the colormap index is
+/// 4). Sorted by `pos` so the interpolation in `heatmap_rgb` can assume order.
+/// Transient — Studio owns the value and re-pushes it on connect.
+pub fn set_heatmap_custom_stops(mut stops: Vec<[f32; 4]>) {
+    stops.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap_or(std::cmp::Ordering::Equal));
+    if let Ok(mut s) = overlay().state.lock() {
+        s.heatmap_custom_stops = stops;
     }
 }
 
@@ -640,17 +655,17 @@ const HEATMAP_STOPS: [(f64, f64, f64, f64); 5] = [
 ];
 
 /// Map `t` ∈ [0, 1] to an RGB colour for the selected `colormap` (mirror of
-/// Studio's `objectEnergyColor`). The alpha is applied by the caller (it always
-/// encodes the value); colormap 3 (red) keeps the colour constant so only the
-/// alpha conveys energy.
-/// Continuous heatmap colour for `t` in [0,1] as RGB floats in [0,255]. Left
-/// unquantised on purpose: the caller dithers each channel before rounding to
-/// 8-bit (see `build_heatmap_bitmap`) to avoid ramp banding after mpv upscales
-/// the small raster.
-fn heatmap_rgb(t: f64, colormap: u8) -> (f64, f64, f64) {
+/// Studio's `objectEnergyColor`), returned as floats in [0,255] left unquantised
+/// on purpose — the caller dithers each channel before rounding to 8-bit (see
+/// `build_heatmap_bitmap`) to avoid ramp banding after mpv upscales the small
+/// raster. The alpha is applied by the caller (it always encodes the value);
+/// colormap 3 (red) keeps the colour constant so only the alpha conveys energy;
+/// colormap 4 (custom) interpolates `custom` (sorted `[pos, r, g, b]` stops).
+fn heatmap_rgb(t: f64, colormap: u8, custom: &[[f32; 4]]) -> (f64, f64, f64) {
     let t = clamp(t, 0.0, 1.0);
     let c = |v: f64| v * 255.0;
     match colormap {
+        4 => custom_stops_rgb(t, custom),     // custom user gradient
         3 => (255.0, 0.0, 0.0),               // red: alpha-only
         2 => (255.0, c(1.0 - t), c(1.0 - t)), // white → red
         1 => (c(t), c(t), 255.0),             // blue → white
@@ -667,6 +682,42 @@ fn heatmap_rgb(t: f64, colormap: u8) -> (f64, f64, f64) {
                 c(g0 + (g1 - g0) * f),
                 c(b0 + (b1 - b0) * f),
             )
+        }
+    }
+}
+
+/// Interpolate the custom gradient (sorted `[pos, r, g, b]` stops) at `t`, as RGB
+/// floats in [0,255]. Empty ⇒ greyscale fallback so a missing push still renders.
+fn custom_stops_rgb(t: f64, stops: &[[f32; 4]]) -> (f64, f64, f64) {
+    let g = |v: f32| v as f64 * 255.0;
+    match stops.len() {
+        0 => (t * 255.0, t * 255.0, t * 255.0),
+        _ => {
+            let first = &stops[0];
+            if t <= first[0] as f64 {
+                return (g(first[1]), g(first[2]), g(first[3]));
+            }
+            let last = &stops[stops.len() - 1];
+            if t >= last[0] as f64 {
+                return (g(last[1]), g(last[2]), g(last[3]));
+            }
+            for w in stops.windows(2) {
+                let (a, b) = (&w[0], &w[1]);
+                if t <= b[0] as f64 {
+                    let span = (b[0] - a[0]) as f64;
+                    let f = if span > 0.0 {
+                        (t - a[0] as f64) / span
+                    } else {
+                        0.0
+                    };
+                    return (
+                        g(a[1]) + (g(b[1]) - g(a[1])) * f,
+                        g(a[2]) + (g(b[2]) - g(a[2])) * f,
+                        g(a[3]) + (g(b[3]) - g(a[3])) * f,
+                    );
+                }
+            }
+            (g(last[1]), g(last[2]), g(last[3]))
         }
     }
 }
@@ -820,6 +871,7 @@ fn build_heatmap_bitmap(s: &OverlayState, res_x: f64, res_y: f64) -> Option<Heat
     // entirely, with alpha bounded by FIELD_OPACITY, while the planes' nested
     // on-screen extents still convey the pseudo-3D depth.
     let colormap = s.heatmap_colormap;
+    let custom = s.heatmap_custom_stops.as_slice();
     let mut pixels = vec![0u8; w * h * 4];
     for j in 0..h {
         for i in 0..w {
@@ -834,7 +886,7 @@ fn build_heatmap_bitmap(s: &OverlayState, res_x: f64, res_y: f64) -> Option<Heat
             if t < 0.01 {
                 continue; // leave fully transparent
             }
-            let (rf, gf, bf) = heatmap_rgb(t, colormap);
+            let (rf, gf, bf) = heatmap_rgb(t, colormap, custom);
             let a = t * FIELD_OPACITY; // [0, FIELD_OPACITY]
             let d = dither_offset(i, j);
             let o = idx * 4;
@@ -1233,6 +1285,25 @@ mod tests {
             build_heatmap(1920, 1080).is_none(),
             "no heatmap when every object is below the silence floor"
         );
+    }
+
+    #[test]
+    fn custom_stops_interpolate_and_fall_back() {
+        // Empty ⇒ greyscale fallback (colour tracks the value on all channels).
+        let (r, g, b) = custom_stops_rgb(0.5, &[]);
+        assert!((r - 127.5).abs() < 1e-6 && (g - 127.5).abs() < 1e-6 && (b - 127.5).abs() < 1e-6);
+
+        // Black→white: midpoint is mid-grey, ends clamp to the edge stops.
+        let stops = [[0.0, 0.0, 0.0, 0.0], [1.0, 1.0, 1.0, 1.0]];
+        assert_eq!(custom_stops_rgb(0.0, &stops), (0.0, 0.0, 0.0));
+        let (mr, mg, mb) = custom_stops_rgb(0.5, &stops);
+        assert!(
+            (mr - 127.5).abs() < 1e-3 && (mg - 127.5).abs() < 1e-3 && (mb - 127.5).abs() < 1e-3
+        );
+        assert_eq!(custom_stops_rgb(1.0, &stops), (255.0, 255.0, 255.0));
+        // Below the first / above the last stop clamps, doesn't extrapolate.
+        assert_eq!(custom_stops_rgb(-1.0, &stops), (0.0, 0.0, 0.0));
+        assert_eq!(custom_stops_rgb(2.0, &stops), (255.0, 255.0, 255.0));
     }
 
     #[test]

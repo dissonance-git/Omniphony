@@ -106,6 +106,24 @@ pub(crate) fn handle_control_message(
         crate::overlay::set_heatmap_enabled(enabled);
         return;
     }
+    if addr == "/omniphony/control/overlay/heatmap_custom_stops" {
+        // Flat [pos, r, g, b, …] floats → grouped stops for the custom gradient.
+        let flat: Vec<f32> = msg
+            .args
+            .iter()
+            .filter_map(|a| match a {
+                OscType::Float(f) => Some(*f),
+                OscType::Int(i) => Some(*i as f32),
+                _ => None,
+            })
+            .collect();
+        let stops: Vec<[f32; 4]> = flat
+            .chunks_exact(4)
+            .map(|c| [c[0], c[1], c[2], c[3]])
+            .collect();
+        crate::overlay::set_heatmap_custom_stops(stops);
+        return;
+    }
     if addr == "/omniphony/control/overlay/heatmap_bands" {
         let count = match msg.args.first() {
             Some(OscType::Int(i)) if *i > 0 => *i as usize,
