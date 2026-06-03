@@ -54,6 +54,11 @@ export function getMpvOverlayStatus() {
   return { enabled: overlay.enabled };
 }
 
+/** Mirror Studio's "Object energy field" toggle onto the mpv overlay heatmap. */
+export function setMpvOverlayHeatmapEnabled(enabled) {
+  invoke('mpv_overlay_set_heatmap_enabled', { enabled: Boolean(enabled) }).catch(() => {});
+}
+
 // Push Studio's current overlay display prefs to the renderer. The overlay
 // controls are otherwise only sent on manual toggle, so without this the
 // renderer keeps its defaults after a (re)connect or orender restart — the
@@ -61,6 +66,7 @@ export function getMpvOverlayStatus() {
 // Call on connection (snapshot ready). All sends are best-effort.
 export function syncMpvOverlayPrefs() {
   invoke('mpv_overlay_set_objects', { visible: app.objectsVisible !== false }).catch(() => {});
+  invoke('mpv_overlay_set_heatmap_enabled', { enabled: Boolean(app.objectEnergyHeatmapEnabled) }).catch(() => {});
   invoke('mpv_overlay_set_heatmap_bands', { count: app.objectEnergyHeatmapBandCount }).catch(() => {});
   invoke('mpv_overlay_set_heatmap_colormap', { colormap: colormapIndex(app.objectEnergyColormap) }).catch(() => {});
   invoke('mpv_overlay_set_labels', { enabled: app.objectLabelsEnabled }).catch(() => {});

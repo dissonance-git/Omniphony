@@ -96,6 +96,16 @@ pub(crate) fn handle_control_message(
         crate::overlay::set_objects_visible(visible);
         return;
     }
+    if addr == "/omniphony/control/overlay/heatmap_enabled" {
+        let enabled = match msg.args.first() {
+            Some(OscType::Int(i)) => *i != 0,
+            Some(OscType::Float(f)) => *f != 0.0,
+            Some(OscType::Bool(b)) => *b,
+            _ => return,
+        };
+        crate::overlay::set_heatmap_enabled(enabled);
+        return;
+    }
     if addr == "/omniphony/control/overlay/heatmap_bands" {
         let count = match msg.args.first() {
             Some(OscType::Int(i)) if *i > 0 => *i as usize,

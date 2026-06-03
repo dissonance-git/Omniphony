@@ -2447,6 +2447,19 @@ fn mpv_overlay_set_objects(state: State<SharedState>, visible: bool) {
     );
 }
 
+/// Enable/disable the mpv overlay's energy heatmap (mirrors Studio's "Object
+/// energy field" toggle). Travels as OSC control to the renderer.
+#[tauri::command]
+fn mpv_overlay_set_heatmap_enabled(state: State<SharedState>, enabled: bool) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendInt {
+            address: "/omniphony/control/overlay/heatmap_enabled".to_string(),
+            value: if enabled { 1 } else { 0 },
+        },
+    );
+}
+
 /// Set the number of depth planes in the mpv overlay's energy heatmap. Travels
 /// as OSC control to the renderer.
 #[tauri::command]
@@ -2683,6 +2696,7 @@ fn main() {
             mpv_overlay_set_active,
             mpv_overlay_set_labels,
             mpv_overlay_set_objects,
+            mpv_overlay_set_heatmap_enabled,
             mpv_overlay_set_heatmap_bands,
             mpv_overlay_set_heatmap_colormap,
         ])

@@ -12,6 +12,7 @@ import { clampVolumeGamma, colormapIndex } from '../scene/object-energy-shared.j
 import {
   getMpvOverlayStatus,
   setMpvOverlayEnabled,
+  setMpvOverlayHeatmapEnabled,
   pushMpvOverlayTrailPrefs
 } from '../mpvOverlay.js';
 import { invoke } from '@tauri-apps/api/core';
@@ -358,6 +359,7 @@ export function setupTrailsAndDisplayListeners() {
     objectEnergyHeatmapToggleEl.addEventListener('change', () => {
       app.objectEnergyHeatmapEnabled = objectEnergyHeatmapToggleEl.checked;
       refreshObjectEnergyHeatmapNow();
+      setMpvOverlayHeatmapEnabled(app.objectEnergyHeatmapEnabled);
       persistEffectiveRenderPrefs();
     });
   }
