@@ -161,22 +161,35 @@ pub(crate) fn handle_control_message(
     }
     let runtime_ctx = RuntimeControlContext::new(Arc::clone(control));
 
-    // Speaker gain-table pub/sub. A client subscribes (carrying the version it
-    // already has cached); the renderer pushes the full chunked table only if its
-    // version differs, then keeps pushing on every topology rebuild while the
-    // client stays subscribed (see `recompute.rs`). Targeted unicast — only the
-    // subscriber(s) receive the (potentially multi-MB) payload.
+    // Speaker gain-table pub/sub. A client subscribes for one speaker (the heatmap
+    // shows one), carrying the version it has cached; the renderer pushes that
+    // speaker's per-band field only if the version differs, and keeps pushing on
+    // every topology rebuild while subscribed (see `recompute.rs`). Args:
+    // [Int have_version, Int speaker_index].
     if addr == "/omniphony/control/debug/speaker_gaintable/subscribe" {
         let have_version = match msg.args.first() {
             Some(OscType::Int(i)) if *i >= 0 => Some(*i as u32),
             _ => None,
+        };
+        let speaker = match msg.args.get(1) {
+            Some(OscType::Int(i)) if *i >= 0 => *i as usize,
+            _ => 0,
         };
         let client = resolve_register_addr(src, &[]);
         // Ensure the client exists in the registry (refreshes liveness) so the
         // subscribe flag sticks and the 5 s heartbeat keeps it alive.
         clients.register(client);
         clients.set_gaintable(client, true);
-        push_gaintable_subscribe(socket, clients, gaintable_cache, &runtime_ctx, client, have_version);
+        clients.set_gaintable_speaker(client, speaker);
+        push_gaintable_subscribe(
+            socket,
+            clients,
+            gaintable_cache,
+            &runtime_ctx,
+            client,
+            speaker,
+            have_version,
+        );
         return;
     }
 
@@ -187,8 +200,8 @@ pub(crate) fn handle_control_message(
     }
 
     if addr == "/omniphony/control/debug/speaker_gaintable/nack" {
-        // Args: Int version, Int missing_index… — resend just the lost chunks to
-        // the requesting client.
+        // Args: Int version, Int missing_index… — resend just the lost chunks for
+        // the client's subscribed speaker.
         let mut ints = msg.args.iter().filter_map(|a| match a {
             OscType::Int(i) if *i >= 0 => Some(*i as u32),
             _ => None,
@@ -196,8 +209,10 @@ pub(crate) fn handle_control_message(
         if let Some(version) = ints.next() {
             let missing: Vec<u32> = ints.collect();
             if !missing.is_empty() {
-                if let Some((_v, bytes)) = gaintable_cache.ensure(&runtime_ctx) {
-                    let client = resolve_register_addr(src, &[]);
+                let client = resolve_register_addr(src, &[]);
+                let speaker = clients.gaintable_speaker(client).unwrap_or(0);
+                if let Some((_v, bytes)) = gaintable_cache.bytes_for_speaker(&runtime_ctx, speaker)
+                {
                     for update in gaintable_chunk_broadcasts(&bytes, Some((version, missing))) {
                         send_update_to_client(socket, client, &update);
                     }
@@ -562,9 +577,10 @@ fn push_gaintable_subscribe(
     gaintable_cache: &GaintableCache,
     ctx: &RuntimeControlContext,
     client: SocketAddr,
+    speaker: usize,
     have_version: Option<u32>,
 ) {
-    match gaintable_cache.ensure(ctx) {
+    match gaintable_cache.bytes_for_speaker(ctx, speaker) {
         Some((version, bytes)) => {
             if have_version == Some(version) {
                 send_update_to_client(

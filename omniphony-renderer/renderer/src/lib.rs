@@ -1,4 +1,5 @@
 pub mod backend_registry;
+pub mod band_gaintable;
 pub mod config;
 pub mod config_fields;
 pub mod crossover;

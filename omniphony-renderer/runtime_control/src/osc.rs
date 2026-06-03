@@ -116,15 +116,6 @@ pub fn gaintable_version(bytes: &[u8]) -> u32 {
     (hasher.finish() & 0x7fff_ffff) as u32
 }
 
-/// Serialize the active precomputed evaluation table to the portable artifact
-/// byte layout (the same bytes shipped over OSC and written to `.oevl` files).
-/// Errors when the active backend holds no precomputed table (realtime evaluators).
-pub fn serialize_gaintable(ctx: &RuntimeControlContext) -> anyhow::Result<Vec<u8>> {
-    // Band-aware table (per crossover band, sampled over the cartesian grid). One
-    // band when there's no crossover → equivalent to the plain full-band table.
-    ctx.renderer.build_band_gaintable_bytes()
-}
-
 /// Chunk an already-serialized gain table into OSC broadcasts: a `meta` header
 /// (JSON: version, total_len, chunk_count, chunk_bytes) followed by `chunk` blobs,
 /// each prefixed with `version` + chunk index. `only = Some((version, missing))`

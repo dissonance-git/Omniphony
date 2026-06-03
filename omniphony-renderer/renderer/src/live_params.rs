@@ -769,12 +769,12 @@ impl RendererControl {
     /// For each crossover band (`compute_bands`), builds the band-restricted VBAP
     /// topology and samples it over the SAME cartesian grid as the full table,
     /// scattering band-local gains into full speaker-index order. Layouts with no
-    /// crossover yield a single band (= the full layout), identical to the plain
-    /// table. Output format "OBGT": 16-byte header (magic + version + meta_len +
-    /// payload_len), metadata JSON, then zlib(x_pos, y_pos, z_pos, band0 gains, …).
-    pub fn build_band_gaintable_bytes(&self) -> anyhow::Result<Vec<u8>> {
+    /// crossover yield a single band (= the full layout). The result is cached raw
+    /// and serialized per speaker for transfer (see [`crate::band_gaintable`]).
+    pub fn build_band_gaintable_full(
+        &self,
+    ) -> anyhow::Result<crate::band_gaintable::BandGaintableFull> {
         use rayon::prelude::*;
-        use std::io::Write as _;
 
         let topology = self.active_topology();
         let layout = topology.speaker_layout.clone();
@@ -789,8 +789,16 @@ impl RendererControl {
                 rebuild_params_allow_negative_z(rebuild_params),
             );
             (
-                crate::render_backend::evenly_spaced_axis(config.cartesian.x_size.max(2), -1.0, 1.0),
-                crate::render_backend::evenly_spaced_axis(config.cartesian.y_size.max(2), -1.0, 1.0),
+                crate::render_backend::evenly_spaced_axis(
+                    config.cartesian.x_size.max(2),
+                    -1.0,
+                    1.0,
+                ),
+                crate::render_backend::evenly_spaced_axis(
+                    config.cartesian.y_size.max(2),
+                    -1.0,
+                    1.0,
+                ),
                 crate::render_backend::cartesian_z_axis(
                     config.cartesian.z_size.max(2),
                     config.cartesian.z_neg_size,
@@ -813,7 +821,10 @@ impl RendererControl {
             if n >= 3 {
                 let band_layout = crate::speaker_layout::SpeakerLayout {
                     radius_m: layout.radius_m,
-                    speakers: indices.iter().map(|&i| layout.speakers[i].clone()).collect(),
+                    speakers: indices
+                        .iter()
+                        .map(|&i| layout.speakers[i].clone())
+                        .collect(),
                 };
                 let band_topology = self
                     .prepare_topology_rebuild_for_layout(band_layout)
@@ -853,61 +864,24 @@ impl RendererControl {
             band_gains_all.push(gains);
         }
 
-        let metadata = serde_json::json!({
-            "domain": "cartesian_bands",
-            "x_count": nx,
-            "y_count": ny,
-            "z_count": nz,
-            "speaker_count": speaker_count,
-            "band_count": bands.len(),
-            "bands": band_meta
-                .iter()
-                .map(|(lo, hi)| {
-                    serde_json::json!({
-                        "low_hz": lo,
-                        "high_hz": if hi.is_finite() {
-                            serde_json::json!(hi)
-                        } else {
-                            serde_json::Value::Null
-                        },
-                    })
-                })
-                .collect::<Vec<_>>(),
+        let band_fields = band_meta
+            .into_iter()
+            .zip(band_gains_all)
+            .map(
+                |((low_hz, high_hz), gains)| crate::band_gaintable::BandField {
+                    low_hz,
+                    high_hz,
+                    gains,
+                },
+            )
+            .collect();
+        Ok(crate::band_gaintable::BandGaintableFull {
+            x_positions,
+            y_positions,
+            z_positions,
+            speaker_count,
+            bands: band_fields,
         })
-        .to_string();
-
-        let mut raw: Vec<u8> =
-            Vec::with_capacity((nx + ny + nz + cell_count * speaker_count * bands.len().max(1)) * 4);
-        for &v in &x_positions {
-            raw.extend_from_slice(&v.to_le_bytes());
-        }
-        for &v in &y_positions {
-            raw.extend_from_slice(&v.to_le_bytes());
-        }
-        for &v in &z_positions {
-            raw.extend_from_slice(&v.to_le_bytes());
-        }
-        for gains in &band_gains_all {
-            for &g in gains {
-                raw.extend_from_slice(&g.to_le_bytes());
-            }
-        }
-
-        let mut enc =
-            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
-        enc.write_all(&raw)?;
-        let payload = enc.finish()?;
-
-        let meta_bytes = metadata.as_bytes();
-        let mut out = Vec::with_capacity(16 + meta_bytes.len() + payload.len());
-        out.extend_from_slice(b"OBGT");
-        out.push(1); // version
-        out.extend_from_slice(&[0u8; 3]); // reserved
-        out.extend_from_slice(&(meta_bytes.len() as u32).to_le_bytes());
-        out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
-        out.extend_from_slice(meta_bytes);
-        out.extend_from_slice(&payload);
-        Ok(out)
     }
 
     /// Mark live params as dirty (changed since last save) and return the new state.

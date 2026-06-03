@@ -130,21 +130,22 @@ pub(crate) fn trigger_layout_recompute(
                         0,
                     );
                     // The precomputed gain table changed with the new topology.
-                    // Push the fresh table to every live subscriber whose cached
-                    // version differs (targeted unicast). Serialized once via the
-                    // cache, then re-chunked once and unicast to each. Skipped
-                    // entirely when nobody is subscribed.
+                    // Push each live subscriber its own speaker's per-band field
+                    // (targeted unicast), only when its cached version differs. The
+                    // full table is rebuilt once into the cache; per-speaker bytes
+                    // are serialized cheaply. Skipped when nobody is subscribed.
                     gaintable_cache_clone.invalidate();
                     let subscribers = clients_clone.gaintable_subscribers();
                     if !subscribers.is_empty() {
-                        let ctx =
-                            RuntimeControlContext::new(Arc::clone(&control_clone));
-                        if let Some((version, bytes)) = gaintable_cache_clone.ensure(&ctx) {
-                            let chunks = gaintable_chunk_broadcasts(&bytes, None);
-                            for (addr, client_version) in subscribers {
+                        let ctx = RuntimeControlContext::new(Arc::clone(&control_clone));
+                        for (addr, client_version, speaker) in subscribers {
+                            let speaker = speaker.unwrap_or(0);
+                            if let Some((version, bytes)) =
+                                gaintable_cache_clone.bytes_for_speaker(&ctx, speaker)
+                            {
                                 if client_version != Some(version) {
-                                    for update in &chunks {
-                                        send_update_to_client(&socket_clone, addr, update);
+                                    for update in gaintable_chunk_broadcasts(&bytes, None) {
+                                        send_update_to_client(&socket_clone, addr, &update);
                                     }
                                     clients_clone.set_gaintable_version(addr, version);
                                 }
