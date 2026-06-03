@@ -135,6 +135,15 @@ pub(crate) fn trigger_layout_recompute(
                         "/omniphony/state/speakers/recomputing",
                         0,
                     );
+                    // The precomputed gain table changed with the new topology;
+                    // tell clients holding it to re-request (Studio's speaker
+                    // volumes read it locally — see speaker-gaintable.js).
+                    broadcast_int(
+                        &socket_clone,
+                        &clients_clone,
+                        "/omniphony/state/debug/speaker_gaintable/invalidated",
+                        1,
+                    );
                     // Push the new heatmap to the active subscription (if any)
                     // — but only if it actually differs from the cached one.
                     let ctx = RuntimeControlContext::with_shared_state(

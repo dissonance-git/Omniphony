@@ -1813,6 +1813,11 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 removed_ids,
             ),
 
+            OscEvent::StateDebugSpeakerGaintableInvalidated => (
+                Some(("speaker_gaintable:invalidated", serde_json::Value::Null)),
+                removed_ids,
+            ),
+
             OscEvent::StateSnapshotComplete => {
                 s.osc_snapshot_ready = true;
                 let snapshot = serde_json::to_value(&*s).unwrap_or(serde_json::Value::Null);

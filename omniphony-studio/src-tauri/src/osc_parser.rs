@@ -235,6 +235,8 @@ pub enum OscEvent {
     StateDebugSpeakerGaintableChunk { bytes: Vec<u8> },
     #[serde(rename = "state:debug:speaker_gaintable:unavailable")]
     StateDebugSpeakerGaintableUnavailable { value: String },
+    #[serde(rename = "state:debug:speaker_gaintable:invalidated")]
+    StateDebugSpeakerGaintableInvalidated,
     #[serde(rename = "state:snapshot_complete")]
     StateSnapshotComplete,
     #[serde(rename = "state:realtime:master_gain")]
@@ -675,6 +677,7 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
             "chunk" => Some(OscEvent::StateDebugSpeakerGaintableChunk {
                 bytes: raw_args.first().and_then(unwrap_blob)?,
             }),
+            "invalidated" => Some(OscEvent::StateDebugSpeakerGaintableInvalidated),
             _ => None,
         },
         (5, "render_evaluation") if parts[3] == "cartesian" => {

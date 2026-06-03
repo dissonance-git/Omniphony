@@ -56,7 +56,8 @@ import {
   updateVbapPositionInterpolation,
   renderVbapStatus
 } from './controls/vbap.js';
-import { setSpeakerGainTable } from './scene/speaker-gaintable.js';
+import { invoke } from '@tauri-apps/api/core';
+import { setSpeakerGainTable, clearSpeakerGainTable } from './scene/speaker-gaintable.js';
 import { updateAudioFormatDisplay } from './controls/audio.js';
 import { updateInputControlUI } from './controls/input.js';
 import { updateDrcMeterUI } from './controls/drc.js';
@@ -135,6 +136,17 @@ export function setupTauriBridge() {
 
   listen('speaker_gaintable:unavailable', ({ payload }) => {
     pushLog('warn', `gaintable: unavailable ${JSON.stringify(payload)}`);
+  });
+
+  // The renderer rebuilt its topology → the gain table changed. Re-fetch now if a
+  // speaker volume is on; otherwise drop the stale table so it's re-fetched on the
+  // next enable.
+  listen('speaker_gaintable:invalidated', () => {
+    if (app.speakerEnergyVolumeEnabled || app.speakerHeatmapVolumeEnabled) {
+      invoke('request_speaker_gaintable').catch(() => {});
+    } else {
+      clearSpeakerGainTable();
+    }
   });
 
   listen('source:gains', ({ payload }) => {

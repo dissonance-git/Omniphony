@@ -48,3 +48,8 @@ export function getSpeakerGainTable() {
 export function hasSpeakerGainTable() {
   return table !== null;
 }
+
+/** Drop the cached table (e.g. invalidated by a server-side topology rebuild). */
+export function clearSpeakerGainTable() {
+  table = null;
+}
