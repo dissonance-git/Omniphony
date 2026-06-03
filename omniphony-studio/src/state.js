@@ -371,8 +371,12 @@ export const app = {
   // Own gradient for the speaker heatmap volume (differentiated from the object
   // field). Colour gradient: 'heatmap' | 'blueWhite' | 'whiteRed' | 'red'.
   speakerHeatmapVolumeColormap: 'heatmap',
-  // Crossover band selected for effective-render / dominant-speaker readout.
+  // Crossover band selected for effective-render / dominant-speaker readout, and
+  // for the per-speaker heatmap volume (single band). `speakerHeatmapAllBands`
+  // overrides it for the heatmap with the level-weighted, frequency-coloured
+  // "all bands" composite (effective-render still uses the numeric index).
   speakerHeatmapBandIndex: 0,
+  speakerHeatmapAllBands: false,
   // Object energy field (client-side theoretical field, ray-marched 3D volume).
   objectEnergyHeatmapEnabled: false,
   // Colour gradient: 'heatmap' | 'blueWhite' | 'whiteRed' | 'red'.

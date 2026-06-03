@@ -33,19 +33,27 @@ export function syncSpeakerHeatmapBandSelect() {
   const visibleIndex = hasLayoutSpeakers
     ? app.speakerHeatmapBandIndex
     : Math.max(0, Math.min(maxIndex, desiredIndex));
-  const previousValue = String(visibleIndex);
-  const existing = Array.from(selectEl.options).map((option) => option.textContent);
-  const needsRebuild = existing.length !== labels.length
-    || existing.some((label, index) => label !== labels[index]);
+
+  // Option list: one per crossover band, plus a "Toutes" entry (only when there's
+  // more than one band) for the heatmap's all-bands composite.
+  const optionDefs = labels.map((label, index) => ({ value: String(index), text: label }));
+  if (labels.length > 1) {
+    optionDefs.push({ value: 'all', text: 'Toutes' });
+  }
+  const existing = Array.from(selectEl.options).map((option) => option.value);
+  const needsRebuild = existing.length !== optionDefs.length
+    || existing.some((value, index) => value !== optionDefs[index].value);
   if (needsRebuild) {
     selectEl.replaceChildren();
-    labels.forEach((label, index) => {
+    optionDefs.forEach((def) => {
       const option = document.createElement('option');
-      option.value = String(index);
-      option.textContent = label;
+      option.value = def.value;
+      option.textContent = def.text;
       selectEl.appendChild(option);
     });
   }
-  selectEl.value = previousValue;
+  selectEl.value = app.speakerHeatmapAllBands && labels.length > 1
+    ? 'all'
+    : String(visibleIndex);
   return labels;
 }

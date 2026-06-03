@@ -62,6 +62,9 @@ uniform float uStepNorm;
 uniform float uMix;
 uniform int uColormap;
 uniform int uSteps;
+// 0 = scalar energy in .r, colour from the colormap (object/single-band field).
+// 1 = precoloured RGBA: .rgb is the final colour, .a is the level.
+uniform int uPrecolored;
 out vec4 outColor;
 
 ${HEATMAP_GLSL}
@@ -83,15 +86,17 @@ void main() {
   float dt = (tFar - tNear) / float(uSteps);
   vec4 acc = vec4(0.0);
   float eMax = 0.0;
+  vec3 eMaxCol = vec3(0.0);
   for (int s = 0; s < 512; s++) {
     if (s >= uSteps) break;
     float t = tNear + (float(s) + 0.5) * dt;
     vec3 p = ro + rd * t;
     vec3 uvw = (p - uBoxMin) / boxSize;
-    float e = clamp(texture(uVolume, uvw).r * uInvMax, 0.0, 1.0);
-    eMax = max(eMax, e);
+    vec4 tx = texture(uVolume, uvw);
+    float e = clamp((uPrecolored == 1 ? tx.a : tx.r) * uInvMax, 0.0, 1.0);
+    vec3 col = uPrecolored == 1 ? tx.rgb : heatmapColor(e);
+    if (e > eMax) { eMax = e; eMaxCol = col; }
     if (e > 0.004) {
-      vec3 col = heatmapColor(e);
       float a = clamp(pow(e, uGammaAccumulate) * uOpacity * uStepNorm, 0.0, 1.0);
       acc.rgb += (1.0 - acc.a) * col * a;
       acc.a += (1.0 - acc.a) * a;
@@ -99,7 +104,7 @@ void main() {
     }
   }
   float aMip = clamp(pow(eMax, uGammaMip) * uOpacity, 0.0, 1.0);
-  vec4 peak = vec4(heatmapColor(eMax) * aMip, aMip);
+  vec4 peak = vec4(eMaxCol * aMip, aMip);
   vec4 result = mix(acc, peak, uMix);
   if (result.a <= 0.0) { discard; }
   outColor = result;
@@ -141,6 +146,7 @@ export class EnergyVolume {
         uMix: { value: 0.6 },
         uColormap: { value: 0 },
         uSteps: { value: 96 },
+        uPrecolored: { value: 0 },
       },
       transparent: true,
       premultipliedAlpha: true,
@@ -159,9 +165,11 @@ export class EnergyVolume {
     if (this.texture && this.cachedResolution === resolution) return;
     if (this.texture) this.texture.dispose();
     const n = resolution;
-    this.data = new Float32Array(n * n * n);
+    // RGBA so the same texture serves both the scalar field (energy in .r) and the
+    // precoloured "all bands" field (.rgb colour + .a level), selected by uPrecolored.
+    this.data = new Float32Array(n * n * n * 4);
     this.texture = new THREE.Data3DTexture(this.data, n, n, n);
-    this.texture.format = THREE.RedFormat;
+    this.texture.format = THREE.RGBAFormat;
     this.texture.type = THREE.FloatType;
     this.texture.minFilter = THREE.NearestFilter;
     this.texture.magFilter = THREE.NearestFilter;
@@ -194,7 +202,7 @@ export class EnergyVolume {
    * returns the scalar energy at an Omniphony-normalised position (x=width,
    * y=depth, z=height), each in [-1, 1].
    */
-  update({ resolution, opacity, mix, gammaAccumulate, gammaMip, colormap, smooth, sampleEnergy }) {
+  update({ resolution, opacity, mix, gammaAccumulate, gammaMip, colormap, smooth, sampleEnergy, sampleColor }) {
     const n = Math.max(8, Math.min(64, Math.round(Number(resolution) || 24)));
     this.ensureTexture(n);
 
@@ -235,7 +243,10 @@ export class EnergyVolume {
     }
 
     // idx = i + n*(j + n*k), i=depth, j=height, k=width (contiguous inner loop).
+    // RGBA texels: scalar mode writes energy to .r; precoloured writes colour+level.
     const data = this.data;
+    const precolored = typeof sampleColor === 'function';
+    const rgba = this._rgbaScratch || (this._rgbaScratch = new Float32Array(4));
     let maxEnergy = 0;
     let idx = 0;
     for (let k = 0; k < n; k += 1) {
@@ -244,9 +255,22 @@ export class EnergyVolume {
         const oh = this.heightByJ[j];
         for (let i = 0; i < n; i += 1) {
           const od = this.depthByI[i];
-          const energy = sampleEnergy(ow, od, oh);
-          data[idx] = energy;
-          if (energy > maxEnergy) maxEnergy = energy;
+          const o = idx * 4;
+          if (precolored) {
+            sampleColor(ow, od, oh, rgba); // writes [r, g, b, level]
+            data[o] = rgba[0];
+            data[o + 1] = rgba[1];
+            data[o + 2] = rgba[2];
+            data[o + 3] = rgba[3];
+            if (rgba[3] > maxEnergy) maxEnergy = rgba[3];
+          } else {
+            const energy = sampleEnergy(ow, od, oh);
+            data[o] = energy;
+            data[o + 1] = 0;
+            data[o + 2] = 0;
+            data[o + 3] = 0;
+            if (energy > maxEnergy) maxEnergy = energy;
+          }
           idx += 1;
         }
       }
@@ -254,6 +278,7 @@ export class EnergyVolume {
     this.texture.needsUpdate = true;
 
     const u = this.material.uniforms;
+    u.uPrecolored.value = precolored ? 1 : 0;
     u.uInvMax.value = maxEnergy > 0 ? 1 / maxEnergy : 0;
     u.uOpacity.value = Math.max(0.05, Math.min(1.0, Number(opacity) || 0.55));
     u.uGammaAccumulate.value = gammaAccumulate;

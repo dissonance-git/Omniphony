@@ -1,23 +1,38 @@
 /**
- * Per-speaker heatmap — ray-marched volume of a single speaker's gain field.
+ * Per-speaker heatmap — ray-marched volume of a single speaker's gain field,
+ * crossover-band aware.
  *
- * Replaces the old OSC-sampled per-speaker "volume" mode: reads the local gain
- * table (no per-display OSC request) and renders the selected speaker's coverage
- * as energy(cell) = gain(cell, speaker)². Same renderer/box as the object volume
- * and shares its mix/γ/opacity/resolution, but has its own gradient
- * (`speakerHeatmapVolumeColormap`).
+ * Reads the local band-aware gain table (one VBAP field per crossover band) and
+ * renders the selected speaker:
+ *  - a single band → energy(cell) = gain_band(cell, speaker)², coloured by the
+ *    speaker gradient (`speakerHeatmapVolumeColormap`);
+ *  - "all bands" (`speakerHeatmapAllBands`) → per cell, a level-weighted average
+ *    of each band's colour (band colour = gradient at the band's log-frequency
+ *    position), with alpha = total level. Uses the volume core's precoloured path.
  *
- * Driven by the existing "Heatmap volume" toggle (`speakerHeatmapVolumeEnabled`)
- * + `selectedSpeakerIndex`. Static (no live levels) — it shows where the speaker
- * is panned, not the live signal.
+ * Driven by "Heatmap volume" (`speakerHeatmapVolumeEnabled`) + `selectedSpeakerIndex`.
+ * Static (no live levels) — shows where the speaker is panned per band.
  */
+
+import * as THREE from 'three';
 
 import { app } from '../state.js';
 import { EnergyVolume } from './energy-volume-core.js';
-import { MIN_REBUILD_INTERVAL_MS, clampVolumeGamma, colormapIndex } from './object-energy-shared.js';
+import {
+  MIN_REBUILD_INTERVAL_MS,
+  clampVolumeGamma,
+  colormapIndex,
+  objectEnergyColor,
+} from './object-energy-shared.js';
 import { getSpeakerGainTable } from './speaker-gaintable.js';
 
 const volume = new EnergyVolume();
+
+// Audible-frequency span used to place each band on the colour gradient (log scale).
+const FMIN_HZ = 20;
+const FMAX_HZ = 20000;
+const LOG_FMIN = Math.log(FMIN_HZ);
+const LOG_SPAN = Math.log(FMAX_HZ) - LOG_FMIN;
 
 export function hideSpeakerSoloVolume() {
   volume.hide();
@@ -47,6 +62,16 @@ function nearestIndex(positions, n, value) {
   return best;
 }
 
+/** Position of a band on the [0,1] colour gradient from its log-frequency centre. */
+function bandLogT(band) {
+  const lo = Math.max(FMIN_HZ, Number(band.lowHz) || 0);
+  const hiRaw = band.highHz == null ? FMAX_HZ : Number(band.highHz);
+  const hi = Math.min(FMAX_HZ, Number.isFinite(hiRaw) && hiRaw > 0 ? hiRaw : FMAX_HZ);
+  const f = Math.sqrt(lo * Math.max(lo, hi));
+  const t = (Math.log(Math.max(FMIN_HZ, Math.min(FMAX_HZ, f))) - LOG_FMIN) / LOG_SPAN;
+  return Math.max(0, Math.min(1, t));
+}
+
 export function refreshSpeakerSoloVolume(nowMs) {
   const table = getSpeakerGainTable();
   const speaker = app.selectedSpeakerIndex;
@@ -67,18 +92,14 @@ export function refreshSpeakerSoloVolume(nowMs) {
   }
   app.lastSpeakerSoloVolumeAt = now;
 
-  const { nx, ny, nz, sc, gains, zPositions } = table;
+  const { nx, ny, nz, sc, bands, zPositions } = table;
+  const nbands = bands.length;
   const nxh = nx - 1;
   const nyh = ny - 1;
   const nzh = nz - 1;
 
-  // The gain table's height (z) axis is NON-uniform: `cartesian_z_axis` packs a
-  // few cells into the negative region and the rest into [0, 1], so z=0 lands at
-  // table index `z_neg_size`, not the middle. Mapping omni height linearly would
-  // drag the field toward the floor (z=0 rendered at the box bottom). Map it
-  // through the real cell-centre positions instead. x (width) and y (depth) are
-  // evenly spaced over [-1, 1], so they stay linear. oh is constant across the
-  // inner depth loop → memoise the last height→cell lookup.
+  // Height (z) axis is non-uniform → map omni height through the real cell-centre
+  // positions (see the cartesian_z_axis note); memoised across the inner depth loop.
   let cachedOh = NaN;
   let cachedZi = 0;
   const lookupZi = (oh) => {
@@ -89,21 +110,73 @@ export function refreshSpeakerSoloVolume(nowMs) {
       : clampIdx(Math.round(((oh + 1) * 0.5) * nzh), nz);
     return cachedZi;
   };
+  const cellBase = (ow, od, oh) => {
+    const xi = clampIdx(Math.round(((ow + 1) * 0.5) * nxh), nx);
+    const yi = clampIdx(Math.round(((od + 1) * 0.5) * nyh), ny);
+    const zi = lookupZi(oh);
+    return (xi + nx * (yi + ny * zi)) * sc + speaker;
+  };
 
-  volume.update({
+  const common = {
     resolution: app.objectEnergyHeatmapResolution,
     opacity: app.objectEnergyHeatmapOpacity,
     mix: app.objectEnergyVolumeMix,
     gammaAccumulate: clampVolumeGamma('accumulate', app.objectEnergyVolumeGammaAccumulate),
     gammaMip: clampVolumeGamma('mip', app.objectEnergyVolumeGammaMip),
-    colormap: colormapIndex(app.speakerHeatmapVolumeColormap),
     smooth: app.volumeSmoothInterpolation,
-    // Gain-table axes: x = width (ow), y = depth (od), z = height (oh).
+  };
+
+  if (app.speakerHeatmapAllBands && nbands > 1) {
+    // Precompute each band's gradient colour from its log-frequency position.
+    const scratch = new THREE.Color();
+    const colormap = app.speakerHeatmapVolumeColormap;
+    const bandRGB = bands.map((band) => {
+      objectEnergyColor(colormap, bandLogT(band), scratch);
+      return [scratch.r, scratch.g, scratch.b];
+    });
+    volume.update({
+      ...common,
+      sampleColor: (ow, od, oh, out) => {
+        const base = cellBase(ow, od, oh);
+        let sumW = 0;
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        for (let bi = 0; bi < nbands; bi += 1) {
+          const gg = bands[bi].gains[base];
+          const lvl = gg * gg;
+          if (lvl > 0) {
+            const c = bandRGB[bi];
+            sumW += lvl;
+            r += lvl * c[0];
+            g += lvl * c[1];
+            b += lvl * c[2];
+          }
+        }
+        if (sumW > 0) {
+          out[0] = r / sumW;
+          out[1] = g / sumW;
+          out[2] = b / sumW;
+          out[3] = sumW;
+        } else {
+          out[0] = 0;
+          out[1] = 0;
+          out[2] = 0;
+          out[3] = 0;
+        }
+      },
+    });
+    return;
+  }
+
+  // Single band.
+  const bandIndex = Math.max(0, Math.min(nbands - 1, Math.round(Number(app.speakerHeatmapBandIndex) || 0)));
+  const gains = bands[bandIndex].gains;
+  volume.update({
+    ...common,
+    colormap: colormapIndex(app.speakerHeatmapVolumeColormap),
     sampleEnergy: (ow, od, oh) => {
-      const xi = clampIdx(Math.round(((ow + 1) * 0.5) * nxh), nx);
-      const yi = clampIdx(Math.round(((od + 1) * 0.5) * nyh), ny);
-      const zi = lookupZi(oh);
-      const g = gains[(xi + nx * (yi + ny * zi)) * sc + speaker];
+      const g = gains[cellBase(ow, od, oh)];
       return g * g;
     },
   });

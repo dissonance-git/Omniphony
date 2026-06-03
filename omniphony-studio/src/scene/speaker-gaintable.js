@@ -18,7 +18,9 @@
 
 import { invoke } from '@tauri-apps/api/core';
 
-// { nx, ny, nz, sc, gains: Float32Array, xPositions, yPositions, zPositions }
+// { nx, ny, nz, sc, bands: [{ lowHz, highHz|null, gains: Float32Array }],
+//   xPositions, yPositions, zPositions }. One band per crossover band (a single
+// all-speaker band when the layout has no crossover).
 let table = null;
 // Version (hash) of the cached table, echoed to the renderer on (re)subscribe so
 // it only re-pushes when its current version differs. 0 = nothing cached yet.
@@ -71,7 +73,7 @@ export function setSpeakerGainTable(payload) {
   if (payload && Number.isFinite(Number(payload.version))) {
     version = Number(payload.version) | 0;
   }
-  if (!payload || payload.domain !== 'cartesian') {
+  if (!payload || payload.domain !== 'cartesian_bands') {
     table = null;
     return;
   }
@@ -79,17 +81,32 @@ export function setSpeakerGainTable(payload) {
   const ny = Number(payload.yCount) | 0;
   const nz = Number(payload.zCount) | 0;
   const sc = Number(payload.speakerCount) | 0;
-  const gains = Array.isArray(payload.gains) ? Float32Array.from(payload.gains) : null;
-  if (nx < 1 || ny < 1 || nz < 1 || sc < 1 || !gains || gains.length < nx * ny * nz * sc) {
+  const rawBands = Array.isArray(payload.bandGains) ? payload.bandGains : null;
+  const bandMeta = Array.isArray(payload.bands) ? payload.bands : [];
+  if (nx < 1 || ny < 1 || nz < 1 || sc < 1 || !rawBands || rawBands.length < 1) {
     table = null;
     return;
+  }
+  const cellSc = nx * ny * nz * sc;
+  const bands = [];
+  for (let b = 0; b < rawBands.length; b += 1) {
+    const g = Array.isArray(rawBands[b]) ? Float32Array.from(rawBands[b]) : null;
+    if (!g || g.length < cellSc) {
+      table = null;
+      return;
+    }
+    bands.push({
+      lowHz: Number(bandMeta[b]?.lowHz) || 0,
+      highHz: bandMeta[b]?.highHz == null ? null : Number(bandMeta[b].highHz),
+      gains: g,
+    });
   }
   table = {
     nx,
     ny,
     nz,
     sc,
-    gains,
+    bands,
     xPositions: Array.isArray(payload.xPositions) ? payload.xPositions : null,
     yPositions: Array.isArray(payload.yPositions) ? payload.yPositions : null,
     zPositions: Array.isArray(payload.zPositions) ? payload.zPositions : null,

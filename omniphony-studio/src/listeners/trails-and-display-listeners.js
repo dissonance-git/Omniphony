@@ -313,8 +313,15 @@ export function setupTrailsAndDisplayListeners() {
   if (speakerHeatmapBandSelectEl) {
     syncSpeakerHeatmapBandSelect();
     speakerHeatmapBandSelectEl.addEventListener('change', () => {
-      const nextBandIndex = Number(speakerHeatmapBandSelectEl.value);
-      app.speakerHeatmapBandIndex = Math.max(0, Math.round(Number.isFinite(nextBandIndex) ? nextBandIndex : 0));
+      const value = speakerHeatmapBandSelectEl.value;
+      if (value === 'all') {
+        app.speakerHeatmapAllBands = true; // heatmap composite; band index unchanged
+      } else {
+        app.speakerHeatmapAllBands = false;
+        const nextBandIndex = Number(value);
+        app.speakerHeatmapBandIndex = Math.max(0, Math.round(Number.isFinite(nextBandIndex) ? nextBandIndex : 0));
+      }
+      app.lastSpeakerSoloVolumeAt = 0; // rebuild the heatmap on the next tick
       syncSpeakerHeatmapBandSelect();
       refreshOverlayLists();
       refreshEffectiveRenderVisibility();

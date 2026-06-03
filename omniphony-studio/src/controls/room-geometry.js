@@ -107,6 +107,7 @@ export function persistEffectiveRenderPrefs() {
       speakerHeatmapVolumeEnabled: app.speakerHeatmapVolumeEnabled,
       speakerHeatmapVolumeColormap: app.speakerHeatmapVolumeColormap,
       speakerHeatmapBandIndex: app.speakerHeatmapBandIndex,
+      speakerHeatmapAllBands: app.speakerHeatmapAllBands,
       objectEnergyHeatmapEnabled: app.objectEnergyHeatmapEnabled,
       objectEnergyColormap: app.objectEnergyColormap,
       objectEnergyVolumeMix: app.objectEnergyVolumeMix,
@@ -207,7 +208,9 @@ export function applyEffectiveRenderPrefsToUi() {
   }
   syncSpeakerHeatmapBandSelect();
   if (speakerHeatmapBandSelectEl) {
-    speakerHeatmapBandSelectEl.value = String(app.speakerHeatmapBandIndex);
+    speakerHeatmapBandSelectEl.value = app.speakerHeatmapAllBands
+      ? 'all'
+      : String(app.speakerHeatmapBandIndex);
   }
   const objectEnergyHeatmapToggleEl = getObjectEnergyHeatmapToggleEl();
   const objectEnergyColormapEl = getObjectEnergyColormapEl();
@@ -336,6 +339,9 @@ export function loadEffectiveRenderPrefs() {
       const bandIndex = Number(parsed?.speakerHeatmapBandIndex);
       if (Number.isFinite(bandIndex)) {
         app.speakerHeatmapBandIndex = Math.max(0, Math.round(bandIndex));
+      }
+      if (typeof parsed?.speakerHeatmapAllBands === 'boolean') {
+        app.speakerHeatmapAllBands = parsed.speakerHeatmapAllBands;
       }
       if (typeof parsed?.objectEnergyHeatmapEnabled === 'boolean') {
         app.objectEnergyHeatmapEnabled = parsed.objectEnergyHeatmapEnabled;
