@@ -28,6 +28,17 @@ import { getSpeakerGainTable } from './speaker-gaintable.js';
 
 const volume = new EnergyVolume();
 
+// Signature of the last built field. The speaker field is static, so we skip the
+// whole rebuild while nothing that shapes it changes (see refreshSpeakerSoloVolume).
+let lastBuildSig = null;
+function sigEqual(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 // Audible-frequency span used to place each band on the colour gradient (log scale).
 const FMIN_HZ = 20;
 const FMAX_HZ = 20000;
@@ -80,19 +91,44 @@ export function refreshSpeakerSoloVolume(nowMs) {
     || !table
     || !Number.isInteger(speaker)
     || speaker < 0
-    || speaker >= table.sc
+    // The cached table is for one speaker; if the selection changed we wait for
+    // the re-fetch (refreshGaintableSubscription) rather than show another speaker.
+    || table.speakerIndex !== speaker
   ) {
     volume.hide();
+    lastBuildSig = null;
     return;
   }
+
+  // The speaker field is STATIC (a precomputed gain table, no live levels), so it
+  // only changes when its inputs do. Skip the rebuild otherwise — the built volume
+  // simply stays up. Without this the full n³ field (up to 64³ cells) + 3D-texture
+  // upload ran on every throttle tick (~14 Hz), stalling the UI for as long as the
+  // heatmap was visible (this is what made loading/switching feel like a freeze).
+  const ratio = app.roomRatio || {};
+  const sig = [
+    table, speaker,
+    app.speakerHeatmapAllBands ? 1 : 0,
+    Number(app.speakerHeatmapBandIndex) || 0,
+    app.speakerHeatmapVolumeColormap,
+    app.volumeSmoothInterpolation ? 1 : 0,
+    app.objectEnergyHeatmapResolution,
+    app.objectEnergyHeatmapOpacity,
+    app.objectEnergyVolumeMix,
+    app.objectEnergyVolumeGammaAccumulate,
+    app.objectEnergyVolumeGammaMip,
+    ratio.height, ratio.lower, ratio.width, ratio.rear, ratio.length,
+  ];
+  if (sigEqual(sig, lastBuildSig)) return;
 
   const now = Number.isFinite(nowMs) ? nowMs : performance.now();
   if (now - (app.lastSpeakerSoloVolumeAt || 0) < MIN_REBUILD_INTERVAL_MS) {
     return;
   }
   app.lastSpeakerSoloVolumeAt = now;
+  lastBuildSig = sig;
 
-  const { nx, ny, nz, sc, bands, zPositions } = table;
+  const { nx, ny, nz, bands, zPositions } = table;
   const nbands = bands.length;
   const nxh = nx - 1;
   const nyh = ny - 1;
@@ -110,11 +146,11 @@ export function refreshSpeakerSoloVolume(nowMs) {
       : clampIdx(Math.round(((oh + 1) * 0.5) * nzh), nz);
     return cachedZi;
   };
-  const cellBase = (ow, od, oh) => {
+  const cellIndex = (ow, od, oh) => {
     const xi = clampIdx(Math.round(((ow + 1) * 0.5) * nxh), nx);
     const yi = clampIdx(Math.round(((od + 1) * 0.5) * nyh), ny);
     const zi = lookupZi(oh);
-    return (xi + nx * (yi + ny * zi)) * sc + speaker;
+    return xi + nx * (yi + ny * zi);
   };
 
   const common = {
@@ -137,7 +173,7 @@ export function refreshSpeakerSoloVolume(nowMs) {
     volume.update({
       ...common,
       sampleColor: (ow, od, oh, out) => {
-        const base = cellBase(ow, od, oh);
+        const base = cellIndex(ow, od, oh);
         let sumW = 0;
         let r = 0;
         let g = 0;
@@ -176,7 +212,7 @@ export function refreshSpeakerSoloVolume(nowMs) {
     ...common,
     colormap: colormapIndex(app.speakerHeatmapVolumeColormap),
     sampleEnergy: (ow, od, oh) => {
-      const g = gains[cellBase(ow, od, oh)];
+      const g = gains[cellIndex(ow, od, oh)];
       return g * g;
     },
   });

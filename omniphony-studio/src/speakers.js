@@ -90,6 +90,7 @@ import {
 
 import { createLabelSprite, setLabelSpriteText, updateSpeakerLabelsFromSelection } from './scene/labels.js';
 import { syncSpeakerHeatmapBandSelect } from './scene/speaker-band-select.js';
+import { refreshGaintableSubscription } from './scene/speaker-gaintable.js';
 
 import {
   speakerGizmo,
@@ -203,7 +204,7 @@ function getObjectsSectionEl() { return document.getElementById('objectsSection'
 
 function get_selectedSourceId() { return app.selectedSourceId; }
 function get_selectedSpeakerIndex() { return app.selectedSpeakerIndex; }
-function set_selectedSpeakerIndex(v) { app.selectedSpeakerIndex = v; }
+function set_selectedSpeakerIndex(v) { app.selectedSpeakerIndex = v; refreshGaintableSubscription(); }
 function get_currentLayoutKey() { return app.currentLayoutKey; }
 function set_currentLayoutKey(v) { app.currentLayoutKey = v; }
 function get_currentLayoutSpeakers() { return app.currentLayoutSpeakers; }
@@ -1383,7 +1384,7 @@ export function setSelectedSpeaker(index) {
     app.polarEditArmed = false;
     app.cartesianEditArmed = false;
   }
-  app.selectedSpeakerIndex = index;
+  set_selectedSpeakerIndex(index);
   updateSourceSelectionStyles();
   updateSpeakerColorsFromSelection();
   updateSpeakerGizmo();

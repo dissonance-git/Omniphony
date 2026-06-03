@@ -1170,7 +1170,13 @@ fn gaintable_check_nack(now: Instant) -> Option<(u32, Vec<u32>)> {
     Some((g.version, missing))
 }
 
-fn send_gaintable_nack(socket: &UdpSocket, host: &str, rx_port: u16, version: u32, missing: &[u32]) {
+fn send_gaintable_nack(
+    socket: &UdpSocket,
+    host: &str,
+    rx_port: u16,
+    version: u32,
+    missing: &[u32],
+) {
     use rosc::{encoder, OscMessage};
     for group in missing.chunks(GAINTABLE_NACK_MAX_INDICES) {
         let mut args = Vec::with_capacity(group.len() + 1);
@@ -1185,7 +1191,6 @@ fn send_gaintable_nack(socket: &UdpSocket, host: &str, rx_port: u16, version: u3
         }
     }
 }
-
 
 fn gaintable_on_chunk(bytes: &[u8]) -> Option<serde_json::Value> {
     if bytes.len() < 8 {
@@ -1214,24 +1219,36 @@ fn gaintable_on_chunk(bytes: &[u8]) -> Option<serde_json::Value> {
     decode_evaluation_artifact(&artifact, version)
 }
 
-/// Read `count` little-endian f32 from `raw` at `*off`, advancing `*off`.
-fn read_f32_slice(raw: &[u8], off: &mut usize, count: usize) -> Option<Vec<f32>> {
-    let end = off.checked_add(count.checked_mul(4)?)?;
-    if end > raw.len() {
-        return None;
+/// Standard base64 encode (no line breaks). Used to hand the raw f32 payload to
+/// the UI as a compact string instead of a giant JSON array of numbers — the JS
+/// side rebuilds Float32Array views directly, avoiding per-number text parsing.
+fn base64_encode(data: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(ALPHABET[((n >> 18) & 63) as usize] as char);
+        out.push(ALPHABET[((n >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            ALPHABET[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            ALPHABET[(n & 63) as usize] as char
+        } else {
+            '='
+        });
     }
-    let mut v = Vec::with_capacity(count);
-    let mut b = *off;
-    for _ in 0..count {
-        v.push(f32::from_le_bytes(raw[b..b + 4].try_into().ok()?));
-        b += 4;
-    }
-    *off = end;
-    Some(v)
+    out
 }
 
-/// Decode the band-aware gain table ("OBGT"): per-crossover-band cartesian gains
-/// + band frequency edges. Emitted to the UI as `domain: "cartesian_bands"`.
+/// Decode the band-aware gain table ("OBGT") for one speaker. Inflates the payload
+/// and hands it to the UI as base64 (`dataB64`) + metadata — no float parsing here;
+/// the JS side slices Float32Array views (positions, then per-band gains).
 fn decode_band_gaintable(bytes: &[u8], version: u32) -> Option<serde_json::Value> {
     if bytes.len() < 16 || &bytes[0..4] != b"OBGT" {
         return None;
@@ -1256,18 +1273,12 @@ fn decode_band_gaintable(bytes: &[u8], version: u32) -> Option<serde_json::Value
     let nx = dim("x_count")?;
     let ny = dim("y_count")?;
     let nz = dim("z_count")?;
-    let sc = dim("speaker_count")?;
     let nb = dim("band_count")?;
-    let cell = nx.checked_mul(ny)?.checked_mul(nz)?;
-
-    let mut off = 0usize;
-    let xs = read_f32_slice(&raw, &mut off, nx)?;
-    let ys = read_f32_slice(&raw, &mut off, ny)?;
-    let zs = read_f32_slice(&raw, &mut off, nz)?;
-    let mut band_gains = Vec::with_capacity(nb);
-    for _ in 0..nb {
-        band_gains.push(read_f32_slice(&raw, &mut off, cell.checked_mul(sc)?)?);
-    }
+    let speaker = metadata
+        .get("speaker_index")
+        .and_then(|x| x.as_u64())
+        .map(|x| x as usize)
+        .unwrap_or(0);
 
     // Band frequency edges → {lowHz, highHz|null}.
     let bands: Vec<serde_json::Value> = metadata
@@ -1288,12 +1299,11 @@ fn decode_band_gaintable(bytes: &[u8], version: u32) -> Option<serde_json::Value
     Some(serde_json::json!({
         "version": version,
         "domain": "cartesian_bands",
-        "speakerCount": sc,
+        "speakerIndex": speaker,
         "xCount": nx, "yCount": ny, "zCount": nz,
         "bandCount": nb,
         "bands": bands,
-        "xPositions": xs, "yPositions": ys, "zPositions": zs,
-        "bandGains": band_gains,
+        "dataB64": base64_encode(&raw),
     }))
 }
 
@@ -1343,7 +1353,12 @@ fn decode_evaluation_artifact(bytes: &[u8], version: u32) -> Option<serde_json::
 
     match kind {
         "cartesian" => {
-            let (xc, yc, zc, sc) = (dim("x_count")?, dim("y_count")?, dim("z_count")?, dim("speaker_count")?);
+            let (xc, yc, zc, sc) = (
+                dim("x_count")?,
+                dim("y_count")?,
+                dim("z_count")?,
+                dim("speaker_count")?,
+            );
             let xs = read_f32(xc)?;
             let ys = read_f32(yc)?;
             let zs = read_f32(zc)?;
@@ -1355,7 +1370,12 @@ fn decode_evaluation_artifact(bytes: &[u8], version: u32) -> Option<serde_json::
             }))
         }
         "polar" => {
-            let (ac, ec, dc, sc) = (dim("azimuth_count")?, dim("elevation_count")?, dim("distance_count")?, dim("speaker_count")?);
+            let (ac, ec, dc, sc) = (
+                dim("azimuth_count")?,
+                dim("elevation_count")?,
+                dim("distance_count")?,
+                dim("speaker_count")?,
+            );
             let az = read_f32(ac)?;
             let el = read_f32(ec)?;
             let di = read_f32(dc)?;

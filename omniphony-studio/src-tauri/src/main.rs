@@ -995,17 +995,21 @@ fn control_render_evaluation_position_interpolation(state: State<SharedState>, e
     );
 }
 
-/// Subscribe to the precomputed gain table. `have_version` is the version already
-/// cached on this client (0 if none); the renderer pushes the full table only if
-/// it differs, then keeps pushing on every topology rebuild while subscribed. Sent
-/// once on first consumer + re-sent as a 5 s heartbeat (idempotent, self-healing).
+/// Subscribe to one speaker's per-band gain field. `have_version` is the version
+/// already cached on this client (0 if none); `speaker_index` is the speaker to
+/// display. The renderer pushes that speaker's field only if the version differs,
+/// then on every topology rebuild while subscribed. Sent on first consumer, on
+/// speaker change, and as a 5 s heartbeat (idempotent, self-healing).
 #[tauri::command]
-fn subscribe_speaker_gaintable(state: State<SharedState>, have_version: i32) {
+fn subscribe_speaker_gaintable(state: State<SharedState>, have_version: i32, speaker_index: i32) {
     send_control(
         &state.osc_tx,
-        OscControlMsg::SendInt {
+        OscControlMsg::SendArgs {
             address: "/omniphony/control/debug/speaker_gaintable/subscribe".to_string(),
-            value: have_version.max(0),
+            args: vec![
+                rosc::OscType::Int(have_version.max(0)),
+                rosc::OscType::Int(speaker_index.max(0)),
+            ],
         },
     );
 }

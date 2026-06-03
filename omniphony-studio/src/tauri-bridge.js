@@ -127,8 +127,8 @@ export function setupTauriBridge() {
   let lastGaintableUnavailable = null;
 
   listen('speaker_gaintable', ({ payload }) => {
-    pushLog('info', `gaintable: loaded ${payload?.domain} `
-      + `${payload?.xCount}x${payload?.yCount}x${payload?.zCount} spk=${payload?.speakerCount}`);
+    pushLog('info', `gaintable: loaded spk=${payload?.speakerIndex} `
+      + `${payload?.xCount}x${payload?.yCount}x${payload?.zCount} bands=${payload?.bandCount}`);
     setSpeakerGainTable(payload);
     lastGaintableUnavailable = null;
   });
