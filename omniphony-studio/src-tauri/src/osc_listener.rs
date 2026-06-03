@@ -1214,8 +1214,97 @@ fn gaintable_on_chunk(bytes: &[u8]) -> Option<serde_json::Value> {
     decode_evaluation_artifact(&artifact, version)
 }
 
+/// Read `count` little-endian f32 from `raw` at `*off`, advancing `*off`.
+fn read_f32_slice(raw: &[u8], off: &mut usize, count: usize) -> Option<Vec<f32>> {
+    let end = off.checked_add(count.checked_mul(4)?)?;
+    if end > raw.len() {
+        return None;
+    }
+    let mut v = Vec::with_capacity(count);
+    let mut b = *off;
+    for _ in 0..count {
+        v.push(f32::from_le_bytes(raw[b..b + 4].try_into().ok()?));
+        b += 4;
+    }
+    *off = end;
+    Some(v)
+}
+
+/// Decode the band-aware gain table ("OBGT"): per-crossover-band cartesian gains
+/// + band frequency edges. Emitted to the UI as `domain: "cartesian_bands"`.
+fn decode_band_gaintable(bytes: &[u8], version: u32) -> Option<serde_json::Value> {
+    if bytes.len() < 16 || &bytes[0..4] != b"OBGT" {
+        return None;
+    }
+    let meta_len = u32::from_le_bytes(bytes[8..12].try_into().ok()?) as usize;
+    let payload_len = u32::from_le_bytes(bytes[12..16].try_into().ok()?) as usize;
+    let meta_end = 16 + meta_len;
+    let payload_end = meta_end + payload_len;
+    if bytes.len() < payload_end {
+        return None;
+    }
+    let metadata: serde_json::Value = serde_json::from_slice(&bytes[16..meta_end]).ok()?;
+
+    let mut raw = Vec::new();
+    {
+        use std::io::Read as _;
+        let mut dec = flate2::read::ZlibDecoder::new(&bytes[meta_end..payload_end]);
+        dec.read_to_end(&mut raw).ok()?;
+    }
+
+    let dim = |k: &str| metadata.get(k).and_then(|x| x.as_u64()).map(|x| x as usize);
+    let nx = dim("x_count")?;
+    let ny = dim("y_count")?;
+    let nz = dim("z_count")?;
+    let sc = dim("speaker_count")?;
+    let nb = dim("band_count")?;
+    let cell = nx.checked_mul(ny)?.checked_mul(nz)?;
+
+    let mut off = 0usize;
+    let xs = read_f32_slice(&raw, &mut off, nx)?;
+    let ys = read_f32_slice(&raw, &mut off, ny)?;
+    let zs = read_f32_slice(&raw, &mut off, nz)?;
+    let mut band_gains = Vec::with_capacity(nb);
+    for _ in 0..nb {
+        band_gains.push(read_f32_slice(&raw, &mut off, cell.checked_mul(sc)?)?);
+    }
+
+    // Band frequency edges → {lowHz, highHz|null}.
+    let bands: Vec<serde_json::Value> = metadata
+        .get("bands")
+        .and_then(|b| b.as_array())
+        .map(|arr| {
+            arr.iter()
+                .map(|b| {
+                    serde_json::json!({
+                        "lowHz": b.get("low_hz").and_then(|x| x.as_f64()).unwrap_or(0.0),
+                        "highHz": b.get("high_hz").and_then(|x| x.as_f64()),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Some(serde_json::json!({
+        "version": version,
+        "domain": "cartesian_bands",
+        "speakerCount": sc,
+        "xCount": nx, "yCount": ny, "zCount": nz,
+        "bandCount": nb,
+        "bands": bands,
+        "xPositions": xs, "yPositions": ys, "zPositions": zs,
+        "bandGains": band_gains,
+    }))
+}
+
 fn decode_evaluation_artifact(bytes: &[u8], version: u32) -> Option<serde_json::Value> {
-    if bytes.len() < 16 || &bytes[0..4] != b"OEVL" {
+    if bytes.len() < 16 {
+        return None;
+    }
+    if &bytes[0..4] == b"OBGT" {
+        return decode_band_gaintable(bytes, version);
+    }
+    if &bytes[0..4] != b"OEVL" {
         return None;
     }
     let metadata_len = u32::from_le_bytes(bytes[8..12].try_into().ok()?) as usize;

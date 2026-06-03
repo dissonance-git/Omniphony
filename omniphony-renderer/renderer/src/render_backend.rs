@@ -722,7 +722,7 @@ struct AxisSample {
     fraction: f32,
 }
 
-fn evenly_spaced_axis(count: usize, min: f32, max: f32) -> Vec<f32> {
+pub(crate) fn evenly_spaced_axis(count: usize, min: f32, max: f32) -> Vec<f32> {
     if count <= 1 {
         return vec![min];
     }
@@ -730,7 +730,7 @@ fn evenly_spaced_axis(count: usize, min: f32, max: f32) -> Vec<f32> {
     (0..count).map(|index| min + step * index as f32).collect()
 }
 
-fn cartesian_z_axis(z_size: usize, z_neg_size: usize) -> Vec<f32> {
+pub(crate) fn cartesian_z_axis(z_size: usize, z_neg_size: usize) -> Vec<f32> {
     let mut values = Vec::with_capacity(z_neg_size + z_size);
     if z_neg_size > 0 {
         for index in 0..z_neg_size {
