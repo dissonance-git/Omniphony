@@ -8,6 +8,7 @@ import { refreshOverlayLists, updateSpeakerVisualsFromState } from '../speakers.
 import { subscribeSpeakerHeatmap, syncSpeakerHeatmapBandSelect } from '../scene/speaker-heatmap.js';
 import { refreshObjectEnergyVolume } from '../scene/object-energy-volume.js';
 import { clampVolumeGamma, colormapIndex } from '../scene/object-energy-shared.js';
+import { pushLog } from '../log.js';
 import {
   getMpvOverlayStatus,
   setMpvOverlayEnabled,
@@ -364,7 +365,8 @@ export function setupTrailsAndDisplayListeners() {
       if (app.speakerEnergyVolumeEnabled) {
         // Pull the (static) gain table; the renderer replies with chunks that the
         // Tauri backend reassembles into a `speaker_gaintable` event.
-        invoke('request_speaker_gaintable').catch(() => {});
+        invoke('request_speaker_gaintable')
+          .catch((e) => pushLog('error', `gaintable: request failed ${e}`));
       }
     });
   }

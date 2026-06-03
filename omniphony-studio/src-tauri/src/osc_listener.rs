@@ -830,6 +830,12 @@ fn osc_thread(
     socket
         .set_read_timeout(Some(Duration::from_millis(50)))
         .ok();
+    // The gain-table transfer arrives as a burst of many UDP datagrams (a large
+    // compressed table, P1/P2); enlarge the receive buffer so the kernel doesn't
+    // drop most of them before the loop drains. Capped by net.core.rmem_max.
+    if let Err(e) = socket2::SockRef::from(&socket).set_recv_buffer_size(4 * 1024 * 1024) {
+        log::warn!("[osc] could not enlarge recv buffer: {e}");
+    }
 
     let listen_port = socket.local_addr().map(|a| a.port()).unwrap_or(osc_port);
     *listen_port_out.lock().unwrap() = listen_port;
@@ -1110,27 +1116,30 @@ fn gaintable_on_meta(json: &str) {
     }
 }
 
+
 fn gaintable_on_chunk(bytes: &[u8]) -> Option<serde_json::Value> {
     if bytes.len() < 8 {
         return None;
     }
     let version = u32::from_le_bytes(bytes[0..4].try_into().ok()?);
     let index = u32::from_le_bytes(bytes[4..8].try_into().ok()?);
-    let mut g = GAINTABLE.lock().ok()?;
-    if g.chunk_count == 0 || version != g.version {
-        return None; // stale/foreign chunk (meta not seen, or newer table in flight)
-    }
-    g.chunks.insert(index, bytes[8..].to_vec());
-    if g.chunks.len() != g.chunk_count {
-        return None;
-    }
-    let mut artifact = Vec::new();
-    for c in g.chunks.values() {
-        artifact.extend_from_slice(c);
-    }
-    g.chunks.clear();
-    g.chunk_count = 0;
-    drop(g);
+    let artifact = {
+        let mut g = GAINTABLE.lock().ok()?;
+        if g.chunk_count == 0 || version != g.version {
+            return None; // stale/foreign chunk (meta not seen, or newer in flight)
+        }
+        g.chunks.insert(index, bytes[8..].to_vec());
+        if g.chunks.len() != g.chunk_count {
+            return None;
+        }
+        let mut artifact = Vec::new();
+        for c in g.chunks.values() {
+            artifact.extend_from_slice(c);
+        }
+        g.chunks.clear();
+        g.chunk_count = 0;
+        artifact
+    };
     decode_evaluation_artifact(&artifact, version)
 }
 
@@ -1718,7 +1727,7 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
             }
 
             OscEvent::StateDebugSpeakerGaintableChunk { bytes } => {
-                // Reassemble in Rust; only emit once the full table is decoded.
+                // Reassemble in Rust; only emit the decoded table once complete.
                 (
                     gaintable_on_chunk(&bytes).map(|v| ("speaker_gaintable", v)),
                     removed_ids,

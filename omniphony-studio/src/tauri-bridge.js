@@ -128,7 +128,13 @@ export function setupTauriBridge() {
   });
 
   listen('speaker_gaintable', ({ payload }) => {
+    pushLog('info', `gaintable: loaded ${payload?.domain} `
+      + `${payload?.xCount}x${payload?.yCount}x${payload?.zCount} spk=${payload?.speakerCount}`);
     setSpeakerGainTable(payload);
+  });
+
+  listen('speaker_gaintable:unavailable', ({ payload }) => {
+    pushLog('warn', `gaintable: unavailable ${JSON.stringify(payload)}`);
   });
 
   listen('source:gains', ({ payload }) => {
