@@ -5,17 +5,18 @@ import { rebuildTrailGeometry, createTrailRenderable } from '../trails.js';
 import { scene } from '../scene/setup.js';
 import { applySpeakerLevel, updateSourceDecorations, updateSourceSelectionStyles, applyObjectsVisibility } from '../sources.js';
 import { refreshOverlayLists, updateSpeakerVisualsFromState } from '../speakers.js';
-import { subscribeSpeakerHeatmap, syncSpeakerHeatmapBandSelect } from '../scene/speaker-heatmap.js';
-import { hasSpeakerGainTable } from '../scene/speaker-gaintable.js';
+import { syncSpeakerHeatmapBandSelect } from '../scene/speaker-band-select.js';
+import { acquireGainTable, releaseGainTable } from '../scene/speaker-gaintable.js';
 import { refreshObjectEnergyVolume } from '../scene/object-energy-volume.js';
 import { clampVolumeGamma, colormapIndex } from '../scene/object-energy-shared.js';
-import { pushLog } from '../log.js';
 import {
   getMpvOverlayStatus,
   setMpvOverlayEnabled,
   pushMpvOverlayTrailPrefs
 } from '../mpvOverlay.js';
 import { invoke } from '@tauri-apps/api/core';
+
+const GAINTABLE_CONSUMER_SOLO = 'speakerSoloVolume';
 
 export function setupTrailsAndDisplayListeners() {
   const trailToggleEl = document.getElementById('trailToggle');
@@ -37,12 +38,9 @@ export function setupTrailsAndDisplayListeners() {
   const trailTeleportSliderEl = document.getElementById('trailTeleportSlider');
   const trailTeleportValEl = document.getElementById('trailTeleportVal');
   const localeSelectEl = document.getElementById('localeSelect');
-  const speakerHeatmapSlicesToggleEl = document.getElementById('speakerHeatmapSlicesToggle');
   const speakerHeatmapVolumeToggleEl = document.getElementById('speakerHeatmapVolumeToggle');
+  const speakerHeatmapVolumeColormapEl = document.getElementById('speakerHeatmapVolumeColormap');
   const speakerHeatmapBandSelectEl = document.getElementById('speakerHeatmapBandSelect');
-  const speakerHeatmapSampleCountInputEl = document.getElementById('speakerHeatmapSampleCountInput');
-  const speakerHeatmapMaxSphereSizeSliderEl = document.getElementById('speakerHeatmapMaxSphereSizeSlider');
-  const speakerHeatmapMaxSphereSizeValEl = document.getElementById('speakerHeatmapMaxSphereSizeVal');
   const objectEnergyHeatmapToggleEl = document.getElementById('objectEnergyHeatmapToggle');
   const objectEnergyColormapEl = document.getElementById('objectEnergyColormap');
   const objectEnergyVolumeMixSliderEl = document.getElementById('objectEnergyVolumeMixSlider');
@@ -283,25 +281,30 @@ export function setupTrailsAndDisplayListeners() {
     });
   }
 
-  if (speakerHeatmapSlicesToggleEl) {
-    speakerHeatmapSlicesToggleEl.checked = app.speakerHeatmapSlicesEnabled;
-    speakerHeatmapSlicesToggleEl.addEventListener('change', () => {
-      app.speakerHeatmapSlicesEnabled = speakerHeatmapSlicesToggleEl.checked;
-      subscribeSpeakerHeatmap();
+  if (speakerHeatmapVolumeToggleEl) {
+    speakerHeatmapVolumeToggleEl.checked = app.speakerHeatmapVolumeEnabled;
+    // Honour a persisted-on state at startup: register as a gain-table consumer.
+    if (app.speakerHeatmapVolumeEnabled) acquireGainTable(GAINTABLE_CONSUMER_SOLO);
+    speakerHeatmapVolumeToggleEl.addEventListener('change', () => {
+      app.speakerHeatmapVolumeEnabled = speakerHeatmapVolumeToggleEl.checked;
+      app.lastSpeakerSoloVolumeAt = 0; // rebuild on the next tick
+      // The volume renders locally from the gain table: subscribe while shown,
+      // release (unsubscribe when last) when hidden.
+      if (app.speakerHeatmapVolumeEnabled) {
+        acquireGainTable(GAINTABLE_CONSUMER_SOLO);
+      } else {
+        releaseGainTable(GAINTABLE_CONSUMER_SOLO);
+      }
       persistEffectiveRenderPrefs();
     });
   }
 
-  if (speakerHeatmapVolumeToggleEl) {
-    speakerHeatmapVolumeToggleEl.checked = app.speakerHeatmapVolumeEnabled;
-    speakerHeatmapVolumeToggleEl.addEventListener('change', () => {
-      app.speakerHeatmapVolumeEnabled = speakerHeatmapVolumeToggleEl.checked;
+  // Speaker heatmap volume's own gradient (Studio 3D only — no mpv overlay).
+  if (speakerHeatmapVolumeColormapEl) {
+    speakerHeatmapVolumeColormapEl.value = app.speakerHeatmapVolumeColormap;
+    speakerHeatmapVolumeColormapEl.addEventListener('change', () => {
+      app.speakerHeatmapVolumeColormap = speakerHeatmapVolumeColormapEl.value;
       app.lastSpeakerSoloVolumeAt = 0; // rebuild on the next tick
-      // The volume now renders locally from the gain table; pull it if not loaded.
-      if (app.speakerHeatmapVolumeEnabled && !hasSpeakerGainTable()) {
-        invoke('request_speaker_gaintable').catch(() => {});
-      }
-      subscribeSpeakerHeatmap();
       persistEffectiveRenderPrefs();
     });
   }
@@ -314,34 +317,6 @@ export function setupTrailsAndDisplayListeners() {
       syncSpeakerHeatmapBandSelect();
       refreshOverlayLists();
       refreshEffectiveRenderVisibility();
-      subscribeSpeakerHeatmap();
-      persistEffectiveRenderPrefs();
-    });
-  }
-
-  if (speakerHeatmapSampleCountInputEl) {
-    speakerHeatmapSampleCountInputEl.value = String(app.speakerHeatmapSampleCount);
-    speakerHeatmapSampleCountInputEl.addEventListener('change', () => {
-      const nextCount = Number(speakerHeatmapSampleCountInputEl.value);
-      app.speakerHeatmapSampleCount = Math.max(128, Math.min(20000, Math.round(Number.isFinite(nextCount) ? nextCount : 3072)));
-      speakerHeatmapSampleCountInputEl.value = String(app.speakerHeatmapSampleCount);
-      subscribeSpeakerHeatmap();
-      persistEffectiveRenderPrefs();
-    });
-  }
-
-  if (speakerHeatmapMaxSphereSizeSliderEl) {
-    speakerHeatmapMaxSphereSizeSliderEl.value = String(app.speakerHeatmapMaxSphereSize);
-    if (speakerHeatmapMaxSphereSizeValEl) {
-      speakerHeatmapMaxSphereSizeValEl.textContent = app.speakerHeatmapMaxSphereSize.toFixed(3);
-    }
-    speakerHeatmapMaxSphereSizeSliderEl.addEventListener('input', () => {
-      const nextSize = Number(speakerHeatmapMaxSphereSizeSliderEl.value);
-      app.speakerHeatmapMaxSphereSize = Math.max(0.01, Math.min(0.2, Number.isFinite(nextSize) ? nextSize : 0.062));
-      if (speakerHeatmapMaxSphereSizeValEl) {
-        speakerHeatmapMaxSphereSizeValEl.textContent = app.speakerHeatmapMaxSphereSize.toFixed(3);
-      }
-      subscribeSpeakerHeatmap();
       persistEffectiveRenderPrefs();
     });
   }
@@ -353,6 +328,13 @@ export function setupTrailsAndDisplayListeners() {
     refreshObjectEnergyVolume(performance.now());
   };
 
+  // The mix/γ/resolution/opacity params are shared by both volumes: rebuild the
+  // object field now and let the per-speaker volume pick it up next frame.
+  const refreshSharedVolumesNow = () => {
+    app.lastSpeakerSoloVolumeAt = 0;
+    refreshObjectEnergyHeatmapNow();
+  };
+
   if (objectEnergyHeatmapToggleEl) {
     objectEnergyHeatmapToggleEl.checked = app.objectEnergyHeatmapEnabled;
     objectEnergyHeatmapToggleEl.addEventListener('change', () => {
@@ -362,22 +344,7 @@ export function setupTrailsAndDisplayListeners() {
     });
   }
 
-  const speakerEnergyVolumeToggleEl = document.getElementById('speakerEnergyVolumeToggle');
-  if (speakerEnergyVolumeToggleEl) {
-    speakerEnergyVolumeToggleEl.checked = app.speakerEnergyVolumeEnabled;
-    speakerEnergyVolumeToggleEl.addEventListener('change', () => {
-      app.speakerEnergyVolumeEnabled = speakerEnergyVolumeToggleEl.checked;
-      app.lastSpeakerEnergyVolumeAt = 0; // rebuild on the next tick
-      if (app.speakerEnergyVolumeEnabled && !hasSpeakerGainTable()) {
-        // Pull the (static) gain table; the renderer replies with chunks that the
-        // Tauri backend reassembles into a `speaker_gaintable` event.
-        invoke('request_speaker_gaintable')
-          .catch((e) => pushLog('error', `gaintable: request failed ${e}`));
-      }
-    });
-  }
-
-  // Colour gradient — applies to the Studio 3D volume and the mpv overlay.
+  // Object-field colour gradient — applies to the Studio 3D volume and the mpv overlay.
   if (objectEnergyColormapEl) {
     objectEnergyColormapEl.value = app.objectEnergyColormap;
     objectEnergyColormapEl.addEventListener('change', () => {
@@ -401,7 +368,7 @@ export function setupTrailsAndDisplayListeners() {
       if (objectEnergyVolumeMixValEl) {
         objectEnergyVolumeMixValEl.textContent = app.objectEnergyVolumeMix.toFixed(2);
       }
-      refreshObjectEnergyHeatmapNow();
+      refreshSharedVolumesNow();
       persistEffectiveRenderPrefs();
     });
   }
@@ -415,7 +382,7 @@ export function setupTrailsAndDisplayListeners() {
     sliderEl.addEventListener('input', () => {
       app[field] = clampVolumeGamma(projection, sliderEl.value);
       if (valEl) valEl.textContent = app[field].toFixed(digits);
-      refreshObjectEnergyHeatmapNow();
+      refreshSharedVolumesNow();
       persistEffectiveRenderPrefs();
     });
   };
@@ -435,7 +402,7 @@ export function setupTrailsAndDisplayListeners() {
       if (objectEnergyHeatmapResolutionValEl) {
         objectEnergyHeatmapResolutionValEl.textContent = String(app.objectEnergyHeatmapResolution);
       }
-      refreshObjectEnergyHeatmapNow();
+      refreshSharedVolumesNow();
       persistEffectiveRenderPrefs();
     });
   }
@@ -467,7 +434,7 @@ export function setupTrailsAndDisplayListeners() {
       if (objectEnergyHeatmapOpacityValEl) {
         objectEnergyHeatmapOpacityValEl.textContent = app.objectEnergyHeatmapOpacity.toFixed(2);
       }
-      refreshObjectEnergyHeatmapNow();
+      refreshSharedVolumesNow();
       persistEffectiveRenderPrefs();
     });
   }

@@ -57,7 +57,7 @@ import {
   renderVbapStatus
 } from './controls/vbap.js';
 import { invoke } from '@tauri-apps/api/core';
-import { setSpeakerGainTable, clearSpeakerGainTable } from './scene/speaker-gaintable.js';
+import { setSpeakerGainTable } from './scene/speaker-gaintable.js';
 import { updateAudioFormatDisplay } from './controls/audio.js';
 import { updateInputControlUI } from './controls/input.js';
 import { updateDrcMeterUI } from './controls/drc.js';
@@ -73,13 +73,7 @@ import {
 import { normalizeLogLevel, renderLogLevelControl, logState, pushLog } from './log.js';
 import { applyInitState } from './init.js';
 import { setInputSectionOpen } from './modals.js';
-import {
-  handleSpeakerHeatmapMeta,
-  handleSpeakerHeatmapSlice,
-  handleSpeakerHeatmapVolumeChunk,
-  handleSpeakerHeatmapUnavailable,
-  syncSpeakerHeatmapBandSelect,
-} from './scene/speaker-heatmap.js';
+import { syncSpeakerHeatmapBandSelect } from './scene/speaker-band-select.js';
 
 export function setupTauriBridge() {
   listen('state:snapshot_ready', ({ payload }) => {
@@ -128,26 +122,27 @@ export function setupTauriBridge() {
     updateSourceLevel(payload.id, payload.meter);
   });
 
+  // Deduped: the 5 s subscribe heartbeat re-triggers `unavailable` every tick
+  // while a volume is on in a non-cartesian mode — log only on transitions.
+  let lastGaintableUnavailable = null;
+
   listen('speaker_gaintable', ({ payload }) => {
     pushLog('info', `gaintable: loaded ${payload?.domain} `
       + `${payload?.xCount}x${payload?.yCount}x${payload?.zCount} spk=${payload?.speakerCount}`);
     setSpeakerGainTable(payload);
+    lastGaintableUnavailable = null;
   });
 
   listen('speaker_gaintable:unavailable', ({ payload }) => {
-    pushLog('warn', `gaintable: unavailable ${JSON.stringify(payload)}`);
-  });
-
-  // The renderer rebuilt its topology → the gain table changed. Re-fetch now if a
-  // speaker volume is on; otherwise drop the stale table so it's re-fetched on the
-  // next enable.
-  listen('speaker_gaintable:invalidated', () => {
-    if (app.speakerEnergyVolumeEnabled || app.speakerHeatmapVolumeEnabled) {
-      invoke('request_speaker_gaintable').catch(() => {});
-    } else {
-      clearSpeakerGainTable();
+    const reason = JSON.stringify(payload);
+    if (reason !== lastGaintableUnavailable) {
+      lastGaintableUnavailable = reason;
+      pushLog('warn', `gaintable: unavailable ${reason}`);
     }
   });
+  // `speaker_gaintable:uptodate` (subscribe ack when our version already matches)
+  // is intentionally not handled: it fires on every 5 s heartbeat and carries no
+  // action for the client.
 
   listen('source:gains', ({ payload }) => {
     updateSourceGains(payload.id, payload.gains);
@@ -369,10 +364,6 @@ export function setupTauriBridge() {
     renderVbapStatus();
   });
 
-  // Heatmap re-requests removed: the renderer pushes new tiles to the
-  // active subscription whenever the underlying state changes (and the
-  // payload actually differs from the last cached one). The studio just
-  // listens for incoming pushes — see `speaker_heatmap:*` handlers below.
   listen('render_evaluation:cartesian:x_size', ({ payload }) => {
     const value = Number(payload.value);
     app.vbapCartesianState.xSize = value > 0 ? value : null;
@@ -395,30 +386,6 @@ export function setupTauriBridge() {
     const value = Number(payload.value);
     app.vbapCartesianState.zNegSize = value >= 0 ? value : 0;
     updateVbapCartesian();
-  });
-
-  listen('speaker_heatmap:meta', ({ payload }) => {
-    handleSpeakerHeatmapMeta(payload);
-  });
-
-  listen('speaker_heatmap:slice_xy', ({ payload }) => {
-    handleSpeakerHeatmapSlice('xy', payload);
-  });
-
-  listen('speaker_heatmap:slice_xz', ({ payload }) => {
-    handleSpeakerHeatmapSlice('xz', payload);
-  });
-
-  listen('speaker_heatmap:slice_yz', ({ payload }) => {
-    handleSpeakerHeatmapSlice('yz', payload);
-  });
-
-  listen('speaker_heatmap:volume_chunk', ({ payload }) => {
-    handleSpeakerHeatmapVolumeChunk(payload);
-  });
-
-  listen('speaker_heatmap:unavailable', ({ payload }) => {
-    handleSpeakerHeatmapUnavailable(payload);
   });
 
   listen('render_evaluation:polar:azimuth_resolution', ({ payload }) => {

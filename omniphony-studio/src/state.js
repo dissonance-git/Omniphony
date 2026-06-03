@@ -366,11 +366,13 @@ export const app = {
   // trail points before the connecting segment is considered a teleport and
   // skipped. Same value drives the 3D view and the mpv overlay.
   trailTeleportThreshold: 0.5,
-  speakerHeatmapSlicesEnabled: true,
+  // Per-speaker local raymarched volume (gain²); drives speaker-solo-volume.js.
   speakerHeatmapVolumeEnabled: false,
+  // Own gradient for the speaker heatmap volume (differentiated from the object
+  // field). Colour gradient: 'heatmap' | 'blueWhite' | 'whiteRed' | 'red'.
+  speakerHeatmapVolumeColormap: 'blueWhite',
+  // Crossover band selected for effective-render / dominant-speaker readout.
   speakerHeatmapBandIndex: 0,
-  speakerHeatmapSampleCount: 3072,
-  speakerHeatmapMaxSphereSize: 0.062,
   // Object energy field (client-side theoretical field, ray-marched 3D volume).
   objectEnergyHeatmapEnabled: false,
   // Colour gradient: 'heatmap' | 'blueWhite' | 'whiteRed' | 'red'.
@@ -388,12 +390,9 @@ export const app = {
   // Drives the mpv overlay's depth-plane count (not the Studio 3D view).
   objectEnergyHeatmapBandCount: 12,
   lastObjectEnergyHeatmapAt: 0,
-  // Speaker energy field 3D volume (gain table × live levels). Reuses the object
-  // field's gradient/mix/γ/opacity/resolution settings; only the toggle is its own.
-  speakerEnergyVolumeEnabled: false,
-  lastSpeakerEnergyVolumeAt: 0,
-  // Per-speaker heatmap "volume" mode now renders the selected speaker's gain
-  // field from the local table (gain²) — see speaker-solo-volume.js.
+  // The mix/γ/resolution/opacity above are shared between the object field and the
+  // per-speaker heatmap volume (which renders the selected speaker's gain field
+  // from the local table as gain² — see speaker-solo-volume.js).
   lastSpeakerSoloVolumeAt: 0,
   speakerSize: 0.08,
   effectiveRenderEnabled: false,

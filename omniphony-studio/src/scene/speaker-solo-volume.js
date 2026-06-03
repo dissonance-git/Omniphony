@@ -3,8 +3,9 @@
  *
  * Replaces the old OSC-sampled per-speaker "volume" mode: reads the local gain
  * table (no per-display OSC request) and renders the selected speaker's coverage
- * as energy(cell) = gain(cell, speaker)². Same renderer/box/gradient as the object
- * and combined-speaker volumes; reuses their gradient/mix/γ/opacity/resolution.
+ * as energy(cell) = gain(cell, speaker)². Same renderer/box as the object volume
+ * and shares its mix/γ/opacity/resolution, but has its own gradient
+ * (`speakerHeatmapVolumeColormap`).
  *
  * Driven by the existing "Heatmap volume" toggle (`speakerHeatmapVolumeEnabled`)
  * + `selectedSpeakerIndex`. Static (no live levels) — it shows where the speaker
@@ -63,7 +64,7 @@ export function refreshSpeakerSoloVolume(nowMs) {
     mix: app.objectEnergyVolumeMix,
     gammaAccumulate: clampVolumeGamma('accumulate', app.objectEnergyVolumeGammaAccumulate),
     gammaMip: clampVolumeGamma('mip', app.objectEnergyVolumeGammaMip),
-    colormap: colormapIndex(app.objectEnergyColormap),
+    colormap: colormapIndex(app.speakerHeatmapVolumeColormap),
     // Gain-table axes: x = width (ow), y = depth (od), z = height (oh).
     sampleEnergy: (ow, od, oh) => {
       const xi = clampIdx(Math.round(((ow + 1) * 0.5) * nxh), nx);
