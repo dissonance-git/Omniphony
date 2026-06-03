@@ -2475,14 +2475,28 @@ fn mpv_overlay_set_heatmap_bands(state: State<SharedState>, count: i32) {
 
 /// Set the energy-heatmap colour gradient in the mpv overlay. The index mirrors
 /// Studio's `OBJECT_ENERGY_COLORMAPS` (0 heatmap, 1 blue→white, 2 white→red,
-/// 3 red). Travels as OSC control to the renderer.
+/// 3 red, 4 custom). Travels as OSC control to the renderer.
 #[tauri::command]
 fn mpv_overlay_set_heatmap_colormap(state: State<SharedState>, colormap: i32) {
     send_control(
         &state.osc_tx,
         OscControlMsg::SendInt {
             address: "/omniphony/control/overlay/heatmap_colormap".to_string(),
-            value: colormap.clamp(0, 3),
+            value: colormap.clamp(0, 4),
+        },
+    );
+}
+
+/// Push the custom-gradient stops (used by colormap index 4) to the mpv overlay.
+/// `stops` is a flat `[pos, r, g, b, …]` list in [0,1]; travels as OSC floats.
+#[tauri::command]
+fn mpv_overlay_set_heatmap_custom_stops(state: State<SharedState>, stops: Vec<f32>) {
+    let args = stops.into_iter().map(rosc::OscType::Float).collect();
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/overlay/heatmap_custom_stops".to_string(),
+            args,
         },
     );
 }
@@ -2697,6 +2711,7 @@ fn main() {
             mpv_overlay_set_labels,
             mpv_overlay_set_objects,
             mpv_overlay_set_heatmap_enabled,
+            mpv_overlay_set_heatmap_custom_stops,
             mpv_overlay_set_heatmap_bands,
             mpv_overlay_set_heatmap_colormap,
         ])

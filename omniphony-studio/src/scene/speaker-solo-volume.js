@@ -111,6 +111,7 @@ export function refreshSpeakerSoloVolume(nowMs) {
     app.speakerHeatmapAllBands ? 1 : 0,
     Number(app.speakerHeatmapBandIndex) || 0,
     app.speakerHeatmapVolumeColormap,
+    app.speakerCustomGradientVersion,
     app.volumeSmoothInterpolation ? 1 : 0,
     app.objectEnergyHeatmapResolution,
     app.objectEnergyHeatmapOpacity,
@@ -159,6 +160,7 @@ export function refreshSpeakerSoloVolume(nowMs) {
     mix: app.objectEnergyVolumeMix,
     gammaAccumulate: clampVolumeGamma('accumulate', app.objectEnergyVolumeGammaAccumulate),
     gammaMip: clampVolumeGamma('mip', app.objectEnergyVolumeGammaMip),
+    customStops: app.speakerCustomGradientStops,
     smooth: app.volumeSmoothInterpolation,
   };
 
@@ -167,7 +169,7 @@ export function refreshSpeakerSoloVolume(nowMs) {
     const scratch = new THREE.Color();
     const colormap = app.speakerHeatmapVolumeColormap;
     const bandRGB = bands.map((band) => {
-      objectEnergyColor(colormap, bandLogT(band), scratch);
+      objectEnergyColor(colormap, bandLogT(band), scratch, app.speakerCustomGradientStops);
       return [scratch.r, scratch.g, scratch.b];
     });
     volume.update({

@@ -13,8 +13,10 @@ import {
   getMpvOverlayStatus,
   setMpvOverlayEnabled,
   setMpvOverlayHeatmapEnabled,
+  setMpvOverlayHeatmapCustomStops,
   pushMpvOverlayTrailPrefs
 } from '../mpvOverlay.js';
+import { registerGradientEditor, setGradientEditorOnChange } from '../scene/gradient-editor.js';
 import { invoke } from '@tauri-apps/api/core';
 
 const GAINTABLE_CONSUMER_SOLO = 'speakerSoloVolume';
@@ -301,12 +303,21 @@ export function setupTrailsAndDisplayListeners() {
     });
   }
 
+  // Show the gradient editor under whichever selector is set to 'custom'.
+  const updateGradientEditorVisibility = () => {
+    const objEd = document.getElementById('objectGradientEditor');
+    const spkEd = document.getElementById('speakerGradientEditor');
+    if (objEd) objEd.style.display = app.objectEnergyColormap === 'custom' ? '' : 'none';
+    if (spkEd) spkEd.style.display = app.speakerHeatmapVolumeColormap === 'custom' ? '' : 'none';
+  };
+
   // Speaker heatmap volume's own gradient (Studio 3D only — no mpv overlay).
   if (speakerHeatmapVolumeColormapEl) {
     speakerHeatmapVolumeColormapEl.value = app.speakerHeatmapVolumeColormap;
     speakerHeatmapVolumeColormapEl.addEventListener('change', () => {
       app.speakerHeatmapVolumeColormap = speakerHeatmapVolumeColormapEl.value;
       app.lastSpeakerSoloVolumeAt = 0; // rebuild on the next tick
+      updateGradientEditorVisibility();
       persistEffectiveRenderPrefs();
     });
   }
@@ -371,9 +382,33 @@ export function setupTrailsAndDisplayListeners() {
       app.objectEnergyColormap = objectEnergyColormapEl.value;
       refreshObjectEnergyHeatmapNow();
       invoke('mpv_overlay_set_heatmap_colormap', { colormap: colormapIndex(app.objectEnergyColormap) }).catch(() => {});
+      if (app.objectEnergyColormap === 'custom') {
+        setMpvOverlayHeatmapCustomStops(app.objectCustomGradientStops);
+      }
+      updateGradientEditorVisibility();
       persistEffectiveRenderPrefs();
     });
   }
+
+  // Mount the two independent custom-gradient editors. An edit rebuilds only the
+  // matching volume; the object gradient also pushes to the mpv overlay (when the
+  // object field uses the custom map). Both persist.
+  setGradientEditorOnChange((target) => {
+    if (target === 'speaker') {
+      app.lastSpeakerSoloVolumeAt = 0; // rebuild on the next tick (sig already bumped)
+    } else {
+      refreshObjectEnergyHeatmapNow();
+      if (app.objectEnergyColormap === 'custom') {
+        setMpvOverlayHeatmapCustomStops(app.objectCustomGradientStops);
+      }
+    }
+    persistEffectiveRenderPrefs();
+  });
+  const objectGradientEditorEl = document.getElementById('objectGradientEditor');
+  const speakerGradientEditorEl = document.getElementById('speakerGradientEditor');
+  if (objectGradientEditorEl) registerGradientEditor(objectGradientEditorEl, 'object');
+  if (speakerGradientEditorEl) registerGradientEditor(speakerGradientEditorEl, 'speaker');
+  updateGradientEditorVisibility();
 
   // Mix slider: 0 = pure accumulate … 1 = pure peak. Both components render at
   // once and are blended in the shader.

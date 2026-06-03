@@ -54,6 +54,7 @@ export function refreshObjectEnergyVolume(nowMs) {
     gammaAccumulate: clampVolumeGamma('accumulate', app.objectEnergyVolumeGammaAccumulate),
     gammaMip: clampVolumeGamma('mip', app.objectEnergyVolumeGammaMip),
     colormap: colormapIndex(app.objectEnergyColormap),
+    customStops: app.objectCustomGradientStops,
     smooth: app.volumeSmoothInterpolation,
     sampleEnergy: (ow, od, oh) => {
       let energy = 0;

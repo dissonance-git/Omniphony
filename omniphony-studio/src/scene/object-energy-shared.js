@@ -37,11 +37,37 @@ export const HEATMAP_STOPS = [
 //   blueWhite — blue→white                 (value in colour + alpha)
 //   whiteRed  — white→red                   (value in colour + alpha)
 //   red       — constant red               (value carried by the alpha only)
-export const OBJECT_ENERGY_COLORMAPS = ['heatmap', 'blueWhite', 'whiteRed', 'red'];
+//   custom    — user-editable stops (per consumer); same index across the JS, the
+//               GLSL shader (uColormap == 4) and the mpv overlay.
+export const OBJECT_ENERGY_COLORMAPS = ['heatmap', 'blueWhite', 'whiteRed', 'red', 'custom'];
+
+// Max stops in the custom gradient. Matches the GLSL `uCustomStops[]` array size
+// and the editor's add-stop cap; keep all three in sync.
+export const MAX_CUSTOM_STOPS = 8;
 
 export function colormapIndex(colormap) {
   const i = OBJECT_ENERGY_COLORMAPS.indexOf(colormap);
   return i >= 0 ? i : 0;
+}
+
+// Interpolate a custom gradient (`stops`, assumed sorted by pos) at t∈[0,1].
+// Allocation-free linear scan over ≤8 stops (called per cell in the precoloured
+// path). Falls back to greyscale if there are no stops.
+function customStopsColor(stops, t, target) {
+  const n = Array.isArray(stops) ? stops.length : 0;
+  if (n === 0) return target.setRGB(t, t, t);
+  if (t <= stops[0].pos) return target.setRGB(stops[0].r, stops[0].g, stops[0].b);
+  const last = stops[n - 1];
+  if (t >= last.pos) return target.setRGB(last.r, last.g, last.b);
+  for (let i = 0; i + 1 < n; i += 1) {
+    const a = stops[i];
+    const b = stops[i + 1];
+    if (t <= b.pos) {
+      const f = b.pos > a.pos ? (t - a.pos) / (b.pos - a.pos) : 0;
+      return target.setRGB(a.r + (b.r - a.r) * f, a.g + (b.g - a.g) * f, a.b + (b.b - a.b) * f);
+    }
+  }
+  return target.setRGB(last.r, last.g, last.b);
 }
 
 function heatmapStopsColor(t, target) {
@@ -58,7 +84,7 @@ function heatmapStopsColor(t, target) {
 // Map a normalised value [0,1] to an RGB colour for the chosen colormap. The
 // alpha is handled by the caller (it always encodes the value); 'red' makes the
 // colour constant so only the alpha conveys energy.
-export function objectEnergyColor(colormap, value, target) {
+export function objectEnergyColor(colormap, value, target, customStops) {
   const t = Math.max(0, Math.min(1, Number(value) || 0));
   if (colormap === 'red') {
     return target.setRGB(1.0, 0.0, 0.0);
@@ -69,6 +95,9 @@ export function objectEnergyColor(colormap, value, target) {
   if (colormap === 'whiteRed') {
     return target.setRGB(1.0, 1.0 - t, 1.0 - t);
   }
+  if (colormap === 'custom') {
+    return customStopsColor(customStops, t, target);
+  }
   return heatmapStopsColor(t, target);
 }
 
@@ -76,8 +105,27 @@ export function objectEnergyColor(colormap, value, target) {
 // shader so the ramps match the planes mode exactly. Branches on the `uColormap`
 // uniform (declared by the fragment shader, before this snippet is injected).
 export const HEATMAP_GLSL = /* glsl */`
+// Custom gradient stops as (pos, r, g, b); count in uCustomStopCount. Declared by
+// the fragment shader (energy-volume-core.js) so they're shared with this snippet.
+vec3 customStopsColor(float t) {
+  int n = uCustomStopCount;
+  if (n <= 0) { return vec3(t); }
+  if (t <= uCustomStops[0].x) { return uCustomStops[0].yzw; }
+  for (int i = 0; i + 1 < ${MAX_CUSTOM_STOPS}; i++) {
+    if (i + 1 >= n) { break; }
+    vec4 a = uCustomStops[i];
+    vec4 b = uCustomStops[i + 1];
+    if (t <= b.x) {
+      float f = b.x > a.x ? (t - a.x) / (b.x - a.x) : 0.0;
+      return mix(a.yzw, b.yzw, f);
+    }
+  }
+  return uCustomStops[n - 1].yzw;
+}
+
 vec3 heatmapColor(float value) {
   float t = clamp(value, 0.0, 1.0);
+  if (uColormap == 4) { return customStopsColor(t); }       // custom stops
   if (uColormap == 3) { return vec3(1.0, 0.0, 0.0); }       // red: alpha-only
   if (uColormap == 2) { return vec3(1.0, 1.0 - t, 1.0 - t); } // white → red
   if (uColormap == 1) { return vec3(t, t, 1.0); }            // blue → white

@@ -14,7 +14,7 @@ import { roomDimensionGroup, roomBounds, roomGroup, room, roomEdges, roomFaces, 
 import { updateVbapCartesianFaceGrid } from '../scene/gizmos.js';
 import { redrawHybridDistanceShape } from '../scene/hybrid-distance.js';
 import { updateSourceDecorations } from '../sources.js';
-import { clampVolumeGamma, OBJECT_ENERGY_COLORMAPS } from '../scene/object-energy-shared.js';
+import { clampVolumeGamma, OBJECT_ENERGY_COLORMAPS, MAX_CUSTOM_STOPS } from '../scene/object-energy-shared.js';
 import { rebuildTrailGeometry } from '../trails.js';
 import { renderSpeakerEditor } from '../speakers.js';
 import { emitOverlayLayoutChanged } from '../ui/layout/overlay-layout-state.js';
@@ -117,7 +117,9 @@ export function persistEffectiveRenderPrefs() {
       objectEnergyHeatmapResolution: app.objectEnergyHeatmapResolution,
       objectEnergyHeatmapFalloffRadius: app.objectEnergyHeatmapFalloffRadius,
       objectEnergyHeatmapOpacity: app.objectEnergyHeatmapOpacity,
-      volumeSmoothInterpolation: app.volumeSmoothInterpolation
+      volumeSmoothInterpolation: app.volumeSmoothInterpolation,
+      objectCustomGradientStops: app.objectCustomGradientStops,
+      speakerCustomGradientStops: app.speakerCustomGradientStops
     }));
   } catch (_e) {
     // Ignore storage errors (private mode, quota, etc.).
@@ -378,11 +380,33 @@ export function loadEffectiveRenderPrefs() {
       if (typeof parsed?.volumeSmoothInterpolation === 'boolean') {
         app.volumeSmoothInterpolation = parsed.volumeSmoothInterpolation;
       }
+      const objStops = sanitizeGradientStops(parsed?.objectCustomGradientStops);
+      if (objStops) {
+        app.objectCustomGradientStops = objStops;
+      }
+      const spkStops = sanitizeGradientStops(parsed?.speakerCustomGradientStops);
+      if (spkStops) {
+        app.speakerCustomGradientStops = spkStops;
+      }
     }
   } catch (_e) {
     // Ignore malformed payloads.
   }
   applyEffectiveRenderPrefsToUi();
+}
+
+// Validate a persisted custom-gradient: 2..MAX_CUSTOM_STOPS stops with numeric
+// pos/r/g/b clamped to [0,1] and sorted; returns null if unusable (keep default).
+function sanitizeGradientStops(raw) {
+  if (!Array.isArray(raw) || raw.length < 2) return null;
+  const clamp01 = (v) => Math.max(0, Math.min(1, Number(v)));
+  const out = [];
+  for (const s of raw.slice(0, MAX_CUSTOM_STOPS)) {
+    if (!s || ![s.pos, s.r, s.g, s.b].every((v) => Number.isFinite(Number(v)))) return null;
+    out.push({ pos: clamp01(s.pos), r: clamp01(s.r), g: clamp01(s.g), b: clamp01(s.b) });
+  }
+  out.sort((a, b) => a.pos - b.pos);
+  return out;
 }
 
 export function refreshEffectiveRenderVisibility() {

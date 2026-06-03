@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import { app } from '../state.js';
 import { mapRoomDepth, inverseMapRoomDepth } from '../coordinates.js';
 import { scene, renderer } from './setup.js';
-import { HEATMAP_GLSL } from './object-energy-shared.js';
+import { HEATMAP_GLSL, MAX_CUSTOM_STOPS } from './object-energy-shared.js';
 
 // Trilinear (LinearFilter) sampling of a float 3D texture needs this WebGL2
 // extension; without it linear float sampling returns 0 (black). Checked lazily
@@ -65,6 +65,9 @@ uniform int uSteps;
 // 0 = scalar energy in .r, colour from the colormap (object/single-band field).
 // 1 = precoloured RGBA: .rgb is the final colour, .a is the level.
 uniform int uPrecolored;
+// Custom-gradient stops (pos, r, g, b) and their count, used when uColormap == 4.
+uniform vec4 uCustomStops[${MAX_CUSTOM_STOPS}];
+uniform int uCustomStopCount;
 out vec4 outColor;
 
 ${HEATMAP_GLSL}
@@ -147,6 +150,8 @@ export class EnergyVolume {
         uColormap: { value: 0 },
         uSteps: { value: 96 },
         uPrecolored: { value: 0 },
+        uCustomStops: { value: Array.from({ length: MAX_CUSTOM_STOPS }, () => new THREE.Vector4()) },
+        uCustomStopCount: { value: 0 },
       },
       transparent: true,
       premultipliedAlpha: true,
@@ -202,7 +207,7 @@ export class EnergyVolume {
    * returns the scalar energy at an Omniphony-normalised position (x=width,
    * y=depth, z=height), each in [-1, 1].
    */
-  update({ resolution, opacity, mix, gammaAccumulate, gammaMip, colormap, smooth, sampleEnergy, sampleColor }) {
+  update({ resolution, opacity, mix, gammaAccumulate, gammaMip, colormap, customStops, smooth, sampleEnergy, sampleColor }) {
     const n = Math.max(8, Math.min(64, Math.round(Number(resolution) || 24)));
     this.ensureTexture(n);
 
@@ -279,6 +284,17 @@ export class EnergyVolume {
 
     const u = this.material.uniforms;
     u.uPrecolored.value = precolored ? 1 : 0;
+    // Upload the custom gradient stops when the scalar path may select uColormap 4.
+    if (Array.isArray(customStops) && customStops.length > 0) {
+      const n = Math.min(customStops.length, MAX_CUSTOM_STOPS);
+      for (let i = 0; i < n; i += 1) {
+        const stop = customStops[i];
+        u.uCustomStops.value[i].set(Number(stop.pos) || 0, Number(stop.r) || 0, Number(stop.g) || 0, Number(stop.b) || 0);
+      }
+      u.uCustomStopCount.value = n;
+    } else {
+      u.uCustomStopCount.value = 0;
+    }
     u.uInvMax.value = maxEnergy > 0 ? 1 / maxEnergy : 0;
     u.uOpacity.value = Math.max(0.05, Math.min(1.0, Number(opacity) || 0.55));
     u.uGammaAccumulate.value = gammaAccumulate;

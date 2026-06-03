@@ -381,6 +381,22 @@ export const app = {
   objectEnergyHeatmapEnabled: false,
   // Colour gradient: 'heatmap' | 'blueWhite' | 'whiteRed' | 'red'.
   objectEnergyColormap: 'blueWhite',
+  // Independent user-editable gradients backing the 'custom' colormap — one for the
+  // object field, one for the speaker heatmap (they do NOT share settings). Stops
+  // are { pos, r, g, b } in [0,1], kept sorted by `pos` (2..8 stops).
+  // `speakerCustomGradientVersion` bumps on every speaker-gradient edit so the
+  // static speaker volume's rebuild guard re-runs (see speaker-solo-volume.js).
+  objectCustomGradientStops: [
+    { pos: 0.0, r: 0.0, g: 0.0, b: 1.0 },
+    { pos: 0.5, r: 0.0, g: 1.0, b: 0.0 },
+    { pos: 1.0, r: 1.0, g: 0.0, b: 0.0 },
+  ],
+  speakerCustomGradientStops: [
+    { pos: 0.0, r: 0.0, g: 0.0, b: 1.0 },
+    { pos: 0.5, r: 0.0, g: 1.0, b: 0.0 },
+    { pos: 1.0, r: 1.0, g: 0.0, b: 0.0 },
+  ],
+  speakerCustomGradientVersion: 0,
   // Both projections (accumulate front-to-back + peak/MIP) are computed together
   // and blended by `objectEnergyVolumeMix` (0 = pure accumulate, 1 = pure peak).
   // They have different alpha semantics (one sample vs the whole ray), so each
