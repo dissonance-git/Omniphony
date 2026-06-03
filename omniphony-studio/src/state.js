@@ -370,7 +370,7 @@ export const app = {
   speakerHeatmapVolumeEnabled: false,
   // Own gradient for the speaker heatmap volume (differentiated from the object
   // field). Colour gradient: 'heatmap' | 'blueWhite' | 'whiteRed' | 'red'.
-  speakerHeatmapVolumeColormap: 'blueWhite',
+  speakerHeatmapVolumeColormap: 'heatmap',
   // Crossover band selected for effective-render / dominant-speaker readout.
   speakerHeatmapBandIndex: 0,
   // Object energy field (client-side theoretical field, ray-marched 3D volume).
@@ -387,6 +387,10 @@ export const app = {
   objectEnergyHeatmapResolution: 64,
   objectEnergyHeatmapFalloffRadius: 0.5,
   objectEnergyHeatmapOpacity: 1,
+  // Volume sampling: false = crisp cells (NearestFilter), true = trilinear
+  // gradient between each cell's 8 corner texels (LinearFilter). Shared by both
+  // volumes. Needs the OES_texture_float_linear WebGL2 extension.
+  volumeSmoothInterpolation: false,
   // Drives the mpv overlay's depth-plane count (not the Studio 3D view).
   objectEnergyHeatmapBandCount: 12,
   lastObjectEnergyHeatmapAt: 0,

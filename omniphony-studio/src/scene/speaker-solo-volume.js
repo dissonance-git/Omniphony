@@ -97,6 +97,7 @@ export function refreshSpeakerSoloVolume(nowMs) {
     gammaAccumulate: clampVolumeGamma('accumulate', app.objectEnergyVolumeGammaAccumulate),
     gammaMip: clampVolumeGamma('mip', app.objectEnergyVolumeGammaMip),
     colormap: colormapIndex(app.speakerHeatmapVolumeColormap),
+    smooth: app.volumeSmoothInterpolation,
     // Gain-table axes: x = width (ow), y = depth (od), z = height (oh).
     sampleEnergy: (ow, od, oh) => {
       const xi = clampIdx(Math.round(((ow + 1) * 0.5) * nxh), nx);

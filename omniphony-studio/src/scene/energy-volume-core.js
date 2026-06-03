@@ -14,8 +14,19 @@ import * as THREE from 'three';
 
 import { app } from '../state.js';
 import { mapRoomDepth, inverseMapRoomDepth } from '../coordinates.js';
-import { scene } from './setup.js';
+import { scene, renderer } from './setup.js';
 import { HEATMAP_GLSL } from './object-energy-shared.js';
+
+// Trilinear (LinearFilter) sampling of a float 3D texture needs this WebGL2
+// extension; without it linear float sampling returns 0 (black). Checked lazily
+// so the "smooth" toggle silently falls back to crisp cells where unsupported.
+let floatLinearSupport = null;
+function supportsFloatLinear() {
+  if (floatLinearSupport === null) {
+    floatLinearSupport = !!(renderer?.extensions?.get('OES_texture_float_linear'));
+  }
+  return floatLinearSupport;
+}
 
 // Reference sample count the opacity is normalised against, so the perceived
 // density is independent of the field resolution.
@@ -183,9 +194,18 @@ export class EnergyVolume {
    * returns the scalar energy at an Omniphony-normalised position (x=width,
    * y=depth, z=height), each in [-1, 1].
    */
-  update({ resolution, opacity, mix, gammaAccumulate, gammaMip, colormap, sampleEnergy }) {
+  update({ resolution, opacity, mix, gammaAccumulate, gammaMip, colormap, smooth, sampleEnergy }) {
     const n = Math.max(8, Math.min(64, Math.round(Number(resolution) || 24)));
     this.ensureTexture(n);
+
+    // Crisp cells (NearestFilter) vs trilinear gradient between the 8 corner
+    // texels of each cell (LinearFilter), where the float-linear extension allows.
+    const filter = smooth && supportsFloatLinear() ? THREE.LinearFilter : THREE.NearestFilter;
+    if (this.texture.minFilter !== filter) {
+      this.texture.minFilter = filter;
+      this.texture.magFilter = filter;
+      this.texture.needsUpdate = true;
+    }
 
     // Scene-space bounding box of the (depth-warped) room. Only X (depth) is
     // non-linear; Y (height) and Z (width) are plain ratio scalings.

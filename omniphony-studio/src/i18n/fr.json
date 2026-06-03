@@ -233,6 +233,7 @@
   "heatmap.speakers": "Enceintes",
   "heatmap.objects": "Objets",
   "heatmap.common": "Paramètres communs",
+  "heatmap.smooth": "Dégradé lissé",
   "heatmap.objectEnergy": "Champ d'énergie des objets",
   "heatmap.objectEnergy.colormap": "Dégradé",
   "heatmap.objectEnergy.colormapHeatmap": "Heatmap",

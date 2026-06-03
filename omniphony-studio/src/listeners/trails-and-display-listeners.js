@@ -55,6 +55,7 @@ export function setupTrailsAndDisplayListeners() {
   const objectEnergyHeatmapRadiusValEl = document.getElementById('objectEnergyHeatmapRadiusVal');
   const objectEnergyHeatmapOpacitySliderEl = document.getElementById('objectEnergyHeatmapOpacitySlider');
   const objectEnergyHeatmapOpacityValEl = document.getElementById('objectEnergyHeatmapOpacityVal');
+  const volumeSmoothToggleEl = document.getElementById('volumeSmoothToggle');
   const mpvOverlayToggleEl = document.getElementById('mpvOverlayToggle');
 
   if (mpvOverlayToggleEl) {
@@ -334,6 +335,16 @@ export function setupTrailsAndDisplayListeners() {
     app.lastSpeakerSoloVolumeAt = 0;
     refreshObjectEnergyHeatmapNow();
   };
+
+  // Crisp cells vs trilinear gradient between each cell's 8 corner texels.
+  if (volumeSmoothToggleEl) {
+    volumeSmoothToggleEl.checked = app.volumeSmoothInterpolation;
+    volumeSmoothToggleEl.addEventListener('change', () => {
+      app.volumeSmoothInterpolation = volumeSmoothToggleEl.checked;
+      refreshSharedVolumesNow();
+      persistEffectiveRenderPrefs();
+    });
+  }
 
   if (objectEnergyHeatmapToggleEl) {
     objectEnergyHeatmapToggleEl.checked = app.objectEnergyHeatmapEnabled;

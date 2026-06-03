@@ -72,6 +72,7 @@ function getObjectEnergyHeatmapRadiusSliderEl() { return inDisplayPanel('objectE
 function getObjectEnergyHeatmapRadiusValEl() { return inDisplayPanel('objectEnergyHeatmapRadiusVal'); }
 function getObjectEnergyHeatmapOpacitySliderEl() { return inDisplayPanel('objectEnergyHeatmapOpacitySlider'); }
 function getObjectEnergyHeatmapOpacityValEl() { return inDisplayPanel('objectEnergyHeatmapOpacityVal'); }
+function getVolumeSmoothToggleEl() { return inDisplayPanel('volumeSmoothToggle'); }
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -114,7 +115,8 @@ export function persistEffectiveRenderPrefs() {
       objectEnergyHeatmapBandCount: app.objectEnergyHeatmapBandCount,
       objectEnergyHeatmapResolution: app.objectEnergyHeatmapResolution,
       objectEnergyHeatmapFalloffRadius: app.objectEnergyHeatmapFalloffRadius,
-      objectEnergyHeatmapOpacity: app.objectEnergyHeatmapOpacity
+      objectEnergyHeatmapOpacity: app.objectEnergyHeatmapOpacity,
+      volumeSmoothInterpolation: app.volumeSmoothInterpolation
     }));
   } catch (_e) {
     // Ignore storage errors (private mode, quota, etc.).
@@ -263,6 +265,10 @@ export function applyEffectiveRenderPrefsToUi() {
   if (objectEnergyHeatmapOpacityValEl) {
     objectEnergyHeatmapOpacityValEl.textContent = app.objectEnergyHeatmapOpacity.toFixed(2);
   }
+  const volumeSmoothToggleEl = getVolumeSmoothToggleEl();
+  if (volumeSmoothToggleEl) {
+    volumeSmoothToggleEl.checked = app.volumeSmoothInterpolation;
+  }
 }
 
 export function loadTrailPrefs() {
@@ -362,6 +368,9 @@ export function loadEffectiveRenderPrefs() {
       const objectEnergyOpacity = Number(parsed?.objectEnergyHeatmapOpacity);
       if (Number.isFinite(objectEnergyOpacity)) {
         app.objectEnergyHeatmapOpacity = Math.max(0.05, Math.min(1.0, objectEnergyOpacity));
+      }
+      if (typeof parsed?.volumeSmoothInterpolation === 'boolean') {
+        app.volumeSmoothInterpolation = parsed.volumeSmoothInterpolation;
       }
     }
   } catch (_e) {

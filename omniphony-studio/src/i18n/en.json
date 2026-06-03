@@ -233,6 +233,7 @@
   "heatmap.speakers": "Speakers",
   "heatmap.objects": "Objects",
   "heatmap.common": "Common parameters",
+  "heatmap.smooth": "Smooth gradient",
   "heatmap.objectEnergy": "Objects energy field",
   "heatmap.objectEnergy.colormap": "Gradient",
   "heatmap.objectEnergy.colormapHeatmap": "Heatmap",
