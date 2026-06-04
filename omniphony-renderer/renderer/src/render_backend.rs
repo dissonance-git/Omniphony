@@ -891,9 +891,8 @@ fn write_flat_sample(
     gains: &mut Gains,
 ) {
     let offset = flat_sample_offset(speaker_count, x_len, y_len, x_index, y_index, z_index);
-    for speaker in 0..speaker_count {
-        gains.set(speaker, table[offset + speaker]);
-    }
+    // Slice both sides up front so the copy is bounds-check-free and vectorizable.
+    gains[..speaker_count].copy_from_slice(&table[offset..offset + speaker_count]);
 }
 
 fn accumulate_flat_sample(
@@ -908,8 +907,11 @@ fn accumulate_flat_sample(
     gains: &mut Gains,
 ) {
     let offset = flat_sample_offset(speaker_count, x_len, y_len, x_index, y_index, z_index);
-    for speaker in 0..speaker_count {
-        gains[speaker] += table[offset + speaker] * weight;
+    // Slice both sides so the weighted accumulation is bounds-check-free and the
+    // compiler can vectorize the multiply-add over speakers.
+    let row = &table[offset..offset + speaker_count];
+    for (g, &t) in gains[..speaker_count].iter_mut().zip(row) {
+        *g += t * weight;
     }
 }
 
@@ -951,6 +953,25 @@ fn sample_axis(values: &[f32], position: f32, interpolate: bool) -> AxisSample {
             upper: 0,
             fraction: 0.0,
         };
+    }
+    // Fast path: assume an evenly-spaced axis (true for the cartesian x/y axes
+    // and the polar elevation/distance axes) and jump straight to the bracket in
+    // O(1). Verify the guess against its neighbours so a non-uniform axis (e.g.
+    // the two-region cartesian z) correctly falls through to the binary search.
+    // The fraction is computed from the stored grid values either way, so the
+    // result is bit-identical to the search path.
+    let last = values.len() - 1;
+    let step = (values[last] - values[0]) / last as f32;
+    if step > 0.0 {
+        let guess = (((position - values[0]) / step) as usize).min(last - 1);
+        if position >= values[guess] && position <= values[guess + 1] {
+            let span = (values[guess + 1] - values[guess]).max(1e-6);
+            return AxisSample {
+                lower: guess,
+                upper: guess + 1,
+                fraction: ((position - values[guess]) / span).clamp(0.0, 1.0),
+            };
+        }
     }
     let upper = values.partition_point(|value| *value < position);
     if upper >= values.len() {

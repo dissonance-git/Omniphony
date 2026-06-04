@@ -36,7 +36,26 @@ const BLOCK_SAMPLES: usize = 40;
 const SAMPLE_RATE: u32 = 48_000;
 
 /// Build a renderer with defaults matching the live decode path for `preset`.
-fn make_renderer(preset: &str, position_interpolation: bool) -> SpatialRenderer {
+/// `cartesian` selects the precomputed cartesian table/evaluator (vs polar).
+fn make_renderer(preset: &str, position_interpolation: bool, cartesian: bool) -> SpatialRenderer {
+    let (table_mode, preferred, initial) = if cartesian {
+        (
+            VbapTableMode::Cartesian {
+                x_size: 31,
+                y_size: 31,
+                z_size: 15,
+                z_neg_size: 15,
+            },
+            PreferredEvaluationMode::PrecomputedCartesian,
+            LiveEvaluationMode::PrecomputedCartesian,
+        )
+    } else {
+        (
+            VbapTableMode::Polar,
+            PreferredEvaluationMode::PrecomputedPolar,
+            LiveEvaluationMode::PrecomputedPolar,
+        )
+    };
     SpatialRenderer::new(
         SpeakerLayout::preset(preset).expect("known preset"),
         SAMPLE_RATE,
@@ -44,7 +63,7 @@ fn make_renderer(preset: &str, position_interpolation: bool) -> SpatialRenderer 
         1, // el_res_deg
         0.0,
         2.0,
-        VbapTableMode::Polar,
+        table_mode,
         false, // allow_negative_z
         position_interpolation,
         DistanceModel::Linear,
@@ -64,8 +83,8 @@ fn make_renderer(preset: &str, position_interpolation: bool) -> SpatialRenderer 
         false, // distance_diffuse
         1.0,
         1.0,
-        PreferredEvaluationMode::PrecomputedPolar,
-        LiveEvaluationMode::PrecomputedPolar,
+        preferred,
+        initial,
         31,
         31,
         15,
@@ -129,8 +148,9 @@ fn prepared(
     n_objects: usize,
     ramp_mode: RampMode,
     position_interpolation: bool,
+    cartesian: bool,
 ) -> (SpatialRenderer, Vec<f32>) {
-    let mut r = make_renderer(preset, position_interpolation);
+    let mut r = make_renderer(preset, position_interpolation, cartesian);
     {
         let ctrl = r.renderer_control();
         ctrl.set_requested_ramp_mode(ramp_mode);
@@ -154,7 +174,7 @@ fn prepared(
 fn bench_steady(c: &mut Criterion) {
     let mut group = c.benchmark_group("render_steady");
     for &n in &[1usize, 8, 16, 32, 64, 118] {
-        let (mut r, pcm) = prepared("7.1.4", n, RampMode::Frame, false);
+        let (mut r, pcm) = prepared("7.1.4", n, RampMode::Frame, false, false);
         let mut buf = Vec::new();
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
             b.iter(|| {
@@ -178,7 +198,7 @@ fn bench_steady(c: &mut Criterion) {
 fn bench_metadata_frame(c: &mut Criterion) {
     let mut group = c.benchmark_group("render_metadata_frame");
     for &n in &[1usize, 8, 16, 32, 64, 118] {
-        let (mut r, pcm) = prepared("7.1.4", n, RampMode::Frame, false);
+        let (mut r, pcm) = prepared("7.1.4", n, RampMode::Frame, false, false);
         let mut buf = Vec::new();
         let mut round = 1u64;
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
@@ -215,7 +235,7 @@ fn bench_ramp_mode(c: &mut Criterion) {
         ("sample", RampMode::Sample),
         ("interp", RampMode::Interp),
     ] {
-        let (mut r, pcm) = prepared("7.1.4", N, mode, false);
+        let (mut r, pcm) = prepared("7.1.4", N, mode, false, false);
         let mut buf = Vec::new();
         let mut round = 1u64;
         group.bench_function(label, |b| {
@@ -252,7 +272,7 @@ fn bench_static(c: &mut Criterion) {
         ("sample", RampMode::Sample),
         ("interp", RampMode::Interp),
     ] {
-        let (mut r, pcm) = prepared("7.1.4", N, mode, false);
+        let (mut r, pcm) = prepared("7.1.4", N, mode, false, false);
         let mut buf = Vec::new();
         group.bench_function(label, |b| {
             b.iter(|| {
@@ -287,7 +307,42 @@ fn bench_moving(c: &mut Criterion) {
         ("sample", RampMode::Sample),
         ("interp", RampMode::Interp),
     ] {
-        let (mut r, pcm) = prepared("7.1.4", N, mode, true);
+        let (mut r, pcm) = prepared("7.1.4", N, mode, true, false);
+        let mut buf = Vec::new();
+        let mut round = 1u64;
+        group.bench_function(label, |b| {
+            b.iter(|| {
+                let events = move_events(N, round);
+                round = round.wrapping_add(1);
+                let f = r
+                    .render_frame(
+                        black_box(&pcm),
+                        black_box(N),
+                        &events,
+                        std::mem::take(&mut buf),
+                        false,
+                    )
+                    .expect("render");
+                buf = f.samples;
+                black_box(&buf);
+            });
+        });
+    }
+    group.finish();
+}
+
+/// Same moving scenario as `render_moving` but with the precomputed CARTESIAN
+/// table/evaluator (trilinear `sample_cartesian_table`) instead of polar, to
+/// measure and optimise the cartesian `compute_gains` lookup specifically.
+fn bench_cartesian(c: &mut Criterion) {
+    let mut group = c.benchmark_group("render_cartesian");
+    const N: usize = 32;
+    for (label, mode) in [
+        ("frame", RampMode::Frame),
+        ("sample", RampMode::Sample),
+        ("interp", RampMode::Interp),
+    ] {
+        let (mut r, pcm) = prepared("7.1.4", N, mode, true, true);
         let mut buf = Vec::new();
         let mut round = 1u64;
         group.bench_function(label, |b| {
@@ -317,6 +372,7 @@ criterion_group!(
     bench_metadata_frame,
     bench_ramp_mode,
     bench_static,
-    bench_moving
+    bench_moving,
+    bench_cartesian
 );
 criterion_main!(benches);
