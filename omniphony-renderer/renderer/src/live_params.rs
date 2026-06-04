@@ -77,6 +77,11 @@ pub enum RampMode {
     Off,
     Frame,
     Sample,
+    /// One VBAP evaluation per object per frame (the destination gains), then a
+    /// per-sample linear interpolation of the gains from the previous block's
+    /// end to this block's end. Cheaper than `Sample` (no per-sample VBAP) while
+    /// keeping per-sample smoothness.
+    Interp,
 }
 
 impl RampMode {
@@ -85,6 +90,7 @@ impl RampMode {
             Self::Off => "off",
             Self::Frame => "frame",
             Self::Sample => "sample",
+            Self::Interp => "interp",
         }
     }
 
@@ -93,6 +99,7 @@ impl RampMode {
             "off" => Some(Self::Off),
             "frame" | "per_frame" => Some(Self::Frame),
             "sample" | "per_sample" => Some(Self::Sample),
+            "interp" | "sample_interp" => Some(Self::Interp),
             _ => None,
         }
     }

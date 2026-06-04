@@ -124,8 +124,13 @@ fn move_events(n_objects: usize, seed_round: u64) -> Vec<SpatialChannelEvent> {
 /// `ramp_mode` is forced explicitly (the constructor seeds `Sample`): the live
 /// mpv default is now `Frame`, so the primary sweeps use `Frame` and a dedicated
 /// group contrasts it against `Sample`.
-fn prepared(preset: &str, n_objects: usize, ramp_mode: RampMode) -> (SpatialRenderer, Vec<f32>) {
-    let mut r = make_renderer(preset, false);
+fn prepared(
+    preset: &str,
+    n_objects: usize,
+    ramp_mode: RampMode,
+    position_interpolation: bool,
+) -> (SpatialRenderer, Vec<f32>) {
+    let mut r = make_renderer(preset, position_interpolation);
     {
         let ctrl = r.renderer_control();
         ctrl.set_requested_ramp_mode(ramp_mode);
@@ -149,7 +154,7 @@ fn prepared(preset: &str, n_objects: usize, ramp_mode: RampMode) -> (SpatialRend
 fn bench_steady(c: &mut Criterion) {
     let mut group = c.benchmark_group("render_steady");
     for &n in &[1usize, 8, 16, 32, 64, 118] {
-        let (mut r, pcm) = prepared("7.1.4", n, RampMode::Frame);
+        let (mut r, pcm) = prepared("7.1.4", n, RampMode::Frame, false);
         let mut buf = Vec::new();
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
             b.iter(|| {
@@ -173,7 +178,7 @@ fn bench_steady(c: &mut Criterion) {
 fn bench_metadata_frame(c: &mut Criterion) {
     let mut group = c.benchmark_group("render_metadata_frame");
     for &n in &[1usize, 8, 16, 32, 64, 118] {
-        let (mut r, pcm) = prepared("7.1.4", n, RampMode::Frame);
+        let (mut r, pcm) = prepared("7.1.4", n, RampMode::Frame, false);
         let mut buf = Vec::new();
         let mut round = 1u64;
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
@@ -205,8 +210,12 @@ fn bench_metadata_frame(c: &mut Criterion) {
 fn bench_ramp_mode(c: &mut Criterion) {
     let mut group = c.benchmark_group("render_ramp_mode");
     const N: usize = 32;
-    for (label, mode) in [("frame", RampMode::Frame), ("sample", RampMode::Sample)] {
-        let (mut r, pcm) = prepared("7.1.4", N, mode);
+    for (label, mode) in [
+        ("frame", RampMode::Frame),
+        ("sample", RampMode::Sample),
+        ("interp", RampMode::Interp),
+    ] {
+        let (mut r, pcm) = prepared("7.1.4", N, mode, false);
         let mut buf = Vec::new();
         let mut round = 1u64;
         group.bench_function(label, |b| {
@@ -238,8 +247,12 @@ fn bench_ramp_mode(c: &mut Criterion) {
 fn bench_static(c: &mut Criterion) {
     let mut group = c.benchmark_group("render_static");
     const N: usize = 32;
-    for (label, mode) in [("frame", RampMode::Frame), ("sample", RampMode::Sample)] {
-        let (mut r, pcm) = prepared("7.1.4", N, mode);
+    for (label, mode) in [
+        ("frame", RampMode::Frame),
+        ("sample", RampMode::Sample),
+        ("interp", RampMode::Interp),
+    ] {
+        let (mut r, pcm) = prepared("7.1.4", N, mode, false);
         let mut buf = Vec::new();
         group.bench_function(label, |b| {
             b.iter(|| {
@@ -260,11 +273,50 @@ fn bench_static(c: &mut Criterion) {
     group.finish();
 }
 
+/// The genuinely-moving case: position interpolation ON and a fresh ramp armed
+/// every block, so the object's interpolated position changes every sample and
+/// `Sample` must recompute the VBAP gains per sample. This is where the cost
+/// distribution shows: `sample` pays N × `compute_gains`, `interp` pays one
+/// `compute_gains` plus a per-sample gain lerp, `frame` pays one `compute_gains`
+/// and no per-sample smoothing.
+fn bench_moving(c: &mut Criterion) {
+    let mut group = c.benchmark_group("render_moving");
+    const N: usize = 32;
+    for (label, mode) in [
+        ("frame", RampMode::Frame),
+        ("sample", RampMode::Sample),
+        ("interp", RampMode::Interp),
+    ] {
+        let (mut r, pcm) = prepared("7.1.4", N, mode, true);
+        let mut buf = Vec::new();
+        let mut round = 1u64;
+        group.bench_function(label, |b| {
+            b.iter(|| {
+                let events = move_events(N, round);
+                round = round.wrapping_add(1);
+                let f = r
+                    .render_frame(
+                        black_box(&pcm),
+                        black_box(N),
+                        &events,
+                        std::mem::take(&mut buf),
+                        false,
+                    )
+                    .expect("render");
+                buf = f.samples;
+                black_box(&buf);
+            });
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_steady,
     bench_metadata_frame,
     bench_ramp_mode,
-    bench_static
+    bench_static,
+    bench_moving
 );
 criterion_main!(benches);

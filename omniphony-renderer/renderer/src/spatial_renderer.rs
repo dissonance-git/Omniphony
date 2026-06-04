@@ -193,6 +193,11 @@ struct ChannelState {
     gain_db: i8,
 
     ramp: ChannelRampState,
+
+    /// `RampMode::Interp` only: this channel's destination band gains from the
+    /// previous block, reused as the start of the next block's interpolation.
+    /// Empty until the first block for this channel.
+    interp_prev_gains: Vec<Gains>,
 }
 
 impl Default for ChannelState {
@@ -200,6 +205,7 @@ impl Default for ChannelState {
         Self {
             gain_db: -128, // -inf dB (muted)
             ramp: ChannelRampState::default(),
+            interp_prev_gains: Vec::new(),
         }
     }
 }
@@ -427,6 +433,10 @@ pub struct SpatialRenderer {
     /// gain vector is allocated once and reused across objects and frames
     /// instead of a fresh `Vec` per object per frame.
     band_gains_scratch: Vec<Gains>,
+
+    /// `RampMode::Interp` only: pooled destination band gains for the object
+    /// currently being rendered (one entry per render band). Reused each object.
+    interp_end_scratch: Vec<Gains>,
 }
 
 impl SpatialRenderer {
@@ -919,6 +929,7 @@ impl SpatialRenderer {
             crossover_filter_states: Vec::new(),
             crossover_band_scratch: std::array::from_fn(|_| Vec::new()),
             band_gains_scratch: Vec::new(),
+            interp_end_scratch: Vec::new(),
         })
     }
 
@@ -1682,6 +1693,106 @@ impl SpatialRenderer {
                                 state.ramp.advance_ramp(1);
                             }
                         }
+                    }
+                    RampMode::Interp => {
+                        // Destination gains for this block: one VBAP evaluation per
+                        // band at the target position. The object's audible path is
+                        // then a per-sample linear interpolation from the previous
+                        // block's end gains to these — no per-sample VBAP.
+                        state.ramp.remaining_ramp_units = None;
+                        state.ramp.current_position = state.ramp.target_position;
+                        state.ramp.current_size = state.ramp.target_size;
+                        state.ramp.output_position = state.ramp.target_position;
+                        let position = state.ramp.target_position;
+                        let size = state.ramp.target_size;
+
+                        self.interp_end_scratch.clear();
+                        self.interp_end_scratch.extend(
+                            self.render_bands
+                                .iter()
+                                .map(|b| b.compute_gains(render_params, position, size)),
+                        );
+                        let n_bands = self.interp_end_scratch.len();
+
+                        // First block for this channel → start == end (no jump in).
+                        if state.interp_prev_gains.len() != n_bands {
+                            state.interp_prev_gains.clear();
+                            state
+                                .interp_prev_gains
+                                .extend_from_slice(&self.interp_end_scratch);
+                        }
+                        band_gains.resize(n_bands, Gains::zeroed(self.num_speakers));
+
+                        let mut fst = obj_filter_states;
+                        let inv_n = 1.0 / sample_length.max(1) as f32;
+                        if profile_crossover {
+                            let fb = self.crossover_filter_bank.as_ref().expect("crossover bank");
+                            let fst_slice = fst.as_mut().expect("filter states").as_mut_slice();
+                            let started_at = std::time::Instant::now();
+                            fb.process_block(
+                                sample_length,
+                                fst_slice,
+                                &mut self.crossover_band_scratch,
+                                |sample_idx| {
+                                    input_pcm[sample_idx * input_channel_count + input_channel_idx]
+                                        * gain_linear
+                                        * obj_gain
+                                },
+                            );
+                            crossover_elapsed += started_at.elapsed();
+                            for sample_idx in 0..sample_length {
+                                let f = (sample_idx as f32 + 1.0) * inv_n;
+                                for b in 0..n_bands {
+                                    let (s0, s1) =
+                                        (&state.interp_prev_gains[b], &self.interp_end_scratch[b]);
+                                    let slot = &mut band_gains[b];
+                                    for spk in 0..self.num_speakers {
+                                        slot[spk] = s0[spk] * (1.0 - f) + s1[spk] * f;
+                                    }
+                                }
+                                let out_base = sample_idx * self.num_speakers;
+                                for (b, gains) in band_gains.iter().enumerate() {
+                                    let s = self.crossover_band_scratch[b][sample_idx];
+                                    for (spk, &g) in gains.iter().enumerate() {
+                                        output[out_base + spk] += s * g;
+                                    }
+                                }
+                            }
+                        } else {
+                            for sample_idx in 0..sample_length {
+                                let f = (sample_idx as f32 + 1.0) * inv_n;
+                                for b in 0..n_bands {
+                                    let (s0, s1) =
+                                        (&state.interp_prev_gains[b], &self.interp_end_scratch[b]);
+                                    let slot = &mut band_gains[b];
+                                    for spk in 0..self.num_speakers {
+                                        slot[spk] = s0[spk] * (1.0 - f) + s1[spk] * f;
+                                    }
+                                }
+                                let raw = input_pcm
+                                    [sample_idx * input_channel_count + input_channel_idx]
+                                    * gain_linear
+                                    * obj_gain;
+                                let split = split_bands(
+                                    raw,
+                                    &self.crossover_filter_bank,
+                                    fst.as_mut().map(|v| v.as_mut_slice()),
+                                );
+                                let out_base = sample_idx * self.num_speakers;
+                                for (b, gains) in band_gains.iter().enumerate() {
+                                    let s = split.get(b);
+                                    for (spk, &g) in gains.iter().enumerate() {
+                                        output[out_base + spk] += s * g;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Cache this block's destination as the next block's start.
+                        state.interp_prev_gains.clear();
+                        state
+                            .interp_prev_gains
+                            .extend_from_slice(&self.interp_end_scratch);
                     }
                 };
 
