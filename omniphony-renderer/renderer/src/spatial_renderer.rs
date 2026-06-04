@@ -225,6 +225,10 @@ struct BandRenderer {
     /// active renderer topology, but restricted to this band's speaker subset.
     /// `None` when the band has fewer than 3 speakers (uniform fallback).
     engine: Option<Arc<PreparedRenderEngine>>,
+    /// `true` when this band covers every speaker in identity order
+    /// (`speaker_indices == 0..num_speakers`) — the no-crossover case. Then the
+    /// band-local gains are already full-size and the scatter is skipped.
+    is_identity: bool,
 }
 
 impl BandRenderer {
@@ -252,10 +256,14 @@ impl BandRenderer {
             None
         };
 
+        let is_identity = speaker_indices.len() == num_speakers
+            && speaker_indices.iter().enumerate().all(|(i, &idx)| i == idx);
+
         Ok(Self {
             speaker_indices,
             num_speakers,
             engine,
+            is_identity,
         })
     }
 
@@ -284,6 +292,11 @@ impl BandRenderer {
                 g
             }
         };
+        // No crossover: band gains are already full-size and in speaker order, so
+        // return them directly instead of zeroing + scattering into a fresh Gains.
+        if self.is_identity {
+            return band_gains;
+        }
         // Scatter band-local gains into a full-size vector.
         let mut full = crate::spatial_vbap::Gains::zeroed(self.num_speakers);
         for (gi, &g) in band_gains.iter().enumerate() {
