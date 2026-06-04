@@ -25,6 +25,7 @@ import {
 import { updateSource, updateSourceLevel, updateSourceGains, updateSourceBandGains, updateSourceSize, updateSourceTag, removeSource } from './sources.js';
 import {
   updateSpeakerLevel,
+  updateMasterLevel,
   renderLayout,
   renderSpeakerEditor,
   hydrateLayoutSelect,
@@ -194,6 +195,10 @@ export function setupTauriBridge() {
 
   listen('speaker:meter', ({ payload }) => {
     updateSpeakerLevel(Number(payload.id), payload.meter);
+  });
+
+  listen('master:meter', ({ payload }) => {
+    updateMasterLevel(payload.meter);
   });
 
   listen('speaker:gain', ({ payload }) => {
