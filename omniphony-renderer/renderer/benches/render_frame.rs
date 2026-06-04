@@ -14,8 +14,9 @@
 //!     moves this frame (worst-case OAMD block: `update_metadata` + fresh ramps).
 //!     Confirms hypothesis #2: metadata-bearing frames cost more than steady ones.
 //!
-//!   * `render_interp/<mode>` — position-interpolation ON vs OFF at a fixed
-//!     object count, isolating the ramp-strategy contribution.
+//!   * `render_ramp_mode/<frame|sample>` — at a fixed object count, the cost of
+//!     the ramp mode itself. `Frame` is the live mpv default after the engine
+//!     parity fix; `Sample` is the old per-sample `compute_gains` behaviour.
 //!
 //! Run with:  cargo bench -p renderer
 //! A single scenario:  cargo bench -p renderer -- render_steady/32
@@ -28,10 +29,10 @@ use renderer::spatial_renderer::{SpatialChannelEvent, SpatialRenderer};
 use renderer::spatial_vbap::{DistanceModel, VbapTableMode};
 use renderer::speaker_layout::SpeakerLayout;
 
-/// Samples per access unit fed to `render_frame`. 1536 is a representative
-/// object-audio block size; the per-frame cost we care about is dominated by the
-/// per-object VBAP work, which is independent of this within reason.
-const BLOCK_SAMPLES: usize = 1536;
+/// Samples per access unit fed to `render_frame`. Measured from a real TrueHD
+/// Atmos stream through the engine (`ORENDER_PERF_LOG`): the bridge emits a
+/// constant 40-sample block at 48 kHz, so this matches the live per-call cost.
+const BLOCK_SAMPLES: usize = 40;
 const SAMPLE_RATE: u32 = 48_000;
 
 /// Build a renderer with defaults matching the live decode path for `preset`.
@@ -52,8 +53,8 @@ fn make_renderer(preset: &str, position_interpolation: bool) -> SpatialRenderer 
         1.0,
         0.0,
         1.0,
-        false,            // log_object_positions
-        [1.0, 2.0, 0.5],  // room_ratio
+        false,           // log_object_positions
+        [1.0, 2.0, 0.5], // room_ratio
         2.0,
         0.5,
         0.0,
@@ -153,7 +154,13 @@ fn bench_steady(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
             b.iter(|| {
                 let f = r
-                    .render_frame(black_box(&pcm), black_box(n), &[], std::mem::take(&mut buf), false)
+                    .render_frame(
+                        black_box(&pcm),
+                        black_box(n),
+                        &[],
+                        std::mem::take(&mut buf),
+                        false,
+                    )
                     .expect("render");
                 buf = f.samples;
                 black_box(&buf);
@@ -176,7 +183,13 @@ fn bench_metadata_frame(c: &mut Criterion) {
                 let events = move_events(n, round);
                 round = round.wrapping_add(1);
                 let f = r
-                    .render_frame(black_box(&pcm), black_box(n), &events, std::mem::take(&mut buf), false)
+                    .render_frame(
+                        black_box(&pcm),
+                        black_box(n),
+                        &events,
+                        std::mem::take(&mut buf),
+                        false,
+                    )
                     .expect("render");
                 buf = f.samples;
                 black_box(&buf);
@@ -201,7 +214,13 @@ fn bench_ramp_mode(c: &mut Criterion) {
                 let events = move_events(N, round);
                 round = round.wrapping_add(1);
                 let f = r
-                    .render_frame(black_box(&pcm), black_box(N), &events, std::mem::take(&mut buf), false)
+                    .render_frame(
+                        black_box(&pcm),
+                        black_box(N),
+                        &events,
+                        std::mem::take(&mut buf),
+                        false,
+                    )
                     .expect("render");
                 buf = f.samples;
                 black_box(&buf);
