@@ -230,5 +230,41 @@ fn bench_ramp_mode(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_steady, bench_metadata_frame, bench_ramp_mode);
+/// The realistic Sample-mode common case: objects are NOT moving this block (no
+/// metadata — ~97% of real frames). `frame` recomputes gains once; `sample`
+/// recomputes per sample. Since the position is constant, the per-sample
+/// `compute_gains` calls are redundant — this is what the static early-out
+/// targets. Contrast with `render_ramp_mode` (objects move every frame).
+fn bench_static(c: &mut Criterion) {
+    let mut group = c.benchmark_group("render_static");
+    const N: usize = 32;
+    for (label, mode) in [("frame", RampMode::Frame), ("sample", RampMode::Sample)] {
+        let (mut r, pcm) = prepared("7.1.4", N, mode);
+        let mut buf = Vec::new();
+        group.bench_function(label, |b| {
+            b.iter(|| {
+                let f = r
+                    .render_frame(
+                        black_box(&pcm),
+                        black_box(N),
+                        &[],
+                        std::mem::take(&mut buf),
+                        false,
+                    )
+                    .expect("render");
+                buf = f.samples;
+                black_box(&buf);
+            });
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_steady,
+    bench_metadata_frame,
+    bench_ramp_mode,
+    bench_static
+);
 criterion_main!(benches);

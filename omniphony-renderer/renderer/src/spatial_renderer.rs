@@ -1588,6 +1588,11 @@ impl SpatialRenderer {
                                 },
                             );
                             crossover_elapsed += started_at.elapsed();
+                            // See the non-crossover branch: only recompute the VBAP
+                            // gains when the position/size changes (skips redundant
+                            // per-sample work while the object is static).
+                            let mut last_pos = [f64::NAN; 3];
+                            let mut last_size = [f32::NAN; 3];
                             for sample_idx in 0..sample_length {
                                 let progress =
                                     state.ramp.current_progress().unwrap_or(RampProgress {
@@ -1597,10 +1602,14 @@ impl SpatialRenderer {
                                 ramp_strategy.evaluate(&mut state.ramp, progress, &ramp_context);
                                 let position = state.ramp.output_position;
                                 let size = state.ramp.current_size;
-                                for (slot, band) in
-                                    band_gains_buf.iter_mut().zip(self.render_bands.iter())
-                                {
-                                    *slot = band.compute_gains(render_params, position, size);
+                                if position != last_pos || size != last_size {
+                                    for (slot, band) in
+                                        band_gains_buf.iter_mut().zip(self.render_bands.iter())
+                                    {
+                                        *slot = band.compute_gains(render_params, position, size);
+                                    }
+                                    last_pos = position;
+                                    last_size = size;
                                 }
                                 let out_base = sample_idx * self.num_speakers;
                                 for (b, gains) in band_gains_buf.iter().enumerate() {
@@ -1613,6 +1622,14 @@ impl SpatialRenderer {
                                 state.ramp.advance_ramp(1);
                             }
                         } else {
+                            // Recompute the per-band VBAP gains only when the
+                            // interpolated position/size actually changes. While the
+                            // object is not ramping (the common case — metadata is
+                            // sparse) `output_position` is constant across the block,
+                            // so this collapses 1 `compute_gains` call per band per
+                            // sample down to one per block while staying bit-identical.
+                            let mut last_pos = [f64::NAN; 3];
+                            let mut last_size = [f32::NAN; 3];
                             for sample_idx in 0..sample_length {
                                 let progress =
                                     state.ramp.current_progress().unwrap_or(RampProgress {
@@ -1622,10 +1639,14 @@ impl SpatialRenderer {
                                 ramp_strategy.evaluate(&mut state.ramp, progress, &ramp_context);
                                 let position = state.ramp.output_position;
                                 let size = state.ramp.current_size;
-                                for (slot, band) in
-                                    band_gains_buf.iter_mut().zip(self.render_bands.iter())
-                                {
-                                    *slot = band.compute_gains(render_params, position, size);
+                                if position != last_pos || size != last_size {
+                                    for (slot, band) in
+                                        band_gains_buf.iter_mut().zip(self.render_bands.iter())
+                                    {
+                                        *slot = band.compute_gains(render_params, position, size);
+                                    }
+                                    last_pos = position;
+                                    last_size = size;
                                 }
                                 let raw = input_pcm
                                     [sample_idx * input_channel_count + input_channel_idx]
