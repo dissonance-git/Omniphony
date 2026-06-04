@@ -154,9 +154,21 @@ struct OverlayState {
     /// not change `labels_enabled` or the trail config, so those come back as set
     /// when objects are shown again. The energy heatmap is unaffected.
     objects_visible: bool,
+    /// Whether the energy heatmap is drawn at all (mirrors Studio's "Object
+    /// energy field" toggle). Transient — Studio owns the value and re-pushes it
+    /// on connect (`syncMpvOverlayPrefs`).
+    heatmap_enabled: bool,
     /// Number of flattened depth planes in the energy heatmap (1..=12). Mirrors
     /// Studio's "Planes per axis" slider; defaults to `FIELD_BANDS`.
     heatmap_bands: usize,
+    /// Colour gradient index for the energy heatmap, mirroring Studio's
+    /// `OBJECT_ENERGY_COLORMAPS`: 0 heatmap, 1 blue→white, 2 white→red,
+    /// 3 red (alpha-only), 4 custom. See `heatmap_rgb`.
+    heatmap_colormap: u8,
+    /// User-defined gradient stops `[pos, r, g, b]` (all in [0,1], sorted by pos)
+    /// used when `heatmap_colormap == 4`. Transient — Studio owns it and re-pushes
+    /// it on connect (`syncMpvOverlayPrefs`). Empty ⇒ greyscale fallback.
+    heatmap_custom_stops: Vec<[f32; 4]>,
     cfg: TrailCfg,
 }
 
@@ -168,9 +180,12 @@ impl Default for OverlayState {
             trails: HashMap::new(),
             tags: HashMap::new(),
             labels: HashMap::new(),
-            labels_enabled: true,  // on by default, like Studio's 3D view
-            objects_visible: true, // on by default
+            labels_enabled: true,   // on by default, like Studio's 3D view
+            objects_visible: true,  // on by default
+            heatmap_enabled: false, // off by default; Studio pushes its toggle on connect
             heatmap_bands: FIELD_BANDS,
+            heatmap_colormap: 1, // blue→white, like Studio's default
+            heatmap_custom_stops: Vec::new(),
             cfg: TrailCfg::default(),
         }
     }
@@ -276,11 +291,38 @@ pub fn set_objects_visible(on: bool) {
     }
 }
 
+/// Enable/disable drawing the energy heatmap (mirrors Studio's "Object energy
+/// field" toggle). Transient — Studio owns the value and re-pushes it on connect.
+pub fn set_heatmap_enabled(on: bool) {
+    if let Ok(mut s) = overlay().state.lock() {
+        s.heatmap_enabled = on;
+    }
+}
+
 /// Set the number of flattened depth planes in the energy heatmap (clamped to
 /// 1..=12, mirroring Studio's "Planes per axis" slider). Transient.
 pub fn set_heatmap_bands(count: usize) {
     if let Ok(mut s) = overlay().state.lock() {
         s.heatmap_bands = count.clamp(1, 12);
+    }
+}
+
+/// Set the energy-heatmap colour gradient (mirrors Studio's gradient selector).
+/// Index follows `OBJECT_ENERGY_COLORMAPS`: 0 heatmap, 1 blue→white, 2 white→red,
+/// 3 red (alpha-only). Transient — Studio owns the value and re-pushes it.
+pub fn set_heatmap_colormap(idx: usize) {
+    if let Ok(mut s) = overlay().state.lock() {
+        s.heatmap_colormap = idx.min(4) as u8;
+    }
+}
+
+/// Set the custom-gradient stops `[pos, r, g, b]` (used when the colormap index is
+/// 4). Sorted by `pos` so the interpolation in `heatmap_rgb` can assume order.
+/// Transient — Studio owns the value and re-pushes it on connect.
+pub fn set_heatmap_custom_stops(mut stops: Vec<[f32; 4]>) {
+    stops.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap_or(std::cmp::Ordering::Equal));
+    if let Ok(mut s) = overlay().state.lock() {
+        s.heatmap_custom_stops = stops;
     }
 }
 
@@ -612,20 +654,102 @@ const HEATMAP_STOPS: [(f64, f64, f64, f64); 5] = [
     (1.00, 1.0, 0.0, 0.0), // red
 ];
 
-fn heatmap_rgb(t: f64) -> (u8, u8, u8) {
+/// Map `t` ∈ [0, 1] to an RGB colour for the selected `colormap` (mirror of
+/// Studio's `objectEnergyColor`), returned as floats in [0,255] left unquantised
+/// on purpose — the caller dithers each channel before rounding to 8-bit (see
+/// `build_heatmap_bitmap`) to avoid ramp banding after mpv upscales the small
+/// raster. The alpha is applied by the caller (it always encodes the value);
+/// colormap 3 (red) keeps the colour constant so only the alpha conveys energy;
+/// colormap 4 (custom) interpolates `custom` (sorted `[pos, r, g, b]` stops).
+fn heatmap_rgb(t: f64, colormap: u8, custom: &[[f32; 4]]) -> (f64, f64, f64) {
     let t = clamp(t, 0.0, 1.0);
-    let mut i = 0;
-    while i + 1 < HEATMAP_STOPS.len() && t > HEATMAP_STOPS[i + 1].0 {
-        i += 1;
+    let c = |v: f64| v * 255.0;
+    match colormap {
+        4 => custom_stops_rgb(t, custom),     // custom user gradient
+        3 => (255.0, 0.0, 0.0),               // red: alpha-only
+        2 => (255.0, c(1.0 - t), c(1.0 - t)), // white → red
+        1 => (c(t), c(t), 255.0),             // blue → white
+        _ => {
+            let mut i = 0;
+            while i + 1 < HEATMAP_STOPS.len() && t > HEATMAP_STOPS[i + 1].0 {
+                i += 1;
+            }
+            let (t0, r0, g0, b0) = HEATMAP_STOPS[i];
+            let (t1, r1, g1, b1) = HEATMAP_STOPS[(i + 1).min(HEATMAP_STOPS.len() - 1)];
+            let f = if t1 > t0 { (t - t0) / (t1 - t0) } else { 0.0 };
+            (
+                c(r0 + (r1 - r0) * f),
+                c(g0 + (g1 - g0) * f),
+                c(b0 + (b1 - b0) * f),
+            )
+        }
     }
-    let (t0, r0, g0, b0) = HEATMAP_STOPS[i];
-    let (t1, r1, g1, b1) = HEATMAP_STOPS[(i + 1).min(HEATMAP_STOPS.len() - 1)];
-    let f = if t1 > t0 { (t - t0) / (t1 - t0) } else { 0.0 };
-    (
-        ((r0 + (r1 - r0) * f) * 255.0).round() as u8,
-        ((g0 + (g1 - g0) * f) * 255.0).round() as u8,
-        ((b0 + (b1 - b0) * f) * 255.0).round() as u8,
-    )
+}
+
+/// Interpolate the custom gradient (sorted `[pos, r, g, b]` stops) at `t`, as RGB
+/// floats in [0,255]. Empty ⇒ greyscale fallback so a missing push still renders.
+fn custom_stops_rgb(t: f64, stops: &[[f32; 4]]) -> (f64, f64, f64) {
+    let g = |v: f32| v as f64 * 255.0;
+    match stops.len() {
+        0 => (t * 255.0, t * 255.0, t * 255.0),
+        _ => {
+            let first = &stops[0];
+            if t <= first[0] as f64 {
+                return (g(first[1]), g(first[2]), g(first[3]));
+            }
+            let last = &stops[stops.len() - 1];
+            if t >= last[0] as f64 {
+                return (g(last[1]), g(last[2]), g(last[3]));
+            }
+            for w in stops.windows(2) {
+                let (a, b) = (&w[0], &w[1]);
+                if t <= b[0] as f64 {
+                    let span = (b[0] - a[0]) as f64;
+                    let f = if span > 0.0 {
+                        (t - a[0] as f64) / span
+                    } else {
+                        0.0
+                    };
+                    return (
+                        g(a[1]) + (g(b[1]) - g(a[1])) * f,
+                        g(a[2]) + (g(b[2]) - g(a[2])) * f,
+                        g(a[3]) + (g(b[3]) - g(a[3])) * f,
+                    );
+                }
+            }
+            (g(last[1]), g(last[2]), g(last[3]))
+        }
+    }
+}
+
+// 8×8 ordered-dither (Bayer) matrix, values 0..=63. Breaks the 8-bit banding of
+// the energy ramp/alpha before quantisation; mpv's bilinear upscale of the small
+// raster then averages the pattern back into a smooth gradient. Deterministic and
+// allocation-free (cheap enough for the per-frame, per-pixel overlay path).
+#[rustfmt::skip]
+const BAYER8: [u8; 64] = [
+     0, 48, 12, 60,  3, 51, 15, 63,
+    32, 16, 44, 28, 35, 19, 47, 31,
+     8, 56,  4, 52, 11, 59,  7, 55,
+    40, 24, 36, 20, 43, 27, 39, 23,
+     2, 50, 14, 62,  1, 49, 13, 61,
+    34, 18, 46, 30, 33, 17, 45, 29,
+    10, 58,  6, 54,  9, 57,  5, 53,
+    42, 26, 38, 22, 41, 25, 37, 21,
+];
+
+/// Centred ordered-dither offset for pixel (i, j): one threshold in [-0.5, 0.5)
+/// of a single 8-bit step. Same offset for all channels of a pixel → debands
+/// without adding chroma noise and keeps premultiplied colour/alpha consistent.
+#[inline]
+fn dither_offset(i: usize, j: usize) -> f64 {
+    (BAYER8[(j & 7) * 8 + (i & 7)] as f64 + 0.5) / 64.0 - 0.5
+}
+
+/// Dither then quantise a [0,255] float channel to 8-bit.
+#[inline]
+fn dither_u8(v: f64, d: f64) -> u8 {
+    (v + d).round().clamp(0.0, 255.0) as u8
 }
 
 /// A finished heatmap bitmap ready for mpv's `overlay-add` (BGRA, premultiplied
@@ -647,6 +771,9 @@ pub struct HeatmapBitmap {
 /// rect; nearer planes appear larger and blend over farther ones. Returns `None`
 /// when there is no audible object.
 fn build_heatmap_bitmap(s: &OverlayState, res_x: f64, res_y: f64) -> Option<HeatmapBitmap> {
+    if !s.heatmap_enabled {
+        return None;
+    }
     let cx = res_x / 2.0;
     let cy = res_y / 2.0;
     let depth_span = depth_span_for(res_x, res_y);
@@ -743,26 +870,33 @@ fn build_heatmap_bitmap(s: &OverlayState, res_x: f64, res_y: f64) -> Option<Heat
     // darker. A single ramp hue per pixel from the combined field avoids that
     // entirely, with alpha bounded by FIELD_OPACITY, while the planes' nested
     // on-screen extents still convey the pseudo-3D depth.
+    let colormap = s.heatmap_colormap;
+    let custom = s.heatmap_custom_stops.as_slice();
     let mut pixels = vec![0u8; w * h * 4];
-    for idx in 0..w * h {
-        let mut e = 0.0f32;
-        for g in grids.iter().take(bands_n) {
-            if g[idx] > e {
-                e = g[idx];
+    for j in 0..h {
+        for i in 0..w {
+            let idx = j * w + i;
+            let mut e = 0.0f32;
+            for g in grids.iter().take(bands_n) {
+                if g[idx] > e {
+                    e = g[idx];
+                }
             }
+            let t = clamp(e as f64 * inv, 0.0, 1.0);
+            if t < 0.01 {
+                continue; // leave fully transparent
+            }
+            let (rf, gf, bf) = heatmap_rgb(t, colormap, custom);
+            let a = t * FIELD_OPACITY; // [0, FIELD_OPACITY]
+            let d = dither_offset(i, j);
+            let o = idx * 4;
+            // Premultiplied BGRA, ordered-dithered before 8-bit quantisation so
+            // the ramp/alpha don't band once mpv upscales this raster.
+            pixels[o] = dither_u8(bf * a, d);
+            pixels[o + 1] = dither_u8(gf * a, d);
+            pixels[o + 2] = dither_u8(rf * a, d);
+            pixels[o + 3] = dither_u8(a * 255.0, d);
         }
-        let t = clamp(e as f64 * inv, 0.0, 1.0);
-        if t < 0.01 {
-            continue; // leave fully transparent
-        }
-        let (r8, g8, b8) = heatmap_rgb(t);
-        let a = t * FIELD_OPACITY; // [0, FIELD_OPACITY]
-        let o = idx * 4;
-        // Premultiplied BGRA.
-        pixels[o] = (b8 as f64 * a).round() as u8;
-        pixels[o + 1] = (g8 as f64 * a).round() as u8;
-        pixels[o + 2] = (r8 as f64 * a).round() as u8;
-        pixels[o + 3] = (a * 255.0).round() as u8;
     }
 
     Some(HeatmapBitmap {
@@ -1098,6 +1232,7 @@ mod tests {
         set_enabled(true);
         set_labels_enabled(true);
         set_objects_visible(true);
+        set_heatmap_enabled(true);
         g
     }
 
@@ -1150,6 +1285,25 @@ mod tests {
             build_heatmap(1920, 1080).is_none(),
             "no heatmap when every object is below the silence floor"
         );
+    }
+
+    #[test]
+    fn custom_stops_interpolate_and_fall_back() {
+        // Empty ⇒ greyscale fallback (colour tracks the value on all channels).
+        let (r, g, b) = custom_stops_rgb(0.5, &[]);
+        assert!((r - 127.5).abs() < 1e-6 && (g - 127.5).abs() < 1e-6 && (b - 127.5).abs() < 1e-6);
+
+        // Black→white: midpoint is mid-grey, ends clamp to the edge stops.
+        let stops = [[0.0, 0.0, 0.0, 0.0], [1.0, 1.0, 1.0, 1.0]];
+        assert_eq!(custom_stops_rgb(0.0, &stops), (0.0, 0.0, 0.0));
+        let (mr, mg, mb) = custom_stops_rgb(0.5, &stops);
+        assert!(
+            (mr - 127.5).abs() < 1e-3 && (mg - 127.5).abs() < 1e-3 && (mb - 127.5).abs() < 1e-3
+        );
+        assert_eq!(custom_stops_rgb(1.0, &stops), (255.0, 255.0, 255.0));
+        // Below the first / above the last stop clamps, doesn't extrapolate.
+        assert_eq!(custom_stops_rgb(-1.0, &stops), (0.0, 0.0, 0.0));
+        assert_eq!(custom_stops_rgb(2.0, &stops), (255.0, 255.0, 255.0));
     }
 
     #[test]

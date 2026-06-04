@@ -769,6 +769,126 @@ impl RendererControl {
         )
     }
 
+    /// Build a band-aware speaker gain table and serialize it for transfer.
+    ///
+    /// For each crossover band (`compute_bands`), builds the band-restricted VBAP
+    /// topology and samples it over the SAME cartesian grid as the full table,
+    /// scattering band-local gains into full speaker-index order. Layouts with no
+    /// crossover yield a single band (= the full layout). The result is cached raw
+    /// and serialized per speaker for transfer (see [`crate::band_gaintable`]).
+    pub fn build_band_gaintable_full(
+        &self,
+    ) -> anyhow::Result<crate::band_gaintable::BandGaintableFull> {
+        use rayon::prelude::*;
+
+        let topology = self.active_topology();
+        let layout = topology.speaker_layout.clone();
+        let speaker_count = layout.speakers.len();
+
+        // Same cartesian grid the full gain table uses.
+        let (x_positions, y_positions, z_positions, template) = {
+            let live = self.live.read().unwrap();
+            let rebuild_params = self.backend_rebuild_params();
+            let config = evaluation_build_config_from_live(
+                &live,
+                rebuild_params_allow_negative_z(rebuild_params),
+            );
+            (
+                crate::render_backend::evenly_spaced_axis(
+                    config.cartesian.x_size.max(2),
+                    -1.0,
+                    1.0,
+                ),
+                crate::render_backend::evenly_spaced_axis(
+                    config.cartesian.y_size.max(2),
+                    -1.0,
+                    1.0,
+                ),
+                crate::render_backend::cartesian_z_axis(
+                    config.cartesian.z_size.max(2),
+                    config.cartesian.z_neg_size,
+                ),
+                config.request_template,
+            )
+        };
+        let (nx, ny, nz) = (x_positions.len(), y_positions.len(), z_positions.len());
+        let cell_count = nx * ny * nz;
+
+        let bands = crate::crossover::compute_bands(&layout);
+
+        let mut band_meta: Vec<(f32, f32)> = Vec::with_capacity(bands.len());
+        let mut band_gains_all: Vec<Vec<f32>> = Vec::with_capacity(bands.len());
+        for band in &bands {
+            band_meta.push((band.low_hz, band.high_hz));
+            let indices = band.speaker_indices.clone();
+            let n = indices.len();
+            let mut gains = vec![0.0f32; cell_count * speaker_count];
+            if n >= 3 {
+                let band_layout = crate::speaker_layout::SpeakerLayout {
+                    radius_m: layout.radius_m,
+                    speakers: indices
+                        .iter()
+                        .map(|&i| layout.speakers[i].clone())
+                        .collect(),
+                };
+                let band_topology = self
+                    .prepare_topology_rebuild_for_layout(band_layout)
+                    .ok_or_else(|| anyhow::anyhow!("failed to prepare band topology"))?
+                    .build_topology()?;
+                let per_cell: Vec<crate::spatial_vbap::Gains> = (0..cell_count)
+                    .into_par_iter()
+                    .map(|idx| {
+                        let xi = idx % nx;
+                        let yi = (idx / nx) % ny;
+                        let zi = idx / (nx * ny);
+                        let mut req = template;
+                        req.adm_position = [
+                            x_positions[xi] as f64,
+                            y_positions[yi] as f64,
+                            z_positions[zi] as f64,
+                        ];
+                        band_topology.backend.compute_gains(&req).gains
+                    })
+                    .collect();
+                for (idx, cell) in per_cell.iter().enumerate() {
+                    let base = idx * speaker_count;
+                    for (gi, &g) in cell.iter().enumerate() {
+                        gains[base + indices[gi]] = g;
+                    }
+                }
+            } else if n > 0 {
+                // <3 speakers: no VBAP solution — uniform fill for the band's speakers.
+                let v = 1.0 / (n as f32).sqrt();
+                for idx in 0..cell_count {
+                    let base = idx * speaker_count;
+                    for &gi in &indices {
+                        gains[base + gi] = v;
+                    }
+                }
+            }
+            band_gains_all.push(gains);
+        }
+
+        let band_fields = band_meta
+            .into_iter()
+            .zip(band_gains_all)
+            .map(
+                |((low_hz, high_hz), gains)| crate::band_gaintable::BandField {
+                    low_hz,
+                    high_hz,
+                    gains,
+                },
+            )
+            .collect();
+        Ok(crate::band_gaintable::BandGaintableFull {
+            x_positions,
+            y_positions,
+            z_positions,
+            speaker_count,
+            bands: band_fields,
+        })
+    }
+
     /// Mark live params as dirty (changed since last save) and return the new state.
     pub fn mark_dirty(&self) {
         self.config_dirty.store(true, Ordering::Relaxed);

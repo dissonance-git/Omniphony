@@ -60,7 +60,6 @@ export const flushCallbacks = {
   getObjectDisplayName: null,
   applyAudioSampleRateNow: null,
   refreshEffectiveRenderVisibility: null,
-  refreshSpeakerHeatmapScene: null,
   updateVbapCartesianFaceGrid: null,
   renderVbapCartesianGridToggle: null,
   applyRoomRatio: null,

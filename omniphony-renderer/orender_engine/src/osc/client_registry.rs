@@ -11,6 +11,16 @@ pub(crate) struct OscClientState {
     /// from `metering_enabled` so a client can subscribe to diag traces
     /// without the audio-level meter bundle (and vice versa).
     pub(crate) diag_enabled: bool,
+    /// Whether this client is subscribed to the precomputed speaker gain table.
+    /// While subscribed, the renderer pushes a fresh table (chunked) on every
+    /// topology rebuild — but only if the client's last-pushed version differs.
+    pub(crate) gaintable_enabled: bool,
+    /// Version (hash) of the gain table last pushed to this client, so a rebuild
+    /// or a re-subscribe carrying the same version skips re-sending the data.
+    pub(crate) gaintable_version: Option<u32>,
+    /// Speaker index this client wants the gain table for (the heatmap shows one
+    /// speaker; pushes are serialized per speaker). `None` until first subscribe.
+    pub(crate) gaintable_speaker: Option<usize>,
 }
 
 pub(crate) struct OscClientRegistry {
@@ -33,22 +43,42 @@ impl OscClientRegistry {
                 last_seen: None,
                 metering_enabled: false,
                 diag_enabled: false,
+                gaintable_enabled: false,
+                gaintable_version: None,
+                gaintable_speaker: None,
             },
         );
     }
 
     pub(crate) fn register(&self, addr: SocketAddr) -> (bool, bool) {
         let mut clients = self.clients.lock().unwrap();
-        let (metering_enabled, diag_enabled) = clients
-            .get(&addr)
-            .map(|entry| (entry.metering_enabled, entry.diag_enabled))
-            .unwrap_or((false, false));
+        let prev_state = clients.get(&addr).copied();
+        let (
+            metering_enabled,
+            diag_enabled,
+            gaintable_enabled,
+            gaintable_version,
+            gaintable_speaker,
+        ) = prev_state
+            .map(|e| {
+                (
+                    e.metering_enabled,
+                    e.diag_enabled,
+                    e.gaintable_enabled,
+                    e.gaintable_version,
+                    e.gaintable_speaker,
+                )
+            })
+            .unwrap_or((false, false, false, None, None));
         let prev = clients.insert(
             addr,
             OscClientState {
                 last_seen: Some(Instant::now()),
                 metering_enabled,
                 diag_enabled,
+                gaintable_enabled,
+                gaintable_version,
+                gaintable_speaker,
             },
         );
         (prev.is_none(), metering_enabled)
@@ -97,6 +127,63 @@ impl OscClientRegistry {
         } else {
             false
         }
+    }
+
+    /// Subscribe/unsubscribe a client to the gain-table push stream. Keeps the
+    /// last-pushed version on unsubscribe so a quick re-subscribe can skip a
+    /// resend. Returns false if the client is unknown.
+    pub(crate) fn set_gaintable(&self, addr: SocketAddr, enabled: bool) -> bool {
+        let mut clients = self.clients.lock().unwrap();
+        if let Some(entry) = clients.get_mut(&addr) {
+            entry.gaintable_enabled = enabled;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Record the gain-table version last pushed to a client (so future rebuilds
+    /// and re-subscribes can compare and skip).
+    pub(crate) fn set_gaintable_version(&self, addr: SocketAddr, version: u32) {
+        let mut clients = self.clients.lock().unwrap();
+        if let Some(entry) = clients.get_mut(&addr) {
+            entry.gaintable_version = Some(version);
+        }
+    }
+
+    /// Record which speaker a client wants the gain table for.
+    pub(crate) fn set_gaintable_speaker(&self, addr: SocketAddr, speaker: usize) {
+        let mut clients = self.clients.lock().unwrap();
+        if let Some(entry) = clients.get_mut(&addr) {
+            entry.gaintable_speaker = Some(speaker);
+        }
+    }
+
+    /// The speaker a client is subscribed for, if any.
+    pub(crate) fn gaintable_speaker(&self, addr: SocketAddr) -> Option<usize> {
+        self.clients
+            .lock()
+            .unwrap()
+            .get(&addr)
+            .and_then(|c| c.gaintable_speaker)
+    }
+
+    /// Live gain-table subscribers as `(addr, last_pushed_version, speaker)`.
+    /// Permanent clients always count; timed clients only while within the
+    /// heartbeat window.
+    pub(crate) fn gaintable_subscribers(&self) -> Vec<(SocketAddr, Option<u32>, Option<usize>)> {
+        let clients = self.clients.lock().unwrap();
+        let now = Instant::now();
+        clients
+            .iter()
+            .filter(|(_, c)| {
+                c.gaintable_enabled
+                    && c.last_seen
+                        .map(|t| now.duration_since(t) < self.timeout)
+                        .unwrap_or(true)
+            })
+            .map(|(addr, c)| (*addr, c.gaintable_version, c.gaintable_speaker))
+            .collect()
     }
 
     pub(crate) fn is_any_live(&self) -> bool {

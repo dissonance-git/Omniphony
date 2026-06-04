@@ -11,6 +11,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { app } from './state.js';
 import { pushLog } from './log.js';
+import { colormapIndex } from './scene/object-energy-shared.js';
 
 const overlay = {
   enabled: true
@@ -53,6 +54,22 @@ export function getMpvOverlayStatus() {
   return { enabled: overlay.enabled };
 }
 
+/** Mirror Studio's "Object energy field" toggle onto the mpv overlay heatmap. */
+export function setMpvOverlayHeatmapEnabled(enabled) {
+  invoke('mpv_overlay_set_heatmap_enabled', { enabled: Boolean(enabled) }).catch(() => {});
+}
+
+/** Push the shared custom gradient stops to the overlay as a flat [pos,r,g,b,…]. */
+export function setMpvOverlayHeatmapCustomStops(stops) {
+  const flat = [];
+  if (Array.isArray(stops)) {
+    for (const s of stops) {
+      flat.push(Number(s?.pos) || 0, Number(s?.r) || 0, Number(s?.g) || 0, Number(s?.b) || 0);
+    }
+  }
+  invoke('mpv_overlay_set_heatmap_custom_stops', { stops: flat }).catch(() => {});
+}
+
 // Push Studio's current overlay display prefs to the renderer. The overlay
 // controls are otherwise only sent on manual toggle, so without this the
 // renderer keeps its defaults after a (re)connect or orender restart — the
@@ -60,7 +77,10 @@ export function getMpvOverlayStatus() {
 // Call on connection (snapshot ready). All sends are best-effort.
 export function syncMpvOverlayPrefs() {
   invoke('mpv_overlay_set_objects', { visible: app.objectsVisible !== false }).catch(() => {});
+  invoke('mpv_overlay_set_heatmap_enabled', { enabled: Boolean(app.objectEnergyHeatmapEnabled) }).catch(() => {});
   invoke('mpv_overlay_set_heatmap_bands', { count: app.objectEnergyHeatmapBandCount }).catch(() => {});
+  setMpvOverlayHeatmapCustomStops(app.objectCustomGradientStops);
+  invoke('mpv_overlay_set_heatmap_colormap', { colormap: colormapIndex(app.objectEnergyColormap) }).catch(() => {});
   invoke('mpv_overlay_set_labels', { enabled: app.objectLabelsEnabled }).catch(() => {});
   pushMpvOverlayTrailPrefs(
     app.trailsEnabled,

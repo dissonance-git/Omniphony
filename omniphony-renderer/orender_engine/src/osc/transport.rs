@@ -1,6 +1,7 @@
 use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
 
 use rosc::{OscMessage, OscPacket, OscType};
+use runtime_control::osc::{BroadcastUpdate, BroadcastValue};
 
 use super::client_registry::OscClientRegistry;
 
@@ -60,6 +61,23 @@ pub(crate) fn broadcast_string(
     let packet = OscPacket::Message(OscMessage {
         addr: addr.to_string(),
         args: vec![OscType::String(value.to_string())],
+    });
+    if let Ok(data) = rosc::encoder::encode(&packet) {
+        send_raw(socket, clients, &data);
+    }
+}
+
+/// Broadcast a single OSC `blob` arg (raw bytes). For bulk binary payloads such
+/// as the chunked, compressed speaker gain table.
+pub(crate) fn broadcast_blob(
+    socket: &UdpSocket,
+    clients: &OscClientRegistry,
+    addr: &str,
+    bytes: &[u8],
+) {
+    let packet = OscPacket::Message(OscMessage {
+        addr: addr.to_string(),
+        args: vec![OscType::Blob(bytes.to_vec())],
     });
     if let Ok(data) = rosc::encoder::encode(&packet) {
         send_raw(socket, clients, &data);
@@ -144,6 +162,34 @@ pub(crate) fn send_diag_state(socket: &UdpSocket, client: SocketAddr, enabled: b
     if let Ok(bytes) = rosc::encoder::encode(&packet) {
         if let Err(e) = socket.send_to(&bytes, client) {
             log::warn!("Failed to send diag state to {}: {}", client, e);
+        }
+    }
+}
+
+/// Send a single [`BroadcastUpdate`] to one specific client (unicast), bypassing
+/// the registry fan-out. Used to push the gain table only to the subscriber(s)
+/// that asked for it.
+pub(crate) fn send_update_to_client(
+    socket: &UdpSocket,
+    client: SocketAddr,
+    update: &BroadcastUpdate,
+) {
+    let args = match &update.value {
+        BroadcastValue::Int(i) => vec![OscType::Int(*i)],
+        BroadcastValue::Float(f) => vec![OscType::Float(*f)],
+        BroadcastValue::Fff(a, b, c) => {
+            vec![OscType::Float(*a), OscType::Float(*b), OscType::Float(*c)]
+        }
+        BroadcastValue::String(s) => vec![OscType::String(s.clone())],
+        BroadcastValue::Blob(b) => vec![OscType::Blob(b.clone())],
+    };
+    let packet = OscPacket::Message(OscMessage {
+        addr: update.addr.clone(),
+        args,
+    });
+    if let Ok(bytes) = rosc::encoder::encode(&packet) {
+        if let Err(e) = socket.send_to(&bytes, client) {
+            log::warn!("Failed to send {} to {}: {}", update.addr, client, e);
         }
     }
 }

@@ -834,6 +834,12 @@ fn osc_thread(
     socket
         .set_read_timeout(Some(Duration::from_millis(50)))
         .ok();
+    // The gain-table transfer arrives as a burst of many UDP datagrams (a large
+    // compressed table, P1/P2); enlarge the receive buffer so the kernel doesn't
+    // drop most of them before the loop drains. Capped by net.core.rmem_max.
+    if let Err(e) = socket2::SockRef::from(&socket).set_recv_buffer_size(4 * 1024 * 1024) {
+        log::warn!("[osc] could not enlarge recv buffer: {e}");
+    }
 
     let listen_port = socket.local_addr().map(|a| a.port()).unwrap_or(osc_port);
     *listen_port_out.lock().unwrap() = listen_port;
@@ -925,6 +931,12 @@ fn osc_thread(
         }
 
         // receive packet
+        // Re-request missing gain-table chunks if the transfer has stalled. Cheap
+        // to check every loop tick (≤50ms cadence via the recv timeout).
+        if let Some((version, missing)) = gaintable_check_nack(Instant::now()) {
+            send_gaintable_nack(&socket, &host, osc_rx_port, version, &missing);
+        }
+
         let n = match socket.recv_from(&mut buf) {
             Ok((n, _)) => n,
             Err(_) => continue, // timeout
@@ -1081,6 +1093,304 @@ fn handle_packet(
                 }
             }
         }
+    }
+}
+
+// ── speaker gain table reassembly (chunked, compressed artifact over OSC) ──────
+// Chunks arrive as `[version u32 LE][chunk_index u32 LE][artifact bytes]`. We
+// reassemble per version, then inflate + decode the evaluation-artifact byte
+// format (mirror of renderer's evaluation_artifact: MAGIC "OEVL" + version +
+// metadata_len + payload_len + metadata JSON + zlib payload of f32 positions and
+// gains) and emit the whole table to JS once. Kept in a module static — the OSC
+// receive path is the only writer — to avoid threading a buffer through AppState.
+struct GainTableAsm {
+    version: u32,
+    chunk_count: usize,
+    chunks: std::collections::BTreeMap<u32, Vec<u8>>,
+    /// Last time a chunk (or the meta) arrived; drives the stall → NACK timer.
+    last_activity: Option<Instant>,
+    nack_rounds: u8,
+}
+
+static GAINTABLE: Mutex<GainTableAsm> = Mutex::new(GainTableAsm {
+    version: 0,
+    chunk_count: 0,
+    chunks: std::collections::BTreeMap::new(),
+    last_activity: None,
+    nack_rounds: 0,
+});
+
+// Reliability for the chunked UDP transfer: if the burst stalls (lost datagrams),
+// re-request just the missing chunk indices. The receive buffer already absorbs the
+// burst itself; this recovers real network loss for the remote (Studio ≠ renderer
+// host) case. The renderer's `/nack` handler resends from a deterministic rebuild.
+const GAINTABLE_NACK_TIMEOUT: Duration = Duration::from_millis(120);
+const GAINTABLE_MAX_NACK_ROUNDS: u8 = 12;
+// Cap indices per NACK datagram to stay under a typical MTU.
+const GAINTABLE_NACK_MAX_INDICES: usize = 256;
+
+fn gaintable_on_meta(json: &str) {
+    let v: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
+    let version = v.get("version").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+    let chunk_count = v.get("chunk_count").and_then(|x| x.as_u64()).unwrap_or(0) as usize;
+    if let Ok(mut g) = GAINTABLE.lock() {
+        g.version = version;
+        g.chunk_count = chunk_count;
+        g.chunks.clear();
+        g.last_activity = Some(Instant::now());
+        g.nack_rounds = 0;
+    }
+}
+
+/// If the current transfer has stalled, return `(version, missing_indices)` to
+/// re-request (and arm the next round); give up after `GAINTABLE_MAX_NACK_ROUNDS`.
+fn gaintable_check_nack(now: Instant) -> Option<(u32, Vec<u32>)> {
+    let mut g = GAINTABLE.lock().ok()?;
+    if g.chunk_count == 0 {
+        return None; // no active transfer (idle or just completed)
+    }
+    let last = g.last_activity?;
+    if now.duration_since(last) < GAINTABLE_NACK_TIMEOUT {
+        return None;
+    }
+    if g.nack_rounds >= GAINTABLE_MAX_NACK_ROUNDS {
+        log::warn!(
+            "[osc] gaintable transfer abandoned: {}/{} chunks after {} NACK rounds",
+            g.chunks.len(),
+            g.chunk_count,
+            g.nack_rounds
+        );
+        g.chunk_count = 0;
+        g.chunks.clear();
+        return None;
+    }
+    let total = g.chunk_count as u32;
+    let missing: Vec<u32> = (0..total).filter(|i| !g.chunks.contains_key(i)).collect();
+    if missing.is_empty() {
+        return None;
+    }
+    g.nack_rounds += 1;
+    g.last_activity = Some(now);
+    Some((g.version, missing))
+}
+
+fn send_gaintable_nack(
+    socket: &UdpSocket,
+    host: &str,
+    rx_port: u16,
+    version: u32,
+    missing: &[u32],
+) {
+    use rosc::{encoder, OscMessage};
+    for group in missing.chunks(GAINTABLE_NACK_MAX_INDICES) {
+        let mut args = Vec::with_capacity(group.len() + 1);
+        args.push(OscType::Int(version as i32));
+        args.extend(group.iter().map(|&i| OscType::Int(i as i32)));
+        let msg = OscPacket::Message(OscMessage {
+            addr: "/omniphony/control/debug/speaker_gaintable/nack".to_string(),
+            args,
+        });
+        if let Ok(bytes) = encoder::encode(&msg) {
+            let _ = socket.send_to(&bytes, format!("{host}:{rx_port}"));
+        }
+    }
+}
+
+fn gaintable_on_chunk(bytes: &[u8]) -> Option<serde_json::Value> {
+    if bytes.len() < 8 {
+        return None;
+    }
+    let version = u32::from_le_bytes(bytes[0..4].try_into().ok()?);
+    let index = u32::from_le_bytes(bytes[4..8].try_into().ok()?);
+    let artifact = {
+        let mut g = GAINTABLE.lock().ok()?;
+        if g.chunk_count == 0 || version != g.version {
+            return None; // stale/foreign chunk (meta not seen, or newer in flight)
+        }
+        g.chunks.insert(index, bytes[8..].to_vec());
+        g.last_activity = Some(Instant::now());
+        if g.chunks.len() != g.chunk_count {
+            return None;
+        }
+        let mut artifact = Vec::new();
+        for c in g.chunks.values() {
+            artifact.extend_from_slice(c);
+        }
+        g.chunks.clear();
+        g.chunk_count = 0;
+        artifact
+    };
+    decode_evaluation_artifact(&artifact, version)
+}
+
+/// Standard base64 encode (no line breaks). Used to hand the raw f32 payload to
+/// the UI as a compact string instead of a giant JSON array of numbers — the JS
+/// side rebuilds Float32Array views directly, avoiding per-number text parsing.
+fn base64_encode(data: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(ALPHABET[((n >> 18) & 63) as usize] as char);
+        out.push(ALPHABET[((n >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            ALPHABET[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            ALPHABET[(n & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+/// Decode the band-aware gain table ("OBGT") for one speaker. Inflates the payload
+/// and hands it to the UI as base64 (`dataB64`) + metadata — no float parsing here;
+/// the JS side slices Float32Array views (positions, then per-band gains).
+fn decode_band_gaintable(bytes: &[u8], version: u32) -> Option<serde_json::Value> {
+    if bytes.len() < 16 || &bytes[0..4] != b"OBGT" {
+        return None;
+    }
+    let meta_len = u32::from_le_bytes(bytes[8..12].try_into().ok()?) as usize;
+    let payload_len = u32::from_le_bytes(bytes[12..16].try_into().ok()?) as usize;
+    let meta_end = 16 + meta_len;
+    let payload_end = meta_end + payload_len;
+    if bytes.len() < payload_end {
+        return None;
+    }
+    let metadata: serde_json::Value = serde_json::from_slice(&bytes[16..meta_end]).ok()?;
+
+    let mut raw = Vec::new();
+    {
+        use std::io::Read as _;
+        let mut dec = flate2::read::ZlibDecoder::new(&bytes[meta_end..payload_end]);
+        dec.read_to_end(&mut raw).ok()?;
+    }
+
+    let dim = |k: &str| metadata.get(k).and_then(|x| x.as_u64()).map(|x| x as usize);
+    let nx = dim("x_count")?;
+    let ny = dim("y_count")?;
+    let nz = dim("z_count")?;
+    let nb = dim("band_count")?;
+    let speaker = metadata
+        .get("speaker_index")
+        .and_then(|x| x.as_u64())
+        .map(|x| x as usize)
+        .unwrap_or(0);
+
+    // Band frequency edges → {lowHz, highHz|null}.
+    let bands: Vec<serde_json::Value> = metadata
+        .get("bands")
+        .and_then(|b| b.as_array())
+        .map(|arr| {
+            arr.iter()
+                .map(|b| {
+                    serde_json::json!({
+                        "lowHz": b.get("low_hz").and_then(|x| x.as_f64()).unwrap_or(0.0),
+                        "highHz": b.get("high_hz").and_then(|x| x.as_f64()),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Some(serde_json::json!({
+        "version": version,
+        "domain": "cartesian_bands",
+        "speakerIndex": speaker,
+        "xCount": nx, "yCount": ny, "zCount": nz,
+        "bandCount": nb,
+        "bands": bands,
+        "dataB64": base64_encode(&raw),
+    }))
+}
+
+fn decode_evaluation_artifact(bytes: &[u8], version: u32) -> Option<serde_json::Value> {
+    if bytes.len() < 16 {
+        return None;
+    }
+    if &bytes[0..4] == b"OBGT" {
+        return decode_band_gaintable(bytes, version);
+    }
+    if &bytes[0..4] != b"OEVL" {
+        return None;
+    }
+    let metadata_len = u32::from_le_bytes(bytes[8..12].try_into().ok()?) as usize;
+    let payload_len = u32::from_le_bytes(bytes[12..16].try_into().ok()?) as usize;
+    let meta_end = 16 + metadata_len;
+    let payload_end = meta_end + payload_len;
+    if bytes.len() < payload_end {
+        return None;
+    }
+    let metadata: serde_json::Value = serde_json::from_slice(&bytes[16..meta_end]).ok()?;
+
+    let mut raw = Vec::new();
+    {
+        use std::io::Read as _;
+        let mut dec = flate2::read::ZlibDecoder::new(&bytes[meta_end..payload_end]);
+        dec.read_to_end(&mut raw).ok()?;
+    }
+
+    let domain = metadata.get("domain")?;
+    let kind = domain.get("kind")?.as_str()?;
+    let dim = |k: &str| domain.get(k).and_then(|x| x.as_u64()).map(|x| x as usize);
+    let mut off = 0usize;
+    let mut read_f32 = |count: usize| -> Option<Vec<f32>> {
+        let end = off + count * 4;
+        if end > raw.len() {
+            return None;
+        }
+        let mut v = Vec::with_capacity(count);
+        for i in 0..count {
+            let b = off + i * 4;
+            v.push(f32::from_le_bytes(raw[b..b + 4].try_into().ok()?));
+        }
+        off = end;
+        Some(v)
+    };
+
+    match kind {
+        "cartesian" => {
+            let (xc, yc, zc, sc) = (
+                dim("x_count")?,
+                dim("y_count")?,
+                dim("z_count")?,
+                dim("speaker_count")?,
+            );
+            let xs = read_f32(xc)?;
+            let ys = read_f32(yc)?;
+            let zs = read_f32(zc)?;
+            let gains = read_f32(xc * yc * zc * sc)?;
+            Some(serde_json::json!({
+                "version": version, "domain": "cartesian", "speakerCount": sc,
+                "xCount": xc, "yCount": yc, "zCount": zc,
+                "xPositions": xs, "yPositions": ys, "zPositions": zs, "gains": gains,
+            }))
+        }
+        "polar" => {
+            let (ac, ec, dc, sc) = (
+                dim("azimuth_count")?,
+                dim("elevation_count")?,
+                dim("distance_count")?,
+                dim("speaker_count")?,
+            );
+            let az = read_f32(ac)?;
+            let el = read_f32(ec)?;
+            let di = read_f32(dc)?;
+            let gains = read_f32(ac * ec * dc * sc)?;
+            Some(serde_json::json!({
+                "version": version, "domain": "polar", "speakerCount": sc,
+                "azimuthCount": ac, "elevationCount": ec, "distanceCount": dc,
+                "azimuthPositions": az, "elevationPositions": el, "distancePositions": di, "gains": gains,
+            }))
+        }
+        _ => None,
     }
 }
 
@@ -1547,50 +1857,31 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 s.producer_session = serde_json::from_str(&value).ok();
                 (None, removed_ids)
             }
-            OscEvent::StateDebugSpeakerHeatmapMeta { value } => (
+            OscEvent::StateDebugSpeakerGaintableMeta { value } => {
+                gaintable_on_meta(&value);
+                (None, removed_ids)
+            }
+
+            OscEvent::StateDebugSpeakerGaintableChunk { bytes } => {
+                // Reassemble in Rust; only emit the decoded table once complete.
+                (
+                    gaintable_on_chunk(&bytes).map(|v| ("speaker_gaintable", v)),
+                    removed_ids,
+                )
+            }
+
+            OscEvent::StateDebugSpeakerGaintableUnavailable { value } => (
                 Some((
-                    "speaker_heatmap:meta",
+                    "speaker_gaintable:unavailable",
                     serde_json::from_str(&value).unwrap_or_else(|_| serde_json::json!({})),
                 )),
                 removed_ids,
             ),
 
-            OscEvent::StateDebugSpeakerHeatmapSliceXy { value } => (
+            OscEvent::StateDebugSpeakerGaintableUptodate { version } => (
                 Some((
-                    "speaker_heatmap:slice_xy",
-                    serde_json::from_str(&value).unwrap_or_else(|_| serde_json::json!({})),
-                )),
-                removed_ids,
-            ),
-
-            OscEvent::StateDebugSpeakerHeatmapSliceXz { value } => (
-                Some((
-                    "speaker_heatmap:slice_xz",
-                    serde_json::from_str(&value).unwrap_or_else(|_| serde_json::json!({})),
-                )),
-                removed_ids,
-            ),
-
-            OscEvent::StateDebugSpeakerHeatmapSliceYz { value } => (
-                Some((
-                    "speaker_heatmap:slice_yz",
-                    serde_json::from_str(&value).unwrap_or_else(|_| serde_json::json!({})),
-                )),
-                removed_ids,
-            ),
-
-            OscEvent::StateDebugSpeakerHeatmapVolumeChunk { value } => (
-                Some((
-                    "speaker_heatmap:volume_chunk",
-                    serde_json::from_str(&value).unwrap_or_else(|_| serde_json::json!({})),
-                )),
-                removed_ids,
-            ),
-
-            OscEvent::StateDebugSpeakerHeatmapUnavailable { value } => (
-                Some((
-                    "speaker_heatmap:unavailable",
-                    serde_json::from_str(&value).unwrap_or_else(|_| serde_json::json!({})),
+                    "speaker_gaintable:uptodate",
+                    serde_json::json!({ "version": version }),
                 )),
                 removed_ids,
             ),

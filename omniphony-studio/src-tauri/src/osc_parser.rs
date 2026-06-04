@@ -26,6 +26,13 @@ fn unwrap_string(arg: &OscType) -> Option<String> {
     }
 }
 
+fn unwrap_blob(arg: &OscType) -> Option<Vec<u8>> {
+    match arg {
+        OscType::Blob(b) => Some(b.clone()),
+        _ => None,
+    }
+}
+
 fn to_number(v: f64) -> Option<f64> {
     if v.is_finite() {
         Some(v)
@@ -210,18 +217,14 @@ pub enum OscEvent {
     StateMonitoring { value: String },
     #[serde(rename = "state:session")]
     StateSession { value: String },
-    #[serde(rename = "state:debug:speaker_heatmap:meta")]
-    StateDebugSpeakerHeatmapMeta { value: String },
-    #[serde(rename = "state:debug:speaker_heatmap:slice_xy")]
-    StateDebugSpeakerHeatmapSliceXy { value: String },
-    #[serde(rename = "state:debug:speaker_heatmap:slice_xz")]
-    StateDebugSpeakerHeatmapSliceXz { value: String },
-    #[serde(rename = "state:debug:speaker_heatmap:slice_yz")]
-    StateDebugSpeakerHeatmapSliceYz { value: String },
-    #[serde(rename = "state:debug:speaker_heatmap:volume_chunk")]
-    StateDebugSpeakerHeatmapVolumeChunk { value: String },
-    #[serde(rename = "state:debug:speaker_heatmap:unavailable")]
-    StateDebugSpeakerHeatmapUnavailable { value: String },
+    #[serde(rename = "state:debug:speaker_gaintable:meta")]
+    StateDebugSpeakerGaintableMeta { value: String },
+    #[serde(rename = "state:debug:speaker_gaintable:chunk")]
+    StateDebugSpeakerGaintableChunk { bytes: Vec<u8> },
+    #[serde(rename = "state:debug:speaker_gaintable:unavailable")]
+    StateDebugSpeakerGaintableUnavailable { value: String },
+    #[serde(rename = "state:debug:speaker_gaintable:uptodate")]
+    StateDebugSpeakerGaintableUptodate { version: i32 },
     #[serde(rename = "state:snapshot_complete")]
     StateSnapshotComplete,
     #[serde(rename = "state:realtime:master_gain")]
@@ -640,18 +643,21 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
             }),
             _ => None,
         },
-        (5, "debug") if parts[3] == "speaker_heatmap" => {
-            let value = raw_args.first().and_then(unwrap_string)?;
-            match parts[4] {
-                "meta" => Some(OscEvent::StateDebugSpeakerHeatmapMeta { value }),
-                "slice_xy" => Some(OscEvent::StateDebugSpeakerHeatmapSliceXy { value }),
-                "slice_xz" => Some(OscEvent::StateDebugSpeakerHeatmapSliceXz { value }),
-                "slice_yz" => Some(OscEvent::StateDebugSpeakerHeatmapSliceYz { value }),
-                "volume_chunk" => Some(OscEvent::StateDebugSpeakerHeatmapVolumeChunk { value }),
-                "unavailable" => Some(OscEvent::StateDebugSpeakerHeatmapUnavailable { value }),
-                _ => None,
-            }
-        }
+        (5, "debug") if parts[3] == "speaker_gaintable" => match parts[4] {
+            "meta" => Some(OscEvent::StateDebugSpeakerGaintableMeta {
+                value: raw_args.first().and_then(unwrap_string)?,
+            }),
+            "unavailable" => Some(OscEvent::StateDebugSpeakerGaintableUnavailable {
+                value: raw_args.first().and_then(unwrap_string)?,
+            }),
+            "chunk" => Some(OscEvent::StateDebugSpeakerGaintableChunk {
+                bytes: raw_args.first().and_then(unwrap_blob)?,
+            }),
+            "uptodate" => Some(OscEvent::StateDebugSpeakerGaintableUptodate {
+                version: to_number(args.first().copied()?)? as i32,
+            }),
+            _ => None,
+        },
         (5, "render_evaluation") if parts[3] == "cartesian" => {
             let value = to_number(args[0])?.max(0.0) as u32;
             match parts[4] {

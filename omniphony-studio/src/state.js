@@ -368,23 +368,58 @@ export const app = {
   // trail points before the connecting segment is considered a teleport and
   // skipped. Same value drives the 3D view and the mpv overlay.
   trailTeleportThreshold: 0.5,
-  speakerHeatmapSlicesEnabled: true,
+  // Per-speaker local raymarched volume (gain²); drives speaker-solo-volume.js.
   speakerHeatmapVolumeEnabled: false,
+  // Own gradient for the speaker heatmap volume (differentiated from the object
+  // field). Colour gradient: 'heatmap' | 'blueWhite' | 'whiteRed' | 'red'.
+  speakerHeatmapVolumeColormap: 'heatmap',
+  // Crossover band selected for effective-render / dominant-speaker readout, and
+  // for the per-speaker heatmap volume (single band). `speakerHeatmapAllBands`
+  // overrides it for the heatmap with the level-weighted, frequency-coloured
+  // "all bands" composite (effective-render still uses the numeric index).
   speakerHeatmapBandIndex: 0,
-  speakerHeatmapSampleCount: 3072,
-  speakerHeatmapMaxSphereSize: 0.062,
-  // Object energy heatmap (client-side theoretical field, 3 depth bands).
+  speakerHeatmapAllBands: false,
+  // Object energy field (client-side theoretical field, ray-marched 3D volume).
   objectEnergyHeatmapEnabled: false,
-  // Which slicing axes are rendered (depth / width / height stacks).
-  objectEnergyHeatmapAxisX: true,
-  objectEnergyHeatmapAxisY: false,
-  objectEnergyHeatmapAxisZ: false,
-  objectEnergyHeatmapBandCount: 3,
-  objectEnergyHeatmapResolution: 24,
-  objectEnergyHeatmapDepthSubsamples: 4,
-  objectEnergyHeatmapFalloffRadius: 0.12,
-  objectEnergyHeatmapOpacity: 0.55,
+  // Colour gradient: 'heatmap' | 'blueWhite' | 'whiteRed' | 'red'.
+  objectEnergyColormap: 'blueWhite',
+  // Independent user-editable gradients backing the 'custom' colormap — one for the
+  // object field, one for the speaker heatmap (they do NOT share settings). Stops
+  // are { pos, r, g, b } in [0,1], kept sorted by `pos` (2..8 stops).
+  // `speakerCustomGradientVersion` bumps on every speaker-gradient edit so the
+  // static speaker volume's rebuild guard re-runs (see speaker-solo-volume.js).
+  objectCustomGradientStops: [
+    { pos: 0.0, r: 0.0, g: 0.0, b: 1.0 },
+    { pos: 0.5, r: 0.0, g: 1.0, b: 0.0 },
+    { pos: 1.0, r: 1.0, g: 0.0, b: 0.0 },
+  ],
+  speakerCustomGradientStops: [
+    { pos: 0.0, r: 0.0, g: 0.0, b: 1.0 },
+    { pos: 0.5, r: 0.0, g: 1.0, b: 0.0 },
+    { pos: 1.0, r: 1.0, g: 0.0, b: 0.0 },
+  ],
+  speakerCustomGradientVersion: 0,
+  // Both projections (accumulate front-to-back + peak/MIP) are computed together
+  // and blended by `objectEnergyVolumeMix` (0 = pure accumulate, 1 = pure peak).
+  // They have different alpha semantics (one sample vs the whole ray), so each
+  // keeps its own γ — a single value isn't comparable between them.
+  objectEnergyVolumeMix: 0.6,
+  objectEnergyVolumeGammaAccumulate: 4,
+  objectEnergyVolumeGammaMip: 3,
+  objectEnergyHeatmapResolution: 64,
+  objectEnergyHeatmapFalloffRadius: 0.5,
+  objectEnergyHeatmapOpacity: 1,
+  // Volume sampling: false = crisp cells (NearestFilter), true = trilinear
+  // gradient between each cell's 8 corner texels (LinearFilter). Shared by both
+  // volumes. Needs the OES_texture_float_linear WebGL2 extension.
+  volumeSmoothInterpolation: false,
+  // Drives the mpv overlay's depth-plane count (not the Studio 3D view).
+  objectEnergyHeatmapBandCount: 12,
   lastObjectEnergyHeatmapAt: 0,
+  // The mix/γ/resolution/opacity above are shared between the object field and the
+  // per-speaker heatmap volume (which renders the selected speaker's gain field
+  // from the local table as gain² — see speaker-solo-volume.js).
+  lastSpeakerSoloVolumeAt: 0,
   speakerSize: 0.08,
   effectiveRenderEnabled: false,
   // Display-only master switch: when false, objects + their labels + trails are

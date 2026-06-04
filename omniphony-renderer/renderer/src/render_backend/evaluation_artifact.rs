@@ -6,8 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Read, Write};
 
 use super::{
-    BackendCapabilities, CartesianSpeakerHeatmapSlices, CartesianSpeakerHeatmapVolume,
-    EvaluationBuildConfig, PreparedEvaluator, RenderRequest, RenderResponse,
+    BackendCapabilities, EvaluationBuildConfig, PreparedEvaluator, RenderRequest, RenderResponse,
     sample_cartesian_table, sample_polar_table,
 };
 use crate::speaker_layout::SpeakerLayout;
@@ -163,7 +162,10 @@ impl LoadedEvaluationArtifact {
         Self::from_parts(metadata, &payload)
     }
 
-    pub fn save_to_file(&self, path: &std::path::Path) -> Result<()> {
+    /// Serialize the whole artifact (metadata + compressed gains payload) to the
+    /// same self-describing byte layout `save_to_file` writes — but in memory, so
+    /// it can be shipped over the wire (chunked) and rebuilt with `load_from_bytes`.
+    pub fn to_serialized_bytes(&self) -> Result<Vec<u8>> {
         let metadata = self.metadata();
         let metadata_json = serde_json::to_vec(metadata)?;
         let payload = compress(&self.payload_bytes()?)?;
@@ -175,8 +177,41 @@ impl LoadedEvaluationArtifact {
         out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
         out.extend_from_slice(&metadata_json);
         out.extend_from_slice(&payload);
-        std::fs::write(path, out)?;
+        Ok(out)
+    }
+
+    pub fn save_to_file(&self, path: &std::path::Path) -> Result<()> {
+        std::fs::write(path, self.to_serialized_bytes()?)?;
         Ok(())
+    }
+
+    /// Rebuild an artifact from the in-memory byte layout produced by
+    /// `to_serialized_bytes` (mirror of `load_from_file` without the file I/O).
+    pub fn load_from_bytes(bytes: &[u8]) -> Result<Self> {
+        let mut cursor = Cursor::new(bytes);
+
+        let mut magic = [0u8; 4];
+        cursor.read_exact(&mut magic)?;
+        if &magic != MAGIC {
+            anyhow::bail!("Unsupported evaluator artifact magic");
+        }
+        let version = read_u32(&mut cursor)?;
+        if version != VERSION {
+            anyhow::bail!(
+                "Unsupported evaluator artifact version: expected {}, got {}",
+                VERSION,
+                version
+            );
+        }
+        let metadata_len = read_u32(&mut cursor)? as usize;
+        let payload_len = read_u32(&mut cursor)? as usize;
+        let mut metadata_json = vec![0u8; metadata_len];
+        cursor.read_exact(&mut metadata_json)?;
+        let metadata: EvaluationArtifactMetadata = serde_json::from_slice(&metadata_json)?;
+        let mut payload = vec![0u8; payload_len];
+        cursor.read_exact(&mut payload)?;
+        let payload = decompress(&payload)?;
+        Self::from_parts(metadata, &payload)
     }
 
     pub fn speaker_layout(&self) -> &SpeakerLayout {
@@ -225,7 +260,6 @@ impl LoadedEvaluationArtifact {
             supports_spread_from_distance: false,
             supports_event_size: false,
             supports_distance_diffuse: false,
-            supports_heatmap_cartesian: matches!(self, Self::Cartesian(_)),
             supports_table_export: true,
         }
     }
@@ -459,23 +493,6 @@ impl PreparedEvaluator for EvaluationArtifactEvaluator {
 
     fn save_to_file(&self, path: &std::path::Path, _speaker_layout: &SpeakerLayout) -> Result<()> {
         self.artifact.save_to_file(path)
-    }
-
-    fn cartesian_slices_for_speaker(
-        &self,
-        _speaker_index: usize,
-        _speaker_position: [f32; 3],
-    ) -> Option<CartesianSpeakerHeatmapSlices> {
-        None
-    }
-
-    fn cartesian_volume_for_speaker(
-        &self,
-        _speaker_index: usize,
-        _threshold: f32,
-        _max_samples: usize,
-    ) -> Option<CartesianSpeakerHeatmapVolume> {
-        None
     }
 }
 
