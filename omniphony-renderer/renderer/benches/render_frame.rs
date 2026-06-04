@@ -38,6 +38,32 @@ const SAMPLE_RATE: u32 = 48_000;
 /// Build a renderer with defaults matching the live decode path for `preset`.
 /// `cartesian` selects the precomputed cartesian table/evaluator (vs polar).
 fn make_renderer(preset: &str, position_interpolation: bool, cartesian: bool) -> SpatialRenderer {
+    build_renderer(
+        SpeakerLayout::preset(preset).expect("known preset"),
+        position_interpolation,
+        cartesian,
+    )
+}
+
+/// A "mixed speaker sizes" layout: a few speakers are band-limited (finite
+/// `freq_low`), which makes `compute_bands` split rendering into several
+/// frequency bands. Every band shares the same VBAP grid, so the per-band table
+/// lookups localise the same cell — the case the crossover concept targets.
+fn crossover_layout() -> SpeakerLayout {
+    let mut layout = SpeakerLayout::preset("7.1.4").expect("known preset");
+    // Band-limit the first three speakers at distinct cutoffs → edges {80,200,500}
+    // → 4 bands; the remaining full-range speakers populate every band.
+    for (sp, cutoff) in layout.speakers.iter_mut().zip([80.0, 200.0, 500.0]) {
+        sp.freq_low = Some(cutoff);
+    }
+    layout
+}
+
+fn build_renderer(
+    layout: SpeakerLayout,
+    position_interpolation: bool,
+    cartesian: bool,
+) -> SpatialRenderer {
     let (table_mode, preferred, initial) = if cartesian {
         (
             VbapTableMode::Cartesian {
@@ -57,7 +83,7 @@ fn make_renderer(preset: &str, position_interpolation: bool, cartesian: bool) ->
         )
     };
     SpatialRenderer::new(
-        SpeakerLayout::preset(preset).expect("known preset"),
+        layout,
         SAMPLE_RATE,
         1, // az_res_deg
         1, // el_res_deg
@@ -366,6 +392,54 @@ fn bench_cartesian(c: &mut Criterion) {
     group.finish();
 }
 
+/// Multi-band crossover (mixed speaker sizes) over the cartesian table, moving
+/// case. Each frequency band runs its own table lookup at the SAME object
+/// position, so the per-band cell localisation is currently recomputed N times.
+/// This is the scenario where sharing the localisation across bands would pay
+/// off; it also shows how cost scales with band count.
+fn bench_crossover(c: &mut Criterion) {
+    let mut group = c.benchmark_group("render_crossover");
+    const N: usize = 32;
+    for (label, mode) in [
+        ("frame", RampMode::Frame),
+        ("sample", RampMode::Sample),
+        ("interp", RampMode::Interp),
+    ] {
+        let mut r = build_renderer(crossover_layout(), true, true);
+        {
+            let ctrl = r.renderer_control();
+            ctrl.set_requested_ramp_mode(mode);
+            ctrl.live.write().unwrap().ramp_mode = mode;
+        }
+        let pcm = make_pcm(N);
+        let init = move_events(N, 0);
+        let mut buf = Vec::new();
+        for _ in 0..4 {
+            let f = r.render_frame(&pcm, N, &init, buf, false).expect("prime");
+            buf = f.samples;
+        }
+        let mut round = 1u64;
+        group.bench_function(label, |b| {
+            b.iter(|| {
+                let events = move_events(N, round);
+                round = round.wrapping_add(1);
+                let f = r
+                    .render_frame(
+                        black_box(&pcm),
+                        black_box(N),
+                        &events,
+                        std::mem::take(&mut buf),
+                        false,
+                    )
+                    .expect("render");
+                buf = f.samples;
+                black_box(&buf);
+            });
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_steady,
@@ -373,6 +447,7 @@ criterion_group!(
     bench_ramp_mode,
     bench_static,
     bench_moving,
-    bench_cartesian
+    bench_cartesian,
+    bench_crossover
 );
 criterion_main!(benches);
