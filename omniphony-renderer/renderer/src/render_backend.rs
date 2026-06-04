@@ -13,6 +13,7 @@ use crate::speaker_layout::SpeakerLayout;
 use anyhow::Result;
 use rayon::prelude::*;
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub use barycenter_backend::BarycenterBackend;
 use distance_attenuation::DistanceAttenuatedModel;
@@ -298,6 +299,12 @@ pub(crate) struct CartesianParts<'a> {
 pub trait PreparedEvaluator: Send + Sync {
     fn speaker_count(&self) -> usize;
     fn compute_gains(&self, req: &RenderRequest) -> RenderResponse;
+    /// Update the read-time `position_interpolation` flag (nearest cell vs
+    /// trilinear). The precomputed table content is independent of this flag, so
+    /// toggling it must NOT rebuild the table — only the sampled evaluators hold
+    /// the flag, and they read it via interior mutability. Default: no-op
+    /// (realtime evaluators recompute live and ignore it here).
+    fn set_position_interpolation(&self, _interpolate: bool) {}
     fn save_to_file(&self, path: &std::path::Path, speaker_layout: &SpeakerLayout) -> Result<()>;
     /// Borrow the sampled cartesian table + axes, when this evaluator is a
     /// precomputed cartesian one. Default `None` (realtime/polar). Crate-internal
@@ -352,7 +359,9 @@ pub struct SampledCartesianEvaluator {
     z_lut: AxisLut,
     gains: Vec<f32>,
     speaker_count: usize,
-    position_interpolation: bool,
+    /// Read-time only (nearest cell vs trilinear). Interior-mutable so the live
+    /// toggle can update it without rebuilding the table (see `set_position_interpolation`).
+    position_interpolation: AtomicBool,
     frozen_request: RenderRequest,
     backend_restore_snapshot: Option<BackendRestoreSnapshot>,
 }
@@ -413,7 +422,7 @@ impl SampledCartesianEvaluator {
             z_lut,
             gains,
             speaker_count,
-            position_interpolation: config.position_interpolation,
+            position_interpolation: AtomicBool::new(config.position_interpolation),
             frozen_request: config.request_template,
             backend_restore_snapshot,
         }
@@ -425,6 +434,11 @@ impl PreparedEvaluator for SampledCartesianEvaluator {
         self.speaker_count
     }
 
+    fn set_position_interpolation(&self, interpolate: bool) {
+        self.position_interpolation
+            .store(interpolate, Ordering::Relaxed);
+    }
+
     #[allow(private_interfaces)]
     fn cartesian_parts(&self) -> Option<CartesianParts<'_>> {
         Some(CartesianParts {
@@ -433,7 +447,7 @@ impl PreparedEvaluator for SampledCartesianEvaluator {
             x: &self.x_lut,
             y: &self.y_lut,
             z: &self.z_lut,
-            position_interpolation: self.position_interpolation,
+            position_interpolation: self.position_interpolation.load(Ordering::Relaxed),
         })
     }
 
@@ -447,7 +461,7 @@ impl PreparedEvaluator for SampledCartesianEvaluator {
             &self.y_lut,
             &self.z_lut,
             req.adm_position.map(|value| value as f32),
-            self.position_interpolation,
+            self.position_interpolation.load(Ordering::Relaxed),
         );
         RenderResponse { gains }
     }
@@ -463,7 +477,7 @@ impl PreparedEvaluator for SampledCartesianEvaluator {
             self.model.backend_label(),
             speaker_layout,
             self.frozen_request,
-            self.position_interpolation,
+            self.position_interpolation.load(Ordering::Relaxed),
             self.backend_restore_snapshot.as_ref(),
             &self.x_positions,
             &self.y_positions,
@@ -482,7 +496,9 @@ pub struct SampledPolarEvaluator {
     distance_positions: Vec<f32>,
     gains: Vec<f32>,
     speaker_count: usize,
-    position_interpolation: bool,
+    /// Read-time only (nearest cell vs trilinear); interior-mutable, see
+    /// `set_position_interpolation`.
+    position_interpolation: AtomicBool,
     frozen_request: RenderRequest,
     backend_restore_snapshot: Option<BackendRestoreSnapshot>,
 }
@@ -529,7 +545,7 @@ impl SampledPolarEvaluator {
             distance_positions,
             gains,
             speaker_count,
-            position_interpolation: config.position_interpolation,
+            position_interpolation: AtomicBool::new(config.position_interpolation),
             frozen_request: config.request_template,
             backend_restore_snapshot,
         }
@@ -539,6 +555,11 @@ impl SampledPolarEvaluator {
 impl PreparedEvaluator for SampledPolarEvaluator {
     fn speaker_count(&self) -> usize {
         self.speaker_count
+    }
+
+    fn set_position_interpolation(&self, interpolate: bool) {
+        self.position_interpolation
+            .store(interpolate, Ordering::Relaxed);
     }
 
     fn compute_gains(&self, req: &RenderRequest) -> RenderResponse {
@@ -554,7 +575,7 @@ impl PreparedEvaluator for SampledPolarEvaluator {
             &self.elevation_positions,
             &self.distance_positions,
             [azimuth, elevation, distance],
-            self.position_interpolation,
+            self.position_interpolation.load(Ordering::Relaxed),
         );
         RenderResponse { gains }
     }
@@ -570,7 +591,7 @@ impl PreparedEvaluator for SampledPolarEvaluator {
             self.model.backend_label(),
             speaker_layout,
             self.frozen_request,
-            self.position_interpolation,
+            self.position_interpolation.load(Ordering::Relaxed),
             self.backend_restore_snapshot.as_ref(),
             &self.azimuth_positions,
             &self.elevation_positions,
@@ -699,6 +720,12 @@ impl PreparedRenderEngine {
 
     pub fn compute_gains(&self, req: &RenderRequest) -> RenderResponse {
         self.evaluator.compute_gains(req)
+    }
+
+    /// Update the read-time `position_interpolation` flag on the underlying
+    /// evaluator. Cheap and lock-free; does NOT rebuild the precomputed table.
+    pub fn set_position_interpolation(&self, interpolate: bool) {
+        self.evaluator.set_position_interpolation(interpolate);
     }
 
     pub(crate) fn cartesian_parts(&self) -> Option<CartesianParts<'_>> {
@@ -966,7 +993,15 @@ pub(crate) fn sample_cartesian_table(
                     continue;
                 }
                 accumulate_flat_sample(
-                    table, speaker_count, x_len, y_len, ix, iy, iz, weight, &mut gains,
+                    table,
+                    speaker_count,
+                    x_len,
+                    y_len,
+                    ix,
+                    iy,
+                    iz,
+                    weight,
+                    &mut gains,
                 );
             }
         }
@@ -988,14 +1023,19 @@ pub(crate) struct MultiBandCartesianTable {
     gains: Vec<f32>,
     n_bands: usize,
     num_speakers: usize,
-    position_interpolation: bool,
+    /// Read-time only (nearest cell vs trilinear); interior-mutable so the live
+    /// toggle updates it without rebuilding the merged table.
+    position_interpolation: AtomicBool,
 }
 
 impl MultiBandCartesianTable {
     /// Merge per-band cartesian tables (band-local speakers) into the unified
     /// `[cell][band][num_speakers]` layout, baking each band's speaker scatter.
     /// All bands must share the same grid; returns `None` otherwise.
-    pub(crate) fn build(bands: &[(CartesianParts<'_>, &[usize])], num_speakers: usize) -> Option<Self> {
+    pub(crate) fn build(
+        bands: &[(CartesianParts<'_>, &[usize])],
+        num_speakers: usize,
+    ) -> Option<Self> {
         let (first, _) = bands.first()?;
         let x = first.x.clone();
         let y = first.y.clone();
@@ -1024,14 +1064,20 @@ impl MultiBandCartesianTable {
             gains,
             n_bands,
             num_speakers,
-            position_interpolation,
+            position_interpolation: AtomicBool::new(position_interpolation),
         })
+    }
+
+    /// Update the read-time interpolation flag without rebuilding the table.
+    pub(crate) fn set_position_interpolation(&self, interpolate: bool) {
+        self.position_interpolation
+            .store(interpolate, Ordering::Relaxed);
     }
 
     /// Trilinear lookup for all bands at `position`. Fills `out` with `n_bands`
     /// full-size `Gains` (one localisation, contiguous per-cell accumulation).
     pub(crate) fn sample_into(&self, position: [f32; 3], out: &mut Vec<Gains>) {
-        let interp = self.position_interpolation;
+        let interp = self.position_interpolation.load(Ordering::Relaxed);
         let x = self.x.sample(position[0].clamp(-1.0, 1.0), interp);
         let y = self.y.sample(position[1].clamp(-1.0, 1.0), interp);
         let z = self.z.sample(position[2].clamp(-1.0, 1.0), interp);

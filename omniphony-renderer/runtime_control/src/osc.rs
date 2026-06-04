@@ -908,8 +908,12 @@ pub fn apply_simple_osc_control(
                 .unwrap()
                 .evaluation
                 .position_interpolation = enabled;
+            // No layout recompute: this flag only selects nearest-cell vs
+            // trilinear at table-read time. The precomputed table content is
+            // independent of it, and the renderer syncs the live value into the
+            // evaluators each frame (see SpatialRenderer::render_frame). Rebuilding
+            // the whole grid here just produced an identical table.
             effects.mark_dirty = true;
-            effects.trigger_layout_recompute = true;
             effects.broadcasts.push(BroadcastUpdate {
                 addr: "/omniphony/state/render_evaluation/position_interpolation".to_string(),
                 value: BroadcastValue::Int(if enabled { 1 } else { 0 }),

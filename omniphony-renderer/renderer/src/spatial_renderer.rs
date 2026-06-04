@@ -1083,36 +1083,36 @@ impl SpatialRenderer {
     fn ramp_context(&self, live: &LiveSnapshot<'_>) -> RampContext {
         RampContext::new(RampRenderParams {
             spread_min: live.spread_min,
-                spread_max: live.spread_max,
-                spread_from_distance: live.spread_from_distance,
-                spread_distance_range: live.spread_distance_range,
-                spread_distance_curve: live.spread_distance_curve,
-                size_to_spread_mode: live.size_to_spread_mode,
-                room_ratio: live.room_ratio,
-                room_ratio_rear: live.room_ratio_rear,
-                room_ratio_lower: live.room_ratio_lower,
-                room_ratio_center_blend: live.room_ratio_center_blend,
-                use_distance_diffuse: live.use_distance_diffuse,
-                distance_diffuse_threshold: live.distance_diffuse_threshold,
-                distance_diffuse_curve: live.distance_diffuse_curve,
-                distance_model: self.distance_model,
-                barycenter_localize: live.barycenter.localize,
-                experimental_distance_distance_floor: live.experimental_distance.distance_floor,
-                experimental_distance_min_active_speakers: live
-                    .experimental_distance
-                    .min_active_speakers,
-                experimental_distance_max_active_speakers: live
-                    .experimental_distance
-                    .max_active_speakers,
-                experimental_distance_position_error_floor: live
-                    .experimental_distance
-                    .position_error_floor,
-                experimental_distance_position_error_nearest_scale: live
-                    .experimental_distance
-                    .position_error_nearest_scale,
-                experimental_distance_position_error_span_scale: live
-                    .experimental_distance
-                    .position_error_span_scale,
+            spread_max: live.spread_max,
+            spread_from_distance: live.spread_from_distance,
+            spread_distance_range: live.spread_distance_range,
+            spread_distance_curve: live.spread_distance_curve,
+            size_to_spread_mode: live.size_to_spread_mode,
+            room_ratio: live.room_ratio,
+            room_ratio_rear: live.room_ratio_rear,
+            room_ratio_lower: live.room_ratio_lower,
+            room_ratio_center_blend: live.room_ratio_center_blend,
+            use_distance_diffuse: live.use_distance_diffuse,
+            distance_diffuse_threshold: live.distance_diffuse_threshold,
+            distance_diffuse_curve: live.distance_diffuse_curve,
+            distance_model: self.distance_model,
+            barycenter_localize: live.barycenter.localize,
+            experimental_distance_distance_floor: live.experimental_distance.distance_floor,
+            experimental_distance_min_active_speakers: live
+                .experimental_distance
+                .min_active_speakers,
+            experimental_distance_max_active_speakers: live
+                .experimental_distance
+                .max_active_speakers,
+            experimental_distance_position_error_floor: live
+                .experimental_distance
+                .position_error_floor,
+            experimental_distance_position_error_nearest_scale: live
+                .experimental_distance
+                .position_error_nearest_scale,
+            experimental_distance_position_error_span_scale: live
+                .experimental_distance
+                .position_error_span_scale,
         })
     }
 
@@ -1251,8 +1251,10 @@ impl SpatialRenderer {
         self.refresh_crossover_for_topology(topology_identity, &topology.speaker_layout)?;
 
         // ── 1. Snapshot live params so we hold the read lock for as short a time as possible ──
+        let live_position_interpolation;
         let live = {
             let g = self.control.live.read().unwrap();
+            live_position_interpolation = g.evaluation.position_interpolation;
             let object_params_generation = self
                 .control
                 .object_params_generation
@@ -1329,6 +1331,21 @@ impl SpatialRenderer {
                 experimental_distance: g.experimental_distance,
             }
         };
+        // Push the live read-time interpolation flag into the precomputed
+        // evaluators and the unified table. This flag only selects nearest-cell
+        // vs trilinear at lookup time; the table content is independent of it, so
+        // toggling it no longer rebuilds the table (the OSC handler dropped its
+        // `trigger_layout_recompute`). We sync the current value every frame —
+        // just a handful of relaxed atomic stores.
+        for band in &self.render_bands {
+            if let Some(engine) = band.engine.as_ref() {
+                engine.set_position_interpolation(live_position_interpolation);
+            }
+        }
+        if let Some(table) = self.unified_table.as_ref() {
+            table.set_position_interpolation(live_position_interpolation);
+        }
+
         let ramp_context = self.ramp_context(&live);
         let ramp_strategy_override = self.ramp_strategy_override.clone();
         // The ramp always interpolates the object POSITION across the block; the
@@ -2118,7 +2135,9 @@ mod tests {
             sample_pos: Some(0),
         }];
 
-        let a = unified.render_frame(&pcm, 1, &event, Vec::new(), false).unwrap();
+        let a = unified
+            .render_frame(&pcm, 1, &event, Vec::new(), false)
+            .unwrap();
         let b = per_band
             .render_frame(&pcm, 1, &event, Vec::new(), false)
             .unwrap();
