@@ -325,6 +325,11 @@ pub struct SampledCartesianEvaluator {
     x_positions: Vec<f32>,
     y_positions: Vec<f32>,
     z_positions: Vec<f32>,
+    // Precomputed division-free lookups for the runtime table read. Kept in sync
+    // with the *_positions arrays above (the source of truth for serialization).
+    x_lut: AxisLut,
+    y_lut: AxisLut,
+    z_lut: AxisLut,
     gains: Vec<f32>,
     speaker_count: usize,
     position_interpolation: bool,
@@ -375,11 +380,17 @@ impl SampledCartesianEvaluator {
             SerializedEvaluationMode::PrecomputedCartesian,
             config,
         );
+        let x_lut = AxisLut::from_values(&x_positions);
+        let y_lut = AxisLut::from_values(&y_positions);
+        let z_lut = AxisLut::from_values(&z_positions);
         Self {
             model,
             x_positions,
             y_positions,
             z_positions,
+            x_lut,
+            y_lut,
+            z_lut,
             gains,
             speaker_count,
             position_interpolation: config.position_interpolation,
@@ -400,9 +411,9 @@ impl PreparedEvaluator for SampledCartesianEvaluator {
         let gains = sample_cartesian_table(
             &self.gains,
             self.speaker_count,
-            &self.x_positions,
-            &self.y_positions,
-            &self.z_positions,
+            &self.x_lut,
+            &self.y_lut,
+            &self.z_lut,
             req.adm_position.map(|value| value as f32),
             self.position_interpolation,
         );
@@ -758,25 +769,151 @@ fn polar_elevation_axis(count: usize, allow_negative_z: bool) -> Vec<f32> {
     }
 }
 
+/// Precomputed per-axis lookup: turns a position into the `(lower, upper,
+/// fraction)` bracket without a per-call division or binary search. Built once
+/// when the table is created (`inv_step` = `1.0 / grid_step`), so the runtime
+/// lookup is a multiply instead of the `partition_point` search + step/fraction
+/// divisions that dominated the cartesian `compute_gains` cost.
+#[derive(Clone)]
+pub(crate) enum AxisLut {
+    /// Evenly spaced grid: `values[k] == min + k / inv_step`.
+    Uniform { min: f32, inv_step: f32, len: usize },
+    /// Two evenly spaced regions joined at the value `0.0` (the cartesian z
+    /// axis): indices `0..=split` span `[-1, 0]`, `split..len` span `[0, 1]`.
+    SplitZero {
+        split: usize,
+        neg_inv_step: f32,
+        pos_inv_step: f32,
+        len: usize,
+    },
+    /// Arbitrary ascending values — falls back to the binary-search path.
+    Irregular(Vec<f32>),
+}
+
+impl AxisLut {
+    /// Classify an axis grid. Detects an evenly-spaced axis (x/y) or the two
+    /// uniform-region cartesian z axis; anything else keeps the search path, so
+    /// the result is always correct regardless of grid shape.
+    pub(crate) fn from_values(values: &[f32]) -> Self {
+        let n = values.len();
+        if n < 2 {
+            return Self::Irregular(values.to_vec());
+        }
+        // Returns inv_step iff values[lo..=hi] are evenly spaced.
+        let uniform_inv_step = |lo: usize, hi: usize| -> Option<f32> {
+            let step = (values[hi] - values[lo]) / (hi - lo) as f32;
+            if step <= 0.0 {
+                return None;
+            }
+            let tol = 1e-5 * step.max(1.0);
+            for k in lo..=hi {
+                let expected = values[lo] + (k - lo) as f32 * step;
+                if (values[k] - expected).abs() > tol {
+                    return None;
+                }
+            }
+            Some(1.0 / step)
+        };
+        if let Some(inv_step) = uniform_inv_step(0, n - 1) {
+            return Self::Uniform {
+                min: values[0],
+                inv_step,
+                len: n,
+            };
+        }
+        if let Some(split) = values.iter().position(|&v| v == 0.0) {
+            if split > 0 && split < n - 1 {
+                if let (Some(neg), Some(pos)) =
+                    (uniform_inv_step(0, split), uniform_inv_step(split, n - 1))
+                {
+                    return Self::SplitZero {
+                        split,
+                        neg_inv_step: neg,
+                        pos_inv_step: pos,
+                        len: n,
+                    };
+                }
+            }
+        }
+        Self::Irregular(values.to_vec())
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            Self::Uniform { len, .. } | Self::SplitZero { len, .. } => *len,
+            Self::Irregular(values) => values.len(),
+        }
+    }
+
+    /// Bracket within an evenly-spaced region of `len` points, given the
+    /// position already expressed in cell units (`f = (pos - min) * inv_step`).
+    fn bracket_uniform(f: f32, len: usize, interpolate: bool) -> AxisSample {
+        let f = f.clamp(0.0, (len - 1) as f32);
+        if !interpolate {
+            let nearest = ((f + 0.5) as usize).min(len - 1);
+            return AxisSample {
+                lower: nearest,
+                upper: nearest,
+                fraction: 0.0,
+            };
+        }
+        let lower = (f as usize).min(len - 2);
+        AxisSample {
+            lower,
+            upper: lower + 1,
+            fraction: f - lower as f32,
+        }
+    }
+
+    fn sample(&self, position: f32, interpolate: bool) -> AxisSample {
+        match self {
+            Self::Uniform { min, inv_step, len } => {
+                Self::bracket_uniform((position - min) * inv_step, *len, interpolate)
+            }
+            Self::SplitZero {
+                split,
+                neg_inv_step,
+                pos_inv_step,
+                len,
+            } => {
+                if position < 0.0 {
+                    // Region [-1, 0] occupies indices 0..=split (split+1 points).
+                    Self::bracket_uniform((position + 1.0) * neg_inv_step, split + 1, interpolate)
+                } else {
+                    // Region [0, 1] occupies indices split..len; offset back.
+                    let mut s =
+                        Self::bracket_uniform(position * pos_inv_step, len - split, interpolate);
+                    s.lower += split;
+                    s.upper += split;
+                    s
+                }
+            }
+            Self::Irregular(values) => sample_axis(values, position, interpolate),
+        }
+    }
+}
+
 pub(crate) fn sample_cartesian_table(
     table: &[f32],
     speaker_count: usize,
-    x_positions: &[f32],
-    y_positions: &[f32],
-    z_positions: &[f32],
+    x_axis: &AxisLut,
+    y_axis: &AxisLut,
+    z_axis: &AxisLut,
     position: [f32; 3],
     interpolate: bool,
 ) -> Gains {
-    let x = sample_axis(x_positions, position[0].clamp(-1.0, 1.0), interpolate);
-    let y = sample_axis(y_positions, position[1].clamp(-1.0, 1.0), interpolate);
-    let z = sample_axis(z_positions, position[2].clamp(-1.0, 1.0), interpolate);
+    let x = x_axis.sample(position[0].clamp(-1.0, 1.0), interpolate);
+    let y = y_axis.sample(position[1].clamp(-1.0, 1.0), interpolate);
+    let z = z_axis.sample(position[2].clamp(-1.0, 1.0), interpolate);
+    let x_len = x_axis.len();
+    let y_len = y_axis.len();
     let mut gains = Gains::zeroed(speaker_count);
     if !interpolate {
         write_flat_sample(
             table,
             speaker_count,
-            x_positions.len(),
-            y_positions.len(),
+            x_len,
+            y_len,
             x.lower,
             y.lower,
             z.lower,
@@ -793,15 +930,7 @@ pub(crate) fn sample_cartesian_table(
                     continue;
                 }
                 accumulate_flat_sample(
-                    table,
-                    speaker_count,
-                    x_positions.len(),
-                    y_positions.len(),
-                    ix,
-                    iy,
-                    iz,
-                    weight,
-                    &mut gains,
+                    table, speaker_count, x_len, y_len, ix, iy, iz, weight, &mut gains,
                 );
             }
         }
@@ -1068,4 +1197,82 @@ fn wrap_degrees(value: f32) -> f32 {
 fn wrapped_angle_distance(a: f32, b: f32) -> f32 {
     let delta = (a - b).abs().rem_euclid(360.0);
     delta.min(360.0 - delta)
+}
+
+#[cfg(test)]
+mod cartesian_lookup_bench {
+    //! Microbench of the cartesian table lookup, contrasting the production
+    //! `AxisLut` (division-free `inv_step` index for x/y + split z) against the
+    //! generic binary-search path (`AxisLut::Irregular`, the pre-optimisation
+    //! behaviour). Both go through `sample_cartesian_table`, so this isolates the
+    //! lookup-localisation cost the `inv_step` precompute removed.
+    //!
+    //! Run: cargo test -p renderer --release cartesian_lookup_bench -- --ignored --nocapture
+    use super::*;
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    #[test]
+    #[ignore = "microbenchmark, run explicitly: cargo test -p renderer --release \
+                cartesian_lookup_bench -- --ignored --nocapture"]
+    fn inv_step_vs_search() {
+        let sc = 12usize;
+        let xs = evenly_spaced_axis(31, -1.0, 1.0);
+        let ys = evenly_spaced_axis(31, -1.0, 1.0);
+        let zs = cartesian_z_axis(15, 15);
+        let (nx, ny, nz) = (xs.len(), ys.len(), zs.len());
+        let mut table = vec![0.0f32; nx * ny * nz * sc];
+        for (i, v) in table.iter_mut().enumerate() {
+            *v = ((i * 2654435761) % 1000) as f32 / 1000.0;
+        }
+
+        // Production luts (uniform x/y, split z) vs forced binary-search luts.
+        let (fx, fy, fz) = (
+            AxisLut::from_values(&xs),
+            AxisLut::from_values(&ys),
+            AxisLut::from_values(&zs),
+        );
+        let (sx, sy, sz) = (
+            AxisLut::Irregular(xs.clone()),
+            AxisLut::Irregular(ys.clone()),
+            AxisLut::Irregular(zs.clone()),
+        );
+
+        let n = 40;
+        let positions: Vec<[f32; 3]> = (0..n)
+            .map(|s| {
+                let t = s as f32 / (n - 1) as f32;
+                [-0.3 + 0.6 * t, -0.2 + 0.4 * t, -0.1 + 0.3 * t]
+            })
+            .collect();
+
+        let reps = 300_000;
+        let run = |x: &AxisLut, y: &AxisLut, z: &AxisLut| {
+            for p in &positions {
+                black_box(sample_cartesian_table(&table, sc, x, y, z, *p, true));
+            }
+        };
+        run(&fx, &fy, &fz); // warm up
+
+        let t0 = Instant::now();
+        for _ in 0..reps {
+            run(&fx, &fy, &fz);
+        }
+        let inv = t0.elapsed();
+
+        let t1 = Instant::now();
+        for _ in 0..reps {
+            run(&sx, &sy, &sz);
+        }
+        let search = t1.elapsed();
+
+        let calls = (reps * n) as f64;
+        let inv_ns = inv.as_secs_f64() * 1e9 / calls;
+        let search_ns = search.as_secs_f64() * 1e9 / calls;
+        eprintln!(
+            "cartesian lookup: inv_step {inv_ns:.1} ns/call | binary-search {search_ns:.1} ns/call \
+             | inv_step is {:.0}% faster",
+            (search_ns - inv_ns) / search_ns * 100.0,
+        );
+    }
 }

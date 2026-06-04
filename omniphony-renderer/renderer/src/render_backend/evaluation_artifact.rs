@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Read, Write};
 
 use super::{
-    BackendCapabilities, EvaluationBuildConfig, PreparedEvaluator, RenderRequest, RenderResponse,
-    sample_cartesian_table, sample_polar_table,
+    AxisLut, BackendCapabilities, EvaluationBuildConfig, PreparedEvaluator, RenderRequest,
+    RenderResponse, sample_cartesian_table, sample_polar_table,
 };
 use crate::speaker_layout::SpeakerLayout;
 
@@ -116,6 +116,10 @@ pub struct CartesianArtifact {
     x_positions: Vec<f32>,
     y_positions: Vec<f32>,
     z_positions: Vec<f32>,
+    // Division-free lookups rebuilt from the *_positions arrays (not serialized).
+    x_lut: AxisLut,
+    y_lut: AxisLut,
+    z_lut: AxisLut,
     gains: Vec<f32>,
 }
 
@@ -338,11 +342,17 @@ impl LoadedEvaluationArtifact {
                 let y_positions = read_f32_vec(&mut cursor, y_count)?;
                 let z_positions = read_f32_vec(&mut cursor, z_count)?;
                 let gains = read_f32_vec(&mut cursor, x_count * y_count * z_count * speaker_count)?;
+                let x_lut = AxisLut::from_values(&x_positions);
+                let y_lut = AxisLut::from_values(&y_positions);
+                let z_lut = AxisLut::from_values(&z_positions);
                 Ok(Self::Cartesian(CartesianArtifact {
                     metadata,
                     x_positions,
                     y_positions,
                     z_positions,
+                    x_lut,
+                    y_lut,
+                    z_lut,
                     gains,
                 }))
             }
@@ -402,6 +412,9 @@ impl LoadedEvaluationArtifact {
             x_positions: x_positions.to_vec(),
             y_positions: y_positions.to_vec(),
             z_positions: z_positions.to_vec(),
+            x_lut: AxisLut::from_values(x_positions),
+            y_lut: AxisLut::from_values(y_positions),
+            z_lut: AxisLut::from_values(z_positions),
             gains: gains.to_vec(),
         }))
     }
@@ -465,9 +478,9 @@ impl PreparedEvaluator for EvaluationArtifactEvaluator {
             LoadedEvaluationArtifact::Cartesian(artifact) => sample_cartesian_table(
                 &artifact.gains,
                 self.artifact.speaker_count(),
-                &artifact.x_positions,
-                &artifact.y_positions,
-                &artifact.z_positions,
+                &artifact.x_lut,
+                &artifact.y_lut,
+                &artifact.z_lut,
                 req.adm_position.map(|value| value as f32),
                 artifact.metadata.position_interpolation,
             ),
