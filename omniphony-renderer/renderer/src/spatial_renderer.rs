@@ -1080,17 +1080,9 @@ impl SpatialRenderer {
         self.reset_runtime_state();
     }
 
-    fn ramp_context<'a>(
-        &self,
-        topology_identity: usize,
-        topology: &'a RenderTopology,
-        live: &LiveSnapshot<'_>,
-    ) -> RampContext<'a> {
-        RampContext::new(
-            topology.backend.as_ref(),
-            topology_identity,
-            RampRenderParams {
-                spread_min: live.spread_min,
+    fn ramp_context(&self, live: &LiveSnapshot<'_>) -> RampContext {
+        RampContext::new(RampRenderParams {
+            spread_min: live.spread_min,
                 spread_max: live.spread_max,
                 spread_from_distance: live.spread_from_distance,
                 spread_distance_range: live.spread_distance_range,
@@ -1121,8 +1113,7 @@ impl SpatialRenderer {
                 experimental_distance_position_error_span_scale: live
                     .experimental_distance
                     .position_error_span_scale,
-            },
-        )
+        })
     }
 
     /// Clear cached per-channel spatial/ramp state after a decoder reset or
@@ -1143,7 +1134,7 @@ impl SpatialRenderer {
         &self,
         events: &[SpatialChannelEvent],
         strategy: &dyn RampStrategy,
-        ctx: &RampContext<'_>,
+        ctx: &RampContext,
     ) -> Result<()> {
         let mut channel_states = self.channel_states.lock().unwrap();
 
@@ -1151,7 +1142,6 @@ impl SpatialRenderer {
             let state = channel_states
                 .entry(event.channel_idx)
                 .or_insert_with(ChannelState::default);
-            state.ramp.ensure_speaker_count(ctx.speaker_count());
 
             if let Some(gain) = event.gain_db {
                 state.gain_db = gain;
@@ -1339,7 +1329,7 @@ impl SpatialRenderer {
                 experimental_distance: g.experimental_distance,
             }
         };
-        let ramp_context = self.ramp_context(topology_identity, topology, &live);
+        let ramp_context = self.ramp_context(&live);
         let ramp_strategy_override = self.ramp_strategy_override.clone();
         // The ramp always interpolates the object POSITION across the block; the
         // `position_interpolation` flag now only selects how the table is read at
@@ -1506,9 +1496,6 @@ impl SpatialRenderer {
                         continue;
                     }
                 };
-                state
-                    .ramp
-                    .ensure_speaker_count(ramp_context.speaker_count());
 
                 // ── Unified band rendering path ─────────────────────────────────────────
                 // Always iterate over `render_bands` (1 band = no crossover, N bands = LR4).
