@@ -371,13 +371,13 @@ fn effective_output_backend(
 
 fn log_auto_gain_summary(handler: &DecodeHandler) {
     if let Some(ref renderer) = handler.spatial_renderer {
-        let auto_gain_db = renderer.get_auto_gain_db();
-        if auto_gain_db < 0.0 {
+        if renderer.auto_gain_triggered() {
+            let master_gain = renderer.renderer_control().live.read().unwrap().master_gain;
             log::warn!(
-                "Auto-gain: {:.1} dB attenuation was needed to avoid clipping. \
-                 Use --master-gain {:.1} for future playback without clipping.",
-                auto_gain_db,
-                auto_gain_db
+                "Auto-gain: master gain was lowered to {:.4} ({:.1} dB) to avoid clipping; \
+                 save the config to keep it for future playback.",
+                master_gain,
+                20.0 * master_gain.log10()
             );
         } else {
             log::info!("Auto-gain: No clipping detected, no attenuation needed.");

@@ -336,16 +336,6 @@ export function rendererPanelMarkup() {
               </div>
             </div>
           </div>
-          <div class="info-section renderer-subpanel" id="autoGainSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
-            <div class="renderer-subpanel-bar" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
-              <div class="title-with-info" style="margin:0;font-size:12px;font-weight:600;color:#ffffff">
-                <span data-i18n="autoGain.title">Auto-gain (anti-clip)</span>
-              </div>
-              <div class="renderer-subpanel-actions" style="display:flex;align-items:center;gap:0.35rem">
-                <input id="autoGainToggle" type="checkbox" />
-              </div>
-            </div>
-          </div>
           <div class="info-section renderer-subpanel" id="distanceModelSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
             <div class="renderer-subpanel-bar" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
               <div class="title-with-info" style="margin:0;font-size:12px;font-weight:600;color:#ffffff">

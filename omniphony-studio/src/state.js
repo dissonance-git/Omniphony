@@ -87,7 +87,8 @@ export const dirty = {
   audioFormat: false,
   drcUI: false,
   masterGain: false,
-  autoGain: false
+  autoGain: false,
+  autoGainCeiling: false
 };
 
 // ---------------------------------------------------------------------------
@@ -162,6 +163,7 @@ export const app = {
   // Master
   masterGain: null,
   autoGain: null,
+  autoGainCeilingDb: -1.0,
 
   // Loudness
   loudnessEnabled: null,

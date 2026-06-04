@@ -331,6 +331,8 @@ pub struct AppState {
     pub master_gain: Option<f64>,
     #[serde(rename = "autoGain")]
     pub auto_gain: Option<bool>,
+    #[serde(rename = "autoGainCeilingDb")]
+    pub auto_gain_ceiling_db: Option<f64>,
     #[serde(rename = "distanceDiffuse")]
     pub distance_diffuse: DistanceDiffuse,
     #[serde(rename = "distanceModel")]
@@ -638,6 +640,7 @@ impl Default for AppState {
             loudness_gain: None,
             master_gain: None,
             auto_gain: None,
+            auto_gain_ceiling_db: None,
             distance_diffuse: DistanceDiffuse::default(),
             distance_model: DistanceModelState::default(),
             vbap_cartesian: VbapCartesian::default(),

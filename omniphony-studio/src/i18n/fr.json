@@ -377,6 +377,7 @@
   "master.title": "Master",
   "distance.title": "Distance Diffuse",
   "autoGain.title": "Gain auto (anti-clip)",
+  "autoGain.ceiling": "Plafond",
   "distance.model": "Modèle de distance",
   "distance.metric": "Métrique de distance",
   "distance.metric.spherical": "Sphérique",

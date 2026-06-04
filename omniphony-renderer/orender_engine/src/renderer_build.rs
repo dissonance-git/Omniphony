@@ -512,6 +512,11 @@ pub fn build_spatial_renderer(
             if let Some(localize) = render_cfg.and_then(|cfg| cfg.barycenter_localize) {
                 live.barycenter.localize = localize;
             }
+            if let Some(ceiling) =
+                render_cfg.and_then(renderer::config_fields::auto_gain_ceiling_db::get)
+            {
+                live.auto_gain_ceiling_db = ceiling;
+            }
         }
         if requires_rebuild {
             if let Some(plan) = control.prepare_topology_rebuild() {

@@ -31,7 +31,8 @@ import {
   updateSpeakerVisualsFromState,
   setSpeakerSpatializeLocal,
   updateSpeakerControlsUI,
-  updateObjectControlsUI
+  updateObjectControlsUI,
+  flashSpeakerClip
 } from './speakers.js';
 
 import {
@@ -46,7 +47,7 @@ import {
   setFrameDurationMs,
   updateResampleRatioDisplay
 } from './controls/latency.js';
-import { updateMasterGainUI, updateLoudnessDisplay, updateDistanceModelUI } from './controls/master.js';
+import { updateMasterGainUI, updateLoudnessDisplay, updateDistanceModelUI, flashClipIndicator } from './controls/master.js';
 import { updateSpreadDisplay } from './controls/spread.js';
 import {
   updateRenderBackend,
@@ -491,6 +492,13 @@ export function setupTauriBridge() {
   listen('master:gain', ({ payload }) => {
     app.masterGain = Number(payload.value);
     updateMasterGainUI();
+  });
+
+  // Clip indicator: renderer flags any output clip (independent of auto-gain),
+  // carrying the offending speaker index so its row also flashes red.
+  listen('clip:detected', ({ payload }) => {
+    flashClipIndicator();
+    flashSpeakerClip(Number(payload?.speaker));
   });
 
   // -----------------------------------------------------------------------

@@ -45,7 +45,10 @@ export function updateMasterGainUI() {
   scheduleUIFlush();
 }
 
-function getAutoGainToggleEl() { return inRendererPanel('autoGainToggle'); }
+function getAutoGainToggleEl() { return inAudioPanel('autoGainToggle'); }
+function getAutoGainCeilingSliderEl() { return inAudioPanel('autoGainCeilingSlider'); }
+function getAutoGainCeilingValEl() { return inAudioPanel('autoGainCeilingVal'); }
+function getClipIndicatorEl() { return inAudioPanel('clipIndicator'); }
 
 export function renderAutoGainUI() {
   const autoGainToggleEl = getAutoGainToggleEl();
@@ -58,6 +61,44 @@ export function renderAutoGainUI() {
 export function updateAutoGainUI() {
   dirty.autoGain = true;
   scheduleUIFlush();
+}
+
+export function renderAutoGainCeilingUI() {
+  const sliderEl = getAutoGainCeilingSliderEl();
+  const valEl = getAutoGainCeilingValEl();
+  const db = Number.isFinite(app.autoGainCeilingDb) ? app.autoGainCeilingDb : -1.0;
+  if (sliderEl) {
+    sliderEl.value = String(db);
+    sliderEl.disabled = !app.oscSnapshotReady;
+  }
+  if (valEl) {
+    valEl.textContent = `${db.toFixed(1)} dB`;
+  }
+}
+
+export function updateAutoGainCeilingUI() {
+  dirty.autoGainCeiling = true;
+  scheduleUIFlush();
+}
+
+/**
+ * Flash the clip indicator red with a 1 s remanence. Driven by the renderer's
+ * `/omniphony/state/clip` event and works regardless of the auto-gain toggle.
+ */
+let clipFadeTimer = null;
+export function flashClipIndicator() {
+  const el = getClipIndicatorEl();
+  if (!el) {
+    return;
+  }
+  el.classList.add('clip-active');
+  if (clipFadeTimer !== null) {
+    clearTimeout(clipFadeTimer);
+  }
+  clipFadeTimer = setTimeout(() => {
+    el.classList.remove('clip-active');
+    clipFadeTimer = null;
+  }, 1000);
 }
 
 export function getAverageSpeakerRmsDb() {

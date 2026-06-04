@@ -16,7 +16,7 @@ use anyhow::Result;
 use arc_swap::ArcSwap;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::backend_registry::{TopologyBuildPlan, prepare_topology_build_plan};
@@ -273,6 +273,12 @@ pub struct LiveParams {
     /// output gain on detected clipping (peak hold, no recovery). Live-tunable
     /// via `/omniphony/control/auto_gain`.
     pub auto_gain: bool,
+
+    /// Target ceiling (dBFS) that auto-gain corrects detected peaks down to.
+    /// Clipping is detected at 0 dBFS (peak > 1.0); when it fires, the master
+    /// gain is lowered so the peak lands at this level instead of exactly 0 dBFS,
+    /// leaving headroom so corrections fire less often. Default −1 dBFS.
+    pub auto_gain_ceiling_db: f32,
 
     /// Distance attenuation model currently applied by the renderer.
     pub distance_model: crate::spatial_vbap::DistanceModel,
@@ -581,6 +587,20 @@ pub struct RendererControl {
     /// Bumped whenever per-speaker live params change.
     pub speaker_params_generation: std::sync::atomic::AtomicU64,
 
+    /// Bumped whenever live state changes in a way clients should see without an
+    /// explicit request (e.g. auto-gain lowering the master gain on the audio
+    /// thread). The engine's OSC listener polls this and re-broadcasts the
+    /// live-state bundle when it changes, coalesced to the listener's poll cadence.
+    pub live_state_generation: std::sync::atomic::AtomicU64,
+
+    /// Set by the gain stage whenever output clipping is detected (peak > 0 dBFS),
+    /// independently of whether auto-gain is enabled. Holds the index of the speaker
+    /// channel that held the peak, or `-1` when no clip is pending. The OSC listener
+    /// polls and clears it to emit a one-shot `/omniphony/state/clip <speaker_idx>`
+    /// so clients can flash clip indicators. Coalesced: many clipping frames between
+    /// polls collapse to one event carrying the most recent offending speaker.
+    pub clip_pending: AtomicI32,
+
     /// Path of the active config file, used by the save-config handler.
     /// Set after construction via `set_config_path()`.
     pub config_path: Mutex<Option<PathBuf>>,
@@ -636,6 +656,8 @@ impl RendererControl {
             config_dirty: AtomicBool::new(false),
             object_params_generation: std::sync::atomic::AtomicU64::new(1),
             speaker_params_generation: std::sync::atomic::AtomicU64::new(1),
+            live_state_generation: std::sync::atomic::AtomicU64::new(0),
+            clip_pending: AtomicI32::new(-1),
             config_path: Mutex::new(None),
             config_status: Mutex::new(None),
             bridge_error: Mutex::new(None),
@@ -744,6 +766,29 @@ impl RendererControl {
     pub fn mark_speaker_params_dirty(&self) {
         self.speaker_params_generation
             .fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Signal that live state changed and should be re-broadcast to clients.
+    pub fn bump_live_state(&self) {
+        self.live_state_generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn live_state_generation(&self) -> u64 {
+        self.live_state_generation.load(Ordering::Relaxed)
+    }
+
+    /// Flag that output clipping was detected this frame on `speaker_idx`
+    /// (lock-free, audio-thread safe).
+    pub fn note_clip(&self, speaker_idx: usize) {
+        self.clip_pending
+            .store(speaker_idx as i32, Ordering::Relaxed);
+    }
+
+    /// Atomically read and clear the clip flag. Returns `Some(speaker_idx)` if
+    /// clipping was flagged since the last call, else `None`.
+    pub fn take_clip_pending(&self) -> Option<usize> {
+        let idx = self.clip_pending.swap(-1, Ordering::Relaxed);
+        (idx >= 0).then_some(idx as usize)
     }
 
     pub fn prepare_topology_rebuild(&self) -> Option<TopologyBuildPlan> {

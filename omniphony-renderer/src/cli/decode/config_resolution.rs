@@ -23,6 +23,9 @@ pub(super) fn apply_render_cfg_overrides(
     if let Some(localize) = args.barycenter_localize {
         render.barycenter_localize = Some(localize);
     }
+    if let Some(ceiling) = args.auto_gain_ceiling {
+        render.auto_gain_ceiling_db = Some(ceiling);
+    }
     if let Some(b) = args.hybrid_external_backend {
         render.hybrid_external_backend = Some(b.as_config_str().to_string());
     }

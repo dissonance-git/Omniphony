@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { app } from '../state.js';
 import { t } from '../i18n.js';
-import { updateMasterGainUI, updateLoudnessDisplay } from '../controls/master.js';
+import { updateMasterGainUI, updateLoudnessDisplay, updateAutoGainUI, updateAutoGainCeilingUI } from '../controls/master.js';
 import { updateAdaptiveResamplingUI, resetAdaptiveResamplingAdvancedDirtyState } from '../controls/adaptive.js';
 import {
   closeAudioSampleRateMenu, openAudioSampleRateMenu, updateAudioFormatDisplay,
@@ -14,6 +14,8 @@ import { toggleDiagPlot } from '../controls/diag-plot.js';
 
 export function setupAudioPanelListeners() {
   const masterGainSliderEl = document.getElementById('masterGainSlider');
+  const autoGainToggleEl = document.getElementById('autoGainToggle');
+  const autoGainCeilingSliderEl = document.getElementById('autoGainCeilingSlider');
   const loudnessToggleEl = document.getElementById('loudnessToggle');
   const adaptiveResamplingToggleEl = document.getElementById('adaptiveResamplingToggle');
   const adaptiveFarHardRecoverHighToggleEl = document.getElementById('adaptiveFarHardRecoverHighToggle');
@@ -76,6 +78,27 @@ export function setupAudioPanelListeners() {
       app.masterGain = 1;
       updateMasterGainUI();
       invoke('control_master_gain', { gain: app.masterGain });
+    });
+  }
+
+  if (autoGainToggleEl) {
+    autoGainToggleEl.addEventListener('change', () => {
+      const enabled = autoGainToggleEl.checked;
+      app.autoGain = enabled;
+      updateAutoGainUI();
+      invoke('control_auto_gain', { enable: enabled ? 1 : 0 });
+    });
+  }
+
+  if (autoGainCeilingSliderEl) {
+    autoGainCeilingSliderEl.addEventListener('input', () => {
+      const db = Number(autoGainCeilingSliderEl.value);
+      if (!Number.isFinite(db)) {
+        return;
+      }
+      app.autoGainCeilingDb = db;
+      updateAutoGainCeilingUI();
+      invoke('control_auto_gain_ceiling', { db });
     });
   }
 

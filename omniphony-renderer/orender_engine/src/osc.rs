@@ -200,6 +200,8 @@ impl OscSender {
                     .unwrap_or(0);
                 let mut last_host_state_generation =
                     host_handler.as_ref().map(|h| h.state_generation());
+                let mut last_live_state_generation =
+                    control.as_ref().map(|c| c.live_state_generation());
 
                 let mut buf = [0u8; 4096];
                 loop {
@@ -214,6 +216,31 @@ impl OscSender {
                             if let Some(ref ctrl) = control {
                                 let state_bytes = build_live_state_bundle(ctrl, Some(host));
                                 send_raw_filtered(&socket, &clients, &state_bytes, |_| true);
+                            }
+                        }
+                    }
+                    // Re-broadcast when core live state changed asynchronously on the
+                    // audio thread (e.g. auto-gain lowering the master gain). Coalesced
+                    // to this loop's poll cadence (≤200 ms) so loud passages can't flood.
+                    if let Some(ref ctrl) = control {
+                        let generation = ctrl.live_state_generation();
+                        if last_live_state_generation != Some(generation) {
+                            last_live_state_generation = Some(generation);
+                            let state_bytes = build_live_state_bundle(ctrl, host_handler.as_ref());
+                            send_raw_filtered(&socket, &clients, &state_bytes, |_| true);
+                        }
+                        // One-shot clip notification carrying the offending speaker
+                        // index (set on the audio thread on any detected clip,
+                        // regardless of auto-gain). Coalesced to the poll cadence so a
+                        // loud passage emits at most one per tick.
+                        if let Some(speaker_idx) = ctrl.take_clip_pending() {
+                            if let Ok(bytes) =
+                                rosc::encoder::encode(&OscPacket::Message(OscMessage {
+                                    addr: "/omniphony/state/clip".to_string(),
+                                    args: vec![rosc::OscType::Int(speaker_idx as i32)],
+                                }))
+                            {
+                                send_raw_filtered(&socket, &clients, &bytes, |_| true);
                             }
                         }
                     }

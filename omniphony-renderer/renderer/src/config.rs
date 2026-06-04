@@ -132,6 +132,8 @@ pub struct RenderConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_gain: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_gain_ceiling_db: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bed_conform: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spread_from_distance: Option<bool>,

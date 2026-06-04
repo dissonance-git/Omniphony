@@ -379,6 +379,12 @@ pub struct RenderArgs {
     #[arg(long, conflicts_with = "auto_gain")]
     pub no_auto_gain: bool,
 
+    /// Target ceiling in dBFS that auto-gain corrects peaks down to (default: -1.0).
+    /// Clipping is still detected at 0 dBFS; this only sets how much headroom the
+    /// correction leaves, so corrections fire less often.
+    #[arg(long, value_name = "DB", allow_hyphen_values = true)]
+    pub auto_gain_ceiling: Option<f32>,
+
     /// Enable loudness metadata correction to a -31 dBFS target
     /// Adjusts gain based on the stream's dialogue_level metadata
     /// (e.g., dialogue_level=-27 dBFS -> applies -4 dB correction toward -31 dBFS)

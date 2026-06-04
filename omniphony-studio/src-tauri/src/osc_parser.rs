@@ -203,6 +203,8 @@ pub enum OscEvent {
     StateCapabilities { value: String },
     #[serde(rename = "state:renderer")]
     StateRenderer { value: String },
+    #[serde(rename = "state:clip")]
+    StateClip { speaker: i32 },
     #[serde(rename = "state:audio")]
     StateAudio { value: String },
     #[serde(rename = "state:layout")]
@@ -603,6 +605,12 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
         }),
         (3, "renderer") => Some(OscEvent::StateRenderer {
             value: raw_args.first().and_then(unwrap_string)?,
+        }),
+        (3, "clip") => Some(OscEvent::StateClip {
+            speaker: match raw_args.first() {
+                Some(OscType::Int(v)) => *v,
+                _ => -1,
+            },
         }),
         (3, "audio") => Some(OscEvent::StateAudio {
             value: raw_args.first().and_then(unwrap_string)?,

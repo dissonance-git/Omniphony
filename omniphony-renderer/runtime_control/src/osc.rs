@@ -828,6 +828,16 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
+    if addr == "/omniphony/control/auto_gain_ceiling" {
+        if let Some(v) = parse_f32_arg(msg.args.first()) {
+            // dBFS target; clamp to a sane range (ceiling at or below 0 dBFS).
+            ctx.renderer.live.write().unwrap().auto_gain_ceiling_db = v.clamp(-12.0, 0.0);
+            effects.mark_dirty = true;
+            // Per-frame gain-stage value: no topology recompute.
+        }
+        return Some(effects);
+    }
+
     if let Some(rest) = addr.strip_prefix("/omniphony/control/render_evaluation/cartesian/") {
         let size = match msg.args.first() {
             Some(OscType::Int(i)) => Some((*i).max(1) as usize),

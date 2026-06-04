@@ -226,6 +226,17 @@ render_field! {
 }
 
 render_field! {
+    /// Target ceiling, in dBFS, that auto-gain corrects peaks down to
+    /// (`render.auto_gain_ceiling_db`). Clipping is still *detected* at 0 dBFS;
+    /// this is only the level peaks are brought back to, providing headroom so
+    /// the correction fires less often. Live param, tunable via
+    /// `/omniphony/control/auto_gain_ceiling`. Default −1 dBFS.
+    pub auto_gain_ceiling_db: f32 = -1.0,
+    field = auto_gain_ceiling_db,
+    eq = |a: &f32, b: &f32| (a - b).abs() <= 0.01
+}
+
+render_field! {
     /// Loudness metadata correction toward -31 dBFS (`render.use_loudness`).
     pub use_loudness: bool = false,
     field = use_loudness,

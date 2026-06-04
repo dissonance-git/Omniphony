@@ -54,6 +54,7 @@ export const flushCallbacks = {
   renderDrcUI: null,
   renderMasterGainUI: null,
   renderAutoGainUI: null,
+  renderAutoGainCeilingUI: null,
   updateMasterMeterUI: null,
   updateObjectContributionUI: null,
   updateSpeakerContributionUI: null,
@@ -232,6 +233,10 @@ export function flushUI() {
   if (dirty.autoGain) {
     flushCallbacks.renderAutoGainUI?.();
     dirty.autoGain = false;
+  }
+  if (dirty.autoGainCeiling) {
+    flushCallbacks.renderAutoGainCeilingUI?.();
+    dirty.autoGainCeiling = false;
   }
   if (dirty.masterGain) {
     flushCallbacks.renderMasterGainUI?.();
