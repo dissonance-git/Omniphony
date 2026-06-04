@@ -513,7 +513,7 @@ export function applyInitState(payload) {
   }
   if (typeof payload.rampMode === 'string') {
     const next = payload.rampMode.trim().toLowerCase();
-    if (next === 'off' || next === 'frame' || next === 'sample') {
+    if (next === 'off' || next === 'frame' || next === 'sample' || next === 'interp') {
       app.rampMode = next;
     }
   }

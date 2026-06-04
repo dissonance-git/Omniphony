@@ -87,7 +87,7 @@ export function applyRuntimeAudioStateSnapshot(payload) {
   }
   if (typeof payload.rampMode === 'string') {
     const next = payload.rampMode.trim().toLowerCase();
-    if (next === 'off' || next === 'frame' || next === 'sample') {
+    if (next === 'off' || next === 'frame' || next === 'sample' || next === 'interp') {
       app.rampMode = next;
     }
   }
@@ -189,7 +189,7 @@ export function applyRuntimeAudioEvent(eventType, payload) {
     }
     case 'state:ramp_mode': {
       const next = String(payload?.value || '').trim().toLowerCase();
-      if (next === 'off' || next === 'frame' || next === 'sample') {
+      if (next === 'off' || next === 'frame' || next === 'sample' || next === 'interp') {
         app.rampMode = next;
         updateAudioFormatDisplay();
       }

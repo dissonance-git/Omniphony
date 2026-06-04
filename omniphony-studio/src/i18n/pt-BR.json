@@ -160,6 +160,7 @@
   "audio.rampMode": "Modo de rampa",
   "audio.rampModeOff": "Desativado",
   "audio.rampModeFrame": "Por frame",
+  "audio.rampModeInterp": "Por amostra (interpolado)",
   "audio.rampModeSample": "Por amostra",
   "rampMode.infoButton": "Informações do modo de rampa",
   "rampMode.infoTitle": "Modo de rampa",
