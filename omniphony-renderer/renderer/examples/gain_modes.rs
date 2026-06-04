@@ -78,7 +78,9 @@ fn gains_at(r: &mut SpatialRenderer, p: [f64; 3]) -> Vec<f32> {
         position: Some(p),
         sample_pos: Some(0),
     }];
-    let frame = r.render_frame(&pcm, 1, &ev, Vec::new(), true).expect("render");
+    let frame = r
+        .render_frame(&pcm, 1, &ev, Vec::new(), true)
+        .expect("render");
     frame
         .object_gains
         .iter()
@@ -138,12 +140,27 @@ fn main() {
     // Grid cell size = 2/30 ≈ 0.067 on x,y. Trajectories of increasing length
     // (in cells crossed) over one block, plus a couple of representative pans.
     println!("Sample (exact) vs Interp (gain-lerp) over one {N}-sample block, 7.1.4 cartesian:\n");
-    compare(&mut r, "within 1 cell (0.05)", [-0.2, 0.0, 0.3], [-0.15, 0.0, 0.3]);
+    compare(
+        &mut r,
+        "within 1 cell (0.05)",
+        [-0.2, 0.0, 0.3],
+        [-0.15, 0.0, 0.3],
+    );
     compare(&mut r, "~3 cells (0.2)", [-0.3, 0.0, 0.2], [-0.1, 0.0, 0.2]);
     compare(&mut r, "~7 cells (0.5)", [-0.5, 0.1, 0.1], [0.0, 0.1, 0.1]);
     compare(&mut r, "L→R sweep (2.0)", [-1.0, 0.2, 0.0], [1.0, 0.2, 0.0]);
-    compare(&mut r, "front→back (2.0)", [0.0, -1.0, 0.0], [0.0, 1.0, 0.0]);
-    compare(&mut r, "diagonal+up (full)", [-1.0, -1.0, 0.0], [1.0, 1.0, 1.0]);
+    compare(
+        &mut r,
+        "front→back (2.0)",
+        [0.0, -1.0, 0.0],
+        [0.0, 1.0, 0.0],
+    );
+    compare(
+        &mut r,
+        "diagonal+up (full)",
+        [-1.0, -1.0, 0.0],
+        [1.0, 1.0, 1.0],
+    );
     println!(
         "\nΔgain is linear speaker gain (1.0 = unity). Interp matches Sample exactly at the\n\
          block endpoints; the error in between grows with how nonlinearly the VBAP gains\n\

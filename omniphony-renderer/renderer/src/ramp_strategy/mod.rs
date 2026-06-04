@@ -225,4 +225,3 @@ pub(crate) fn interpolate_size(current: [f32; 3], target: [f32; 3], fraction: f6
         current[2] * inv + target[2] * f,
     ]
 }
-
