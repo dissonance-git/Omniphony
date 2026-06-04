@@ -421,6 +421,12 @@ pub struct SpatialRenderer {
 
     /// Reusable per-band scratch used only when collecting crossover timing.
     crossover_band_scratch: [Vec<f32>; 8],
+
+    /// Reusable per-object band-gain buffer. Taken via `mem::take` at the start
+    /// of each object's render and put back afterwards, so the per-object VBAP
+    /// gain vector is allocated once and reused across objects and frames
+    /// instead of a fresh `Vec` per object per frame.
+    band_gains_scratch: Vec<Gains>,
 }
 
 impl SpatialRenderer {
@@ -912,6 +918,7 @@ impl SpatialRenderer {
             crossover_filter_bank,
             crossover_filter_states: Vec::new(),
             crossover_band_scratch: std::array::from_fn(|_| Vec::new()),
+            band_gains_scratch: Vec::new(),
         })
     }
 
@@ -1286,8 +1293,14 @@ impl SpatialRenderer {
         output.clear();
         output.resize(required, 0.0);
 
-        // Collect VBAP gains at the final sample for each object channel (for monitoring).
-        let mut object_gains_out: Vec<(usize, Gains)> = Vec::with_capacity(input_channel_count);
+        // Per-object VBAP gains at the final sample — monitoring only (OSC meter
+        // bundle). Only collected when `measure_breakdown` is set; left empty (no
+        // allocation) on the plain render path (e.g. mpv without Studio open).
+        let mut object_gains_out: Vec<(usize, Gains)> = if measure_breakdown {
+            Vec::with_capacity(input_channel_count)
+        } else {
+            Vec::new()
+        };
         let mut object_band_gains_out: Vec<(usize, Vec<Gains>)> = Vec::new();
         let mut crossover_elapsed = std::time::Duration::ZERO;
         let profile_crossover = measure_breakdown && self.crossover_filter_bank.is_some();
@@ -1438,7 +1451,12 @@ impl SpatialRenderer {
 
                 let render_params = ramp_context.render_params();
 
-                let last_band_gains: Vec<Gains> = match live.ramp_mode {
+                // Reuse the per-object band-gain buffer (pooled in the renderer) so
+                // the hot render path does not allocate a fresh Vec per object per
+                // frame. Each arm fills `band_gains`; it is put back at the end.
+                let mut band_gains = std::mem::take(&mut self.band_gains_scratch);
+                band_gains.clear();
+                match live.ramp_mode {
                     RampMode::Off => {
                         state.ramp.remaining_ramp_units = None;
                         state.ramp.start_position = state.ramp.target_position;
@@ -1449,11 +1467,11 @@ impl SpatialRenderer {
 
                         let position = state.ramp.output_position;
                         let size = state.ramp.current_size;
-                        let band_gains: Vec<Gains> = self
-                            .render_bands
-                            .iter()
-                            .map(|b| b.compute_gains(render_params, position, size))
-                            .collect();
+                        band_gains.extend(
+                            self.render_bands
+                                .iter()
+                                .map(|b| b.compute_gains(render_params, position, size)),
+                        );
 
                         let mut fst = obj_filter_states;
                         if profile_crossover {
@@ -1500,7 +1518,6 @@ impl SpatialRenderer {
                                 }
                             }
                         }
-                        band_gains
                     }
                     RampMode::Frame => {
                         let progress = state.ramp.current_progress().unwrap_or(RampProgress {
@@ -1510,11 +1527,11 @@ impl SpatialRenderer {
                         ramp_strategy.evaluate(&mut state.ramp, progress, &ramp_context);
                         let position = state.ramp.output_position;
                         let size = state.ramp.current_size;
-                        let band_gains: Vec<Gains> = self
-                            .render_bands
-                            .iter()
-                            .map(|b| b.compute_gains(render_params, position, size))
-                            .collect();
+                        band_gains.extend(
+                            self.render_bands
+                                .iter()
+                                .map(|b| b.compute_gains(render_params, position, size)),
+                        );
 
                         let mut fst = obj_filter_states;
                         if profile_crossover {
@@ -1563,16 +1580,13 @@ impl SpatialRenderer {
                         }
                         state.ramp.commit_output_position();
                         state.ramp.advance_ramp(sample_length as u64);
-                        band_gains
                     }
                     RampMode::Sample => {
                         let mut fst = obj_filter_states;
-                        // Pre-allocate once — reused each sample to avoid per-sample Vec alloc.
-                        let mut band_gains_buf: Vec<Gains> = self
-                            .render_bands
-                            .iter()
-                            .map(|_| Gains::zeroed(self.num_speakers))
-                            .collect();
+                        // One Gains slot per band, reused each sample (and across
+                        // objects/frames via the pooled buffer).
+                        band_gains
+                            .resize(self.render_bands.len(), Gains::zeroed(self.num_speakers));
                         if profile_crossover {
                             let fb = self.crossover_filter_bank.as_ref().expect("crossover bank");
                             let fst_slice = fst.as_mut().expect("filter states").as_mut_slice();
@@ -1604,7 +1618,7 @@ impl SpatialRenderer {
                                 let size = state.ramp.current_size;
                                 if position != last_pos || size != last_size {
                                     for (slot, band) in
-                                        band_gains_buf.iter_mut().zip(self.render_bands.iter())
+                                        band_gains.iter_mut().zip(self.render_bands.iter())
                                     {
                                         *slot = band.compute_gains(render_params, position, size);
                                     }
@@ -1612,7 +1626,7 @@ impl SpatialRenderer {
                                     last_size = size;
                                 }
                                 let out_base = sample_idx * self.num_speakers;
-                                for (b, gains) in band_gains_buf.iter().enumerate() {
+                                for (b, gains) in band_gains.iter().enumerate() {
                                     let s = self.crossover_band_scratch[b][sample_idx];
                                     for (spk, &g) in gains.iter().enumerate() {
                                         output[out_base + spk] += s * g;
@@ -1641,7 +1655,7 @@ impl SpatialRenderer {
                                 let size = state.ramp.current_size;
                                 if position != last_pos || size != last_size {
                                     for (slot, band) in
-                                        band_gains_buf.iter_mut().zip(self.render_bands.iter())
+                                        band_gains.iter_mut().zip(self.render_bands.iter())
                                     {
                                         *slot = band.compute_gains(render_params, position, size);
                                     }
@@ -1658,7 +1672,7 @@ impl SpatialRenderer {
                                     fst.as_mut().map(|v| v.as_mut_slice()),
                                 );
                                 let out_base = sample_idx * self.num_speakers;
-                                for (b, gains) in band_gains_buf.iter().enumerate() {
+                                for (b, gains) in band_gains.iter().enumerate() {
                                     let s = split.get(b);
                                     for (spk, &g) in gains.iter().enumerate() {
                                         output[out_base + spk] += s * g;
@@ -1668,19 +1682,25 @@ impl SpatialRenderer {
                                 state.ramp.advance_ramp(1);
                             }
                         }
-                        band_gains_buf
                     }
                 };
 
-                // Monitoring: band_gains are already full-size — just sum them.
-                let mut summed = Gains::zeroed(self.num_speakers);
-                for gains in &last_band_gains {
-                    for (i, &g) in gains.iter().enumerate() {
-                        summed[i] += g;
+                // Monitoring outputs (OSC meter bundle): only built when requested.
+                // `band_gains` is already full-size — sum across bands for the
+                // per-object gains, and hand a copy of the band gains out.
+                if measure_breakdown {
+                    let mut summed = Gains::zeroed(self.num_speakers);
+                    for gains in &band_gains {
+                        for (i, &g) in gains.iter().enumerate() {
+                            summed[i] += g;
+                        }
                     }
+                    object_band_gains_out.push((input_channel_idx, band_gains.clone()));
+                    object_gains_out.push((input_channel_idx, summed));
                 }
-                object_band_gains_out.push((input_channel_idx, last_band_gains));
-                object_gains_out.push((input_channel_idx, summed));
+
+                // Return the pooled buffer for the next object/frame.
+                self.band_gains_scratch = band_gains;
             }
         }
         drop(channel_states);
