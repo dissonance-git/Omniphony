@@ -77,8 +77,8 @@ use crate::ramp_strategy::{
 use crate::render_backend::RenderRequest;
 use crate::render_backend::{
     CartesianEvaluationConfig, EffectiveEvaluationMode, EvaluationBuildConfig,
-    PolarEvaluationConfig, PreparedRenderEngine, RenderBackendKind, VbapBackend,
-    build_prepared_render_engine,
+    MultiBandCartesianTable, PolarEvaluationConfig, PreparedRenderEngine, RenderBackendKind,
+    VbapBackend, build_prepared_render_engine,
 };
 use crate::spatial_vbap::{DistanceModel, Gains};
 use crate::spatial_vbap::{VbapPanner, VbapTableMode};
@@ -432,6 +432,10 @@ pub struct SpatialRenderer {
     render_bands_topology_identity: usize,
 
     /// Crossover filter bank for splitting objects into frequency bands.
+    /// Unified multi-band cartesian table: when crossover is active and all
+    /// bands use a cartesian evaluator, the per-band tables are merged so a
+    /// lookup localises the cell once for every band. `None` → per-band path.
+    unified_table: Option<MultiBandCartesianTable>,
     /// `None` when `render_bands` has exactly 1 entry (no crossover active).
     crossover_filter_bank: Option<LR4CrossoverBank>,
 
@@ -885,6 +889,56 @@ impl SpatialRenderer {
         Ok((render_bands, Some(filter_bank)))
     }
 
+    /// Merge the per-band cartesian tables into a single multi-band table so a
+    /// lookup localises the cell once for all bands. Returns `None` (→ per-band
+    /// path) unless there are several bands all backed by a cartesian evaluator.
+    fn build_unified_table(
+        render_bands: &[BandRenderer],
+        num_speakers: usize,
+    ) -> Option<MultiBandCartesianTable> {
+        if render_bands.len() <= 1 {
+            return None;
+        }
+        let mut parts = Vec::with_capacity(render_bands.len());
+        for band in render_bands {
+            let engine = band.engine.as_ref()?;
+            parts.push((engine.cartesian_parts()?, band.speaker_indices.as_slice()));
+        }
+        let table = MultiBandCartesianTable::build(&parts, num_speakers);
+        if table.is_some() {
+            log::info!(
+                "Crossover: unified cartesian table built for {} bands",
+                render_bands.len()
+            );
+        }
+        table
+    }
+
+    /// Fill `out` with one full-size `Gains` per render band at `position`. Uses
+    /// the unified multi-band table (one cell localisation for all bands) when
+    /// available, else falls back to a per-band lookup. Free-standing (borrows
+    /// only the two fields it needs) so it composes with the other per-channel
+    /// mutable borrows held across the render arms.
+    fn fill_band_gains(
+        unified: &Option<MultiBandCartesianTable>,
+        render_bands: &[BandRenderer],
+        render_params: crate::ramp_strategy::RampRenderParams,
+        position: [f64; 3],
+        size: [f32; 3],
+        out: &mut Vec<Gains>,
+    ) {
+        out.clear();
+        if let Some(table) = unified {
+            table.sample_into(position.map(|v| v as f32), out);
+        } else {
+            out.extend(
+                render_bands
+                    .iter()
+                    .map(|b| b.compute_gains(render_params, position, size)),
+            );
+        }
+    }
+
     /// Assemble the `SpatialRenderer` struct from fully resolved components.
     ///
     /// Called by both `new` and `from_vbap` after each constructor has built its
@@ -906,6 +960,7 @@ impl SpatialRenderer {
             num_speakers,
             sample_rate,
         )?;
+        let unified_table = Self::build_unified_table(&render_bands, num_speakers);
 
         Ok(Self {
             num_speakers,
@@ -937,6 +992,7 @@ impl SpatialRenderer {
             },
             ramp_strategy_override: None,
             render_bands,
+            unified_table,
             render_bands_topology_identity: topology_identity,
             crossover_filter_bank,
             crossover_filter_states: Vec::new(),
@@ -961,6 +1017,7 @@ impl SpatialRenderer {
             self.num_speakers,
             self.sample_rate,
         )?;
+        self.unified_table = Self::build_unified_table(&render_bands, self.num_speakers);
         self.render_bands = render_bands;
         self.crossover_filter_bank = crossover_filter_bank;
         self.crossover_filter_states.clear();
@@ -1491,10 +1548,13 @@ impl SpatialRenderer {
 
                         let position = state.ramp.output_position;
                         let size = state.ramp.current_size;
-                        band_gains.extend(
-                            self.render_bands
-                                .iter()
-                                .map(|b| b.compute_gains(render_params, position, size)),
+                        Self::fill_band_gains(
+                            &self.unified_table,
+                            &self.render_bands,
+                            render_params,
+                            position,
+                            size,
+                            &mut band_gains,
                         );
 
                         let mut fst = obj_filter_states;
@@ -1551,10 +1611,13 @@ impl SpatialRenderer {
                         ramp_strategy.evaluate(&mut state.ramp, progress, &ramp_context);
                         let position = state.ramp.output_position;
                         let size = state.ramp.current_size;
-                        band_gains.extend(
-                            self.render_bands
-                                .iter()
-                                .map(|b| b.compute_gains(render_params, position, size)),
+                        Self::fill_band_gains(
+                            &self.unified_table,
+                            &self.render_bands,
+                            render_params,
+                            position,
+                            size,
+                            &mut band_gains,
                         );
 
                         let mut fst = obj_filter_states;
@@ -1641,11 +1704,14 @@ impl SpatialRenderer {
                                 let position = state.ramp.output_position;
                                 let size = state.ramp.current_size;
                                 if position != last_pos || size != last_size {
-                                    for (slot, band) in
-                                        band_gains.iter_mut().zip(self.render_bands.iter())
-                                    {
-                                        *slot = band.compute_gains(render_params, position, size);
-                                    }
+                                    Self::fill_band_gains(
+                                        &self.unified_table,
+                                        &self.render_bands,
+                                        render_params,
+                                        position,
+                                        size,
+                                        &mut band_gains,
+                                    );
                                     last_pos = position;
                                     last_size = size;
                                 }
@@ -1678,11 +1744,14 @@ impl SpatialRenderer {
                                 let position = state.ramp.output_position;
                                 let size = state.ramp.current_size;
                                 if position != last_pos || size != last_size {
-                                    for (slot, band) in
-                                        band_gains.iter_mut().zip(self.render_bands.iter())
-                                    {
-                                        *slot = band.compute_gains(render_params, position, size);
-                                    }
+                                    Self::fill_band_gains(
+                                        &self.unified_table,
+                                        &self.render_bands,
+                                        render_params,
+                                        position,
+                                        size,
+                                        &mut band_gains,
+                                    );
                                     last_pos = position;
                                     last_size = size;
                                 }
@@ -1719,12 +1788,16 @@ impl SpatialRenderer {
                         let position = state.ramp.target_position;
                         let size = state.ramp.target_size;
 
-                        self.interp_end_scratch.clear();
-                        self.interp_end_scratch.extend(
-                            self.render_bands
-                                .iter()
-                                .map(|b| b.compute_gains(render_params, position, size)),
+                        let mut end = std::mem::take(&mut self.interp_end_scratch);
+                        Self::fill_band_gains(
+                            &self.unified_table,
+                            &self.render_bands,
+                            render_params,
+                            position,
+                            size,
+                            &mut end,
                         );
+                        self.interp_end_scratch = end;
                         let n_bands = self.interp_end_scratch.len();
 
                         // First block for this channel → start == end (no jump in).
@@ -1983,6 +2056,95 @@ impl SpatialRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The unified multi-band cartesian table must render bit-equivalently to the
+    /// per-band path it replaces. Build two identical crossover renderers, force
+    /// one onto the per-band path (`unified_table = None`), feed both the same
+    /// frame, and require matching output.
+    #[test]
+    fn unified_crossover_matches_per_band() {
+        fn build() -> SpatialRenderer {
+            let mut layout = SpeakerLayout::preset("7.1.4").unwrap();
+            for (sp, cutoff) in layout.speakers.iter_mut().zip([80.0, 200.0, 500.0]) {
+                sp.freq_low = Some(cutoff);
+            }
+            SpatialRenderer::new(
+                layout,
+                48_000,
+                1,
+                1,
+                0.0,
+                2.0,
+                VbapTableMode::Cartesian {
+                    x_size: 21,
+                    y_size: 21,
+                    z_size: 9,
+                    z_neg_size: 9,
+                },
+                false,
+                true, // position interpolation → trilinear lookup + per-sample motion
+                DistanceModel::Linear,
+                false,
+                1.0,
+                1.0,
+                0.0,
+                1.0,
+                false,
+                [1.0, 2.0, 0.5],
+                2.0,
+                0.5,
+                0.0,
+                0.0,
+                false,
+                false,
+                false,
+                1.0,
+                1.0,
+                PreferredEvaluationMode::PrecomputedCartesian,
+                LiveEvaluationMode::PrecomputedCartesian,
+                21,
+                21,
+                9,
+                9,
+            )
+            .unwrap()
+        }
+
+        let mut unified = build();
+        assert!(
+            unified.unified_table.is_some(),
+            "crossover layout should build a unified table"
+        );
+        let mut per_band = build();
+        per_band.unified_table = None;
+
+        let pcm: Vec<f32> = (0..40).map(|i| (i * 7 % 13) as f32 / 13.0 - 0.5).collect();
+        let event = vec![SpatialChannelEvent {
+            channel_idx: 0,
+            is_bed: false,
+            gain_db: Some(0),
+            ramp_length: Some(40),
+            size: Some([0.0, 0.0, 0.0]),
+            position: Some([0.3, -0.2, 0.4]),
+            sample_pos: Some(0),
+        }];
+
+        let a = unified.render_frame(&pcm, 1, &event, Vec::new(), false).unwrap();
+        let b = per_band
+            .render_frame(&pcm, 1, &event, Vec::new(), false)
+            .unwrap();
+        assert_eq!(a.samples.len(), b.samples.len());
+        let max_diff = a
+            .samples
+            .iter()
+            .zip(&b.samples)
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0f32, f32::max);
+        assert!(
+            max_diff < 1e-6,
+            "unified vs per-band output mismatch: max diff {max_diff}"
+        );
+    }
 
     #[test]
     fn test_renderer_creation() {

@@ -282,10 +282,30 @@ pub trait EvaluationStrategy {
     ) -> Result<Box<dyn PreparedEvaluator>>;
 }
 
+/// Borrowed view of a sampled cartesian evaluator's table + axes, used to merge
+/// several per-band tables into one [`MultiBandCartesianTable`].
+#[derive(Clone, Copy)]
+pub(crate) struct CartesianParts<'a> {
+    /// Flat gains grid, layout `[cell][speaker]` (band-local speakers).
+    pub gains: &'a [f32],
+    pub speaker_count: usize,
+    pub x: &'a AxisLut,
+    pub y: &'a AxisLut,
+    pub z: &'a AxisLut,
+    pub position_interpolation: bool,
+}
+
 pub trait PreparedEvaluator: Send + Sync {
     fn speaker_count(&self) -> usize;
     fn compute_gains(&self, req: &RenderRequest) -> RenderResponse;
     fn save_to_file(&self, path: &std::path::Path, speaker_layout: &SpeakerLayout) -> Result<()>;
+    /// Borrow the sampled cartesian table + axes, when this evaluator is a
+    /// precomputed cartesian one. Default `None` (realtime/polar). Crate-internal
+    /// view type, used only to merge bands into a `MultiBandCartesianTable`.
+    #[allow(private_interfaces)]
+    fn cartesian_parts(&self) -> Option<CartesianParts<'_>> {
+        None
+    }
     /// Serialize the precomputed evaluation table (gains grid + metadata) to the
     /// portable artifact byte layout, so it can be shipped to clients (chunked) and
     /// rebuilt verbatim. Default: unsupported (realtime evaluators hold no table).
@@ -403,6 +423,17 @@ impl SampledCartesianEvaluator {
 impl PreparedEvaluator for SampledCartesianEvaluator {
     fn speaker_count(&self) -> usize {
         self.speaker_count
+    }
+
+    fn cartesian_parts(&self) -> Option<CartesianParts<'_>> {
+        Some(CartesianParts {
+            gains: &self.gains,
+            speaker_count: self.speaker_count,
+            x: &self.x_lut,
+            y: &self.y_lut,
+            z: &self.z_lut,
+            position_interpolation: self.position_interpolation,
+        })
     }
 
     fn compute_gains(&self, req: &RenderRequest) -> RenderResponse {
@@ -667,6 +698,10 @@ impl PreparedRenderEngine {
 
     pub fn compute_gains(&self, req: &RenderRequest) -> RenderResponse {
         self.evaluator.compute_gains(req)
+    }
+
+    pub(crate) fn cartesian_parts(&self) -> Option<CartesianParts<'_>> {
+        self.evaluator.cartesian_parts()
     }
 
     pub fn save_to_file(
@@ -936,6 +971,105 @@ pub(crate) fn sample_cartesian_table(
         }
     }
     gains
+}
+
+/// One cartesian table covering several crossover bands at once. The per-band
+/// gains for each grid cell are stored contiguously (`[cell][band][speaker]`,
+/// each band full-size with the speaker scatter baked in), so a lookup localises
+/// the cell ONCE and accumulates every band's gains in a single pass — instead
+/// of one full lookup (localise + accumulate + scatter) per band. The cost no
+/// longer scales with the band count beyond the accumulation itself.
+pub(crate) struct MultiBandCartesianTable {
+    x: AxisLut,
+    y: AxisLut,
+    z: AxisLut,
+    /// `[cell][band][num_speakers]`, row-major.
+    gains: Vec<f32>,
+    n_bands: usize,
+    num_speakers: usize,
+    position_interpolation: bool,
+}
+
+impl MultiBandCartesianTable {
+    /// Merge per-band cartesian tables (band-local speakers) into the unified
+    /// `[cell][band][num_speakers]` layout, baking each band's speaker scatter.
+    /// All bands must share the same grid; returns `None` otherwise.
+    pub(crate) fn build(bands: &[(CartesianParts<'_>, &[usize])], num_speakers: usize) -> Option<Self> {
+        let (first, _) = bands.first()?;
+        let x = first.x.clone();
+        let y = first.y.clone();
+        let z = first.z.clone();
+        let position_interpolation = first.position_interpolation;
+        let n_cells = x.len() * y.len() * z.len();
+        let n_bands = bands.len();
+        let mut gains = vec![0.0f32; n_cells * n_bands * num_speakers];
+        for (b, (parts, indices)) in bands.iter().enumerate() {
+            let sc = parts.speaker_count;
+            if parts.gains.len() != n_cells * sc || indices.len() != sc {
+                return None; // grid mismatch — fall back to the per-band path
+            }
+            for cell in 0..n_cells {
+                let src = &parts.gains[cell * sc..cell * sc + sc];
+                let dst_base = (cell * n_bands + b) * num_speakers;
+                for (i, &g) in src.iter().enumerate() {
+                    gains[dst_base + indices[i]] = g;
+                }
+            }
+        }
+        Some(Self {
+            x,
+            y,
+            z,
+            gains,
+            n_bands,
+            num_speakers,
+            position_interpolation,
+        })
+    }
+
+    /// Trilinear lookup for all bands at `position`. Fills `out` with `n_bands`
+    /// full-size `Gains` (one localisation, contiguous per-cell accumulation).
+    pub(crate) fn sample_into(&self, position: [f32; 3], out: &mut Vec<Gains>) {
+        let interp = self.position_interpolation;
+        let x = self.x.sample(position[0].clamp(-1.0, 1.0), interp);
+        let y = self.y.sample(position[1].clamp(-1.0, 1.0), interp);
+        let z = self.z.sample(position[2].clamp(-1.0, 1.0), interp);
+        let x_len = self.x.len();
+        let y_len = self.y.len();
+        let band_stride = self.num_speakers;
+        let cell_stride = self.n_bands * self.num_speakers;
+
+        out.clear();
+        out.resize(self.n_bands, Gains::zeroed(self.num_speakers));
+
+        let table = &self.gains;
+        let mut accumulate = |ix: usize, iy: usize, iz: usize, weight: f32| {
+            let cell_base = (((iz * y_len) + iy) * x_len + ix) * cell_stride;
+            for (b, g) in out.iter_mut().enumerate() {
+                let base = cell_base + b * band_stride;
+                let src = &table[base..base + band_stride];
+                for (d, &s) in g[..band_stride].iter_mut().zip(src) {
+                    *d += s * weight;
+                }
+            }
+        };
+
+        if !interp {
+            accumulate(x.lower, y.lower, z.lower, 1.0);
+            return;
+        }
+        for (iz, wz) in [(z.lower, 1.0 - z.fraction), (z.upper, z.fraction)] {
+            for (iy, wy) in [(y.lower, 1.0 - y.fraction), (y.upper, y.fraction)] {
+                for (ix, wx) in [(x.lower, 1.0 - x.fraction), (x.upper, x.fraction)] {
+                    let weight = wx * wy * wz;
+                    if weight <= 0.0 {
+                        continue;
+                    }
+                    accumulate(ix, iy, iz, weight);
+                }
+            }
+        }
+    }
 }
 
 pub(crate) fn sample_polar_table(
