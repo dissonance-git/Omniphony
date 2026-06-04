@@ -31,3 +31,18 @@ pub use osc::{ObjectMeta, OscSender};
 /// (bridge path, layout, OSC settings, render params).
 pub use renderer::config::{Config, RenderConfig, default_config_path};
 pub use virtual_bed::{build_virtual_bed_events, build_virtual_bed_objects};
+
+/// Install the shared live-log logger used by the engine.
+///
+/// This is the SAME logger the `orender` CLI installs: it writes to stderr **and**
+/// buffers records that the OSC listener streams to connected clients (Studio's
+/// log panel). Embedding hosts that drive the engine over OSC — notably
+/// `orender_ffi` (liborender.so for mpv) — must call this instead of a plain
+/// `env_logger`, otherwise `log::*` diagnostics never reach OSC clients.
+///
+/// `level` is the initial runtime verbosity (OSC-adjustable later via
+/// `/omniphony/control/log_level`). Returns `Err` if a global logger is already
+/// installed; callers should guard with their own `Once` and ignore that error.
+pub fn init_live_logging(level: log::LevelFilter, json: bool) -> Result<(), log::SetLoggerError> {
+    sys::live_log::init_logger(level, json)
+}
