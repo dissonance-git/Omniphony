@@ -258,6 +258,23 @@ impl Engine {
                 .unwrap_or(10.0),
         );
 
+        // Object-transition ramp mode. `SpatialRenderer::new` seeds the live
+        // params with `RampMode::Sample` (per-sample `compute_gains` — the most
+        // expensive path); the CLI overrides this from `render.ramp_mode` in
+        // config_resolution + bootstrap, but this embedded/mpv host never did,
+        // so it silently ran every render in per-sample mode. Mirror the CLI:
+        // honour `render.ramp_mode` (default "frame"). Both the requested-mode
+        // mutex and the live snapshot field must be set — the render loop reads
+        // the latter.
+        let ramp_mode = render_cfg
+            .as_ref()
+            .and_then(renderer::config_fields::ramp_mode::get)
+            .as_deref()
+            .and_then(renderer::live_params::RampMode::from_str)
+            .unwrap_or(renderer::live_params::RampMode::Frame);
+        control.set_requested_ramp_mode(ramp_mode);
+        control.live.write().unwrap().ramp_mode = ramp_mode;
+
         // DRC: seed the live params from config and publish the bridge's
         // supported modes (so studio shows the DRC control). The decode-side
         // mode itself is pushed to the bridge lazily in `process` (see
@@ -375,10 +392,12 @@ impl Engine {
         // before it decodes this packet.
         self.sync_drc_mode();
 
+        let decode_started = std::time::Instant::now();
         let result = self
             .bridge
             .bridge
             .push_packet(data.into(), transport, data_type);
+        let decode_time_ms = decode_started.elapsed().as_secs_f32() * 1000.0;
 
         if !result.error_message.is_empty() {
             bail!("bridge decode error: {}", result.error_message);
@@ -390,9 +409,18 @@ impl Engine {
             self.reset_segment_state();
         }
 
+        // The bridge decodes one packet into N frames synchronously; attribute the
+        // packet's decode cost evenly across its frames so the per-frame meter
+        // bundle reports a comparable figure to the CLI decoder thread.
+        let per_frame_decode_time_ms = if result.frames.is_empty() {
+            decode_time_ms
+        } else {
+            decode_time_ms / result.frames.len() as f32
+        };
+
         let mut out = Vec::with_capacity(result.frames.len());
         for frame in result.frames.iter() {
-            if let Some(chunk) = self.render_frame(frame)? {
+            if let Some(chunk) = self.render_frame(frame, per_frame_decode_time_ms)? {
                 out.push(chunk);
             }
         }
@@ -404,7 +432,11 @@ impl Engine {
         self.process(data, RInputTransport::Raw, 0)
     }
 
-    fn render_frame(&mut self, frame: &RDecodedFrame) -> Result<Option<RenderedAudio>> {
+    fn render_frame(
+        &mut self,
+        frame: &RDecodedFrame,
+        decode_time_ms: f32,
+    ) -> Result<Option<RenderedAudio>> {
         let channel_count = frame.channel_count as usize;
         let sample_count = frame.sample_count as usize;
         let sample_rate = frame.sampling_frequency.max(1);
@@ -640,7 +672,7 @@ impl Engine {
                             &snapshot,
                             &rendered.object_gains,
                             &rendered.object_band_gains,
-                            None,
+                            Some(decode_time_ms),
                             Some(rendered.crossover_time_ms),
                             Some(render_time_ms),
                             None,
