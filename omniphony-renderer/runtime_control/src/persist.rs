@@ -117,6 +117,8 @@ pub fn save_live_config(
             None
         };
     renderer::config_fields::use_loudness::store(render, live.use_loudness);
+    renderer::config_fields::auto_gain::store(render, live.auto_gain);
+    renderer::config_fields::auto_gain_ceiling_db::store(render, live.auto_gain_ceiling_db);
     renderer::config_fields::vbap_distance_model::store(render, live.distance_model.to_string());
     // Room geometry is persisted in metres. Width is the reference and the room
     // scale is Width/2 = the layout radius, so metres = ratio × radius × factor
@@ -252,6 +254,13 @@ pub fn save_live_config(
     } else {
         None
     };
+    let barycenter_defaults = renderer::live_params::BarycenterLiveParams::default();
+    render.barycenter_localize =
+        if (live.barycenter.localize - barycenter_defaults.localize).abs() > 1e-4 {
+            Some(live.barycenter.localize)
+        } else {
+            None
+        };
     renderer::config_fields::ramp_mode::store(render, control.requested_ramp_mode().as_str());
 
     drop(live);

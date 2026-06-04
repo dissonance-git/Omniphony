@@ -379,6 +379,12 @@ pub struct RenderArgs {
     #[arg(long, conflicts_with = "auto_gain")]
     pub no_auto_gain: bool,
 
+    /// Target ceiling in dBFS that auto-gain corrects peaks down to (default: -1.0).
+    /// Clipping is still detected at 0 dBFS; this only sets how much headroom the
+    /// correction leaves, so corrections fire less often.
+    #[arg(long, value_name = "DB", allow_hyphen_values = true)]
+    pub auto_gain_ceiling: Option<f32>,
+
     /// Enable loudness metadata correction to a -31 dBFS target
     /// Adjusts gain based on the stream's dialogue_level metadata
     /// (e.g., dialogue_level=-27 dBFS -> applies -4 dB correction toward -31 dBFS)
@@ -439,6 +445,203 @@ pub struct RenderArgs {
     /// Lower values react faster but can make the control loop more nervous.
     #[arg(long, value_name = "CALLBACKS")]
     pub adaptive_resampling_update_interval_callbacks: Option<u32>,
+
+    // ── Render backend selection (Partie 1) ──
+    // Override-only: when omitted the value is kept from the config file /
+    // engine default. Consumed via `apply_render_cfg_overrides`.
+    /// Spatial render backend. Defaults to the config value, else VBAP.
+    #[arg(long = "render-backend", value_enum)]
+    pub render_backend: Option<RenderBackendArg>,
+
+    /// Barycenter backend: localization sharpness (0.0 = diffuse).
+    /// Only meaningful with `--render-backend barycenter`.
+    #[arg(long = "barycenter-localize", value_name = "AMOUNT")]
+    pub barycenter_localize: Option<f32>,
+
+    /// Hybrid backend: inner backend mixed in at ratio = 1 (cube surface).
+    #[arg(long = "hybrid-external-backend", value_enum)]
+    pub hybrid_external_backend: Option<HybridInnerBackendArg>,
+
+    /// Hybrid backend: inner backend mixed in at ratio = 0 (centre).
+    #[arg(long = "hybrid-internal-backend", value_enum)]
+    pub hybrid_internal_backend: Option<HybridInnerBackendArg>,
+
+    /// Hybrid backend: blend curve smoothing in [0, 1].
+    #[arg(long = "hybrid-curve-smoothing", value_name = "AMOUNT")]
+    pub hybrid_curve_smoothing: Option<f32>,
+
+    /// Hybrid backend: blend distance metric.
+    #[arg(long = "hybrid-metric", value_enum)]
+    pub hybrid_metric: Option<DistanceMetricArg>,
+
+    // ── Experimental distance backend params (Partie 1) ──
+    /// Experimental distance backend: minimum distance floor.
+    #[arg(long = "experimental-distance-distance-floor", value_name = "DISTANCE")]
+    pub experimental_distance_distance_floor: Option<f32>,
+
+    /// Experimental distance backend: minimum number of active speakers.
+    #[arg(
+        long = "experimental-distance-min-active-speakers",
+        value_name = "COUNT"
+    )]
+    pub experimental_distance_min_active_speakers: Option<usize>,
+
+    /// Experimental distance backend: maximum number of active speakers.
+    #[arg(
+        long = "experimental-distance-max-active-speakers",
+        value_name = "COUNT"
+    )]
+    pub experimental_distance_max_active_speakers: Option<usize>,
+
+    /// Experimental distance backend: position-error floor.
+    #[arg(
+        long = "experimental-distance-position-error-floor",
+        value_name = "ERROR"
+    )]
+    pub experimental_distance_position_error_floor: Option<f32>,
+
+    /// Experimental distance backend: nearest-speaker position-error scale.
+    #[arg(
+        long = "experimental-distance-position-error-nearest-scale",
+        value_name = "SCALE"
+    )]
+    pub experimental_distance_position_error_nearest_scale: Option<f32>,
+
+    /// Experimental distance backend: span position-error scale.
+    #[arg(
+        long = "experimental-distance-position-error-span-scale",
+        value_name = "SCALE"
+    )]
+    pub experimental_distance_position_error_span_scale: Option<f32>,
+
+    // ── Distance metrics & size-to-spread (Partie 2) ──
+    /// Distance metric for the distance-model stage.
+    #[arg(long = "distance-model-metric", value_enum)]
+    pub distance_model_metric: Option<DistanceMetricArg>,
+
+    /// Distance metric for the distance-diffuse stage.
+    #[arg(long = "distance-diffuse-metric", value_enum)]
+    pub distance_diffuse_metric: Option<DistanceMetricArg>,
+
+    /// Policy reducing an object's (w, d, h) size to a scalar spread.
+    #[arg(long = "size-to-spread-mode", value_enum)]
+    pub size_to_spread_mode: Option<SizeToSpreadModeArg>,
+
+    // ── Adaptive resampling PI tuning (Partie 3) ──
+    // Override-only; standalone (host-audio) only — mpv owns the audio chain so
+    // these have no effect there. `integral_discharge_ratio` is intentionally
+    // NOT exposed (non-operative on the current controller).
+    /// PI proportional gain in the near band.
+    #[arg(long = "adaptive-resampling-kp-near", value_name = "GAIN")]
+    pub adaptive_resampling_kp_near: Option<f32>,
+
+    /// PI integral gain.
+    #[arg(long = "adaptive-resampling-ki", value_name = "GAIN")]
+    pub adaptive_resampling_ki: Option<f32>,
+
+    /// Maximum playback-rate adjustment (fraction, e.g. 0.10).
+    #[arg(long = "adaptive-resampling-max-adjust", value_name = "FRACTION")]
+    pub adaptive_resampling_max_adjust: Option<f32>,
+
+    /// Enable far-mode (aggressive recovery far from target).
+    #[arg(long = "adaptive-resampling-enable-far-mode", value_name = "BOOL")]
+    pub adaptive_resampling_enable_far_mode: Option<bool>,
+
+    /// Force silence while in far-mode.
+    #[arg(
+        long = "adaptive-resampling-force-silence-in-far-mode",
+        value_name = "BOOL"
+    )]
+    pub adaptive_resampling_force_silence_in_far_mode: Option<bool>,
+
+    /// Hard-recover on the high side while in far-mode.
+    #[arg(
+        long = "adaptive-resampling-hard-recover-high-in-far-mode",
+        value_name = "BOOL"
+    )]
+    pub adaptive_resampling_hard_recover_high_in_far_mode: Option<bool>,
+
+    /// Hard-recover on the low side while in far-mode.
+    #[arg(
+        long = "adaptive-resampling-hard-recover-low-in-far-mode",
+        value_name = "BOOL"
+    )]
+    pub adaptive_resampling_hard_recover_low_in_far_mode: Option<bool>,
+
+    /// Fade-in duration (ms) when returning from far-mode.
+    #[arg(
+        long = "adaptive-resampling-far-mode-return-fade-in-ms",
+        value_name = "MS"
+    )]
+    pub adaptive_resampling_far_mode_return_fade_in_ms: Option<u32>,
+
+    /// High-recover entry margin (ms).
+    #[arg(
+        long = "adaptive-resampling-high-recover-entry-margin-ms",
+        value_name = "MS"
+    )]
+    pub adaptive_resampling_high_recover_entry_margin_ms: Option<u32>,
+
+    /// Low-recover settle-stable duration (ms).
+    #[arg(
+        long = "adaptive-resampling-low-recover-settle-stable-ms",
+        value_name = "MS"
+    )]
+    pub adaptive_resampling_low_recover_settle_stable_ms: Option<f32>,
+
+    /// Low-recover entry margin (ms).
+    #[arg(
+        long = "adaptive-resampling-low-recover-entry-margin-ms",
+        value_name = "MS"
+    )]
+    pub adaptive_resampling_low_recover_entry_margin_ms: Option<f32>,
+
+    /// Low-recover exit margin (ms).
+    #[arg(
+        long = "adaptive-resampling-low-recover-exit-margin-ms",
+        value_name = "MS"
+    )]
+    pub adaptive_resampling_low_recover_exit_margin_ms: Option<f32>,
+
+    /// Low-recover settle margin (ms).
+    #[arg(
+        long = "adaptive-resampling-low-recover-settle-margin-ms",
+        value_name = "MS"
+    )]
+    pub adaptive_resampling_low_recover_settle_margin_ms: Option<f32>,
+
+    /// Low-recover refill delta-alpha.
+    #[arg(
+        long = "adaptive-resampling-low-recover-refill-delta-alpha",
+        value_name = "ALPHA"
+    )]
+    pub adaptive_resampling_low_recover_refill_delta_alpha: Option<f32>,
+
+    /// Control-output smoothing cutoff (Hz).
+    #[arg(
+        long = "adaptive-resampling-control-smoothing-cutoff-hz",
+        value_name = "HZ"
+    )]
+    pub adaptive_resampling_control_smoothing_cutoff_hz: Option<f32>,
+
+    /// Control-output smoothing filter order.
+    #[arg(
+        long = "adaptive-resampling-control-smoothing-order",
+        value_name = "ORDER"
+    )]
+    pub adaptive_resampling_control_smoothing_order: Option<u32>,
+
+    /// Use the pre-bridge clock as the timing reference.
+    #[arg(long = "adaptive-resampling-use-pre-bridge-clock", value_name = "BOOL")]
+    pub adaptive_resampling_use_pre_bridge_clock: Option<bool>,
+
+    /// Use output pacing for the control loop.
+    #[arg(long = "adaptive-resampling-use-output-pacing", value_name = "BOOL")]
+    pub adaptive_resampling_use_output_pacing: Option<bool>,
+
+    /// Disable backpressure on the decode queue.
+    #[arg(long = "adaptive-resampling-disable-backpressure", value_name = "BOOL")]
+    pub adaptive_resampling_disable_backpressure: Option<bool>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -720,6 +923,83 @@ impl From<RampModeArg> for RampMode {
             RampModeArg::Off => RampMode::Off,
             RampModeArg::Frame => RampMode::Frame,
             RampModeArg::Sample => RampMode::Sample,
+        }
+    }
+}
+
+/// Spatial render backend selector. The string forms match the canonical
+/// backend ids in `renderer::render_backend` (`RenderBackendKind::from_str`).
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum RenderBackendArg {
+    Vbap,
+    Barycenter,
+    ExperimentalDistance,
+    Hybrid,
+}
+
+impl RenderBackendArg {
+    /// Canonical config id (`render.render_backend`).
+    pub fn as_config_str(self) -> &'static str {
+        match self {
+            Self::Vbap => "vbap",
+            Self::Barycenter => "barycenter",
+            Self::ExperimentalDistance => "experimental_distance",
+            Self::Hybrid => "hybrid",
+        }
+    }
+}
+
+/// Inner backend accepted by the hybrid backend (no nested hybrid).
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum HybridInnerBackendArg {
+    Vbap,
+    Barycenter,
+    ExperimentalDistance,
+}
+
+impl HybridInnerBackendArg {
+    pub fn as_config_str(self) -> &'static str {
+        match self {
+            Self::Vbap => "vbap",
+            Self::Barycenter => "barycenter",
+            Self::ExperimentalDistance => "experimental_distance",
+        }
+    }
+}
+
+/// Distance metric selector (`spherical` / `chebyshev`).
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum DistanceMetricArg {
+    Spherical,
+    Chebyshev,
+}
+
+impl DistanceMetricArg {
+    pub fn as_config_str(self) -> &'static str {
+        match self {
+            Self::Spherical => "spherical",
+            Self::Chebyshev => "chebyshev",
+        }
+    }
+}
+
+/// Size-to-spread reduction policy (`render.size_to_spread_mode`).
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum SizeToSpreadModeArg {
+    Max,
+    Mean,
+    ProjectionPerpendicular,
+}
+
+impl From<SizeToSpreadModeArg> for renderer::render_backend::SizeToSpreadMode {
+    fn from(value: SizeToSpreadModeArg) -> Self {
+        use renderer::render_backend::SizeToSpreadMode;
+        match value {
+            SizeToSpreadModeArg::Max => SizeToSpreadMode::Max,
+            SizeToSpreadModeArg::Mean => SizeToSpreadMode::Mean,
+            SizeToSpreadModeArg::ProjectionPerpendicular => {
+                SizeToSpreadMode::ProjectionPerpendicular
+            }
         }
     }
 }

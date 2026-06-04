@@ -378,6 +378,8 @@
   "common.polar": "Polar:",
   "master.title": "Master",
   "distance.title": "Distance Diffuse",
+  "autoGain.title": "Auto-gain (anti-clip)",
+  "autoGain.ceiling": "Ceiling",
   "distance.model": "Distance model",
   "distance.metric": "Distance metric",
   "distance.metric.spherical": "Spherical",

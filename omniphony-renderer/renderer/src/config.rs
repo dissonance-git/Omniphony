@@ -132,6 +132,8 @@ pub struct RenderConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_gain: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_gain_ceiling_db: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bed_conform: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spread_from_distance: Option<bool>,
@@ -248,6 +250,9 @@ pub struct RenderConfig {
     /// Hybrid backend: blend distance metric (spherical / chebyshev).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hybrid_metric: Option<String>,
+    /// Barycenter backend: localization sharpness (`live_params` default 0.0).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub barycenter_localize: Option<f32>,
     /// See `Config::extra` — preserve unknown keys through round-trips.
     /// This matters most for `render.*`: any field added by a future
     /// version of the CLI / a host that we haven't migrated into this

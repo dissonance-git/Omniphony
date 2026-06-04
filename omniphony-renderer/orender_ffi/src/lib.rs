@@ -234,16 +234,30 @@ fn build_engine(cfg: &OrenderConfig) -> Result<Engine> {
     Ok(engine)
 }
 
-/// Initialise the `log` backend once, so the engine's `log::info!` diagnostics
-/// (bridge-load time, "VBAP table generated in Xs", engine-ready time) surface
-/// on stderr. Quiet by default (`warn`); set `RUST_LOG=info` to see startup
-/// timing. Idempotent and harmless if the host already installed a logger.
+/// Initialise the `log` backend once, so the engine's `log::*` diagnostics
+/// (bridge-load time, "VBAP table generated in Xs", clip warnings, engine-ready
+/// time) surface BOTH on stderr and over OSC to connected clients (Studio's log
+/// panel).
+///
+/// This installs the engine's shared live-log logger — the same one the `orender`
+/// CLI uses — rather than a plain `env_logger`, which only wrote to stderr and so
+/// left the OSC log stream empty in the mpv/liborender build. Initial verbosity
+/// comes from `RUST_LOG` (a bare level like `info`/`warn`/`debug`), defaulting to
+/// `info`; it stays OSC-adjustable at runtime. Falls back to plain `env_logger`
+/// only if the host already installed a global logger.
 fn init_logging() {
     use std::sync::Once;
     static INIT: Once = Once::new();
     INIT.call_once(|| {
-        let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
-            .try_init();
+        let level = std::env::var("RUST_LOG")
+            .ok()
+            .and_then(|s| s.trim().parse::<log::LevelFilter>().ok())
+            .unwrap_or(log::LevelFilter::Info);
+        if orender_engine::init_live_logging(level, false).is_err() {
+            let _ =
+                env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
+                    .try_init();
+        }
     });
 }
 

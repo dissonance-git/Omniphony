@@ -647,6 +647,41 @@ export function createSpeakerItem(id, speaker) {
   };
 }
 
+// Per-speaker clip-flash timers (keyed by speaker id string), so repeat clips
+// refresh the 1 s remanence instead of stacking timers.
+const speakerClipTimers = new Map();
+
+/**
+ * Flash the background of a speaker row red for 1 s when that speaker clips.
+ * Driven by the renderer's `/omniphony/state/clip <idx>` event; works regardless
+ * of the auto-gain toggle. Mirrors the master clip indicator's remanence.
+ */
+export function flashSpeakerClip(index) {
+  if (!Number.isInteger(index) || index < 0) {
+    return;
+  }
+  const id = String(index);
+  const entry = speakerItems.get(id);
+  if (!entry?.root) {
+    return;
+  }
+  // Restart the fade animation even if a previous flash is still running.
+  entry.root.classList.remove('clip-flash');
+  void entry.root.offsetWidth; // force reflow so the animation replays
+  entry.root.classList.add('clip-flash');
+  const existing = speakerClipTimers.get(id);
+  if (existing) {
+    clearTimeout(existing);
+  }
+  speakerClipTimers.set(
+    id,
+    setTimeout(() => {
+      entry.root.classList.remove('clip-flash');
+      speakerClipTimers.delete(id);
+    }, 1000)
+  );
+}
+
 export function updateSpeakerItem(entry, id, speaker) {
   const selectedSpeakerIndex = get_selectedSpeakerIndex();
   const soloTarget = getSoloTarget('speaker');

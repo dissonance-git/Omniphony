@@ -351,6 +351,28 @@ fn control_loudness(state: State<SharedState>, enable: i32) {
 }
 
 #[tauri::command]
+fn control_auto_gain(state: State<SharedState>, enable: i32) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendInt {
+            address: "/omniphony/control/auto_gain".to_string(),
+            value: if enable != 0 { 1 } else { 0 },
+        },
+    );
+}
+
+#[tauri::command]
+fn control_auto_gain_ceiling(state: State<SharedState>, db: f32) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendFloat {
+            address: "/omniphony/control/auto_gain_ceiling".to_string(),
+            value: db.clamp(-12.0, 0.0),
+        },
+    );
+}
+
+#[tauri::command]
 fn control_adaptive_resampling(state: State<SharedState>, enable: i32) {
     send_control(
         &state.osc_tx,
@@ -2594,6 +2616,8 @@ fn main() {
             control_speaker_mute,
             control_master_gain,
             control_loudness,
+            control_auto_gain,
+            control_auto_gain_ceiling,
             control_adaptive_resampling,
             control_adaptive_resampling_enable_far_mode,
             control_adaptive_resampling_force_silence_in_far_mode,

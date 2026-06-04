@@ -109,6 +109,8 @@ struct RendererDomainState {
     render_evaluation_mode: Option<String>,
     render_evaluation_mode_effective: Option<String>,
     master_gain: Option<f64>,
+    auto_gain: Option<bool>,
+    auto_gain_ceiling_db: Option<f64>,
     ramp_mode: Option<String>,
     distance_model: Option<String>,
     distance_model_metric: Option<String>,
@@ -568,6 +570,12 @@ fn apply_renderer_domain_state(s: &mut AppState, value: &str) -> bool {
     }
     if let Some(master_gain) = parsed.master_gain {
         s.master_gain = Some(master_gain);
+    }
+    if let Some(auto_gain) = parsed.auto_gain {
+        s.auto_gain = Some(auto_gain);
+    }
+    if let Some(auto_gain_ceiling_db) = parsed.auto_gain_ceiling_db {
+        s.auto_gain_ceiling_db = Some(auto_gain_ceiling_db);
     }
     if let Some(ramp_mode) = parsed.ramp_mode {
         s.audio.ramp_mode = Some(ramp_mode);
@@ -1761,6 +1769,10 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 s.producer_capabilities = serde_json::from_str(&value).ok();
                 (None, removed_ids)
             }
+            OscEvent::StateClip { speaker } => (
+                Some(("clip:detected", serde_json::json!({ "speaker": speaker }))),
+                removed_ids,
+            ),
             OscEvent::StateRenderer { value } => {
                 if apply_renderer_domain_state(&mut s, &value) {
                     (

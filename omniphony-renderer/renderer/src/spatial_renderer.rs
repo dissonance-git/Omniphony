@@ -320,6 +320,8 @@ struct LiveSnapshot<'a> {
     position_interpolation: bool,
     ramp_mode: RampMode,
     use_loudness: bool,
+    auto_gain: bool,
+    auto_gain_ceiling_db: f32,
     speaker_params: &'a [crate::live_params::SpeakerLiveParams],
     room_ratio: [f32; 3],
     room_ratio_rear: f32,
@@ -366,12 +368,10 @@ pub struct SpatialRenderer {
     /// Set dynamically when dialogue_level is received from the stream
     loudness_gain: std::sync::atomic::AtomicU32,
 
-    /// Enable automatic gain adjustment to prevent clipping
-    auto_gain: bool,
-
-    /// Current auto-gain multiplier (adjusted dynamically when clipping detected)
-    /// Stored as atomic for thread-safe updates
-    current_auto_gain: std::sync::atomic::AtomicU32,
+    /// `true` once auto-gain has lowered the master gain at least once this
+    /// session. The reduction itself lives in `LiveParams::master_gain`; this
+    /// flag only gates the end-of-stream summary.
+    auto_gain_triggered: std::sync::atomic::AtomicBool,
 
     /// Shared live parameters + speaker layout + pending VBAP swap.
     control: Arc<RendererControl>,
@@ -651,7 +651,6 @@ impl SpatialRenderer {
             sample_rate,
             distance_model,
             log_object_positions,
-            auto_gain,
             control,
         )?)
     }
@@ -790,6 +789,8 @@ impl SpatialRenderer {
                 },
             },
             use_loudness,
+            auto_gain,
+            auto_gain_ceiling_db: crate::config_fields::auto_gain_ceiling_db::DEFAULT,
             distance_model,
             distance_model_metric: crate::spatial_vbap::DistanceMetric::default(),
             distance_diffuse_metric: crate::spatial_vbap::DistanceMetric::default(),
@@ -866,7 +867,6 @@ impl SpatialRenderer {
         sample_rate: u32,
         distance_model: DistanceModel,
         log_object_positions: bool,
-        auto_gain: bool,
         control: Arc<RendererControl>,
     ) -> Result<Self> {
         let active_topology = control.active_topology();
@@ -889,8 +889,7 @@ impl SpatialRenderer {
             distance_model,
             log_object_positions,
             loudness_gain: std::sync::atomic::AtomicU32::new(1.0_f32.to_bits()),
-            auto_gain,
-            current_auto_gain: std::sync::atomic::AtomicU32::new(1.0_f32.to_bits()),
+            auto_gain_triggered: std::sync::atomic::AtomicBool::new(false),
             control,
             speaker_gains_buf: vec![0.0f32; num_speakers],
             object_params_buf: Vec::new(),
@@ -939,19 +938,10 @@ impl SpatialRenderer {
         Ok(())
     }
 
-    /// Get the current auto-gain attenuation in dB.
-    /// Returns 0.0 if no clipping occurred (auto-gain = 1.0).
-    /// Returns negative values indicating the attenuation applied (e.g., -3.0 means -3 dB).
-    pub fn get_auto_gain_db(&self) -> f32 {
-        let current = f32::from_bits(
-            self.current_auto_gain
-                .load(std::sync::atomic::Ordering::Relaxed),
-        );
-        if current >= 1.0 {
-            0.0
-        } else {
-            20.0 * current.log10()
-        }
+    /// Whether auto-gain has lowered the master gain at least once this session.
+    pub fn auto_gain_triggered(&self) -> bool {
+        self.auto_gain_triggered
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Set loudness metadata correction gain based on `dialogue_level` from the stream.
@@ -1249,6 +1239,8 @@ impl SpatialRenderer {
                 position_interpolation: g.evaluation.position_interpolation,
                 ramp_mode: g.ramp_mode,
                 use_loudness: g.use_loudness,
+                auto_gain: g.auto_gain,
+                auto_gain_ceiling_db: g.auto_gain_ceiling_db,
                 speaker_params: &self.speaker_params_buf[..self.num_speakers],
                 room_ratio: g.room_ratio,
                 room_ratio_rear: g.room_ratio_rear,
@@ -1681,12 +1673,6 @@ impl SpatialRenderer {
             .frame_counter
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        // Get current auto-gain value.
-        let current_auto_gain = f32::from_bits(
-            self.current_auto_gain
-                .load(std::sync::atomic::Ordering::Relaxed),
-        );
-
         // Dialog norm: only apply if the live flag is set.
         let loudness = if live.use_loudness {
             f32::from_bits(
@@ -1697,7 +1683,9 @@ impl SpatialRenderer {
             1.0
         };
 
-        let total_gain = live.master_gain * loudness * current_auto_gain;
+        // Auto-gain reduction is folded directly into `master_gain` (see the
+        // clipping branch below), so it needs no separate factor here.
+        let total_gain = live.master_gain * loudness;
 
         // Pre-compute per-speaker total gains and update delay-line targets in a
         // single pass over the speaker list — one HashMap lookup per speaker.
@@ -1721,36 +1709,73 @@ impl SpatialRenderer {
         }
         let speaker_total_gains = &self.speaker_gains_buf;
 
-        // Apply per-speaker gains and delay lines, and detect peak.
+        // Apply per-speaker gains and delay lines, and detect peak (tracking which
+        // speaker channel held the peak, for clip reporting).
         let mut peak_sample: f32 = 0.0;
+        let mut peak_speaker_idx: usize = 0;
         for sample_idx in 0..sample_length {
             for speaker_idx in 0..self.num_speakers {
                 let s = &mut output[sample_idx * self.num_speakers + speaker_idx];
                 *s *= speaker_total_gains[speaker_idx];
                 *s = self.delay_lines[speaker_idx].process(*s);
-                peak_sample = peak_sample.max(s.abs());
+                let a = s.abs();
+                if a > peak_sample {
+                    peak_sample = a;
+                    peak_speaker_idx = speaker_idx;
+                }
             }
         }
 
-        // Auto-gain adjustment: if clipping detected, reduce gain permanently (no recovery)
-        // This acts as a "peak hold" - we keep the minimum gain needed to avoid clipping
-        if self.auto_gain && peak_sample > 1.0 {
-            // Calculate the gain needed to bring this peak to exactly 1.0
-            let required_gain = 1.0 / peak_sample;
-            // New auto-gain = current * required (reduces further if needed)
-            let new_auto_gain = current_auto_gain * required_gain;
-            self.current_auto_gain.store(
-                new_auto_gain.to_bits(),
-                std::sync::atomic::Ordering::Relaxed,
-            );
+        // Clipping handling. Detection is always at 0 dBFS (peak > 1.0) and the
+        // clip flag is raised (with the offending speaker) regardless of auto-gain
+        // so the UI clip indicators work even when auto-gain is disabled.
+        if peak_sample > 1.0 {
+            self.control.note_clip(peak_speaker_idx);
 
-            let total_reduction_db = 20.0 * new_auto_gain.log10();
-            log::warn!(
-                "Clipping detected (peak={:.3})! Auto-gain reduced to {:.4} ({:.1} dB)",
-                peak_sample,
-                new_auto_gain,
-                total_reduction_db
-            );
+            // Auto-gain: fold the required attenuation directly into the live
+            // master gain (peak-hold, no recovery) so the reduction is visible on
+            // the master control and persisted with it. Detection stays at 0 dBFS
+            // but the correction targets the configured ceiling (default −1 dBFS),
+            // leaving headroom so it fires less often. The write lock is taken only
+            // on clipping frames (transient), never in steady state.
+            //
+            // The log + name resolution live here (not in the always-run flag path)
+            // so a sustained clip with auto-gain *off* only flips the atomic flag for
+            // the UI indicators — it does not spam the log or load the topology each
+            // frame. With auto-gain on, the correction makes clips transient anyway.
+            if live.auto_gain {
+                let speaker_name = self
+                    .control
+                    .active_topology()
+                    .speaker_layout
+                    .speakers
+                    .get(peak_speaker_idx)
+                    .map(|s| s.name.clone())
+                    .unwrap_or_else(|| format!("#{peak_speaker_idx}"));
+                let ceiling = 10.0_f32.powf(live.auto_gain_ceiling_db / 20.0);
+                // Bring this peak down to the ceiling rather than exactly 0 dBFS.
+                let required_gain = ceiling / peak_sample;
+                // Apply it to the shared master gain. Re-reading under the write
+                // lock preserves any concurrent OSC master change.
+                let new_master_gain = {
+                    let mut params = self.control.live.write().unwrap();
+                    params.master_gain *= required_gain;
+                    params.master_gain
+                };
+                self.control.mark_dirty();
+                self.control.bump_live_state();
+                self.auto_gain_triggered
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+
+                log::warn!(
+                    "Clipping detected on speaker '{}' (peak={:.3})! Master gain reduced to {:.4} ({:.1} dB), ceiling {:.1} dBFS",
+                    speaker_name,
+                    peak_sample,
+                    new_master_gain,
+                    20.0 * new_master_gain.log10(),
+                    live.auto_gain_ceiling_db
+                );
+            }
         }
 
         object_gains_out.sort_by_key(|(idx, _)| *idx);

@@ -504,6 +504,19 @@ pub fn build_spatial_renderer(
                     requires_rebuild = true;
                 }
             }
+            // Per-frame live params (no topology rebuild): seed from config so a
+            // saved value is honoured at startup, not only after an OSC tweak.
+            if let Some(mode) = render_cfg.and_then(|cfg| cfg.size_to_spread_mode) {
+                live.size_to_spread_mode = mode;
+            }
+            if let Some(localize) = render_cfg.and_then(|cfg| cfg.barycenter_localize) {
+                live.barycenter.localize = localize;
+            }
+            if let Some(ceiling) =
+                render_cfg.and_then(renderer::config_fields::auto_gain_ceiling_db::get)
+            {
+                live.auto_gain_ceiling_db = ceiling;
+            }
         }
         if requires_rebuild {
             if let Some(plan) = control.prepare_topology_rebuild() {

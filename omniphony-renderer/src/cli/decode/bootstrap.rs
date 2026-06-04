@@ -45,13 +45,22 @@ fn list_available_output_devices(_backend: OutputBackend) -> Vec<OutputDeviceOpt
     Vec::new()
 }
 
+/// Load the on-disk render config and fold the CLI's override-only render args
+/// on top of it, so backend selection, backend params, distance metrics,
+/// size-to-spread and adaptive PI tuning take effect on a live run (the
+/// renderer sources those from `render_cfg`, not from `RenderArgs`). This is the
+/// same effective view that `--save-config` writes.
 fn render_config_from_path(
+    args: &RenderArgs,
     config_path: &Option<std::path::PathBuf>,
 ) -> Option<renderer::config::RenderConfig> {
-    config_path
+    let mut render = config_path
         .as_deref()
         .map(renderer::config::Config::load_or_default)
         .and_then(|cfg| cfg.render)
+        .unwrap_or_default();
+    super::config_resolution::apply_render_cfg_overrides(&mut render, args);
+    Some(render)
 }
 
 fn build_adaptive_resampling_config(
@@ -315,7 +324,7 @@ fn init_osc_runtime(
     input_path: &std::path::Path,
     config_path: &Option<std::path::PathBuf>,
 ) -> Result<()> {
-    let render_cfg = render_config_from_path(config_path);
+    let render_cfg = render_config_from_path(args, config_path);
 
     if args.osc {
         use std::net::SocketAddrV4;
@@ -515,7 +524,7 @@ pub fn init_render_handler(
     preferred_evaluation_mode: bridge_api::RVbapTableMode,
     evaluation_mode_explicit: bool,
 ) -> Result<()> {
-    let render_cfg = render_config_from_path(config_path);
+    let render_cfg = render_config_from_path(args, config_path);
 
     #[cfg(target_os = "linux")]
     configure_linux_runtime_output(handler, args, render_cfg.as_ref());

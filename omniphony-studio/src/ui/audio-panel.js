@@ -267,6 +267,17 @@ export function audioPanelMarkup() {
           <input id="masterGainSlider" class="gain-slider" type="range" min="0" max="2" step="0.01" value="1" />
           <div id="masterGainBox" class="gain-box">0.0 dB</div>
         </div>
+        <div class="switch-row">
+          <span style="display:flex;align-items:center;gap:0.4rem;font-size:12px;color:#ffffff">
+            <span id="clipIndicator" class="clip-indicator" title="Clip" aria-label="Clip indicator"></span>
+            <span data-i18n="autoGain.title">Auto-gain (anti-clip)</span>
+          </span>
+          <input id="autoGainToggle" type="checkbox" />
+        </div>
+        <div class="control-row" id="autoGainCeilingRow">
+          <label style="font-size:12px;white-space:nowrap;color:#ffffff" for="autoGainCeilingSlider"><span data-i18n="autoGain.ceiling">Ceiling</span> <span id="autoGainCeilingVal">-1.0 dB</span></label>
+          <input id="autoGainCeilingSlider" class="gain-slider" type="range" min="-12" max="0" step="0.1" value="-1" />
+        </div>
       </div>
       </div>`;
 }
