@@ -71,8 +71,8 @@ use crate::live_params::{
     PolarEvaluationParams, RampMode, RenderTopology, RendererControl,
 };
 use crate::ramp_strategy::{
-    ChannelRampState, GainTableRampStrategy, PositionRampStrategy, RampContext, RampProgress,
-    RampRenderParams, RampStrategy, RampTarget,
+    ChannelRampState, PositionRampStrategy, RampContext, RampProgress, RampRenderParams,
+    RampStrategy, RampTarget,
 };
 use crate::render_backend::RenderRequest;
 use crate::render_backend::{
@@ -336,7 +336,6 @@ struct LiveSnapshot<'a> {
     spread_distance_range: f32,
     spread_distance_curve: f32,
     size_to_spread_mode: crate::render_backend::SizeToSpreadMode,
-    position_interpolation: bool,
     ramp_mode: RampMode,
     use_loudness: bool,
     auto_gain: bool,
@@ -1324,7 +1323,6 @@ impl SpatialRenderer {
                 spread_distance_range: g.spread_distance_range,
                 spread_distance_curve: g.spread_distance_curve,
                 size_to_spread_mode: g.size_to_spread_mode,
-                position_interpolation: g.evaluation.position_interpolation,
                 ramp_mode: g.ramp_mode,
                 use_loudness: g.use_loudness,
                 auto_gain: g.auto_gain,
@@ -1343,14 +1341,18 @@ impl SpatialRenderer {
         };
         let ramp_context = self.ramp_context(topology_identity, topology, &live);
         let ramp_strategy_override = self.ramp_strategy_override.clone();
+        // The ramp always interpolates the object POSITION across the block; the
+        // `position_interpolation` flag now only selects how the table is read at
+        // that position — nearest cell (1 lookup) vs trilinear (8 lookups) — via
+        // the evaluator's `interpolate` flag, which tracks the live boolean
+        // (toggling it triggers a layout recompute). The old GainTable strategy
+        // (frozen position + a per-sample gain lerp the render path never read)
+        // is gone.
         static POSITION_STRATEGY: PositionRampStrategy = PositionRampStrategy;
-        static GAIN_TABLE_STRATEGY: GainTableRampStrategy = GainTableRampStrategy;
         let ramp_strategy: &dyn RampStrategy = if let Some(ref strategy) = ramp_strategy_override {
             strategy.as_ref()
-        } else if live.position_interpolation {
-            &POSITION_STRATEGY
         } else {
-            &GAIN_TABLE_STRATEGY
+            &POSITION_STRATEGY
         };
 
         if !pending_events.is_empty() {

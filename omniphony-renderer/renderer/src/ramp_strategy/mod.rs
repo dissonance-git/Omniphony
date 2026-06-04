@@ -1,7 +1,5 @@
-mod gain_table;
 mod position;
 
-pub use gain_table::GainTableRampStrategy;
 pub use position::PositionRampStrategy;
 
 use crate::render_backend::{PreparedRenderEngine, RenderRequest, SizeToSpreadMode};
@@ -414,6 +412,13 @@ pub(crate) fn interpolate_size(current: [f32; 3], target: [f32; 3], fraction: f6
     ]
 }
 
+// Vestigial: the gain-ramp machinery (this fn + ChannelRampState's
+// start/target/output_gains, the cache, and RampContext::compute_gains) backed
+// the removed GainTable strategy. The render path now smooths via per-sample
+// position interpolation + its own backend lookup, so these are unused. Kept to
+// avoid a wide cascade (RampContext loses its only borrowed field); slated for a
+// dedicated removal pass.
+#[allow(dead_code)]
 pub(crate) fn compute_cached_or_direct(
     state: &mut ChannelRampState,
     position: [f64; 3],

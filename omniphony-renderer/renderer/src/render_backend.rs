@@ -425,6 +425,7 @@ impl PreparedEvaluator for SampledCartesianEvaluator {
         self.speaker_count
     }
 
+    #[allow(private_interfaces)]
     fn cartesian_parts(&self) -> Option<CartesianParts<'_>> {
         Some(CartesianParts {
             gains: &self.gains,
