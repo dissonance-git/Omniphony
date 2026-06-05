@@ -76,9 +76,9 @@ use crate::ramp_strategy::{
 };
 use crate::render_backend::RenderRequest;
 use crate::render_backend::{
-    CartesianEvaluationConfig, EffectiveEvaluationMode, EvaluationBuildConfig,
-    MultiBandCartesianTable, PolarEvaluationConfig, PreparedRenderEngine, RenderBackendKind,
-    VbapBackend, build_prepared_render_engine,
+    CartesianEvaluationConfig, EffectiveEvaluationMode, EvaluationBuildConfig, MultiBandTable,
+    PolarEvaluationConfig, PreparedRenderEngine, RenderBackendKind, VbapBackend,
+    build_prepared_render_engine,
 };
 use crate::spatial_vbap::{DistanceModel, Gains};
 use crate::spatial_vbap::{VbapPanner, VbapTableMode};
@@ -434,7 +434,7 @@ pub struct SpatialRenderer {
     /// Unified multi-band cartesian table: when crossover is active and all
     /// bands use a cartesian evaluator, the per-band tables are merged so a
     /// lookup localises the cell once for every band. `None` → per-band path.
-    unified_table: Option<MultiBandCartesianTable>,
+    unified_table: Option<MultiBandTable>,
     /// `None` when `render_bands` has exactly 1 entry (no crossover active).
     crossover_filter_bank: Option<LR4CrossoverBank>,
 
@@ -894,19 +894,47 @@ impl SpatialRenderer {
     fn build_unified_table(
         render_bands: &[BandRenderer],
         num_speakers: usize,
-    ) -> Option<MultiBandCartesianTable> {
+    ) -> Option<MultiBandTable> {
         if render_bands.len() <= 1 {
             return None;
         }
-        let mut parts = Vec::with_capacity(render_bands.len());
+        // Every band shares the active evaluation mode, so they are all cartesian
+        // or all polar. Try cartesian first; if any band has no cartesian view,
+        // fall through to the polar path. A band without an engine (< 3 speakers)
+        // has no precomputed table → no unified table (per-band path).
+        let mut cartesian = Vec::with_capacity(render_bands.len());
+        let mut all_cartesian = true;
         for band in render_bands {
             let engine = band.engine.as_ref()?;
-            parts.push((engine.cartesian_parts()?, band.speaker_indices.as_slice()));
+            match engine.cartesian_parts() {
+                Some(parts) => cartesian.push((parts, band.speaker_indices.as_slice())),
+                None => {
+                    all_cartesian = false;
+                    break;
+                }
+            }
         }
-        let table = MultiBandCartesianTable::build(&parts, num_speakers);
+        if all_cartesian {
+            let table = MultiBandTable::build_cartesian(&cartesian, num_speakers);
+            if table.is_some() {
+                log::info!(
+                    "Crossover: unified cartesian table built for {} bands",
+                    render_bands.len()
+                );
+            }
+            return table;
+        }
+        drop(cartesian);
+
+        let mut polar = Vec::with_capacity(render_bands.len());
+        for band in render_bands {
+            let engine = band.engine.as_ref()?;
+            polar.push((engine.polar_parts()?, band.speaker_indices.as_slice()));
+        }
+        let table = MultiBandTable::build_polar(&polar, num_speakers);
         if table.is_some() {
             log::info!(
-                "Crossover: unified cartesian table built for {} bands",
+                "Crossover: unified polar table built for {} bands",
                 render_bands.len()
             );
         }
@@ -919,7 +947,7 @@ impl SpatialRenderer {
     /// only the two fields it needs) so it composes with the other per-channel
     /// mutable borrows held across the render arms.
     fn fill_band_gains(
-        unified: &Option<MultiBandCartesianTable>,
+        unified: &Option<MultiBandTable>,
         render_bands: &[BandRenderer],
         render_params: crate::ramp_strategy::RampRenderParams,
         position: [f64; 3],
@@ -2151,6 +2179,91 @@ mod tests {
         assert!(
             max_diff < 1e-6,
             "unified vs per-band output mismatch: max diff {max_diff}"
+        );
+    }
+
+    /// Polar counterpart of `unified_crossover_matches_per_band`: the unified
+    /// multi-band POLAR table must render bit-equivalently to the per-band polar
+    /// path. Same crossover layout, but a precomputed polar evaluator.
+    #[test]
+    fn unified_polar_matches_per_band() {
+        fn build() -> SpatialRenderer {
+            let mut layout = SpeakerLayout::preset("7.1.4").unwrap();
+            for (sp, cutoff) in layout.speakers.iter_mut().zip([80.0, 200.0, 500.0]) {
+                sp.freq_low = Some(cutoff);
+            }
+            SpatialRenderer::new(
+                layout,
+                48_000,
+                1,
+                1,
+                0.0,
+                2.0,
+                VbapTableMode::Polar,
+                false,
+                true, // position interpolation → trilinear lookup + per-sample motion
+                DistanceModel::Linear,
+                false,
+                1.0,
+                1.0,
+                0.0,
+                1.0,
+                false,
+                [1.0, 2.0, 0.5],
+                2.0,
+                0.5,
+                0.0,
+                0.0,
+                false,
+                false,
+                false,
+                1.0,
+                1.0,
+                PreferredEvaluationMode::PrecomputedPolar,
+                LiveEvaluationMode::PrecomputedPolar,
+                31,
+                31,
+                15,
+                15,
+            )
+            .unwrap()
+        }
+
+        let mut unified = build();
+        assert!(
+            unified.unified_table.is_some(),
+            "polar crossover layout should build a unified table"
+        );
+        let mut per_band = build();
+        per_band.unified_table = None;
+
+        let pcm: Vec<f32> = (0..40).map(|i| (i * 7 % 13) as f32 / 13.0 - 0.5).collect();
+        let event = vec![SpatialChannelEvent {
+            channel_idx: 0,
+            is_bed: false,
+            gain_db: Some(0),
+            ramp_length: Some(40),
+            size: Some([0.0, 0.0, 0.0]),
+            position: Some([0.3, -0.2, 0.4]),
+            sample_pos: Some(0),
+        }];
+
+        let a = unified
+            .render_frame(&pcm, 1, &event, Vec::new(), false)
+            .unwrap();
+        let b = per_band
+            .render_frame(&pcm, 1, &event, Vec::new(), false)
+            .unwrap();
+        assert_eq!(a.samples.len(), b.samples.len());
+        let max_diff = a
+            .samples
+            .iter()
+            .zip(&b.samples)
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0f32, f32::max);
+        assert!(
+            max_diff < 1e-6,
+            "unified polar vs per-band output mismatch: max diff {max_diff}"
         );
     }
 

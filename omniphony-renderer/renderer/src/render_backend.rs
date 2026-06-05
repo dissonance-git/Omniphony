@@ -296,6 +296,19 @@ pub(crate) struct CartesianParts<'a> {
     pub position_interpolation: bool,
 }
 
+/// Borrowed view of a sampled polar evaluator's table + axes, the polar
+/// counterpart of [`CartesianParts`]. Flat gains layout `[dist][el][az][speaker]`
+/// (cell order `az` fastest), so the unified table treats azimuth as the x axis.
+#[derive(Clone, Copy)]
+pub(crate) struct PolarParts<'a> {
+    pub gains: &'a [f32],
+    pub speaker_count: usize,
+    pub azimuth: &'a AzimuthLut,
+    pub elevation: &'a AxisLut,
+    pub distance: &'a AxisLut,
+    pub position_interpolation: bool,
+}
+
 pub trait PreparedEvaluator: Send + Sync {
     fn speaker_count(&self) -> usize;
     fn compute_gains(&self, req: &RenderRequest) -> RenderResponse;
@@ -311,6 +324,13 @@ pub trait PreparedEvaluator: Send + Sync {
     /// view type, used only to merge bands into a `MultiBandCartesianTable`.
     #[allow(private_interfaces)]
     fn cartesian_parts(&self) -> Option<CartesianParts<'_>> {
+        None
+    }
+    /// Borrow the sampled polar table + axes, when this evaluator is a precomputed
+    /// polar one. Default `None`. Crate-internal view used to merge bands into a
+    /// polar [`MultiBandTable`].
+    #[allow(private_interfaces)]
+    fn polar_parts(&self) -> Option<PolarParts<'_>> {
         None
     }
     /// Serialize the precomputed evaluation table (gains grid + metadata) to the
@@ -573,6 +593,18 @@ impl PreparedEvaluator for SampledPolarEvaluator {
             .store(interpolate, Ordering::Relaxed);
     }
 
+    #[allow(private_interfaces)]
+    fn polar_parts(&self) -> Option<PolarParts<'_>> {
+        Some(PolarParts {
+            gains: &self.gains,
+            speaker_count: self.speaker_count,
+            azimuth: &self.azimuth_lut,
+            elevation: &self.elevation_lut,
+            distance: &self.distance_lut,
+            position_interpolation: self.position_interpolation.load(Ordering::Relaxed),
+        })
+    }
+
     fn compute_gains(&self, req: &RenderRequest) -> RenderResponse {
         let (azimuth, elevation, distance) = adm_to_spherical(
             req.adm_position[0] as f32,
@@ -741,6 +773,10 @@ impl PreparedRenderEngine {
 
     pub(crate) fn cartesian_parts(&self) -> Option<CartesianParts<'_>> {
         self.evaluator.cartesian_parts()
+    }
+
+    pub(crate) fn polar_parts(&self) -> Option<PolarParts<'_>> {
+        self.evaluator.polar_parts()
     }
 
     pub fn save_to_file(
@@ -990,8 +1026,7 @@ impl AzimuthLut {
         let step = (values[n - 1] - values[0]) / (n - 1) as f32;
         if step > 0.0 {
             let tol = 1e-5 * step.max(1.0);
-            let uniform =
-                (0..n).all(|k| (values[k] - (values[0] + k as f32 * step)).abs() <= tol);
+            let uniform = (0..n).all(|k| (values[k] - (values[0] + k as f32 * step)).abs() <= tol);
             if uniform {
                 return Self::WrappedUniform {
                     min: values[0],
@@ -1150,16 +1185,69 @@ pub(crate) fn sample_cartesian_table(
     gains
 }
 
-/// One cartesian table covering several crossover bands at once. The per-band
-/// gains for each grid cell are stored contiguously (`[cell][band][speaker]`,
-/// each band full-size with the speaker scatter baked in), so a lookup localises
-/// the cell ONCE and accumulates every band's gains in a single pass — instead
-/// of one full lookup (localise + accumulate + scatter) per band. The cost no
-/// longer scales with the band count beyond the accumulation itself.
-pub(crate) struct MultiBandCartesianTable {
-    x: AxisLut,
-    y: AxisLut,
-    z: AxisLut,
+/// One grid axis of a [`MultiBandTable`], dispatching to the right precomputed
+/// lookup so the trilinear core is coordinate-agnostic.
+#[derive(Clone)]
+pub(crate) enum GridAxis {
+    Linear(AxisLut),
+    Azimuth(AzimuthLut),
+}
+
+impl GridAxis {
+    #[inline]
+    fn sample(&self, position: f32, interpolate: bool) -> AxisSample {
+        match self {
+            Self::Linear(lut) => lut.sample(position, interpolate),
+            Self::Azimuth(lut) => lut.sample(position, interpolate),
+        }
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        match self {
+            Self::Linear(lut) => lut.len(),
+            Self::Azimuth(lut) => lut.len(),
+        }
+    }
+}
+
+/// Coordinate space of a [`MultiBandTable`]: how an ADM position is turned into
+/// grid coordinates before the per-axis lookups. Cartesian clamps the ADM cube;
+/// polar converts to spherical (axes then self-clamp / wrap).
+#[derive(Clone, Copy)]
+pub(crate) enum CoordSpace {
+    Cartesian,
+    Polar,
+}
+
+impl CoordSpace {
+    #[inline]
+    fn to_grid(self, p: [f32; 3]) -> [f32; 3] {
+        match self {
+            Self::Cartesian => [
+                p[0].clamp(-1.0, 1.0),
+                p[1].clamp(-1.0, 1.0),
+                p[2].clamp(-1.0, 1.0),
+            ],
+            Self::Polar => {
+                let (az, el, dist) = adm_to_spherical(p[0], p[1], p[2]);
+                [az, el, dist]
+            }
+        }
+    }
+}
+
+/// One table covering several crossover bands at once, in either coordinate
+/// space. The per-band gains for each grid cell are stored contiguously
+/// (`[cell][band][speaker]`, each band full-size with the speaker scatter baked
+/// in), so a lookup localises the cell ONCE and accumulates every band's gains in
+/// a single pass — instead of one full lookup (localise + accumulate + scatter)
+/// per band. The cost no longer scales with the band count beyond the
+/// accumulation itself. Cell order is `axes[2]` (z/distance) slowest, `axes[0]`
+/// (x/azimuth) fastest.
+pub(crate) struct MultiBandTable {
+    axes: [GridAxis; 3],
+    coord: CoordSpace,
     /// `[cell][band][num_speakers]`, row-major.
     gains: Vec<f32>,
     n_bands: usize,
@@ -1169,29 +1257,79 @@ pub(crate) struct MultiBandCartesianTable {
     position_interpolation: AtomicBool,
 }
 
-impl MultiBandCartesianTable {
-    /// Merge per-band cartesian tables (band-local speakers) into the unified
-    /// `[cell][band][num_speakers]` layout, baking each band's speaker scatter.
-    /// All bands must share the same grid; returns `None` otherwise.
-    pub(crate) fn build(
+impl MultiBandTable {
+    /// Merge per-band cartesian tables into the unified layout.
+    pub(crate) fn build_cartesian(
         bands: &[(CartesianParts<'_>, &[usize])],
         num_speakers: usize,
     ) -> Option<Self> {
         let (first, _) = bands.first()?;
-        let x = first.x.clone();
-        let y = first.y.clone();
-        let z = first.z.clone();
+        let axes = [
+            GridAxis::Linear(first.x.clone()),
+            GridAxis::Linear(first.y.clone()),
+            GridAxis::Linear(first.z.clone()),
+        ];
         let position_interpolation = first.position_interpolation;
-        let n_cells = x.len() * y.len() * z.len();
+        let cells: Vec<(&[f32], usize, &[usize])> = bands
+            .iter()
+            .map(|(p, idx)| (p.gains, p.speaker_count, *idx))
+            .collect();
+        Self::build_inner(
+            axes,
+            CoordSpace::Cartesian,
+            &cells,
+            num_speakers,
+            position_interpolation,
+        )
+    }
+
+    /// Merge per-band polar tables into the unified layout. Azimuth is `axes[0]`
+    /// (x), elevation `axes[1]` (y), distance `axes[2]` (z), matching the polar
+    /// evaluator's `[dist][el][az]` flat cell order.
+    pub(crate) fn build_polar(
+        bands: &[(PolarParts<'_>, &[usize])],
+        num_speakers: usize,
+    ) -> Option<Self> {
+        let (first, _) = bands.first()?;
+        let axes = [
+            GridAxis::Azimuth(first.azimuth.clone()),
+            GridAxis::Linear(first.elevation.clone()),
+            GridAxis::Linear(first.distance.clone()),
+        ];
+        let position_interpolation = first.position_interpolation;
+        let cells: Vec<(&[f32], usize, &[usize])> = bands
+            .iter()
+            .map(|(p, idx)| (p.gains, p.speaker_count, *idx))
+            .collect();
+        Self::build_inner(
+            axes,
+            CoordSpace::Polar,
+            &cells,
+            num_speakers,
+            position_interpolation,
+        )
+    }
+
+    /// Coordinate-agnostic merge: copies each band's per-cell gains into the
+    /// `[cell][band][num_speakers]` grid, scattering band-local speakers to global
+    /// indices. All bands must share the grid; returns `None` otherwise.
+    fn build_inner(
+        axes: [GridAxis; 3],
+        coord: CoordSpace,
+        bands: &[(&[f32], usize, &[usize])],
+        num_speakers: usize,
+        position_interpolation: bool,
+    ) -> Option<Self> {
+        let n_cells = axes[0].len() * axes[1].len() * axes[2].len();
         let n_bands = bands.len();
         let mut gains = vec![0.0f32; n_cells * n_bands * num_speakers];
-        for (b, (parts, indices)) in bands.iter().enumerate() {
-            let sc = parts.speaker_count;
-            if parts.gains.len() != n_cells * sc || indices.len() != sc {
+        for (b, (band_gains, sc, indices)) in bands.iter().enumerate() {
+            let sc = *sc;
+            if band_gains.len() != n_cells * sc || indices.len() != sc {
                 return None; // grid mismatch — fall back to the per-band path
             }
             for cell in 0..n_cells {
-                let src = &parts.gains[cell * sc..cell * sc + sc];
+                let src = &band_gains[cell * sc..cell * sc + sc];
                 let dst_base = (cell * n_bands + b) * num_speakers;
                 for (i, &g) in src.iter().enumerate() {
                     gains[dst_base + indices[i]] = g;
@@ -1199,9 +1337,8 @@ impl MultiBandCartesianTable {
             }
         }
         Some(Self {
-            x,
-            y,
-            z,
+            axes,
+            coord,
             gains,
             n_bands,
             num_speakers,
@@ -1219,11 +1356,12 @@ impl MultiBandCartesianTable {
     /// full-size `Gains` (one localisation, contiguous per-cell accumulation).
     pub(crate) fn sample_into(&self, position: [f32; 3], out: &mut Vec<Gains>) {
         let interp = self.position_interpolation.load(Ordering::Relaxed);
-        let x = self.x.sample(position[0].clamp(-1.0, 1.0), interp);
-        let y = self.y.sample(position[1].clamp(-1.0, 1.0), interp);
-        let z = self.z.sample(position[2].clamp(-1.0, 1.0), interp);
-        let x_len = self.x.len();
-        let y_len = self.y.len();
+        let p = self.coord.to_grid(position);
+        let x = self.axes[0].sample(p[0], interp);
+        let y = self.axes[1].sample(p[1], interp);
+        let z = self.axes[2].sample(p[2], interp);
+        let x_len = self.axes[0].len();
+        let y_len = self.axes[1].len();
         let band_stride = self.num_speakers;
         let cell_stride = self.n_bands * self.num_speakers;
 
@@ -1701,7 +1839,13 @@ mod polar_lut_tests {
         let tbl: Vec<f32> = (0..values.len()).map(synth).collect();
         let read = |s: AxisSample| tbl[s.lower] * (1.0 - s.fraction) + tbl[s.upper] * s.fraction;
         let step = 360.0 / values.len() as f32;
-        for &pos in &[180.0 - 0.25 * step, 180.0, -180.0, -180.0 + 0.25 * step, 540.0] {
+        for &pos in &[
+            180.0 - 0.25 * step,
+            180.0,
+            -180.0,
+            -180.0 + 0.25 * step,
+            540.0,
+        ] {
             let want = read(sample_wrapped_axis(&values, wrap_degrees(pos), true));
             let got = read(lut.sample(pos, true));
             assert!(
