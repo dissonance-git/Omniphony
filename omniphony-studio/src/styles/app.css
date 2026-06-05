@@ -1473,6 +1473,36 @@
         transition: clip-path 0.1s linear, opacity 0.2s ease;
       }
 
+      /* Audio level meters run on a -60..+6 dBFS scale (mute-solo.js
+         dbToMeterPercent): 0 dBFS sits at 90.9%, leaving an over-0 "headroom"
+         zone above it. The peak cursor turns solid red once the held peak
+         crosses 0 dBFS (clipping). */
+      .meter-bar.level-meter .meter-fill {
+        z-index: 1;
+      }
+
+      .meter-bar.level-meter .meter-peak {
+        z-index: 3;
+      }
+
+      .meter-bar.level-meter::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 90.9%;
+        right: 0;
+        background: rgba(255, 80, 80, 0.32);
+        border-left: 1px solid rgba(255, 230, 230, 0.75);
+        pointer-events: none;
+        z-index: 2;
+      }
+
+      .meter-peak.over {
+        background: #ff3b3b;
+        box-shadow: 0 0 6px rgba(255, 59, 59, 0.9);
+      }
+
       .control-row {
         display: grid;
         grid-template-columns: 1fr auto auto auto;
@@ -1792,17 +1822,18 @@
         position: relative;
       }
 
-      .speaker-item.clip-flash {
+      /* Clip indicator: flash just the speaker's name chip, not the whole row. */
+      .speaker-item .id-strip.clip-flash {
         animation: speaker-clip-flash 1s ease-out;
       }
 
       @keyframes speaker-clip-flash {
         0% {
-          background-color: rgba(255, 59, 48, 0.55);
-          box-shadow: inset 0 0 0 1px rgba(255, 59, 48, 0.85);
+          background-color: rgba(255, 59, 48, 0.85);
+          box-shadow: inset 0 0 0 1px rgba(255, 59, 48, 0.9);
         }
         100% {
-          background-color: rgba(255, 59, 48, 0);
+          background-color: rgba(0, 0, 0, 0.55);
           box-shadow: inset 0 0 0 1px rgba(255, 59, 48, 0);
         }
       }
