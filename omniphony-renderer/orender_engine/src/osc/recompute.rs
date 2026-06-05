@@ -65,8 +65,9 @@ pub(crate) fn trigger_layout_recompute(
                 "Render backend recompute started ({})",
                 rebuild_plan_for_thread.log_summary()
             );
+            let current_topology = control_clone.active_topology();
             let build_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                rebuild_plan_for_thread.build_topology()
+                rebuild_plan_for_thread.build_topology_reusing(Some(&current_topology))
             }))
             .unwrap_or_else(|payload| {
                 let detail = if let Some(msg) = payload.downcast_ref::<&'static str>() {

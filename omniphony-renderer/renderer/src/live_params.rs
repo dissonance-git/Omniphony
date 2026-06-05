@@ -496,6 +496,10 @@ pub struct RenderTopology {
     pub bed_to_speaker_mapping: HashMap<usize, usize>,
     pub num_speakers: usize,
     pub num_spatializable: usize,
+    /// The `RendererControl::geometry_generation` this topology's gain models were
+    /// built at. A recompute whose generation matches can reuse `backend`'s
+    /// decorated model instead of re-triangulating. Defaults to 0 (initial build).
+    pub geometry_generation: u64,
 }
 
 impl RenderTopology {
@@ -534,7 +538,14 @@ impl RenderTopology {
             speaker_layout,
             backend,
             backend_to_speaker_mapping,
+            geometry_generation: 0,
         })
+    }
+
+    /// Set the geometry generation this topology was built at (chaining helper).
+    pub fn with_geometry_generation(mut self, generation: u64) -> Self {
+        self.geometry_generation = generation;
+        self
     }
 
     pub fn backend_speaker_index_for_layout_speaker(&self, speaker_index: usize) -> Option<usize> {
@@ -594,6 +605,14 @@ pub struct RendererControl {
     /// thread). The engine's OSC listener polls this and re-broadcasts the
     /// live-state bundle when it changes, coalesced to the listener's poll cadence.
     pub live_state_generation: std::sync::atomic::AtomicU64,
+
+    /// Monotonic counter bumped whenever a change affects the backend *geometry*
+    /// (speaker positions / triangulation or the decorator metrics) — as opposed
+    /// to evaluation-only changes (mode, grid resolution). A topology records the
+    /// generation it was built at; a recompute whose generation matches the active
+    /// topology's reuses the existing gain models and rebuilds only the evaluation
+    /// wrapper, avoiding re-triangulation. See `build_topology_reusing`.
+    pub geometry_generation: std::sync::atomic::AtomicU64,
 
     /// Set by the gain stage whenever output clipping is detected (peak > 0 dBFS),
     /// independently of whether auto-gain is enabled. Holds the index of the speaker
@@ -659,6 +678,7 @@ impl RendererControl {
             object_params_generation: std::sync::atomic::AtomicU64::new(1),
             speaker_params_generation: std::sync::atomic::AtomicU64::new(1),
             live_state_generation: std::sync::atomic::AtomicU64::new(0),
+            geometry_generation: std::sync::atomic::AtomicU64::new(0),
             clip_pending: AtomicI32::new(-1),
             config_path: Mutex::new(None),
             config_status: Mutex::new(None),
@@ -779,6 +799,16 @@ impl RendererControl {
         self.live_state_generation.load(Ordering::Relaxed)
     }
 
+    /// Bump the geometry generation: the next recompute will rebuild the gain
+    /// models from scratch (used for changes that alter triangulation / metrics).
+    pub fn bump_geometry_generation(&self) {
+        self.geometry_generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn geometry_generation(&self) -> u64 {
+        self.geometry_generation.load(Ordering::Relaxed)
+    }
+
     /// Flag that output clipping was detected this frame on `speaker_idx`
     /// (lock-free, audio-thread safe).
     pub fn note_clip(&self, speaker_idx: usize) {
@@ -808,12 +838,17 @@ impl RendererControl {
             &live,
             rebuild_params_allow_negative_z(backend_rebuild_params),
         );
+        let geometry_generation = self.geometry_generation();
         prepare_topology_build_plan(
             layout,
             &live,
             backend_rebuild_params,
             evaluation_build_config,
         )
+        .map(|mut plan| {
+            plan.geometry_generation = geometry_generation;
+            plan
+        })
     }
 
     /// Build a band-aware speaker gain table and serialize it for transfer.

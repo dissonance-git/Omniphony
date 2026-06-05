@@ -221,10 +221,11 @@ struct BandRenderer {
     speaker_indices: Vec<usize>,
     /// Full speaker count — size of the returned `Gains`.
     num_speakers: usize,
-    /// Prepared engine built with the same backend and evaluation mode as the
-    /// active renderer topology, but restricted to this band's speaker subset.
-    /// `None` when the band has fewer than 3 speakers (uniform fallback).
-    engine: Option<Arc<PreparedRenderEngine>>,
+    /// Band-restricted render topology (its `backend` is the prepared engine).
+    /// Stored (rather than just the engine) so a geometry-unchanged refresh can
+    /// reuse its gain model via `build_topology_reusing`. `None` when the band has
+    /// fewer than 3 speakers (uniform fallback).
+    topology: Option<Arc<RenderTopology>>,
     /// `true` when this band covers every speaker in identity order
     /// (`speaker_indices == 0..num_speakers`) — the no-crossover case. Then the
     /// band-local gains are already full-size and the scatter is skipped.
@@ -237,9 +238,10 @@ impl BandRenderer {
         layout: &crate::speaker_layout::SpeakerLayout,
         num_speakers: usize,
         control: &Arc<RendererControl>,
+        prev: Option<&BandRenderer>,
     ) -> Result<Self> {
         let speaker_indices = band.speaker_indices.clone();
-        let engine = if speaker_indices.len() >= 3 {
+        let topology = if speaker_indices.len() >= 3 {
             let band_layout = crate::speaker_layout::SpeakerLayout {
                 radius_m: layout.radius_m,
                 speakers: speaker_indices
@@ -247,11 +249,16 @@ impl BandRenderer {
                     .map(|&idx| layout.speakers[idx].clone())
                     .collect(),
             };
-            let topology = control
+            let plan = control
                 .prepare_topology_rebuild_for_layout(band_layout)
-                .ok_or_else(|| anyhow::anyhow!("failed to prepare band topology rebuild"))?
-                .build_topology()?;
-            Some(Arc::clone(&topology.backend))
+                .ok_or_else(|| anyhow::anyhow!("failed to prepare band topology rebuild"))?;
+            // Reuse the previous band's geometry when it covers the same speakers
+            // and the geometry generation is unchanged: `build_topology_reusing`
+            // then re-wraps the model (no re-triangulation).
+            let prev_topology = prev
+                .filter(|p| p.speaker_indices == speaker_indices)
+                .and_then(|p| p.topology.as_deref());
+            Some(Arc::new(plan.build_topology_reusing(prev_topology)?))
         } else {
             None
         };
@@ -262,9 +269,14 @@ impl BandRenderer {
         Ok(Self {
             speaker_indices,
             num_speakers,
-            engine,
+            topology,
             is_identity,
         })
+    }
+
+    /// The prepared engine for this band, when it has one (≥3 speakers).
+    fn engine(&self) -> Option<&Arc<PreparedRenderEngine>> {
+        self.topology.as_ref().map(|t| &t.backend)
     }
 
     /// Compute VBAP gains for this band at `position`.
@@ -279,7 +291,7 @@ impl BandRenderer {
     ) -> crate::spatial_vbap::Gains {
         let req = render_params.render_request_for_event(position, event_size);
         let n = self.speaker_indices.len();
-        let band_gains = match &self.engine {
+        let band_gains = match self.engine() {
             Some(engine) => engine.compute_gains(&req).gains,
             None => {
                 let mut g = crate::spatial_vbap::Gains::zeroed(n);
@@ -842,9 +854,16 @@ impl SpatialRenderer {
         layout: &crate::speaker_layout::SpeakerLayout,
         num_speakers: usize,
         sample_rate: u32,
+        prev_bands: &[BandRenderer],
     ) -> Result<(Vec<BandRenderer>, Option<LR4CrossoverBank>)> {
-        let make_renderer =
-            |b: &FreqBand| BandRenderer::from_band(b, layout, num_speakers, control);
+        // For each new band, reuse the matching previous band (same speaker subset)
+        // so an evaluation-only refresh can keep its triangulated gain model.
+        let make_renderer = |b: &FreqBand| {
+            let prev = prev_bands
+                .iter()
+                .find(|p| p.speaker_indices == b.speaker_indices);
+            BandRenderer::from_band(b, layout, num_speakers, control, prev)
+        };
 
         let bands = compute_bands(layout);
         if bands.len() <= 1 {
@@ -893,7 +912,7 @@ impl SpatialRenderer {
         let mut cartesian = Vec::with_capacity(render_bands.len());
         let mut all_cartesian = true;
         for band in render_bands {
-            let engine = band.engine.as_ref()?;
+            let engine = band.engine()?;
             match engine.cartesian_parts() {
                 Some(parts) => cartesian.push((parts, band.speaker_indices.as_slice())),
                 None => {
@@ -916,7 +935,7 @@ impl SpatialRenderer {
 
         let mut polar = Vec::with_capacity(render_bands.len());
         for band in render_bands {
-            let engine = band.engine.as_ref()?;
+            let engine = band.engine()?;
             polar.push((engine.polar_parts()?, band.speaker_indices.as_slice()));
         }
         let table = MultiBandTable::build_polar(&polar, num_speakers);
@@ -974,6 +993,7 @@ impl SpatialRenderer {
             &active_topology.speaker_layout,
             num_speakers,
             sample_rate,
+            &[],
         )?;
         let unified_table = Self::build_unified_table(&render_bands, num_speakers);
 
@@ -1026,11 +1046,15 @@ impl SpatialRenderer {
             return Ok(());
         }
 
+        // Pass the current bands so an evaluation-only recompute (unchanged geometry
+        // generation) reuses each band's triangulated gain model and rebuilds only
+        // the evaluation wrapper, instead of re-triangulating every band.
         let (render_bands, crossover_filter_bank) = Self::build_crossover(
             &self.control,
             active_layout,
             self.num_speakers,
             self.sample_rate,
+            &self.render_bands,
         )?;
         self.unified_table = Self::build_unified_table(&render_bands, self.num_speakers);
         self.render_bands = render_bands;
@@ -1354,7 +1378,7 @@ impl SpatialRenderer {
         // `trigger_layout_recompute`). We sync the current value every frame —
         // just a handful of relaxed atomic stores.
         for band in &self.render_bands {
-            if let Some(engine) = band.engine.as_ref() {
+            if let Some(engine) = band.engine() {
                 engine.set_position_interpolation(live_position_interpolation);
             }
         }
@@ -2252,6 +2276,89 @@ mod tests {
         assert!(
             max_diff < 1e-6,
             "unified polar vs per-band output mismatch: max diff {max_diff}"
+        );
+    }
+
+    /// An evaluation-mode change must reuse the triangulated gain model (the
+    /// geometry is mode-independent), rebuilding only the evaluation wrapper. A
+    /// geometry change (bumped generation) must rebuild the model. Verified via
+    /// `Arc::ptr_eq` on the decorated model.
+    #[test]
+    fn eval_mode_change_reuses_geometry() {
+        let layout = SpeakerLayout::preset("7.1.4").unwrap();
+        let r = SpatialRenderer::new(
+            layout,
+            48_000,
+            1,
+            1,
+            0.0,
+            2.0,
+            VbapTableMode::Cartesian {
+                x_size: 21,
+                y_size: 21,
+                z_size: 9,
+                z_neg_size: 9,
+            },
+            false,
+            true,
+            DistanceModel::Linear,
+            false,
+            1.0,
+            1.0,
+            0.0,
+            1.0,
+            false,
+            [1.0, 2.0, 0.5],
+            2.0,
+            0.5,
+            0.0,
+            0.0,
+            false,
+            false,
+            false,
+            1.0,
+            1.0,
+            PreferredEvaluationMode::PrecomputedCartesian,
+            LiveEvaluationMode::PrecomputedCartesian,
+            21,
+            21,
+            9,
+            9,
+        )
+        .unwrap();
+        let control = r.renderer_control();
+        let topo0 = control.active_topology();
+        let model0 = topo0
+            .backend
+            .decorated_model()
+            .expect("vbap backend exposes a decorated model");
+
+        // Evaluation-mode-only change: geometry generation unchanged → reuse model.
+        control
+            .live
+            .write()
+            .unwrap()
+            .set_evaluation_mode(LiveEvaluationMode::Realtime);
+        let plan = control.prepare_topology_rebuild().expect("rebuild plan");
+        let reused = plan
+            .build_topology_reusing(Some(&topo0))
+            .expect("reuse build");
+        assert_eq!(
+            reused.backend.evaluation_mode(),
+            EffectiveEvaluationMode::Realtime
+        );
+        assert!(
+            Arc::ptr_eq(&model0, &reused.backend.decorated_model().unwrap()),
+            "evaluation-mode change must reuse the triangulated gain model"
+        );
+
+        // Geometry change bumps the generation → full rebuild (different model).
+        control.bump_geometry_generation();
+        let plan2 = control.prepare_topology_rebuild().expect("rebuild plan 2");
+        let rebuilt = plan2.build_topology_reusing(Some(&topo0)).expect("rebuild");
+        assert!(
+            !Arc::ptr_eq(&model0, &rebuilt.backend.decorated_model().unwrap()),
+            "a geometry change must rebuild the gain model"
         );
     }
 

@@ -13,6 +13,7 @@ use crate::speaker_layout::SpeakerLayout;
 use anyhow::Result;
 use rayon::prelude::*;
 use serde::Serialize;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub use barycenter_backend::BarycenterBackend;
@@ -278,7 +279,7 @@ pub trait EvaluationStrategy {
     fn effective_mode(&self) -> EffectiveEvaluationMode;
     fn prepare(
         self,
-        model: Box<dyn GainModel>,
+        model: Arc<dyn GainModel>,
         config: &EvaluationBuildConfig,
     ) -> Result<Box<dyn PreparedEvaluator>>;
 }
@@ -312,6 +313,14 @@ pub(crate) struct PolarParts<'a> {
 pub trait PreparedEvaluator: Send + Sync {
     fn speaker_count(&self) -> usize;
     fn compute_gains(&self, req: &RenderRequest) -> RenderResponse;
+    /// The decorated gain model this evaluator wraps, when it holds one. Shared
+    /// (`Arc`) so a geometry-unchanged recompute can reuse it and rebuild only the
+    /// evaluation wrapper (no re-triangulation). Default `None` (e.g. a from-file
+    /// artifact evaluator that owns a table, not a model). See
+    /// `PreparedRenderEngine::decorated_model`.
+    fn model_arc(&self) -> Option<Arc<dyn GainModel>> {
+        None
+    }
     /// Update the read-time `position_interpolation` flag (nearest cell vs
     /// trilinear). The precomputed table content is independent of this flag, so
     /// toggling it must NOT rebuild the table — only the sampled evaluators hold
@@ -343,11 +352,11 @@ pub trait PreparedEvaluator: Send + Sync {
 }
 
 pub struct RealtimeEvaluator {
-    model: Box<dyn GainModel>,
+    model: Arc<dyn GainModel>,
 }
 
 impl RealtimeEvaluator {
-    pub fn new(model: Box<dyn GainModel>) -> Self {
+    pub fn new(model: Arc<dyn GainModel>) -> Self {
         Self { model }
     }
 }
@@ -355,6 +364,10 @@ impl RealtimeEvaluator {
 impl PreparedEvaluator for RealtimeEvaluator {
     fn speaker_count(&self) -> usize {
         self.model.speaker_count()
+    }
+
+    fn model_arc(&self) -> Option<Arc<dyn GainModel>> {
+        Some(Arc::clone(&self.model))
     }
 
     fn compute_gains(&self, req: &RenderRequest) -> RenderResponse {
@@ -368,7 +381,7 @@ impl PreparedEvaluator for RealtimeEvaluator {
 }
 
 pub struct SampledCartesianEvaluator {
-    model: Box<dyn GainModel>,
+    model: Arc<dyn GainModel>,
     x_positions: Vec<f32>,
     y_positions: Vec<f32>,
     z_positions: Vec<f32>,
@@ -387,7 +400,7 @@ pub struct SampledCartesianEvaluator {
 }
 
 impl SampledCartesianEvaluator {
-    pub fn new(model: Box<dyn GainModel>, config: &EvaluationBuildConfig) -> Self {
+    pub fn new(model: Arc<dyn GainModel>, config: &EvaluationBuildConfig) -> Self {
         // Intentionally sample and query the precomputed cartesian evaluator in native
         // ADM coordinates. The backend remains responsible for any room/depth transforms,
         // so the runtime can read gains directly from object positions without converting
@@ -454,6 +467,10 @@ impl PreparedEvaluator for SampledCartesianEvaluator {
         self.speaker_count
     }
 
+    fn model_arc(&self) -> Option<Arc<dyn GainModel>> {
+        Some(Arc::clone(&self.model))
+    }
+
     fn set_position_interpolation(&self, interpolate: bool) {
         self.position_interpolation
             .store(interpolate, Ordering::Relaxed);
@@ -510,7 +527,7 @@ impl PreparedEvaluator for SampledCartesianEvaluator {
 }
 
 pub struct SampledPolarEvaluator {
-    model: Box<dyn GainModel>,
+    model: Arc<dyn GainModel>,
     azimuth_positions: Vec<f32>,
     elevation_positions: Vec<f32>,
     distance_positions: Vec<f32>,
@@ -529,7 +546,7 @@ pub struct SampledPolarEvaluator {
 }
 
 impl SampledPolarEvaluator {
-    pub fn new(model: Box<dyn GainModel>, config: &EvaluationBuildConfig) -> Self {
+    pub fn new(model: Arc<dyn GainModel>, config: &EvaluationBuildConfig) -> Self {
         let azimuth_positions = polar_azimuth_axis(config.polar.azimuth_values.max(2));
         let elevation_positions = polar_elevation_axis(
             config.polar.elevation_values.max(2),
@@ -586,6 +603,10 @@ impl SampledPolarEvaluator {
 impl PreparedEvaluator for SampledPolarEvaluator {
     fn speaker_count(&self) -> usize {
         self.speaker_count
+    }
+
+    fn model_arc(&self) -> Option<Arc<dyn GainModel>> {
+        Some(Arc::clone(&self.model))
     }
 
     fn set_position_interpolation(&self, interpolate: bool) {
@@ -655,7 +676,7 @@ impl EvaluationStrategy for RealtimeStrategy {
 
     fn prepare(
         self,
-        model: Box<dyn GainModel>,
+        model: Arc<dyn GainModel>,
         _config: &EvaluationBuildConfig,
     ) -> Result<Box<dyn PreparedEvaluator>> {
         Ok(Box::new(RealtimeEvaluator::new(model)))
@@ -671,7 +692,7 @@ impl EvaluationStrategy for PrecomputedCartesianStrategy {
 
     fn prepare(
         self,
-        model: Box<dyn GainModel>,
+        model: Arc<dyn GainModel>,
         config: &EvaluationBuildConfig,
     ) -> Result<Box<dyn PreparedEvaluator>> {
         Ok(Box::new(SampledCartesianEvaluator::new(model, config)))
@@ -687,7 +708,7 @@ impl EvaluationStrategy for PrecomputedPolarStrategy {
 
     fn prepare(
         self,
-        model: Box<dyn GainModel>,
+        model: Arc<dyn GainModel>,
         config: &EvaluationBuildConfig,
     ) -> Result<Box<dyn PreparedEvaluator>> {
         Ok(Box::new(SampledPolarEvaluator::new(model, config)))
@@ -771,6 +792,13 @@ impl PreparedRenderEngine {
         self.evaluator.set_position_interpolation(interpolate);
     }
 
+    /// The decorated gain model (geometry + output-stage decorators) this engine
+    /// wraps. Shared (`Arc`) so a geometry-unchanged recompute can rebuild only the
+    /// evaluation wrapper via [`wrap_prepared_engine`] instead of re-triangulating.
+    pub(crate) fn decorated_model(&self) -> Option<Arc<dyn GainModel>> {
+        self.evaluator.model_arc()
+    }
+
     pub(crate) fn cartesian_parts(&self) -> Option<CartesianParts<'_>> {
         self.evaluator.cartesian_parts()
     }
@@ -794,16 +822,19 @@ impl PreparedRenderEngine {
     }
 }
 
-pub fn build_prepared_render_engine(
+/// Apply the shared output-stage decorators to a raw backend gain model and
+/// return it as a shareable `Arc`. The result is geometry/output-stage state
+/// only (no evaluation table), so it can be reused across an evaluation-mode
+/// change (see [`wrap_prepared_engine`]).
+///
+/// Order matters: distance diffuse blends + renormalizes, so distance attenuation
+/// must wrap it (be applied last) or the renorm would cancel the attenuation.
+/// Identity/metadata still delegate to the inner backend; capabilities gain
+/// `supports_distance_diffuse` / `_model`.
+pub fn build_decorated_model(
     model: Box<dyn GainModel>,
-    evaluation_mode: EffectiveEvaluationMode,
     config: &EvaluationBuildConfig,
-) -> Result<PreparedRenderEngine> {
-    // Wrap the backend with the shared output stages, applied uniformly for
-    // every backend. Order matters: distance diffuse blends + renormalizes, so
-    // distance attenuation must wrap it (be applied last) or the renorm would
-    // cancel the attenuation. Identity/metadata still delegate to the inner
-    // backend; capabilities gain `supports_distance_diffuse` / `_model`.
+) -> Arc<dyn GainModel> {
     let model: Box<dyn GainModel> = Box::new(DistanceDiffuseModel::new(
         model,
         config.distance_diffuse_metric,
@@ -812,6 +843,17 @@ pub fn build_prepared_render_engine(
         model,
         config.distance_model_metric,
     ));
+    Arc::from(model)
+}
+
+/// Wrap an already-decorated gain model in the evaluation strategy for the given
+/// mode. The model is shared (`Arc`): realtime just re-wraps it (no work);
+/// precomputed samples it into a table. Reused on a geometry-unchanged recompute.
+pub fn wrap_prepared_engine(
+    model: Arc<dyn GainModel>,
+    evaluation_mode: EffectiveEvaluationMode,
+    config: &EvaluationBuildConfig,
+) -> Result<PreparedRenderEngine> {
     let gain_model_kind = model.kind();
     let backend_id = model.backend_id();
     let backend_label = model.backend_label();
@@ -834,6 +876,18 @@ pub fn build_prepared_render_engine(
         None,
         evaluator,
     ))
+}
+
+pub fn build_prepared_render_engine(
+    model: Box<dyn GainModel>,
+    evaluation_mode: EffectiveEvaluationMode,
+    config: &EvaluationBuildConfig,
+) -> Result<PreparedRenderEngine> {
+    wrap_prepared_engine(
+        build_decorated_model(model, config),
+        evaluation_mode,
+        config,
+    )
 }
 
 #[derive(Clone, Copy, Debug)]

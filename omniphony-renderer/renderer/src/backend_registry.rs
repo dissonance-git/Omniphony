@@ -8,6 +8,7 @@ use crate::live_params::{
 use crate::render_backend::{
     BlendCurve, EffectiveEvaluationMode, GainModel, GainModelKind, HybridBackend,
     RenderBackendKind, backend_descriptor_by_id, build_prepared_render_engine,
+    wrap_prepared_engine,
 };
 use crate::speaker_layout::SpeakerLayout;
 
@@ -133,16 +134,27 @@ pub struct TopologyBuildPlan {
     pub backend_build: BackendBuildPlan,
     pub evaluation_mode: LiveEvaluationMode,
     pub evaluation_build_config: crate::render_backend::EvaluationBuildConfig,
+    /// The geometry generation captured when this plan was prepared. The built
+    /// topology records it; a later recompute compares to decide whether the gain
+    /// models can be reused (see `build_topology_reusing`). Set by
+    /// `RendererControl::prepare_topology_rebuild_for_layout`.
+    pub geometry_generation: u64,
 }
 
 impl TopologyBuildPlan {
     pub fn build_topology(&self) -> Result<RenderTopology> {
-        let model = match &self.backend_build {
-            BackendBuildPlan::Vbap(plan) => plan.build_gain_model(self.evaluation_mode)?,
-            BackendBuildPlan::Barycenter(plan) => plan.build_gain_model()?,
-            BackendBuildPlan::ExperimentalDistance(plan) => plan.build_gain_model()?,
-            BackendBuildPlan::Hybrid(plan) => plan.build_gain_model()?,
-        };
+        self.build_topology_reusing(None)
+    }
+
+    /// Build the topology, reusing `current`'s decorated gain model when the
+    /// geometry generation is unchanged (only the evaluation mode / grid changed).
+    /// Reuse skips re-triangulation: realtime just re-wraps the model, precomputed
+    /// re-samples it. A geometry change (different generation, or no current model)
+    /// falls back to a full rebuild.
+    pub fn build_topology_reusing(
+        &self,
+        current: Option<&RenderTopology>,
+    ) -> Result<RenderTopology> {
         let effective_mode = match self.evaluation_mode {
             LiveEvaluationMode::Realtime => EffectiveEvaluationMode::Realtime,
             LiveEvaluationMode::PrecomputedPolar => EffectiveEvaluationMode::PrecomputedPolar,
@@ -151,14 +163,33 @@ impl TopologyBuildPlan {
             }
             LiveEvaluationMode::Auto => unreachable!("topology build plan must resolve auto mode"),
         };
-        RenderTopology::new(
+
+        if let Some(model) = current.and_then(|cur| {
+            (cur.geometry_generation == self.geometry_generation)
+                .then(|| cur.backend.decorated_model())
+                .flatten()
+        }) {
+            let engine =
+                wrap_prepared_engine(model, effective_mode, &self.evaluation_build_config)?;
+            return Ok(RenderTopology::new(Arc::new(engine), self.layout.clone())?
+                .with_geometry_generation(self.geometry_generation));
+        }
+
+        let model = match &self.backend_build {
+            BackendBuildPlan::Vbap(plan) => plan.build_gain_model(self.evaluation_mode)?,
+            BackendBuildPlan::Barycenter(plan) => plan.build_gain_model()?,
+            BackendBuildPlan::ExperimentalDistance(plan) => plan.build_gain_model()?,
+            BackendBuildPlan::Hybrid(plan) => plan.build_gain_model()?,
+        };
+        Ok(RenderTopology::new(
             Arc::new(build_prepared_render_engine(
                 model,
                 effective_mode,
                 &self.evaluation_build_config,
             )?),
             self.layout.clone(),
-        )
+        )?
+        .with_geometry_generation(self.geometry_generation))
     }
 
     pub fn backend_id(&self) -> &str {
@@ -375,6 +406,7 @@ pub fn prepare_topology_build_plan(
                 backend_build,
                 evaluation_mode: effective_live_evaluation_mode(live.evaluation.mode, preferred),
                 evaluation_build_config,
+                geometry_generation: 0,
             })
         }
         "hybrid" => {
@@ -403,6 +435,7 @@ pub fn prepare_topology_build_plan(
                 }),
                 evaluation_mode: effective_live_evaluation_mode(live.evaluation.mode, preferred),
                 evaluation_build_config,
+                geometry_generation: 0,
             })
         }
         "vbap" => {
@@ -418,6 +451,7 @@ pub fn prepare_topology_build_plan(
                 backend_build: BackendBuildPlan::Vbap(plan),
                 evaluation_mode: effective_mode,
                 evaluation_build_config,
+                geometry_generation: 0,
             })
         }
         _ => None,
