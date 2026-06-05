@@ -28,6 +28,13 @@ pub struct BroadcastUpdate {
 pub struct ControlEffects {
     pub mark_dirty: bool,
     pub trigger_layout_recompute: bool,
+    /// When `trigger_layout_recompute` is set, whether this change is
+    /// evaluation-layer only (mode / grid resolution) — i.e. the backend geometry
+    /// (triangulation + decorator metrics) is unchanged, so the recompute can
+    /// reuse the existing gain models and rebuild only the evaluation wrapper.
+    /// Default `false` = treat as a geometry change (full rebuild), which is the
+    /// safe assumption; handlers known to be evaluation-only opt in.
+    pub evaluation_only: bool,
     pub broadcasts: Vec<BroadcastUpdate>,
     pub log_message: Option<String>,
 }
@@ -694,6 +701,10 @@ pub fn apply_simple_osc_control(
                 live.set_evaluation_mode(requested);
                 effects.mark_dirty = true;
                 effects.trigger_layout_recompute = true;
+                // Changing only the evaluation mode leaves the backend geometry
+                // (triangulation + decorator metrics) untouched: reuse the gain
+                // models and rebuild only the evaluation wrapper (no re-triangulation).
+                effects.evaluation_only = true;
             }
             {
                 if live.backend_kind() == Some(RenderBackendKind::Vbap) {
@@ -891,6 +902,9 @@ pub fn apply_simple_osc_control(
             if let Some(state_addr) = state_addr {
                 effects.mark_dirty = true;
                 effects.trigger_layout_recompute = true;
+                // Cartesian grid resolution is evaluation-layer only: re-sample the
+                // table, reuse the backend geometry.
+                effects.evaluation_only = true;
                 effects.broadcasts.push(BroadcastUpdate {
                     addr: state_addr.to_string(),
                     value: BroadcastValue::Int(size as i32),
@@ -908,8 +922,12 @@ pub fn apply_simple_osc_control(
                 .unwrap()
                 .evaluation
                 .position_interpolation = enabled;
+            // No layout recompute: this flag only selects nearest-cell vs
+            // trilinear at table-read time. The precomputed table content is
+            // independent of it, and the renderer syncs the live value into the
+            // evaluators each frame (see SpatialRenderer::render_frame). Rebuilding
+            // the whole grid here just produced an identical table.
             effects.mark_dirty = true;
-            effects.trigger_layout_recompute = true;
             effects.broadcasts.push(BroadcastUpdate {
                 addr: "/omniphony/state/render_evaluation/position_interpolation".to_string(),
                 value: BroadcastValue::Int(if enabled { 1 } else { 0 }),
@@ -953,6 +971,8 @@ pub fn apply_simple_osc_control(
                     if let Some(state_addr) = state_addr {
                         effects.mark_dirty = true;
                         effects.trigger_layout_recompute = true;
+                        // Polar grid resolution is evaluation-layer only.
+                        effects.evaluation_only = true;
                         effects.broadcasts.push(BroadcastUpdate {
                             addr: state_addr.to_string(),
                             value: BroadcastValue::Int(res),
@@ -976,6 +996,7 @@ pub fn apply_simple_osc_control(
                         .distance_res = res;
                     effects.mark_dirty = true;
                     effects.trigger_layout_recompute = true;
+                    effects.evaluation_only = true;
                     effects.broadcasts.push(BroadcastUpdate {
                         addr: "/omniphony/state/render_evaluation/polar/distance_res".to_string(),
                         value: BroadcastValue::Int(res),
@@ -998,6 +1019,7 @@ pub fn apply_simple_osc_control(
                         .distance_max = max_v;
                     effects.mark_dirty = true;
                     effects.trigger_layout_recompute = true;
+                    effects.evaluation_only = true;
                     effects.broadcasts.push(BroadcastUpdate {
                         addr: "/omniphony/state/render_evaluation/polar/distance_max".to_string(),
                         value: BroadcastValue::Float(max_v),

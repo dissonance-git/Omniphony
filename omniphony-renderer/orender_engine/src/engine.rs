@@ -78,6 +78,108 @@ pub struct Engine {
     audio_meter: Option<AudioMeter>,
     /// Accumulated object names (id → name) for OSC object broadcast.
     object_names: HashMap<u32, String>,
+    /// Opt-in per-frame perf accumulator (env `ORENDER_PERF_LOG`). `None` = off
+    /// (zero overhead). Diagnostic only; safe to remove once perf work lands.
+    perf: Option<PerfLog>,
+}
+
+/// Throttled (~1 Hz) aggregate of per-frame render/decode cost, correlated with
+/// the block size and channel/metadata mix that drive it. Confirms on real
+/// content whether render spikes track active-object count vs metadata frames,
+/// and reveals the actual `sample_count` per access unit (to calibrate the
+/// offline benches). Enabled by setting `ORENDER_PERF_LOG=1`.
+struct PerfLog {
+    last_flush: std::time::Instant,
+    frames: u64,
+    obj_sum: u64,
+    meta_frames: u64,
+    sc_min: u32,
+    sc_max: u32,
+    render_sum_ms: f64,
+    render_max_ms: f32,
+    render_meta_max_ms: f32,
+    decode_sum_ms: f64,
+    decode_max_ms: f32,
+}
+
+impl PerfLog {
+    fn new() -> Self {
+        Self {
+            last_flush: std::time::Instant::now(),
+            frames: 0,
+            obj_sum: 0,
+            meta_frames: 0,
+            sc_min: u32::MAX,
+            sc_max: 0,
+            render_sum_ms: 0.0,
+            render_max_ms: 0.0,
+            render_meta_max_ms: 0.0,
+            decode_sum_ms: 0.0,
+            decode_max_ms: 0.0,
+        }
+    }
+
+    fn record(
+        &mut self,
+        sample_count: u32,
+        n_objects: u32,
+        has_metadata: bool,
+        render_ms: f32,
+        decode_ms: f32,
+    ) {
+        self.frames += 1;
+        self.obj_sum += n_objects as u64;
+        self.sc_min = self.sc_min.min(sample_count);
+        self.sc_max = self.sc_max.max(sample_count);
+        self.render_sum_ms += render_ms as f64;
+        self.render_max_ms = self.render_max_ms.max(render_ms);
+        self.decode_sum_ms += decode_ms as f64;
+        self.decode_max_ms = self.decode_max_ms.max(decode_ms);
+        if has_metadata {
+            self.meta_frames += 1;
+            self.render_meta_max_ms = self.render_meta_max_ms.max(render_ms);
+        }
+
+        // Flush on a ~1 Hz wall clock (realtime mpv) OR every 8192 render calls,
+        // so faster-than-realtime offline runs still emit periodically. A final
+        // flush on drop catches short streams that hit neither threshold.
+        if self.last_flush.elapsed().as_secs_f32() >= 1.0 || self.frames >= 8192 {
+            self.flush();
+        }
+    }
+
+    fn flush(&mut self) {
+        if self.frames == 0 {
+            return;
+        }
+        // eprintln (not log::) so it is visible without a logger init — opt-in
+        // via ORENDER_PERF_LOG, shows up in both `--nocapture` test runs and
+        // mpv's stderr.
+        eprintln!(
+            "perf: {} render calls | block {}…{} smp | obj~{:.1} | meta {:.0}% \
+             | render avg {:.3} max {:.3} (meta-max {:.3}) ms \
+             | decode avg {:.3} max {:.3} ms",
+            self.frames,
+            self.sc_min,
+            self.sc_max,
+            self.obj_sum as f64 / self.frames as f64,
+            self.meta_frames as f64 / self.frames as f64 * 100.0,
+            self.render_sum_ms / self.frames as f64,
+            self.render_max_ms,
+            self.render_meta_max_ms,
+            self.decode_sum_ms / self.frames as f64,
+            self.decode_max_ms,
+        );
+        *self = PerfLog::new();
+    }
+}
+
+impl Drop for Engine {
+    fn drop(&mut self) {
+        if let Some(perf) = self.perf.as_mut() {
+            perf.flush();
+        }
+    }
 }
 
 impl Engine {
@@ -104,6 +206,9 @@ impl Engine {
             osc: None,
             audio_meter: None,
             object_names: HashMap::new(),
+            perf: std::env::var_os("ORENDER_PERF_LOG")
+                .is_some()
+                .then(PerfLog::new),
         }
     }
 
@@ -258,6 +363,23 @@ impl Engine {
                 .unwrap_or(10.0),
         );
 
+        // Object-transition ramp mode. `SpatialRenderer::new` seeds the live
+        // params with `RampMode::Sample` (per-sample `compute_gains` — the most
+        // expensive path); the CLI overrides this from `render.ramp_mode` in
+        // config_resolution + bootstrap, but this embedded/mpv host never did,
+        // so it silently ran every render in per-sample mode. Mirror the CLI:
+        // honour `render.ramp_mode` (default "frame"). Both the requested-mode
+        // mutex and the live snapshot field must be set — the render loop reads
+        // the latter.
+        let ramp_mode = render_cfg
+            .as_ref()
+            .and_then(renderer::config_fields::ramp_mode::get)
+            .as_deref()
+            .and_then(renderer::live_params::RampMode::from_str)
+            .unwrap_or(renderer::live_params::RampMode::Frame);
+        control.set_requested_ramp_mode(ramp_mode);
+        control.live.write().unwrap().ramp_mode = ramp_mode;
+
         // DRC: seed the live params from config and publish the bridge's
         // supported modes (so studio shows the DRC control). The decode-side
         // mode itself is pushed to the bridge lazily in `process` (see
@@ -375,10 +497,12 @@ impl Engine {
         // before it decodes this packet.
         self.sync_drc_mode();
 
+        let decode_started = std::time::Instant::now();
         let result = self
             .bridge
             .bridge
             .push_packet(data.into(), transport, data_type);
+        let decode_time_ms = decode_started.elapsed().as_secs_f32() * 1000.0;
 
         if !result.error_message.is_empty() {
             bail!("bridge decode error: {}", result.error_message);
@@ -390,9 +514,18 @@ impl Engine {
             self.reset_segment_state();
         }
 
+        // The bridge decodes one packet into N frames synchronously; attribute the
+        // packet's decode cost evenly across its frames so the per-frame meter
+        // bundle reports a comparable figure to the CLI decoder thread.
+        let per_frame_decode_time_ms = if result.frames.is_empty() {
+            decode_time_ms
+        } else {
+            decode_time_ms / result.frames.len() as f32
+        };
+
         let mut out = Vec::with_capacity(result.frames.len());
         for frame in result.frames.iter() {
-            if let Some(chunk) = self.render_frame(frame)? {
+            if let Some(chunk) = self.render_frame(frame, per_frame_decode_time_ms)? {
                 out.push(chunk);
             }
         }
@@ -404,7 +537,11 @@ impl Engine {
         self.process(data, RInputTransport::Raw, 0)
     }
 
-    fn render_frame(&mut self, frame: &RDecodedFrame) -> Result<Option<RenderedAudio>> {
+    fn render_frame(
+        &mut self,
+        frame: &RDecodedFrame,
+        decode_time_ms: f32,
+    ) -> Result<Option<RenderedAudio>> {
         let channel_count = frame.channel_count as usize;
         let sample_count = frame.sample_count as usize;
         let sample_rate = frame.sampling_frequency.max(1);
@@ -613,6 +750,18 @@ impl Engine {
         )?;
         let render_time_ms = render_started.elapsed().as_secs_f32() * 1000.0;
 
+        if let Some(perf) = self.perf.as_mut() {
+            let num_beds = self.bed_indices.as_ref().map_or(0, |b| b.len());
+            let n_objects = (channel_count as u32).saturating_sub(num_beds as u32);
+            perf.record(
+                frame.sample_count,
+                n_objects,
+                !frame.metadata.is_empty(),
+                render_time_ms,
+                decode_time_ms,
+            );
+        }
+
         // Return scratch buffers for reuse next frame.
         self.pcm_f32_buf = pcm_f32;
         self.frame_events.clear();
@@ -640,7 +789,7 @@ impl Engine {
                             &snapshot,
                             &rendered.object_gains,
                             &rendered.object_band_gains,
-                            None,
+                            Some(decode_time_ms),
                             Some(rendered.crossover_time_ms),
                             Some(render_time_ms),
                             None,

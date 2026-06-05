@@ -155,6 +155,7 @@
   "audio.rampMode": "ランプモード",
   "audio.rampModeOff": "オフ",
   "audio.rampModeFrame": "フレーム単位",
+  "audio.rampModeInterp": "サンプル単位（補間）",
   "audio.rampModeSample": "サンプル単位",
   "rampMode.infoButton": "ランプモード情報",
   "rampMode.infoTitle": "ランプモード",

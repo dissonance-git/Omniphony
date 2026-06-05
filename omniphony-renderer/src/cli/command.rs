@@ -915,6 +915,7 @@ pub enum RampModeArg {
     Off,
     Frame,
     Sample,
+    Interp,
 }
 
 impl From<RampModeArg> for RampMode {
@@ -923,6 +924,7 @@ impl From<RampModeArg> for RampMode {
             RampModeArg::Off => RampMode::Off,
             RampModeArg::Frame => RampMode::Frame,
             RampModeArg::Sample => RampMode::Sample,
+            RampModeArg::Interp => RampMode::Interp,
         }
     }
 }

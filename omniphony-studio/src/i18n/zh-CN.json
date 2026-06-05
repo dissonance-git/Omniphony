@@ -160,6 +160,7 @@
   "audio.rampMode": "渐变模式",
   "audio.rampModeOff": "关闭",
   "audio.rampModeFrame": "按帧",
+  "audio.rampModeInterp": "按采样（插值）",
   "audio.rampModeSample": "按采样",
   "rampMode.infoButton": "渐变模式说明",
   "rampMode.infoTitle": "渐变模式",

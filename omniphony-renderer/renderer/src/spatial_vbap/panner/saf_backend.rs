@@ -1,12 +1,10 @@
 //! SAF FFI backend for VBAP gain computation.
 //!
 //! Wraps the Spatial Audio Framework's `vbap3D` triangulation in a safe Rust
-//! struct ([`SpartaVbapLayout`]) and implements [`VbapGainSource`] so that
-//! table-generation code can use it interchangeably with the table-lookup
-//! backend.
+//! struct ([`SpartaVbapLayout`]) that computes VBAP gains directly via
+//! [`SpartaVbapLayout::vbap_gains`].
 
 use super::Gains;
-use super::gain_source::VbapGainSource;
 use super::saf_ffi;
 use crate::spatial_vbap::vbap_native::prepare_effective_speaker_dirs;
 use std::ffi::c_int;
@@ -148,16 +146,5 @@ impl Drop for SpartaVbapLayout {
         if !self.layout_inv_mtx.is_null() {
             unsafe { libc::free(self.layout_inv_mtx as *mut libc::c_void) };
         }
-    }
-}
-
-impl VbapGainSource for SpartaVbapLayout {
-    fn compute_gains(
-        &self,
-        azimuth_deg: f32,
-        elevation_deg: f32,
-        spread: f32,
-    ) -> Result<Gains, String> {
-        self.vbap_gains(azimuth_deg, elevation_deg, spread)
     }
 }

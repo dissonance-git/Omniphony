@@ -592,6 +592,15 @@ fn apply_control_effects(
         log::info!("{message}");
     }
     if effects.trigger_layout_recompute {
+        // A change that affects the backend geometry (triangulation / decorator
+        // metrics) bumps the geometry generation so the upcoming recompute rebuilds
+        // the gain models. Evaluation-only changes (mode / grid resolution) leave it
+        // untouched, letting the recompute reuse the existing models and rebuild
+        // only the evaluation wrapper. Bump BEFORE triggering so the plan captures
+        // the new generation.
+        if !effects.evaluation_only {
+            control.bump_geometry_generation();
+        }
         trigger_layout_recompute(control, socket, clients, gaintable_cache);
     }
 }

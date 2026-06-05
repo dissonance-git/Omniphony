@@ -158,6 +158,7 @@ pub(super) fn merge_render_config(
                     renderer::live_params::RampMode::Off => RampModeArg::Off,
                     renderer::live_params::RampMode::Frame => RampModeArg::Frame,
                     renderer::live_params::RampMode::Sample => RampModeArg::Sample,
+                    renderer::live_params::RampMode::Interp => RampModeArg::Interp,
                 };
             }
         }
@@ -557,6 +558,7 @@ pub(super) fn effective_to_config(
             RampModeArg::Off => "off",
             RampModeArg::Frame => "frame",
             RampModeArg::Sample => "sample",
+            RampModeArg::Interp => "interp",
         },
     );
     renderer::config_fields::distance_diffuse::store(&mut render, args.distance_diffuse);

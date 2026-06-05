@@ -160,6 +160,7 @@
   "audio.rampMode": "Rampenmodus",
   "audio.rampModeOff": "Aus",
   "audio.rampModeFrame": "Pro Frame",
+  "audio.rampModeInterp": "Pro Sample (interpoliert)",
   "audio.rampModeSample": "Pro Sample",
   "rampMode.infoButton": "Info zum Rampenmodus",
   "rampMode.infoTitle": "Rampenmodus",

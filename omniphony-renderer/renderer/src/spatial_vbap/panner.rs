@@ -115,18 +115,6 @@ pub enum VbapTableMode {
     },
 }
 
-#[derive(Clone)]
-struct CartesianCache {
-    x_size: usize,
-    y_size: usize,
-    x_coords: Vec<f32>,
-    y_coords: Vec<f32>,
-    z_coords: Vec<f32>,
-    // One flattened XYZ gain table per spread table.
-    // Layout per table: [z][y][x][speaker]
-    tables: Vec<Vec<f32>>,
-}
-
 /// Stack-allocated gain vector, replacing `Vec<f32>` in the VBAP hot path.
 ///
 /// Eliminates ~8-10 heap allocations per object per sample in the rendering loop.
@@ -193,64 +181,39 @@ impl std::ops::DerefMut for Gains {
     }
 }
 
-/// Single spread table entry
-#[derive(Clone)]
-struct SpreadTable {
-    /// Spread value for this table (0.0 - 1.0)
-    spread: f32,
-
-    /// Pre-computed gain table for this spread
-    /// Dimensions: [azimuth_index][elevation_index][speaker_index]
-    gtable: Vec<f32>,
-}
-
-/// VBAP panner with pre-computed gain tables
+/// VBAP panner — geometry only.
+///
+/// Holds the triangulated speaker layout and computes panning gains directly for
+/// a given source position. It owns NO precomputed gain tables: all
+/// precomputation (the polar/cartesian lookup tables) lives in the evaluation
+/// layer (`render_backend::Sampled*Evaluator`), which samples this panner. The
+/// panner just answers "gains at this position".
 pub struct VbapPanner {
-    /// Multiple pre-computed tables for different spread values
-    /// If empty, uses legacy single-table mode (spread_tables has exactly one entry)
-    spread_tables: Vec<SpreadTable>,
-
-    /// Spread resolution (step between tables), or 0.0 for single-table mode
-    spread_resolution: f32,
-
-    /// Total number of entries in gain table (per spread table)
-    n_gtable: usize,
-
-    /// Number of speaker triangles found
+    /// Number of speaker triangles in the triangulation.
     n_triangles: usize,
 
-    /// Number of speakers in the layout
+    /// Number of speakers in the layout.
     n_speakers: usize,
 
-    /// Azimuth resolution in degrees
-    az_res_deg: i32,
-
-    /// Elevation resolution in degrees
-    el_res_deg: i32,
-
-    /// Number of azimuth grid points (360 / az_res_deg)
-    n_az: usize,
-
-    /// Number of elevation grid points over active range
-    /// ([-90,+90] when `allow_negative_z`, otherwise [0,+90]).
-    n_el: usize,
-    table_mode: VbapTableMode,
+    /// Whether sources below the horizontal plane keep their negative Z (else Z
+    /// is clamped to 0 before the spherical conversion).
     allow_negative_z: bool,
-    position_interpolation: bool,
-    cartesian_cache: Option<CartesianCache>,
-    /// Stored speaker directions — present when the panner was created from
-    /// speaker directions (both `saf_vbap` and native paths).  `None` when
-    /// the panner was loaded from a pre-computed `.vbap` file.
-    speaker_dirs_deg: Option<Vec<[f32; 2]>>,
+
+    /// Triangulated layout used for direct gain computation. The native backend
+    /// is plain data (`Send + Sync`), so it is built once and stored. The SAF FFI
+    /// layout owns raw pointers and is not `Sync`; under `saf_vbap` we keep the
+    /// speaker directions and rebuild the layout per call instead.
+    #[cfg(not(feature = "saf_vbap"))]
+    source: native_backend::NativeVbapLayout,
+    #[cfg(feature = "saf_vbap")]
+    speaker_dirs_deg: Vec<[f32; 2]>,
 }
 
-pub(crate) mod gain_source;
 #[cfg(not(feature = "saf_vbap"))]
 pub(crate) mod native_backend;
 #[cfg(feature = "saf_vbap")]
 pub(crate) mod saf_backend;
 
-mod io;
 mod runtime;
 
 #[cfg(test)]
