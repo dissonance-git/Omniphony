@@ -440,6 +440,88 @@ fn bench_crossover(c: &mut Criterion) {
     group.finish();
 }
 
+/// Same moving scenario as `bench_cartesian` but over the precomputed POLAR
+/// table/evaluator (`sample_polar_table`), to measure and optimise the polar
+/// `compute_gains` lookup (wrapped azimuth + elevation/distance brackets).
+fn bench_polar(c: &mut Criterion) {
+    let mut group = c.benchmark_group("render_polar");
+    const N: usize = 32;
+    for (label, mode) in [
+        ("frame", RampMode::Frame),
+        ("sample", RampMode::Sample),
+        ("interp", RampMode::Interp),
+    ] {
+        let (mut r, pcm) = prepared("7.1.4", N, mode, true, false);
+        let mut buf = Vec::new();
+        let mut round = 1u64;
+        group.bench_function(label, |b| {
+            b.iter(|| {
+                let events = move_events(N, round);
+                round = round.wrapping_add(1);
+                let f = r
+                    .render_frame(
+                        black_box(&pcm),
+                        black_box(N),
+                        &events,
+                        std::mem::take(&mut buf),
+                        false,
+                    )
+                    .expect("render");
+                buf = f.samples;
+                black_box(&buf);
+            });
+        });
+    }
+    group.finish();
+}
+
+/// Multi-band crossover (mixed speaker sizes) over the POLAR table, moving case —
+/// the polar counterpart of `bench_crossover`. Each band currently runs its own
+/// polar lookup at the same position, so cost scales with band count until the
+/// unified multi-band polar table shares the localisation.
+fn bench_polar_crossover(c: &mut Criterion) {
+    let mut group = c.benchmark_group("render_polar_crossover");
+    const N: usize = 32;
+    for (label, mode) in [
+        ("frame", RampMode::Frame),
+        ("sample", RampMode::Sample),
+        ("interp", RampMode::Interp),
+    ] {
+        let mut r = build_renderer(crossover_layout(), true, false);
+        {
+            let ctrl = r.renderer_control();
+            ctrl.set_requested_ramp_mode(mode);
+            ctrl.live.write().unwrap().ramp_mode = mode;
+        }
+        let pcm = make_pcm(N);
+        let init = move_events(N, 0);
+        let mut buf = Vec::new();
+        for _ in 0..4 {
+            let f = r.render_frame(&pcm, N, &init, buf, false).expect("prime");
+            buf = f.samples;
+        }
+        let mut round = 1u64;
+        group.bench_function(label, |b| {
+            b.iter(|| {
+                let events = move_events(N, round);
+                round = round.wrapping_add(1);
+                let f = r
+                    .render_frame(
+                        black_box(&pcm),
+                        black_box(N),
+                        &events,
+                        std::mem::take(&mut buf),
+                        false,
+                    )
+                    .expect("render");
+                buf = f.samples;
+                black_box(&buf);
+            });
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_steady,
@@ -448,6 +530,8 @@ criterion_group!(
     bench_static,
     bench_moving,
     bench_cartesian,
-    bench_crossover
+    bench_crossover,
+    bench_polar,
+    bench_polar_crossover
 );
 criterion_main!(benches);
