@@ -255,13 +255,22 @@ impl BandRenderer {
             .iter()
             .map(|&idx| layout.speakers[idx].name.as_str())
             .collect();
-        log::info!(
-            "Crossover band [{:.0}, {}) Hz: {} speakers {:?}",
-            band.low_hz,
-            band_high,
-            speaker_indices.len(),
-            band_speaker_names,
-        );
+        if speaker_indices.is_empty() {
+            log::warn!(
+                "Crossover band [{:.0}, {}) Hz has no speakers — a coverage gap, content in \
+                 this range is dropped",
+                band.low_hz,
+                band_high,
+            );
+        } else {
+            log::info!(
+                "Crossover band [{:.0}, {}) Hz: {} speakers {:?}",
+                band.low_hz,
+                band_high,
+                speaker_indices.len(),
+                band_speaker_names,
+            );
+        }
         let topology = if speaker_indices.len() >= 3 {
             let band_layout = crate::speaker_layout::SpeakerLayout {
                 radius_m: layout.radius_m,

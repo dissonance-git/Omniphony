@@ -13,8 +13,16 @@ pub struct FreqBand {
 
 /// Derive crossover bands from the `freq_low` and `freq_high` fields of spatializable speakers.
 ///
-/// A speaker is included in band `[lo, hi)` when its usable range overlaps the band:
-/// `freq_low.unwrap_or(0.0) < hi && freq_high.unwrap_or(f32::INFINITY) >= lo`.
+/// Band edges are the union of every speaker cutoff, so each band `[lo, hi)` is either
+/// fully inside a speaker's usable range `[freq_low, freq_high)` or fully outside — a
+/// band can never straddle a speaker boundary. A speaker is therefore included when the
+/// band is *contained* in its range:
+/// `freq_low.unwrap_or(0.0) <= lo && hi <= freq_high.unwrap_or(f32::INFINITY)`.
+/// (An overlap test would wrongly include a speaker in the band starting exactly at its
+/// `freq_high`, e.g. an LFE cut at 80 Hz leaking into the `[80, …)` band.)
+///
+/// A band with no speaker is a genuine coverage gap (content there is dropped); it is
+/// kept in the returned list so the crossover bank still splits at that edge.
 ///
 /// Returns a single all-inclusive band when no speaker defines a finite crossover edge,
 /// which preserves the existing single-backend rendering behaviour.
@@ -65,7 +73,9 @@ pub fn compute_bands(layout: &SpeakerLayout) -> Vec<FreqBand> {
                     }
                     let speaker_lo = s.freq_low.unwrap_or(0.0);
                     let speaker_hi = s.freq_high.unwrap_or(f32::INFINITY);
-                    speaker_lo < hi && speaker_hi >= lo
+                    // Contained, not merely overlapping: the band lies entirely
+                    // within the speaker's usable range (see fn doc).
+                    speaker_lo <= lo && hi <= speaker_hi
                 })
                 .map(|(i, _)| i)
                 .collect();
@@ -122,13 +132,15 @@ mod tests {
             spatial_speaker("super").with_freq_low(150.0),
         ]));
         assert_eq!(bands.len(), 3);
+        // [0, 120): top + low. [120, 150): top only — `low` cuts at 120 so it must
+        // NOT appear in the band starting at its `freq_high`. [150, inf): top + super.
         assert_eq!(bands[0].speaker_indices, vec![0, 1]);
-        assert_eq!(bands[1].speaker_indices, vec![0, 1]);
+        assert_eq!(bands[1].speaker_indices, vec![0]);
         assert_eq!(bands[2].speaker_indices, vec![0, 2]);
     }
 
     #[test]
-    fn mixed_cutoffs_follow_overlap_logic() {
+    fn mixed_cutoffs_follow_containment_logic() {
         let bands = compute_bands(&layout(vec![
             spatial_speaker("sub").with_freq_high(80.0),
             spatial_speaker("mid")
@@ -137,14 +149,17 @@ mod tests {
             spatial_speaker("top").with_freq_low(250.0),
         ]));
         assert_eq!(bands.len(), 5);
+        // sub covers [0, 80), mid [120, 200), top [250, inf). The ranges [80, 120)
+        // and [200, 250) are coverage gaps → empty bands (no speaker stretched past
+        // its declared cutoff).
         assert_eq!((bands[0].low_hz, bands[0].high_hz), (0.0, 80.0));
         assert_eq!(bands[0].speaker_indices, vec![0]);
         assert_eq!((bands[1].low_hz, bands[1].high_hz), (80.0, 120.0));
-        assert_eq!(bands[1].speaker_indices, vec![0]);
+        assert!(bands[1].speaker_indices.is_empty());
         assert_eq!((bands[2].low_hz, bands[2].high_hz), (120.0, 200.0));
         assert_eq!(bands[2].speaker_indices, vec![1]);
         assert_eq!((bands[3].low_hz, bands[3].high_hz), (200.0, 250.0));
-        assert_eq!(bands[3].speaker_indices, vec![1]);
+        assert!(bands[3].speaker_indices.is_empty());
         assert_eq!((bands[4].low_hz, bands[4].high_hz), (250.0, f32::INFINITY));
         assert_eq!(bands[4].speaker_indices, vec![2]);
     }
