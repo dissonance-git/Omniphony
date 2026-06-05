@@ -397,11 +397,6 @@ pub struct VbapModelRebuildParams {
     pub el_res_deg: i32,
     pub spread_resolution: f32,
     pub distance_max: f32,
-    pub table_mode: VbapTableMode,
-    pub cartesian_default_x_size: usize,
-    pub cartesian_default_y_size: usize,
-    pub cartesian_default_z_size: usize,
-    pub cartesian_default_z_neg_size: usize,
     pub allow_negative_z: bool,
     pub distance_model: crate::spatial_vbap::DistanceModel,
 }

@@ -9,7 +9,6 @@ use crate::render_backend::{
     BlendCurve, EffectiveEvaluationMode, GainModel, GainModelKind, HybridBackend,
     RenderBackendKind, backend_descriptor_by_id, build_prepared_render_engine,
 };
-use crate::spatial_vbap::VbapTableMode;
 use crate::speaker_layout::SpeakerLayout;
 
 #[derive(Clone)]
@@ -74,8 +73,6 @@ pub struct VbapTopologyBuildPlan {
     pub elevation_resolution: i32,
     pub distance_res: f32,
     pub distance_max: f32,
-    pub position_interpolation: bool,
-    pub table_mode: VbapTableMode,
     pub allow_negative_z: bool,
     pub distance_model: crate::spatial_vbap::DistanceModel,
     pub spread_min: f32,
@@ -97,16 +94,17 @@ impl VbapTopologyBuildPlan {
         &self,
         _evaluation_mode: LiveEvaluationMode,
     ) -> Result<Box<dyn GainModel>> {
-        let vbap = crate::spatial_vbap::VbapPanner::new_with_mode(
+        // The panner is geometry-only: it computes gains directly per position and
+        // owns no table, so the evaluation mode does not affect how it is built.
+        // Any precomputation happens in the evaluation layer that samples it.
+        let vbap = crate::spatial_vbap::VbapPanner::new(
             &self.positions,
             self.azimuth_resolution,
             self.elevation_resolution,
             0.0,
-            self.table_mode,
         )
         .map_err(|e| anyhow::anyhow!("Failed to create VBAP panner: {}", e))?
-        .with_negative_z(self.allow_negative_z)
-        .with_position_interpolation(self.position_interpolation);
+        .with_negative_z(self.allow_negative_z);
 
         Ok(Box::new(crate::render_backend::VbapBackend::new(vbap)))
     }
@@ -188,13 +186,12 @@ impl TopologyBuildPlan {
     pub fn log_summary(&self) -> String {
         match &self.backend_build {
             BackendBuildPlan::Vbap(plan) => format!(
-                "gain_model=vbap evaluation_mode={} azimuth_resolution={} elevation_resolution={} distance_res={} distance_max={} mode={:?}",
+                "gain_model=vbap evaluation_mode={} azimuth_resolution={} elevation_resolution={} distance_res={} distance_max={}",
                 self.evaluation_mode().as_str(),
                 plan.azimuth_resolution,
                 plan.elevation_resolution,
                 plan.distance_res,
                 plan.distance_max,
-                plan.table_mode
             ),
             BackendBuildPlan::ExperimentalDistance(plan) => format!(
                 "gain_model=experimental_distance evaluation_mode={} speakers={}",
@@ -257,7 +254,6 @@ fn build_vbap_build_plan(
     layout: &SpeakerLayout,
     live: &LiveParams,
     rebuild_params: BackendRebuildParams,
-    effective_mode: LiveEvaluationMode,
 ) -> Option<VbapTopologyBuildPlan> {
     let rebuild = rebuild_params.vbap?;
     let positions = layout
@@ -268,41 +264,6 @@ fn build_vbap_build_plan(
             live.room_ratio_center_blend,
         )
         .0;
-    let table_mode = match effective_mode {
-        LiveEvaluationMode::Realtime => rebuild.table_mode,
-        LiveEvaluationMode::PrecomputedPolar => VbapTableMode::Polar,
-        LiveEvaluationMode::PrecomputedCartesian => VbapTableMode::Cartesian {
-            x_size: live
-                .evaluation
-                .cartesian
-                .x_size
-                .max(rebuild.cartesian_default_x_size)
-                .max(1)
-                + 1,
-            y_size: live
-                .evaluation
-                .cartesian
-                .y_size
-                .max(rebuild.cartesian_default_y_size)
-                .max(1)
-                + 1,
-            z_size: live
-                .evaluation
-                .cartesian
-                .z_size
-                .max(rebuild.cartesian_default_z_size)
-                .max(1)
-                + 1,
-            z_neg_size: live
-                .evaluation
-                .cartesian
-                .z_neg_size
-                .max(rebuild.cartesian_default_z_neg_size),
-        },
-        LiveEvaluationMode::Auto => {
-            unreachable!("evaluation mode must be resolved before building")
-        }
-    };
     let azimuth_resolution = if live.evaluation.polar.azimuth_values > 0 {
         ((360.0f32 / (live.evaluation.polar.azimuth_values as f32)).round() as i32).clamp(1, 360)
     } else {
@@ -341,8 +302,6 @@ fn build_vbap_build_plan(
         elevation_resolution,
         distance_res,
         distance_max,
-        position_interpolation: live.evaluation.position_interpolation,
-        table_mode,
         allow_negative_z: rebuild.allow_negative_z,
         distance_model: live.distance_model,
         spread_min: live.spread_min,
@@ -385,7 +344,6 @@ fn build_inner_backend_plan(
                 layout,
                 live,
                 rebuild_params,
-                LiveEvaluationMode::Realtime,
             )?))
         }
         _ => None,
@@ -453,7 +411,7 @@ pub fn prepare_topology_build_plan(
                 live.evaluation.mode,
                 rebuild_params.preferred_evaluation_mode(),
             );
-            let plan = build_vbap_build_plan(&layout, live, rebuild_params, effective_mode)?;
+            let plan = build_vbap_build_plan(&layout, live, rebuild_params)?;
             Some(TopologyBuildPlan {
                 layout,
                 backend_id: live.backend_id().to_string(),

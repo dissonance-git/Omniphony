@@ -527,16 +527,9 @@ impl SpatialRenderer {
             .0;
         let num_vbap_speakers = spatializable_positions.len();
 
-        let vbap = VbapPanner::new_with_mode(
-            &spatializable_positions,
-            az_res_deg,
-            el_res_deg,
-            0.0,
-            table_mode,
-        )
-        .map_err(|e| anyhow::anyhow!("Failed to create VBAP panner: {}", e))?
-        .with_negative_z(allow_negative_z)
-        .with_position_interpolation(vbap_position_interpolation);
+        let vbap = VbapPanner::new(&spatializable_positions, az_res_deg, el_res_deg, 0.0)
+            .map_err(|e| anyhow::anyhow!("Failed to create VBAP panner: {}", e))?
+            .with_negative_z(allow_negative_z);
         let distance_step = if spread_resolution > 0.0 {
             spread_resolution
         } else {
@@ -666,11 +659,6 @@ impl SpatialRenderer {
                     el_res_deg,
                     spread_resolution,
                     distance_max,
-                    table_mode,
-                    cartesian_default_x_size,
-                    cartesian_default_y_size,
-                    cartesian_default_z_size,
-                    cartesian_default_z_neg_size,
                     distance_model,
                     allow_negative_z,
                 }),

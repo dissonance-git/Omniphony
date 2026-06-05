@@ -73,9 +73,13 @@ impl VbapBackend {
         path: &std::path::Path,
         speaker_layout: &SpeakerLayout,
     ) -> Result<()> {
-        self.panner
-            .save_to_file(path, speaker_layout)
-            .map_err(|e| anyhow::anyhow!("Failed to save VBAP table: {}", e))
+        let _ = (path, speaker_layout);
+        // The VBAP backend holds no precomputed table to serialize (the panner is
+        // geometry-only). Precomputed tables are exported from the evaluation
+        // layer (`render_backend::evaluation_artifact`), not from the backend.
+        anyhow::bail!(
+            "VBAP backend is geometry-only; export the precomputed table via the evaluator"
+        )
     }
 }
 
