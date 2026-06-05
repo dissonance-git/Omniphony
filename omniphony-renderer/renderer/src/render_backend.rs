@@ -3,6 +3,7 @@ mod distance_attenuation;
 mod distance_diffuse;
 mod evaluation_artifact;
 mod experimental_distance_backend;
+mod few_speaker_backend;
 mod hybrid_backend;
 mod room_transform;
 pub mod size_to_spread;
@@ -23,6 +24,7 @@ pub use evaluation_artifact::{
     BackendRestoreSnapshot, SerializedEvaluationMode, build_backend_restore_snapshot,
 };
 pub use experimental_distance_backend::ExperimentalDistanceBackend;
+pub use few_speaker_backend::FewSpeakerBackend;
 pub use hybrid_backend::{BlendCurve, HybridBackend};
 pub use size_to_spread::{SizeToSpreadMode, reduce_size_to_spread};
 pub use vbap_backend::VbapBackend;

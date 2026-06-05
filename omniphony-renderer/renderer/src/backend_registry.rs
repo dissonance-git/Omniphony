@@ -6,8 +6,8 @@ use crate::live_params::{
     BackendRebuildParams, LiveEvaluationMode, LiveParams, PreferredEvaluationMode, RenderTopology,
 };
 use crate::render_backend::{
-    BlendCurve, EffectiveEvaluationMode, GainModel, GainModelKind, HybridBackend,
-    RenderBackendKind, backend_descriptor_by_id, build_prepared_render_engine,
+    BlendCurve, EffectiveEvaluationMode, FewSpeakerBackend, GainModel, GainModelKind,
+    HybridBackend, RenderBackendKind, backend_descriptor_by_id, build_prepared_render_engine,
     wrap_prepared_engine,
 };
 use crate::speaker_layout::SpeakerLayout;
@@ -15,6 +15,10 @@ use crate::speaker_layout::SpeakerLayout;
 #[derive(Clone)]
 pub enum BackendBuildPlan {
     Vbap(VbapTopologyBuildPlan),
+    /// VBAP for degenerate (1–2 speaker) geometry, where the panner cannot
+    /// triangulate. Substituted for `Vbap` by `build_vbap_build_plan` when the
+    /// resolved layout has fewer than 3 spatializable speakers.
+    FewSpeaker(FewSpeakerBuildPlan),
     Barycenter(BarycenterBuildPlan),
     ExperimentalDistance(ExperimentalDistanceBuildPlan),
     Hybrid(HybridBuildPlan),
@@ -27,10 +31,23 @@ impl BackendBuildPlan {
     pub fn build_gain_model(&self) -> Result<Box<dyn GainModel>> {
         match self {
             BackendBuildPlan::Vbap(plan) => plan.build_gain_model(LiveEvaluationMode::Realtime),
+            BackendBuildPlan::FewSpeaker(plan) => plan.build_gain_model(),
             BackendBuildPlan::Barycenter(plan) => plan.build_gain_model(),
             BackendBuildPlan::ExperimentalDistance(plan) => plan.build_gain_model(),
             BackendBuildPlan::Hybrid(plan) => plan.build_gain_model(),
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct FewSpeakerBuildPlan {
+    /// Speaker `[azimuth, elevation]` in degrees (room-adjusted), 1 or 2 entries.
+    pub positions: Vec<[f32; 2]>,
+}
+
+impl FewSpeakerBuildPlan {
+    pub fn build_gain_model(&self) -> Result<Box<dyn GainModel>> {
+        Ok(Box::new(FewSpeakerBackend::new(self.positions.clone())))
     }
 }
 
@@ -175,12 +192,10 @@ impl TopologyBuildPlan {
                 .with_geometry_generation(self.geometry_generation));
         }
 
-        let model = match &self.backend_build {
-            BackendBuildPlan::Vbap(plan) => plan.build_gain_model(self.evaluation_mode)?,
-            BackendBuildPlan::Barycenter(plan) => plan.build_gain_model()?,
-            BackendBuildPlan::ExperimentalDistance(plan) => plan.build_gain_model()?,
-            BackendBuildPlan::Hybrid(plan) => plan.build_gain_model()?,
-        };
+        // The panner is geometry-only and ignores the evaluation mode, so the
+        // shared realtime builder applies to every backend (the mode is resolved
+        // later by `build_prepared_render_engine`'s evaluation wrapper).
+        let model = self.backend_build.build_gain_model()?;
         Ok(RenderTopology::new(
             Arc::new(build_prepared_render_engine(
                 model,
@@ -224,6 +239,11 @@ impl TopologyBuildPlan {
                 plan.distance_res,
                 plan.distance_max,
             ),
+            BackendBuildPlan::FewSpeaker(plan) => format!(
+                "gain_model=vbap(few-speaker) evaluation_mode={} speakers={}",
+                self.evaluation_mode().as_str(),
+                plan.positions.len()
+            ),
             BackendBuildPlan::ExperimentalDistance(plan) => format!(
                 "gain_model=experimental_distance evaluation_mode={} speakers={}",
                 self.evaluation_mode().as_str(),
@@ -248,6 +268,7 @@ impl TopologyBuildPlan {
 fn inner_backend_summary(plan: &BackendBuildPlan) -> &'static str {
     match plan {
         BackendBuildPlan::Vbap(_) => "vbap",
+        BackendBuildPlan::FewSpeaker(_) => "vbap",
         BackendBuildPlan::Barycenter(_) => "barycenter",
         BackendBuildPlan::ExperimentalDistance(_) => "experimental_distance",
         BackendBuildPlan::Hybrid(_) => "hybrid",
@@ -285,7 +306,7 @@ fn build_vbap_build_plan(
     layout: &SpeakerLayout,
     live: &LiveParams,
     rebuild_params: BackendRebuildParams,
-) -> Option<VbapTopologyBuildPlan> {
+) -> Option<BackendBuildPlan> {
     let rebuild = rebuild_params.vbap?;
     let positions = layout
         .spatializable_positions_for_room(
@@ -326,7 +347,15 @@ fn build_vbap_build_plan(
         0.25
     };
 
-    Some(VbapTopologyBuildPlan {
+    // Fewer than 3 spatializable speakers can't be triangulated: pan them with
+    // the degenerate-VBAP backend (same direction-only model) instead.
+    if positions.len() < 3 {
+        return Some(BackendBuildPlan::FewSpeaker(FewSpeakerBuildPlan {
+            positions,
+        }));
+    }
+
+    Some(BackendBuildPlan::Vbap(VbapTopologyBuildPlan {
         layout: layout.clone(),
         positions,
         azimuth_resolution,
@@ -347,7 +376,7 @@ fn build_vbap_build_plan(
         diffuse: live.use_distance_diffuse,
         diffuse_thr: live.distance_diffuse_threshold,
         diffuse_curve: live.distance_diffuse_curve,
-    })
+    }))
 }
 
 /// Build a `BackendBuildPlan` for one of the concrete (non-hybrid) backends.
@@ -371,11 +400,7 @@ fn build_inner_backend_plan(
         )),
         "vbap" => {
             let rebuild_params = backend_rebuild_params?;
-            Some(BackendBuildPlan::Vbap(build_vbap_build_plan(
-                layout,
-                live,
-                rebuild_params,
-            )?))
+            build_vbap_build_plan(layout, live, rebuild_params)
         }
         _ => None,
     }
@@ -444,11 +469,11 @@ pub fn prepare_topology_build_plan(
                 live.evaluation.mode,
                 rebuild_params.preferred_evaluation_mode(),
             );
-            let plan = build_vbap_build_plan(&layout, live, rebuild_params)?;
+            let backend_build = build_vbap_build_plan(&layout, live, rebuild_params)?;
             Some(TopologyBuildPlan {
                 layout,
                 backend_id: live.backend_id().to_string(),
-                backend_build: BackendBuildPlan::Vbap(plan),
+                backend_build,
                 evaluation_mode: effective_mode,
                 evaluation_build_config,
                 geometry_generation: 0,

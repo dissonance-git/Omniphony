@@ -223,8 +223,10 @@ struct BandRenderer {
     num_speakers: usize,
     /// Band-restricted render topology (its `backend` is the prepared engine).
     /// Stored (rather than just the engine) so a geometry-unchanged refresh can
-    /// reuse its gain model via `build_topology_reusing`. `None` when the band has
-    /// fewer than 3 speakers (uniform fallback).
+    /// reuse its gain model via `build_topology_reusing`. Always `Some` for a band
+    /// with ≥1 speaker — 1–2 speakers use the degenerate-VBAP `FewSpeakerBackend`,
+    /// ≥3 the full panner. `None` only for an empty (coverage-gap) band, which
+    /// renders silence.
     topology: Option<Arc<RenderTopology>>,
     /// `true` when this band covers every speaker in identity order
     /// (`speaker_indices == 0..num_speakers`) — the no-crossover case. Then the
@@ -271,7 +273,7 @@ impl BandRenderer {
                 band_speaker_names,
             );
         }
-        let topology = if speaker_indices.len() >= 3 {
+        let topology = if !speaker_indices.is_empty() {
             let band_layout = crate::speaker_layout::SpeakerLayout {
                 radius_m: layout.radius_m,
                 speakers: speaker_indices
@@ -323,16 +325,9 @@ impl BandRenderer {
         let n = self.speaker_indices.len();
         let band_gains = match self.engine() {
             Some(engine) => engine.compute_gains(&req).gains,
-            None => {
-                let mut g = crate::spatial_vbap::Gains::zeroed(n);
-                if n > 0 {
-                    let v = 1.0 / (n as f32).sqrt();
-                    for i in 0..n {
-                        g.set(i, v);
-                    }
-                }
-                g
-            }
+            // Only an empty (coverage-gap) band has no engine; it renders silence.
+            // Bands with 1–2 speakers carry a `FewSpeakerBackend` engine.
+            None => crate::spatial_vbap::Gains::zeroed(n),
         };
         // No crossover: band gains are already full-size and in speaker order, so
         // return them directly instead of zeroing + scattering into a fresh Gains.
@@ -2306,6 +2301,109 @@ mod tests {
         assert!(
             max_diff < 1e-6,
             "unified polar vs per-band output mismatch: max diff {max_diff}"
+        );
+    }
+
+    /// A crossover band with only 1–2 speakers used to have no engine (hardcoded
+    /// equal-power), which disabled the unified table for the whole crossover.
+    /// Now such a band carries a `FewSpeakerBackend`, so the unified table builds
+    /// and must stay bit-equivalent to the per-band path. Here the top band keeps
+    /// exactly 2 spatializable speakers (pairwise-VBAP fallback).
+    #[test]
+    fn unified_table_with_two_speaker_fallback_band() {
+        fn build() -> SpatialRenderer {
+            let mut layout = SpeakerLayout::preset("7.1.4").unwrap();
+            // Cut all spatializable speakers at 200 Hz except the first two, so the
+            // [200, ∞) band has exactly 2 speakers (a fallback band) and the
+            // [0, 200) band keeps the rest (a normal ≥3 VBAP band).
+            let mut kept = 0;
+            for sp in layout.speakers.iter_mut() {
+                if !sp.spatialize {
+                    continue;
+                }
+                if kept < 2 {
+                    kept += 1;
+                    continue;
+                }
+                sp.freq_high = Some(200.0);
+            }
+            SpatialRenderer::new(
+                layout,
+                48_000,
+                1,
+                1,
+                0.0,
+                2.0,
+                VbapTableMode::Cartesian {
+                    x_size: 21,
+                    y_size: 21,
+                    z_size: 9,
+                    z_neg_size: 9,
+                },
+                false,
+                true,
+                DistanceModel::Linear,
+                false,
+                1.0,
+                1.0,
+                0.0,
+                1.0,
+                false,
+                [1.0, 2.0, 0.5],
+                2.0,
+                0.5,
+                0.0,
+                0.0,
+                false,
+                false,
+                false,
+                1.0,
+                1.0,
+                PreferredEvaluationMode::PrecomputedCartesian,
+                LiveEvaluationMode::PrecomputedCartesian,
+                21,
+                21,
+                9,
+                9,
+            )
+            .unwrap()
+        }
+
+        let mut unified = build();
+        assert!(
+            unified.unified_table.is_some(),
+            "a 2-speaker fallback band must not disable the unified table"
+        );
+        let mut per_band = build();
+        per_band.unified_table = None;
+
+        let pcm: Vec<f32> = (0..40).map(|i| (i * 7 % 13) as f32 / 13.0 - 0.5).collect();
+        let event = vec![SpatialChannelEvent {
+            channel_idx: 0,
+            is_bed: false,
+            gain_db: Some(0),
+            ramp_length: Some(40),
+            size: Some([0.0, 0.0, 0.0]),
+            position: Some([0.3, -0.2, 0.4]),
+            sample_pos: Some(0),
+        }];
+
+        let a = unified
+            .render_frame(&pcm, 1, &event, Vec::new(), false)
+            .unwrap();
+        let b = per_band
+            .render_frame(&pcm, 1, &event, Vec::new(), false)
+            .unwrap();
+        assert_eq!(a.samples.len(), b.samples.len());
+        let max_diff = a
+            .samples
+            .iter()
+            .zip(&b.samples)
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0f32, f32::max);
+        assert!(
+            max_diff < 1e-6,
+            "unified vs per-band output mismatch (fallback band): max diff {max_diff}"
         );
     }
 
