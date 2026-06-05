@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Read, Write};
 
 use super::{
-    AxisLut, BackendCapabilities, EvaluationBuildConfig, PreparedEvaluator, RenderRequest,
-    RenderResponse, sample_cartesian_table, sample_polar_table,
+    AxisLut, AzimuthLut, BackendCapabilities, EvaluationBuildConfig, PreparedEvaluator,
+    RenderRequest, RenderResponse, sample_cartesian_table, sample_polar_table_lut,
 };
 use crate::speaker_layout::SpeakerLayout;
 
@@ -129,6 +129,10 @@ pub struct PolarArtifact {
     azimuth_positions: Vec<f32>,
     elevation_positions: Vec<f32>,
     distance_positions: Vec<f32>,
+    // Division-free lookups rebuilt from the *_positions arrays (not serialized).
+    azimuth_lut: AzimuthLut,
+    elevation_lut: AxisLut,
+    distance_lut: AxisLut,
     gains: Vec<f32>,
 }
 
@@ -369,11 +373,17 @@ impl LoadedEvaluationArtifact {
                     &mut cursor,
                     azimuth_count * elevation_count * distance_count * speaker_count,
                 )?;
+                let azimuth_lut = AzimuthLut::from_values(&azimuth_positions);
+                let elevation_lut = AxisLut::from_values(&elevation_positions);
+                let distance_lut = AxisLut::from_values(&distance_positions);
                 Ok(Self::Polar(PolarArtifact {
                     metadata,
                     azimuth_positions,
                     elevation_positions,
                     distance_positions,
+                    azimuth_lut,
+                    elevation_lut,
+                    distance_lut,
                     gains,
                 }))
             }
@@ -451,6 +461,9 @@ impl LoadedEvaluationArtifact {
             azimuth_positions: azimuth_positions.to_vec(),
             elevation_positions: elevation_positions.to_vec(),
             distance_positions: distance_positions.to_vec(),
+            azimuth_lut: AzimuthLut::from_values(azimuth_positions),
+            elevation_lut: AxisLut::from_values(elevation_positions),
+            distance_lut: AxisLut::from_values(distance_positions),
             gains: gains.to_vec(),
         }))
     }
@@ -490,12 +503,12 @@ impl PreparedEvaluator for EvaluationArtifactEvaluator {
                     req.adm_position[1] as f32,
                     req.adm_position[2] as f32,
                 );
-                sample_polar_table(
+                sample_polar_table_lut(
                     &artifact.gains,
                     self.artifact.speaker_count(),
-                    &artifact.azimuth_positions,
-                    &artifact.elevation_positions,
-                    &artifact.distance_positions,
+                    &artifact.azimuth_lut,
+                    &artifact.elevation_lut,
+                    &artifact.distance_lut,
                     [azimuth, elevation, distance],
                     artifact.metadata.position_interpolation,
                 )

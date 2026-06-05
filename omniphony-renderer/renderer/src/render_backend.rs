@@ -494,6 +494,11 @@ pub struct SampledPolarEvaluator {
     azimuth_positions: Vec<f32>,
     elevation_positions: Vec<f32>,
     distance_positions: Vec<f32>,
+    // Division-free lookups rebuilt from the *_positions arrays (the source of
+    // truth for serialization). Kept in sync with them.
+    azimuth_lut: AzimuthLut,
+    elevation_lut: AxisLut,
+    distance_lut: AxisLut,
     gains: Vec<f32>,
     speaker_count: usize,
     /// Read-time only (nearest cell vs trilinear); interior-mutable, see
@@ -538,11 +543,17 @@ impl SampledPolarEvaluator {
             SerializedEvaluationMode::PrecomputedPolar,
             config,
         );
+        let azimuth_lut = AzimuthLut::from_values(&azimuth_positions);
+        let elevation_lut = AxisLut::from_values(&elevation_positions);
+        let distance_lut = AxisLut::from_values(&distance_positions);
         Self {
             model,
             azimuth_positions,
             elevation_positions,
             distance_positions,
+            azimuth_lut,
+            elevation_lut,
+            distance_lut,
             gains,
             speaker_count,
             position_interpolation: AtomicBool::new(config.position_interpolation),
@@ -568,12 +579,12 @@ impl PreparedEvaluator for SampledPolarEvaluator {
             req.adm_position[1] as f32,
             req.adm_position[2] as f32,
         );
-        let gains = sample_polar_table(
+        let gains = sample_polar_table_lut(
             &self.gains,
             self.speaker_count,
-            &self.azimuth_positions,
-            &self.elevation_positions,
-            &self.distance_positions,
+            &self.azimuth_lut,
+            &self.elevation_lut,
+            &self.distance_lut,
             [azimuth, elevation, distance],
             self.position_interpolation.load(Ordering::Relaxed),
         );
@@ -789,7 +800,7 @@ pub fn build_prepared_render_engine(
     ))
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct AxisSample {
     lower: usize,
     upper: usize,
@@ -956,6 +967,136 @@ impl AxisLut {
     }
 }
 
+/// Wrapped (circular) azimuth axis lookup — the polar counterpart of [`AxisLut`].
+/// Azimuth grids are evenly spaced and periodic in degrees, so the bracket is
+/// O(1): `f = (wrap_degrees(pos) - min) * inv_step`, with the `len-1 → 0` seam
+/// handled by indexing modulo `len`. Replaces the per-lookup O(n) linear scan in
+/// [`sample_wrapped_axis`]. A non-uniform restored grid falls back to that scan.
+#[derive(Clone)]
+pub(crate) enum AzimuthLut {
+    /// Evenly spaced periodic grid: `values[k] == min + k / inv_step`, wrapping
+    /// at `len` back to index 0 (which sits `360°` above `values[len-1]`).
+    WrappedUniform { min: f32, inv_step: f32, len: usize },
+    /// Arbitrary ascending grid — defers to the wrapped scan path.
+    Irregular(Vec<f32>),
+}
+
+impl AzimuthLut {
+    pub(crate) fn from_values(values: &[f32]) -> Self {
+        let n = values.len();
+        if n < 2 {
+            return Self::Irregular(values.to_vec());
+        }
+        let step = (values[n - 1] - values[0]) / (n - 1) as f32;
+        if step > 0.0 {
+            let tol = 1e-5 * step.max(1.0);
+            let uniform =
+                (0..n).all(|k| (values[k] - (values[0] + k as f32 * step)).abs() <= tol);
+            if uniform {
+                return Self::WrappedUniform {
+                    min: values[0],
+                    inv_step: 1.0 / step,
+                    len: n,
+                };
+            }
+        }
+        Self::Irregular(values.to_vec())
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            Self::WrappedUniform { len, .. } => *len,
+            Self::Irregular(values) => values.len(),
+        }
+    }
+
+    fn sample(&self, position: f32, interpolate: bool) -> AxisSample {
+        match self {
+            Self::WrappedUniform { min, inv_step, len } => {
+                let len = *len;
+                // wrap_degrees maps into (-180, 180]; with min == values[0] the
+                // cell coordinate f lands in (0, len], len being the seam point
+                // that reads back into index 0 (== min + 360°).
+                let f = (wrap_degrees(position) - min) * inv_step;
+                if !interpolate {
+                    let nearest = (f + 0.5).floor() as usize % len;
+                    return AxisSample {
+                        lower: nearest,
+                        upper: nearest,
+                        fraction: 0.0,
+                    };
+                }
+                let base = f.floor();
+                let lower = (base as usize) % len;
+                let upper = (lower + 1) % len;
+                AxisSample {
+                    lower,
+                    upper,
+                    fraction: f - base,
+                }
+            }
+            Self::Irregular(values) => {
+                sample_wrapped_axis(values, wrap_degrees(position), interpolate)
+            }
+        }
+    }
+}
+
+/// Division-free twin of [`sample_polar_table`]: same flat `[dist][el][az]` table
+/// and trilinear/nearest accumulation, but the per-axis brackets come from the
+/// precomputed [`AzimuthLut`]/[`AxisLut`] instead of per-call scans/divisions.
+pub(crate) fn sample_polar_table_lut(
+    table: &[f32],
+    speaker_count: usize,
+    azimuth: &AzimuthLut,
+    elevation: &AxisLut,
+    distance: &AxisLut,
+    position: [f32; 3],
+    interpolate: bool,
+) -> Gains {
+    let a = azimuth.sample(position[0], interpolate);
+    let e = elevation.sample(position[1], interpolate);
+    let d = distance.sample(position[2], interpolate);
+    let az_len = azimuth.len();
+    let el_len = elevation.len();
+    let mut gains = Gains::zeroed(speaker_count);
+    if !interpolate {
+        write_flat_sample(
+            table,
+            speaker_count,
+            az_len,
+            el_len,
+            a.lower,
+            e.lower,
+            d.lower,
+            &mut gains,
+        );
+        return gains;
+    }
+    for (id, wd) in [(d.lower, 1.0 - d.fraction), (d.upper, d.fraction)] {
+        for (ie, we) in [(e.lower, 1.0 - e.fraction), (e.upper, e.fraction)] {
+            for (ia, wa) in [(a.lower, 1.0 - a.fraction), (a.upper, a.fraction)] {
+                let weight = wa * we * wd;
+                if weight <= 0.0 {
+                    continue;
+                }
+                accumulate_flat_sample(
+                    table,
+                    speaker_count,
+                    az_len,
+                    el_len,
+                    ia,
+                    ie,
+                    id,
+                    weight,
+                    &mut gains,
+                );
+            }
+        }
+    }
+    gains
+}
+
 pub(crate) fn sample_cartesian_table(
     table: &[f32],
     speaker_count: usize,
@@ -1119,6 +1260,10 @@ impl MultiBandCartesianTable {
     }
 }
 
+/// Reference polar lookup over the raw `*_positions` arrays (per-call wrapped
+/// scan / binary search). Superseded at runtime by [`sample_polar_table_lut`];
+/// retained as the parity oracle for the LUT path's tests.
+#[cfg(test)]
 pub(crate) fn sample_polar_table(
     table: &[f32],
     speaker_count: usize,
@@ -1455,5 +1600,114 @@ mod cartesian_lookup_bench {
              | inv_step is {:.0}% faster",
             (search_ns - inv_ns) / search_ns * 100.0,
         );
+    }
+}
+
+#[cfg(test)]
+mod polar_lut_tests {
+    //! Bit-equivalence guards for the division-free polar lookup
+    //! (`sample_polar_table_lut` + `AzimuthLut`) against the reference scan path
+    //! (`sample_polar_table`), which is the production behaviour it replaces.
+    use super::*;
+
+    /// Deterministic, reproducible "table" value for a flat index.
+    fn synth(i: usize) -> f32 {
+        let x = (i as u32).wrapping_mul(2_654_435_761);
+        ((x >> 8) & 0xffff) as f32 / 65535.0 - 0.5
+    }
+
+    /// Sweep azimuth / elevation / distance over in-cell offsets (avoiding exact
+    /// midpoints, where nearest-mode tie-breaking is allowed to differ) plus a few
+    /// out-of-range values (to exercise clamping), and require the LUT lookup to
+    /// match the reference within f32 rounding, in both interpolate and nearest
+    /// modes.
+    #[test]
+    fn polar_lut_matches_reference() {
+        let azimuth_positions = polar_azimuth_axis(24);
+        let elevation_positions = polar_elevation_axis(9, true);
+        let distance_positions = evenly_spaced_axis(6, 0.0, 2.0);
+        let speaker_count = 7;
+        let n = azimuth_positions.len() * elevation_positions.len() * distance_positions.len();
+        let table: Vec<f32> = (0..n * speaker_count).map(synth).collect();
+
+        let az_lut = AzimuthLut::from_values(&azimuth_positions);
+        let el_lut = AxisLut::from_values(&elevation_positions);
+        let dist_lut = AxisLut::from_values(&distance_positions);
+
+        // Build sweep points: each grid point plus 0.3 / 0.7 of a step, plus a few
+        // out-of-range probes.
+        let sweep = |grid: &[f32], lo: f32, hi: f32| -> Vec<f32> {
+            let step = (grid[grid.len() - 1] - grid[0]) / (grid.len() - 1) as f32;
+            let mut v = Vec::new();
+            for &g in grid {
+                v.push(g);
+                v.push(g + 0.3 * step);
+                v.push(g + 0.7 * step);
+            }
+            v.push(lo - 5.0);
+            v.push(hi + 5.0);
+            v
+        };
+        let az_sweep = sweep(&azimuth_positions, -180.0, 180.0);
+        let el_sweep = sweep(&elevation_positions, -90.0, 90.0);
+        let dist_sweep = sweep(&distance_positions, 0.0, 2.0);
+
+        for &interpolate in &[true, false] {
+            let mut max_diff = 0.0f32;
+            for &az in &az_sweep {
+                for &el in &el_sweep {
+                    for &dist in &dist_sweep {
+                        let reference = sample_polar_table(
+                            &table,
+                            speaker_count,
+                            &azimuth_positions,
+                            &elevation_positions,
+                            &distance_positions,
+                            [az, el, dist],
+                            interpolate,
+                        );
+                        let lut = sample_polar_table_lut(
+                            &table,
+                            speaker_count,
+                            &az_lut,
+                            &el_lut,
+                            &dist_lut,
+                            [az, el, dist],
+                            interpolate,
+                        );
+                        for (a, b) in reference.iter().zip(lut.iter()) {
+                            max_diff = max_diff.max((a - b).abs());
+                        }
+                    }
+                }
+            }
+            assert!(
+                max_diff < 1e-5,
+                "polar LUT vs reference mismatch (interpolate={interpolate}): max diff {max_diff}"
+            );
+        }
+    }
+
+    /// The wrapped azimuth seam must read the same physical cell as the reference.
+    /// At the `±180°` boundary index `len-1` and index `0` are `360°` apart; the
+    /// two paths may name the bracket differently (e.g. `{15,0,1.0}` vs
+    /// `{0,1,0.0}`) yet must yield the same interpolated value. Compare the actual
+    /// weighted read, which is the invariant that matters.
+    #[test]
+    fn azimuth_seam_wraps_like_reference() {
+        let values = polar_azimuth_axis(16);
+        let lut = AzimuthLut::from_values(&values);
+        assert!(matches!(lut, AzimuthLut::WrappedUniform { .. }));
+        let tbl: Vec<f32> = (0..values.len()).map(synth).collect();
+        let read = |s: AxisSample| tbl[s.lower] * (1.0 - s.fraction) + tbl[s.upper] * s.fraction;
+        let step = 360.0 / values.len() as f32;
+        for &pos in &[180.0 - 0.25 * step, 180.0, -180.0, -180.0 + 0.25 * step, 540.0] {
+            let want = read(sample_wrapped_axis(&values, wrap_degrees(pos), true));
+            let got = read(lut.sample(pos, true));
+            assert!(
+                (want - got).abs() < 1e-5,
+                "azimuth seam mismatch at {pos}: want {want} got {got}"
+            );
+        }
     }
 }
