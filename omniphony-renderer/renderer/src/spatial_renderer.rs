@@ -241,6 +241,27 @@ impl BandRenderer {
         prev: Option<&BandRenderer>,
     ) -> Result<Self> {
         let speaker_indices = band.speaker_indices.clone();
+        // Log which speakers fall into this crossover band and its frequency range.
+        // A speaker is in band [lo, hi) when its usable range overlaps it, so the
+        // sub band [0, lo) holds every *full-range* spatializable speaker (those
+        // without a `freq_low` cutoff); band-limited speakers join higher bands.
+        // (LFE / non-spatializable speakers are excluded from every band.)
+        let band_high = if band.high_hz.is_finite() {
+            format!("{:.0}", band.high_hz)
+        } else {
+            "inf".to_string()
+        };
+        let band_speaker_names: Vec<&str> = speaker_indices
+            .iter()
+            .map(|&idx| layout.speakers[idx].name.as_str())
+            .collect();
+        log::info!(
+            "Crossover band [{:.0}, {}) Hz: {} speakers {:?}",
+            band.low_hz,
+            band_high,
+            speaker_indices.len(),
+            band_speaker_names,
+        );
         let topology = if speaker_indices.len() >= 3 {
             let band_layout = crate::speaker_layout::SpeakerLayout {
                 radius_m: layout.radius_m,
