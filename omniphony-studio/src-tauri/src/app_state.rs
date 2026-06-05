@@ -308,6 +308,8 @@ pub struct AppState {
     pub source_levels: HashMap<String, Meter>,
     #[serde(rename = "speakerLevels")]
     pub speaker_levels: HashMap<String, Meter>,
+    #[serde(rename = "masterLevel")]
+    pub master_level: Option<Meter>,
     #[serde(rename = "objectSpeakerGains")]
     pub object_speaker_gains: HashMap<String, Vec<f64>>,
     #[serde(rename = "objectGains")]
@@ -628,6 +630,7 @@ impl Default for AppState {
             sources: HashMap::new(),
             source_levels: HashMap::new(),
             speaker_levels: HashMap::new(),
+            master_level: None,
             object_speaker_gains: HashMap::new(),
             object_gains: HashMap::new(),
             speaker_gains: HashMap::new(),

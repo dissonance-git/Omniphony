@@ -37,6 +37,7 @@ import {
   dirty,
   dirtySpeakerMeters,
   dirtyObjectMeters,
+  setMasterLevel,
   METER_DECAY_START_MS,
   METER_DECAY_DB_PER_SEC,
   DEFAULT_SAMPLE_RATE_HZ
@@ -584,7 +585,7 @@ export function createSpeakerItem(id, speaker) {
   level.appendChild(levelText);
 
   const meterBar = document.createElement('div');
-  meterBar.className = 'meter-bar';
+  meterBar.className = 'meter-bar level-meter';
   const meterFill = document.createElement('div');
   meterFill.className = 'meter-fill';
   const peakCursor = document.createElement('div');
@@ -635,6 +636,7 @@ export function createSpeakerItem(id, speaker) {
 
   return {
     root,
+    idStrip,
     label: idText,
     levelText,
     meterFill,
@@ -652,9 +654,10 @@ export function createSpeakerItem(id, speaker) {
 const speakerClipTimers = new Map();
 
 /**
- * Flash the background of a speaker row red for 1 s when that speaker clips.
- * Driven by the renderer's `/omniphony/state/clip <idx>` event; works regardless
- * of the auto-gain toggle. Mirrors the master clip indicator's remanence.
+ * Flash the speaker's name chip (`.id-strip`) red for 1 s when that speaker
+ * clips. Driven by the renderer's `/omniphony/state/clip <idx>` event; works
+ * regardless of the auto-gain toggle. Mirrors the master clip indicator's
+ * remanence.
  */
 export function flashSpeakerClip(index) {
   if (!Number.isInteger(index) || index < 0) {
@@ -662,13 +665,14 @@ export function flashSpeakerClip(index) {
   }
   const id = String(index);
   const entry = speakerItems.get(id);
-  if (!entry?.root) {
+  const target = entry?.idStrip;
+  if (!target) {
     return;
   }
   // Restart the fade animation even if a previous flash is still running.
-  entry.root.classList.remove('clip-flash');
-  void entry.root.offsetWidth; // force reflow so the animation replays
-  entry.root.classList.add('clip-flash');
+  target.classList.remove('clip-flash');
+  void target.offsetWidth; // force reflow so the animation replays
+  target.classList.add('clip-flash');
   const existing = speakerClipTimers.get(id);
   if (existing) {
     clearTimeout(existing);
@@ -676,7 +680,7 @@ export function flashSpeakerClip(index) {
   speakerClipTimers.set(
     id,
     setTimeout(() => {
-      entry.root.classList.remove('clip-flash');
+      target.classList.remove('clip-flash');
       speakerClipTimers.delete(id);
     }, 1000)
   );
@@ -1069,7 +1073,7 @@ export function createObjectItem(id) {
   level.appendChild(levelText);
 
   const meterBar = document.createElement('div');
-  meterBar.className = 'meter-bar';
+  meterBar.className = 'meter-bar level-meter';
   const meterFill = document.createElement('div');
   meterFill.className = 'meter-fill';
   const peakCursor = document.createElement('div');
@@ -1923,6 +1927,17 @@ export function updateSpeakerLevel(index, meter) {
     applySpeakerLevel(mesh, speakerLevels.get(key));
   }
   updateSpeakerMeterUI(key);
+  dirty.masterMeter = true;
+  scheduleUIFlush();
+}
+
+// Engine-metered master output level (post-master-gain), from
+// /omniphony/meter/master. Drives the master bar (RMS) + peak cursor.
+export function updateMasterLevel(meter) {
+  setMasterLevel({
+    peakDbfs: Number(meter?.peakDbfs ?? -100),
+    rmsDbfs: Number(meter?.rmsDbfs ?? -100)
+  });
   dirty.masterMeter = true;
   scheduleUIFlush();
 }

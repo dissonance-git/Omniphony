@@ -9,11 +9,12 @@ import {
   dirty,
   speakerLevels,
   supportsRealtimeKey,
-  masterPeak
+  masterPeak,
+  masterLevel
 } from '../state.js';
 import { t, tf } from '../i18n.js';
 import { formatNumber } from '../coordinates.js';
-import { linearToDb, dbToLinear } from '../mute-solo.js';
+import { linearToDb, dbToMeterPercent, METER_DB_MIN } from '../mute-solo.js';
 import { scheduleUIFlush } from '../flush.js';
 import { inAudioPanel, inRendererPanel, inDrcPanel } from '../ui/panel-roots.js';
 
@@ -101,17 +102,35 @@ export function flashClipIndicator() {
   }, 1000);
 }
 
-export function getAverageSpeakerRmsDb() {
-  const valid = Array.from(speakerLevels.values()).filter(
-    (meter) => meter && typeof meter.rmsDbfs === 'number'
+// Master output meter. Preferred source: the engine's post-master-gain
+// /omniphony/meter/master (state.masterLevel). Fallback when that message is
+// absent (older engine / un-rebuilt backend): derive it from the speaker
+// meters — master peak = loudest speaker peak (identical to the engine's
+// max(spk_peak), speakers are already metered post-master-gain), master RMS ≈
+// combined speaker energy. Returns { peakDb, rmsDb } or null when no data.
+function getMasterMeter() {
+  if (masterLevel && typeof masterLevel.rmsDbfs === 'number') {
+    const rmsDb = masterLevel.rmsDbfs;
+    return {
+      rmsDb,
+      peakDb: typeof masterLevel.peakDbfs === 'number' ? masterLevel.peakDbfs : rmsDb
+    };
+  }
+  const speakers = Array.from(speakerLevels.values()).filter(
+    (m) => m && typeof m.peakDbfs === 'number'
   );
-  if (valid.length === 0) {
+  if (speakers.length === 0) {
     return null;
   }
-  const sumLinear = valid.reduce((acc, meter) => acc + dbToLinear(meter.rmsDbfs), 0);
-  const avgLinear = sumLinear / valid.length;
-  const avgDb = 20 * Math.log10(Math.max(avgLinear, 1e-6));
-  return Math.max(-100, Math.min(0, avgDb));
+  let peakDb = METER_DB_MIN;
+  let sumSquares = 0;
+  for (const m of speakers) {
+    if (m.peakDbfs > peakDb) peakDb = m.peakDbfs;
+    const rmsLin = Math.pow(10, (typeof m.rmsDbfs === 'number' ? m.rmsDbfs : -100) / 20);
+    sumSquares += rmsLin * rmsLin;
+  }
+  const rmsLin = Math.sqrt(sumSquares / speakers.length);
+  return { peakDb, rmsDb: rmsLin > 0 ? 20 * Math.log10(rmsLin) : METER_DB_MIN };
 }
 
 export function updateMasterMeterUI() {
@@ -120,34 +139,42 @@ export function updateMasterMeterUI() {
   const masterMeterPeakEl = inAudioPanel('masterMeterPeak');
 
   if (!masterMeterTextEl || !masterMeterFillEl) return;
-  const avgDb = getAverageSpeakerRmsDb();
-  if (avgDb === null) {
+
+  const level = getMasterMeter();
+  if (!level) {
     masterMeterTextEl.textContent = t('status.masterMeter');
     masterMeterFillEl.style.setProperty('--level', '0%');
-    if (masterMeterPeakEl) masterMeterPeakEl.style.opacity = '0';
+    if (masterMeterPeakEl) {
+      masterMeterPeakEl.style.opacity = '0';
+      masterMeterPeakEl.classList.remove('over');
+    }
     return;
   }
-  const levelPercent = ((avgDb + 100) / 100) * 100;
+
+  const rmsDb = level.rmsDb;
+  const peakDb = level.peakDb;
+  // Bar follows the peak (same quantity as the hold cursor) so they meet on
+  // transients; RMS stays as the numeric readout.
+  const levelPercent = dbToMeterPercent(peakDb);
   masterMeterFillEl.style.setProperty('--level', `${levelPercent.toFixed(1)}%`);
 
   const now = Date.now();
-  if (avgDb >= (masterPeak.db ?? -100) || now > masterPeak.expires) {
-    if (avgDb >= (masterPeak.db ?? -100)) {
-      masterPeak.db = avgDb;
-      masterPeak.value = levelPercent;
-      masterPeak.expires = now + 1000;
-    } else {
-      masterPeak.db = Math.max(avgDb, masterPeak.db - 2.0);
-      masterPeak.value = ((Math.max(-100, masterPeak.db) + 100) / 100) * 100;
-      if (masterPeak.value <= levelPercent + 0.1) masterPeak.expires = now + 1000;
-    }
+  if (peakDb >= (masterPeak.db ?? METER_DB_MIN)) {
+    masterPeak.db = peakDb;
+    masterPeak.value = dbToMeterPercent(peakDb);
+    masterPeak.expires = now + 1000;
+  } else if (now > masterPeak.expires) {
+    masterPeak.db = Math.max(peakDb, masterPeak.db - 2.0);
+    masterPeak.value = dbToMeterPercent(masterPeak.db);
+    if (masterPeak.value <= levelPercent + 0.1) masterPeak.expires = now + 1000;
   }
 
-  masterMeterTextEl.textContent = `${formatNumber(masterPeak.db ?? avgDb, 1)} dB`;
+  masterMeterTextEl.textContent = `${formatNumber(rmsDb, 1)} dB`;
 
   if (masterMeterPeakEl) {
     masterMeterPeakEl.style.setProperty('--level', `${masterPeak.value.toFixed(1)}%`);
     masterMeterPeakEl.style.opacity = masterPeak.value > 0.1 ? '1' : '0';
+    masterMeterPeakEl.classList.toggle('over', (masterPeak.db ?? METER_DB_MIN) >= 0);
   }
 }
 

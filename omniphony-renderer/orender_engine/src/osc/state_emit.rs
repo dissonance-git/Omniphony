@@ -260,6 +260,13 @@ impl OscSender {
                 args: vec![OscType::Float(peak), OscType::Float(rms)],
             }));
         }
+        messages.push(OscPacket::Message(OscMessage {
+            addr: "/omniphony/meter/master".to_string(),
+            args: vec![
+                OscType::Float(snapshot.master_peak),
+                OscType::Float(snapshot.master_rms),
+            ],
+        }));
 
         let bundle = OscPacket::Bundle(OscBundle {
             timetag: OscTime {

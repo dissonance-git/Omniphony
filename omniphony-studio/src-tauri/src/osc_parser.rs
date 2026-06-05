@@ -175,6 +175,14 @@ pub enum OscEvent {
         rms_dbfs: f64,
     },
 
+    #[serde(rename = "meter:master")]
+    MeterMaster {
+        #[serde(rename = "peakDbfs")]
+        peak_dbfs: f64,
+        #[serde(rename = "rmsDbfs")]
+        rms_dbfs: f64,
+    },
+
     #[serde(rename = "meter:drc_gain")]
     MeterDrcGain { value: f64 },
 
@@ -882,7 +890,10 @@ fn parse_meter(parts: &[&str], args: &[f64]) -> Option<OscEvent> {
     if after.len() >= 3 {
         let kind = after[1];
         let id = after[2].to_string();
-        let peak = clamp(to_number(args[0]).unwrap_or(-100.0), -100.0, 0.0);
+        // Peak ceiling is left high (+24 dBFS) so true over-0 dBFS peaks
+        // (clipping) reach the UI instead of being flattened to 0; the RMS that
+        // drives the bar stays bounded for a clean fill.
+        let peak = clamp(to_number(args[0]).unwrap_or(-100.0), -100.0, 24.0);
         let rms = clamp(to_number(args[1]).unwrap_or(-100.0), -100.0, 0.0);
         match kind {
             "object" => {
@@ -901,6 +912,23 @@ fn parse_meter(parts: &[&str], args: &[f64]) -> Option<OscEvent> {
             }
             _ => {}
         }
+    }
+
+    if after.len() == 2 && after[1] == "master" {
+        let peak = clamp(
+            args.get(0).copied().and_then(to_number).unwrap_or(-100.0),
+            -100.0,
+            24.0,
+        );
+        let rms = clamp(
+            args.get(1).copied().and_then(to_number).unwrap_or(-100.0),
+            -100.0,
+            0.0,
+        );
+        return Some(OscEvent::MeterMaster {
+            peak_dbfs: peak,
+            rms_dbfs: rms,
+        });
     }
 
     if after.len() == 2 && after[1] == "drc_gain" {

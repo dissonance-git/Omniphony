@@ -45,10 +45,21 @@ export function formatLevel(meter) {
   return `${formatNumber(meter.rmsDbfs, 1)} dB`;
 }
 
+// Meter scale: -60 dBFS at the bottom, +6 dBFS at the top. 0 dBFS sits at
+// dbToMeterPercent(0) ≈ 90.9%, leaving a headroom (over-0) zone above it so
+// true clipping peaks are visible instead of being flattened at the top.
+export const METER_DB_MIN = -60;
+export const METER_DB_MAX = 6;
+
+export function dbToMeterPercent(db) {
+  const v = Number.isFinite(db) ? db : METER_DB_MIN;
+  const pct = ((v - METER_DB_MIN) / (METER_DB_MAX - METER_DB_MIN)) * 100;
+  return Math.min(100, Math.max(0, pct));
+}
+
 export function meterToPercent(meter) {
-  const db = typeof meter?.rmsDbfs === 'number' ? meter.rmsDbfs : -100;
-  const clamped = Math.min(0, Math.max(-100, db));
-  return ((clamped + 100) / 100) * 100;
+  const db = typeof meter?.rmsDbfs === 'number' ? meter.rmsDbfs : METER_DB_MIN;
+  return dbToMeterPercent(db);
 }
 
 export function linearToDb(value) {
@@ -71,29 +82,42 @@ export function dbToLinear(db) {
 // Meter UI
 // ---------------------------------------------------------------------------
 
+// Shared peak-hold for the level meters: the bar (meterFill) follows the RMS,
+// while the cursor holds the engine-reported true sample peak (peakDbfs) with a
+// 1 s hold then decay. The cursor turns red (`.over`) once the held peak crosses
+// 0 dBFS, into the headroom zone.
+export function updatePeakHold(peaksMap, id, peakDb, levelPercent, now) {
+  let peak = id !== null ? peaksMap.get(id) : null;
+  if (!peak || peakDb >= (peak.db ?? METER_DB_MIN)) {
+    peak = { value: dbToMeterPercent(peakDb), db: peakDb, expires: now + 1000 };
+    if (id !== null) peaksMap.set(id, peak);
+  } else if (now > peak.expires) {
+    peak.db = Math.max(peakDb, peak.db - 2.0); // Decay DB value
+    peak.value = dbToMeterPercent(peak.db);
+    if (peak.value <= levelPercent + 0.1) peak.expires = now + 1000;
+  }
+  return peak;
+}
+
 export function updateMeterUI(entry, meter, type = null, id = null) {
   if (!entry) return;
-  const levelPercent = meterToPercent(meter);
-  const currentDb = typeof meter?.rmsDbfs === 'number' ? meter.rmsDbfs : -100;
+  const rmsDb = typeof meter?.rmsDbfs === 'number' ? meter.rmsDbfs : METER_DB_MIN;
+  const peakDb = typeof meter?.peakDbfs === 'number' ? meter.peakDbfs : rmsDb;
+  // Bar and cursor are the same quantity (peak) so the fill rises to the hold
+  // marker on transients instead of leaving a permanent crest-factor gap; the
+  // RMS stays as the numeric readout.
+  const levelPercent = dbToMeterPercent(peakDb);
 
   if (entry.peakCursor) {
     const now = Date.now();
     const peaksMap = type === 'speaker' ? speakerPeaks : sourcePeaks;
-    let peak = id !== null ? peaksMap.get(id) : null;
+    const peak = updatePeakHold(peaksMap, id, peakDb, levelPercent, now);
 
-    if (!peak || currentDb >= (peak.db ?? -100)) {
-      peak = { value: levelPercent, db: currentDb, expires: now + 1000 };
-      if (id !== null) peaksMap.set(id, peak);
-    } else if (now > peak.expires) {
-      peak.db = Math.max(currentDb, peak.db - 2.0); // Decay DB value
-      peak.value = ((Math.max(-100, peak.db) + 100) / 100) * 100;
-      if (peak.value <= levelPercent + 0.1) peak.expires = now + 1000;
-    }
-
-    entry.levelText.textContent = `${formatNumber(peak.db ?? currentDb, 1)} dB`;
+    entry.levelText.textContent = `${formatNumber(rmsDb, 1)} dB`;
     entry.meterFill.style.setProperty('--level', `${levelPercent.toFixed(1)}%`);
     entry.peakCursor.style.setProperty('--level', `${peak.value.toFixed(1)}%`);
     entry.peakCursor.style.opacity = peak.value > 0.1 ? '1' : '0';
+    entry.peakCursor.classList.toggle('over', (peak.db ?? METER_DB_MIN) >= 0);
   } else {
     entry.levelText.textContent = formatLevel(meter);
     entry.meterFill.style.setProperty('--level', `${levelPercent.toFixed(1)}%`);
