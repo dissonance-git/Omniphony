@@ -307,6 +307,30 @@ export function updateEvaluationMode() {
   scheduleUIFlush();
 }
 
+// Populate the backend dropdown from the engine-published list of selectable
+// backends (built-in + contributor-registered). Falls back to the static HTML
+// options when the engine doesn't send a list (older builds).
+function syncBackendOptions(selectEl) {
+  const available = app.renderBackendState && Array.isArray(app.renderBackendState.availableBackends)
+    ? app.renderBackendState.availableBackends
+    : null;
+  if (!selectEl || !available || available.length === 0) return;
+  const desired = available.map((b) => ({
+    value: String(b.id),
+    label: String(b.label || b.id),
+  }));
+  const current = Array.from(selectEl.options).map((o) => `${o.value}=${o.textContent}`).join('|');
+  const next = desired.map((d) => `${d.value}=${d.label}`).join('|');
+  if (current === next) return;
+  selectEl.replaceChildren();
+  for (const d of desired) {
+    const opt = document.createElement('option');
+    opt.value = d.value;
+    opt.textContent = d.label;
+    selectEl.appendChild(opt);
+  }
+}
+
 export function renderRenderBackend() {
   const renderBackendSelectEl = getRenderBackendSelectEl();
   const restoreBackendBtnEl = getRestoreBackendBtnEl();
@@ -316,6 +340,7 @@ export function renderRenderBackend() {
   const visibleBackend = effective || selection;
   const frozen = app.renderBackendState.frozenSpeakers === true;
   if (renderBackendSelectEl) {
+    syncBackendOptions(renderBackendSelectEl);
     renderBackendSelectEl.value = selection;
     renderBackendSelectEl.disabled = frozen;
   }
