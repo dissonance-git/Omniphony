@@ -127,13 +127,6 @@ mod tests {
             distance_diffuse_threshold: 1.0,
             distance_diffuse_curve: 1.0,
             distance_model: crate::spatial_vbap::DistanceModel::None,
-            barycenter_localize: 0.0,
-            experimental_distance_distance_floor: 0.0,
-            experimental_distance_min_active_speakers: 1,
-            experimental_distance_max_active_speakers: 2,
-            experimental_distance_position_error_floor: 0.0,
-            experimental_distance_position_error_nearest_scale: 0.0,
-            experimental_distance_position_error_span_scale: 0.0,
         }
     }
 
@@ -148,7 +141,7 @@ mod tests {
 
     fn wrapped() -> DistanceDiffuseModel {
         DistanceDiffuseModel::new(
-            Box::new(BarycenterBackend::new(speakers())),
+            Box::new(BarycenterBackend::new(speakers(), 0.0)),
             DistanceMetric::Spherical,
         )
     }
@@ -157,7 +150,7 @@ mod tests {
     fn disabled_is_a_noop() {
         let position = [0.4, 0.2, 0.1];
         let decorated = wrapped().compute_gains(&request(position, false)).gains;
-        let bare = BarycenterBackend::new(speakers())
+        let bare = BarycenterBackend::new(speakers(), 0.0)
             .compute_gains(&request(position, false))
             .gains;
         for (a, b) in decorated.iter().zip(bare.iter()) {
@@ -171,7 +164,7 @@ mod tests {
         // direct backend's energy regardless of the mirror contribution.
         let position = [0.3, 0.1, 0.2];
         let blended = wrapped().compute_gains(&request(position, true)).gains;
-        let direct = BarycenterBackend::new(speakers())
+        let direct = BarycenterBackend::new(speakers(), 0.0)
             .compute_gains(&request(position, true))
             .gains;
         let energy_blended: f32 = blended.iter().map(|g| g * g).sum();

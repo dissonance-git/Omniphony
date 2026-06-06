@@ -186,11 +186,17 @@ impl HybridBuildPlan {
 #[derive(Clone)]
 pub struct ExperimentalDistanceBuildPlan {
     pub speaker_positions: Vec<[f32; 3]>,
+    /// Tuning params, baked into the model at build (no longer per-request).
+    /// Sourced from the live params; changing them triggers a rebuild.
+    pub params: crate::live_params::ExperimentalDistanceLiveParams,
 }
 
 #[derive(Clone)]
 pub struct BarycenterBuildPlan {
     pub speaker_positions: Vec<[f32; 3]>,
+    /// Localisation bias, baked into the model at build (no longer a per-request
+    /// field). Sourced from the live params; changing it triggers a rebuild.
+    pub localize: f32,
 }
 
 #[derive(Clone)]
@@ -241,7 +247,10 @@ impl VbapTopologyBuildPlan {
 impl ExperimentalDistanceBuildPlan {
     pub fn build_gain_model(&self) -> Result<Box<dyn GainModel>> {
         Ok(Box::new(
-            crate::render_backend::ExperimentalDistanceBackend::new(self.speaker_positions.clone()),
+            crate::render_backend::ExperimentalDistanceBackend::new(
+                self.speaker_positions.clone(),
+                self.params,
+            ),
         ))
     }
 }
@@ -250,6 +259,7 @@ impl BarycenterBuildPlan {
     pub fn build_gain_model(&self) -> Result<Box<dyn GainModel>> {
         Ok(Box::new(crate::render_backend::BarycenterBackend::new(
             self.speaker_positions.clone(),
+            self.localize,
         )))
     }
 }
@@ -520,10 +530,12 @@ fn build_inner_backend_plan(
     match backend_id {
         "barycenter" => Some(BackendBuildPlan::Barycenter(BarycenterBuildPlan {
             speaker_positions: collect_spatializable_positions(layout),
+            localize: live.barycenter.localize,
         })),
         "experimental_distance" => Some(BackendBuildPlan::ExperimentalDistance(
             ExperimentalDistanceBuildPlan {
                 speaker_positions: collect_spatializable_positions(layout),
+                params: live.experimental_distance,
             },
         )),
         "vbap" => {
@@ -689,6 +701,7 @@ impl BackendFactory for BarycenterFactory {
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
         Some(BackendBuildPlan::Barycenter(BarycenterBuildPlan {
             speaker_positions: collect_spatializable_positions(ctx.layout),
+            localize: ctx.live.barycenter.localize,
         }))
     }
 }
@@ -705,6 +718,7 @@ impl BackendFactory for ExperimentalDistanceFactory {
         Some(BackendBuildPlan::ExperimentalDistance(
             ExperimentalDistanceBuildPlan {
                 speaker_positions: collect_spatializable_positions(ctx.layout),
+                params: ctx.live.experimental_distance,
             },
         ))
     }
@@ -819,13 +833,6 @@ mod tests {
                 distance_diffuse_threshold: 1.0,
                 distance_diffuse_curve: 1.0,
                 distance_model: DistanceModel::default(),
-                barycenter_localize: 0.0,
-                experimental_distance_distance_floor: 0.0,
-                experimental_distance_min_active_speakers: 1,
-                experimental_distance_max_active_speakers: 1,
-                experimental_distance_position_error_floor: 0.0,
-                experimental_distance_position_error_nearest_scale: 0.0,
-                experimental_distance_position_error_span_scale: 0.0,
             },
             position_interpolation: false,
             cartesian: CartesianEvaluationConfig {
