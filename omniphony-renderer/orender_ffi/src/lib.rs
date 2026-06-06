@@ -271,7 +271,13 @@ pub unsafe extern "C" fn orender_create(cfg: *const OrenderConfig) -> *mut Orend
             return ptr::null_mut();
         }
         match build_engine(&*cfg) {
-            Ok(engine) => Box::into_raw(Box::new(engine)) as *mut OrenderRenderer,
+            Ok(engine) => {
+                // Arm the spatial overlay: it stays blank until a session exists,
+                // so a host that loads the overlay shim without selecting
+                // `--ad=orender` (no session created) draws nothing.
+                orender_engine::overlay::session_started();
+                Box::into_raw(Box::new(engine)) as *mut OrenderRenderer
+            }
             Err(e) => {
                 eprintln!("orender_create failed: {e:#}");
                 ptr::null_mut()
@@ -289,6 +295,9 @@ pub unsafe extern "C" fn orender_destroy(r: *mut OrenderRenderer) {
     }
     let _ = catch_unwind(AssertUnwindSafe(|| {
         drop(Box::from_raw(r as *mut Engine));
+        // Disarm the overlay as this session goes away (clears the scene when it
+        // was the last one), so the box can't linger past the stream.
+        orender_engine::overlay::session_ended();
     }));
 }
 
