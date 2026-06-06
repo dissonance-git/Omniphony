@@ -267,6 +267,25 @@ pub struct EvaluationBuildConfig {
     pub distance_diffuse_metric: crate::spatial_vbap::DistanceMetric,
 }
 
+/// A gain model maps an object position (plus live render parameters) to a
+/// per-speaker gain vector. Implement this trait to add a render backend.
+///
+/// # Hot-path contract for [`compute_gains`](GainModel::compute_gains)
+///
+/// `compute_gains` runs in the realtime audio thread, once per object per band
+/// per frame. To keep that thread glitch-free, an implementation MUST:
+///
+/// - **not panic** — return a best-effort gain vector instead (e.g. zeroed);
+/// - **not allocate** on the heap, lock, or block;
+/// - return exactly [`speaker_count`](GainModel::speaker_count) finite gains.
+///
+/// Do any expensive setup (triangulation, lookup tables, caches) when the model
+/// is built, not here. As a safety net the engine smoke-tests every freshly
+/// built backend on a few reference positions on the build thread: a model that
+/// panics or returns a malformed gain vector is rejected at topology build time
+/// (surfaced to Studio as a recompute error) rather than crashing the audio
+/// thread — but that guard only catches the build-time probe, so honouring the
+/// contract above is still required for correct realtime behaviour.
 pub trait GainModel: Send + Sync + 'static {
     fn kind(&self) -> GainModelKind;
     fn backend_id(&self) -> &'static str;
