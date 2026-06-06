@@ -187,7 +187,7 @@ impl HybridBuildPlan {
 pub struct ExperimentalDistanceBuildPlan {
     pub speaker_positions: Vec<[f32; 3]>,
     /// Tuning params, baked into the model at build (no longer per-request).
-    /// Sourced from the live params; changing them triggers a rebuild.
+    /// Sourced from the param bag (key = backend id); changing it triggers a rebuild.
     pub params: crate::live_params::ExperimentalDistanceLiveParams,
 }
 
@@ -195,7 +195,7 @@ pub struct ExperimentalDistanceBuildPlan {
 pub struct BarycenterBuildPlan {
     pub speaker_positions: Vec<[f32; 3]>,
     /// Localisation bias, baked into the model at build (no longer a per-request
-    /// field). Sourced from the live params; changing it triggers a rebuild.
+    /// field). Sourced from the param bag (key = backend id); rebuild on change.
     pub localize: f32,
 }
 
@@ -517,31 +517,73 @@ fn build_vbap_build_plan(
     }))
 }
 
-/// Build a `BackendBuildPlan` for one of the concrete (non-hybrid) backends.
-/// Used directly by the top-level barycenter/experimental_distance branches and
-/// by the hybrid backend for each of its inner models. Returns `None` for an
-/// unknown id or `"hybrid"` (no nested hybrids).
-fn build_inner_backend_plan(
+/// Barycenter `localize`, read from the param bag under `backend_id` (so it
+/// works for the standalone backend and for a barycenter nested in hybrid),
+/// falling back to the model default.
+fn barycenter_localize(ctx: &BackendBuildCtx<'_>, backend_id: &str) -> f32 {
+    ctx.backend_param(backend_id, "localize")
+        .and_then(crate::backend_params::ParamValue::as_f32)
+        .unwrap_or_else(|| crate::live_params::BarycenterLiveParams::default().localize)
+}
+
+/// The experimental_distance tuning params, read from the param bag under
+/// `backend_id` with each missing key falling back to the model default.
+fn experimental_params(
+    ctx: &BackendBuildCtx<'_>,
     backend_id: &str,
-    layout: &SpeakerLayout,
-    live: &LiveParams,
-    backend_rebuild_params: Option<BackendRebuildParams>,
+) -> crate::live_params::ExperimentalDistanceLiveParams {
+    use crate::backend_params::ParamValue;
+    let defaults = crate::live_params::ExperimentalDistanceLiveParams::default();
+    let float = |key: &str, default: f32| {
+        ctx.backend_param(backend_id, key)
+            .and_then(ParamValue::as_f32)
+            .unwrap_or(default)
+    };
+    let count = |key: &str, default: usize| {
+        ctx.backend_param(backend_id, key)
+            .and_then(ParamValue::as_i64)
+            .map(|v| v.max(1) as usize)
+            .unwrap_or(default)
+    };
+    let min_active_speakers = count("min_active_speakers", defaults.min_active_speakers);
+    crate::live_params::ExperimentalDistanceLiveParams {
+        distance_floor: float("distance_floor", defaults.distance_floor),
+        min_active_speakers,
+        // max is re-asserted >= min here (the OSC alias no longer clamps on write).
+        max_active_speakers: count("max_active_speakers", defaults.max_active_speakers)
+            .max(min_active_speakers),
+        position_error_floor: float("position_error_floor", defaults.position_error_floor),
+        position_error_nearest_scale: float(
+            "position_error_nearest_scale",
+            defaults.position_error_nearest_scale,
+        ),
+        position_error_span_scale: float(
+            "position_error_span_scale",
+            defaults.position_error_span_scale,
+        ),
+    }
+}
+
+/// Build a `BackendBuildPlan` for one of the concrete (non-hybrid) backends.
+/// Used by the top-level barycenter/experimental_distance/vbap factories and by
+/// the hybrid backend for each of its inner models. Tuning params come from the
+/// bag keyed by `backend_id`. Returns `None` for an unknown id or `"hybrid"`.
+fn build_inner_backend_plan(
+    ctx: &BackendBuildCtx<'_>,
+    backend_id: &str,
 ) -> Option<BackendBuildPlan> {
     match backend_id {
         "barycenter" => Some(BackendBuildPlan::Barycenter(BarycenterBuildPlan {
-            speaker_positions: collect_spatializable_positions(layout),
-            localize: live.barycenter.localize,
+            speaker_positions: collect_spatializable_positions(ctx.layout),
+            localize: barycenter_localize(ctx, backend_id),
         })),
         "experimental_distance" => Some(BackendBuildPlan::ExperimentalDistance(
             ExperimentalDistanceBuildPlan {
-                speaker_positions: collect_spatializable_positions(layout),
-                params: live.experimental_distance,
+                speaker_positions: collect_spatializable_positions(ctx.layout),
+                params: experimental_params(ctx, backend_id),
             },
         )),
-        "vbap" => {
-            let rebuild_params = backend_rebuild_params?;
-            build_vbap_build_plan(layout, live, rebuild_params)
-        }
+        "vbap" => build_vbap_build_plan(ctx.layout, ctx.live, ctx.backend_rebuild_params?),
         _ => None,
     }
 }
@@ -561,17 +603,28 @@ pub struct BackendBuildCtx<'a> {
     pub layout: &'a SpeakerLayout,
     pub live: &'a LiveParams,
     pub backend_rebuild_params: Option<BackendRebuildParams>,
-    /// Host-set values for *this* backend's declared params, keyed by
-    /// [`ParamSpec::key`](crate::backend_params::ParamSpec::key). Missing keys
-    /// mean "use the backend's default". Read here at build time, then captured
-    /// into the model — never read on the audio hot path.
-    pub params: &'a std::collections::HashMap<String, crate::backend_params::ParamValue>,
+    /// All host-set backend param values, keyed by backend id then param key
+    /// (see [`crate::backend_params`]). Read at build time only — never on the
+    /// audio hot path. A backend reads its own entry via [`backend_param`]; a
+    /// composite backend (hybrid) reads its inner backends' entries by their id,
+    /// which is why the whole store is exposed rather than just the active slice.
+    ///
+    /// [`backend_param`]: BackendBuildCtx::backend_param
+    pub backend_params: &'a std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, crate::backend_params::ParamValue>,
+    >,
 }
 
 impl BackendBuildCtx<'_> {
-    /// The host-set value for `key`, or `None` to fall back to the backend default.
-    pub fn param(&self, key: &str) -> Option<&crate::backend_params::ParamValue> {
-        self.params.get(key)
+    /// Host-set value of `key` for backend `backend_id`, or `None` to fall back
+    /// to the backend's default.
+    pub fn backend_param(
+        &self,
+        backend_id: &str,
+        key: &str,
+    ) -> Option<&crate::backend_params::ParamValue> {
+        self.backend_params.get(backend_id).and_then(|m| m.get(key))
     }
 }
 
@@ -686,7 +739,7 @@ impl BackendFactory for VbapFactory {
         "VBAP"
     }
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
-        build_vbap_build_plan(ctx.layout, ctx.live, ctx.backend_rebuild_params?)
+        build_inner_backend_plan(ctx, self.id())
     }
 }
 
@@ -698,11 +751,13 @@ impl BackendFactory for BarycenterFactory {
     fn label(&self) -> &'static str {
         "Barycenter"
     }
+    fn param_schema(&self) -> Vec<crate::backend_params::ParamSpec> {
+        vec![crate::backend_params::ParamSpec::float(
+            "localize", "Localize", 0.0, 4.0, 0.05, 0.0,
+        )]
+    }
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
-        Some(BackendBuildPlan::Barycenter(BarycenterBuildPlan {
-            speaker_positions: collect_spatializable_positions(ctx.layout),
-            localize: ctx.live.barycenter.localize,
-        }))
+        build_inner_backend_plan(ctx, self.id())
     }
 }
 
@@ -714,13 +769,60 @@ impl BackendFactory for ExperimentalDistanceFactory {
     fn label(&self) -> &'static str {
         "Distance"
     }
+    fn param_schema(&self) -> Vec<crate::backend_params::ParamSpec> {
+        use crate::backend_params::ParamSpec;
+        let d = crate::live_params::ExperimentalDistanceLiveParams::default();
+        vec![
+            ParamSpec::float(
+                "distance_floor",
+                "Distance floor",
+                0.0,
+                1.0,
+                0.01,
+                d.distance_floor,
+            ),
+            ParamSpec::int(
+                "min_active_speakers",
+                "Min active speakers",
+                1,
+                32,
+                d.min_active_speakers as i64,
+            ),
+            ParamSpec::int(
+                "max_active_speakers",
+                "Max active speakers",
+                1,
+                32,
+                d.max_active_speakers as i64,
+            ),
+            ParamSpec::float(
+                "position_error_floor",
+                "Position error floor",
+                0.0,
+                1.0,
+                0.01,
+                d.position_error_floor,
+            ),
+            ParamSpec::float(
+                "position_error_nearest_scale",
+                "Position error nearest scale",
+                0.0,
+                4.0,
+                0.05,
+                d.position_error_nearest_scale,
+            ),
+            ParamSpec::float(
+                "position_error_span_scale",
+                "Position error span scale",
+                0.0,
+                4.0,
+                0.05,
+                d.position_error_span_scale,
+            ),
+        ]
+    }
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
-        Some(BackendBuildPlan::ExperimentalDistance(
-            ExperimentalDistanceBuildPlan {
-                speaker_positions: collect_spatializable_positions(ctx.layout),
-                params: ctx.live.experimental_distance,
-            },
-        ))
+        build_inner_backend_plan(ctx, self.id())
     }
 }
 
@@ -733,21 +835,11 @@ impl BackendFactory for HybridFactory {
         "Hybrid"
     }
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
-        // The hybrid backend composes two inner backends. Inner composition still
-        // goes through `build_inner_backend_plan` (vbap / barycenter /
-        // experimental_distance), so its supported inner set is unchanged.
-        let external = build_inner_backend_plan(
-            &ctx.live.hybrid.external_backend_id,
-            ctx.layout,
-            ctx.live,
-            ctx.backend_rebuild_params,
-        )?;
-        let internal = build_inner_backend_plan(
-            &ctx.live.hybrid.internal_backend_id,
-            ctx.layout,
-            ctx.live,
-            ctx.backend_rebuild_params,
-        )?;
+        // The hybrid backend composes two inner backends. Each inner model reads
+        // its own params from the bag keyed by the inner backend id, so a nested
+        // barycenter/experimental_distance is tuned exactly like the standalone one.
+        let external = build_inner_backend_plan(ctx, &ctx.live.hybrid.external_backend_id)?;
+        let internal = build_inner_backend_plan(ctx, &ctx.live.hybrid.internal_backend_id)?;
         Some(BackendBuildPlan::Hybrid(HybridBuildPlan {
             external: Box::new(external),
             internal: Box::new(internal),
@@ -763,7 +855,10 @@ pub fn prepare_topology_build_plan(
     layout: SpeakerLayout,
     live: &LiveParams,
     backend_rebuild_params: Option<BackendRebuildParams>,
-    backend_params: &std::collections::HashMap<String, crate::backend_params::ParamValue>,
+    backend_params: &std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, crate::backend_params::ParamValue>,
+    >,
     evaluation_build_config: crate::render_backend::EvaluationBuildConfig,
 ) -> Option<TopologyBuildPlan> {
     // Dispatch through the registry instead of a hard-coded `match` on the id, so
@@ -773,7 +868,7 @@ pub fn prepare_topology_build_plan(
         layout: &layout,
         live,
         backend_rebuild_params,
-        params: backend_params,
+        backend_params,
     };
     let backend_build = factory.build_plan(&ctx)?;
     let preferred = preferred_evaluation_mode(backend_rebuild_params);

@@ -841,8 +841,6 @@ impl SpatialRenderer {
             distance_diffuse_curve,
             drc_mode: "Off".to_string(),
             drc_weight: 1.0,
-            barycenter: crate::live_params::BarycenterLiveParams::default(),
-            experimental_distance: crate::live_params::ExperimentalDistanceLiveParams::default(),
             hybrid: crate::live_params::HybridLiveParams::default(),
         }
     }

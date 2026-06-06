@@ -81,6 +81,44 @@ pub fn build_render_backend_state_snapshot(
 ) -> RenderBackendStateSnapshot {
     let backend = &active_topology.backend;
     let capabilities = backend.capabilities();
+
+    // The bespoke barycenter/experimental option blocks are sourced from the
+    // active backend's param bag (resolved against the model defaults). They are
+    // kept only for the current Studio UI; once Studio renders controls from the
+    // generic `available_backends` schema they can be dropped.
+    use renderer::backend_params::ParamValue;
+    let param_f32 = |key: &str, default: f32| {
+        backend_param_values
+            .get(key)
+            .and_then(ParamValue::as_f32)
+            .unwrap_or(default)
+    };
+    let param_count = |key: &str, default: usize| {
+        backend_param_values
+            .get(key)
+            .and_then(ParamValue::as_i64)
+            .map(|v| v.max(1) as usize)
+            .unwrap_or(default)
+    };
+    let exp_defaults = renderer::live_params::ExperimentalDistanceLiveParams::default();
+    let barycenter = BarycenterOptionsSnapshot {
+        localize: param_f32("localize", 0.0),
+    };
+    let experimental_distance = ExperimentalDistanceOptionsSnapshot {
+        distance_floor: param_f32("distance_floor", exp_defaults.distance_floor),
+        min_active_speakers: param_count("min_active_speakers", exp_defaults.min_active_speakers),
+        max_active_speakers: param_count("max_active_speakers", exp_defaults.max_active_speakers),
+        position_error_floor: param_f32("position_error_floor", exp_defaults.position_error_floor),
+        position_error_nearest_scale: param_f32(
+            "position_error_nearest_scale",
+            exp_defaults.position_error_nearest_scale,
+        ),
+        position_error_span_scale: param_f32(
+            "position_error_span_scale",
+            exp_defaults.position_error_span_scale,
+        ),
+    };
+
     RenderBackendStateSnapshot {
         selection: live.backend_id().to_string(),
         effective: backend.backend_id().to_string(),
@@ -92,17 +130,8 @@ pub fn build_render_backend_state_snapshot(
         frozen_room_ratio: false,
         frozen_speakers: false,
         restore_backend_available: false,
-        barycenter: BarycenterOptionsSnapshot {
-            localize: live.barycenter.localize,
-        },
-        experimental_distance: ExperimentalDistanceOptionsSnapshot {
-            distance_floor: live.experimental_distance.distance_floor,
-            min_active_speakers: live.experimental_distance.min_active_speakers,
-            max_active_speakers: live.experimental_distance.max_active_speakers,
-            position_error_floor: live.experimental_distance.position_error_floor,
-            position_error_nearest_scale: live.experimental_distance.position_error_nearest_scale,
-            position_error_span_scale: live.experimental_distance.position_error_span_scale,
-        },
+        barycenter,
+        experimental_distance,
         hybrid: HybridOptionsSnapshot {
             external_backend: live.hybrid.external_backend_id.clone(),
             internal_backend: live.hybrid.internal_backend_id.clone(),

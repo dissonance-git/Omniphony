@@ -9,9 +9,7 @@
 use anyhow::{Result, anyhow, bail};
 use bridge_api::{RVbapCartesianDefaults, RVbapTableMode};
 use renderer::config::RenderConfig;
-use renderer::live_params::{
-    ExperimentalDistanceLiveParams, LiveEvaluationMode, PreferredEvaluationMode,
-};
+use renderer::live_params::{LiveEvaluationMode, PreferredEvaluationMode};
 use renderer::render_backend::RenderBackendKind;
 use renderer::spatial_renderer::SpatialRenderer;
 use renderer::spatial_vbap::{DistanceModel, VbapTableMode};
@@ -376,35 +374,6 @@ pub fn build_spatial_renderer(
     let configured_evaluation = render_cfg
         .and_then(|cfg| cfg.render_evaluation_mode.as_deref())
         .and_then(LiveEvaluationMode::from_str);
-    let experimental_distance_cfg = render_cfg.map(|cfg| {
-        let defaults = ExperimentalDistanceLiveParams::default();
-        ExperimentalDistanceLiveParams {
-            distance_floor: cfg
-                .experimental_distance_distance_floor
-                .unwrap_or(defaults.distance_floor)
-                .max(0.0),
-            min_active_speakers: cfg
-                .experimental_distance_min_active_speakers
-                .unwrap_or(defaults.min_active_speakers)
-                .max(1),
-            max_active_speakers: cfg
-                .experimental_distance_max_active_speakers
-                .unwrap_or(defaults.max_active_speakers)
-                .max(1),
-            position_error_floor: cfg
-                .experimental_distance_position_error_floor
-                .unwrap_or(defaults.position_error_floor)
-                .max(0.0),
-            position_error_nearest_scale: cfg
-                .experimental_distance_position_error_nearest_scale
-                .unwrap_or(defaults.position_error_nearest_scale)
-                .max(0.0),
-            position_error_span_scale: cfg
-                .experimental_distance_position_error_span_scale
-                .unwrap_or(defaults.position_error_span_scale)
-                .max(0.0),
-        }
-    });
     let hybrid_cfg = render_cfg.map(|cfg| {
         let defaults = renderer::live_params::HybridLiveParams::default();
         let valid_inner = |id: &str| matches!(id, "vbap" | "barycenter" | "experimental_distance");
@@ -447,17 +416,67 @@ pub fn build_spatial_renderer(
                 .or_else(|| control.has_backend(raw).then(|| raw.to_string()))
         });
         let mut requires_rebuild = false;
-        // Replay persisted generic backend param values; they are read at the
-        // rebuild below via each backend's schema.
+        // Replay persisted generic backend param values, and migrate the legacy
+        // dedicated keys (barycenter_localize / experimental_distance_*) into the
+        // same bag so old configs keep working. All are read at the rebuild below
+        // via each backend's schema.
         if let Some(cfg) = render_cfg {
+            use renderer::backend_params::ParamValue;
+            if !cfg.backend_params.is_empty() {
+                requires_rebuild = true;
+            }
             for (backend_id, params) in &cfg.backend_params {
                 for (key, value) in params {
                     control.set_backend_param(backend_id, key, value.clone());
                 }
             }
-            if !cfg.backend_params.is_empty() {
-                requires_rebuild = true;
-            }
+            let mut migrate = |backend_id: &str, key: &str, value: Option<ParamValue>| {
+                if let Some(value) = value {
+                    control.set_backend_param(backend_id, key, value);
+                    requires_rebuild = true;
+                }
+            };
+            migrate(
+                "barycenter",
+                "localize",
+                cfg.barycenter_localize.map(ParamValue::Float),
+            );
+            migrate(
+                "experimental_distance",
+                "distance_floor",
+                cfg.experimental_distance_distance_floor
+                    .map(ParamValue::Float),
+            );
+            migrate(
+                "experimental_distance",
+                "min_active_speakers",
+                cfg.experimental_distance_min_active_speakers
+                    .map(|v| ParamValue::Int(v as i64)),
+            );
+            migrate(
+                "experimental_distance",
+                "max_active_speakers",
+                cfg.experimental_distance_max_active_speakers
+                    .map(|v| ParamValue::Int(v as i64)),
+            );
+            migrate(
+                "experimental_distance",
+                "position_error_floor",
+                cfg.experimental_distance_position_error_floor
+                    .map(ParamValue::Float),
+            );
+            migrate(
+                "experimental_distance",
+                "position_error_nearest_scale",
+                cfg.experimental_distance_position_error_nearest_scale
+                    .map(ParamValue::Float),
+            );
+            migrate(
+                "experimental_distance",
+                "position_error_span_scale",
+                cfg.experimental_distance_position_error_span_scale
+                    .map(ParamValue::Float),
+            );
         }
         {
             let mut live = control.live.write();
@@ -470,29 +489,6 @@ pub fn build_spatial_renderer(
             if let Some(configured_evaluation) = configured_evaluation {
                 if live.evaluation.mode != configured_evaluation {
                     live.set_evaluation_mode(configured_evaluation);
-                    requires_rebuild = true;
-                }
-            }
-            if let Some(mut experimental_distance) = experimental_distance_cfg {
-                if experimental_distance.max_active_speakers
-                    < experimental_distance.min_active_speakers
-                {
-                    experimental_distance.max_active_speakers =
-                        experimental_distance.min_active_speakers;
-                }
-                if live.experimental_distance.distance_floor != experimental_distance.distance_floor
-                    || live.experimental_distance.min_active_speakers
-                        != experimental_distance.min_active_speakers
-                    || live.experimental_distance.max_active_speakers
-                        != experimental_distance.max_active_speakers
-                    || live.experimental_distance.position_error_floor
-                        != experimental_distance.position_error_floor
-                    || live.experimental_distance.position_error_nearest_scale
-                        != experimental_distance.position_error_nearest_scale
-                    || live.experimental_distance.position_error_span_scale
-                        != experimental_distance.position_error_span_scale
-                {
-                    live.experimental_distance = experimental_distance;
                     requires_rebuild = true;
                 }
             }
@@ -529,9 +525,6 @@ pub fn build_spatial_renderer(
             // saved value is honoured at startup, not only after an OSC tweak.
             if let Some(mode) = render_cfg.and_then(|cfg| cfg.size_to_spread_mode) {
                 live.size_to_spread_mode = mode;
-            }
-            if let Some(localize) = render_cfg.and_then(|cfg| cfg.barycenter_localize) {
-                live.barycenter.localize = localize;
             }
             if let Some(ceiling) =
                 render_cfg.and_then(renderer::config_fields::auto_gain_ceiling_db::get)
