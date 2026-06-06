@@ -25,14 +25,14 @@ pub fn save_live_config(
     host: Option<&dyn HostControlHandler>,
 ) -> Result<SaveLiveConfigResult> {
     let path = {
-        let guard = control.config_path.lock().unwrap();
+        let guard = control.config_path.lock();
         guard
             .as_ref()
             .cloned()
             .ok_or_else(|| anyhow!("no config path available"))?
     };
 
-    let live = control.live.read().unwrap();
+    let live = control.live.read();
     let mut config = renderer::config::Config::load_or_default(&path);
     let render = config.render.get_or_insert_with(Default::default);
     let requested_bridge_path = control.bridge_path();

@@ -114,7 +114,7 @@ fn sanitize_layout_name(name: &str) -> String {
 
 pub(crate) fn export_current_layout(control: &Arc<RendererControl>, requested_name: Option<&str>) {
     let config_path = {
-        let guard = control.config_path.lock().unwrap();
+        let guard = control.config_path.lock();
         guard.clone()
     };
     let base_dir = config_path

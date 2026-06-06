@@ -20,7 +20,7 @@ impl OscSender {
             Some(ref c) => c,
             None => return,
         };
-        let live = control.live.read().unwrap();
+        let live = control.live.read();
         let socket = &self.socket;
         let clients = &self.clients;
 

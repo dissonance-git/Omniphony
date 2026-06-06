@@ -238,7 +238,7 @@ impl DecodeHandler {
     pub fn poll_runtime_state(&mut self) -> Result<()> {
         if let Some(renderer) = self.spatial_renderer.as_ref() {
             let control = renderer.renderer_control();
-            let drc_mode = control.live.read().unwrap().drc_mode.clone();
+            let drc_mode = control.live.read().drc_mode.clone();
 
             if Some(&drc_mode) != self.last_seen_drc_mode.as_ref() {
                 if let Some(ref tx) = self.drc_mode_cmd_tx {

@@ -533,7 +533,6 @@ pub fn apply_simple_osc_control(
                     ctx.renderer
                         .live
                         .write()
-                        .unwrap()
                         .speakers
                         .entry(idx)
                         .or_default()
@@ -554,7 +553,7 @@ pub fn apply_simple_osc_control(
                 });
                 if removed {
                     {
-                        let mut live = ctx.renderer.live.write().unwrap();
+                        let mut live = ctx.renderer.live.write();
                         remap_live_speakers_remove(&mut live.speakers, remove_idx);
                     }
                     ctx.renderer.mark_speaker_params_dirty();
@@ -578,7 +577,7 @@ pub fn apply_simple_osc_control(
                 });
                 if moved {
                     {
-                        let mut live = ctx.renderer.live.write().unwrap();
+                        let mut live = ctx.renderer.live.write();
                         remap_live_speakers_move(
                             &mut live.speakers,
                             move_speaker.from,
@@ -630,7 +629,6 @@ pub fn apply_simple_osc_control(
                         ctx.renderer
                             .live
                             .write()
-                            .unwrap()
                             .speakers
                             .entry(speaker_patch.id)
                             .or_default()
@@ -647,7 +645,6 @@ pub fn apply_simple_osc_control(
                         ctx.renderer
                             .live
                             .write()
-                            .unwrap()
                             .speakers
                             .entry(speaker_patch.id)
                             .or_default()
@@ -672,7 +669,7 @@ pub fn apply_simple_osc_control(
         let requested = parse_string_arg(msg.args.first())
             .and_then(|value| RenderBackendKind::from_str(&value));
         if let Some(requested) = requested {
-            let mut live = ctx.renderer.live.write().unwrap();
+            let mut live = ctx.renderer.live.write();
             if live.backend_id() != requested.as_str() {
                 live.backend_id = requested.as_str().to_string();
                 effects.mark_dirty = true;
@@ -696,7 +693,7 @@ pub fn apply_simple_osc_control(
         let requested = parse_string_arg(msg.args.first())
             .and_then(|value| LiveEvaluationMode::from_str(&value));
         if let Some(requested) = requested {
-            let mut live = ctx.renderer.live.write().unwrap();
+            let mut live = ctx.renderer.live.write();
             if live.evaluation.mode != requested {
                 live.set_evaluation_mode(requested);
                 effects.mark_dirty = true;
@@ -728,7 +725,7 @@ pub fn apply_simple_osc_control(
     if addr == "/omniphony/control/input/drc_mode" {
         let requested = parse_string_arg(msg.args.first());
         if let Some(requested) = requested {
-            let mut live = ctx.renderer.live.write().unwrap();
+            let mut live = ctx.renderer.live.write();
             if live.drc_mode != requested {
                 live.drc_mode = requested.clone();
                 effects.mark_dirty = true;
@@ -741,7 +738,7 @@ pub fn apply_simple_osc_control(
     if addr == "/omniphony/control/input/drc_weight" {
         if let Some(value) = parse_f32_arg(msg.args.first()) {
             let clamped = value.clamp(0.0, 1.0);
-            let mut live = ctx.renderer.live.write().unwrap();
+            let mut live = ctx.renderer.live.write();
             if (live.drc_weight - clamped).abs() > f32::EPSILON {
                 live.drc_weight = clamped;
                 effects.mark_dirty = true;
@@ -759,7 +756,7 @@ pub fn apply_simple_osc_control(
             return Some(effects);
         };
         ctx.renderer.set_requested_ramp_mode(mode);
-        ctx.renderer.live.write().unwrap().ramp_mode = mode;
+        ctx.renderer.live.write().ramp_mode = mode;
         effects.mark_dirty = true;
         effects.log_message = Some(format!("OSC: ramp_mode → {}", mode.as_str()));
         return Some(effects);
@@ -777,7 +774,7 @@ pub fn apply_simple_osc_control(
 
     if addr == "/omniphony/control/gain" {
         if let Some(gain) = parse_f32_arg(msg.args.first()) {
-            ctx.renderer.live.write().unwrap().master_gain = gain;
+            ctx.renderer.live.write().master_gain = gain;
             effects.mark_dirty = true;
         }
         return Some(effects);
@@ -787,7 +784,7 @@ pub fn apply_simple_osc_control(
         ($path:literal, $field:ident) => {
             if addr == $path {
                 if let Some(value) = parse_f32_arg(msg.args.first()) {
-                    ctx.renderer.live.write().unwrap().$field = value;
+                    ctx.renderer.live.write().$field = value;
                     effects.mark_dirty = true;
                     effects.trigger_layout_recompute = true;
                 }
@@ -809,7 +806,7 @@ pub fn apply_simple_osc_control(
 
     if addr == "/omniphony/control/spread/from_distance" {
         if let Some(v) = parse_bool_arg(msg.args.first()) {
-            ctx.renderer.live.write().unwrap().spread_from_distance = v;
+            ctx.renderer.live.write().spread_from_distance = v;
             effects.mark_dirty = true;
             effects.trigger_layout_recompute = true;
         }
@@ -821,7 +818,7 @@ pub fn apply_simple_osc_control(
             if let Some(mode) = renderer::render_backend::SizeToSpreadMode::from_str(
                 s.trim().to_ascii_lowercase().as_str(),
             ) {
-                ctx.renderer.live.write().unwrap().size_to_spread_mode = mode;
+                ctx.renderer.live.write().size_to_spread_mode = mode;
                 effects.mark_dirty = true;
                 // No layout recompute: only the GainCache is affected via its
                 // size_to_spread_mode key.
@@ -832,7 +829,7 @@ pub fn apply_simple_osc_control(
 
     if addr == "/omniphony/control/auto_gain" {
         if let Some(v) = parse_bool_arg(msg.args.first()) {
-            ctx.renderer.live.write().unwrap().auto_gain = v;
+            ctx.renderer.live.write().auto_gain = v;
             effects.mark_dirty = true;
             // Per-frame gain-stage flag: no topology recompute.
         }
@@ -842,7 +839,7 @@ pub fn apply_simple_osc_control(
     if addr == "/omniphony/control/auto_gain_ceiling" {
         if let Some(v) = parse_f32_arg(msg.args.first()) {
             // dBFS target; clamp to a sane range (ceiling at or below 0 dBFS).
-            ctx.renderer.live.write().unwrap().auto_gain_ceiling_db = v.clamp(-12.0, 0.0);
+            ctx.renderer.live.write().auto_gain_ceiling_db = v.clamp(-12.0, 0.0);
             effects.mark_dirty = true;
             // Per-frame gain-stage value: no topology recompute.
         }
@@ -858,43 +855,19 @@ pub fn apply_simple_osc_control(
         if let Some(size) = size {
             let state_addr = match rest {
                 "x_size" => {
-                    ctx.renderer
-                        .live
-                        .write()
-                        .unwrap()
-                        .evaluation
-                        .cartesian
-                        .x_size = size;
+                    ctx.renderer.live.write().evaluation.cartesian.x_size = size;
                     Some("/omniphony/state/render_evaluation/cartesian/x_size")
                 }
                 "y_size" => {
-                    ctx.renderer
-                        .live
-                        .write()
-                        .unwrap()
-                        .evaluation
-                        .cartesian
-                        .y_size = size;
+                    ctx.renderer.live.write().evaluation.cartesian.y_size = size;
                     Some("/omniphony/state/render_evaluation/cartesian/y_size")
                 }
                 "z_size" => {
-                    ctx.renderer
-                        .live
-                        .write()
-                        .unwrap()
-                        .evaluation
-                        .cartesian
-                        .z_size = size;
+                    ctx.renderer.live.write().evaluation.cartesian.z_size = size;
                     Some("/omniphony/state/render_evaluation/cartesian/z_size")
                 }
                 "z_neg_size" => {
-                    ctx.renderer
-                        .live
-                        .write()
-                        .unwrap()
-                        .evaluation
-                        .cartesian
-                        .z_neg_size = size;
+                    ctx.renderer.live.write().evaluation.cartesian.z_neg_size = size;
                     Some("/omniphony/state/render_evaluation/cartesian/z_neg_size")
                 }
                 _ => None,
@@ -916,12 +889,7 @@ pub fn apply_simple_osc_control(
 
     if addr == "/omniphony/control/render_evaluation/position_interpolation" {
         if let Some(enabled) = parse_bool_arg(msg.args.first()) {
-            ctx.renderer
-                .live
-                .write()
-                .unwrap()
-                .evaluation
-                .position_interpolation = enabled;
+            ctx.renderer.live.write().evaluation.position_interpolation = enabled;
             // No layout recompute: this flag only selects nearest-cell vs
             // trilinear at table-read time. The precomputed table content is
             // independent of it, and the renderer syncs the live value into the
@@ -947,23 +915,11 @@ pub fn apply_simple_osc_control(
                 if let Some(res) = res {
                     let state_addr = match rest {
                         "azimuth_resolution" => {
-                            ctx.renderer
-                                .live
-                                .write()
-                                .unwrap()
-                                .evaluation
-                                .polar
-                                .azimuth_values = res;
+                            ctx.renderer.live.write().evaluation.polar.azimuth_values = res;
                             Some("/omniphony/state/render_evaluation/polar/azimuth_resolution")
                         }
                         "elevation_resolution" => {
-                            ctx.renderer
-                                .live
-                                .write()
-                                .unwrap()
-                                .evaluation
-                                .polar
-                                .elevation_values = res;
+                            ctx.renderer.live.write().evaluation.polar.elevation_values = res;
                             Some("/omniphony/state/render_evaluation/polar/elevation_resolution")
                         }
                         _ => None,
@@ -987,13 +943,7 @@ pub fn apply_simple_osc_control(
                     _ => None,
                 };
                 if let Some(res) = res {
-                    ctx.renderer
-                        .live
-                        .write()
-                        .unwrap()
-                        .evaluation
-                        .polar
-                        .distance_res = res;
+                    ctx.renderer.live.write().evaluation.polar.distance_res = res;
                     effects.mark_dirty = true;
                     effects.trigger_layout_recompute = true;
                     effects.evaluation_only = true;
@@ -1010,13 +960,7 @@ pub fn apply_simple_osc_control(
                     _ => None,
                 };
                 if let Some(max_v) = max_v {
-                    ctx.renderer
-                        .live
-                        .write()
-                        .unwrap()
-                        .evaluation
-                        .polar
-                        .distance_max = max_v;
+                    ctx.renderer.live.write().evaluation.polar.distance_max = max_v;
                     effects.mark_dirty = true;
                     effects.trigger_layout_recompute = true;
                     effects.evaluation_only = true;
@@ -1033,7 +977,7 @@ pub fn apply_simple_osc_control(
 
     if addr == "/omniphony/control/loudness" {
         if let Some(v) = parse_bool_arg(msg.args.first()) {
-            ctx.renderer.live.write().unwrap().use_loudness = v;
+            ctx.renderer.live.write().use_loudness = v;
             effects.mark_dirty = true;
         }
         return Some(effects);
@@ -1042,7 +986,7 @@ pub fn apply_simple_osc_control(
     if addr == "/omniphony/control/distance_model" {
         if let Some(OscType::String(model)) = msg.args.first() {
             if let Ok(model) = model.parse::<renderer::spatial_vbap::DistanceModel>() {
-                ctx.renderer.live.write().unwrap().distance_model = model;
+                ctx.renderer.live.write().distance_model = model;
                 effects.mark_dirty = true;
                 effects.trigger_layout_recompute = true;
             }
@@ -1053,7 +997,7 @@ pub fn apply_simple_osc_control(
     if addr == "/omniphony/control/distance_model_metric" {
         if let Some(OscType::String(metric)) = msg.args.first() {
             if let Ok(metric) = metric.parse::<renderer::spatial_vbap::DistanceMetric>() {
-                ctx.renderer.live.write().unwrap().distance_model_metric = metric;
+                ctx.renderer.live.write().distance_model_metric = metric;
                 effects.mark_dirty = true;
                 effects.trigger_layout_recompute = true;
             }
@@ -1062,7 +1006,7 @@ pub fn apply_simple_osc_control(
     }
 
     if let Some(rest) = addr.strip_prefix("/omniphony/control/experimental_distance/") {
-        let mut live = ctx.renderer.live.write().unwrap();
+        let mut live = ctx.renderer.live.write();
         let mut changed = false;
         match rest {
             "distance_floor" => {
@@ -1137,7 +1081,7 @@ pub fn apply_simple_osc_control(
     }
 
     if let Some(rest) = addr.strip_prefix("/omniphony/control/barycenter/") {
-        let mut live = ctx.renderer.live.write().unwrap();
+        let mut live = ctx.renderer.live.write();
         let mut changed = false;
         match rest {
             "localize" => {
@@ -1158,7 +1102,7 @@ pub fn apply_simple_osc_control(
     }
 
     if let Some(rest) = addr.strip_prefix("/omniphony/control/hybrid/") {
-        let mut live = ctx.renderer.live.write().unwrap();
+        let mut live = ctx.renderer.live.write();
         let mut changed = false;
         match rest {
             "external_backend" | "internal_backend" => {
@@ -1243,7 +1187,7 @@ pub fn apply_simple_osc_control(
             let l = parse_f32_arg(msg.args.get(1));
             let h = parse_f32_arg(msg.args.get(2));
             if let (Some(w), Some(l), Some(h)) = (w, l, h) {
-                ctx.renderer.live.write().unwrap().room_ratio = [w, l, h];
+                ctx.renderer.live.write().room_ratio = [w, l, h];
                 effects.mark_dirty = true;
                 effects.trigger_layout_recompute = true;
                 effects.log_message = Some(format!("OSC: room_ratio → [{}, {}, {}]", w, l, h));
@@ -1254,7 +1198,7 @@ pub fn apply_simple_osc_control(
 
     if addr == "/omniphony/control/room_ratio_rear" {
         if let Some(v) = parse_f32_arg(msg.args.first()).map(|f| f.max(0.01)) {
-            ctx.renderer.live.write().unwrap().room_ratio_rear = v;
+            ctx.renderer.live.write().room_ratio_rear = v;
             effects.mark_dirty = true;
             effects.trigger_layout_recompute = true;
             effects.log_message = Some(format!("OSC: room_ratio_rear → {}", v));
@@ -1264,7 +1208,7 @@ pub fn apply_simple_osc_control(
 
     if addr == "/omniphony/control/room_ratio_lower" {
         if let Some(v) = parse_f32_arg(msg.args.first()).map(|f| f.max(0.01)) {
-            ctx.renderer.live.write().unwrap().room_ratio_lower = v;
+            ctx.renderer.live.write().room_ratio_lower = v;
             effects.mark_dirty = true;
             effects.trigger_layout_recompute = true;
             effects.log_message = Some(format!("OSC: room_ratio_lower → {}", v));
@@ -1274,7 +1218,7 @@ pub fn apply_simple_osc_control(
 
     if addr == "/omniphony/control/room_ratio_center_blend" {
         if let Some(v) = parse_f32_arg(msg.args.first()).map(|f| f.clamp(0.0, 1.0)) {
-            ctx.renderer.live.write().unwrap().room_ratio_center_blend = v;
+            ctx.renderer.live.write().room_ratio_center_blend = v;
             effects.mark_dirty = true;
             effects.trigger_layout_recompute = true;
             effects.log_message = Some(format!("OSC: room_ratio_center_blend → {}", v));
@@ -1286,7 +1230,7 @@ pub fn apply_simple_osc_control(
         match rest {
             "enabled" => {
                 if let Some(v) = parse_bool_arg(msg.args.first()) {
-                    ctx.renderer.live.write().unwrap().use_distance_diffuse = v;
+                    ctx.renderer.live.write().use_distance_diffuse = v;
                     effects.mark_dirty = true;
                     effects.trigger_layout_recompute = true;
                 }
@@ -1295,7 +1239,7 @@ pub fn apply_simple_osc_control(
             "metric" => {
                 if let Some(OscType::String(metric)) = msg.args.first() {
                     if let Ok(metric) = metric.parse::<renderer::spatial_vbap::DistanceMetric>() {
-                        ctx.renderer.live.write().unwrap().distance_diffuse_metric = metric;
+                        ctx.renderer.live.write().distance_diffuse_metric = metric;
                         effects.mark_dirty = true;
                         effects.trigger_layout_recompute = true;
                     }
@@ -1304,11 +1248,7 @@ pub fn apply_simple_osc_control(
             }
             "threshold" => {
                 if let Some(v) = parse_f32_arg(msg.args.first()).map(|f| f.max(1e-6)) {
-                    ctx.renderer
-                        .live
-                        .write()
-                        .unwrap()
-                        .distance_diffuse_threshold = v;
+                    ctx.renderer.live.write().distance_diffuse_threshold = v;
                     effects.mark_dirty = true;
                     effects.trigger_layout_recompute = true;
                 }
@@ -1316,7 +1256,7 @@ pub fn apply_simple_osc_control(
             }
             "curve" => {
                 if let Some(v) = parse_f32_arg(msg.args.first()).map(|f| f.max(0.0)) {
-                    ctx.renderer.live.write().unwrap().distance_diffuse_curve = v;
+                    ctx.renderer.live.write().distance_diffuse_curve = v;
                     effects.mark_dirty = true;
                     effects.trigger_layout_recompute = true;
                 }
@@ -1335,7 +1275,6 @@ pub fn apply_simple_osc_control(
                     ctx.renderer
                         .live
                         .write()
-                        .unwrap()
                         .objects
                         .entry(idx)
                         .or_default()
@@ -1357,7 +1296,6 @@ pub fn apply_simple_osc_control(
                     ctx.renderer
                         .live
                         .write()
-                        .unwrap()
                         .objects
                         .entry(idx)
                         .or_default()

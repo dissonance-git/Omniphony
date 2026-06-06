@@ -12,6 +12,7 @@ name = "audio_output"
 anyhow = "1"
 log = "0.4"
 crossbeam = "0.8"
+parking_lot = "0.12"
 rubato = "0.14"
 serde = { version = "1", features = ["derive"] }
 sys = { path = "../sys" }

@@ -3,11 +3,12 @@
 use anyhow::{Result, anyhow};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam::queue::ArrayQueue;
+use parking_lot::Mutex;
 use rubato::{
     Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
 };
 use std::sync::{
-    Arc, Mutex,
+    Arc,
     atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering},
 };
 use std::time::Duration;
@@ -295,7 +296,7 @@ impl AsioWriter {
 
         let live_config = Arc::new(Mutex::new(adaptive_config));
         let live_config_for_callback = Arc::clone(&live_config);
-        let initial_cfg = live_config.lock().unwrap().clone();
+        let initial_cfg = live_config.lock().clone();
 
         // Calculate max ratio for adaptive adjustments
         // Allow small adjustments around the base resample ratio
@@ -395,7 +396,7 @@ impl AsioWriter {
                 };
                 pipeline_latency_ms_bits_clone
                     .store(callback_midpoint_ms.to_bits(), Ordering::Relaxed);
-                let current_asio_cfg = live_config_for_callback.lock().unwrap().clone();
+                let current_asio_cfg = live_config_for_callback.lock().clone();
                 // ASIO callback dt comes from the nominal frame size of
                 // the active buffer. We don't have an atomic-published dt
                 // here as on the PipeWire path; the configured value is
@@ -529,7 +530,7 @@ impl AsioWriter {
                 // output_fifo contains frames * channel_count
                 let output_frames_needed = data.len() / device_channel_count_for_callback as usize;
                 let audio_samples_needed = output_frames_needed * channel_count as usize;
-                let far_mode_cfg = live_config_for_callback.lock().unwrap().clone();
+                let far_mode_cfg = live_config_for_callback.lock().clone();
                 let startup_low_recover_was_active = runtime_state.startup_low_recover_active;
                 let low_recover_was_active =
                     runtime_state.low_recover_phase != LowRecoverPhase::Inactive;
@@ -855,8 +856,6 @@ impl AsioWriter {
 
     /// Update adaptive resampling tuning parameters without restarting the audio stream.
     pub fn update_adaptive_config(&self, config: AdaptiveResamplingConfig) {
-        if let Ok(mut c) = self.live_adaptive_config.lock() {
-            *c = config;
-        }
+        *self.live_adaptive_config.lock() = config;
     }
 }
