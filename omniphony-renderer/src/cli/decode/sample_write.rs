@@ -230,7 +230,6 @@ impl<'a> SampleWriteCoordinator<'a> {
                     .renderer_control()
                     .live
                     .read()
-                    .unwrap()
                     .drc_weight
                     .clamp(0.0, 1.0);
                 self.output.drc_target_gain = if drc_weight >= 1.0 {
@@ -366,7 +365,7 @@ impl<'a> SampleWriteCoordinator<'a> {
                     let labels: Vec<RChannelLabel> = frame.channel_labels.iter().copied().collect();
                     let (room_ratio, room_ratio_rear, room_ratio_lower, room_ratio_center_blend) = {
                         let control = renderer.renderer_control();
-                        let live = control.live.read().unwrap();
+                        let live = control.live.read();
                         (
                             live.room_ratio,
                             live.room_ratio_rear,

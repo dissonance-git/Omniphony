@@ -378,7 +378,7 @@ impl Engine {
             .and_then(renderer::live_params::RampMode::from_str)
             .unwrap_or(renderer::live_params::RampMode::Frame);
         control.set_requested_ramp_mode(ramp_mode);
-        control.live.write().unwrap().ramp_mode = ramp_mode;
+        control.live.write().ramp_mode = ramp_mode;
 
         // DRC: seed the live params from config and publish the bridge's
         // supported modes (so studio shows the DRC control). The decode-side
@@ -392,7 +392,7 @@ impl Engine {
             .collect();
         control.set_bridge_supported_drc_modes(supported_drc);
         {
-            let mut live = control.live.write().unwrap();
+            let mut live = control.live.write();
             live.drc_mode = render_cfg
                 .as_ref()
                 .and_then(|c| c.drc_mode.clone())
@@ -473,7 +473,7 @@ impl Engine {
     fn sync_drc_mode(&mut self) {
         let live_mode = {
             let control = self.renderer.renderer_control();
-            let live = control.live.read().unwrap();
+            let live = control.live.read();
             if live.drc_mode == self.applied_drc_mode {
                 return;
             }
@@ -635,7 +635,7 @@ impl Engine {
             let labels: Vec<RChannelLabel> = frame.channel_labels.iter().copied().collect();
             let (room_ratio, room_ratio_rear, room_ratio_lower, room_ratio_center_blend) = {
                 let control = self.renderer.renderer_control();
-                let live = control.live.read().unwrap();
+                let live = control.live.read();
                 (
                     live.room_ratio,
                     live.room_ratio_rear,
@@ -696,7 +696,6 @@ impl Engine {
             .renderer_control()
             .live
             .read()
-            .unwrap()
             .drc_weight
             .clamp(0.0, 1.0);
         self.drc_target_gain = if drc_weight >= 1.0 {

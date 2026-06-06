@@ -372,7 +372,7 @@ fn effective_output_backend(
 fn log_auto_gain_summary(handler: &DecodeHandler) {
     if let Some(ref renderer) = handler.spatial_renderer {
         if renderer.auto_gain_triggered() {
-            let master_gain = renderer.renderer_control().live.read().unwrap().master_gain;
+            let master_gain = renderer.renderer_control().live.read().master_gain;
             log::warn!(
                 "Auto-gain: master gain was lowered to {:.4} ({:.1} dB) to avoid clipping; \
                  save the config to keep it for future playback.",
@@ -682,7 +682,7 @@ fn run_prepared_render(
         let ctrl = renderer.renderer_control();
         ctrl.set_bridge_supported_drc_modes(prepared.supported_drc_modes.clone());
 
-        let initial_mode = ctrl.live.read().unwrap().drc_mode.clone();
+        let initial_mode = ctrl.live.read().drc_mode.clone();
         *live_drc_mode.write().unwrap() = initial_mode.clone();
         prepared
             .cmd_tx

@@ -92,7 +92,7 @@ pub(crate) fn trigger_layout_recompute(
                         rebuild_plan_for_thread.backend_id()
                     );
                     let renderer_state_json = {
-                        let live = control_clone.live.read().unwrap();
+                        let live = control_clone.live.read();
                         let topology = control_clone.active_topology();
                         let scale_m = control_clone.editable_layout().radius_m;
                         build_renderer_state_json(&live, &topology, scale_m)
@@ -102,7 +102,7 @@ pub(crate) fn trigger_layout_recompute(
                         serde_json::to_string(&layout).unwrap_or_else(|_| "{}".to_string())
                     };
                     let speakers_state_json = {
-                        let live = control_clone.live.read().unwrap();
+                        let live = control_clone.live.read();
                         let layout = control_clone.editable_layout();
                         build_speakers_state_json(&live, &layout)
                     };

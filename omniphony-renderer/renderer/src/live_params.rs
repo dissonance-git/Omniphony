@@ -14,10 +14,11 @@
 
 use anyhow::Result;
 use arc_swap::ArcSwap;
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
 
 use crate::backend_registry::{TopologyBuildPlan, prepare_topology_build_plan};
 use crate::render_backend::backend_descriptor_by_id;
@@ -722,7 +723,7 @@ impl RendererControl {
 
     /// Store the active config file path so the save-config OSC handler can use it.
     pub fn set_config_path(&self, path: PathBuf) {
-        *self.config_path.lock().unwrap() = Some(path);
+        *self.config_path.lock() = Some(path);
     }
 
     /// The active config file path, if one was resolved at construction. `None`
@@ -730,25 +731,25 @@ impl RendererControl {
     /// the very condition Studio surfaces in About to diagnose CLI-vs-host
     /// config mismatches.
     pub fn config_path(&self) -> Option<PathBuf> {
-        self.config_path.lock().unwrap().clone()
+        self.config_path.lock().clone()
     }
 
     /// Record whether the active config path actually loaded (see field docs).
     pub fn set_config_status(&self, status: Option<String>) {
-        *self.config_status.lock().unwrap() = status;
+        *self.config_status.lock() = status;
     }
 
     pub fn config_status(&self) -> Option<String> {
-        self.config_status.lock().unwrap().clone()
+        self.config_status.lock().clone()
     }
 
     /// Record the degraded "no decoder" bridge error (see field docs).
     pub fn set_bridge_error(&self, message: Option<String>) {
-        *self.bridge_error.lock().unwrap() = message;
+        *self.bridge_error.lock() = message;
     }
 
     pub fn bridge_error(&self) -> Option<String> {
-        self.bridge_error.lock().unwrap().clone()
+        self.bridge_error.lock().clone()
     }
 
     pub fn active_topology(&self) -> Arc<RenderTopology> {
@@ -760,11 +761,11 @@ impl RendererControl {
     }
 
     pub fn editable_layout(&self) -> SpeakerLayout {
-        self.editable_layout.lock().unwrap().clone()
+        self.editable_layout.lock().clone()
     }
 
     pub fn with_editable_layout<R>(&self, f: impl FnOnce(&mut SpeakerLayout) -> R) -> R {
-        let mut layout = self.editable_layout.lock().unwrap();
+        let mut layout = self.editable_layout.lock();
         f(&mut layout)
     }
 
@@ -773,11 +774,11 @@ impl RendererControl {
     }
 
     pub fn backend_rebuild_params(&self) -> Option<BackendRebuildParams> {
-        *self.backend_rebuild_params.read().unwrap()
+        *self.backend_rebuild_params.read()
     }
 
     pub fn set_backend_rebuild_params(&self, params: Option<BackendRebuildParams>) {
-        *self.backend_rebuild_params.write().unwrap() = params;
+        *self.backend_rebuild_params.write() = params;
     }
 
     pub fn mark_object_params_dirty(&self) {
@@ -832,7 +833,7 @@ impl RendererControl {
         &self,
         layout: SpeakerLayout,
     ) -> Option<TopologyBuildPlan> {
-        let live = self.live.read().unwrap();
+        let live = self.live.read();
         let backend_rebuild_params = self.backend_rebuild_params();
         let evaluation_build_config = evaluation_build_config_from_live(
             &live,
@@ -869,7 +870,7 @@ impl RendererControl {
 
         // Same cartesian grid the full gain table uses.
         let (x_positions, y_positions, z_positions, template) = {
-            let live = self.live.read().unwrap();
+            let live = self.live.read();
             let rebuild_params = self.backend_rebuild_params();
             let config = evaluation_build_config_from_live(
                 &live,
@@ -982,34 +983,34 @@ impl RendererControl {
     }
 
     pub fn set_input_path(&self, input_path: Option<String>) {
-        *self.input_path.lock().unwrap() = input_path;
+        *self.input_path.lock() = input_path;
     }
 
     pub fn input_path(&self) -> Option<String> {
-        self.input_path.lock().unwrap().clone()
+        self.input_path.lock().clone()
     }
 
     pub fn set_bridge_path(&self, bridge_path: Option<PathBuf>) {
-        *self.bridge_path.lock().unwrap() = bridge_path;
+        *self.bridge_path.lock() = bridge_path;
     }
 
     pub fn bridge_path(&self) -> Option<PathBuf> {
-        self.bridge_path.lock().unwrap().clone()
+        self.bridge_path.lock().clone()
     }
 
     pub fn set_bridge_supported_drc_modes(&self, modes: Vec<String>) {
-        *self.bridge_supported_drc_modes.lock().unwrap() = modes;
+        *self.bridge_supported_drc_modes.lock() = modes;
     }
 
     pub fn bridge_supported_drc_modes(&self) -> Vec<String> {
-        self.bridge_supported_drc_modes.lock().unwrap().clone()
+        self.bridge_supported_drc_modes.lock().clone()
     }
 
     pub fn set_requested_ramp_mode(&self, mode: RampMode) {
-        *self.requested_ramp_mode.lock().unwrap() = mode;
+        *self.requested_ramp_mode.lock() = mode;
     }
 
     pub fn requested_ramp_mode(&self) -> RampMode {
-        *self.requested_ramp_mode.lock().unwrap()
+        *self.requested_ramp_mode.lock()
     }
 }

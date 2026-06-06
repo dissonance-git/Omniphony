@@ -1,8 +1,6 @@
 use crate::AdaptiveResamplingConfig;
-use std::sync::{
-    Mutex,
-    atomic::{AtomicBool, Ordering},
-};
+use parking_lot::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct OutputDeviceOption {
@@ -65,20 +63,20 @@ impl AudioControl {
     }
 
     pub fn requested_snapshot(&self) -> RequestedAudioOutputConfig {
-        self.requested.lock().unwrap().clone()
+        self.requested.lock().clone()
     }
 
     pub fn update_requested(&self, f: impl FnOnce(&mut RequestedAudioOutputConfig)) {
-        let mut requested = self.requested.lock().unwrap();
+        let mut requested = self.requested.lock();
         f(&mut requested);
     }
 
     pub fn applied_snapshot(&self) -> AppliedAudioOutputState {
-        self.applied.lock().unwrap().clone()
+        self.applied.lock().clone()
     }
 
     pub fn update_applied(&self, f: impl FnOnce(&mut AppliedAudioOutputState)) {
-        let mut applied = self.applied.lock().unwrap();
+        let mut applied = self.applied.lock();
         f(&mut applied);
     }
 
@@ -343,25 +341,25 @@ impl AudioControl {
     }
 
     pub fn set_available_output_devices(&self, devices: Vec<OutputDeviceOption>) {
-        *self.available_output_devices.lock().unwrap() = devices;
+        *self.available_output_devices.lock() = devices;
     }
 
     pub fn available_output_devices(&self) -> Vec<OutputDeviceOption> {
-        self.available_output_devices.lock().unwrap().clone()
+        self.available_output_devices.lock().clone()
     }
 
     pub fn set_device_list_fetcher(
         &self,
         fetcher: impl Fn() -> Vec<OutputDeviceOption> + Send + Sync + 'static,
     ) {
-        *self.device_list_fetcher.lock().unwrap() = Some(Box::new(fetcher));
+        *self.device_list_fetcher.lock() = Some(Box::new(fetcher));
     }
 
     pub fn refresh_available_output_devices(&self) -> Option<Vec<OutputDeviceOption>> {
-        let fetcher = self.device_list_fetcher.lock().unwrap();
+        let fetcher = self.device_list_fetcher.lock();
         fetcher.as_ref().map(|f| {
             let devices = f();
-            *self.available_output_devices.lock().unwrap() = devices.clone();
+            *self.available_output_devices.lock() = devices.clone();
             devices
         })
     }

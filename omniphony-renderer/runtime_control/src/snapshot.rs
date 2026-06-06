@@ -291,7 +291,7 @@ pub fn build_live_state_bundle(
     has_audio: bool,
     has_input: bool,
 ) -> Vec<OscPacket> {
-    let live = control.live.read().unwrap();
+    let live = control.live.read();
     let active_topology = control.active_topology();
     let editable_layout = control.editable_layout();
     let layout_json = serde_json::to_string(&editable_layout).unwrap_or_else(|_| "{}".to_string());

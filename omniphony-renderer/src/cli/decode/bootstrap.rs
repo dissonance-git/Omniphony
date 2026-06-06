@@ -375,14 +375,14 @@ fn init_osc_runtime(
             .as_ref()
             .and_then(|cfg| cfg.drc_mode.clone())
             .unwrap_or_else(|| "Off".to_string());
-        ctrl.live.write().unwrap().drc_mode = drc_mode;
+        ctrl.live.write().drc_mode = drc_mode;
 
         let drc_weight = render_cfg
             .as_ref()
             .and_then(|cfg| cfg.drc_weight)
             .unwrap_or(1.0)
             .clamp(0.0, 1.0);
-        ctrl.live.write().unwrap().drc_weight = drc_weight;
+        ctrl.live.write().drc_weight = drc_weight;
 
         // Monitoring cadences: seed RendererControl from config (CLI default
         // 50 Hz). Renderer is the source of truth — OSC-adjustable + persisted.
@@ -400,7 +400,7 @@ fn init_osc_runtime(
         );
 
         ctrl.set_requested_ramp_mode(args.ramp_mode.into());
-        ctrl.live.write().unwrap().ramp_mode = args.ramp_mode.into();
+        ctrl.live.write().ramp_mode = args.ramp_mode.into();
 
         let requested_latency_target_ms = {
             #[cfg(target_os = "linux")]

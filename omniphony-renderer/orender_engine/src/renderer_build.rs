@@ -439,7 +439,7 @@ pub fn build_spatial_renderer(
         let control = renderer.renderer_control();
         let mut requires_rebuild = false;
         {
-            let mut live = control.live.write().unwrap();
+            let mut live = control.live.write();
             if let Some(configured_backend) = configured_backend {
                 if live.backend_id() != configured_backend.as_str() {
                     live.backend_id = configured_backend.as_str().to_string();

@@ -408,7 +408,7 @@ pub struct SpatialRenderer {
     frame_counter: std::sync::atomic::AtomicU64,
 
     /// Per-channel state (movement detection + gain ramping)
-    channel_states: std::sync::Mutex<std::collections::HashMap<usize, ChannelState>>,
+    channel_states: parking_lot::Mutex<std::collections::HashMap<usize, ChannelState>>,
 
     /// Sample rate for ramp time calculations
     sample_rate: u32,
@@ -1028,7 +1028,7 @@ impl SpatialRenderer {
             bed_indices: arc_swap::ArcSwap::new(std::sync::Arc::new(Vec::new())),
             first_render: std::sync::atomic::AtomicBool::new(true),
             frame_counter: std::sync::atomic::AtomicU64::new(0),
-            channel_states: std::sync::Mutex::new(std::collections::HashMap::new()),
+            channel_states: parking_lot::Mutex::new(std::collections::HashMap::new()),
             sample_rate,
             distance_model,
             log_object_positions,
@@ -1111,7 +1111,7 @@ impl SpatialRenderer {
         let gain_linear = 10.0_f32.powf(gain_db as f32 / 20.0);
         self.loudness_gain
             .store(gain_linear.to_bits(), std::sync::atomic::Ordering::Relaxed);
-        self.control.live.write().unwrap().dialogue_level = Some(dialogue_level);
+        self.control.live.write().dialogue_level = Some(dialogue_level);
         log::info!(
             "Dialog normalization: dialogue_level={} dBFS → gain={} dB (linear: {:.4})",
             dialogue_level,
@@ -1185,7 +1185,7 @@ impl SpatialRenderer {
     /// stream restart so stale object positions cannot leak into subsequent
     /// rendering.
     pub fn reset_runtime_state(&self) {
-        self.channel_states.lock().unwrap().clear();
+        self.channel_states.lock().clear();
         self.first_render
             .store(true, std::sync::atomic::Ordering::Relaxed);
     }
@@ -1201,7 +1201,7 @@ impl SpatialRenderer {
         strategy: &dyn RampStrategy,
         ctx: &RampContext,
     ) -> Result<()> {
-        let mut channel_states = self.channel_states.lock().unwrap();
+        let mut channel_states = self.channel_states.lock();
 
         for event in events {
             let state = channel_states
@@ -1318,7 +1318,7 @@ impl SpatialRenderer {
         // ── 1. Snapshot live params so we hold the read lock for as short a time as possible ──
         let live_position_interpolation;
         let live = {
-            let g = self.control.live.read().unwrap();
+            let g = self.control.live.read();
             live_position_interpolation = g.evaluation.position_interpolation;
             let object_params_generation = self
                 .control
@@ -1487,7 +1487,7 @@ impl SpatialRenderer {
 
         // Hold channel metadata state lock once for the whole render pass.
         // This avoids lock/unlock churn in the channel loop.
-        let mut channel_states = self.channel_states.lock().unwrap();
+        let mut channel_states = self.channel_states.lock();
 
         // Process each channel
         for input_channel_idx in 0..input_channel_count {
@@ -2067,7 +2067,7 @@ impl SpatialRenderer {
                 // Apply it to the shared master gain. Re-reading under the write
                 // lock preserves any concurrent OSC master change.
                 let new_master_gain = {
-                    let mut params = self.control.live.write().unwrap();
+                    let mut params = self.control.live.write();
                     params.master_gain *= required_gain;
                     params.master_gain
                 };
@@ -2465,7 +2465,6 @@ mod tests {
         control
             .live
             .write()
-            .unwrap()
             .set_evaluation_mode(LiveEvaluationMode::Realtime);
         let plan = control.prepare_topology_rebuild().expect("rebuild plan");
         let reused = plan
@@ -2605,7 +2604,7 @@ mod tests {
 
         let render = |mode: RampMode| -> Vec<f32> {
             let mut r = build();
-            r.control.live.write().unwrap().ramp_mode = mode;
+            r.control.live.write().ramp_mode = mode;
             // First block establishes a position (and seeds Interp's start gains).
             r.render_frame(&pcm, 1, &block_a, Vec::new(), false)
                 .unwrap();

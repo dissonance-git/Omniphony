@@ -302,7 +302,7 @@ pub(crate) fn handle_control_message(
             return;
         }
         realtime_seq.master_gain = Some(seq);
-        control.live.write().unwrap().master_gain = value;
+        control.live.write().master_gain = value;
         control.mark_dirty();
         broadcast_int(socket, clients, "/omniphony/state/config/saved", 0);
         if let Ok(bytes) = rosc::encoder::encode(&rosc::OscPacket::Message(rosc::OscMessage {
@@ -344,14 +344,7 @@ pub(crate) fn handle_control_message(
             return;
         }
         realtime_seq.speaker_gain.insert(idx, seq);
-        control
-            .live
-            .write()
-            .unwrap()
-            .speakers
-            .entry(idx)
-            .or_default()
-            .gain = value;
+        control.live.write().speakers.entry(idx).or_default().gain = value;
         control.mark_speaker_params_dirty();
         control.mark_dirty();
         broadcast_int(socket, clients, "/omniphony/state/config/saved", 0);
@@ -410,14 +403,7 @@ pub(crate) fn handle_control_message(
         };
         let clamped = value.clamp(0.0, 2.0);
         realtime_seq.object_gain.insert(id.clone(), seq);
-        control
-            .live
-            .write()
-            .unwrap()
-            .objects
-            .entry(idx)
-            .or_default()
-            .gain = clamped;
+        control.live.write().objects.entry(idx).or_default().gain = clamped;
         control.mark_object_params_dirty();
         control.mark_dirty();
         broadcast_int(socket, clients, "/omniphony/state/config/saved", 0);

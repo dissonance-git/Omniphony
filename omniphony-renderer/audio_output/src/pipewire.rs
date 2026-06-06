@@ -2,6 +2,7 @@
 
 use anyhow::{Result, anyhow};
 use crossbeam::queue::ArrayQueue;
+use parking_lot::Mutex;
 use pipewire as pw;
 use rubato::{
     Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
@@ -9,7 +10,7 @@ use rubato::{
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::{
-    Arc, Mutex,
+    Arc,
     atomic::{AtomicBool, AtomicI64, AtomicU8, AtomicU32, AtomicU64, Ordering},
 };
 use std::thread;
@@ -952,9 +953,7 @@ impl PipewireWriter {
         // so toggling `use_output_pacing` over OSC starts a clean pre-roll.
         self.set_output_pacing_enabled(config.use_output_pacing);
         self.set_backpressure_disabled(config.disable_backpressure);
-        if let Ok(mut c) = self.live_adaptive_config.lock() {
-            *c = config;
-        }
+        *self.live_adaptive_config.lock() = config;
     }
 
     /// Diagnostic metric handles published by the PipeWire output backend.
@@ -1261,7 +1260,7 @@ fn run_pipewire_loop(
 
     // Snapshot the current config for initialisation (resampler max ratio, thresholds).
     // The live Arc is polled in the callback for any subsequent updates.
-    let adaptive_config_snapshot = adaptive_config.lock().unwrap().clone();
+    let adaptive_config_snapshot = adaptive_config.lock().clone();
 
     // Initialize resampler for true rate conversion and for adaptive 1:1 operation.
     let mut resampler_opt = if use_local_resampler {
@@ -1554,7 +1553,7 @@ fn run_pipewire_loop(
                         (control_available_override as f64).to_bits(),
                         Ordering::Relaxed,
                     );
-                    let current_adaptive_cfg = live_adaptive_config_for_callback.lock().unwrap().clone();
+                    let current_adaptive_cfg = live_adaptive_config_for_callback.lock().clone();
                     // Classical control_available calculation (ring + FIFO +
                     // pending - callback/2). The cumulative-flow override was
                     // tried during the 0.4 Hz investigation but caused
@@ -1758,7 +1757,7 @@ fn run_pipewire_loop(
                             && runtime_state.low_recover_phase == LowRecoverPhase::Inactive
                         {
                             // Refresh config from the live Arc (non-blocking; keep stale on contention).
-                            if let Ok(cfg) = live_adaptive_config_for_callback.try_lock() {
+                            if let Some(cfg) = live_adaptive_config_for_callback.try_lock() {
                                 adaptive_update_interval = cfg.update_interval_callbacks.max(1) as u64;
                             }
                             if should_run_adaptive_servo(
@@ -1836,7 +1835,7 @@ fn run_pipewire_loop(
                         }
 
                         let audio_samples_needed = max_samples;
-                        let far_mode_cfg = live_adaptive_config_for_callback.lock().unwrap().clone();
+                        let far_mode_cfg = live_adaptive_config_for_callback.lock().clone();
                         let low_recover_was_active =
                             runtime_state.low_recover_phase != LowRecoverPhase::Inactive;
                         // State machine on raw: its entry/exit/settle bands are
@@ -2087,7 +2086,7 @@ fn run_pipewire_loop(
                             && runtime_state.low_recover_phase == LowRecoverPhase::Inactive
                         {
                             // Refresh config from live Arc (non-blocking; keep stale on contention).
-                            let native_servo_cfg = live_adaptive_config_for_callback.lock().unwrap().clone();
+                            let native_servo_cfg = live_adaptive_config_for_callback.lock().clone();
                             if adaptive_resampling_enabled {
                                 adaptive_update_interval = native_servo_cfg.update_interval_callbacks.max(1) as u64;
                             }
@@ -2181,7 +2180,7 @@ fn run_pipewire_loop(
                         let frames_to_read = available_frames.min(max_frames);
                         let samples_to_read = frames_to_read * ch;
 
-                        let far_mode_cfg2 = live_adaptive_config_for_callback.lock().unwrap().clone();
+                        let far_mode_cfg2 = live_adaptive_config_for_callback.lock().clone();
                         // State machine on raw — see resampler path.
                         let far_decision: FarModeDecision = update_far_mode_state(
                             &mut runtime_state,
