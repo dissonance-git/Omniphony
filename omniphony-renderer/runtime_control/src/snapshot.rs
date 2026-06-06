@@ -38,6 +38,8 @@ pub struct RenderBackendStateSnapshot {
     pub selection: String,
     pub effective: String,
     pub effective_label: String,
+    /// Every selectable backend (built-in + host-registered), for the UI list.
+    pub available_backends: Vec<renderer::backend_registry::BackendListing>,
     pub capabilities: renderer::render_backend::BackendCapabilities,
     pub allowed_evaluation_modes: Vec<String>,
     pub frozen_room_ratio: bool,
@@ -69,6 +71,7 @@ fn allowed_evaluation_modes(
 pub fn build_render_backend_state_snapshot(
     live: &LiveParams,
     active_topology: &RenderTopology,
+    available_backends: Vec<renderer::backend_registry::BackendListing>,
 ) -> RenderBackendStateSnapshot {
     let backend = &active_topology.backend;
     let capabilities = backend.capabilities();
@@ -76,6 +79,7 @@ pub fn build_render_backend_state_snapshot(
         selection: live.backend_id().to_string(),
         effective: backend.backend_id().to_string(),
         effective_label: backend.backend_label().to_string(),
+        available_backends,
         capabilities,
         allowed_evaluation_modes: allowed_evaluation_modes(backend, capabilities),
         frozen_room_ratio: false,
@@ -105,19 +109,26 @@ pub fn build_render_backend_state_snapshot(
 pub fn build_render_backend_state_json(
     live: &LiveParams,
     active_topology: &RenderTopology,
+    available_backends: Vec<renderer::backend_registry::BackendListing>,
 ) -> String {
-    serde_json::to_string(&build_render_backend_state_snapshot(live, active_topology))
-        .unwrap_or_else(|_| "{}".to_string())
+    serde_json::to_string(&build_render_backend_state_snapshot(
+        live,
+        active_topology,
+        available_backends,
+    ))
+    .unwrap_or_else(|_| "{}".to_string())
 }
 
 pub fn build_renderer_state_json(
     live: &LiveParams,
     active_topology: &RenderTopology,
     room_scale_m: f32,
+    available_backends: Vec<renderer::backend_registry::BackendListing>,
 ) -> String {
     let effective_backend = active_topology.backend.kind().as_str();
     let effective_evaluation_mode = active_topology.backend.evaluation_mode().as_str();
-    let render_backend_state_json = build_render_backend_state_json(live, active_topology);
+    let render_backend_state_json =
+        build_render_backend_state_json(live, active_topology, available_backends);
     json!({
         "renderBackend": live.backend_id(),
         "renderBackendEffective": effective_backend,
@@ -300,8 +311,12 @@ pub fn build_live_state_bundle(
         (true, Some(dl)) => 10.0_f32.powf((-31 - dl as i32) as f32 / 20.0),
         _ => 1.0,
     };
-    let renderer_state_json =
-        build_renderer_state_json(&live, &active_topology, editable_layout.radius_m);
+    let renderer_state_json = build_renderer_state_json(
+        &live,
+        &active_topology,
+        editable_layout.radius_m,
+        control.available_backends(),
+    );
 
     let mut messages = vec![
         OscPacket::Message(OscMessage {

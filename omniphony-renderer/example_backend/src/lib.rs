@@ -164,6 +164,10 @@ impl BackendFactory for ExampleFactory {
         "example"
     }
 
+    fn label(&self) -> &'static str {
+        "Example (cosine panner)"
+    }
+
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
         // Capture the spatializable speaker directions now (build thread), so the
         // model builder closure owns everything it needs and the hot path does no

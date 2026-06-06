@@ -715,6 +715,12 @@ impl RendererControl {
         self.backend_registry.read().get(id).is_some()
     }
 
+    /// Id + label of every registered backend, for the host to publish so the UI
+    /// can list the selectable backends (built-in and contributor-registered).
+    pub fn available_backends(&self) -> Vec<crate::backend_registry::BackendListing> {
+        self.backend_registry.read().available()
+    }
+
     /// Shared meter-cadence atomic (Hz bits) for `AudioMeter::new_with_rate_atomic`.
     pub fn meter_rate_atomic(&self) -> Arc<std::sync::atomic::AtomicU32> {
         Arc::clone(&self.meter_rate_hz_bits)
