@@ -186,6 +186,9 @@ impl HybridBuildPlan {
 #[derive(Clone)]
 pub struct ExperimentalDistanceBuildPlan {
     pub speaker_positions: Vec<[f32; 3]>,
+    /// Tuning params, baked into the model at build (no longer per-request).
+    /// Sourced from the live params; changing them triggers a rebuild.
+    pub params: crate::live_params::ExperimentalDistanceLiveParams,
 }
 
 #[derive(Clone)]
@@ -244,7 +247,10 @@ impl VbapTopologyBuildPlan {
 impl ExperimentalDistanceBuildPlan {
     pub fn build_gain_model(&self) -> Result<Box<dyn GainModel>> {
         Ok(Box::new(
-            crate::render_backend::ExperimentalDistanceBackend::new(self.speaker_positions.clone()),
+            crate::render_backend::ExperimentalDistanceBackend::new(
+                self.speaker_positions.clone(),
+                self.params,
+            ),
         ))
     }
 }
@@ -529,6 +535,7 @@ fn build_inner_backend_plan(
         "experimental_distance" => Some(BackendBuildPlan::ExperimentalDistance(
             ExperimentalDistanceBuildPlan {
                 speaker_positions: collect_spatializable_positions(layout),
+                params: live.experimental_distance,
             },
         )),
         "vbap" => {
@@ -711,6 +718,7 @@ impl BackendFactory for ExperimentalDistanceFactory {
         Some(BackendBuildPlan::ExperimentalDistance(
             ExperimentalDistanceBuildPlan {
                 speaker_positions: collect_spatializable_positions(ctx.layout),
+                params: ctx.live.experimental_distance,
             },
         ))
     }
@@ -825,12 +833,6 @@ mod tests {
                 distance_diffuse_threshold: 1.0,
                 distance_diffuse_curve: 1.0,
                 distance_model: DistanceModel::default(),
-                experimental_distance_distance_floor: 0.0,
-                experimental_distance_min_active_speakers: 1,
-                experimental_distance_max_active_speakers: 1,
-                experimental_distance_position_error_floor: 0.0,
-                experimental_distance_position_error_nearest_scale: 0.0,
-                experimental_distance_position_error_span_scale: 0.0,
             },
             position_interpolation: false,
             cartesian: CartesianEvaluationConfig {

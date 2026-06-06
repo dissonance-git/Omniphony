@@ -7,6 +7,9 @@ use crate::speaker_layout::SpeakerLayout;
 
 pub struct ExperimentalDistanceBackend {
     speaker_positions: Vec<[f32; 3]>,
+    /// Tuning params, baked at construction. They only change via a topology
+    /// rebuild, so they are not per-request inputs.
+    params: crate::live_params::ExperimentalDistanceLiveParams,
 }
 
 #[derive(Clone, Copy)]
@@ -17,8 +20,14 @@ struct ExperimentalSpeakerCandidate {
 }
 
 impl ExperimentalDistanceBackend {
-    pub fn new(speaker_positions: Vec<[f32; 3]>) -> Self {
-        Self { speaker_positions }
+    pub fn new(
+        speaker_positions: Vec<[f32; 3]>,
+        params: crate::live_params::ExperimentalDistanceLiveParams,
+    ) -> Self {
+        Self {
+            speaker_positions,
+            params,
+        }
     }
 
     pub fn speaker_count(&self) -> usize {
@@ -67,8 +76,9 @@ impl ExperimentalDistanceBackend {
         }
 
         candidates.sort_unstable_by(|a, b| a.distance.total_cmp(&b.distance));
-        let active_count = select_experimental_active_count(target, &candidates, req);
-        let energy = write_experimental_subset_gains(&mut gains, &candidates[..active_count], req);
+        let active_count = select_experimental_active_count(target, &candidates, &self.params);
+        let energy =
+            write_experimental_subset_gains(&mut gains, &candidates[..active_count], &self.params);
         if energy > 1e-12 {
             let norm = energy.sqrt();
             for gain in gains.iter_mut() {
@@ -148,15 +158,12 @@ fn experimental_distance_weight(distance: f32) -> f32 {
 fn write_experimental_subset_gains(
     gains: &mut Gains,
     candidates: &[ExperimentalSpeakerCandidate],
-    req: &RenderRequest,
+    params: &crate::live_params::ExperimentalDistanceLiveParams,
 ) -> f32 {
     let mut energy = 0.0f32;
     for candidate in candidates {
-        let weight = experimental_distance_weight(
-            candidate
-                .distance
-                .max(req.experimental_distance_distance_floor.max(0.0)),
-        );
+        let weight =
+            experimental_distance_weight(candidate.distance.max(params.distance_floor.max(0.0)));
         gains.set(candidate.index, weight);
         energy += weight * weight;
     }
@@ -166,18 +173,14 @@ fn write_experimental_subset_gains(
 fn select_experimental_active_count(
     target: [f32; 3],
     candidates: &[ExperimentalSpeakerCandidate],
-    req: &RenderRequest,
+    params: &crate::live_params::ExperimentalDistanceLiveParams,
 ) -> usize {
     if candidates.is_empty() {
         return 0;
     }
 
-    let min_active = candidates
-        .len()
-        .min(req.experimental_distance_min_active_speakers.max(1));
-    let max_active = candidates
-        .len()
-        .min(req.experimental_distance_max_active_speakers.max(1));
+    let min_active = candidates.len().min(params.min_active_speakers.max(1));
+    let max_active = candidates.len().min(params.max_active_speakers.max(1));
     let nearest_distance = candidates[0].distance;
     let mut best_count = 1usize;
     let mut best_error = f32::MAX;
@@ -193,15 +196,10 @@ fn select_experimental_active_count(
 
         if count >= min_active {
             let span = candidate_subset_span(subset);
-            let threshold = req
-                .experimental_distance_position_error_floor
-                .max(
-                    nearest_distance
-                        * req
-                            .experimental_distance_position_error_nearest_scale
-                            .max(0.0),
-                )
-                .max(span * req.experimental_distance_position_error_span_scale.max(0.0));
+            let threshold = params
+                .position_error_floor
+                .max(nearest_distance * params.position_error_nearest_scale.max(0.0))
+                .max(span * params.position_error_span_scale.max(0.0));
             if error <= threshold {
                 return count;
             }

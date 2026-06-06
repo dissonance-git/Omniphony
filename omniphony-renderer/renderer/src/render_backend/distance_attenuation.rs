@@ -100,12 +100,6 @@ mod tests {
             distance_diffuse_threshold: 1.0,
             distance_diffuse_curve: 1.0,
             distance_model,
-            experimental_distance_distance_floor: 0.0,
-            experimental_distance_min_active_speakers: 1,
-            experimental_distance_max_active_speakers: 2,
-            experimental_distance_position_error_floor: 0.0,
-            experimental_distance_position_error_nearest_scale: 0.0,
-            experimental_distance_position_error_span_scale: 0.0,
         }
     }
 

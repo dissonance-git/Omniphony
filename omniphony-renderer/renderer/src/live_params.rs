@@ -448,22 +448,6 @@ fn evaluation_build_config_from_live(
             distance_diffuse_threshold: live.distance_diffuse_threshold,
             distance_diffuse_curve: live.distance_diffuse_curve,
             distance_model: live.distance_model,
-            experimental_distance_distance_floor: live.experimental_distance.distance_floor,
-            experimental_distance_min_active_speakers: live
-                .experimental_distance
-                .min_active_speakers,
-            experimental_distance_max_active_speakers: live
-                .experimental_distance
-                .max_active_speakers,
-            experimental_distance_position_error_floor: live
-                .experimental_distance
-                .position_error_floor,
-            experimental_distance_position_error_nearest_scale: live
-                .experimental_distance
-                .position_error_nearest_scale,
-            experimental_distance_position_error_span_scale: live
-                .experimental_distance
-                .position_error_span_scale,
         },
         position_interpolation: live.evaluation.position_interpolation,
         cartesian: crate::render_backend::CartesianEvaluationConfig {
