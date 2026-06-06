@@ -549,6 +549,18 @@ pub struct BackendBuildCtx<'a> {
     pub layout: &'a SpeakerLayout,
     pub live: &'a LiveParams,
     pub backend_rebuild_params: Option<BackendRebuildParams>,
+    /// Host-set values for *this* backend's declared params, keyed by
+    /// [`ParamSpec::key`](crate::backend_params::ParamSpec::key). Missing keys
+    /// mean "use the backend's default". Read here at build time, then captured
+    /// into the model — never read on the audio hot path.
+    pub params: &'a std::collections::HashMap<String, crate::backend_params::ParamValue>,
+}
+
+impl BackendBuildCtx<'_> {
+    /// The host-set value for `key`, or `None` to fall back to the backend default.
+    pub fn param(&self, key: &str) -> Option<&crate::backend_params::ParamValue> {
+        self.params.get(key)
+    }
 }
 
 /// A render backend's registration entry: a stable id plus how to build its gain
@@ -564,6 +576,12 @@ pub trait BackendFactory: Send + Sync {
     fn label(&self) -> &'static str {
         self.id()
     }
+    /// Tunable parameters this backend exposes, as data. The host stores values
+    /// generically and the UI renders controls from this; the backend reads the
+    /// values via [`BackendBuildCtx::param`] when building. Defaults to none.
+    fn param_schema(&self) -> Vec<crate::backend_params::ParamSpec> {
+        Vec::new()
+    }
     /// Build this backend's plan, or `None` if it cannot be prepared for the
     /// given context (e.g. VBAP without geometry rebuild params).
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan>;
@@ -572,10 +590,13 @@ pub trait BackendFactory: Send + Sync {
 /// A registered backend's UI-facing identity, reported by
 /// [`BackendRegistry::available`] so a host can list the selectable backends
 /// (built-in and contributor-registered alike) without a hard-coded table.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct BackendListing {
     pub id: &'static str,
     pub label: &'static str,
+    /// This backend's declared tunable parameters, so the UI can render controls
+    /// for it when selected.
+    pub params: Vec<crate::backend_params::ParamSpec>,
 }
 
 /// Ordered set of backend factories keyed by id. Use [`BackendRegistry::builtin`]
@@ -632,6 +653,7 @@ impl BackendRegistry {
             .map(|f| BackendListing {
                 id: f.id(),
                 label: f.label(),
+                params: f.param_schema(),
             })
             .collect()
     }
@@ -727,6 +749,7 @@ pub fn prepare_topology_build_plan(
     layout: SpeakerLayout,
     live: &LiveParams,
     backend_rebuild_params: Option<BackendRebuildParams>,
+    backend_params: &std::collections::HashMap<String, crate::backend_params::ParamValue>,
     evaluation_build_config: crate::render_backend::EvaluationBuildConfig,
 ) -> Option<TopologyBuildPlan> {
     // Dispatch through the registry instead of a hard-coded `match` on the id, so
@@ -736,6 +759,7 @@ pub fn prepare_topology_build_plan(
         layout: &layout,
         live,
         backend_rebuild_params,
+        params: backend_params,
     };
     let backend_build = factory.build_plan(&ctx)?;
     let preferred = preferred_evaluation_mode(backend_rebuild_params);
