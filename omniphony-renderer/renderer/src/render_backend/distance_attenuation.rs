@@ -100,7 +100,6 @@ mod tests {
             distance_diffuse_threshold: 1.0,
             distance_diffuse_curve: 1.0,
             distance_model,
-            barycenter_localize: 0.0,
             experimental_distance_distance_floor: 0.0,
             experimental_distance_min_active_speakers: 1,
             experimental_distance_max_active_speakers: 2,
@@ -121,7 +120,7 @@ mod tests {
 
     fn wrapped() -> DistanceAttenuatedModel {
         DistanceAttenuatedModel::new(
-            Box::new(BarycenterBackend::new(speakers())),
+            Box::new(BarycenterBackend::new(speakers(), 0.0)),
             DistanceMetric::Spherical,
         )
     }
@@ -132,7 +131,7 @@ mod tests {
         let decorated = wrapped()
             .compute_gains(&request(position, DistanceModel::None))
             .gains;
-        let bare = BarycenterBackend::new(speakers())
+        let bare = BarycenterBackend::new(speakers(), 0.0)
             .compute_gains(&request(position, DistanceModel::None))
             .gains;
         for (a, b) in decorated.iter().zip(bare.iter()) {
@@ -164,7 +163,7 @@ mod tests {
         // attenuation, confirming the metric is honoured.
         let position = [0.6, 0.5, 0.0];
         let chebyshev = DistanceAttenuatedModel::new(
-            Box::new(BarycenterBackend::new(speakers())),
+            Box::new(BarycenterBackend::new(speakers(), 0.0)),
             DistanceMetric::Chebyshev,
         );
         let gains = chebyshev

@@ -319,7 +319,6 @@ mod tests {
             distance_diffuse_threshold: 1.0,
             distance_diffuse_curve: 1.0,
             distance_model: crate::spatial_vbap::DistanceModel::None,
-            barycenter_localize: 0.0,
             experimental_distance_distance_floor: 0.0,
             experimental_distance_min_active_speakers: 1,
             experimental_distance_max_active_speakers: 2,
@@ -341,7 +340,7 @@ mod tests {
     fn hybrid(curve: BlendCurve) -> HybridBackend {
         HybridBackend::new(
             Box::new(ExperimentalDistanceBackend::new(speakers())),
-            Box::new(BarycenterBackend::new(speakers())),
+            Box::new(BarycenterBackend::new(speakers(), 0.0)),
             curve,
             crate::spatial_vbap::DistanceMetric::Chebyshev,
         )
@@ -390,7 +389,7 @@ mod tests {
         let blended = hybrid(BlendCurve::new(vec![[0.0, 0.0], [1.0, 0.0]], 0.0))
             .compute_gains(&request(position))
             .gains;
-        let internal = BarycenterBackend::new(speakers())
+        let internal = BarycenterBackend::new(speakers(), 0.0)
             .compute_gains(&request(position))
             .gains;
         for (a, b) in blended.iter().zip(internal.iter()) {
@@ -425,7 +424,7 @@ mod tests {
             .expect("vbap panner")
             .with_negative_z(true);
         let external: Box<dyn GainModel> = Box::new(VbapBackend::new(panner));
-        let internal: Box<dyn GainModel> = Box::new(BarycenterBackend::new(speakers()));
+        let internal: Box<dyn GainModel> = Box::new(BarycenterBackend::new(speakers(), 0.0));
         let model: Box<dyn GainModel> = Box::new(HybridBackend::new(
             external,
             internal,

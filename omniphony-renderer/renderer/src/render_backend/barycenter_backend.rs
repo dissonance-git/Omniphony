@@ -7,6 +7,9 @@ use crate::speaker_layout::SpeakerLayout;
 
 pub struct BarycenterBackend {
     speaker_positions: Vec<[f32; 3]>,
+    /// Localisation bias toward nearer speakers, baked at construction. It only
+    /// changes via a topology rebuild, so it is not a per-request input.
+    localize: f32,
 }
 
 const MAX_PROJECTED_GRADIENT_ITERS: usize = 48;
@@ -14,8 +17,11 @@ const RESIDUAL_TOLERANCE_SQ: f32 = 1e-8;
 const WEIGHT_TOLERANCE: f32 = 1e-6;
 
 impl BarycenterBackend {
-    pub fn new(speaker_positions: Vec<[f32; 3]>) -> Self {
-        Self { speaker_positions }
+    pub fn new(speaker_positions: Vec<[f32; 3]>, localize: f32) -> Self {
+        Self {
+            speaker_positions,
+            localize: localize.max(0.0),
+        }
     }
 
     pub fn speaker_count(&self) -> usize {
@@ -68,7 +74,7 @@ impl BarycenterBackend {
         weights[..speaker_count].fill(uniform_weight);
 
         let step_size = projected_gradient_step_size(&transformed_speakers, speaker_count);
-        let localize = req.barycenter_localize.max(0.0);
+        let localize = self.localize;
         for _ in 0..MAX_PROJECTED_GRADIENT_ITERS {
             let rendered = weighted_position(&transformed_speakers, &weights, speaker_count);
             let residual = subtract(rendered, target);
@@ -289,7 +295,6 @@ mod tests {
             distance_diffuse_threshold: 1.0,
             distance_diffuse_curve: 1.0,
             distance_model: crate::spatial_vbap::DistanceModel::None,
-            barycenter_localize: 0.0,
             experimental_distance_distance_floor: 0.0,
             experimental_distance_min_active_speakers: 1,
             experimental_distance_max_active_speakers: 1,
@@ -301,12 +306,15 @@ mod tests {
 
     #[test]
     fn barycenter_backend_normalizes_energy() {
-        let backend = BarycenterBackend::new(vec![
-            [-1.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-        ]);
+        let backend = BarycenterBackend::new(
+            vec![
+                [-1.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            0.0,
+        );
 
         let gains = backend.compute_gains(&request([0.2, 0.4, 0.1])).gains;
         let energy: f32 = gains.iter().map(|gain| gain * gain).sum();
@@ -315,12 +323,15 @@ mod tests {
 
     #[test]
     fn barycenter_backend_reconstructs_interior_target() {
-        let backend = BarycenterBackend::new(vec![
-            [0.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-        ]);
+        let backend = BarycenterBackend::new(
+            vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            0.0,
+        );
 
         let target = [0.2, 0.3, 0.1];
         let gains = backend.compute_gains(&request(target)).gains;
@@ -340,8 +351,10 @@ mod tests {
 
     #[test]
     fn barycenter_backend_hits_exact_speaker() {
-        let backend =
-            BarycenterBackend::new(vec![[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+        let backend = BarycenterBackend::new(
+            vec![[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            0.0,
+        );
 
         let gains = backend.compute_gains(&request([1.0, 0.0, 0.0])).gains;
         assert!(gains[1] > 0.999);
@@ -351,17 +364,20 @@ mod tests {
 
     #[test]
     fn barycenter_backend_localize_biases_toward_near_speakers() {
-        let backend = BarycenterBackend::new(vec![
+        let positions = vec![
             [-1.0, 0.0, 0.0],
             [1.0, 0.0, 0.0],
             [0.0, 1.0, 0.0],
             [0.0, -1.0, 0.0],
-        ]);
+        ];
+        // `localize` is now baked at construction, so compare two backends.
+        let base_backend = BarycenterBackend::new(positions.clone(), 0.0);
+        let localized_backend = BarycenterBackend::new(positions, 2.0);
 
-        let base = backend.compute_gains(&request([0.2, 0.0, 0.0])).gains;
-        let mut localized_req = request([0.2, 0.0, 0.0]);
-        localized_req.barycenter_localize = 2.0;
-        let localized = backend.compute_gains(&localized_req).gains;
+        let base = base_backend.compute_gains(&request([0.2, 0.0, 0.0])).gains;
+        let localized = localized_backend
+            .compute_gains(&request([0.2, 0.0, 0.0]))
+            .gains;
 
         assert!(
             localized[1] > base[1],
