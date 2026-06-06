@@ -145,7 +145,8 @@ pub struct OrenderConfig {
 const VERSION_MAJOR: u32 = 0;
 // 2: added orender_overlay_ass / orender_overlay_set_enabled (in-process overlay).
 // 3: added orender_overlay_heatmap_bgra (BGRA energy-field bitmap for overlay-add).
-const VERSION_MINOR: u32 = 3;
+// 4: added overlay toggles (labels/objects/trails/heatmap) + heatmap band/colormap cycling.
+const VERSION_MINOR: u32 = 4;
 
 unsafe fn opt_str<'a>(p: *const c_char) -> Option<&'a str> {
     if p.is_null() {
@@ -491,6 +492,81 @@ pub extern "C" fn orender_overlay_set_enabled(enabled: c_int) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         orender_engine::overlay::set_enabled(enabled != 0);
     }));
+}
+
+// ── overlay toggles (host keybinds) ──────────────────────────────────────────
+//
+// Each flips the matching control inside the renderer and returns the *new*
+// state (1 = on, 0 = off; the heatmap band/colormap variants return the new
+// numeric value). Returning the result lets the mpv shim show it in the OSD
+// without keeping a mirror that could drift from Studio's OSC pushes. On a panic
+// the catch returns a safe default (0).
+
+/// Flip the master enable and return the new state (1 = on, 0 = off).
+#[no_mangle]
+pub extern "C" fn orender_overlay_toggle() -> c_int {
+    catch_unwind(AssertUnwindSafe(|| {
+        orender_engine::overlay::toggle_enabled() as c_int
+    }))
+    .unwrap_or(0)
+}
+
+/// Flip object-label visibility and return the new state (1 = on, 0 = off).
+#[no_mangle]
+pub extern "C" fn orender_overlay_toggle_labels() -> c_int {
+    catch_unwind(AssertUnwindSafe(|| {
+        orender_engine::overlay::toggle_labels() as c_int
+    }))
+    .unwrap_or(0)
+}
+
+/// Flip object visibility (markers + labels + trails + depth lines) and return
+/// the new state (1 = on, 0 = off).
+#[no_mangle]
+pub extern "C" fn orender_overlay_toggle_objects() -> c_int {
+    catch_unwind(AssertUnwindSafe(|| {
+        orender_engine::overlay::toggle_objects() as c_int
+    }))
+    .unwrap_or(0)
+}
+
+/// Flip whether motion trails are drawn and return the new state (1 = on,
+/// 0 = off). Clears the trail buffers when disabling.
+#[no_mangle]
+pub extern "C" fn orender_overlay_toggle_trails() -> c_int {
+    catch_unwind(AssertUnwindSafe(|| {
+        orender_engine::overlay::toggle_trails() as c_int
+    }))
+    .unwrap_or(0)
+}
+
+/// Flip the object energy heatmap and return the new state (1 = on, 0 = off).
+#[no_mangle]
+pub extern "C" fn orender_overlay_toggle_heatmap() -> c_int {
+    catch_unwind(AssertUnwindSafe(|| {
+        orender_engine::overlay::toggle_heatmap() as c_int
+    }))
+    .unwrap_or(0)
+}
+
+/// Advance the heatmap colour gradient to the next index (wraps 0..=4) and return
+/// the new index.
+#[no_mangle]
+pub extern "C" fn orender_overlay_cycle_heatmap_colormap() -> u32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        orender_engine::overlay::cycle_heatmap_colormap() as u32
+    }))
+    .unwrap_or(0)
+}
+
+/// Step the heatmap depth-plane count by `delta` (clamped to 1..=12) and return
+/// the new count.
+#[no_mangle]
+pub extern "C" fn orender_overlay_adjust_heatmap_bands(delta: i32) -> u32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        orender_engine::overlay::adjust_heatmap_bands(delta) as u32
+    }))
+    .unwrap_or(0)
 }
 
 /// Render the object energy heatmap as a single flattened BGRA bitmap

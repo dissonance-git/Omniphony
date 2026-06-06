@@ -160,6 +160,45 @@ uintptr_t orender_overlay_ass(uint32_t res_x, uint32_t res_y, uint8_t *out, uint
 void orender_overlay_set_enabled(int enabled);
 
 /**
+ * Flip the master enable and return the new state (1 = on, 0 = off).
+ */
+int orender_overlay_toggle(void);
+
+/**
+ * Flip object-label visibility and return the new state (1 = on, 0 = off).
+ */
+int orender_overlay_toggle_labels(void);
+
+/**
+ * Flip object visibility (markers + labels + trails + depth lines) and return
+ * the new state (1 = on, 0 = off).
+ */
+int orender_overlay_toggle_objects(void);
+
+/**
+ * Flip whether motion trails are drawn and return the new state (1 = on,
+ * 0 = off). Clears the trail buffers when disabling.
+ */
+int orender_overlay_toggle_trails(void);
+
+/**
+ * Flip the object energy heatmap and return the new state (1 = on, 0 = off).
+ */
+int orender_overlay_toggle_heatmap(void);
+
+/**
+ * Advance the heatmap colour gradient to the next index (wraps 0..=4) and return
+ * the new index.
+ */
+uint32_t orender_overlay_cycle_heatmap_colormap(void);
+
+/**
+ * Step the heatmap depth-plane count by `delta` (clamped to 1..=12) and return
+ * the new count.
+ */
+uint32_t orender_overlay_adjust_heatmap_bands(int32_t delta);
+
+/**
  * Render the object energy heatmap as a single flattened BGRA bitmap
  * (premultiplied alpha) for mpv's `overlay-add`, drawn *under* the ASS overlay.
  *
