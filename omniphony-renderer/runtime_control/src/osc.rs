@@ -666,16 +666,20 @@ pub fn apply_simple_osc_control(
     // source of truth for both, persisted to config.
 
     if addr == "/omniphony/control/render_backend" {
-        let requested = parse_string_arg(msg.args.first())
-            .and_then(|value| RenderBackendKind::from_str(&value));
-        if let Some(requested) = requested {
+        // Accept enum names/aliases (e.g. "distance") and any registered backend
+        // id (e.g. a contributor's "example"), so the dropdown can offer them all.
+        let requested_id = parse_string_arg(msg.args.first()).and_then(|value| {
+            RenderBackendKind::from_str(&value)
+                .map(|kind| kind.as_str().to_string())
+                .or_else(|| ctx.renderer.has_backend(&value).then_some(value))
+        });
+        if let Some(requested_id) = requested_id {
             let mut live = ctx.renderer.live.write();
-            if live.backend_id() != requested.as_str() {
-                live.backend_id = requested.as_str().to_string();
+            if live.backend_id() != requested_id {
+                live.backend_id = requested_id.clone();
                 effects.mark_dirty = true;
                 effects.trigger_layout_recompute = true;
-                effects.log_message =
-                    Some(format!("OSC: render_backend -> {}", requested.as_str()));
+                effects.log_message = Some(format!("OSC: render_backend -> {requested_id}"));
             }
         }
         return Some(effects);
@@ -686,6 +690,30 @@ pub fn apply_simple_osc_control(
             "OSC: render_backend/restore is no longer supported after removing from_file"
                 .to_string(),
         );
+        return Some(effects);
+    }
+
+    // Generic backend parameter set: `[string key, <scalar value>]`, applied to
+    // the currently selected backend. Values are stored generically (no typed
+    // field per backend) and read at the next topology rebuild via the schema.
+    if addr == "/omniphony/control/backend/param" {
+        let key = parse_string_arg(msg.args.first());
+        let value = msg.args.get(1).and_then(|arg| match arg {
+            OscType::Float(f) => Some(renderer::backend_params::ParamValue::Float(*f)),
+            OscType::Double(d) => Some(renderer::backend_params::ParamValue::Float(*d as f32)),
+            OscType::Int(i) => Some(renderer::backend_params::ParamValue::Int(*i as i64)),
+            OscType::Long(i) => Some(renderer::backend_params::ParamValue::Int(*i)),
+            OscType::Bool(b) => Some(renderer::backend_params::ParamValue::Bool(*b)),
+            OscType::String(s) => Some(renderer::backend_params::ParamValue::Text(s.clone())),
+            _ => None,
+        });
+        if let (Some(key), Some(value)) = (key, value) {
+            let backend_id = ctx.renderer.live.read().backend_id().to_string();
+            ctx.renderer.set_backend_param(&backend_id, &key, value);
+            effects.mark_dirty = true;
+            effects.trigger_layout_recompute = true;
+            effects.log_message = Some(format!("OSC: backend param {backend_id}.{key} updated"));
+        }
         return Some(effects);
     }
 
