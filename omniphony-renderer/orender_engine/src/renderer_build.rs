@@ -447,6 +447,18 @@ pub fn build_spatial_renderer(
                 .or_else(|| control.has_backend(raw).then(|| raw.to_string()))
         });
         let mut requires_rebuild = false;
+        // Replay persisted generic backend param values; they are read at the
+        // rebuild below via each backend's schema.
+        if let Some(cfg) = render_cfg {
+            for (backend_id, params) in &cfg.backend_params {
+                for (key, value) in params {
+                    control.set_backend_param(backend_id, key, value.clone());
+                }
+            }
+            if !cfg.backend_params.is_empty() {
+                requires_rebuild = true;
+            }
+        }
         {
             let mut live = control.live.write();
             if let Some(configured_backend) = &configured_backend {

@@ -66,6 +66,14 @@ pub struct RenderConfig {
     pub vbap_distance_max: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub render_backend: Option<String>,
+    /// Generic per-backend parameter values (see [`crate::backend_params`]),
+    /// keyed by backend id then param key. Lets a contributor backend's params
+    /// round-trip through config without a typed field here.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub backend_params: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, crate::backend_params::ParamValue>,
+    >,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub render_evaluation_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -551,6 +559,46 @@ render:
         assert!(
             out.contains("cli_specific_thing: 42"),
             "unknown field erased on save:\n{out}"
+        );
+    }
+
+    #[test]
+    fn backend_params_round_trip() {
+        use crate::backend_params::ParamValue;
+
+        let yaml = "\
+render:
+  render_backend: example
+  backend_params:
+    example:
+      sharpness: 3.5
+";
+        let cfg: Config = serde_yaml_ng::from_str(yaml).expect("parse");
+        let render = cfg.render.as_ref().unwrap();
+        assert_eq!(
+            render.backend_params["example"]["sharpness"],
+            ParamValue::Float(3.5)
+        );
+
+        // Round-trips back out.
+        let out = serde_yaml_ng::to_string(&cfg).expect("serialize");
+        let reparsed: Config = serde_yaml_ng::from_str(&out).expect("reparse");
+        assert_eq!(
+            reparsed.render.unwrap().backend_params["example"]["sharpness"],
+            ParamValue::Float(3.5)
+        );
+    }
+
+    #[test]
+    fn empty_backend_params_are_not_serialised() {
+        let cfg = Config {
+            render: Some(RenderConfig::default()),
+            ..Default::default()
+        };
+        let out = serde_yaml_ng::to_string(&cfg).expect("serialize");
+        assert!(
+            !out.contains("backend_params"),
+            "empty map should be skipped:\n{out}"
         );
     }
 }

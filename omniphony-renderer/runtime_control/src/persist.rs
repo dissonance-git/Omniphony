@@ -81,6 +81,8 @@ pub fn save_live_config(
         "vbap" => None,
         other => Some(other.to_string()),
     };
+    // Generic per-backend param values, persisted verbatim (empty map is skipped).
+    render.backend_params = control.all_backend_params();
     render.render_evaluation_mode = match live.requested_evaluation_mode() {
         LiveEvaluationMode::Auto => None,
         other => Some(other.as_str().to_string()),
