@@ -738,6 +738,14 @@ impl RendererControl {
             .unwrap_or_default()
     }
 
+    /// A clone of the entire backend-param store (`backend_id -> key -> value`),
+    /// for the host to persist to config.
+    pub fn all_backend_params(
+        &self,
+    ) -> HashMap<String, HashMap<String, crate::backend_params::ParamValue>> {
+        self.backend_params.read().clone()
+    }
+
     /// Shared meter-cadence atomic (Hz bits) for `AudioMeter::new_with_rate_atomic`.
     pub fn meter_rate_atomic(&self) -> Arc<std::sync::atomic::AtomicU32> {
         Arc::clone(&self.meter_rate_hz_bits)
