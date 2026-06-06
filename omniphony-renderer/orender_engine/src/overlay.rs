@@ -346,6 +346,96 @@ pub fn set_trail_config(enabled: bool, ttl_ms: u32, diffuse: bool, teleport_thre
     save_prefs();
 }
 
+// ── toggles (host keybinds: flip current state, return the new one) ──────────
+//
+// These exist so the mpv shim can bind a key to "flip" a control and show the
+// resulting state in the OSD, without keeping its own mirror that could drift
+// from Studio's OSC pushes. Each flips the *current* value atomically and
+// returns the new one; persistence mirrors the matching `set_*` (enable / labels
+// / trails persist; objects / heatmap / bands / colormap are transient, owned by
+// Studio and re-pushed on connect).
+
+/// Flip the master enable and return the new state. Persisted.
+pub fn toggle_enabled() -> bool {
+    let o = overlay();
+    let new = !o.enabled.load(Ordering::Relaxed);
+    o.enabled.store(new, Ordering::Relaxed);
+    save_prefs();
+    new
+}
+
+/// Flip object-label visibility and return the new state. Persisted.
+pub fn toggle_labels() -> bool {
+    let new = {
+        let Ok(mut s) = overlay().state.lock() else {
+            return false;
+        };
+        s.labels_enabled = !s.labels_enabled;
+        s.labels_enabled
+    };
+    save_prefs();
+    new
+}
+
+/// Flip object visibility (markers + labels + trails + depth lines) and return
+/// the new state. Transient (display-only), like [`set_objects_visible`].
+pub fn toggle_objects() -> bool {
+    let Ok(mut s) = overlay().state.lock() else {
+        return false;
+    };
+    s.objects_visible = !s.objects_visible;
+    s.objects_visible
+}
+
+/// Flip whether the trails are drawn and return the new state. Clears the trail
+/// buffers when disabling (so they don't reappear on re-enable). Persisted, like
+/// [`set_trail_config`].
+pub fn toggle_trails() -> bool {
+    let new = {
+        let Ok(mut s) = overlay().state.lock() else {
+            return false;
+        };
+        s.cfg.enabled = !s.cfg.enabled;
+        if !s.cfg.enabled {
+            s.trails.clear();
+        }
+        s.cfg.enabled
+    };
+    save_prefs();
+    new
+}
+
+/// Flip the energy heatmap and return the new state. Transient, like
+/// [`set_heatmap_enabled`].
+pub fn toggle_heatmap() -> bool {
+    let Ok(mut s) = overlay().state.lock() else {
+        return false;
+    };
+    s.heatmap_enabled = !s.heatmap_enabled;
+    s.heatmap_enabled
+}
+
+/// Advance the heatmap colour gradient to the next index (wraps 0..=4, mirroring
+/// `OBJECT_ENERGY_COLORMAPS`) and return the new index. Transient.
+pub fn cycle_heatmap_colormap() -> usize {
+    let Ok(mut s) = overlay().state.lock() else {
+        return 0;
+    };
+    s.heatmap_colormap = (s.heatmap_colormap + 1) % 5;
+    s.heatmap_colormap as usize
+}
+
+/// Step the heatmap depth-plane count by `delta` (clamped to 1..=12) and return
+/// the new count. Transient, like [`set_heatmap_bands`].
+pub fn adjust_heatmap_bands(delta: i32) -> usize {
+    let Ok(mut s) = overlay().state.lock() else {
+        return FIELD_BANDS;
+    };
+    let next = (s.heatmap_bands as i32 + delta).clamp(1, 12) as usize;
+    s.heatmap_bands = next;
+    next
+}
+
 // ── persistence (orender-owned, real-time, separate from the savable config) ─
 
 /// Point the overlay at its prefs file and load it. Called once by the host at
@@ -1257,6 +1347,47 @@ mod tests {
     fn zero_resolution_returns_empty() {
         let _g = guard();
         assert!(build_ass(0, 0).is_empty());
+    }
+
+    #[test]
+    fn toggles_flip_and_return_new_state() {
+        let _g = guard();
+        // guard() leaves enable/labels/objects/heatmap on; each toggle flips and
+        // reports the resulting value.
+        assert!(!toggle_enabled());
+        assert!(toggle_enabled());
+        assert!(!toggle_labels());
+        assert!(toggle_labels());
+        assert!(!toggle_objects());
+        assert!(toggle_objects());
+        assert!(!toggle_heatmap());
+        assert!(toggle_heatmap());
+    }
+
+    #[test]
+    fn toggle_trails_clears_buffers_when_disabling() {
+        let _g = guard();
+        // Build up a trail, then disable: the buffer must be dropped so it can't
+        // reappear on re-enable.
+        update_positions(vec![(0, 0.0, 0.0, 0.5, String::new())]);
+        let now = now_secs();
+        trail_append(&mut overlay().state.lock().unwrap(), 0, 0.0, 0.0, 0.5, now);
+        assert!(!overlay().state.lock().unwrap().trails.is_empty());
+        assert!(!toggle_trails(), "trails start enabled (default) → off");
+        assert!(overlay().state.lock().unwrap().trails.is_empty());
+        assert!(toggle_trails(), "back on");
+    }
+
+    #[test]
+    fn heatmap_bands_clamp_and_colormap_wraps() {
+        let _g = guard();
+        set_heatmap_bands(3);
+        assert_eq!(adjust_heatmap_bands(2), 5);
+        assert_eq!(adjust_heatmap_bands(-10), 1, "clamps at 1");
+        assert_eq!(adjust_heatmap_bands(100), 12, "clamps at 12");
+        set_heatmap_colormap(3);
+        assert_eq!(cycle_heatmap_colormap(), 4);
+        assert_eq!(cycle_heatmap_colormap(), 0, "wraps 4 → 0");
     }
 
     // The energy heatmap is now a separate BGRA bitmap (drawn under the ASS via
