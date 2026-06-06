@@ -661,6 +661,11 @@ pub struct RendererControl {
     /// Behind a lock because registration happens after construction (the control
     /// is already shared); only read off the audio hot path (topology rebuild).
     backend_registry: RwLock<BackendRegistry>,
+
+    /// Host-set backend parameter values, keyed by `backend_id` then param key
+    /// (see [`crate::backend_params`]). Generic so a backend's params need no
+    /// typed field here. Read at topology-build time, never on the audio hot path.
+    backend_params: RwLock<HashMap<String, HashMap<String, crate::backend_params::ParamValue>>>,
 }
 
 impl RendererControl {
@@ -699,6 +704,7 @@ impl RendererControl {
             meter_rate_hz_bits: Arc::new(std::sync::atomic::AtomicU32::new(50.0_f32.to_bits())),
             diag_rate_hz_bits: Arc::new(std::sync::atomic::AtomicU32::new(50.0_f32.to_bits())),
             backend_registry: RwLock::new(BackendRegistry::builtin()),
+            backend_params: RwLock::new(HashMap::new()),
         })
     }
 
@@ -719,6 +725,34 @@ impl RendererControl {
     /// can list the selectable backends (built-in and contributor-registered).
     pub fn available_backends(&self) -> Vec<crate::backend_registry::BackendListing> {
         self.backend_registry.read().available()
+    }
+
+    /// Set one backend parameter value (host/OSC). Stored generically and applied
+    /// at the next topology rebuild.
+    pub fn set_backend_param(
+        &self,
+        backend_id: &str,
+        key: &str,
+        value: crate::backend_params::ParamValue,
+    ) {
+        self.backend_params
+            .write()
+            .entry(backend_id.to_string())
+            .or_default()
+            .insert(key.to_string(), value);
+    }
+
+    /// A clone of the stored param values for `backend_id` (empty if none set),
+    /// for the host to publish alongside the backend's schema.
+    pub fn backend_params_for(
+        &self,
+        backend_id: &str,
+    ) -> HashMap<String, crate::backend_params::ParamValue> {
+        self.backend_params
+            .read()
+            .get(backend_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Shared meter-cadence atomic (Hz bits) for `AudioMeter::new_with_rate_atomic`.
@@ -868,11 +902,15 @@ impl RendererControl {
         );
         let geometry_generation = self.geometry_generation();
         let registry = self.backend_registry.read();
+        let params_guard = self.backend_params.read();
+        let empty_params = HashMap::new();
+        let backend_params = params_guard.get(live.backend_id()).unwrap_or(&empty_params);
         prepare_topology_build_plan(
             &registry,
             layout,
             &live,
             backend_rebuild_params,
+            backend_params,
             evaluation_build_config,
         )
         .map(|mut plan| {

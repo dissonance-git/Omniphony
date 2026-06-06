@@ -34,6 +34,7 @@
 //!
 //! [`kind`]: GainModel::kind
 
+use renderer::backend_params::{ParamSpec, ParamValue};
 use renderer::backend_registry::{
     BackendBuildCtx, BackendBuildPlan, BackendFactory, DynamicBackendPlan,
 };
@@ -43,9 +44,8 @@ use renderer::render_backend::{
 use renderer::spatial_vbap::{Gains, spherical_to_adm};
 use renderer::speaker_layout::SpeakerLayout;
 
-/// Sharpness of the cosine lobe: higher = tighter localisation on the nearest
-/// speakers, lower = more spread. Purely a taste knob for this example.
-const SHARPNESS: f32 = 2.0;
+/// Default sharpness of the cosine lobe when the host has not set the param.
+const DEFAULT_SHARPNESS: f32 = 2.0;
 
 /// A cosine-panning gain model over a fixed set of speaker directions.
 pub struct ExampleBackend {
@@ -54,15 +54,20 @@ pub struct ExampleBackend {
     /// had no usable direction (e.g. one placed at the origin); it never wins
     /// any gain.
     speaker_dirs: Vec<[f32; 3]>,
+    /// Cosine-lobe exponent: higher = tighter localisation, lower = more spread.
+    sharpness: f32,
 }
 
 impl ExampleBackend {
     /// Build the backend from speaker positions in scene space. Positions are
     /// normalised to unit directions here, on the build thread — the expensive
     /// work stays out of `compute_gains`.
-    pub fn new(speaker_positions: &[[f32; 3]]) -> Self {
+    pub fn new(speaker_positions: &[[f32; 3]], sharpness: f32) -> Self {
         let speaker_dirs = speaker_positions.iter().map(|p| normalize(*p)).collect();
-        Self { speaker_dirs }
+        Self {
+            speaker_dirs,
+            sharpness,
+        }
     }
 }
 
@@ -120,7 +125,7 @@ impl GainModel for ExampleBackend {
         let mut sum_sq = 0.0f32;
         for (i, sd) in self.speaker_dirs.iter().enumerate() {
             let dot = dir[0] * sd[0] + dir[1] * sd[1] + dir[2] * sd[2];
-            let w = dot.max(0.0).powf(SHARPNESS);
+            let w = dot.max(0.0).powf(self.sharpness);
             gains[i] = w;
             sum_sq += w * w;
         }
@@ -168,6 +173,19 @@ impl BackendFactory for ExampleFactory {
         "Example (cosine panner)"
     }
 
+    fn param_schema(&self) -> Vec<ParamSpec> {
+        // One tunable, declared as data: the UI renders a slider and the host
+        // stores the value generically — no typed field anywhere in the renderer.
+        vec![ParamSpec::float(
+            "sharpness",
+            "Sharpness",
+            0.5,
+            8.0,
+            0.1,
+            DEFAULT_SHARPNESS,
+        )]
+    }
+
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
         // Capture the spatializable speaker directions now (build thread), so the
         // model builder closure owns everything it needs and the hot path does no
@@ -181,9 +199,16 @@ impl BackendFactory for ExampleFactory {
             })
             .collect();
 
+        // Read the host-set sharpness (falling back to the default), resolved at
+        // build time and captured into the model.
+        let sharpness = ctx
+            .param("sharpness")
+            .and_then(ParamValue::as_f32)
+            .unwrap_or(DEFAULT_SHARPNESS);
+
         Some(BackendBuildPlan::Dynamic(DynamicBackendPlan::new(
             "example",
-            move || Ok(Box::new(ExampleBackend::new(&speaker_positions))),
+            move || Ok(Box::new(ExampleBackend::new(&speaker_positions, sharpness))),
         )))
     }
 }
@@ -236,12 +261,15 @@ mod tests {
 
     /// A square of four speakers in the horizontal plane.
     fn quad() -> ExampleBackend {
-        ExampleBackend::new(&[
-            [1.0, 1.0, 0.0],
-            [-1.0, 1.0, 0.0],
-            [-1.0, -1.0, 0.0],
-            [1.0, -1.0, 0.0],
-        ])
+        ExampleBackend::new(
+            &[
+                [1.0, 1.0, 0.0],
+                [-1.0, 1.0, 0.0],
+                [-1.0, -1.0, 0.0],
+                [1.0, -1.0, 0.0],
+            ],
+            DEFAULT_SHARPNESS,
+        )
     }
 
     fn energy(gains: &[f32]) -> f32 {
@@ -277,6 +305,19 @@ mod tests {
         // Equal power: every speaker gets the same gain.
         let first = gains[0];
         assert!(gains.iter().all(|g| (g - first).abs() < 1e-6));
+    }
+
+    #[test]
+    fn declares_a_sharpness_param() {
+        let schema = ExampleFactory.param_schema();
+        let sharpness = schema
+            .iter()
+            .find(|p| p.key == "sharpness")
+            .expect("sharpness param declared");
+        assert!(matches!(
+            sharpness.kind,
+            renderer::backend_params::ParamKind::Float { .. }
+        ));
     }
 
     #[test]
