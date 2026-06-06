@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
-use crate::backend_registry::{TopologyBuildPlan, prepare_topology_build_plan};
+use crate::backend_registry::{BackendRegistry, TopologyBuildPlan, prepare_topology_build_plan};
 use crate::render_backend::backend_descriptor_by_id;
 use crate::render_backend::{
     EvaluationBuildConfig, GainModelKind, PreparedRenderEngine, RenderBackendKind, RenderRequest,
@@ -654,6 +654,11 @@ pub struct RendererControl {
     /// OSC diag-publication cadence in Hz (`f32::to_bits`). Read lock-free by
     /// the diag publisher; OSC-adjustable and persisted to config.
     pub diag_rate_hz_bits: Arc<std::sync::atomic::AtomicU32>,
+
+    /// Available render backends, queried by `prepare_topology_rebuild_for_layout`
+    /// to build the active backend by id. Defaults to the built-ins; a host can
+    /// inject extra backends via [`RendererControl::new_with_registry`].
+    backend_registry: Arc<BackendRegistry>,
 }
 
 impl RendererControl {
@@ -668,6 +673,24 @@ impl RendererControl {
         initial_topology: RenderTopology,
         editable_layout: SpeakerLayout,
         backend_rebuild_params: Option<BackendRebuildParams>,
+    ) -> Arc<Self> {
+        Self::new_with_registry(
+            live,
+            initial_topology,
+            editable_layout,
+            backend_rebuild_params,
+            Arc::new(BackendRegistry::builtin()),
+        )
+    }
+
+    /// Like [`new`](Self::new) but with a host-provided backend registry, so a
+    /// host can register additional render backends before the control is shared.
+    pub fn new_with_registry(
+        live: LiveParams,
+        initial_topology: RenderTopology,
+        editable_layout: SpeakerLayout,
+        backend_rebuild_params: Option<BackendRebuildParams>,
+        backend_registry: Arc<BackendRegistry>,
     ) -> Arc<Self> {
         Arc::new(Self {
             live: RwLock::new(live),
@@ -691,7 +714,13 @@ impl RendererControl {
             // Seeded from config (or a host default) after construction.
             meter_rate_hz_bits: Arc::new(std::sync::atomic::AtomicU32::new(50.0_f32.to_bits())),
             diag_rate_hz_bits: Arc::new(std::sync::atomic::AtomicU32::new(50.0_f32.to_bits())),
+            backend_registry,
         })
+    }
+
+    /// The render backends available to this control.
+    pub fn backend_registry(&self) -> &BackendRegistry {
+        &self.backend_registry
     }
 
     /// Shared meter-cadence atomic (Hz bits) for `AudioMeter::new_with_rate_atomic`.
@@ -841,6 +870,7 @@ impl RendererControl {
         );
         let geometry_generation = self.geometry_generation();
         prepare_topology_build_plan(
+            &self.backend_registry,
             layout,
             &live,
             backend_rebuild_params,

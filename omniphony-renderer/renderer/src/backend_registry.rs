@@ -648,6 +648,7 @@ impl BackendFactory for HybridFactory {
 }
 
 pub fn prepare_topology_build_plan(
+    registry: &BackendRegistry,
     layout: SpeakerLayout,
     live: &LiveParams,
     backend_rebuild_params: Option<BackendRebuildParams>,
@@ -655,7 +656,6 @@ pub fn prepare_topology_build_plan(
 ) -> Option<TopologyBuildPlan> {
     // Dispatch through the registry instead of a hard-coded `match` on the id, so
     // a backend's construction lives with the backend rather than here.
-    let registry = BackendRegistry::builtin();
     let factory = registry.get(live.backend_id())?;
     let ctx = BackendBuildCtx {
         layout: &layout,
