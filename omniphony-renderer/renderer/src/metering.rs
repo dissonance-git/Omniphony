@@ -17,6 +17,11 @@ pub struct MeterSnapshot {
     pub object_levels: Vec<(u32, f32, f32)>,
     /// (peak_dbfs, rms_dbfs) — one per output speaker
     pub speaker_levels: Vec<(f32, f32)>,
+    /// Master output level (peak_dbfs, rms_dbfs), aggregated from the
+    /// post-master-gain speaker accumulators: peak = max over speakers, rms =
+    /// combined RMS across all speakers over the send interval.
+    pub master_peak: f32,
+    pub master_rms: f32,
 }
 
 pub struct AudioMeter {
@@ -150,6 +155,23 @@ impl AudioMeter {
             })
             .collect();
 
+        // Master = aggregate of the post-master-gain speaker accumulators.
+        // Peak is the loudest speaker sample; RMS is the combined energy across
+        // all speakers over the interval. Free: no extra per-sample work.
+        let master_peak = linear_to_dbfs(
+            self.spk_peak[..self.num_speakers]
+                .iter()
+                .copied()
+                .fold(0.0f32, f32::max),
+        );
+        let master_rms = if self.num_speakers == 0 {
+            DBFS_FLOOR
+        } else {
+            let energy: f64 = self.spk_rms_sq[..self.num_speakers].iter().sum();
+            let total = (self.num_speakers as f64) * (spk_count as f64);
+            linear_to_dbfs((energy / total).sqrt() as f32)
+        };
+
         // Reset accumulators
         for v in &mut self.obj_peak {
             *v = 0.0;
@@ -170,6 +192,42 @@ impl AudioMeter {
         Some(MeterSnapshot {
             object_levels,
             speaker_levels,
+            master_peak,
+            master_rms,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn master_peak_is_loudest_speaker_and_survives_over_0_dbfs() {
+        // 1 kHz send rate → ~1 ms interval, so a short sleep lets poll() fire.
+        let mut m = AudioMeter::new(2, 1000.0);
+        // 2 speakers, 2 frames. spk0 hits 1.3 linear (> 1.0 → over 0 dBFS).
+        let interleaved = [1.3f32, 0.5, 0.2, 0.5];
+        m.process_speakers(&interleaved, 2);
+
+        std::thread::sleep(Duration::from_millis(3));
+        let snap = m.poll().expect("send interval should have elapsed");
+
+        // Master peak == loudest speaker peak, and the over-0 dBFS value is kept.
+        let expected = 20.0 * 1.3f32.log10();
+        assert!(
+            (snap.master_peak - expected).abs() < 1e-3,
+            "master_peak = {} (expected ≈ {})",
+            snap.master_peak,
+            expected
+        );
+        assert!(snap.master_peak > 0.0, "over-0 dBFS peak flattened");
+
+        let spk_max = snap
+            .speaker_levels
+            .iter()
+            .map(|&(p, _)| p)
+            .fold(f32::MIN, f32::max);
+        assert!((snap.master_peak - spk_max).abs() < 1e-6);
     }
 }

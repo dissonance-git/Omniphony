@@ -71,12 +71,12 @@ use crate::live_params::{
     PolarEvaluationParams, RampMode, RenderTopology, RendererControl,
 };
 use crate::ramp_strategy::{
-    ChannelRampState, GainTableRampStrategy, PositionRampStrategy, RampContext, RampProgress,
-    RampRenderParams, RampStrategy, RampTarget,
+    ChannelRampState, PositionRampStrategy, RampContext, RampProgress, RampRenderParams,
+    RampStrategy, RampTarget,
 };
 use crate::render_backend::RenderRequest;
 use crate::render_backend::{
-    CartesianEvaluationConfig, EffectiveEvaluationMode, EvaluationBuildConfig,
+    CartesianEvaluationConfig, EffectiveEvaluationMode, EvaluationBuildConfig, MultiBandTable,
     PolarEvaluationConfig, PreparedRenderEngine, RenderBackendKind, VbapBackend,
     build_prepared_render_engine,
 };
@@ -193,6 +193,11 @@ struct ChannelState {
     gain_db: i8,
 
     ramp: ChannelRampState,
+
+    /// `RampMode::Interp` only: this channel's destination band gains from the
+    /// previous block, reused as the start of the next block's interpolation.
+    /// Empty until the first block for this channel.
+    interp_prev_gains: Vec<Gains>,
 }
 
 impl Default for ChannelState {
@@ -200,6 +205,7 @@ impl Default for ChannelState {
         Self {
             gain_db: -128, // -inf dB (muted)
             ramp: ChannelRampState::default(),
+            interp_prev_gains: Vec::new(),
         }
     }
 }
@@ -215,10 +221,17 @@ struct BandRenderer {
     speaker_indices: Vec<usize>,
     /// Full speaker count — size of the returned `Gains`.
     num_speakers: usize,
-    /// Prepared engine built with the same backend and evaluation mode as the
-    /// active renderer topology, but restricted to this band's speaker subset.
-    /// `None` when the band has fewer than 3 speakers (uniform fallback).
-    engine: Option<Arc<PreparedRenderEngine>>,
+    /// Band-restricted render topology (its `backend` is the prepared engine).
+    /// Stored (rather than just the engine) so a geometry-unchanged refresh can
+    /// reuse its gain model via `build_topology_reusing`. Always `Some` for a band
+    /// with ≥1 speaker — 1–2 speakers use the degenerate-VBAP `FewSpeakerBackend`,
+    /// ≥3 the full panner. `None` only for an empty (coverage-gap) band, which
+    /// renders silence.
+    topology: Option<Arc<RenderTopology>>,
+    /// `true` when this band covers every speaker in identity order
+    /// (`speaker_indices == 0..num_speakers`) — the no-crossover case. Then the
+    /// band-local gains are already full-size and the scatter is skipped.
+    is_identity: bool,
 }
 
 impl BandRenderer {
@@ -227,9 +240,40 @@ impl BandRenderer {
         layout: &crate::speaker_layout::SpeakerLayout,
         num_speakers: usize,
         control: &Arc<RendererControl>,
+        prev: Option<&BandRenderer>,
     ) -> Result<Self> {
         let speaker_indices = band.speaker_indices.clone();
-        let engine = if speaker_indices.len() >= 3 {
+        // Log which speakers fall into this crossover band and its frequency range.
+        // A speaker is in band [lo, hi) when its usable range overlaps it, so the
+        // sub band [0, lo) holds every *full-range* spatializable speaker (those
+        // without a `freq_low` cutoff); band-limited speakers join higher bands.
+        // (LFE / non-spatializable speakers are excluded from every band.)
+        let band_high = if band.high_hz.is_finite() {
+            format!("{:.0}", band.high_hz)
+        } else {
+            "inf".to_string()
+        };
+        let band_speaker_names: Vec<&str> = speaker_indices
+            .iter()
+            .map(|&idx| layout.speakers[idx].name.as_str())
+            .collect();
+        if speaker_indices.is_empty() {
+            log::warn!(
+                "Crossover band [{:.0}, {}) Hz has no speakers — a coverage gap, content in \
+                 this range is dropped",
+                band.low_hz,
+                band_high,
+            );
+        } else {
+            log::info!(
+                "Crossover band [{:.0}, {}) Hz: {} speakers {:?}",
+                band.low_hz,
+                band_high,
+                speaker_indices.len(),
+                band_speaker_names,
+            );
+        }
+        let topology = if !speaker_indices.is_empty() {
             let band_layout = crate::speaker_layout::SpeakerLayout {
                 radius_m: layout.radius_m,
                 speakers: speaker_indices
@@ -237,20 +281,34 @@ impl BandRenderer {
                     .map(|&idx| layout.speakers[idx].clone())
                     .collect(),
             };
-            let topology = control
+            let plan = control
                 .prepare_topology_rebuild_for_layout(band_layout)
-                .ok_or_else(|| anyhow::anyhow!("failed to prepare band topology rebuild"))?
-                .build_topology()?;
-            Some(Arc::clone(&topology.backend))
+                .ok_or_else(|| anyhow::anyhow!("failed to prepare band topology rebuild"))?;
+            // Reuse the previous band's geometry when it covers the same speakers
+            // and the geometry generation is unchanged: `build_topology_reusing`
+            // then re-wraps the model (no re-triangulation).
+            let prev_topology = prev
+                .filter(|p| p.speaker_indices == speaker_indices)
+                .and_then(|p| p.topology.as_deref());
+            Some(Arc::new(plan.build_topology_reusing(prev_topology)?))
         } else {
             None
         };
 
+        let is_identity = speaker_indices.len() == num_speakers
+            && speaker_indices.iter().enumerate().all(|(i, &idx)| i == idx);
+
         Ok(Self {
             speaker_indices,
             num_speakers,
-            engine,
+            topology,
+            is_identity,
         })
+    }
+
+    /// The prepared engine for this band, when it has one (≥3 speakers).
+    fn engine(&self) -> Option<&Arc<PreparedRenderEngine>> {
+        self.topology.as_ref().map(|t| &t.backend)
     }
 
     /// Compute VBAP gains for this band at `position`.
@@ -265,19 +323,17 @@ impl BandRenderer {
     ) -> crate::spatial_vbap::Gains {
         let req = render_params.render_request_for_event(position, event_size);
         let n = self.speaker_indices.len();
-        let band_gains = match &self.engine {
+        let band_gains = match self.engine() {
             Some(engine) => engine.compute_gains(&req).gains,
-            None => {
-                let mut g = crate::spatial_vbap::Gains::zeroed(n);
-                if n > 0 {
-                    let v = 1.0 / (n as f32).sqrt();
-                    for i in 0..n {
-                        g.set(i, v);
-                    }
-                }
-                g
-            }
+            // Only an empty (coverage-gap) band has no engine; it renders silence.
+            // Bands with 1–2 speakers carry a `FewSpeakerBackend` engine.
+            None => crate::spatial_vbap::Gains::zeroed(n),
         };
+        // No crossover: band gains are already full-size and in speaker order, so
+        // return them directly instead of zeroing + scattering into a fresh Gains.
+        if self.is_identity {
+            return band_gains;
+        }
         // Scatter band-local gains into a full-size vector.
         let mut full = crate::spatial_vbap::Gains::zeroed(self.num_speakers);
         for (gi, &g) in band_gains.iter().enumerate() {
@@ -317,7 +373,6 @@ struct LiveSnapshot<'a> {
     spread_distance_range: f32,
     spread_distance_curve: f32,
     size_to_spread_mode: crate::render_backend::SizeToSpreadMode,
-    position_interpolation: bool,
     ramp_mode: RampMode,
     use_loudness: bool,
     auto_gain: bool,
@@ -413,6 +468,10 @@ pub struct SpatialRenderer {
     render_bands_topology_identity: usize,
 
     /// Crossover filter bank for splitting objects into frequency bands.
+    /// Unified multi-band cartesian table: when crossover is active and all
+    /// bands use a cartesian evaluator, the per-band tables are merged so a
+    /// lookup localises the cell once for every band. `None` → per-band path.
+    unified_table: Option<MultiBandTable>,
     /// `None` when `render_bands` has exactly 1 entry (no crossover active).
     crossover_filter_bank: Option<LR4CrossoverBank>,
 
@@ -421,6 +480,16 @@ pub struct SpatialRenderer {
 
     /// Reusable per-band scratch used only when collecting crossover timing.
     crossover_band_scratch: [Vec<f32>; 8],
+
+    /// Reusable per-object band-gain buffer. Taken via `mem::take` at the start
+    /// of each object's render and put back afterwards, so the per-object VBAP
+    /// gain vector is allocated once and reused across objects and frames
+    /// instead of a fresh `Vec` per object per frame.
+    band_gains_scratch: Vec<Gains>,
+
+    /// `RampMode::Interp` only: pooled destination band gains for the object
+    /// currently being rendered (one entry per render band). Reused each object.
+    interp_end_scratch: Vec<Gains>,
 }
 
 impl SpatialRenderer {
@@ -495,16 +564,9 @@ impl SpatialRenderer {
             .0;
         let num_vbap_speakers = spatializable_positions.len();
 
-        let vbap = VbapPanner::new_with_mode(
-            &spatializable_positions,
-            az_res_deg,
-            el_res_deg,
-            0.0,
-            table_mode,
-        )
-        .map_err(|e| anyhow::anyhow!("Failed to create VBAP panner: {}", e))?
-        .with_negative_z(allow_negative_z)
-        .with_position_interpolation(vbap_position_interpolation);
+        let vbap = VbapPanner::new(&spatializable_positions, az_res_deg, el_res_deg, 0.0)
+            .map_err(|e| anyhow::anyhow!("Failed to create VBAP panner: {}", e))?
+            .with_negative_z(allow_negative_z);
         let distance_step = if spread_resolution > 0.0 {
             spread_resolution
         } else {
@@ -634,11 +696,6 @@ impl SpatialRenderer {
                     el_res_deg,
                     spread_resolution,
                     distance_max,
-                    table_mode,
-                    cartesian_default_x_size,
-                    cartesian_default_y_size,
-                    cartesian_default_z_size,
-                    cartesian_default_z_neg_size,
                     distance_model,
                     allow_negative_z,
                 }),
@@ -822,9 +879,16 @@ impl SpatialRenderer {
         layout: &crate::speaker_layout::SpeakerLayout,
         num_speakers: usize,
         sample_rate: u32,
+        prev_bands: &[BandRenderer],
     ) -> Result<(Vec<BandRenderer>, Option<LR4CrossoverBank>)> {
-        let make_renderer =
-            |b: &FreqBand| BandRenderer::from_band(b, layout, num_speakers, control);
+        // For each new band, reuse the matching previous band (same speaker subset)
+        // so an evaluation-only refresh can keep its triangulated gain model.
+        let make_renderer = |b: &FreqBand| {
+            let prev = prev_bands
+                .iter()
+                .find(|p| p.speaker_indices == b.speaker_indices);
+            BandRenderer::from_band(b, layout, num_speakers, control, prev)
+        };
 
         let bands = compute_bands(layout);
         if bands.len() <= 1 {
@@ -856,6 +920,84 @@ impl SpatialRenderer {
         Ok((render_bands, Some(filter_bank)))
     }
 
+    /// Merge the per-band cartesian tables into a single multi-band table so a
+    /// lookup localises the cell once for all bands. Returns `None` (→ per-band
+    /// path) unless there are several bands all backed by a cartesian evaluator.
+    fn build_unified_table(
+        render_bands: &[BandRenderer],
+        num_speakers: usize,
+    ) -> Option<MultiBandTable> {
+        if render_bands.len() <= 1 {
+            return None;
+        }
+        // Every band shares the active evaluation mode, so they are all cartesian
+        // or all polar. Try cartesian first; if any band has no cartesian view,
+        // fall through to the polar path. A band without an engine (< 3 speakers)
+        // has no precomputed table → no unified table (per-band path).
+        let mut cartesian = Vec::with_capacity(render_bands.len());
+        let mut all_cartesian = true;
+        for band in render_bands {
+            let engine = band.engine()?;
+            match engine.cartesian_parts() {
+                Some(parts) => cartesian.push((parts, band.speaker_indices.as_slice())),
+                None => {
+                    all_cartesian = false;
+                    break;
+                }
+            }
+        }
+        if all_cartesian {
+            let table = MultiBandTable::build_cartesian(&cartesian, num_speakers);
+            if table.is_some() {
+                log::info!(
+                    "Crossover: unified cartesian table built for {} bands",
+                    render_bands.len()
+                );
+            }
+            return table;
+        }
+        drop(cartesian);
+
+        let mut polar = Vec::with_capacity(render_bands.len());
+        for band in render_bands {
+            let engine = band.engine()?;
+            polar.push((engine.polar_parts()?, band.speaker_indices.as_slice()));
+        }
+        let table = MultiBandTable::build_polar(&polar, num_speakers);
+        if table.is_some() {
+            log::info!(
+                "Crossover: unified polar table built for {} bands",
+                render_bands.len()
+            );
+        }
+        table
+    }
+
+    /// Fill `out` with one full-size `Gains` per render band at `position`. Uses
+    /// the unified multi-band table (one cell localisation for all bands) when
+    /// available, else falls back to a per-band lookup. Free-standing (borrows
+    /// only the two fields it needs) so it composes with the other per-channel
+    /// mutable borrows held across the render arms.
+    fn fill_band_gains(
+        unified: &Option<MultiBandTable>,
+        render_bands: &[BandRenderer],
+        render_params: crate::ramp_strategy::RampRenderParams,
+        position: [f64; 3],
+        size: [f32; 3],
+        out: &mut Vec<Gains>,
+    ) {
+        out.clear();
+        if let Some(table) = unified {
+            table.sample_into(position.map(|v| v as f32), out);
+        } else {
+            out.extend(
+                render_bands
+                    .iter()
+                    .map(|b| b.compute_gains(render_params, position, size)),
+            );
+        }
+    }
+
     /// Assemble the `SpatialRenderer` struct from fully resolved components.
     ///
     /// Called by both `new` and `from_vbap` after each constructor has built its
@@ -876,7 +1018,9 @@ impl SpatialRenderer {
             &active_topology.speaker_layout,
             num_speakers,
             sample_rate,
+            &[],
         )?;
+        let unified_table = Self::build_unified_table(&render_bands, num_speakers);
 
         Ok(Self {
             num_speakers,
@@ -908,10 +1052,13 @@ impl SpatialRenderer {
             },
             ramp_strategy_override: None,
             render_bands,
+            unified_table,
             render_bands_topology_identity: topology_identity,
             crossover_filter_bank,
             crossover_filter_states: Vec::new(),
             crossover_band_scratch: std::array::from_fn(|_| Vec::new()),
+            band_gains_scratch: Vec::new(),
+            interp_end_scratch: Vec::new(),
         })
     }
 
@@ -924,12 +1071,17 @@ impl SpatialRenderer {
             return Ok(());
         }
 
+        // Pass the current bands so an evaluation-only recompute (unchanged geometry
+        // generation) reuses each band's triangulated gain model and rebuilds only
+        // the evaluation wrapper, instead of re-triangulating every band.
         let (render_bands, crossover_filter_bank) = Self::build_crossover(
             &self.control,
             active_layout,
             self.num_speakers,
             self.sample_rate,
+            &self.render_bands,
         )?;
+        self.unified_table = Self::build_unified_table(&render_bands, self.num_speakers);
         self.render_bands = render_bands;
         self.crossover_filter_bank = crossover_filter_bank;
         self.crossover_filter_states.clear();
@@ -993,49 +1145,40 @@ impl SpatialRenderer {
         self.reset_runtime_state();
     }
 
-    fn ramp_context<'a>(
-        &self,
-        topology_identity: usize,
-        topology: &'a RenderTopology,
-        live: &LiveSnapshot<'_>,
-    ) -> RampContext<'a> {
-        RampContext::new(
-            topology.backend.as_ref(),
-            topology_identity,
-            RampRenderParams {
-                spread_min: live.spread_min,
-                spread_max: live.spread_max,
-                spread_from_distance: live.spread_from_distance,
-                spread_distance_range: live.spread_distance_range,
-                spread_distance_curve: live.spread_distance_curve,
-                size_to_spread_mode: live.size_to_spread_mode,
-                room_ratio: live.room_ratio,
-                room_ratio_rear: live.room_ratio_rear,
-                room_ratio_lower: live.room_ratio_lower,
-                room_ratio_center_blend: live.room_ratio_center_blend,
-                use_distance_diffuse: live.use_distance_diffuse,
-                distance_diffuse_threshold: live.distance_diffuse_threshold,
-                distance_diffuse_curve: live.distance_diffuse_curve,
-                distance_model: self.distance_model,
-                barycenter_localize: live.barycenter.localize,
-                experimental_distance_distance_floor: live.experimental_distance.distance_floor,
-                experimental_distance_min_active_speakers: live
-                    .experimental_distance
-                    .min_active_speakers,
-                experimental_distance_max_active_speakers: live
-                    .experimental_distance
-                    .max_active_speakers,
-                experimental_distance_position_error_floor: live
-                    .experimental_distance
-                    .position_error_floor,
-                experimental_distance_position_error_nearest_scale: live
-                    .experimental_distance
-                    .position_error_nearest_scale,
-                experimental_distance_position_error_span_scale: live
-                    .experimental_distance
-                    .position_error_span_scale,
-            },
-        )
+    fn ramp_context(&self, live: &LiveSnapshot<'_>) -> RampContext {
+        RampContext::new(RampRenderParams {
+            spread_min: live.spread_min,
+            spread_max: live.spread_max,
+            spread_from_distance: live.spread_from_distance,
+            spread_distance_range: live.spread_distance_range,
+            spread_distance_curve: live.spread_distance_curve,
+            size_to_spread_mode: live.size_to_spread_mode,
+            room_ratio: live.room_ratio,
+            room_ratio_rear: live.room_ratio_rear,
+            room_ratio_lower: live.room_ratio_lower,
+            room_ratio_center_blend: live.room_ratio_center_blend,
+            use_distance_diffuse: live.use_distance_diffuse,
+            distance_diffuse_threshold: live.distance_diffuse_threshold,
+            distance_diffuse_curve: live.distance_diffuse_curve,
+            distance_model: self.distance_model,
+            barycenter_localize: live.barycenter.localize,
+            experimental_distance_distance_floor: live.experimental_distance.distance_floor,
+            experimental_distance_min_active_speakers: live
+                .experimental_distance
+                .min_active_speakers,
+            experimental_distance_max_active_speakers: live
+                .experimental_distance
+                .max_active_speakers,
+            experimental_distance_position_error_floor: live
+                .experimental_distance
+                .position_error_floor,
+            experimental_distance_position_error_nearest_scale: live
+                .experimental_distance
+                .position_error_nearest_scale,
+            experimental_distance_position_error_span_scale: live
+                .experimental_distance
+                .position_error_span_scale,
+        })
     }
 
     /// Clear cached per-channel spatial/ramp state after a decoder reset or
@@ -1056,7 +1199,7 @@ impl SpatialRenderer {
         &self,
         events: &[SpatialChannelEvent],
         strategy: &dyn RampStrategy,
-        ctx: &RampContext<'_>,
+        ctx: &RampContext,
     ) -> Result<()> {
         let mut channel_states = self.channel_states.lock().unwrap();
 
@@ -1064,7 +1207,6 @@ impl SpatialRenderer {
             let state = channel_states
                 .entry(event.channel_idx)
                 .or_insert_with(ChannelState::default);
-            state.ramp.ensure_speaker_count(ctx.speaker_count());
 
             if let Some(gain) = event.gain_db {
                 state.gain_db = gain;
@@ -1174,8 +1316,10 @@ impl SpatialRenderer {
         self.refresh_crossover_for_topology(topology_identity, &topology.speaker_layout)?;
 
         // ── 1. Snapshot live params so we hold the read lock for as short a time as possible ──
+        let live_position_interpolation;
         let live = {
             let g = self.control.live.read().unwrap();
+            live_position_interpolation = g.evaluation.position_interpolation;
             let object_params_generation = self
                 .control
                 .object_params_generation
@@ -1236,7 +1380,6 @@ impl SpatialRenderer {
                 spread_distance_range: g.spread_distance_range,
                 spread_distance_curve: g.spread_distance_curve,
                 size_to_spread_mode: g.size_to_spread_mode,
-                position_interpolation: g.evaluation.position_interpolation,
                 ramp_mode: g.ramp_mode,
                 use_loudness: g.use_loudness,
                 auto_gain: g.auto_gain,
@@ -1253,16 +1396,35 @@ impl SpatialRenderer {
                 experimental_distance: g.experimental_distance,
             }
         };
-        let ramp_context = self.ramp_context(topology_identity, topology, &live);
+        // Push the live read-time interpolation flag into the precomputed
+        // evaluators and the unified table. This flag only selects nearest-cell
+        // vs trilinear at lookup time; the table content is independent of it, so
+        // toggling it no longer rebuilds the table (the OSC handler dropped its
+        // `trigger_layout_recompute`). We sync the current value every frame —
+        // just a handful of relaxed atomic stores.
+        for band in &self.render_bands {
+            if let Some(engine) = band.engine() {
+                engine.set_position_interpolation(live_position_interpolation);
+            }
+        }
+        if let Some(table) = self.unified_table.as_ref() {
+            table.set_position_interpolation(live_position_interpolation);
+        }
+
+        let ramp_context = self.ramp_context(&live);
         let ramp_strategy_override = self.ramp_strategy_override.clone();
+        // The ramp always interpolates the object POSITION across the block; the
+        // `position_interpolation` flag now only selects how the table is read at
+        // that position — nearest cell (1 lookup) vs trilinear (8 lookups) — via
+        // the evaluator's `interpolate` flag, which tracks the live boolean
+        // (toggling it triggers a layout recompute). The old GainTable strategy
+        // (frozen position + a per-sample gain lerp the render path never read)
+        // is gone.
         static POSITION_STRATEGY: PositionRampStrategy = PositionRampStrategy;
-        static GAIN_TABLE_STRATEGY: GainTableRampStrategy = GainTableRampStrategy;
         let ramp_strategy: &dyn RampStrategy = if let Some(ref strategy) = ramp_strategy_override {
             strategy.as_ref()
-        } else if live.position_interpolation {
-            &POSITION_STRATEGY
         } else {
-            &GAIN_TABLE_STRATEGY
+            &POSITION_STRATEGY
         };
 
         if !pending_events.is_empty() {
@@ -1286,8 +1448,14 @@ impl SpatialRenderer {
         output.clear();
         output.resize(required, 0.0);
 
-        // Collect VBAP gains at the final sample for each object channel (for monitoring).
-        let mut object_gains_out: Vec<(usize, Gains)> = Vec::with_capacity(input_channel_count);
+        // Per-object VBAP gains at the final sample — monitoring only (OSC meter
+        // bundle). Only collected when `measure_breakdown` is set; left empty (no
+        // allocation) on the plain render path (e.g. mpv without Studio open).
+        let mut object_gains_out: Vec<(usize, Gains)> = if measure_breakdown {
+            Vec::with_capacity(input_channel_count)
+        } else {
+            Vec::new()
+        };
         let mut object_band_gains_out: Vec<(usize, Vec<Gains>)> = Vec::new();
         let mut crossover_elapsed = std::time::Duration::ZERO;
         let profile_crossover = measure_breakdown && self.crossover_filter_bank.is_some();
@@ -1410,9 +1578,6 @@ impl SpatialRenderer {
                         continue;
                     }
                 };
-                state
-                    .ramp
-                    .ensure_speaker_count(ramp_context.speaker_count());
 
                 // ── Unified band rendering path ─────────────────────────────────────────
                 // Always iterate over `render_bands` (1 band = no crossover, N bands = LR4).
@@ -1438,7 +1603,12 @@ impl SpatialRenderer {
 
                 let render_params = ramp_context.render_params();
 
-                let last_band_gains: Vec<Gains> = match live.ramp_mode {
+                // Reuse the per-object band-gain buffer (pooled in the renderer) so
+                // the hot render path does not allocate a fresh Vec per object per
+                // frame. Each arm fills `band_gains`; it is put back at the end.
+                let mut band_gains = std::mem::take(&mut self.band_gains_scratch);
+                band_gains.clear();
+                match live.ramp_mode {
                     RampMode::Off => {
                         state.ramp.remaining_ramp_units = None;
                         state.ramp.start_position = state.ramp.target_position;
@@ -1449,11 +1619,14 @@ impl SpatialRenderer {
 
                         let position = state.ramp.output_position;
                         let size = state.ramp.current_size;
-                        let band_gains: Vec<Gains> = self
-                            .render_bands
-                            .iter()
-                            .map(|b| b.compute_gains(render_params, position, size))
-                            .collect();
+                        Self::fill_band_gains(
+                            &self.unified_table,
+                            &self.render_bands,
+                            render_params,
+                            position,
+                            size,
+                            &mut band_gains,
+                        );
 
                         let mut fst = obj_filter_states;
                         if profile_crossover {
@@ -1500,7 +1673,6 @@ impl SpatialRenderer {
                                 }
                             }
                         }
-                        band_gains
                     }
                     RampMode::Frame => {
                         let progress = state.ramp.current_progress().unwrap_or(RampProgress {
@@ -1510,11 +1682,14 @@ impl SpatialRenderer {
                         ramp_strategy.evaluate(&mut state.ramp, progress, &ramp_context);
                         let position = state.ramp.output_position;
                         let size = state.ramp.current_size;
-                        let band_gains: Vec<Gains> = self
-                            .render_bands
-                            .iter()
-                            .map(|b| b.compute_gains(render_params, position, size))
-                            .collect();
+                        Self::fill_band_gains(
+                            &self.unified_table,
+                            &self.render_bands,
+                            render_params,
+                            position,
+                            size,
+                            &mut band_gains,
+                        );
 
                         let mut fst = obj_filter_states;
                         if profile_crossover {
@@ -1563,16 +1738,150 @@ impl SpatialRenderer {
                         }
                         state.ramp.commit_output_position();
                         state.ramp.advance_ramp(sample_length as u64);
-                        band_gains
                     }
                     RampMode::Sample => {
                         let mut fst = obj_filter_states;
-                        // Pre-allocate once — reused each sample to avoid per-sample Vec alloc.
-                        let mut band_gains_buf: Vec<Gains> = self
-                            .render_bands
-                            .iter()
-                            .map(|_| Gains::zeroed(self.num_speakers))
-                            .collect();
+                        // One Gains slot per band, reused each sample (and across
+                        // objects/frames via the pooled buffer).
+                        band_gains
+                            .resize(self.render_bands.len(), Gains::zeroed(self.num_speakers));
+                        if profile_crossover {
+                            let fb = self.crossover_filter_bank.as_ref().expect("crossover bank");
+                            let fst_slice = fst.as_mut().expect("filter states").as_mut_slice();
+                            let started_at = std::time::Instant::now();
+                            fb.process_block(
+                                sample_length,
+                                fst_slice,
+                                &mut self.crossover_band_scratch,
+                                |sample_idx| {
+                                    input_pcm[sample_idx * input_channel_count + input_channel_idx]
+                                        * gain_linear
+                                        * obj_gain
+                                },
+                            );
+                            crossover_elapsed += started_at.elapsed();
+                            // See the non-crossover branch: only recompute the VBAP
+                            // gains when the position/size changes (skips redundant
+                            // per-sample work while the object is static).
+                            let mut last_pos = [f64::NAN; 3];
+                            let mut last_size = [f32::NAN; 3];
+                            for sample_idx in 0..sample_length {
+                                let progress =
+                                    state.ramp.current_progress().unwrap_or(RampProgress {
+                                        completed_units: 0,
+                                        total_units: 0,
+                                    });
+                                ramp_strategy.evaluate(&mut state.ramp, progress, &ramp_context);
+                                let position = state.ramp.output_position;
+                                let size = state.ramp.current_size;
+                                if position != last_pos || size != last_size {
+                                    Self::fill_band_gains(
+                                        &self.unified_table,
+                                        &self.render_bands,
+                                        render_params,
+                                        position,
+                                        size,
+                                        &mut band_gains,
+                                    );
+                                    last_pos = position;
+                                    last_size = size;
+                                }
+                                let out_base = sample_idx * self.num_speakers;
+                                for (b, gains) in band_gains.iter().enumerate() {
+                                    let s = self.crossover_band_scratch[b][sample_idx];
+                                    for (spk, &g) in gains.iter().enumerate() {
+                                        output[out_base + spk] += s * g;
+                                    }
+                                }
+                                state.ramp.commit_output_position();
+                                state.ramp.advance_ramp(1);
+                            }
+                        } else {
+                            // Recompute the per-band VBAP gains only when the
+                            // interpolated position/size actually changes. While the
+                            // object is not ramping (the common case — metadata is
+                            // sparse) `output_position` is constant across the block,
+                            // so this collapses 1 `compute_gains` call per band per
+                            // sample down to one per block while staying bit-identical.
+                            let mut last_pos = [f64::NAN; 3];
+                            let mut last_size = [f32::NAN; 3];
+                            for sample_idx in 0..sample_length {
+                                let progress =
+                                    state.ramp.current_progress().unwrap_or(RampProgress {
+                                        completed_units: 0,
+                                        total_units: 0,
+                                    });
+                                ramp_strategy.evaluate(&mut state.ramp, progress, &ramp_context);
+                                let position = state.ramp.output_position;
+                                let size = state.ramp.current_size;
+                                if position != last_pos || size != last_size {
+                                    Self::fill_band_gains(
+                                        &self.unified_table,
+                                        &self.render_bands,
+                                        render_params,
+                                        position,
+                                        size,
+                                        &mut band_gains,
+                                    );
+                                    last_pos = position;
+                                    last_size = size;
+                                }
+                                let raw = input_pcm
+                                    [sample_idx * input_channel_count + input_channel_idx]
+                                    * gain_linear
+                                    * obj_gain;
+                                let split = split_bands(
+                                    raw,
+                                    &self.crossover_filter_bank,
+                                    fst.as_mut().map(|v| v.as_mut_slice()),
+                                );
+                                let out_base = sample_idx * self.num_speakers;
+                                for (b, gains) in band_gains.iter().enumerate() {
+                                    let s = split.get(b);
+                                    for (spk, &g) in gains.iter().enumerate() {
+                                        output[out_base + spk] += s * g;
+                                    }
+                                }
+                                state.ramp.commit_output_position();
+                                state.ramp.advance_ramp(1);
+                            }
+                        }
+                    }
+                    RampMode::Interp => {
+                        // Destination gains for this block: one VBAP evaluation per
+                        // band at the target position. The object's audible path is
+                        // then a per-sample linear interpolation from the previous
+                        // block's end gains to these — no per-sample VBAP.
+                        state.ramp.remaining_ramp_units = None;
+                        state.ramp.current_position = state.ramp.target_position;
+                        state.ramp.current_size = state.ramp.target_size;
+                        state.ramp.output_position = state.ramp.target_position;
+                        let position = state.ramp.target_position;
+                        let size = state.ramp.target_size;
+
+                        let mut end = std::mem::take(&mut self.interp_end_scratch);
+                        Self::fill_band_gains(
+                            &self.unified_table,
+                            &self.render_bands,
+                            render_params,
+                            position,
+                            size,
+                            &mut end,
+                        );
+                        self.interp_end_scratch = end;
+                        let n_bands = self.interp_end_scratch.len();
+
+                        // First block for this channel → start == end (no jump in).
+                        if state.interp_prev_gains.len() != n_bands {
+                            state.interp_prev_gains.clear();
+                            state
+                                .interp_prev_gains
+                                .extend_from_slice(&self.interp_end_scratch);
+                        }
+                        band_gains.resize(n_bands, Gains::zeroed(self.num_speakers));
+
+                        let mut fst = obj_filter_states;
+                        let inv_n = 1.0 / sample_length.max(1) as f32;
                         if profile_crossover {
                             let fb = self.crossover_filter_bank.as_ref().expect("crossover bank");
                             let fst_slice = fst.as_mut().expect("filter states").as_mut_slice();
@@ -1589,43 +1898,33 @@ impl SpatialRenderer {
                             );
                             crossover_elapsed += started_at.elapsed();
                             for sample_idx in 0..sample_length {
-                                let progress =
-                                    state.ramp.current_progress().unwrap_or(RampProgress {
-                                        completed_units: 0,
-                                        total_units: 0,
-                                    });
-                                ramp_strategy.evaluate(&mut state.ramp, progress, &ramp_context);
-                                let position = state.ramp.output_position;
-                                let size = state.ramp.current_size;
-                                for (slot, band) in
-                                    band_gains_buf.iter_mut().zip(self.render_bands.iter())
-                                {
-                                    *slot = band.compute_gains(render_params, position, size);
+                                let f = (sample_idx as f32 + 1.0) * inv_n;
+                                for b in 0..n_bands {
+                                    let (s0, s1) =
+                                        (&state.interp_prev_gains[b], &self.interp_end_scratch[b]);
+                                    let slot = &mut band_gains[b];
+                                    for spk in 0..self.num_speakers {
+                                        slot[spk] = s0[spk] * (1.0 - f) + s1[spk] * f;
+                                    }
                                 }
                                 let out_base = sample_idx * self.num_speakers;
-                                for (b, gains) in band_gains_buf.iter().enumerate() {
+                                for (b, gains) in band_gains.iter().enumerate() {
                                     let s = self.crossover_band_scratch[b][sample_idx];
                                     for (spk, &g) in gains.iter().enumerate() {
                                         output[out_base + spk] += s * g;
                                     }
                                 }
-                                state.ramp.commit_output_position();
-                                state.ramp.advance_ramp(1);
                             }
                         } else {
                             for sample_idx in 0..sample_length {
-                                let progress =
-                                    state.ramp.current_progress().unwrap_or(RampProgress {
-                                        completed_units: 0,
-                                        total_units: 0,
-                                    });
-                                ramp_strategy.evaluate(&mut state.ramp, progress, &ramp_context);
-                                let position = state.ramp.output_position;
-                                let size = state.ramp.current_size;
-                                for (slot, band) in
-                                    band_gains_buf.iter_mut().zip(self.render_bands.iter())
-                                {
-                                    *slot = band.compute_gains(render_params, position, size);
+                                let f = (sample_idx as f32 + 1.0) * inv_n;
+                                for b in 0..n_bands {
+                                    let (s0, s1) =
+                                        (&state.interp_prev_gains[b], &self.interp_end_scratch[b]);
+                                    let slot = &mut band_gains[b];
+                                    for spk in 0..self.num_speakers {
+                                        slot[spk] = s0[spk] * (1.0 - f) + s1[spk] * f;
+                                    }
                                 }
                                 let raw = input_pcm
                                     [sample_idx * input_channel_count + input_channel_idx]
@@ -1637,29 +1936,39 @@ impl SpatialRenderer {
                                     fst.as_mut().map(|v| v.as_mut_slice()),
                                 );
                                 let out_base = sample_idx * self.num_speakers;
-                                for (b, gains) in band_gains_buf.iter().enumerate() {
+                                for (b, gains) in band_gains.iter().enumerate() {
                                     let s = split.get(b);
                                     for (spk, &g) in gains.iter().enumerate() {
                                         output[out_base + spk] += s * g;
                                     }
                                 }
-                                state.ramp.commit_output_position();
-                                state.ramp.advance_ramp(1);
                             }
                         }
-                        band_gains_buf
+
+                        // Cache this block's destination as the next block's start.
+                        state.interp_prev_gains.clear();
+                        state
+                            .interp_prev_gains
+                            .extend_from_slice(&self.interp_end_scratch);
                     }
                 };
 
-                // Monitoring: band_gains are already full-size — just sum them.
-                let mut summed = Gains::zeroed(self.num_speakers);
-                for gains in &last_band_gains {
-                    for (i, &g) in gains.iter().enumerate() {
-                        summed[i] += g;
+                // Monitoring outputs (OSC meter bundle): only built when requested.
+                // `band_gains` is already full-size — sum across bands for the
+                // per-object gains, and hand a copy of the band gains out.
+                if measure_breakdown {
+                    let mut summed = Gains::zeroed(self.num_speakers);
+                    for gains in &band_gains {
+                        for (i, &g) in gains.iter().enumerate() {
+                            summed[i] += g;
+                        }
                     }
+                    object_band_gains_out.push((input_channel_idx, band_gains.clone()));
+                    object_gains_out.push((input_channel_idx, summed));
                 }
-                object_band_gains_out.push((input_channel_idx, last_band_gains));
-                object_gains_out.push((input_channel_idx, summed));
+
+                // Return the pooled buffer for the next object/frame.
+                self.band_gains_scratch = band_gains;
             }
         }
         drop(channel_states);
@@ -1819,6 +2128,368 @@ impl SpatialRenderer {
 mod tests {
     use super::*;
 
+    /// The unified multi-band cartesian table must render bit-equivalently to the
+    /// per-band path it replaces. Build two identical crossover renderers, force
+    /// one onto the per-band path (`unified_table = None`), feed both the same
+    /// frame, and require matching output.
+    #[test]
+    fn unified_crossover_matches_per_band() {
+        fn build() -> SpatialRenderer {
+            let mut layout = SpeakerLayout::preset("7.1.4").unwrap();
+            for (sp, cutoff) in layout.speakers.iter_mut().zip([80.0, 200.0, 500.0]) {
+                sp.freq_low = Some(cutoff);
+            }
+            SpatialRenderer::new(
+                layout,
+                48_000,
+                1,
+                1,
+                0.0,
+                2.0,
+                VbapTableMode::Cartesian {
+                    x_size: 21,
+                    y_size: 21,
+                    z_size: 9,
+                    z_neg_size: 9,
+                },
+                false,
+                true, // position interpolation → trilinear lookup + per-sample motion
+                DistanceModel::Linear,
+                false,
+                1.0,
+                1.0,
+                0.0,
+                1.0,
+                false,
+                [1.0, 2.0, 0.5],
+                2.0,
+                0.5,
+                0.0,
+                0.0,
+                false,
+                false,
+                false,
+                1.0,
+                1.0,
+                PreferredEvaluationMode::PrecomputedCartesian,
+                LiveEvaluationMode::PrecomputedCartesian,
+                21,
+                21,
+                9,
+                9,
+            )
+            .unwrap()
+        }
+
+        let mut unified = build();
+        assert!(
+            unified.unified_table.is_some(),
+            "crossover layout should build a unified table"
+        );
+        let mut per_band = build();
+        per_band.unified_table = None;
+
+        let pcm: Vec<f32> = (0..40).map(|i| (i * 7 % 13) as f32 / 13.0 - 0.5).collect();
+        let event = vec![SpatialChannelEvent {
+            channel_idx: 0,
+            is_bed: false,
+            gain_db: Some(0),
+            ramp_length: Some(40),
+            size: Some([0.0, 0.0, 0.0]),
+            position: Some([0.3, -0.2, 0.4]),
+            sample_pos: Some(0),
+        }];
+
+        let a = unified
+            .render_frame(&pcm, 1, &event, Vec::new(), false)
+            .unwrap();
+        let b = per_band
+            .render_frame(&pcm, 1, &event, Vec::new(), false)
+            .unwrap();
+        assert_eq!(a.samples.len(), b.samples.len());
+        let max_diff = a
+            .samples
+            .iter()
+            .zip(&b.samples)
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0f32, f32::max);
+        assert!(
+            max_diff < 1e-6,
+            "unified vs per-band output mismatch: max diff {max_diff}"
+        );
+    }
+
+    /// Polar counterpart of `unified_crossover_matches_per_band`: the unified
+    /// multi-band POLAR table must render bit-equivalently to the per-band polar
+    /// path. Same crossover layout, but a precomputed polar evaluator.
+    #[test]
+    fn unified_polar_matches_per_band() {
+        fn build() -> SpatialRenderer {
+            let mut layout = SpeakerLayout::preset("7.1.4").unwrap();
+            for (sp, cutoff) in layout.speakers.iter_mut().zip([80.0, 200.0, 500.0]) {
+                sp.freq_low = Some(cutoff);
+            }
+            SpatialRenderer::new(
+                layout,
+                48_000,
+                1,
+                1,
+                0.0,
+                2.0,
+                VbapTableMode::Polar,
+                false,
+                true, // position interpolation → trilinear lookup + per-sample motion
+                DistanceModel::Linear,
+                false,
+                1.0,
+                1.0,
+                0.0,
+                1.0,
+                false,
+                [1.0, 2.0, 0.5],
+                2.0,
+                0.5,
+                0.0,
+                0.0,
+                false,
+                false,
+                false,
+                1.0,
+                1.0,
+                PreferredEvaluationMode::PrecomputedPolar,
+                LiveEvaluationMode::PrecomputedPolar,
+                31,
+                31,
+                15,
+                15,
+            )
+            .unwrap()
+        }
+
+        let mut unified = build();
+        assert!(
+            unified.unified_table.is_some(),
+            "polar crossover layout should build a unified table"
+        );
+        let mut per_band = build();
+        per_band.unified_table = None;
+
+        let pcm: Vec<f32> = (0..40).map(|i| (i * 7 % 13) as f32 / 13.0 - 0.5).collect();
+        let event = vec![SpatialChannelEvent {
+            channel_idx: 0,
+            is_bed: false,
+            gain_db: Some(0),
+            ramp_length: Some(40),
+            size: Some([0.0, 0.0, 0.0]),
+            position: Some([0.3, -0.2, 0.4]),
+            sample_pos: Some(0),
+        }];
+
+        let a = unified
+            .render_frame(&pcm, 1, &event, Vec::new(), false)
+            .unwrap();
+        let b = per_band
+            .render_frame(&pcm, 1, &event, Vec::new(), false)
+            .unwrap();
+        assert_eq!(a.samples.len(), b.samples.len());
+        let max_diff = a
+            .samples
+            .iter()
+            .zip(&b.samples)
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0f32, f32::max);
+        assert!(
+            max_diff < 1e-6,
+            "unified polar vs per-band output mismatch: max diff {max_diff}"
+        );
+    }
+
+    /// A crossover band with only 1–2 speakers used to have no engine (hardcoded
+    /// equal-power), which disabled the unified table for the whole crossover.
+    /// Now such a band carries a `FewSpeakerBackend`, so the unified table builds
+    /// and must stay bit-equivalent to the per-band path. Here the top band keeps
+    /// exactly 2 spatializable speakers (pairwise-VBAP fallback).
+    #[test]
+    fn unified_table_with_two_speaker_fallback_band() {
+        fn build() -> SpatialRenderer {
+            let mut layout = SpeakerLayout::preset("7.1.4").unwrap();
+            // Cut all spatializable speakers at 200 Hz except the first two, so the
+            // [200, ∞) band has exactly 2 speakers (a fallback band) and the
+            // [0, 200) band keeps the rest (a normal ≥3 VBAP band).
+            let mut kept = 0;
+            for sp in layout.speakers.iter_mut() {
+                if !sp.spatialize {
+                    continue;
+                }
+                if kept < 2 {
+                    kept += 1;
+                    continue;
+                }
+                sp.freq_high = Some(200.0);
+            }
+            SpatialRenderer::new(
+                layout,
+                48_000,
+                1,
+                1,
+                0.0,
+                2.0,
+                VbapTableMode::Cartesian {
+                    x_size: 21,
+                    y_size: 21,
+                    z_size: 9,
+                    z_neg_size: 9,
+                },
+                false,
+                true,
+                DistanceModel::Linear,
+                false,
+                1.0,
+                1.0,
+                0.0,
+                1.0,
+                false,
+                [1.0, 2.0, 0.5],
+                2.0,
+                0.5,
+                0.0,
+                0.0,
+                false,
+                false,
+                false,
+                1.0,
+                1.0,
+                PreferredEvaluationMode::PrecomputedCartesian,
+                LiveEvaluationMode::PrecomputedCartesian,
+                21,
+                21,
+                9,
+                9,
+            )
+            .unwrap()
+        }
+
+        let mut unified = build();
+        assert!(
+            unified.unified_table.is_some(),
+            "a 2-speaker fallback band must not disable the unified table"
+        );
+        let mut per_band = build();
+        per_band.unified_table = None;
+
+        let pcm: Vec<f32> = (0..40).map(|i| (i * 7 % 13) as f32 / 13.0 - 0.5).collect();
+        let event = vec![SpatialChannelEvent {
+            channel_idx: 0,
+            is_bed: false,
+            gain_db: Some(0),
+            ramp_length: Some(40),
+            size: Some([0.0, 0.0, 0.0]),
+            position: Some([0.3, -0.2, 0.4]),
+            sample_pos: Some(0),
+        }];
+
+        let a = unified
+            .render_frame(&pcm, 1, &event, Vec::new(), false)
+            .unwrap();
+        let b = per_band
+            .render_frame(&pcm, 1, &event, Vec::new(), false)
+            .unwrap();
+        assert_eq!(a.samples.len(), b.samples.len());
+        let max_diff = a
+            .samples
+            .iter()
+            .zip(&b.samples)
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0f32, f32::max);
+        assert!(
+            max_diff < 1e-6,
+            "unified vs per-band output mismatch (fallback band): max diff {max_diff}"
+        );
+    }
+
+    /// An evaluation-mode change must reuse the triangulated gain model (the
+    /// geometry is mode-independent), rebuilding only the evaluation wrapper. A
+    /// geometry change (bumped generation) must rebuild the model. Verified via
+    /// `Arc::ptr_eq` on the decorated model.
+    #[test]
+    fn eval_mode_change_reuses_geometry() {
+        let layout = SpeakerLayout::preset("7.1.4").unwrap();
+        let r = SpatialRenderer::new(
+            layout,
+            48_000,
+            1,
+            1,
+            0.0,
+            2.0,
+            VbapTableMode::Cartesian {
+                x_size: 21,
+                y_size: 21,
+                z_size: 9,
+                z_neg_size: 9,
+            },
+            false,
+            true,
+            DistanceModel::Linear,
+            false,
+            1.0,
+            1.0,
+            0.0,
+            1.0,
+            false,
+            [1.0, 2.0, 0.5],
+            2.0,
+            0.5,
+            0.0,
+            0.0,
+            false,
+            false,
+            false,
+            1.0,
+            1.0,
+            PreferredEvaluationMode::PrecomputedCartesian,
+            LiveEvaluationMode::PrecomputedCartesian,
+            21,
+            21,
+            9,
+            9,
+        )
+        .unwrap();
+        let control = r.renderer_control();
+        let topo0 = control.active_topology();
+        let model0 = topo0
+            .backend
+            .decorated_model()
+            .expect("vbap backend exposes a decorated model");
+
+        // Evaluation-mode-only change: geometry generation unchanged → reuse model.
+        control
+            .live
+            .write()
+            .unwrap()
+            .set_evaluation_mode(LiveEvaluationMode::Realtime);
+        let plan = control.prepare_topology_rebuild().expect("rebuild plan");
+        let reused = plan
+            .build_topology_reusing(Some(&topo0))
+            .expect("reuse build");
+        assert_eq!(
+            reused.backend.evaluation_mode(),
+            EffectiveEvaluationMode::Realtime
+        );
+        assert!(
+            Arc::ptr_eq(&model0, &reused.backend.decorated_model().unwrap()),
+            "evaluation-mode change must reuse the triangulated gain model"
+        );
+
+        // Geometry change bumps the generation → full rebuild (different model).
+        control.bump_geometry_generation();
+        let plan2 = control.prepare_topology_rebuild().expect("rebuild plan 2");
+        let rebuilt = plan2.build_topology_reusing(Some(&topo0)).expect("rebuild");
+        assert!(
+            !Arc::ptr_eq(&model0, &rebuilt.backend.decorated_model().unwrap()),
+            "a geometry change must rebuild the gain model"
+        );
+    }
+
     #[test]
     fn test_renderer_creation() {
         let layout = SpeakerLayout::preset("7.1.4").unwrap();
@@ -1861,6 +2532,130 @@ mod tests {
 
         let renderer = renderer.unwrap();
         assert_eq!(renderer.num_speakers(), 12);
+    }
+
+    /// Guard rail: the four ramp modes must stay wired and each keep its own
+    /// behaviour. `Off` snaps to the target, `Frame` holds the block-start
+    /// position, `Sample` interpolates the position per sample, and `Interp`
+    /// interpolates the gains per sample from the previous block's end. We render
+    /// TWO blocks per mode with a position change in between (the first block
+    /// seeds `Interp`'s start gains, so its ramp only shows on the second) and
+    /// compare the second block: every output must be finite, non-silent, and
+    /// the modes must not collapse onto one another for a moving object.
+    #[test]
+    fn all_four_ramp_modes_render_distinctly() {
+        fn build() -> SpatialRenderer {
+            let layout = SpeakerLayout::preset("7.1.4").unwrap();
+            SpatialRenderer::new(
+                layout,
+                48_000,
+                1,
+                1,
+                0.0,
+                2.0,
+                VbapTableMode::Cartesian {
+                    x_size: 21,
+                    y_size: 21,
+                    z_size: 9,
+                    z_neg_size: 9,
+                },
+                false,
+                true, // position interpolation → trilinear lookup + per-sample motion
+                DistanceModel::Linear,
+                false,
+                1.0,
+                1.0,
+                0.0,
+                1.0,
+                false,
+                [1.0, 2.0, 0.5],
+                2.0,
+                0.5,
+                0.0,
+                0.0,
+                false,
+                false,
+                false,
+                1.0,
+                1.0,
+                PreferredEvaluationMode::PrecomputedCartesian,
+                LiveEvaluationMode::PrecomputedCartesian,
+                21,
+                21,
+                9,
+                9,
+            )
+            .unwrap()
+        }
+
+        let pcm = vec![0.5f32; 40];
+        let event_at = |position: [f64; 3]| {
+            vec![SpatialChannelEvent {
+                channel_idx: 0,
+                is_bed: false,
+                gain_db: Some(0),
+                ramp_length: Some(40),
+                size: Some([0.0, 0.0, 0.0]),
+                position: Some(position),
+                sample_pos: Some(0),
+            }]
+        };
+        let block_a = event_at([-0.7, 0.5, 0.2]);
+        let block_b = event_at([0.8, -0.6, 0.5]);
+
+        let render = |mode: RampMode| -> Vec<f32> {
+            let mut r = build();
+            r.control.live.write().unwrap().ramp_mode = mode;
+            // First block establishes a position (and seeds Interp's start gains).
+            r.render_frame(&pcm, 1, &block_a, Vec::new(), false)
+                .unwrap();
+            // Second block moves the object — this is what we compare.
+            r.render_frame(&pcm, 1, &block_b, Vec::new(), false)
+                .unwrap()
+                .samples
+        };
+
+        let off = render(RampMode::Off);
+        let frame = render(RampMode::Frame);
+        let sample = render(RampMode::Sample);
+        let interp = render(RampMode::Interp);
+
+        let expected_len = 40 * 12;
+        for (name, out) in [
+            ("off", &off),
+            ("frame", &frame),
+            ("sample", &sample),
+            ("interp", &interp),
+        ] {
+            assert_eq!(out.len(), expected_len, "{name}: wrong output length");
+            assert!(
+                out.iter().all(|x| x.is_finite()),
+                "{name}: non-finite output"
+            );
+            let energy: f32 = out.iter().map(|x| x * x).sum();
+            assert!(energy > 0.0, "{name}: produced silence");
+        }
+
+        let max_diff = |a: &[f32], b: &[f32]| {
+            a.iter()
+                .zip(b)
+                .map(|(x, y)| (x - y).abs())
+                .fold(0.0f32, f32::max)
+        };
+
+        assert!(max_diff(&off, &frame) > 1e-3, "Off vs Frame collapsed");
+        assert!(max_diff(&off, &sample) > 1e-3, "Off vs Sample collapsed");
+        assert!(max_diff(&off, &interp) > 1e-3, "Off vs Interp collapsed");
+        assert!(
+            max_diff(&frame, &sample) > 1e-3,
+            "Frame vs Sample collapsed"
+        );
+        // Sample (position-space) and Interp (gain-space) interpolate the same
+        // endpoints differently, so they diverge mid-block too.
+        assert!(
+            max_diff(&sample, &interp) > 1e-3,
+            "Sample vs Interp collapsed"
+        );
     }
 
     // TODO: Add integration test with real spatial metadata

@@ -1,11 +1,9 @@
-mod gain_table;
 mod position;
 
-pub use gain_table::GainTableRampStrategy;
 pub use position::PositionRampStrategy;
 
-use crate::render_backend::{PreparedRenderEngine, RenderRequest, SizeToSpreadMode};
-use crate::spatial_vbap::{DistanceModel, Gains};
+use crate::render_backend::{RenderRequest, SizeToSpreadMode};
+use crate::spatial_vbap::DistanceModel;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RampRenderParams {
@@ -72,49 +70,18 @@ impl RampRenderParams {
     }
 }
 
-pub struct RampContext<'a> {
-    backend: &'a PreparedRenderEngine,
-    topology_identity: usize,
+pub struct RampContext {
     render_params: RampRenderParams,
 }
 
-impl<'a> RampContext<'a> {
-    pub fn new(
-        backend: &'a PreparedRenderEngine,
-        topology_identity: usize,
-        render_params: RampRenderParams,
-    ) -> Self {
-        Self {
-            backend,
-            topology_identity,
-            render_params,
-        }
-    }
-
-    #[inline]
-    pub fn topology_identity(&self) -> usize {
-        self.topology_identity
-    }
-
-    #[inline]
-    pub fn speaker_count(&self) -> usize {
-        self.backend.speaker_count()
+impl RampContext {
+    pub fn new(render_params: RampRenderParams) -> Self {
+        Self { render_params }
     }
 
     #[inline]
     pub fn render_params(&self) -> RampRenderParams {
         self.render_params
-    }
-
-    #[inline]
-    pub fn compute_gains(&self, position: [f64; 3], event_size: [f32; 3]) -> Gains {
-        self.backend
-            .compute_gains(
-                &self
-                    .render_params
-                    .render_request_for_event(position, event_size),
-            )
-            .gains
     }
 }
 
@@ -155,108 +122,6 @@ impl RampProgress {
 }
 
 #[derive(Clone)]
-struct GainCache {
-    topology_identity: usize,
-    position_bits: [u64; 3],
-    event_size_bits: [u32; 3],
-    size_to_spread_mode: SizeToSpreadMode,
-    room_ratio_bits: [u32; 3],
-    room_ratio_rear_bits: u32,
-    room_ratio_lower_bits: u32,
-    room_ratio_center_blend_bits: u32,
-    spread_min_bits: u32,
-    spread_max_bits: u32,
-    spread_distance_range_bits: u32,
-    spread_distance_curve_bits: u32,
-    distance_diffuse_threshold_bits: u32,
-    distance_diffuse_curve_bits: u32,
-    spread_from_distance: bool,
-    use_distance_diffuse: bool,
-    distance_model: DistanceModel,
-    valid: bool,
-    gains: Gains,
-}
-
-impl Default for GainCache {
-    fn default() -> Self {
-        Self {
-            topology_identity: 0,
-            position_bits: [0; 3],
-            event_size_bits: [0; 3],
-            size_to_spread_mode: SizeToSpreadMode::default(),
-            room_ratio_bits: [0; 3],
-            room_ratio_rear_bits: 0,
-            room_ratio_lower_bits: 0,
-            room_ratio_center_blend_bits: 0,
-            spread_min_bits: 0,
-            spread_max_bits: 0,
-            spread_distance_range_bits: 0,
-            spread_distance_curve_bits: 0,
-            distance_diffuse_threshold_bits: 0,
-            distance_diffuse_curve_bits: 0,
-            spread_from_distance: false,
-            use_distance_diffuse: false,
-            distance_model: DistanceModel::Linear,
-            valid: false,
-            gains: Gains::zeroed(0),
-        }
-    }
-}
-
-impl GainCache {
-    fn matches(&self, position: [f64; 3], event_size: [f32; 3], ctx: &RampContext<'_>) -> bool {
-        let render = ctx.render_params();
-        self.valid
-            && self.topology_identity == ctx.topology_identity()
-            && self.position_bits == position.map(f64::to_bits)
-            && self.event_size_bits == event_size.map(f32::to_bits)
-            && self.size_to_spread_mode == render.size_to_spread_mode
-            && self.room_ratio_bits == render.room_ratio.map(f32::to_bits)
-            && self.room_ratio_rear_bits == render.room_ratio_rear.to_bits()
-            && self.room_ratio_lower_bits == render.room_ratio_lower.to_bits()
-            && self.room_ratio_center_blend_bits == render.room_ratio_center_blend.to_bits()
-            && self.spread_min_bits == render.spread_min.to_bits()
-            && self.spread_max_bits == render.spread_max.to_bits()
-            && self.spread_distance_range_bits == render.spread_distance_range.to_bits()
-            && self.spread_distance_curve_bits == render.spread_distance_curve.to_bits()
-            && self.distance_diffuse_threshold_bits == render.distance_diffuse_threshold.to_bits()
-            && self.distance_diffuse_curve_bits == render.distance_diffuse_curve.to_bits()
-            && self.spread_from_distance == render.spread_from_distance
-            && self.use_distance_diffuse == render.use_distance_diffuse
-            && self.distance_model == render.distance_model
-    }
-
-    fn store(
-        &mut self,
-        position: [f64; 3],
-        event_size: [f32; 3],
-        ctx: &RampContext<'_>,
-        gains: &Gains,
-    ) {
-        let render = ctx.render_params();
-        self.topology_identity = ctx.topology_identity();
-        self.position_bits = position.map(f64::to_bits);
-        self.event_size_bits = event_size.map(f32::to_bits);
-        self.size_to_spread_mode = render.size_to_spread_mode;
-        self.room_ratio_bits = render.room_ratio.map(f32::to_bits);
-        self.room_ratio_rear_bits = render.room_ratio_rear.to_bits();
-        self.room_ratio_lower_bits = render.room_ratio_lower.to_bits();
-        self.room_ratio_center_blend_bits = render.room_ratio_center_blend.to_bits();
-        self.spread_min_bits = render.spread_min.to_bits();
-        self.spread_max_bits = render.spread_max.to_bits();
-        self.spread_distance_range_bits = render.spread_distance_range.to_bits();
-        self.spread_distance_curve_bits = render.spread_distance_curve.to_bits();
-        self.distance_diffuse_threshold_bits = render.distance_diffuse_threshold.to_bits();
-        self.distance_diffuse_curve_bits = render.distance_diffuse_curve.to_bits();
-        self.spread_from_distance = render.spread_from_distance;
-        self.use_distance_diffuse = render.use_distance_diffuse;
-        self.distance_model = render.distance_model;
-        self.valid = true;
-        self.gains = gains.clone();
-    }
-}
-
-#[derive(Clone)]
 pub struct ChannelRampState {
     pub start_position: [f64; 3],
     pub start_size: [f32; 3],
@@ -268,11 +133,6 @@ pub struct ChannelRampState {
     pub ramp_length: u64,
     pub remaining_ramp_units: Option<u64>,
     pub target_sample_index: Option<u64>,
-    pub start_gains: Gains,
-    pub target_gains: Gains,
-    pub output_gains: Gains,
-    pub(crate) gains_initialized: bool,
-    cache: GainCache,
 }
 
 impl Default for ChannelRampState {
@@ -288,57 +148,11 @@ impl Default for ChannelRampState {
             ramp_length: 0,
             remaining_ramp_units: None,
             target_sample_index: None,
-            start_gains: Gains::zeroed(0),
-            target_gains: Gains::zeroed(0),
-            output_gains: Gains::zeroed(0),
-            gains_initialized: false,
-            cache: GainCache::default(),
         }
     }
 }
 
 impl ChannelRampState {
-    pub fn ensure_speaker_count(&mut self, speaker_count: usize) {
-        if self.output_gains.len() == speaker_count {
-            return;
-        }
-        self.start_gains = Gains::zeroed(speaker_count);
-        self.target_gains = Gains::zeroed(speaker_count);
-        self.output_gains = Gains::zeroed(speaker_count);
-        self.cache.gains = Gains::zeroed(speaker_count);
-        self.gains_initialized = false;
-        self.cache.valid = false;
-    }
-
-    pub fn output_gains(&self) -> &Gains {
-        &self.output_gains
-    }
-
-    pub fn cached_gains(
-        &self,
-        position: [f64; 3],
-        event_size: [f32; 3],
-        ctx: &RampContext<'_>,
-    ) -> Option<&Gains> {
-        self.cache
-            .matches(position, event_size, ctx)
-            .then_some(&self.cache.gains)
-    }
-
-    pub fn store_cached_gains(
-        &mut self,
-        position: [f64; 3],
-        event_size: [f32; 3],
-        ctx: &RampContext<'_>,
-        gains: &Gains,
-    ) {
-        self.cache.store(position, event_size, ctx, gains);
-    }
-
-    pub fn invalidate_cache(&mut self) {
-        self.cache.valid = false;
-    }
-
     pub fn current_progress(&self) -> Option<RampProgress> {
         self.remaining_ramp_units.map(|remaining| {
             let total = self.ramp_length.max(1);
@@ -361,8 +175,6 @@ impl ChannelRampState {
                 self.start_size = self.target_size;
                 self.current_position = self.target_position;
                 self.current_size = self.target_size;
-                self.start_gains = self.target_gains.clone();
-                self.output_gains = self.target_gains.clone();
                 RampStatus::Finished
             }
             None => RampStatus::Idle,
@@ -382,14 +194,14 @@ pub trait RampStrategy: Send + Sync {
         state: &mut ChannelRampState,
         target: RampTarget,
         sample_index: Option<u64>,
-        ctx: &RampContext<'_>,
+        ctx: &RampContext,
     );
 
     fn evaluate(
         &self,
         state: &mut ChannelRampState,
         progress: RampProgress,
-        ctx: &RampContext<'_>,
+        ctx: &RampContext,
     ) -> RampStatus;
 }
 
@@ -412,21 +224,4 @@ pub(crate) fn interpolate_size(current: [f32; 3], target: [f32; 3], fraction: f6
         current[1] * inv + target[1] * f,
         current[2] * inv + target[2] * f,
     ]
-}
-
-pub(crate) fn compute_cached_or_direct(
-    state: &mut ChannelRampState,
-    position: [f64; 3],
-    event_size: [f32; 3],
-    ctx: &RampContext<'_>,
-) {
-    if let Some(cached) = state.cached_gains(position, event_size, ctx) {
-        state.output_gains = cached.clone();
-    } else {
-        let gains = ctx.compute_gains(position, event_size);
-        state.store_cached_gains(position, event_size, ctx, &gains);
-        state.output_gains = gains;
-    }
-    state.start_gains = state.output_gains.clone();
-    state.gains_initialized = true;
 }

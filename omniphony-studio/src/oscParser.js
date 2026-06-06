@@ -459,7 +459,9 @@ function parseMeterMessage(parts, args) {
     return null;
   }
 
-  const peakDbfs = clamp(toNumber(args[0]) ?? -100, -100, 0);
+  // Peak ceiling left high (+24 dBFS) so over-0 dBFS clipping peaks survive to
+  // the UI; the RMS that drives the bar stays bounded at 0.
+  const peakDbfs = clamp(toNumber(args[0]) ?? -100, -100, 24);
   const rmsDbfs = clamp(toNumber(args[1]) ?? -100, -100, 0);
 
   return {

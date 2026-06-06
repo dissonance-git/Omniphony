@@ -1598,6 +1598,25 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 )
             }
 
+            OscEvent::MeterMaster {
+                peak_dbfs,
+                rms_dbfs,
+            } => {
+                s.master_level = Some(Meter {
+                    peak_dbfs,
+                    rms_dbfs,
+                });
+                (
+                    Some((
+                        "master:meter",
+                        serde_json::json!({
+                            "meter": { "peakDbfs": peak_dbfs, "rmsDbfs": rms_dbfs }
+                        }),
+                    )),
+                    removed_ids,
+                )
+            }
+
             OscEvent::MeterDrcGain { value } => (
                 Some(("meter:drc_gain", serde_json::json!({ "value": value }))),
                 removed_ids,

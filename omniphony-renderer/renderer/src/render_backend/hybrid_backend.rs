@@ -418,24 +418,12 @@ mod tests {
             EffectiveEvaluationMode, EvaluationBuildConfig, VbapBackend,
             build_prepared_render_engine,
         };
-        use crate::spatial_vbap::{VbapPanner, VbapTableMode};
+        use crate::spatial_vbap::VbapPanner;
 
         let positions = [[-30.0, 0.0], [30.0, 0.0], [-110.0, 0.0], [110.0, 0.0]];
-        let panner = VbapPanner::new_with_mode(
-            &positions,
-            5,
-            5,
-            0.0,
-            VbapTableMode::Cartesian {
-                x_size: 33,
-                y_size: 33,
-                z_size: 17,
-                z_neg_size: 8,
-            },
-        )
-        .expect("vbap panner")
-        .with_negative_z(true)
-        .with_position_interpolation(true);
+        let panner = VbapPanner::new(&positions, 5, 5, 0.0)
+            .expect("vbap panner")
+            .with_negative_z(true);
         let external: Box<dyn GainModel> = Box::new(VbapBackend::new(panner));
         let internal: Box<dyn GainModel> = Box::new(BarycenterBackend::new(speakers()));
         let model: Box<dyn GainModel> = Box::new(HybridBackend::new(

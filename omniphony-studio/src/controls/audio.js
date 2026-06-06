@@ -98,7 +98,7 @@ export function renderAudioFormatDisplay() {
     audioOutputDeviceSelectEl.disabled = !app.oscSnapshotReady || !hasAudioDomain;
   }
   if (rampModeSelectEl) {
-    rampModeSelectEl.value = ['off', 'frame', 'sample'].includes(app.rampMode) ? app.rampMode : 'frame';
+    rampModeSelectEl.value = ['off', 'frame', 'sample', 'interp'].includes(app.rampMode) ? app.rampMode : 'frame';
   }
   if (audioSampleRateInputEl && !app.audioSampleRateEditing) {
     audioSampleRateInputEl.value = String(app.audioSampleRate || 0);

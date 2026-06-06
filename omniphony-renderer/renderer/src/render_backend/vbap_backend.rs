@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use super::room_transform::map_depth_with_room_ratios;
+use super::room_transform::room_scaled_position;
 use super::{
     BackendCapabilities, GainModel, GainModelKind, RenderRequest, RenderResponse,
     reduce_size_to_spread,
@@ -22,19 +22,13 @@ impl VbapBackend {
     }
 
     pub fn compute_gains(&self, req: &RenderRequest) -> RenderResponse {
-        let rendering_position = req.adm_position;
-        let scaled_x = rendering_position[0] as f32 * req.room_ratio[0];
-        let scaled_y = map_depth_with_room_ratios(
-            rendering_position[1] as f32,
-            req.room_ratio[1],
+        let [scaled_x, scaled_y, scaled_z] = room_scaled_position(
+            req.adm_position.map(|v| v as f32),
+            req.room_ratio,
             req.room_ratio_rear,
+            req.room_ratio_lower,
             req.room_ratio_center_blend,
         );
-        let scaled_z = if rendering_position[2] >= 0.0 {
-            rendering_position[2] as f32 * req.room_ratio[2]
-        } else {
-            rendering_position[2] as f32 * req.room_ratio_lower
-        };
 
         // Per-event 3-D size → scalar policy. `[0; 3]` yields 0, preserving the
         // legacy behaviour for streams that don't carry size metadata.
@@ -73,9 +67,13 @@ impl VbapBackend {
         path: &std::path::Path,
         speaker_layout: &SpeakerLayout,
     ) -> Result<()> {
-        self.panner
-            .save_to_file(path, speaker_layout)
-            .map_err(|e| anyhow::anyhow!("Failed to save VBAP table: {}", e))
+        let _ = (path, speaker_layout);
+        // The VBAP backend holds no precomputed table to serialize (the panner is
+        // geometry-only). Precomputed tables are exported from the evaluation
+        // layer (`render_backend::evaluation_artifact`), not from the backend.
+        anyhow::bail!(
+            "VBAP backend is geometry-only; export the precomputed table via the evaluator"
+        )
     }
 }
 

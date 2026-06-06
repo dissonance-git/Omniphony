@@ -25,5 +25,12 @@ sys = { path = "../sys" }
 anyhow = "1"
 bindgen = "0.70"
 
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "render_frame"
+harness = false
+
 [features]
 saf_vbap = []

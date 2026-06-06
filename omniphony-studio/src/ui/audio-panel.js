@@ -258,7 +258,7 @@ export function audioPanelMarkup() {
         <div class="info-title" data-i18n="master.title">Master</div>
         <div class="meter-row">
           <div id="masterMeterText" class="fixed-metric">— dB</div>
-          <div class="meter-bar">
+          <div class="meter-bar level-meter">
             <div id="masterMeterFill" class="meter-fill"></div>
             <div id="masterMeterPeak" class="meter-peak"></div>
           </div>

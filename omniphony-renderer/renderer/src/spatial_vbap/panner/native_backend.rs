@@ -3,7 +3,6 @@
 //! Used when the `saf_vbap` feature is disabled (no C FFI, no external library).
 
 use super::Gains;
-use super::gain_source::VbapGainSource;
 use crate::spatial_vbap::vbap_native::{
     find_ls_triplets, invert_ls_mtx_3d, prepare_effective_speaker_dirs, vbap3d,
 };
@@ -20,8 +19,8 @@ fn normalized_spread_to_degrees(spread: f32) -> f32 {
 /// Pure-Rust equivalent of `SpartaVbapLayout`.
 ///
 /// Owns the triangulation and inverse speaker matrices produced by
-/// `find_ls_triplets` + `invert_ls_mtx_3d`. Implements [`VbapGainSource`]
-/// so it can be used interchangeably with the SAF FFI backend.
+/// `find_ls_triplets` + `invert_ls_mtx_3d`. Computes VBAP gains directly via
+/// [`Self::vbap_gains`]; the panner stores one instance and samples it.
 pub(crate) struct NativeVbapLayout {
     /// Number of *real* (non-dummy) speakers — the size of the returned `Gains`.
     pub(crate) n_speakers: usize,
@@ -96,17 +95,6 @@ impl NativeVbapLayout {
 
         // Strip dummy speaker columns — keep only the first n_speakers entries.
         Ok(Gains::from_slice(&gain_vec[..self.n_speakers]))
-    }
-}
-
-impl VbapGainSource for NativeVbapLayout {
-    fn compute_gains(
-        &self,
-        azimuth_deg: f32,
-        elevation_deg: f32,
-        spread: f32,
-    ) -> Result<Gains, String> {
-        self.vbap_gains(azimuth_deg, elevation_deg, spread)
     }
 }
 
