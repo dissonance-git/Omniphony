@@ -8,16 +8,15 @@ Le projet est conçu pour fonctionner avec `omniphony-renderer`, qui fournit le 
 
 ## Principe
 
-- Le serveur écoute des messages OSC en UDP.
+- Le studio écoute des messages OSC en UDP.
 - Au démarrage, le studio envoie `/omniphony/register [listen_port]` vers `<host>:9000` pour s’enregistrer auprès du renderer.
 - Tant qu’il est actif, le studio envoie `/omniphony/heartbeat [listen_port]` toutes les 5 secondes vers la même destination pour maintenir l’inscription côté renderer.
-- Les positions reçues sont diffusées en WebSocket au front web.
-- Le front affiche chaque source comme une sphère dans un volume 3D normalisé `[-1, 1]`.
+- Le studio affiche chaque source comme une sphère dans un volume 3D normalisé `[-1, 1]`.
 - Le menu **Layout** permet de choisir la configuration d’enceintes chargée depuis `../layouts/*.yaml` et affichée dans la scène.
 
 ## Formats OSC supportés
 
-Le serveur accepte le format historique du prototype et des variantes avec identifiant embarqué dans l’adresse ou coordonnées sphériques.
+Le studio accepte le format historique du prototype et des variantes avec identifiant embarqué dans l’adresse ou coordonnées sphériques.
 
 ### 1) Position cartésienne
 
@@ -46,31 +45,14 @@ Le serveur accepte le format historique du prototype et des variantes avec ident
 /source/<id>/remove
 ```
 
-## Options CLI
-
-```bash
-node server.js --host 127.0.0.1 --osc-port 0 --osc-rx-port 9000 --http-port 3000
-```
-
-- `--osc-port` : port UDP local d’écoute OSC. `0` laisse l’OS choisir un port dynamique.
-- `--host` / `--osc-host` : hôte renderer cible pour l’enregistrement.
-- `--osc-rx-port` : port UDP côté renderer recevant `/omniphony/register` et les contrôles.
-- `--http-port` : port HTTP du studio.
-
 ## Lancer le projet
 
 ```bash
 npm install
-npm start
+npm run tauri dev
 ```
 
-Puis ouvrir : [http://localhost:3000](http://localhost:3000)
-
-## Vérification rapide
-
-```bash
-node --test
-```
+`npm run tauri dev` lance l’app de bureau (Tauri + Vite). `npm run dev` sert uniquement le front Vite sur `http://localhost:5173` pour le développement UI.
 
 ## Build Desktop
 
