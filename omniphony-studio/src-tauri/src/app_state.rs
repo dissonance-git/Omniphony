@@ -216,6 +216,25 @@ pub struct RenderBackendState {
     #[serde(rename = "experimentalDistance", alias = "experimental_distance")]
     pub experimental_distance: ExperimentalDistanceState,
     pub hybrid: HybridState,
+    /// Selectable backends with their declared param schema: `[{ id, label,
+    /// params: [...] }]`. Passed through verbatim so the UI can populate the
+    /// backend dropdown and generate per-backend controls.
+    #[serde(
+        rename = "availableBackends",
+        alias = "available_backends",
+        default,
+        skip_serializing_if = "serde_json::Value::is_null"
+    )]
+    pub available_backends: serde_json::Value,
+    /// Host-set param values for the active backend (`{ key: value }`), used to
+    /// seed the generated controls.
+    #[serde(
+        rename = "backendParamValues",
+        alias = "backend_param_values",
+        default,
+        skip_serializing_if = "serde_json::Value::is_null"
+    )]
+    pub backend_param_values: serde_json::Value,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
