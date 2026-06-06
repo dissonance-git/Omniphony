@@ -21,7 +21,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
@@ -193,6 +193,12 @@ impl Default for OverlayState {
 
 struct Overlay {
     enabled: AtomicBool,
+    /// Number of live orender render sessions (one per `orender_create` that has
+    /// not yet been destroyed). The overlay only draws while at least one session
+    /// is decoding: without `--ad=orender` no session is ever created, so the Lua
+    /// shim — which loads unconditionally — pulls an empty payload and draws
+    /// nothing instead of a permanent, scene-less wireframe box.
+    sessions: AtomicUsize,
     /// `start.elapsed()` ms at the last FFI pull; self-gates per-frame work.
     last_pull_ms: AtomicU64,
     start: Instant,
@@ -206,11 +212,49 @@ fn overlay() -> &'static Overlay {
     static OVERLAY: OnceLock<Overlay> = OnceLock::new();
     OVERLAY.get_or_init(|| Overlay {
         enabled: AtomicBool::new(true),
+        sessions: AtomicUsize::new(0),
         last_pull_ms: AtomicU64::new(0),
         start: Instant::now(),
         state: Mutex::new(OverlayState::default()),
         prefs_path: Mutex::new(None),
     })
+}
+
+/// True while at least one orender render session is live (see [`Overlay::sessions`]).
+fn session_active() -> bool {
+    overlay().sessions.load(Ordering::Relaxed) > 0
+}
+
+/// Register the start of an orender render session. Called by the host when a
+/// renderer is created (`orender_create`); the overlay stays blank until the
+/// first session arms it.
+pub fn session_started() {
+    overlay().sessions.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Register the end of an orender render session (`orender_destroy`). Saturates
+/// at zero, and clears the scene + trails when the last session goes away so the
+/// overlay can't linger past the stream it belonged to.
+pub fn session_ended() {
+    let o = overlay();
+    let mut cur = o.sessions.load(Ordering::Relaxed);
+    loop {
+        if cur == 0 {
+            return; // unbalanced end; nothing to do
+        }
+        match o
+            .sessions
+            .compare_exchange_weak(cur, cur - 1, Ordering::Relaxed, Ordering::Relaxed)
+        {
+            Ok(_) => {
+                if cur == 1 {
+                    clear();
+                }
+                return;
+            }
+            Err(observed) => cur = observed,
+        }
+    }
 }
 
 fn now_secs() -> f64 {
@@ -439,7 +483,7 @@ pub fn build_ass(res_x: u32, res_y: u32) -> String {
     let o = overlay();
     o.last_pull_ms
         .store(o.start.elapsed().as_millis() as u64, Ordering::Relaxed);
-    if !o.enabled.load(Ordering::Relaxed) || res_x == 0 || res_y == 0 {
+    if !o.enabled.load(Ordering::Relaxed) || !session_active() || res_x == 0 || res_y == 0 {
         return String::new();
     }
     let now = now_secs();
@@ -914,7 +958,7 @@ fn build_heatmap_bitmap(s: &OverlayState, res_x: f64, res_y: f64) -> Option<Heat
 /// not touch the trails or the pull clock (the ASS pull already advances those).
 pub fn build_heatmap(res_x: u32, res_y: u32) -> Option<HeatmapBitmap> {
     let o = overlay();
-    if !o.enabled.load(Ordering::Relaxed) || res_x == 0 || res_y == 0 {
+    if !o.enabled.load(Ordering::Relaxed) || !session_active() || res_x == 0 || res_y == 0 {
         return None;
     }
     let s = o.state.lock().ok()?;
@@ -1233,6 +1277,9 @@ mod tests {
         set_labels_enabled(true);
         set_objects_visible(true);
         set_heatmap_enabled(true);
+        // Arm exactly one render session so the draw paths are reachable; the
+        // no-session gate is exercised on its own in `no_session_returns_empty`.
+        overlay().sessions.store(1, Ordering::Relaxed);
         g
     }
 
@@ -1257,6 +1304,46 @@ mod tests {
     fn zero_resolution_returns_empty() {
         let _g = guard();
         assert!(build_ass(0, 0).is_empty());
+    }
+
+    // Without an orender session (e.g. mpv started without `--ad=orender`) the
+    // overlay must draw nothing — not a permanent, scene-less wireframe box —
+    // even when enabled and fed positions. `session_ended` clears the scene as
+    // the last session goes away.
+    #[test]
+    fn no_session_returns_empty() {
+        let _g = guard();
+        update_positions(vec![(0, 0.0, 0.0, 0.5, String::new())]);
+        update_levels(&[(0, -6.0)]);
+        // guard() armed one session; end it → back to the no-session state.
+        session_ended();
+        assert!(!session_active(), "session counter should be back to zero");
+        assert!(
+            build_ass(1920, 1080).is_empty(),
+            "ASS must be empty with no session"
+        );
+        assert!(
+            build_heatmap(1920, 1080).is_none(),
+            "heatmap must be absent with no session"
+        );
+        // A fresh session re-arms the overlay (positions were cleared on the last
+        // session end, so feed them again to get a non-empty draw).
+        session_started();
+        update_positions(vec![(0, 0.0, 0.0, 0.5, String::new())]);
+        assert!(
+            build_ass(1920, 1080).contains("\\p1"),
+            "ASS draws once a session is live"
+        );
+    }
+
+    // `session_ended` without a matching `session_started` must not underflow.
+    #[test]
+    fn session_counter_saturates_at_zero() {
+        let _g = guard();
+        overlay().sessions.store(0, Ordering::Relaxed);
+        session_ended();
+        session_ended();
+        assert_eq!(overlay().sessions.load(Ordering::Relaxed), 0);
     }
 
     // The energy heatmap is now a separate BGRA bitmap (drawn under the ASS via
