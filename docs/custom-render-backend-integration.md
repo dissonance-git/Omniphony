@@ -4,6 +4,12 @@
 
 This document explains how to add your own gain model / render backend to `omniphony-renderer` after the recent backend refactor.
 
+> **Starting point:** the `example_backend` crate
+> (`omniphony-renderer/example_backend/`) is a minimal, heavily commented
+> `GainModel` that depends on `renderer` through its public API only. Copy it as
+> a skeleton. It is built and tested as a workspace member in CI, so it always
+> stays in sync with the public surface a backend needs.
+
 The goal is to help a contributor:
 
 - understand where to plug in
