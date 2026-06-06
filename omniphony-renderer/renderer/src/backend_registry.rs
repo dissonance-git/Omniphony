@@ -504,73 +504,175 @@ fn preferred_evaluation_mode(
         .unwrap_or(PreferredEvaluationMode::PrecomputedCartesian)
 }
 
+/// Inputs available to a [`BackendFactory`] when it builds its plan: the resolved
+/// speaker layout, the live parameters, and the optional geometry rebuild params
+/// (present for backends that need triangulation, e.g. VBAP).
+pub struct BackendBuildCtx<'a> {
+    pub layout: &'a SpeakerLayout,
+    pub live: &'a LiveParams,
+    pub backend_rebuild_params: Option<BackendRebuildParams>,
+}
+
+/// A render backend's registration entry: a stable id plus how to build its gain
+/// model plan for a given context.
+///
+/// Implement this and `register` it into a [`BackendRegistry`] to add a backend
+/// without editing the central dispatch. Identity is data (a string id), not an
+/// enum variant, so a backend can live in its own crate.
+pub trait BackendFactory: Send + Sync {
+    /// Stable identifier matched against `LiveParams::backend_id()` (e.g. `"vbap"`).
+    fn id(&self) -> &'static str;
+    /// Build this backend's plan, or `None` if it cannot be prepared for the
+    /// given context (e.g. VBAP without geometry rebuild params).
+    fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan>;
+}
+
+/// Ordered set of backend factories keyed by id. Use [`BackendRegistry::builtin`]
+/// for the shipped backends; a host can `register` additional ones at startup.
+pub struct BackendRegistry {
+    factories: Vec<Box<dyn BackendFactory>>,
+}
+
+impl BackendRegistry {
+    pub fn new() -> Self {
+        Self {
+            factories: Vec::new(),
+        }
+    }
+
+    /// Registry preloaded with the built-in backends.
+    pub fn builtin() -> Self {
+        let mut registry = Self::new();
+        registry.register(Box::new(VbapFactory));
+        registry.register(Box::new(BarycenterFactory));
+        registry.register(Box::new(ExperimentalDistanceFactory));
+        registry.register(Box::new(HybridFactory));
+        registry
+    }
+
+    /// Register a backend. A later registration with the same id replaces the
+    /// earlier one, so a host can override a built-in.
+    pub fn register(&mut self, factory: Box<dyn BackendFactory>) {
+        let id = factory.id();
+        match self.factories.iter_mut().find(|f| f.id() == id) {
+            Some(slot) => *slot = factory,
+            None => self.factories.push(factory),
+        }
+    }
+
+    /// Look up a factory by id.
+    pub fn get(&self, id: &str) -> Option<&dyn BackendFactory> {
+        self.factories
+            .iter()
+            .find(|f| f.id() == id)
+            .map(|f| f.as_ref())
+    }
+
+    /// Ids of all registered backends, in registration order.
+    pub fn ids(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.factories.iter().map(|f| f.id())
+    }
+}
+
+impl Default for BackendRegistry {
+    fn default() -> Self {
+        Self::builtin()
+    }
+}
+
+struct VbapFactory;
+impl BackendFactory for VbapFactory {
+    fn id(&self) -> &'static str {
+        "vbap"
+    }
+    fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
+        build_vbap_build_plan(ctx.layout, ctx.live, ctx.backend_rebuild_params?)
+    }
+}
+
+struct BarycenterFactory;
+impl BackendFactory for BarycenterFactory {
+    fn id(&self) -> &'static str {
+        "barycenter"
+    }
+    fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
+        Some(BackendBuildPlan::Barycenter(BarycenterBuildPlan {
+            speaker_positions: collect_spatializable_positions(ctx.layout),
+        }))
+    }
+}
+
+struct ExperimentalDistanceFactory;
+impl BackendFactory for ExperimentalDistanceFactory {
+    fn id(&self) -> &'static str {
+        "experimental_distance"
+    }
+    fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
+        Some(BackendBuildPlan::ExperimentalDistance(
+            ExperimentalDistanceBuildPlan {
+                speaker_positions: collect_spatializable_positions(ctx.layout),
+            },
+        ))
+    }
+}
+
+struct HybridFactory;
+impl BackendFactory for HybridFactory {
+    fn id(&self) -> &'static str {
+        "hybrid"
+    }
+    fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
+        // The hybrid backend composes two inner backends. Inner composition still
+        // goes through `build_inner_backend_plan` (vbap / barycenter /
+        // experimental_distance), so its supported inner set is unchanged.
+        let external = build_inner_backend_plan(
+            &ctx.live.hybrid.external_backend_id,
+            ctx.layout,
+            ctx.live,
+            ctx.backend_rebuild_params,
+        )?;
+        let internal = build_inner_backend_plan(
+            &ctx.live.hybrid.internal_backend_id,
+            ctx.layout,
+            ctx.live,
+            ctx.backend_rebuild_params,
+        )?;
+        Some(BackendBuildPlan::Hybrid(HybridBuildPlan {
+            external: Box::new(external),
+            internal: Box::new(internal),
+            curve: ctx.live.hybrid.curve.clone(),
+            curve_smoothing: ctx.live.hybrid.curve_smoothing,
+            metric: ctx.live.hybrid.metric,
+        }))
+    }
+}
+
 pub fn prepare_topology_build_plan(
     layout: SpeakerLayout,
     live: &LiveParams,
     backend_rebuild_params: Option<BackendRebuildParams>,
     evaluation_build_config: crate::render_backend::EvaluationBuildConfig,
 ) -> Option<TopologyBuildPlan> {
-    match live.backend_id() {
-        "barycenter" | "experimental_distance" => {
-            let backend_build =
-                build_inner_backend_plan(live.backend_id(), &layout, live, backend_rebuild_params)?;
-            let preferred = preferred_evaluation_mode(backend_rebuild_params);
-            Some(TopologyBuildPlan {
-                layout,
-                backend_id: live.backend_id().to_string(),
-                backend_build,
-                evaluation_mode: effective_live_evaluation_mode(live.evaluation.mode, preferred),
-                evaluation_build_config,
-                geometry_generation: 0,
-            })
-        }
-        "hybrid" => {
-            let external = build_inner_backend_plan(
-                &live.hybrid.external_backend_id,
-                &layout,
-                live,
-                backend_rebuild_params,
-            )?;
-            let internal = build_inner_backend_plan(
-                &live.hybrid.internal_backend_id,
-                &layout,
-                live,
-                backend_rebuild_params,
-            )?;
-            let preferred = preferred_evaluation_mode(backend_rebuild_params);
-            Some(TopologyBuildPlan {
-                layout,
-                backend_id: live.backend_id().to_string(),
-                backend_build: BackendBuildPlan::Hybrid(HybridBuildPlan {
-                    external: Box::new(external),
-                    internal: Box::new(internal),
-                    curve: live.hybrid.curve.clone(),
-                    curve_smoothing: live.hybrid.curve_smoothing,
-                    metric: live.hybrid.metric,
-                }),
-                evaluation_mode: effective_live_evaluation_mode(live.evaluation.mode, preferred),
-                evaluation_build_config,
-                geometry_generation: 0,
-            })
-        }
-        "vbap" => {
-            let rebuild_params = backend_rebuild_params?;
-            let effective_mode = effective_live_evaluation_mode(
-                live.evaluation.mode,
-                rebuild_params.preferred_evaluation_mode(),
-            );
-            let backend_build = build_vbap_build_plan(&layout, live, rebuild_params)?;
-            Some(TopologyBuildPlan {
-                layout,
-                backend_id: live.backend_id().to_string(),
-                backend_build,
-                evaluation_mode: effective_mode,
-                evaluation_build_config,
-                geometry_generation: 0,
-            })
-        }
-        _ => None,
-    }
+    // Dispatch through the registry instead of a hard-coded `match` on the id, so
+    // a backend's construction lives with the backend rather than here.
+    let registry = BackendRegistry::builtin();
+    let factory = registry.get(live.backend_id())?;
+    let ctx = BackendBuildCtx {
+        layout: &layout,
+        live,
+        backend_rebuild_params,
+    };
+    let backend_build = factory.build_plan(&ctx)?;
+    let preferred = preferred_evaluation_mode(backend_rebuild_params);
+    let evaluation_mode = effective_live_evaluation_mode(live.evaluation.mode, preferred);
+    Some(TopologyBuildPlan {
+        layout,
+        backend_id: live.backend_id().to_string(),
+        backend_build,
+        evaluation_mode,
+        evaluation_build_config,
+        geometry_generation: 0,
+    })
 }
 
 #[cfg(test)]
@@ -739,5 +841,41 @@ mod tests {
         let engine = realtime_engine(Box::new(GoodBackend));
         smoke_test_engine(&engine, &build_config(), "good_backend")
             .expect("well-behaved backend passes the smoke test");
+    }
+
+    struct DummyFactory(&'static str);
+    impl BackendFactory for DummyFactory {
+        fn id(&self) -> &'static str {
+            self.0
+        }
+        fn build_plan(&self, _ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
+            None
+        }
+    }
+
+    #[test]
+    fn builtin_registry_exposes_known_backends() {
+        let registry = BackendRegistry::builtin();
+        let ids: Vec<_> = registry.ids().collect();
+        for expected in ["vbap", "barycenter", "experimental_distance", "hybrid"] {
+            assert!(
+                ids.contains(&expected),
+                "missing builtin backend {expected}"
+            );
+        }
+        assert!(registry.get("vbap").is_some());
+        assert!(registry.get("does_not_exist").is_none());
+    }
+
+    #[test]
+    fn register_adds_then_overrides_by_id() {
+        let mut registry = BackendRegistry::new();
+        registry.register(Box::new(DummyFactory("custom")));
+        assert!(registry.get("custom").is_some());
+
+        let count = registry.ids().count();
+        // Re-registering the same id replaces the entry instead of appending.
+        registry.register(Box::new(DummyFactory("custom")));
+        assert_eq!(registry.ids().count(), count);
     }
 }
