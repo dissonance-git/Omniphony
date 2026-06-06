@@ -560,9 +560,22 @@ pub struct BackendBuildCtx<'a> {
 pub trait BackendFactory: Send + Sync {
     /// Stable identifier matched against `LiveParams::backend_id()` (e.g. `"vbap"`).
     fn id(&self) -> &'static str;
+    /// Human-facing name shown in the UI. Defaults to the id.
+    fn label(&self) -> &'static str {
+        self.id()
+    }
     /// Build this backend's plan, or `None` if it cannot be prepared for the
     /// given context (e.g. VBAP without geometry rebuild params).
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan>;
+}
+
+/// A registered backend's UI-facing identity, reported by
+/// [`BackendRegistry::available`] so a host can list the selectable backends
+/// (built-in and contributor-registered alike) without a hard-coded table.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct BackendListing {
+    pub id: &'static str,
+    pub label: &'static str,
 }
 
 /// Ordered set of backend factories keyed by id. Use [`BackendRegistry::builtin`]
@@ -610,6 +623,18 @@ impl BackendRegistry {
     pub fn ids(&self) -> impl Iterator<Item = &'static str> + '_ {
         self.factories.iter().map(|f| f.id())
     }
+
+    /// Id + label of every registered backend, in registration order — the list
+    /// a host publishes so the UI can offer them for selection.
+    pub fn available(&self) -> Vec<BackendListing> {
+        self.factories
+            .iter()
+            .map(|f| BackendListing {
+                id: f.id(),
+                label: f.label(),
+            })
+            .collect()
+    }
 }
 
 impl Default for BackendRegistry {
@@ -623,6 +648,9 @@ impl BackendFactory for VbapFactory {
     fn id(&self) -> &'static str {
         "vbap"
     }
+    fn label(&self) -> &'static str {
+        "VBAP"
+    }
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
         build_vbap_build_plan(ctx.layout, ctx.live, ctx.backend_rebuild_params?)
     }
@@ -632,6 +660,9 @@ struct BarycenterFactory;
 impl BackendFactory for BarycenterFactory {
     fn id(&self) -> &'static str {
         "barycenter"
+    }
+    fn label(&self) -> &'static str {
+        "Barycenter"
     }
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
         Some(BackendBuildPlan::Barycenter(BarycenterBuildPlan {
@@ -644,6 +675,9 @@ struct ExperimentalDistanceFactory;
 impl BackendFactory for ExperimentalDistanceFactory {
     fn id(&self) -> &'static str {
         "experimental_distance"
+    }
+    fn label(&self) -> &'static str {
+        "Distance"
     }
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
         Some(BackendBuildPlan::ExperimentalDistance(
@@ -658,6 +692,9 @@ struct HybridFactory;
 impl BackendFactory for HybridFactory {
     fn id(&self) -> &'static str {
         "hybrid"
+    }
+    fn label(&self) -> &'static str {
+        "Hybrid"
     }
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
         // The hybrid backend composes two inner backends. Inner composition still
@@ -949,6 +986,18 @@ mod tests {
             cloned.build_gain_model().unwrap().backend_id(),
             "good_backend"
         );
+    }
+
+    #[test]
+    fn available_lists_id_and_label() {
+        let listings = BackendRegistry::builtin().available();
+        let vbap = listings
+            .iter()
+            .find(|l| l.id == "vbap")
+            .expect("vbap listed");
+        assert_eq!(vbap.label, "VBAP");
+        // Every builtin reports a non-empty label.
+        assert!(listings.iter().all(|l| !l.label.is_empty()));
     }
 
     #[test]

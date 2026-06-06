@@ -95,7 +95,12 @@ pub(crate) fn trigger_layout_recompute(
                         let live = control_clone.live.read();
                         let topology = control_clone.active_topology();
                         let scale_m = control_clone.editable_layout().radius_m;
-                        build_renderer_state_json(&live, &topology, scale_m)
+                        build_renderer_state_json(
+                            &live,
+                            &topology,
+                            scale_m,
+                            control_clone.available_backends(),
+                        )
                     };
                     let layout_json = {
                         let layout = control_clone.editable_layout();
