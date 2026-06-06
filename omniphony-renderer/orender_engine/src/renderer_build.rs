@@ -370,9 +370,9 @@ pub fn build_spatial_renderer(
     };
 
     log::info!("VBAP spatial rendering enabled");
-    let configured_backend = render_cfg
-        .and_then(|cfg| cfg.render_backend.as_deref())
-        .and_then(RenderBackendKind::from_str);
+    // Raw configured backend id; resolved against the enum aliases *and* the
+    // registry below (so a registered out-of-tree backend id is selectable too).
+    let configured_backend_cfg = render_cfg.and_then(|cfg| cfg.render_backend.as_deref());
     let configured_evaluation = render_cfg
         .and_then(|cfg| cfg.render_evaluation_mode.as_deref())
         .and_then(LiveEvaluationMode::from_str);
@@ -437,12 +437,21 @@ pub fn build_spatial_renderer(
     });
     {
         let control = renderer.renderer_control();
+        // Register the demonstration backend so `backend_id = "example"` resolves.
+        control.register_backend(Box::new(example_backend::ExampleFactory));
+        // Resolve the configured backend id: enum names/aliases first (e.g.
+        // "distance" -> experimental_distance), then any registered backend id.
+        let configured_backend = configured_backend_cfg.and_then(|raw| {
+            RenderBackendKind::from_str(raw)
+                .map(|kind| kind.as_str().to_string())
+                .or_else(|| control.has_backend(raw).then(|| raw.to_string()))
+        });
         let mut requires_rebuild = false;
         {
             let mut live = control.live.write();
-            if let Some(configured_backend) = configured_backend {
-                if live.backend_id() != configured_backend.as_str() {
-                    live.backend_id = configured_backend.as_str().to_string();
+            if let Some(configured_backend) = &configured_backend {
+                if live.backend_id() != configured_backend {
+                    live.backend_id = configured_backend.clone();
                     requires_rebuild = true;
                 }
             }

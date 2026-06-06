@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
-use crate::backend_registry::{TopologyBuildPlan, prepare_topology_build_plan};
+use crate::backend_registry::{BackendRegistry, TopologyBuildPlan, prepare_topology_build_plan};
 use crate::render_backend::backend_descriptor_by_id;
 use crate::render_backend::{
     EvaluationBuildConfig, GainModelKind, PreparedRenderEngine, RenderBackendKind, RenderRequest,
@@ -654,6 +654,13 @@ pub struct RendererControl {
     /// OSC diag-publication cadence in Hz (`f32::to_bits`). Read lock-free by
     /// the diag publisher; OSC-adjustable and persisted to config.
     pub diag_rate_hz_bits: Arc<std::sync::atomic::AtomicU32>,
+
+    /// Available render backends, queried by `prepare_topology_rebuild_for_layout`
+    /// to build the active backend by id. Defaults to the built-ins; a host
+    /// registers extra backends at startup via [`RendererControl::register_backend`].
+    /// Behind a lock because registration happens after construction (the control
+    /// is already shared); only read off the audio hot path (topology rebuild).
+    backend_registry: RwLock<BackendRegistry>,
 }
 
 impl RendererControl {
@@ -691,7 +698,21 @@ impl RendererControl {
             // Seeded from config (or a host default) after construction.
             meter_rate_hz_bits: Arc::new(std::sync::atomic::AtomicU32::new(50.0_f32.to_bits())),
             diag_rate_hz_bits: Arc::new(std::sync::atomic::AtomicU32::new(50.0_f32.to_bits())),
+            backend_registry: RwLock::new(BackendRegistry::builtin()),
         })
+    }
+
+    /// Register an additional render backend. Call at startup, before audio runs;
+    /// a later registration with the same id overrides the earlier one. Selecting
+    /// the backend by its id (`LiveParams::backend_id`) then routes a topology
+    /// rebuild through it.
+    pub fn register_backend(&self, factory: Box<dyn crate::backend_registry::BackendFactory>) {
+        self.backend_registry.write().register(factory);
+    }
+
+    /// Whether a backend with this id is registered (built-in or host-registered).
+    pub fn has_backend(&self, id: &str) -> bool {
+        self.backend_registry.read().get(id).is_some()
     }
 
     /// Shared meter-cadence atomic (Hz bits) for `AudioMeter::new_with_rate_atomic`.
@@ -840,7 +861,9 @@ impl RendererControl {
             rebuild_params_allow_negative_z(backend_rebuild_params),
         );
         let geometry_generation = self.geometry_generation();
+        let registry = self.backend_registry.read();
         prepare_topology_build_plan(
+            &registry,
             layout,
             &live,
             backend_rebuild_params,
