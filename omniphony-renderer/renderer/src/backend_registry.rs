@@ -6,11 +6,89 @@ use crate::live_params::{
     BackendRebuildParams, LiveEvaluationMode, LiveParams, PreferredEvaluationMode, RenderTopology,
 };
 use crate::render_backend::{
-    BlendCurve, EffectiveEvaluationMode, FewSpeakerBackend, GainModel, GainModelKind,
-    HybridBackend, RenderBackendKind, backend_descriptor_by_id, build_prepared_render_engine,
-    wrap_prepared_engine,
+    BlendCurve, EffectiveEvaluationMode, EvaluationBuildConfig, FewSpeakerBackend, GainModel,
+    GainModelKind, HybridBackend, PreparedRenderEngine, RenderBackendKind,
+    backend_descriptor_by_id, build_prepared_render_engine, wrap_prepared_engine,
 };
 use crate::speaker_layout::SpeakerLayout;
+
+/// Reference positions probed by [`smoke_test_engine`]: scene centre, the eight
+/// cube corners, and a few off-axis points. They are intentionally cheap and
+/// fixed — the goal is to exercise a freshly built backend once, on the build
+/// thread, not to characterise it.
+const SMOKE_TEST_POSITIONS: [[f64; 3]; 11] = [
+    [0.0, 0.0, 0.0],
+    [1.0, 1.0, 1.0],
+    [-1.0, -1.0, -1.0],
+    [1.0, -1.0, 1.0],
+    [-1.0, 1.0, -1.0],
+    [1.0, 1.0, -1.0],
+    [-1.0, -1.0, 1.0],
+    [1.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0],
+    [0.0, 0.0, 1.0],
+    [0.5, -0.5, 0.25],
+];
+
+/// Extract a human-readable message from a `catch_unwind` panic payload.
+fn panic_detail(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(msg) = payload.downcast_ref::<&'static str>() {
+        (*msg).to_string()
+    } else if let Some(msg) = payload.downcast_ref::<String>() {
+        msg.clone()
+    } else {
+        "panic with non-string payload".to_string()
+    }
+}
+
+/// Exercise a freshly built engine on a handful of reference positions, on the
+/// build thread, so a misbehaving backend is rejected here instead of taking
+/// down the realtime audio thread on its first frame.
+///
+/// This is the build-time guard behind the [`GainModel`] hot-path contract: a
+/// contributor backend that panics, returns the wrong number of gains, or emits
+/// a non-finite gain turns into a plain `Err` from topology construction (which
+/// the OSC recompute path already surfaces to Studio), never an uncaught panic
+/// in `SpatialRenderer::render_frame`.
+fn smoke_test_engine(
+    engine: &PreparedRenderEngine,
+    config: &EvaluationBuildConfig,
+    backend_id: &str,
+) -> Result<()> {
+    let expected = engine.speaker_count();
+    for position in SMOKE_TEST_POSITIONS {
+        let mut request = config.request_template;
+        request.adm_position = position;
+
+        let response = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            engine.compute_gains(&request)
+        }))
+        .map_err(|payload| {
+            anyhow::anyhow!(
+                "backend '{backend_id}' panicked in compute_gains at position {position:?}: {}",
+                panic_detail(payload.as_ref())
+            )
+        })?;
+
+        if response.gains.len() != expected {
+            return Err(anyhow::anyhow!(
+                "backend '{backend_id}' returned {} gains at position {position:?}, expected {expected}",
+                response.gains.len()
+            ));
+        }
+        if let Some((speaker, gain)) = response
+            .gains
+            .iter()
+            .enumerate()
+            .find(|(_, gain)| !gain.is_finite())
+        {
+            return Err(anyhow::anyhow!(
+                "backend '{backend_id}' returned non-finite gain {gain} for speaker {speaker} at position {position:?}"
+            ));
+        }
+    }
+    Ok(())
+}
 
 #[derive(Clone)]
 pub enum BackendBuildPlan {
@@ -188,15 +266,21 @@ impl TopologyBuildPlan {
         }) {
             let engine =
                 wrap_prepared_engine(model, effective_mode, &self.evaluation_build_config)?;
-            return Ok(RenderTopology::new(Arc::new(engine), self.layout.clone())?
-                .with_geometry_generation(self.geometry_generation));
+            let topology = RenderTopology::new(Arc::new(engine), self.layout.clone())?
+                .with_geometry_generation(self.geometry_generation);
+            smoke_test_engine(
+                &topology.backend,
+                &self.evaluation_build_config,
+                self.backend_id(),
+            )?;
+            return Ok(topology);
         }
 
         // The panner is geometry-only and ignores the evaluation mode, so the
         // shared realtime builder applies to every backend (the mode is resolved
         // later by `build_prepared_render_engine`'s evaluation wrapper).
         let model = self.backend_build.build_gain_model()?;
-        Ok(RenderTopology::new(
+        let topology = RenderTopology::new(
             Arc::new(build_prepared_render_engine(
                 model,
                 effective_mode,
@@ -204,7 +288,13 @@ impl TopologyBuildPlan {
             )?),
             self.layout.clone(),
         )?
-        .with_geometry_generation(self.geometry_generation))
+        .with_geometry_generation(self.geometry_generation);
+        smoke_test_engine(
+            &topology.backend,
+            &self.evaluation_build_config,
+            self.backend_id(),
+        )?;
+        Ok(topology)
     }
 
     pub fn backend_id(&self) -> &str {
@@ -480,5 +570,174 @@ pub fn prepare_topology_build_plan(
             })
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::render_backend::{
+        BackendCapabilities, CartesianEvaluationConfig, PolarEvaluationConfig, RenderRequest,
+        RenderResponse,
+    };
+    use crate::spatial_vbap::{DistanceMetric, DistanceModel, Gains};
+
+    const TEST_SPEAKERS: usize = 4;
+
+    fn realtime_caps() -> BackendCapabilities {
+        BackendCapabilities {
+            supports_realtime: true,
+            supports_precomputed_polar: false,
+            supports_precomputed_cartesian: false,
+            supports_position_interpolation: false,
+            supports_distance_model: false,
+            supports_spread: false,
+            supports_spread_from_distance: false,
+            supports_event_size: false,
+            supports_distance_diffuse: false,
+            supports_table_export: false,
+        }
+    }
+
+    fn build_config() -> EvaluationBuildConfig {
+        EvaluationBuildConfig {
+            request_template: RenderRequest {
+                adm_position: [0.0, 0.0, 0.0],
+                event_size: [0.0; 3],
+                size_to_spread_mode: Default::default(),
+                spread_min: 0.0,
+                spread_max: 0.0,
+                spread_from_distance: false,
+                spread_distance_range: 1.0,
+                spread_distance_curve: 1.0,
+                room_ratio: [1.0, 1.0, 1.0],
+                room_ratio_rear: 1.0,
+                room_ratio_lower: 1.0,
+                room_ratio_center_blend: 0.5,
+                use_distance_diffuse: false,
+                distance_diffuse_threshold: 1.0,
+                distance_diffuse_curve: 1.0,
+                distance_model: DistanceModel::default(),
+                barycenter_localize: 0.0,
+                experimental_distance_distance_floor: 0.0,
+                experimental_distance_min_active_speakers: 1,
+                experimental_distance_max_active_speakers: 1,
+                experimental_distance_position_error_floor: 0.0,
+                experimental_distance_position_error_nearest_scale: 0.0,
+                experimental_distance_position_error_span_scale: 0.0,
+            },
+            position_interpolation: false,
+            cartesian: CartesianEvaluationConfig {
+                x_size: 5,
+                y_size: 5,
+                z_size: 3,
+                z_neg_size: 0,
+            },
+            polar: PolarEvaluationConfig {
+                azimuth_values: 8,
+                elevation_values: 5,
+                distance_values: 4,
+                distance_max: 1.0,
+                allow_negative_z: false,
+            },
+            distance_model_metric: DistanceMetric::default(),
+            distance_diffuse_metric: DistanceMetric::default(),
+        }
+    }
+
+    /// Build a realtime engine for `model`. Realtime wrapping does not sample the
+    /// model, so a backend that misbehaves in `compute_gains` builds fine here and
+    /// is only caught by the smoke test — exactly the case we want to cover.
+    fn realtime_engine(model: Box<dyn GainModel>) -> PreparedRenderEngine {
+        build_prepared_render_engine(model, EffectiveEvaluationMode::Realtime, &build_config())
+            .expect("realtime engine builds")
+    }
+
+    macro_rules! fake_backend {
+        ($name:ident, $id:literal, $compute:expr) => {
+            struct $name;
+            impl GainModel for $name {
+                fn kind(&self) -> GainModelKind {
+                    GainModelKind::Vbap
+                }
+                fn backend_id(&self) -> &'static str {
+                    $id
+                }
+                fn backend_label(&self) -> &'static str {
+                    $id
+                }
+                fn capabilities(&self) -> BackendCapabilities {
+                    realtime_caps()
+                }
+                fn speaker_count(&self) -> usize {
+                    TEST_SPEAKERS
+                }
+                fn compute_gains(&self, _req: &RenderRequest) -> RenderResponse {
+                    $compute
+                }
+                fn save_to_file(
+                    &self,
+                    _path: &std::path::Path,
+                    _layout: &SpeakerLayout,
+                ) -> Result<()> {
+                    Ok(())
+                }
+            }
+        };
+    }
+
+    fake_backend!(
+        PanicBackend,
+        "panic_backend",
+        panic!("boom from contributor backend")
+    );
+    fake_backend!(NonFiniteBackend, "nan_backend", {
+        let mut gains = Gains::zeroed(TEST_SPEAKERS);
+        gains.set(0, f32::NAN);
+        RenderResponse { gains }
+    });
+    fake_backend!(
+        WrongCountBackend,
+        "wrong_count_backend",
+        RenderResponse {
+            gains: Gains::zeroed(TEST_SPEAKERS + 1),
+        }
+    );
+    fake_backend!(
+        GoodBackend,
+        "good_backend",
+        RenderResponse {
+            gains: Gains::zeroed(TEST_SPEAKERS),
+        }
+    );
+
+    #[test]
+    fn smoke_test_rejects_panicking_backend() {
+        let engine = realtime_engine(Box::new(PanicBackend));
+        let err = smoke_test_engine(&engine, &build_config(), "panic_backend").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("panicked in compute_gains"), "got: {msg}");
+        assert!(msg.contains("panic_backend"), "got: {msg}");
+    }
+
+    #[test]
+    fn smoke_test_rejects_non_finite_gains() {
+        let engine = realtime_engine(Box::new(NonFiniteBackend));
+        let err = smoke_test_engine(&engine, &build_config(), "nan_backend").unwrap_err();
+        assert!(err.to_string().contains("non-finite"), "got: {err}");
+    }
+
+    #[test]
+    fn smoke_test_rejects_wrong_gain_count() {
+        let engine = realtime_engine(Box::new(WrongCountBackend));
+        let err = smoke_test_engine(&engine, &build_config(), "wrong_count_backend").unwrap_err();
+        assert!(err.to_string().contains("expected"), "got: {err}");
+    }
+
+    #[test]
+    fn smoke_test_accepts_well_behaved_backend() {
+        let engine = realtime_engine(Box::new(GoodBackend));
+        smoke_test_engine(&engine, &build_config(), "good_backend")
+            .expect("well-behaved backend passes the smoke test");
     }
 }
