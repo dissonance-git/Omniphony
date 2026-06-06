@@ -14,11 +14,6 @@ on:
   schedule:
     - cron: '0 4 * * *' # daily 04:00 UTC
 
-# Opt every JavaScript action into the Node 24 runtime (actions/cache@v4 and
-# tauri-action still ship Node 20 entrypoints).
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
   build-studio:
     strategy:
@@ -44,7 +39,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         # Caching is an optimization, not a correctness step: a crash of the
         # cache action (e.g. the Node-20 entrypoint forced onto Node 24 dying on
         # the Windows runner) must never fail the build.
@@ -151,7 +146,7 @@ jobs:
           ls -la staging/
 
       - name: Upload bundles
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: studio-bundles-${{ runner.os }}
           path: staging/*
@@ -163,7 +158,7 @@ jobs:
       contents: write
     steps:
       - name: Download all bundles
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: studio-bundles-*
           merge-multiple: true
@@ -176,7 +171,7 @@ jobs:
         run: gh release delete integration --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
 
       - name: Publish rolling integration pre-release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: integration
           name: 'Omniphony Studio (integration build)'

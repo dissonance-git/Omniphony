@@ -23,11 +23,6 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Opt every JavaScript action into the Node 24 runtime (actions/cache@v4 still
-# ships a Node 20 entrypoint; checkout/setup-node are pinned to Node 24 majors).
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
   build-and-test:
     runs-on: ubuntu-22.04
@@ -45,10 +40,9 @@ jobs:
           components: rustfmt
 
       - name: Cache Cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         # Caching is an optimization, not a correctness step: a crash of the
-        # cache action (e.g. the Node-20 entrypoint forced onto Node 24 dying on
-        # the Windows runner) must never fail the build.
+        # cache action must never fail the build.
         continue-on-error: true
         with:
           path: |
