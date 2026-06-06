@@ -340,12 +340,6 @@ pub struct LiveParams {
     /// blend weight.  1.0 = linear, < 1 = fast-near, > 1 = slow-near.  Default: 1.0.
     pub distance_diffuse_curve: f32,
 
-    /// Runtime tuning parameters for the experimental distance backend.
-    pub experimental_distance: ExperimentalDistanceLiveParams,
-
-    /// Runtime tuning parameters for the barycenter backend.
-    pub barycenter: BarycenterLiveParams,
-
     /// Runtime tuning parameters for the hybrid backend.
     pub hybrid: HybridLiveParams,
 
@@ -893,15 +887,13 @@ impl RendererControl {
         );
         let geometry_generation = self.geometry_generation();
         let registry = self.backend_registry.read();
-        let params_guard = self.backend_params.read();
-        let empty_params = HashMap::new();
-        let backend_params = params_guard.get(live.backend_id()).unwrap_or(&empty_params);
+        let backend_params = self.backend_params.read();
         prepare_topology_build_plan(
             &registry,
             layout,
             &live,
             backend_rebuild_params,
-            backend_params,
+            &backend_params,
             evaluation_build_config,
         )
         .map(|mut plan| {

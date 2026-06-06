@@ -172,61 +172,15 @@ pub fn save_live_config(
     } else {
         None
     };
-    let experimental_defaults = renderer::live_params::ExperimentalDistanceLiveParams::default();
-    render.experimental_distance_distance_floor =
-        if (live.experimental_distance.distance_floor - experimental_defaults.distance_floor).abs()
-            > 1e-4
-        {
-            Some(live.experimental_distance.distance_floor)
-        } else {
-            None
-        };
-    render.experimental_distance_min_active_speakers =
-        if live.experimental_distance.min_active_speakers
-            != experimental_defaults.min_active_speakers
-        {
-            Some(live.experimental_distance.min_active_speakers)
-        } else {
-            None
-        };
-    render.experimental_distance_max_active_speakers =
-        if live.experimental_distance.max_active_speakers
-            != experimental_defaults.max_active_speakers
-        {
-            Some(live.experimental_distance.max_active_speakers)
-        } else {
-            None
-        };
-    render.experimental_distance_position_error_floor =
-        if (live.experimental_distance.position_error_floor
-            - experimental_defaults.position_error_floor)
-            .abs()
-            > 1e-4
-        {
-            Some(live.experimental_distance.position_error_floor)
-        } else {
-            None
-        };
-    render.experimental_distance_position_error_nearest_scale =
-        if (live.experimental_distance.position_error_nearest_scale
-            - experimental_defaults.position_error_nearest_scale)
-            .abs()
-            > 1e-4
-        {
-            Some(live.experimental_distance.position_error_nearest_scale)
-        } else {
-            None
-        };
-    render.experimental_distance_position_error_span_scale =
-        if (live.experimental_distance.position_error_span_scale
-            - experimental_defaults.position_error_span_scale)
-            .abs()
-            > 1e-4
-        {
-            Some(live.experimental_distance.position_error_span_scale)
-        } else {
-            None
-        };
+    // barycenter / experimental_distance params now live in the generic param bag
+    // (`render.backend_params`, written below), so drop the legacy dedicated keys
+    // on save. Reading an old config still migrates them into the bag on load.
+    render.experimental_distance_distance_floor = None;
+    render.experimental_distance_min_active_speakers = None;
+    render.experimental_distance_max_active_speakers = None;
+    render.experimental_distance_position_error_floor = None;
+    render.experimental_distance_position_error_nearest_scale = None;
+    render.experimental_distance_position_error_span_scale = None;
     let hybrid_defaults = renderer::live_params::HybridLiveParams::default();
     render.hybrid_external_backend =
         if live.hybrid.external_backend_id != hybrid_defaults.external_backend_id {
@@ -256,13 +210,7 @@ pub fn save_live_config(
     } else {
         None
     };
-    let barycenter_defaults = renderer::live_params::BarycenterLiveParams::default();
-    render.barycenter_localize =
-        if (live.barycenter.localize - barycenter_defaults.localize).abs() > 1e-4 {
-            Some(live.barycenter.localize)
-        } else {
-            None
-        };
+    render.barycenter_localize = None;
     renderer::config_fields::ramp_mode::store(render, control.requested_ramp_mode().as_str());
 
     drop(live);

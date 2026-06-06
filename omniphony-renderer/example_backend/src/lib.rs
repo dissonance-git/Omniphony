@@ -202,7 +202,7 @@ impl BackendFactory for ExampleFactory {
         // Read the host-set sharpness (falling back to the default), resolved at
         // build time and captured into the model.
         let sharpness = ctx
-            .param("sharpness")
+            .backend_param(self.id(), "sharpness")
             .and_then(ParamValue::as_f32)
             .unwrap_or(DEFAULT_SHARPNESS);
 
