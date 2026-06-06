@@ -90,6 +90,34 @@ fn smoke_test_engine(
     Ok(())
 }
 
+/// A backend plan whose gain model is produced by an opaque builder closure
+/// rather than one of the built-in typed variants. This is how an out-of-tree
+/// backend (one whose `BackendFactory` lives in another crate) plugs into the
+/// build pipeline: the factory captures whatever it needs from the build context
+/// into the closure. Cloneable (the closure is shared via `Arc`) so it can ride
+/// inside a `TopologyBuildPlan` like the typed variants.
+#[derive(Clone)]
+pub struct DynamicBackendPlan {
+    id: &'static str,
+    builder: Arc<dyn Fn() -> Result<Box<dyn GainModel>> + Send + Sync>,
+}
+
+impl DynamicBackendPlan {
+    pub fn new(
+        id: &'static str,
+        builder: impl Fn() -> Result<Box<dyn GainModel>> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            id,
+            builder: Arc::new(builder),
+        }
+    }
+
+    pub fn id(&self) -> &'static str {
+        self.id
+    }
+}
+
 #[derive(Clone)]
 pub enum BackendBuildPlan {
     Vbap(VbapTopologyBuildPlan),
@@ -100,6 +128,9 @@ pub enum BackendBuildPlan {
     Barycenter(BarycenterBuildPlan),
     ExperimentalDistance(ExperimentalDistanceBuildPlan),
     Hybrid(HybridBuildPlan),
+    /// A backend supplied by a registered [`BackendFactory`] that is not one of
+    /// the built-in variants (e.g. a contributor backend in its own crate).
+    Dynamic(DynamicBackendPlan),
 }
 
 impl BackendBuildPlan {
@@ -113,6 +144,7 @@ impl BackendBuildPlan {
             BackendBuildPlan::Barycenter(plan) => plan.build_gain_model(),
             BackendBuildPlan::ExperimentalDistance(plan) => plan.build_gain_model(),
             BackendBuildPlan::Hybrid(plan) => plan.build_gain_model(),
+            BackendBuildPlan::Dynamic(plan) => (plan.builder)(),
         }
     }
 }
@@ -351,6 +383,11 @@ impl TopologyBuildPlan {
                 inner_backend_summary(&plan.internal),
                 plan.curve.len()
             ),
+            BackendBuildPlan::Dynamic(plan) => format!(
+                "gain_model={} evaluation_mode={}",
+                plan.id(),
+                self.evaluation_mode().as_str()
+            ),
         }
     }
 }
@@ -362,6 +399,7 @@ fn inner_backend_summary(plan: &BackendBuildPlan) -> &'static str {
         BackendBuildPlan::Barycenter(_) => "barycenter",
         BackendBuildPlan::ExperimentalDistance(_) => "experimental_distance",
         BackendBuildPlan::Hybrid(_) => "hybrid",
+        BackendBuildPlan::Dynamic(plan) => plan.id(),
     }
 }
 
@@ -877,5 +915,48 @@ mod tests {
         // Re-registering the same id replaces the entry instead of appending.
         registry.register(Box::new(DummyFactory("custom")));
         assert_eq!(registry.ids().count(), count);
+    }
+
+    /// A factory for an out-of-tree backend: it produces a `Dynamic` plan whose
+    /// builder constructs an arbitrary `GainModel`, with no dedicated enum variant
+    /// and no central `match` edit.
+    struct DynamicFactory;
+    impl BackendFactory for DynamicFactory {
+        fn id(&self) -> &'static str {
+            "dynamic_example"
+        }
+        fn build_plan(&self, _ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
+            Some(BackendBuildPlan::Dynamic(DynamicBackendPlan::new(
+                "dynamic_example",
+                || Ok(Box::new(GoodBackend)),
+            )))
+        }
+    }
+
+    #[test]
+    fn dynamic_plan_builds_an_arbitrary_gain_model() {
+        let plan = BackendBuildPlan::Dynamic(DynamicBackendPlan::new("dynamic_example", || {
+            Ok(Box::new(GoodBackend))
+        }));
+        // The plan is cloneable (it rides inside a TopologyBuildPlan)...
+        let cloned = plan.clone();
+        // ...and both build the model the closure returns.
+        assert_eq!(
+            plan.build_gain_model().unwrap().speaker_count(),
+            TEST_SPEAKERS
+        );
+        assert_eq!(
+            cloned.build_gain_model().unwrap().backend_id(),
+            "good_backend"
+        );
+    }
+
+    #[test]
+    fn registered_dynamic_factory_is_retrievable() {
+        let mut registry = BackendRegistry::builtin();
+        registry.register(Box::new(DynamicFactory));
+        // An out-of-tree factory registers and is found by id alongside builtins.
+        assert!(registry.get("dynamic_example").is_some());
+        assert!(registry.get("vbap").is_some());
     }
 }
