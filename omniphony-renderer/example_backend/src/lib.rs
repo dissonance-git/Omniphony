@@ -22,20 +22,25 @@
 //! Do expensive setup (here: normalising the speaker directions) when the model
 //! is built, never in `compute_gains`. See the `GainModel` trait docs.
 //!
-//! ## Known limitation (lifted by the backend-frontier refactor)
+//! ## Selecting it at runtime
 //!
-//! A backend can be *implemented* from outside today, but it cannot yet be
-//! *selected* at runtime without editing the renderer's central
-//! [`GainModelKind`] enum and the backend registry. That is why [`kind`] below
-//! has to borrow an existing variant. Opening that frontier (registration
-//! without touching core enums) is the next step.
+//! Implement [`BackendFactory`] (see [`ExampleFactory`]) and a host registers it
+//! with `RendererControl::register_backend`; selecting `backend_id = "example"`
+//! then routes a topology rebuild through it — no central enum or `match` to edit.
+//!
+//! One rough edge remains: [`GainModelKind`] is still a closed enum in `renderer`,
+//! so [`kind`] below has to borrow an existing variant. Moving identity onto the
+//! factory (to retire that enum) is the next step.
 //!
 //! [`kind`]: GainModel::kind
 
+use renderer::backend_registry::{
+    BackendBuildCtx, BackendBuildPlan, BackendFactory, DynamicBackendPlan,
+};
 use renderer::render_backend::{
     BackendCapabilities, GainModel, GainModelKind, RenderRequest, RenderResponse,
 };
-use renderer::spatial_vbap::Gains;
+use renderer::spatial_vbap::{Gains, spherical_to_adm};
 use renderer::speaker_layout::SpeakerLayout;
 
 /// Sharpness of the cosine lobe: higher = tighter localisation on the nearest
@@ -142,6 +147,40 @@ impl GainModel for ExampleBackend {
         // `supports_table_export` is false, so the host never calls this for a
         // real export; be explicit rather than silently succeeding.
         anyhow::bail!("example backend does not support table export")
+    }
+}
+
+/// Registers [`ExampleBackend`] under the id `"example"`.
+///
+/// This is the other half of the skeleton: implement [`BackendFactory`] and a
+/// host can `register` it (`RendererControl::register_backend`) at startup, after
+/// which selecting `backend_id = "example"` routes a topology rebuild through it.
+/// Note there is no central enum or `match` to edit — the factory returns a
+/// [`BackendBuildPlan::Dynamic`] whose closure builds the model from the layout.
+pub struct ExampleFactory;
+
+impl BackendFactory for ExampleFactory {
+    fn id(&self) -> &'static str {
+        "example"
+    }
+
+    fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
+        // Capture the spatializable speaker directions now (build thread), so the
+        // model builder closure owns everything it needs and the hot path does no
+        // layout lookups. Azimuth/elevation pairs are converted to unit vectors.
+        let (azimuth_elevation, _spatializable_indices) = ctx.layout.spatializable_positions();
+        let speaker_positions: Vec<[f32; 3]> = azimuth_elevation
+            .iter()
+            .map(|[az, el]| {
+                let (x, y, z) = spherical_to_adm(*az, *el, 1.0);
+                [x, y, z]
+            })
+            .collect();
+
+        Some(BackendBuildPlan::Dynamic(DynamicBackendPlan::new(
+            "example",
+            move || Ok(Box::new(ExampleBackend::new(&speaker_positions))),
+        )))
     }
 }
 

@@ -656,9 +656,11 @@ pub struct RendererControl {
     pub diag_rate_hz_bits: Arc<std::sync::atomic::AtomicU32>,
 
     /// Available render backends, queried by `prepare_topology_rebuild_for_layout`
-    /// to build the active backend by id. Defaults to the built-ins; a host can
-    /// inject extra backends via [`RendererControl::new_with_registry`].
-    backend_registry: Arc<BackendRegistry>,
+    /// to build the active backend by id. Defaults to the built-ins; a host
+    /// registers extra backends at startup via [`RendererControl::register_backend`].
+    /// Behind a lock because registration happens after construction (the control
+    /// is already shared); only read off the audio hot path (topology rebuild).
+    backend_registry: RwLock<BackendRegistry>,
 }
 
 impl RendererControl {
@@ -673,24 +675,6 @@ impl RendererControl {
         initial_topology: RenderTopology,
         editable_layout: SpeakerLayout,
         backend_rebuild_params: Option<BackendRebuildParams>,
-    ) -> Arc<Self> {
-        Self::new_with_registry(
-            live,
-            initial_topology,
-            editable_layout,
-            backend_rebuild_params,
-            Arc::new(BackendRegistry::builtin()),
-        )
-    }
-
-    /// Like [`new`](Self::new) but with a host-provided backend registry, so a
-    /// host can register additional render backends before the control is shared.
-    pub fn new_with_registry(
-        live: LiveParams,
-        initial_topology: RenderTopology,
-        editable_layout: SpeakerLayout,
-        backend_rebuild_params: Option<BackendRebuildParams>,
-        backend_registry: Arc<BackendRegistry>,
     ) -> Arc<Self> {
         Arc::new(Self {
             live: RwLock::new(live),
@@ -714,13 +698,21 @@ impl RendererControl {
             // Seeded from config (or a host default) after construction.
             meter_rate_hz_bits: Arc::new(std::sync::atomic::AtomicU32::new(50.0_f32.to_bits())),
             diag_rate_hz_bits: Arc::new(std::sync::atomic::AtomicU32::new(50.0_f32.to_bits())),
-            backend_registry,
+            backend_registry: RwLock::new(BackendRegistry::builtin()),
         })
     }
 
-    /// The render backends available to this control.
-    pub fn backend_registry(&self) -> &BackendRegistry {
-        &self.backend_registry
+    /// Register an additional render backend. Call at startup, before audio runs;
+    /// a later registration with the same id overrides the earlier one. Selecting
+    /// the backend by its id (`LiveParams::backend_id`) then routes a topology
+    /// rebuild through it.
+    pub fn register_backend(&self, factory: Box<dyn crate::backend_registry::BackendFactory>) {
+        self.backend_registry.write().register(factory);
+    }
+
+    /// Whether a backend with this id is registered (built-in or host-registered).
+    pub fn has_backend(&self, id: &str) -> bool {
+        self.backend_registry.read().get(id).is_some()
     }
 
     /// Shared meter-cadence atomic (Hz bits) for `AudioMeter::new_with_rate_atomic`.
@@ -869,8 +861,9 @@ impl RendererControl {
             rebuild_params_allow_negative_z(backend_rebuild_params),
         );
         let geometry_generation = self.geometry_generation();
+        let registry = self.backend_registry.read();
         prepare_topology_build_plan(
-            &self.backend_registry,
+            &registry,
             layout,
             &live,
             backend_rebuild_params,
