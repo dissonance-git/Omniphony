@@ -4,6 +4,7 @@
  * Extracted from app.js (lines 3711-3852).
  */
 
+import { invoke } from '@tauri-apps/api/core';
 import { app, dirty } from '../state.js';
 import { t, tf } from '../i18n.js';
 import { formatNumber } from '../coordinates.js';
@@ -331,6 +332,110 @@ function syncBackendOptions(selectEl) {
   }
 }
 
+// Built-in backends that already have hand-written control sections. Everything
+// else (e.g. a contributor backend) gets its controls generated from the schema.
+const BESPOKE_BACKENDS = ['vbap', 'barycenter', 'experimental_distance', 'hybrid'];
+
+function sendBackendParam(key, value) {
+  invoke('control_backend_param', { key, value });
+}
+
+// Build one control row for a param spec, seeded with `current`. Returns the row
+// element with a `_setValue` hook used to refresh it without a rebuild.
+function buildParamControl(spec, current) {
+  const row = document.createElement('div');
+  row.className = 'control-row generated-param-row';
+  const label = document.createElement('label');
+  label.textContent = spec.label || spec.key;
+  row.appendChild(label);
+  const kind = spec.kind || {};
+  if (kind.type === 'bool') {
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = current === true;
+    input.addEventListener('change', () => sendBackendParam(spec.key, input.checked));
+    row.appendChild(input);
+    row._setValue = (v) => { input.checked = v === true; };
+  } else if (kind.type === 'enum') {
+    const select = document.createElement('select');
+    for (const opt of (kind.options || [])) {
+      const o = document.createElement('option');
+      o.value = String(opt.value);
+      o.textContent = String(opt.label || opt.value);
+      select.appendChild(o);
+    }
+    select.value = String(current);
+    select.addEventListener('change', () => sendBackendParam(spec.key, select.value));
+    row.appendChild(select);
+    row._setValue = (v) => { select.value = String(v); };
+  } else {
+    const isInt = kind.type === 'int';
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.min = String(kind.min ?? 0);
+    input.max = String(kind.max ?? 1);
+    input.step = String(isInt ? 1 : (kind.step ?? 0.01));
+    input.value = String(current);
+    const valEl = document.createElement('span');
+    valEl.className = 'val';
+    valEl.textContent = String(current);
+    const parse = (v) => (isInt ? Math.round(Number(v)) : Number(v));
+    input.addEventListener('input', () => { valEl.textContent = input.value; });
+    input.addEventListener('change', () => sendBackendParam(spec.key, parse(input.value)));
+    row.appendChild(input);
+    row.appendChild(valEl);
+    row._setValue = (v) => { input.value = String(v); valEl.textContent = String(v); };
+  }
+  return row;
+}
+
+// Generate controls for the active backend from its published param schema.
+// Only used for backends without a hand-written section (contributor backends).
+function renderGenericBackendParams(activeBackend) {
+  const host = getBackendParametersSectionEl();
+  if (!host) return;
+  let container = document.getElementById('backendGenericParamsSection');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'backendGenericParamsSection';
+    container.className = 'control-section';
+    host.appendChild(container);
+  }
+
+  const available = app.renderBackendState && Array.isArray(app.renderBackendState.availableBackends)
+    ? app.renderBackendState.availableBackends
+    : [];
+  const entry = available.find((b) => String(b.id) === String(activeBackend));
+  const schema = entry && Array.isArray(entry.params) ? entry.params : [];
+
+  if (BESPOKE_BACKENDS.includes(activeBackend) || schema.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+  container.style.display = '';
+
+  const values = (app.renderBackendState && app.renderBackendState.backendParamValues) || {};
+  const valueFor = (spec) => (spec.key in values ? values[spec.key] : spec.default);
+
+  // Rebuild controls only when the backend changed; otherwise refresh values so
+  // an external change (OSC) is reflected without dropping focus.
+  if (container.dataset.backend !== String(activeBackend)) {
+    container.replaceChildren();
+    container.dataset.backend = String(activeBackend);
+    for (const spec of schema) {
+      container.appendChild(buildParamControl(spec, valueFor(spec)));
+    }
+  } else {
+    const rows = container.querySelectorAll('.generated-param-row');
+    schema.forEach((spec, i) => {
+      const row = rows[i];
+      if (row && typeof row._setValue === 'function' && document.activeElement !== row.querySelector('input, select')) {
+        row._setValue(valueFor(spec));
+      }
+    });
+  }
+}
+
 export function renderRenderBackend() {
   const renderBackendSelectEl = getRenderBackendSelectEl();
   const restoreBackendBtnEl = getRestoreBackendBtnEl();
@@ -363,6 +468,7 @@ export function renderRenderBackend() {
   applyRendererBackendVisibility(visibleBackend);
   renderBarycenterOptions();
   renderExperimentalDistanceOptions();
+  renderGenericBackendParams(visibleBackend);
   renderHybridOptions();
   renderEvaluationMode();
 }
