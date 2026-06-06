@@ -13,11 +13,6 @@ on:
       - 'liborender-v*'
   workflow_dispatch:
 
-# Opt every JavaScript action into the Node 24 runtime (upload-artifact /
-# download-artifact / gh-release still ship Node 20 entrypoints).
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
   # Release artifacts must originate from the `release` branch: fail fast on a
   # tag pushed from main or a feature branch.
@@ -62,7 +57,7 @@ jobs:
           zip "../${GITHUB_REF_NAME}-linux-x86_64.zip" liborender.so orender.h
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: liborender-linux-x86_64
           path: ${{ github.ref_name }}-linux-x86_64.zip
@@ -92,7 +87,7 @@ jobs:
             -DestinationPath "${env:GITHUB_REF_NAME}-windows-x86_64.zip"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: liborender-windows-x86_64
           path: ${{ github.ref_name }}-windows-x86_64.zip
@@ -104,17 +99,17 @@ jobs:
       contents: write
     steps:
       - name: Download Linux artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: liborender-linux-x86_64
 
       - name: Download Windows artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: liborender-windows-x86_64
 
       - name: Create draft release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: true
           name: ${{ github.ref_name }}
