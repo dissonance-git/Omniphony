@@ -693,12 +693,24 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
-    // Generic backend parameter set: `[string key, <scalar value>]`, applied to
-    // the currently selected backend. Values are stored generically (no typed
-    // field per backend) and read at the next topology rebuild via the schema.
+    // Generic backend parameter set. Two forms:
+    //   `[string key, <scalar value>]`              -> currently selected backend
+    //   `[string backend_id, string key, <value>]`  -> an explicit backend
+    // The explicit form lets the UI address an inner backend (e.g. the hybrid
+    // barycenter tab) even though it is not the active selection. Values are
+    // stored generically (no typed field per backend) and read at the next
+    // topology rebuild via the schema.
     if addr == "/omniphony/control/backend/param" {
-        let key = parse_string_arg(msg.args.first());
-        let value = msg.args.get(1).and_then(|arg| match arg {
+        let (target, key, value_arg) = if msg.args.len() >= 3 {
+            (
+                parse_string_arg(msg.args.first()),
+                parse_string_arg(msg.args.get(1)),
+                msg.args.get(2),
+            )
+        } else {
+            (None, parse_string_arg(msg.args.first()), msg.args.get(1))
+        };
+        let value = value_arg.and_then(|arg| match arg {
             OscType::Float(f) => Some(renderer::backend_params::ParamValue::Float(*f)),
             OscType::Double(d) => Some(renderer::backend_params::ParamValue::Float(*d as f32)),
             OscType::Int(i) => Some(renderer::backend_params::ParamValue::Int(*i as i64)),
@@ -708,7 +720,8 @@ pub fn apply_simple_osc_control(
             _ => None,
         });
         if let (Some(key), Some(value)) = (key, value) {
-            let backend_id = ctx.renderer.live.read().backend_id().to_string();
+            let backend_id =
+                target.unwrap_or_else(|| ctx.renderer.live.read().backend_id().to_string());
             ctx.renderer.set_backend_param(&backend_id, &key, value);
             effects.mark_dirty = true;
             effects.trigger_layout_recompute = true;

@@ -101,6 +101,7 @@ pub(crate) fn trigger_layout_recompute(
                             scale_m,
                             control_clone.available_backends(),
                             control_clone.backend_params_for(live.backend_id()),
+                            control_clone.all_backend_params(),
                         )
                     };
                     let layout_json = {
