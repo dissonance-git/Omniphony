@@ -1,10 +1,7 @@
 use anyhow::Result;
 
 use super::room_transform::room_scaled_position;
-use super::{
-    BackendCapabilities, GainModel, GainModelKind, RenderRequest, RenderResponse,
-    reduce_size_to_spread,
-};
+use super::{BackendCapabilities, GainModel, RenderRequest, RenderResponse, reduce_size_to_spread};
 use crate::spatial_vbap::{VbapPanner, adm_to_spherical};
 use crate::speaker_layout::SpeakerLayout;
 
@@ -78,10 +75,6 @@ impl VbapBackend {
 }
 
 impl GainModel for VbapBackend {
-    fn kind(&self) -> GainModelKind {
-        GainModelKind::Vbap
-    }
-
     fn backend_id(&self) -> &'static str {
         "vbap"
     }

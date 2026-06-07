@@ -77,8 +77,7 @@ use crate::ramp_strategy::{
 use crate::render_backend::RenderRequest;
 use crate::render_backend::{
     CartesianEvaluationConfig, EffectiveEvaluationMode, EvaluationBuildConfig, MultiBandTable,
-    PolarEvaluationConfig, PreparedRenderEngine, RenderBackendKind, VbapBackend,
-    build_prepared_render_engine,
+    PolarEvaluationConfig, PreparedRenderEngine, VbapBackend, build_prepared_render_engine,
 };
 use crate::spatial_vbap::{DistanceModel, Gains};
 use crate::spatial_vbap::{VbapPanner, VbapTableMode};
@@ -667,7 +666,7 @@ impl SpatialRenderer {
             topology,
             editable_layout,
             Some(crate::live_params::BackendRebuildParams {
-                backend_id: RenderBackendKind::Vbap.as_str(),
+                backend_id: "vbap",
                 preferred_evaluation_mode,
                 allow_negative_z,
                 vbap: Some(crate::live_params::VbapModelRebuildParams {
@@ -805,7 +804,7 @@ impl SpatialRenderer {
             spread_distance_curve,
             size_to_spread_mode: Default::default(),
             ramp_mode,
-            backend_id: RenderBackendKind::Vbap.as_str().to_string(),
+            backend_id: "vbap".to_string(),
             evaluation: EvaluationLiveParams {
                 mode: initial_evaluation_mode,
                 position_interpolation: vbap_position_interpolation,

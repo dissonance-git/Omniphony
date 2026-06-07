@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use super::room_transform::room_scaled_position;
-use super::{BackendCapabilities, GainModel, GainModelKind, RenderRequest, RenderResponse};
+use super::{BackendCapabilities, GainModel, RenderRequest, RenderResponse};
 use crate::spatial_vbap::Gains;
 use crate::speaker_layout::SpeakerLayout;
 
@@ -101,10 +101,6 @@ impl ExperimentalDistanceBackend {
 }
 
 impl GainModel for ExperimentalDistanceBackend {
-    fn kind(&self) -> GainModelKind {
-        GainModelKind::ExperimentalDistance
-    }
-
     fn backend_id(&self) -> &'static str {
         "experimental_distance"
     }

@@ -164,7 +164,7 @@ pub fn build_renderer_state_json(
     available_backends: Vec<renderer::backend_registry::BackendListing>,
     backend_param_values: std::collections::HashMap<String, renderer::backend_params::ParamValue>,
 ) -> String {
-    let effective_backend = active_topology.backend.kind().as_str();
+    let effective_backend = active_topology.backend.backend_id();
     let effective_evaluation_mode = active_topology.backend.evaluation_mode().as_str();
     let render_backend_state_json = build_render_backend_state_json(
         live,

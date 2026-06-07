@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use super::room_transform::room_scaled_position;
-use super::{BackendCapabilities, GainModel, GainModelKind, RenderRequest, RenderResponse};
+use super::{BackendCapabilities, GainModel, RenderRequest, RenderResponse};
 use crate::spatial_vbap::{Gains, MAX_SPEAKERS};
 use crate::speaker_layout::SpeakerLayout;
 
@@ -123,10 +123,6 @@ impl BarycenterBackend {
 }
 
 impl GainModel for BarycenterBackend {
-    fn kind(&self) -> GainModelKind {
-        GainModelKind::Barycenter
-    }
-
     fn backend_id(&self) -> &'static str {
         "barycenter"
     }

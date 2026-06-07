@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use super::{BackendCapabilities, GainModel, GainModelKind, RenderRequest, RenderResponse};
+use super::{BackendCapabilities, GainModel, RenderRequest, RenderResponse};
 use crate::spatial_vbap::{DistanceMetric, Gains};
 use crate::speaker_layout::SpeakerLayout;
 
@@ -104,10 +104,6 @@ impl HybridBackend {
 }
 
 impl GainModel for HybridBackend {
-    fn kind(&self) -> GainModelKind {
-        GainModelKind::Hybrid
-    }
-
     fn backend_id(&self) -> &'static str {
         "hybrid"
     }

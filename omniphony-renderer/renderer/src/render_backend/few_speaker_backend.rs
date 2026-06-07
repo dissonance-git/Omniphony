@@ -3,7 +3,7 @@ use std::f32::consts::FRAC_1_SQRT_2;
 use anyhow::Result;
 
 use super::room_transform::room_scaled_position;
-use super::{BackendCapabilities, GainModel, GainModelKind, RenderRequest, RenderResponse};
+use super::{BackendCapabilities, GainModel, RenderRequest, RenderResponse};
 use crate::spatial_vbap::{Gains, spherical_to_adm};
 use crate::speaker_layout::SpeakerLayout;
 
@@ -151,11 +151,7 @@ impl FewSpeakerBackend {
 }
 
 impl GainModel for FewSpeakerBackend {
-    fn kind(&self) -> GainModelKind {
-        // Degenerate VBAP — reuse the VBAP identity (no separate UI backend).
-        GainModelKind::Vbap
-    }
-
+    // Degenerate VBAP — reuses the VBAP identity (no separate UI backend).
     fn backend_id(&self) -> &'static str {
         "vbap"
     }

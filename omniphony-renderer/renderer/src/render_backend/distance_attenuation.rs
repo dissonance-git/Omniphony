@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use super::room_transform::room_scaled_position;
-use super::{BackendCapabilities, GainModel, GainModelKind, RenderRequest, RenderResponse};
+use super::{BackendCapabilities, GainModel, RenderRequest, RenderResponse};
 use crate::spatial_vbap::{DistanceMetric, calculate_distance_attenuation};
 use crate::speaker_layout::SpeakerLayout;
 
@@ -26,10 +26,6 @@ impl DistanceAttenuatedModel {
 }
 
 impl GainModel for DistanceAttenuatedModel {
-    fn kind(&self) -> GainModelKind {
-        self.inner.kind()
-    }
-
     fn backend_id(&self) -> &'static str {
         self.inner.backend_id()
     }

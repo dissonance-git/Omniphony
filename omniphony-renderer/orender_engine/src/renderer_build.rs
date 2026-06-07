@@ -10,7 +10,7 @@ use anyhow::{Result, anyhow, bail};
 use bridge_api::{RVbapCartesianDefaults, RVbapTableMode};
 use renderer::config::RenderConfig;
 use renderer::live_params::{LiveEvaluationMode, PreferredEvaluationMode};
-use renderer::render_backend::RenderBackendKind;
+use renderer::render_backend::canonical_builtin_backend_id;
 use renderer::spatial_renderer::SpatialRenderer;
 use renderer::spatial_vbap::{DistanceModel, VbapTableMode};
 use renderer::speaker_layout::SpeakerLayout;
@@ -408,11 +408,11 @@ pub fn build_spatial_renderer(
         let control = renderer.renderer_control();
         // Register the demonstration backend so `backend_id = "example"` resolves.
         control.register_backend(Box::new(example_backend::ExampleFactory));
-        // Resolve the configured backend id: enum names/aliases first (e.g.
+        // Resolve the configured backend id: built-in ids/aliases first (e.g.
         // "distance" -> experimental_distance), then any registered backend id.
         let configured_backend = configured_backend_cfg.and_then(|raw| {
-            RenderBackendKind::from_str(raw)
-                .map(|kind| kind.as_str().to_string())
+            canonical_builtin_backend_id(raw)
+                .map(|id| id.to_string())
                 .or_else(|| control.has_backend(raw).then(|| raw.to_string()))
         });
         let mut requires_rebuild = false;
