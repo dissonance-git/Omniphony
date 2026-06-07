@@ -180,7 +180,7 @@ fn prepared(
     {
         let ctrl = r.renderer_control();
         ctrl.set_requested_ramp_mode(ramp_mode);
-        ctrl.live.write().unwrap().ramp_mode = ramp_mode;
+        ctrl.live.write().ramp_mode = ramp_mode;
     }
     let pcm = make_pcm(n_objects);
     let init = move_events(n_objects, 0);
@@ -409,7 +409,7 @@ fn bench_crossover(c: &mut Criterion) {
         {
             let ctrl = r.renderer_control();
             ctrl.set_requested_ramp_mode(mode);
-            ctrl.live.write().unwrap().ramp_mode = mode;
+            ctrl.live.write().ramp_mode = mode;
         }
         let pcm = make_pcm(N);
         let init = move_events(N, 0);
@@ -491,7 +491,7 @@ fn bench_polar_crossover(c: &mut Criterion) {
         {
             let ctrl = r.renderer_control();
             ctrl.set_requested_ramp_mode(mode);
-            ctrl.live.write().unwrap().ramp_mode = mode;
+            ctrl.live.write().ramp_mode = mode;
         }
         let pcm = make_pcm(N);
         let init = move_events(N, 0);
