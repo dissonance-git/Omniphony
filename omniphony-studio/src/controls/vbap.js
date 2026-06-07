@@ -355,6 +355,14 @@ function buildParamControl(spec, current, backend) {
     info.className = 'info-icon-btn';
     info.textContent = 'i';
     info.title = spec.help;
+    // `info-icon-btn` sizes a fixed square box, but a <span> is inline by
+    // default so width/height are ignored and it renders oblong. inline-flex
+    // applies the box and centers the glyph.
+    info.style.display = 'inline-flex';
+    info.style.alignItems = 'center';
+    info.style.justifyContent = 'center';
+    info.style.verticalAlign = 'middle';
+    info.style.flex = '0 0 auto';
     info.style.marginLeft = '0.35rem';
     label.appendChild(info);
   }
@@ -390,6 +398,11 @@ function buildParamControl(spec, current, backend) {
     const valEl = document.createElement('span');
     valEl.className = 'val';
     valEl.textContent = String(current);
+    // Fixed-width, right-aligned readout so the value's changing digit count
+    // does not resize its grid column and shift the slider as you drag.
+    valEl.style.display = 'inline-block';
+    valEl.style.minWidth = '3.5em';
+    valEl.style.textAlign = 'right';
     const parse = (v) => (isInt ? Math.round(Number(v)) : Number(v));
     input.addEventListener('input', () => { valEl.textContent = input.value; });
     input.addEventListener('change', () => sendBackendParam(spec.key, parse(input.value), backend));
