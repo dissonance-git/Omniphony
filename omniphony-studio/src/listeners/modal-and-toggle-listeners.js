@@ -6,8 +6,7 @@ import {
   setRampModeInfoModalOpen, setVbapPositionInterpolationInfoModalOpen,
   setSpreadFromDistanceInfoModalOpen, setDistanceDiffuseInfoModalOpen,
   setEvaluationInfoModalOpen, setBackendInfoModalOpen,
-  setDistanceModelInfoModalOpen, setBarycenterInfoModalOpen,
-  setExperimentalDistanceInfoModalOpen, setInputInfoModalOpen,
+  setDistanceModelInfoModalOpen, setInputInfoModalOpen,
   setInputClockInfoModalOpen, setInputLfeInfoModalOpen,
   setDrcInfoModalOpen, setHeatmapInfoModalOpen,
   setTelemetryGaugesOpen,
@@ -140,22 +139,6 @@ export function setupModalAndToggleListeners() {
     modalId: 'distanceModelInfoModal',
     open: () => setDistanceModelInfoModalOpen(true),
     close: () => setDistanceModelInfoModalOpen(false)
-  });
-
-  bindModalOpenClose({
-    buttonId: 'barycenterInfoBtn',
-    closeButtonId: 'barycenterInfoCloseBtn',
-    modalId: 'barycenterInfoModal',
-    open: () => setBarycenterInfoModalOpen(true),
-    close: () => setBarycenterInfoModalOpen(false)
-  });
-
-  bindModalOpenClose({
-    buttonId: 'experimentalDistanceInfoBtn',
-    closeButtonId: 'experimentalDistanceInfoCloseBtn',
-    modalId: 'experimentalDistanceInfoModal',
-    open: () => setExperimentalDistanceInfoModalOpen(true),
-    close: () => setExperimentalDistanceInfoModalOpen(false)
   });
 
   bindModalOpenClose({
@@ -294,8 +277,6 @@ export function setupModalAndToggleListeners() {
       setEvaluationInfoModalOpen(false);
       setBackendInfoModalOpen(false);
       setDistanceModelInfoModalOpen(false);
-      setBarycenterInfoModalOpen(false);
-      setExperimentalDistanceInfoModalOpen(false);
       setInputInfoModalOpen(false);
       setInputClockInfoModalOpen(false);
       setInputLfeInfoModalOpen(false);

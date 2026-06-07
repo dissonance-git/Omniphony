@@ -199,58 +199,6 @@ export function rendererPanelMarkup() {
               </select>
             </div>
           </div>
-          <div class="info-section" id="barycenterSection" style="margin:0;padding:0;border:none;background:none;display:none">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
-              <div class="title-with-info" style="margin:0;font-size:12px;font-weight:600;color:#ffffff">
-                <span data-i18n="barycenter.title">Barycenter backend</span>
-                <button id="barycenterInfoBtn" type="button" class="info-icon-btn" data-i18n-title="barycenter.infoButton" title="Barycenter backend info">i</button>
-              </div>
-            </div>
-            <div id="barycenterSectionContent" class="conditional-params open">
-              <div style="margin-top:0.2rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.15rem">
-                <div class="control-row" style="margin-top:0">
-                  <label style="font-size:12px;white-space:nowrap"><span>Localize</span> <span id="barycenterLocalizeVal">0.00</span></label>
-                  <input id="barycenterLocalizeInput" type="range" min="0" max="4" step="0.05" value="0" class="gain-slider" />
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="info-section" id="experimentalDistanceSection" style="margin:0;padding:0;border:none;background:none;display:none">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
-              <div class="title-with-info" style="margin:0;font-size:12px;font-weight:600;color:#ffffff">
-                <span data-i18n="experimentalDistance.title">Distance backend</span>
-                <button id="experimentalDistanceInfoBtn" type="button" class="info-icon-btn" data-i18n-title="experimentalDistance.infoButton" title="Distance backend info">i</button>
-              </div>
-            </div>
-            <div id="experimentalDistanceSectionContent" class="conditional-params open">
-              <div style="margin-top:0.2rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.15rem">
-                <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
-                  <label for="experimentalDistanceFloorInput" style="font-size:12px;white-space:nowrap;color:#ffffff">Distance floor</label>
-                  <input id="experimentalDistanceFloorInput" class="delay-input" type="number" min="0" step="0.001" style="min-width:7rem" />
-                </div>
-                <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
-                  <label for="experimentalDistanceMinActiveInput" style="font-size:12px;white-space:nowrap;color:#ffffff">Min active speakers</label>
-                  <input id="experimentalDistanceMinActiveInput" class="delay-input" type="number" min="1" step="1" style="min-width:7rem" />
-                </div>
-                <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
-                  <label for="experimentalDistanceMaxActiveInput" style="font-size:12px;white-space:nowrap;color:#ffffff">Max active speakers</label>
-                  <input id="experimentalDistanceMaxActiveInput" class="delay-input" type="number" min="1" step="1" style="min-width:7rem" />
-                </div>
-                <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
-                  <label for="experimentalDistanceErrorFloorInput" style="font-size:12px;white-space:nowrap;color:#ffffff">Position error floor</label>
-                  <input id="experimentalDistanceErrorFloorInput" class="delay-input" type="number" min="0" step="0.001" style="min-width:7rem" />
-                </div>
-                <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
-                  <label for="experimentalDistanceNearestScaleInput" style="font-size:12px;white-space:nowrap;color:#ffffff">Nearest scale</label>
-                  <input id="experimentalDistanceNearestScaleInput" class="delay-input" type="number" min="0" step="0.01" style="min-width:7rem" />
-                </div>
-                <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
-                  <label for="experimentalDistanceSpanScaleInput" style="font-size:12px;white-space:nowrap;color:#ffffff">Span scale</label>
-                  <input id="experimentalDistanceSpanScaleInput" class="delay-input" type="number" min="0" step="0.01" style="min-width:7rem" />
-                </div>
-              </div>
-            </div>
-          </div>
           <div class="info-section" id="hybridSection" style="margin:0;padding:0;border:none;background:none;display:none;order:-1">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
               <div class="title-with-info" style="margin:0;font-size:12px;font-weight:600;color:#ffffff">

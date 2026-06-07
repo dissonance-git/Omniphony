@@ -715,33 +715,6 @@
       </div>
     </div>
 
-    <div id="barycenterInfoModal" class="info-modal" aria-hidden="true">
-      <div class="info-modal-card">
-        <div class="info-modal-title" data-i18n="barycenter.infoTitle">Barycenter backend</div>
-        <div class="info-modal-text" data-i18n-html="barycenter.infoBody">
-          Barycenter backend places energy by blending nearby speakers around a weighted center instead of using the VBAP triplet selection logic.<br /><br />
-          <strong>Localize</strong> increases how tightly energy collapses toward the target point. Lower values stay broader and softer; higher values bias toward a more focused image.
-        </div>
-        <div class="info-modal-actions">
-          <button id="barycenterInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="experimentalDistanceInfoModal" class="info-modal" aria-hidden="true">
-      <div class="info-modal-card">
-        <div class="info-modal-title" data-i18n="experimentalDistance.infoTitle">Distance backend</div>
-        <div class="info-modal-text" data-i18n-html="experimentalDistance.infoBody">
-          Distance backend is an experimental renderer that scores speakers from their geometric relationship to the target point.<br /><br />
-          The exposed controls tune how many speakers can participate, how aggressively nearest speakers dominate, and how much position error is tolerated before gains are clamped or spread wider.<br /><br />
-          Use it for backend comparison and tuning, not as the safest default.
-        </div>
-        <div class="info-modal-actions">
-          <button id="experimentalDistanceInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>
-        </div>
-      </div>
-    </div>
-
     <div id="inputInfoModal" class="info-modal" aria-hidden="true">
       <div class="info-modal-card">
         <div class="info-modal-title" data-i18n="input.infoTitle">Audio Input</div>

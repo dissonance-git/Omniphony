@@ -66,10 +66,8 @@ import { initRenderSurfaceController } from './core/render/render-surface-contro
 // ── Flush callback wiring ──────────────────────────────────────────────────
 import { renderSpreadDisplay } from './controls/spread.js';
 import {
-  renderBarycenterOptions,
   renderVbapStatus,
   renderEvaluationMode,
-  renderExperimentalDistanceOptions,
   renderHybridOptions,
   renderRenderBackend,
   renderVbapCartesian,
@@ -104,8 +102,6 @@ flushCallbacks.renderRoomRatioDisplay = renderRoomRatioDisplay;
 flushCallbacks.renderSpreadDisplay = renderSpreadDisplay;
 flushCallbacks.renderEvaluationMode = renderEvaluationMode;
 flushCallbacks.renderRenderBackend = renderRenderBackend;
-flushCallbacks.renderBarycenterOptions = renderBarycenterOptions;
-flushCallbacks.renderExperimentalDistanceOptions = renderExperimentalDistanceOptions;
 flushCallbacks.renderHybridOptions = renderHybridOptions;
 flushCallbacks.renderVbapCartesian = renderVbapCartesian;
 flushCallbacks.renderVbapPolar = renderVbapPolar;
