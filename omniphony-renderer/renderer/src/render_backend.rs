@@ -134,6 +134,16 @@ pub struct EvaluationBuildConfig {
     /// model and distance diffuse output stages (Spherical / Chebyshev).
     pub distance_model_metric: crate::spatial_vbap::DistanceMetric,
     pub distance_diffuse_metric: crate::spatial_vbap::DistanceMetric,
+    /// Number of object-size *intervals* to precompute. `0` (default) bakes a
+    /// single table at the build-time `event_size` (object size honoured only in
+    /// realtime). `N >= 1` builds `N + 1` tables at isotropic sizes `s_i = i / N`
+    /// and interpolates between them at read time, so the precomputed modes
+    /// honour object size. Only meaningful for backends whose capabilities report
+    /// `supports_event_size`. See [`SizeInterpolatingEvaluator`].
+    pub object_size_intervals: usize,
+    /// Policy used to reduce a `(w, d, h)` object-size triplet to the scalar that
+    /// indexes the size tables at read time (see [`reduce_size_to_spread`]).
+    pub object_size_mode: SizeToSpreadMode,
 }
 
 /// A gain model maps an object position (plus live render parameters) to a
@@ -556,6 +566,109 @@ impl PreparedEvaluator for SampledPolarEvaluator {
     }
 }
 
+/// Wraps `N + 1` position tables, each baked at a fixed isotropic object size
+/// `s_i = i / N`, and interpolates between the two bracketing tables at read time
+/// on the object's reduced size scalar. This is how the precomputed modes honour
+/// object size: a single table freezes it, so when `object_size_intervals > 0`
+/// the strategy builds several tables and wraps them here.
+///
+/// `cartesian_parts`/`polar_parts` return `None`, so a crossover layout with this
+/// evaluator does not build the unified multi-band table and falls back to the
+/// per-band `compute_gains` path (see `build_unified_table`). Table export is
+/// likewise unsupported here.
+pub struct SizeInterpolatingEvaluator {
+    model: Arc<dyn GainModel>,
+    /// Sorted ascending in `[0, 1]`; `sizes[i] = i / N`. `len() == inners.len()`,
+    /// always `>= 2` (built only when `intervals >= 1`).
+    sizes: Vec<f32>,
+    inners: Vec<Box<dyn PreparedEvaluator>>,
+    /// Policy reducing the request's `(w, d, h)` to the scalar that indexes `sizes`.
+    mode: SizeToSpreadMode,
+    speaker_count: usize,
+}
+
+impl SizeInterpolatingEvaluator {
+    /// Build `intervals + 1` inner evaluators at isotropic sizes `s_i = i /
+    /// intervals`, each via `build_inner` with a per-size config (object size
+    /// frozen to `[s_i; 3]`, its own interval count reset to 0 so the inner bakes
+    /// a single table).
+    fn new(
+        model: Arc<dyn GainModel>,
+        config: &EvaluationBuildConfig,
+        intervals: usize,
+        build_inner: impl Fn(Arc<dyn GainModel>, &EvaluationBuildConfig) -> Box<dyn PreparedEvaluator>,
+    ) -> Self {
+        let n = intervals.max(1);
+        let speaker_count = model.speaker_count();
+        let mut sizes = Vec::with_capacity(n + 1);
+        let mut inners = Vec::with_capacity(n + 1);
+        for i in 0..=n {
+            let s = i as f32 / n as f32;
+            let mut inner_config = *config;
+            inner_config.object_size_intervals = 0;
+            inner_config.request_template.event_size = [s, s, s];
+            sizes.push(s);
+            inners.push(build_inner(Arc::clone(&model), &inner_config));
+        }
+        Self {
+            model,
+            sizes,
+            inners,
+            mode: config.object_size_mode,
+            speaker_count,
+        }
+    }
+}
+
+impl PreparedEvaluator for SizeInterpolatingEvaluator {
+    fn speaker_count(&self) -> usize {
+        self.speaker_count
+    }
+
+    fn model_arc(&self) -> Option<Arc<dyn GainModel>> {
+        Some(Arc::clone(&self.model))
+    }
+
+    fn set_position_interpolation(&self, interpolate: bool) {
+        for inner in &self.inners {
+            inner.set_position_interpolation(interpolate);
+        }
+    }
+
+    fn compute_gains(&self, req: &RenderRequest) -> RenderResponse {
+        let pos = req.adm_position.map(|value| value as f32);
+        let query = reduce_size_to_spread(req.event_size, pos, self.mode).clamp(0.0, 1.0);
+        // Bracket the query size. `sizes` is sorted ascending and has >= 2 entries.
+        let last = self.sizes.len() - 1;
+        let mut hi = 1;
+        while hi < last && self.sizes[hi] < query {
+            hi += 1;
+        }
+        let lo = hi - 1;
+        let span = (self.sizes[hi] - self.sizes[lo]).max(1e-6);
+        let fraction = ((query - self.sizes[lo]) / span).clamp(0.0, 1.0);
+        let gains_lo = self.inners[lo].compute_gains(req).gains;
+        let gains_hi = self.inners[hi].compute_gains(req).gains;
+        let mut gains = Gains::zeroed(self.speaker_count);
+        for index in 0..self.speaker_count {
+            gains.set(
+                index,
+                gains_lo[index] * (1.0 - fraction) + gains_hi[index] * fraction,
+            );
+        }
+        RenderResponse { gains }
+    }
+
+    fn save_to_file(&self, path: &std::path::Path, speaker_layout: &SpeakerLayout) -> Result<()> {
+        std::fs::write(path, self.artifact_bytes(speaker_layout)?)?;
+        Ok(())
+    }
+
+    fn artifact_bytes(&self, _speaker_layout: &SpeakerLayout) -> Result<Vec<u8>> {
+        anyhow::bail!("object-size interval tables are not serializable yet")
+    }
+}
+
 pub struct RealtimeStrategy;
 
 impl EvaluationStrategy for RealtimeStrategy {
@@ -584,7 +697,18 @@ impl EvaluationStrategy for PrecomputedCartesianStrategy {
         model: Arc<dyn GainModel>,
         config: &EvaluationBuildConfig,
     ) -> Result<Box<dyn PreparedEvaluator>> {
-        Ok(Box::new(SampledCartesianEvaluator::new(model, config)))
+        if config.object_size_intervals > 0 && model.capabilities().supports_event_size {
+            Ok(Box::new(SizeInterpolatingEvaluator::new(
+                model,
+                config,
+                config.object_size_intervals,
+                |inner_model, inner_config| {
+                    Box::new(SampledCartesianEvaluator::new(inner_model, inner_config))
+                },
+            )))
+        } else {
+            Ok(Box::new(SampledCartesianEvaluator::new(model, config)))
+        }
     }
 }
 
@@ -600,7 +724,18 @@ impl EvaluationStrategy for PrecomputedPolarStrategy {
         model: Arc<dyn GainModel>,
         config: &EvaluationBuildConfig,
     ) -> Result<Box<dyn PreparedEvaluator>> {
-        Ok(Box::new(SampledPolarEvaluator::new(model, config)))
+        if config.object_size_intervals > 0 && model.capabilities().supports_event_size {
+            Ok(Box::new(SizeInterpolatingEvaluator::new(
+                model,
+                config,
+                config.object_size_intervals,
+                |inner_model, inner_config| {
+                    Box::new(SampledPolarEvaluator::new(inner_model, inner_config))
+                },
+            )))
+        } else {
+            Ok(Box::new(SampledPolarEvaluator::new(model, config)))
+        }
     }
 }
 
@@ -1783,5 +1918,155 @@ mod polar_lut_tests {
                 "azimuth seam mismatch at {pos}: want {want} got {got}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod size_interval_tests {
+    //! Object-size interval precompute: a `SizeInterpolatingEvaluator` built with
+    //! `object_size_intervals = N` bakes `N + 1` position tables at isotropic
+    //! sizes and interpolates between them at read time, so the precomputed modes
+    //! honour object size (a single table freezes it).
+    use super::*;
+    use crate::spatial_vbap::{DistanceMetric, DistanceModel, VbapPanner};
+
+    /// 4-speaker horizontal VBAP backend. `supports_event_size` is true and the
+    /// default spread range is [0, 1], so a non-zero `event_size` widens the pan.
+    fn make_model() -> Box<dyn GainModel> {
+        let positions = [[-30.0, 0.0], [30.0, 0.0], [-110.0, 0.0], [110.0, 0.0]];
+        let panner = VbapPanner::new(&positions, 5, 5, 0.0)
+            .expect("panner")
+            .with_negative_z(true);
+        Box::new(VbapBackend::new(panner, VbapSpreadParams::default()))
+    }
+
+    fn config(intervals: usize, event_size: [f32; 3]) -> EvaluationBuildConfig {
+        EvaluationBuildConfig {
+            request_template: RenderRequest {
+                adm_position: [0.0, 0.0, 0.0],
+                event_size,
+                room_ratio: [1.0, 1.0, 1.0],
+                room_ratio_rear: 1.0,
+                room_ratio_lower: 1.0,
+                room_ratio_center_blend: 0.0,
+                use_distance_diffuse: false,
+                distance_diffuse_threshold: 1.0,
+                distance_diffuse_curve: 1.0,
+                distance_model: DistanceModel::None,
+            },
+            position_interpolation: true,
+            cartesian: CartesianEvaluationConfig {
+                x_size: 9,
+                y_size: 9,
+                z_size: 5,
+                z_neg_size: 0,
+            },
+            polar: PolarEvaluationConfig {
+                azimuth_values: 16,
+                elevation_values: 7,
+                distance_values: 4,
+                distance_max: 1.0,
+                allow_negative_z: false,
+            },
+            distance_model_metric: DistanceMetric::default(),
+            distance_diffuse_metric: DistanceMetric::default(),
+            object_size_intervals: intervals,
+            object_size_mode: SizeToSpreadMode::Max,
+        }
+    }
+
+    fn request(pos: [f64; 3], size: [f32; 3]) -> RenderRequest {
+        let mut req = config(0, [0.0; 3]).request_template;
+        req.adm_position = pos;
+        req.event_size = size;
+        req
+    }
+
+    fn engine(
+        mode: EffectiveEvaluationMode,
+        intervals: usize,
+        frozen_size: [f32; 3],
+    ) -> PreparedRenderEngine {
+        build_prepared_render_engine(make_model(), mode, &config(intervals, frozen_size))
+            .expect("engine builds")
+    }
+
+    fn assert_close(a: &Gains, b: &Gains, eps: f32) {
+        assert_eq!(a.len(), b.len());
+        for (x, y) in a.iter().zip(b.iter()) {
+            assert!((x - y).abs() < eps, "{x} vs {y}");
+        }
+    }
+
+    /// At the sampled endpoints (size 0 and size 1) the interval engine reproduces
+    /// the single tables frozen at those sizes, and object size visibly matters.
+    fn endpoints_match_frozen_tables(mode: EffectiveEvaluationMode) {
+        let pos = [0.3, 0.1, 0.2];
+        let intervals = engine(mode, 1, [0.0; 3]);
+        let small = engine(mode, 0, [0.0; 3]);
+        let large = engine(mode, 0, [1.0; 3]);
+
+        let at_small = intervals.compute_gains(&request(pos, [0.0; 3])).gains;
+        let at_large = intervals.compute_gains(&request(pos, [1.0; 3])).gains;
+        assert_close(
+            &at_small,
+            &small.compute_gains(&request(pos, [0.0; 3])).gains,
+            1e-6,
+        );
+        assert_close(
+            &at_large,
+            &large.compute_gains(&request(pos, [1.0; 3])).gains,
+            1e-6,
+        );
+
+        let max_diff = at_small
+            .iter()
+            .zip(at_large.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        assert!(max_diff > 1e-3, "object size had no effect: {max_diff}");
+    }
+
+    #[test]
+    fn cartesian_endpoints_match_frozen_tables() {
+        endpoints_match_frozen_tables(EffectiveEvaluationMode::PrecomputedCartesian);
+    }
+
+    #[test]
+    fn polar_endpoints_match_frozen_tables() {
+        endpoints_match_frozen_tables(EffectiveEvaluationMode::PrecomputedPolar);
+    }
+
+    /// At a size between two sampled sizes the result is their linear blend
+    /// (N = 1 ⇒ sizes {0, 1}, query 0.5 ⇒ equal weights).
+    #[test]
+    fn cartesian_midpoint_is_blend_of_endpoints() {
+        let pos = [0.3, 0.1, 0.2];
+        let intervals = engine(EffectiveEvaluationMode::PrecomputedCartesian, 1, [0.0; 3]);
+        let small = engine(EffectiveEvaluationMode::PrecomputedCartesian, 0, [0.0; 3]);
+        let large = engine(EffectiveEvaluationMode::PrecomputedCartesian, 0, [1.0; 3]);
+
+        let mid = intervals.compute_gains(&request(pos, [0.5; 3])).gains;
+        let s = small.compute_gains(&request(pos, [0.0; 3])).gains;
+        let l = large.compute_gains(&request(pos, [1.0; 3])).gains;
+        for i in 0..mid.len() {
+            let expected = 0.5 * s[i] + 0.5 * l[i];
+            assert!(
+                (mid[i] - expected).abs() < 1e-6,
+                "i={i}: {} vs {expected}",
+                mid[i]
+            );
+        }
+    }
+
+    /// With intervals = 0 (the default) the single table freezes object size: the
+    /// request's `event_size` is ignored, matching the pre-feature behaviour.
+    #[test]
+    fn intervals_zero_freezes_object_size() {
+        let pos = [0.3, 0.1, 0.2];
+        let engine = engine(EffectiveEvaluationMode::PrecomputedCartesian, 0, [0.0; 3]);
+        let g0 = engine.compute_gains(&request(pos, [0.0; 3])).gains;
+        let g1 = engine.compute_gains(&request(pos, [1.0; 3])).gains;
+        assert_close(&g0, &g1, 1e-9);
     }
 }

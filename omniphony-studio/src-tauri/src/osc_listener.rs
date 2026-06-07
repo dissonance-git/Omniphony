@@ -108,6 +108,7 @@ struct RendererDomainState {
     render_backend_effective: Option<String>,
     render_evaluation_mode: Option<String>,
     render_evaluation_mode_effective: Option<String>,
+    object_size_intervals: Option<u32>,
     master_gain: Option<f64>,
     auto_gain: Option<bool>,
     auto_gain_ceiling_db: Option<f64>,
@@ -567,6 +568,9 @@ fn apply_renderer_domain_state(s: &mut AppState, value: &str) -> bool {
     }
     if let Some(render_evaluation_mode_effective) = parsed.render_evaluation_mode_effective {
         s.render_evaluation_mode_state.effective = Some(render_evaluation_mode_effective);
+    }
+    if let Some(object_size_intervals) = parsed.object_size_intervals {
+        s.object_size_intervals = object_size_intervals;
     }
     if let Some(master_gain) = parsed.master_gain {
         s.master_gain = Some(master_gain);

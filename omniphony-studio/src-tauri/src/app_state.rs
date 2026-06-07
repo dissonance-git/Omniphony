@@ -340,6 +340,9 @@ pub struct AppState {
     pub render_backend_state: RenderBackendState,
     #[serde(rename = "renderEvaluationModeState")]
     pub render_evaluation_mode_state: RenderEvaluationModeState,
+    /// Number of object-size intervals precomputed (0 = single table).
+    #[serde(rename = "objectSizeIntervals")]
+    pub object_size_intervals: u32,
     #[serde(rename = "vbapAllowNegativeZ")]
     pub vbap_allow_negative_z: Option<bool>,
     #[serde(rename = "adaptiveResampling")]
@@ -643,6 +646,7 @@ impl Default for AppState {
             vbap_polar: VbapPolar::default(),
             render_backend_state: RenderBackendState::default(),
             render_evaluation_mode_state: RenderEvaluationModeState::default(),
+            object_size_intervals: 0,
             vbap_allow_negative_z: None,
             adaptive_resampling: Some(0),
             adaptive_resampling_enable_far_mode: Some(1),

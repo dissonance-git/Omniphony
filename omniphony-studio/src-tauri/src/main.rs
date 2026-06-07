@@ -213,6 +213,7 @@ fn main() {
             control_hybrid_curve,
             control_hybrid_metric,
             control_hybrid_curve_smoothing,
+            control_render_evaluation_object_size_intervals,
             control_render_evaluation_cartesian_x_size,
             control_render_evaluation_cartesian_y_size,
             control_render_evaluation_cartesian_z_size,

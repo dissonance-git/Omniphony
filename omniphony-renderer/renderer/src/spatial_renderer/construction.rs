@@ -359,6 +359,7 @@ impl SpatialRenderer {
                     distance_res: (distance_max / distance_res.max(0.01)).round() as i32,
                     distance_max: distance_max.max(0.01),
                 },
+                object_size_intervals: 0,
             },
             use_loudness,
             auto_gain,

@@ -117,6 +117,8 @@ export const app = {
   vbapCartesianState: { xSize: null, ySize: null, zSize: null, zNegSize: 0 },
   vbapPolarState: { azimuthResolution: null, elevationResolution: null, distanceRes: null, distanceMax: null },
   evaluationModeState: { selection: null, effective: null },
+  // Number of object-size intervals precomputed (0 = single table).
+  objectSizeIntervals: 0,
   renderBackendState: {
     selection: null,
     effective: null,
