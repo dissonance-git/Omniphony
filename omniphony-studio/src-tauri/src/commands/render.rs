@@ -365,3 +365,60 @@ pub fn control_render_evaluation_position_interpolation(state: State<SharedState
         },
     );
 }
+
+#[tauri::command]
+pub fn control_distance_diffuse_enabled(state: State<SharedState>, enable: i32) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendInt {
+            address: "/omniphony/control/distance_diffuse/enabled".to_string(),
+            value: if enable != 0 { 1 } else { 0 },
+        },
+    );
+}
+
+#[tauri::command]
+pub fn control_distance_diffuse_threshold(state: State<SharedState>, value: f32) {
+    let v = value.max(0.01);
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendFloat {
+            address: "/omniphony/control/distance_diffuse/threshold".to_string(),
+            value: v,
+        },
+    );
+}
+
+#[tauri::command]
+pub fn control_distance_diffuse_curve(state: State<SharedState>, value: f32) {
+    let v = value.max(0.0);
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendFloat {
+            address: "/omniphony/control/distance_diffuse/curve".to_string(),
+            value: v,
+        },
+    );
+}
+
+#[tauri::command]
+pub fn control_render_bridge_path(state: State<SharedState>, value: String) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/render/bridge_path".to_string(),
+            value: value.trim().to_string(),
+        },
+    );
+}
+
+#[tauri::command]
+pub fn control_render_input_pipe(state: State<SharedState>, value: String) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/render/input_pipe".to_string(),
+            value: value.trim().to_string(),
+        },
+    );
+}
