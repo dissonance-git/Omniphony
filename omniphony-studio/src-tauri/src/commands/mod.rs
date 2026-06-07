@@ -9,6 +9,8 @@
 
 pub mod audio;
 pub mod input;
+pub mod mpv_overlay;
+pub mod orender;
 pub mod render;
 pub mod resampling;
 pub mod speakers;
