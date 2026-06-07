@@ -349,29 +349,72 @@ function sendBackendParam(key, value, backend) {
   invoke('control_backend_param', backend ? { key, value, backend } : { key, value });
 }
 
-// Build one control row for a param spec, seeded with `current`. Returns the row
-// element with a `_setValue` hook used to refresh it without a rebuild. Edits are
-// sent to `backend`.
+// Inline help popover for generated param controls. Clicking a param's name
+// shows its help in a small highlighted panel directly below its row (no "i"
+// button). Only one is open at a time and it closes on any click outside it.
+let openParamHelp = null;
+let paramHelpOutsideCloseBound = false;
+function closeParamHelp() {
+  if (openParamHelp) {
+    openParamHelp.style.display = 'none';
+    openParamHelp = null;
+  }
+}
+function ensureParamHelpOutsideClose() {
+  if (paramHelpOutsideCloseBound) return;
+  paramHelpOutsideCloseBound = true;
+  // The toggle stops propagation, so this only fires for clicks elsewhere.
+  document.addEventListener('click', (event) => {
+    if (!openParamHelp || openParamHelp.contains(event.target)) return;
+    closeParamHelp();
+  });
+}
+
+// Build one control field for a param spec, seeded with `current`. Returns a
+// wrapper holding the control row (with a `_setValue` hook used to refresh it
+// without a rebuild) and, when the spec has help, a collapsible help panel below
+// it. Edits are sent to `backend`.
 function buildParamControl(spec, current, backend) {
+  const field = document.createElement('div');
+  field.className = 'generated-param-field';
   const row = document.createElement('div');
   row.className = 'control-row generated-param-row';
   const label = document.createElement('label');
   label.textContent = spec.label || spec.key;
+  let help = null;
   if (spec.help) {
-    const info = document.createElement('span');
-    info.className = 'info-icon-btn';
-    info.textContent = 'i';
-    info.title = spec.help;
-    // `info-icon-btn` sizes a fixed square box, but a <span> is inline by
-    // default so width/height are ignored and it renders oblong. inline-flex
-    // applies the box and centers the glyph.
-    info.style.display = 'inline-flex';
-    info.style.alignItems = 'center';
-    info.style.justifyContent = 'center';
-    info.style.verticalAlign = 'middle';
-    info.style.flex = '0 0 auto';
-    info.style.marginLeft = '0.35rem';
-    label.appendChild(info);
+    // Highlighted panel shown below the row when the param name is clicked.
+    help = document.createElement('div');
+    help.className = 'generated-param-help';
+    help.textContent = spec.help;
+    help.style.display = 'none';
+    help.style.marginTop = '0.15rem';
+    help.style.padding = '0.3rem 0.45rem';
+    help.style.fontSize = '11px';
+    help.style.lineHeight = '1.35';
+    help.style.color = '#d9ecff';
+    help.style.background = 'rgba(120,200,255,0.10)';
+    help.style.border = '1px solid rgba(120,200,255,0.30)';
+    help.style.borderRadius = '6px';
+
+    // The param name itself is the toggle — no separate "i" button. A faint
+    // dotted underline hints that it is clickable.
+    label.setAttribute('role', 'button');
+    label.style.cursor = 'pointer';
+    label.style.textDecoration = 'underline dotted rgba(217,236,255,0.4)';
+    label.style.textUnderlineOffset = '2px';
+    label.addEventListener('click', (event) => {
+      // Stay put: don't trip the document outside-close handler.
+      event.preventDefault();
+      event.stopPropagation();
+      const wasOpen = help.style.display !== 'none';
+      closeParamHelp();
+      if (!wasOpen) {
+        help.style.display = '';
+        openParamHelp = help;
+        ensureParamHelpOutsideClose();
+      }
+    });
   }
   row.appendChild(label);
   const kind = spec.kind || {};
@@ -430,7 +473,9 @@ function buildParamControl(spec, current, backend) {
     row.appendChild(valEl);
     row._setValue = (v) => { input.value = String(v); valEl.textContent = String(v); };
   }
-  return row;
+  field.appendChild(row);
+  if (help) field.appendChild(help);
+  return field;
 }
 
 // Generate controls for `targetBackend` from its published param schema. Used
@@ -448,7 +493,18 @@ function renderGenericBackendParams(targetBackend) {
   if (!container) {
     container = document.createElement('div');
     container.id = 'backendGenericParamsSection';
-    container.className = 'control-section';
+    // Indented sub-block with smaller text, mirroring the Distance Diffuse
+    // body (`renderer-subpanel-body`): a lighter inset panel so the per-backend
+    // params read as a child of the Backend section rather than top-level rows.
+    container.className = 'control-section renderer-subpanel-body';
+    container.style.marginTop = '0.25rem';
+    container.style.marginLeft = '1rem';
+    container.style.padding = '0.3rem 0.4rem';
+    container.style.background = 'rgba(255,255,255,0.03)';
+    container.style.borderRadius = '6px';
+    container.style.display = 'grid';
+    container.style.gap = '0.18rem';
+    container.style.fontSize = '11px';
     host.appendChild(container);
   }
 
@@ -457,11 +513,12 @@ function renderGenericBackendParams(targetBackend) {
     : [];
 
   if (schema.length === 0) {
+    closeParamHelp();
     container.style.display = 'none';
     container.dataset.backend = '';
     return;
   }
-  container.style.display = '';
+  container.style.display = 'grid';
 
   const byId = (app.renderBackendState && app.renderBackendState.backendParamValuesById) || {};
   const values = byId[targetBackend] || {};
@@ -470,6 +527,8 @@ function renderGenericBackendParams(targetBackend) {
   // Rebuild controls only when the target backend changed; otherwise refresh
   // values so an external change (OSC) is reflected without dropping focus.
   if (container.dataset.backend !== String(targetBackend)) {
+    // Rebuilding detaches any open help panel; drop the stale reference.
+    closeParamHelp();
     container.replaceChildren();
     container.dataset.backend = String(targetBackend);
     for (const spec of schema) {
