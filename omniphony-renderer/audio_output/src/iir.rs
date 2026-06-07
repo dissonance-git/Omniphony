@@ -97,3 +97,70 @@ impl IirLowPassState {
         y
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DT: f64 = 0.021; // ~21 ms callback period
+    const FC: f64 = 0.5; // 0.5 Hz cutoff (the servo's default ballpark)
+
+    #[test]
+    fn first_call_seeds_and_returns_input() {
+        let mut s = IirLowPassState::default();
+        assert_eq!(s.step(42.0, FC, DT, 1), 42.0);
+        assert!(s.initialized);
+    }
+
+    #[test]
+    fn passes_through_on_degenerate_params() {
+        let mut s = IirLowPassState::default();
+        s.step(0.0, FC, DT, 1); // initialise at 0
+        assert_eq!(s.step(7.0, FC, 0.0, 1), 7.0); // dt_s <= 0 guard
+        assert_eq!(s.step(9.0, 0.0, DT, 1), 9.0); // cutoff <= 0 guard
+    }
+
+    #[test]
+    fn one_pole_converges_monotonically_to_dc() {
+        let mut s = IirLowPassState::default();
+        s.step(0.0, FC, DT, 1); // seed at 0
+        let mut last = 0.0;
+        for _ in 0..2000 {
+            let y = s.step(100.0, FC, DT, 1);
+            // Rises monotonically toward the target without overshooting (DC gain 1).
+            assert!(y >= last - 1e-9 && y <= 100.0 + 1e-6, "y = {y}");
+            last = y;
+        }
+        assert!((last - 100.0).abs() < 0.5, "settled at {last}");
+    }
+
+    #[test]
+    fn biquad_converges_to_dc() {
+        let mut s = IirLowPassState::default();
+        s.step(0.0, FC, DT, 2);
+        let mut y = 0.0;
+        for _ in 0..2000 {
+            y = s.step(100.0, FC, DT, 2);
+        }
+        assert!((y - 100.0).abs() < 0.5, "settled at {y}");
+    }
+
+    #[test]
+    fn reset_clears_state_and_reseeds() {
+        let mut s = IirLowPassState::default();
+        s.step(50.0, FC, DT, 1);
+        s.reset();
+        assert!(!s.initialized);
+        assert_eq!(s.step(3.0, FC, DT, 1), 3.0); // next call seeds again
+    }
+
+    #[test]
+    fn cutoff_far_above_nyquist_stays_finite() {
+        // The bilinear pre-warp blows up at fs/2; the clamp must keep output finite.
+        let mut s = IirLowPassState::default();
+        s.step(0.0, 1e9, DT, 2);
+        for _ in 0..100 {
+            assert!(s.step(1.0, 1e9, DT, 2).is_finite());
+        }
+    }
+}
