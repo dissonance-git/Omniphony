@@ -235,6 +235,16 @@ pub struct RenderBackendState {
         skip_serializing_if = "serde_json::Value::is_null"
     )]
     pub backend_param_values: serde_json::Value,
+    /// Host-set param values for every backend (`{ backendId: { key: value } }`),
+    /// used to seed generated controls for a backend that is not the active
+    /// selection (e.g. a hybrid inner-backend tab).
+    #[serde(
+        rename = "backendParamValuesById",
+        alias = "backend_param_values_by_id",
+        default,
+        skip_serializing_if = "serde_json::Value::is_null"
+    )]
+    pub backend_param_values_by_id: serde_json::Value,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]

@@ -922,22 +922,36 @@ fn control_render_backend(state: State<SharedState>, value: String) {
     );
 }
 
-/// Generic backend param setter: forwards `[string key, <scalar>]` to the engine
-/// for the currently selected backend. The scalar type follows the JSON value
-/// (bool / number / string), matching the param schema's kind.
+/// Generic backend param setter. The scalar type follows the JSON value (bool /
+/// number / string), matching the param schema's kind. When `backend` is given,
+/// the value is applied to that specific backend (e.g. a hybrid inner backend);
+/// otherwise it targets the currently selected backend.
 #[tauri::command]
-fn control_backend_param(state: State<SharedState>, key: String, value: serde_json::Value) {
+fn control_backend_param(
+    state: State<SharedState>,
+    key: String,
+    value: serde_json::Value,
+    backend: Option<String>,
+) {
     let arg = match value {
         serde_json::Value::Bool(b) => rosc::OscType::Bool(b),
         serde_json::Value::Number(n) => rosc::OscType::Float(n.as_f64().unwrap_or(0.0) as f32),
         serde_json::Value::String(s) => rosc::OscType::String(s),
         _ => return,
     };
+    let args = match backend {
+        Some(backend) => vec![
+            rosc::OscType::String(backend),
+            rosc::OscType::String(key),
+            arg,
+        ],
+        None => vec![rosc::OscType::String(key), arg],
+    };
     send_control(
         &state.osc_tx,
         OscControlMsg::SendArgs {
             address: "/omniphony/control/backend/param".to_string(),
-            args: vec![rosc::OscType::String(key), arg],
+            args,
         },
     );
 }

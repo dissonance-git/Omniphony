@@ -45,6 +45,13 @@ pub struct RenderBackendStateSnapshot {
     /// UI seeds its controls from these (falling back to the schema defaults).
     pub backend_param_values:
         std::collections::HashMap<String, renderer::backend_params::ParamValue>,
+    /// Host-set param values for *every* backend, keyed by backend id then param
+    /// key. The UI reads an inner backend's values from here (e.g. the hybrid
+    /// barycenter tab), independent of the active selection.
+    pub backend_param_values_by_id: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, renderer::backend_params::ParamValue>,
+    >,
     pub capabilities: renderer::render_backend::BackendCapabilities,
     pub allowed_evaluation_modes: Vec<String>,
     pub frozen_room_ratio: bool,
@@ -78,6 +85,10 @@ pub fn build_render_backend_state_snapshot(
     active_topology: &RenderTopology,
     available_backends: Vec<renderer::backend_registry::BackendListing>,
     backend_param_values: std::collections::HashMap<String, renderer::backend_params::ParamValue>,
+    backend_param_values_by_id: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, renderer::backend_params::ParamValue>,
+    >,
 ) -> RenderBackendStateSnapshot {
     let backend = &active_topology.backend;
     let capabilities = backend.capabilities();
@@ -125,6 +136,7 @@ pub fn build_render_backend_state_snapshot(
         effective_label: backend.backend_label().to_string(),
         available_backends,
         backend_param_values,
+        backend_param_values_by_id,
         capabilities,
         allowed_evaluation_modes: allowed_evaluation_modes(backend, capabilities),
         frozen_room_ratio: false,
@@ -147,12 +159,17 @@ pub fn build_render_backend_state_json(
     active_topology: &RenderTopology,
     available_backends: Vec<renderer::backend_registry::BackendListing>,
     backend_param_values: std::collections::HashMap<String, renderer::backend_params::ParamValue>,
+    backend_param_values_by_id: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, renderer::backend_params::ParamValue>,
+    >,
 ) -> String {
     serde_json::to_string(&build_render_backend_state_snapshot(
         live,
         active_topology,
         available_backends,
         backend_param_values,
+        backend_param_values_by_id,
     ))
     .unwrap_or_else(|_| "{}".to_string())
 }
@@ -163,6 +180,10 @@ pub fn build_renderer_state_json(
     room_scale_m: f32,
     available_backends: Vec<renderer::backend_registry::BackendListing>,
     backend_param_values: std::collections::HashMap<String, renderer::backend_params::ParamValue>,
+    backend_param_values_by_id: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, renderer::backend_params::ParamValue>,
+    >,
 ) -> String {
     let effective_backend = active_topology.backend.backend_id();
     let effective_evaluation_mode = active_topology.backend.evaluation_mode().as_str();
@@ -171,6 +192,7 @@ pub fn build_renderer_state_json(
         active_topology,
         available_backends,
         backend_param_values,
+        backend_param_values_by_id,
     );
     json!({
         "renderBackend": live.backend_id(),
@@ -360,6 +382,7 @@ pub fn build_live_state_bundle(
         editable_layout.radius_m,
         control.available_backends(),
         control.backend_params_for(live.backend_id()),
+        control.all_backend_params(),
     );
 
     let mut messages = vec![
