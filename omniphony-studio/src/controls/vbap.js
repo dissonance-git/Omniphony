@@ -273,6 +273,24 @@ export function renderEvaluationMode() {
     : nextValue;
   applyEvaluationModeVisibility(visibleMode);
   renderVbapPositionInterpolation();
+  renderObjectSizeIntervals();
+}
+
+// Sync the object-size interval count input, and hide it for backends that do
+// not consume object size (the precomputed size tables would have no effect).
+function renderObjectSizeIntervals() {
+  const rowEl = inRendererPanel('objectSizeIntervalsRow');
+  const inputEl = inRendererPanel('objectSizeIntervalsInput');
+  if (inputEl && document.activeElement !== inputEl) {
+    inputEl.value = String(app.objectSizeIntervals ?? 0);
+  }
+  if (rowEl) {
+    const caps = backendCapabilities();
+    // Show unless the active backend explicitly reports no event-size support.
+    const supportsSize = !caps
+      || (caps.supports_event_size !== false && caps.supportsEventSize !== false);
+    rowEl.style.display = supportsSize ? '' : 'none';
+  }
 }
 
 export function updateEvaluationMode() {

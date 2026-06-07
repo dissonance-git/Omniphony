@@ -443,6 +443,8 @@ mod tests {
             },
             distance_model_metric: crate::spatial_vbap::DistanceMetric::default(),
             distance_diffuse_metric: crate::spatial_vbap::DistanceMetric::default(),
+            object_size_intervals: 0,
+            object_size_mode: crate::render_backend::SizeToSpreadMode::default(),
         };
 
         let engine = build_prepared_render_engine(

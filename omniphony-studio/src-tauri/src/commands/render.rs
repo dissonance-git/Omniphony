@@ -185,6 +185,17 @@ pub fn control_hybrid_curve(state: State<SharedState>, points: Vec<[f32; 2]>) {
 }
 
 #[tauri::command]
+pub fn control_render_evaluation_object_size_intervals(state: State<SharedState>, value: i32) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendInt {
+            address: "/omniphony/control/render_evaluation/object_size_intervals".to_string(),
+            value: value.max(0),
+        },
+    );
+}
+
+#[tauri::command]
 pub fn control_render_evaluation_cartesian_x_size(state: State<SharedState>, value: i32) {
     send_control(
         &state.osc_tx,

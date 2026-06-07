@@ -111,6 +111,12 @@ export function rendererPanelMarkup() {
               </div>
               <input id="vbapPositionInterpolationToggleEl" type="checkbox" />
             </div>
+            <div class="control-row" id="objectSizeIntervalsRow" style="margin-top:0.25rem;grid-template-columns:1fr auto;align-items:center">
+              <div class="title-with-info" style="min-width:0">
+                <span style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="evaluation.objectSizeIntervals" title="Object-size intervals to precompute: 0 = single table (size honoured only in realtime); N = N+1 tables interpolated at read time.">Object size intervals</span>
+              </div>
+              <input id="objectSizeIntervalsInput" class="delay-input" type="number" min="0" step="1" style="width:5rem" />
+            </div>
             </div>
           </div>
           <div class="info-section renderer-subpanel" id="rampSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">

@@ -133,6 +133,7 @@ pub fn build_renderer_state_json(
         "renderBackendEffective": effective_backend,
         "renderEvaluationMode": live.requested_evaluation_mode().as_str(),
         "renderEvaluationModeEffective": effective_evaluation_mode,
+        "objectSizeIntervals": live.evaluation.object_size_intervals,
         "masterGain": live.master_gain,
         "autoGain": live.auto_gain,
         "autoGainCeilingDb": live.auto_gain_ceiling_db,
@@ -383,6 +384,10 @@ pub fn build_live_state_bundle(
             } else {
                 0
             })],
+        }),
+        OscPacket::Message(OscMessage {
+            addr: "/omniphony/state/render_evaluation/object_size_intervals".to_string(),
+            args: vec![OscType::Int(live.evaluation.object_size_intervals as i32)],
         }),
         OscPacket::Message(OscMessage {
             addr: "/omniphony/state/log_level".to_string(),
