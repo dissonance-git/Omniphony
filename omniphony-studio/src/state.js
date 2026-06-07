@@ -129,6 +129,8 @@ export const app = {
     frozenRoomRatio: false,
     frozenSpeakers: false,
     restoreBackendAvailable: false,
+    availableBackends: [],
+    backendParamValues: {},
     barycenter: {
       localize: null
     },
