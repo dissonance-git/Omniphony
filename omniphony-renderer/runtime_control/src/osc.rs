@@ -821,11 +821,20 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
-    macro_rules! layout_float_with_recompute {
-        ($path:literal, $field:ident) => {
+    // VBAP spread tuning is a generic backend param now (baked into the backend
+    // at build, keyed by backend id "vbap"). These dedicated addresses are kept
+    // as thin aliases over `set_backend_param` so existing OSC clients keep
+    // working; the canonical path is `/omniphony/control/backend/param`. All of
+    // them trigger a topology rebuild (the values are baked, not per-request).
+    macro_rules! spread_param_with_recompute {
+        ($path:literal, $key:literal) => {
             if addr == $path {
                 if let Some(value) = parse_f32_arg(msg.args.first()) {
-                    ctx.renderer.live.write().$field = value;
+                    ctx.renderer.set_backend_param(
+                        "vbap",
+                        $key,
+                        renderer::backend_params::ParamValue::Float(value),
+                    );
                     effects.mark_dirty = true;
                     effects.trigger_layout_recompute = true;
                 }
@@ -834,20 +843,24 @@ pub fn apply_simple_osc_control(
         };
     }
 
-    layout_float_with_recompute!("/omniphony/control/spread/min", spread_min);
-    layout_float_with_recompute!("/omniphony/control/spread/max", spread_max);
-    layout_float_with_recompute!(
+    spread_param_with_recompute!("/omniphony/control/spread/min", "spread_min");
+    spread_param_with_recompute!("/omniphony/control/spread/max", "spread_max");
+    spread_param_with_recompute!(
         "/omniphony/control/spread/distance_range",
-        spread_distance_range
+        "spread_distance_range"
     );
-    layout_float_with_recompute!(
+    spread_param_with_recompute!(
         "/omniphony/control/spread/distance_curve",
-        spread_distance_curve
+        "spread_distance_curve"
     );
 
     if addr == "/omniphony/control/spread/from_distance" {
         if let Some(v) = parse_bool_arg(msg.args.first()) {
-            ctx.renderer.live.write().spread_from_distance = v;
+            ctx.renderer.set_backend_param(
+                "vbap",
+                "spread_from_distance",
+                renderer::backend_params::ParamValue::Bool(v),
+            );
             effects.mark_dirty = true;
             effects.trigger_layout_recompute = true;
         }
@@ -859,10 +872,15 @@ pub fn apply_simple_osc_control(
             if let Some(mode) = renderer::render_backend::SizeToSpreadMode::from_str(
                 s.trim().to_ascii_lowercase().as_str(),
             ) {
-                ctx.renderer.live.write().size_to_spread_mode = mode;
+                ctx.renderer.set_backend_param(
+                    "vbap",
+                    "size_to_spread_mode",
+                    renderer::backend_params::ParamValue::Text(mode.as_str().to_string()),
+                );
                 effects.mark_dirty = true;
-                // No layout recompute: only the GainCache is affected via its
-                // size_to_spread_mode key.
+                // Size policy is baked into the backend now, so a rebuild is
+                // required (it was previously a per-request GainCache key).
+                effects.trigger_layout_recompute = true;
             }
         }
         return Some(effects);

@@ -55,8 +55,6 @@ pub fn save_live_config(
     let master_gain_db = 20.0_f32 * live.master_gain.log10();
     renderer::config_fields::master_gain::store(render, master_gain_db);
 
-    renderer::config_fields::vbap_spread_min::store(render, live.spread_min);
-    renderer::config_fields::vbap_spread_max::store(render, live.spread_max);
     renderer::config_fields::vbap_azimuth_resolution::store(
         render,
         live.evaluation.polar.azimuth_values.max(1),
@@ -109,15 +107,16 @@ pub fn save_live_config(
         render.evaluation_cartesian_z_size = None;
         render.evaluation_cartesian_z_neg_size = None;
     }
-    renderer::config_fields::spread_from_distance::store(render, live.spread_from_distance);
-    renderer::config_fields::spread_distance_range::store(render, live.spread_distance_range);
-    renderer::config_fields::spread_distance_curve::store(render, live.spread_distance_curve);
-    render.size_to_spread_mode =
-        if live.size_to_spread_mode != renderer::render_backend::SizeToSpreadMode::default() {
-            Some(live.size_to_spread_mode)
-        } else {
-            None
-        };
+    // VBAP spread tuning (min/max, from_distance, distance range/curve, size
+    // policy) now lives in the generic param bag (`render.backend_params`,
+    // written above via `all_backend_params`). Drop the legacy dedicated keys on
+    // save; an old config carrying them is still migrated into the bag on load.
+    render.vbap_spread_min = None;
+    render.vbap_spread_max = None;
+    render.spread_from_distance = None;
+    render.spread_distance_range = None;
+    render.spread_distance_curve = None;
+    render.size_to_spread_mode = None;
     renderer::config_fields::use_loudness::store(render, live.use_loudness);
     renderer::config_fields::auto_gain::store(render, live.auto_gain);
     renderer::config_fields::auto_gain_ceiling_db::store(render, live.auto_gain_ceiling_db);
