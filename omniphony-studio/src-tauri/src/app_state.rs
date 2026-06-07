@@ -159,30 +159,6 @@ pub struct BackendCapabilitiesState {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct ExperimentalDistanceState {
-    #[serde(rename = "distanceFloor", alias = "distance_floor")]
-    pub distance_floor: Option<f64>,
-    #[serde(rename = "minActiveSpeakers", alias = "min_active_speakers")]
-    pub min_active_speakers: Option<u32>,
-    #[serde(rename = "maxActiveSpeakers", alias = "max_active_speakers")]
-    pub max_active_speakers: Option<u32>,
-    #[serde(rename = "positionErrorFloor", alias = "position_error_floor")]
-    pub position_error_floor: Option<f64>,
-    #[serde(
-        rename = "positionErrorNearestScale",
-        alias = "position_error_nearest_scale"
-    )]
-    pub position_error_nearest_scale: Option<f64>,
-    #[serde(rename = "positionErrorSpanScale", alias = "position_error_span_scale")]
-    pub position_error_span_scale: Option<f64>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct BarycenterState {
-    pub localize: Option<f64>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct HybridState {
     #[serde(rename = "externalBackend", alias = "external_backend")]
     pub external_backend: Option<String>,
@@ -212,9 +188,6 @@ pub struct RenderBackendState {
         alias = "restore_backend_available"
     )]
     pub restore_backend_available: bool,
-    pub barycenter: BarycenterState,
-    #[serde(rename = "experimentalDistance", alias = "experimental_distance")]
-    pub experimental_distance: ExperimentalDistanceState,
     pub hybrid: HybridState,
     /// Selectable backends with their declared param schema: `[{ id, label,
     /// params: [...] }]`. Passed through verbatim so the UI can populate the
@@ -226,15 +199,6 @@ pub struct RenderBackendState {
         skip_serializing_if = "serde_json::Value::is_null"
     )]
     pub available_backends: serde_json::Value,
-    /// Host-set param values for the active backend (`{ key: value }`), used to
-    /// seed the generated controls.
-    #[serde(
-        rename = "backendParamValues",
-        alias = "backend_param_values",
-        default,
-        skip_serializing_if = "serde_json::Value::is_null"
-    )]
-    pub backend_param_values: serde_json::Value,
     /// Host-set param values for every backend (`{ backendId: { key: value } }`),
     /// used to seed generated controls for a backend that is not the active
     /// selection (e.g. a hybrid inner-backend tab).
