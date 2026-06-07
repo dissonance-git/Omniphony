@@ -10,21 +10,6 @@ use serde_json::json;
 // without cpal/pipewire/asio.
 
 #[derive(Debug, Clone, Serialize)]
-pub struct ExperimentalDistanceOptionsSnapshot {
-    pub distance_floor: f32,
-    pub min_active_speakers: usize,
-    pub max_active_speakers: usize,
-    pub position_error_floor: f32,
-    pub position_error_nearest_scale: f32,
-    pub position_error_span_scale: f32,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct BarycenterOptionsSnapshot {
-    pub localize: f32,
-}
-
-#[derive(Debug, Clone, Serialize)]
 pub struct HybridOptionsSnapshot {
     pub external_backend: String,
     pub internal_backend: String,
@@ -41,13 +26,9 @@ pub struct RenderBackendStateSnapshot {
     /// Every selectable backend (built-in + host-registered) with its param
     /// schema, for the UI list and control generation.
     pub available_backends: Vec<renderer::backend_registry::BackendListing>,
-    /// Host-set param values for the *active* backend, keyed by param key. The
-    /// UI seeds its controls from these (falling back to the schema defaults).
-    pub backend_param_values:
-        std::collections::HashMap<String, renderer::backend_params::ParamValue>,
     /// Host-set param values for *every* backend, keyed by backend id then param
-    /// key. The UI reads an inner backend's values from here (e.g. the hybrid
-    /// barycenter tab), independent of the active selection.
+    /// key. The UI reads each backend's values from here, including an inner
+    /// backend (e.g. the hybrid barycenter tab) that is not the active selection.
     pub backend_param_values_by_id: std::collections::HashMap<
         String,
         std::collections::HashMap<String, renderer::backend_params::ParamValue>,
@@ -57,8 +38,6 @@ pub struct RenderBackendStateSnapshot {
     pub frozen_room_ratio: bool,
     pub frozen_speakers: bool,
     pub restore_backend_available: bool,
-    pub barycenter: BarycenterOptionsSnapshot,
-    pub experimental_distance: ExperimentalDistanceOptionsSnapshot,
     pub hybrid: HybridOptionsSnapshot,
 }
 
@@ -84,7 +63,6 @@ pub fn build_render_backend_state_snapshot(
     live: &LiveParams,
     active_topology: &RenderTopology,
     available_backends: Vec<renderer::backend_registry::BackendListing>,
-    backend_param_values: std::collections::HashMap<String, renderer::backend_params::ParamValue>,
     backend_param_values_by_id: std::collections::HashMap<
         String,
         std::collections::HashMap<String, renderer::backend_params::ParamValue>,
@@ -93,57 +71,17 @@ pub fn build_render_backend_state_snapshot(
     let backend = &active_topology.backend;
     let capabilities = backend.capabilities();
 
-    // The bespoke barycenter/experimental option blocks are sourced from the
-    // active backend's param bag (resolved against the model defaults). They are
-    // kept only for the current Studio UI; once Studio renders controls from the
-    // generic `available_backends` schema they can be dropped.
-    use renderer::backend_params::ParamValue;
-    let param_f32 = |key: &str, default: f32| {
-        backend_param_values
-            .get(key)
-            .and_then(ParamValue::as_f32)
-            .unwrap_or(default)
-    };
-    let param_count = |key: &str, default: usize| {
-        backend_param_values
-            .get(key)
-            .and_then(ParamValue::as_i64)
-            .map(|v| v.max(1) as usize)
-            .unwrap_or(default)
-    };
-    let exp_defaults = renderer::live_params::ExperimentalDistanceLiveParams::default();
-    let barycenter = BarycenterOptionsSnapshot {
-        localize: param_f32("localize", 0.0),
-    };
-    let experimental_distance = ExperimentalDistanceOptionsSnapshot {
-        distance_floor: param_f32("distance_floor", exp_defaults.distance_floor),
-        min_active_speakers: param_count("min_active_speakers", exp_defaults.min_active_speakers),
-        max_active_speakers: param_count("max_active_speakers", exp_defaults.max_active_speakers),
-        position_error_floor: param_f32("position_error_floor", exp_defaults.position_error_floor),
-        position_error_nearest_scale: param_f32(
-            "position_error_nearest_scale",
-            exp_defaults.position_error_nearest_scale,
-        ),
-        position_error_span_scale: param_f32(
-            "position_error_span_scale",
-            exp_defaults.position_error_span_scale,
-        ),
-    };
-
     RenderBackendStateSnapshot {
         selection: live.backend_id().to_string(),
         effective: backend.backend_id().to_string(),
         effective_label: backend.backend_label().to_string(),
         available_backends,
-        backend_param_values,
         backend_param_values_by_id,
         capabilities,
         allowed_evaluation_modes: allowed_evaluation_modes(backend, capabilities),
         frozen_room_ratio: false,
         frozen_speakers: false,
         restore_backend_available: false,
-        barycenter,
-        experimental_distance,
         hybrid: HybridOptionsSnapshot {
             external_backend: live.hybrid.external_backend_id.clone(),
             internal_backend: live.hybrid.internal_backend_id.clone(),
@@ -158,7 +96,6 @@ pub fn build_render_backend_state_json(
     live: &LiveParams,
     active_topology: &RenderTopology,
     available_backends: Vec<renderer::backend_registry::BackendListing>,
-    backend_param_values: std::collections::HashMap<String, renderer::backend_params::ParamValue>,
     backend_param_values_by_id: std::collections::HashMap<
         String,
         std::collections::HashMap<String, renderer::backend_params::ParamValue>,
@@ -168,7 +105,6 @@ pub fn build_render_backend_state_json(
         live,
         active_topology,
         available_backends,
-        backend_param_values,
         backend_param_values_by_id,
     ))
     .unwrap_or_else(|_| "{}".to_string())
@@ -179,7 +115,6 @@ pub fn build_renderer_state_json(
     active_topology: &RenderTopology,
     room_scale_m: f32,
     available_backends: Vec<renderer::backend_registry::BackendListing>,
-    backend_param_values: std::collections::HashMap<String, renderer::backend_params::ParamValue>,
     backend_param_values_by_id: std::collections::HashMap<
         String,
         std::collections::HashMap<String, renderer::backend_params::ParamValue>,
@@ -191,7 +126,6 @@ pub fn build_renderer_state_json(
         live,
         active_topology,
         available_backends,
-        backend_param_values,
         backend_param_values_by_id,
     );
     json!({
@@ -381,7 +315,6 @@ pub fn build_live_state_bundle(
         &active_topology,
         editable_layout.radius_m,
         control.available_backends(),
-        control.backend_params_for(live.backend_id()),
         control.all_backend_params(),
     );
 

@@ -213,35 +213,15 @@ export function applyInitState(payload) {
     app.renderBackendState.frozenSpeakers = payload.renderBackendState.frozenSpeakers === true;
     app.renderBackendState.restoreBackendAvailable = payload.renderBackendState.restoreBackendAvailable === true;
     // Engine-published list of selectable backends (id + label + param schema)
-    // and the active backend's current param values — drive the dynamic dropdown
-    // and the generated per-backend controls.
+    // and every backend's current param values — drive the dynamic dropdown and
+    // the generated per-backend controls (including hybrid inner-backend tabs).
     app.renderBackendState.availableBackends = Array.isArray(payload.renderBackendState.availableBackends)
       ? payload.renderBackendState.availableBackends
       : [];
-    app.renderBackendState.backendParamValues = payload.renderBackendState.backendParamValues
-      && typeof payload.renderBackendState.backendParamValues === 'object'
-      ? payload.renderBackendState.backendParamValues
+    app.renderBackendState.backendParamValuesById = payload.renderBackendState.backendParamValuesById
+      && typeof payload.renderBackendState.backendParamValuesById === 'object'
+      ? payload.renderBackendState.backendParamValuesById
       : {};
-    const barycenter = payload.renderBackendState.barycenter;
-    if (barycenter && typeof barycenter === 'object') {
-      app.renderBackendState.barycenter.localize =
-        typeof barycenter.localize === 'number' ? barycenter.localize : null;
-    }
-    const experimentalDistance = payload.renderBackendState.experimentalDistance;
-    if (experimentalDistance && typeof experimentalDistance === 'object') {
-      app.renderBackendState.experimentalDistance.distanceFloor =
-        typeof experimentalDistance.distanceFloor === 'number' ? experimentalDistance.distanceFloor : null;
-      app.renderBackendState.experimentalDistance.minActiveSpeakers =
-        typeof experimentalDistance.minActiveSpeakers === 'number' ? experimentalDistance.minActiveSpeakers : null;
-      app.renderBackendState.experimentalDistance.maxActiveSpeakers =
-        typeof experimentalDistance.maxActiveSpeakers === 'number' ? experimentalDistance.maxActiveSpeakers : null;
-      app.renderBackendState.experimentalDistance.positionErrorFloor =
-        typeof experimentalDistance.positionErrorFloor === 'number' ? experimentalDistance.positionErrorFloor : null;
-      app.renderBackendState.experimentalDistance.positionErrorNearestScale =
-        typeof experimentalDistance.positionErrorNearestScale === 'number' ? experimentalDistance.positionErrorNearestScale : null;
-      app.renderBackendState.experimentalDistance.positionErrorSpanScale =
-        typeof experimentalDistance.positionErrorSpanScale === 'number' ? experimentalDistance.positionErrorSpanScale : null;
-    }
     const hybrid = payload.renderBackendState.hybrid;
     if (hybrid && typeof hybrid === 'object') {
       const validInner = (id) =>

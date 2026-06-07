@@ -1046,48 +1046,6 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
-    // Backend-specific param addresses are thin aliases over the generic param
-    // bag, keyed by the backend id. (The min/max active-speaker ordering is
-    // re-asserted at build time, so no read-modify-write is needed here.)
-    if let Some(rest) = addr.strip_prefix("/omniphony/control/experimental_distance/") {
-        let value = match rest {
-            "min_active_speakers" | "max_active_speakers" => {
-                parse_positive_u32_arg(msg.args.first())
-                    .map(|v| renderer::backend_params::ParamValue::Int(v as i64))
-            }
-            "distance_floor"
-            | "position_error_floor"
-            | "position_error_nearest_scale"
-            | "position_error_span_scale" => parse_f32_arg(msg.args.first())
-                .map(|v| renderer::backend_params::ParamValue::Float(v.max(0.0))),
-            _ => None,
-        };
-        if let Some(value) = value {
-            ctx.renderer
-                .set_backend_param("experimental_distance", rest, value);
-            effects.mark_dirty = true;
-            effects.trigger_layout_recompute = true;
-            effects.log_message = Some(format!("OSC: experimental_distance/{rest} updated"));
-        }
-        return Some(effects);
-    }
-
-    if let Some(rest) = addr.strip_prefix("/omniphony/control/barycenter/") {
-        if rest == "localize" {
-            if let Some(v) = parse_f32_arg(msg.args.first()).map(|f| f.max(0.0)) {
-                ctx.renderer.set_backend_param(
-                    "barycenter",
-                    "localize",
-                    renderer::backend_params::ParamValue::Float(v),
-                );
-                effects.mark_dirty = true;
-                effects.trigger_layout_recompute = true;
-                effects.log_message = Some(format!("OSC: barycenter/localize -> {v}"));
-            }
-        }
-        return Some(effects);
-    }
-
     if let Some(rest) = addr.strip_prefix("/omniphony/control/hybrid/") {
         let mut live = ctx.renderer.live.write();
         let mut changed = false;
