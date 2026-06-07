@@ -14,13 +14,55 @@ import {
 } from '../modals.js';
 import { closeAutoTuneWizardOnEscape } from '../auto-tune/wizard-ui.js';
 
-function bindModalOpenClose({ buttonId, closeButtonId, modalId, open, close }) {
+// Give a section / parameter name the same clickable affordance as the inline
+// help triggers: pointer cursor + a faint dotted underline.
+function markClickableName(el) {
+  el.setAttribute('role', 'button');
+  el.style.cursor = 'pointer';
+  el.style.textDecoration = 'underline dotted rgba(217,236,255,0.4)';
+  el.style.textUnderlineOffset = '2px';
+}
+
+// Resolve the element that should open the modal instead of the "i" button: an
+// explicit selector if given, else the name inside the button's `.title-with-info`
+// holder, else the title of its `.panel-header`. Returns null when none is found
+// (caller then keeps the original button).
+function resolveModalTrigger(buttonEl, triggerSelector) {
+  if (triggerSelector) {
+    return document.querySelector(triggerSelector);
+  }
+  const holder = buttonEl.closest('.title-with-info');
+  if (holder) {
+    const name = holder.querySelector('label, span[data-i18n], span');
+    if (name && name !== buttonEl) return name;
+  }
+  const header = buttonEl.closest('.panel-header');
+  if (header) {
+    const title = header.querySelector('.panel-title, .info-title');
+    if (title) return title;
+  }
+  return null;
+}
+
+function bindModalOpenClose({ buttonId, closeButtonId, modalId, open, close, triggerSelector }) {
   const buttonEl = document.getElementById(buttonId);
   const closeButtonEl = document.getElementById(closeButtonId);
   const modalEl = document.getElementById(modalId);
 
   if (buttonEl) {
-    buttonEl.addEventListener('click', open);
+    // Prefer opening the modal from a click on the section / parameter name and
+    // hide the "i" button; fall back to the button if no name can be resolved.
+    const trigger = resolveModalTrigger(buttonEl, triggerSelector);
+    if (trigger) {
+      markClickableName(trigger);
+      trigger.addEventListener('click', (event) => {
+        event.preventDefault();
+        open();
+      });
+      buttonEl.style.display = 'none';
+    } else {
+      buttonEl.addEventListener('click', open);
+    }
   }
 
   if (closeButtonEl) {
@@ -73,6 +115,7 @@ export function setupModalAndToggleListeners() {
     buttonId: 'oscInfoBtn',
     closeButtonId: 'oscInfoCloseBtn',
     modalId: 'oscInfoModal',
+    triggerSelector: '#oscPanelRoot [data-i18n="osc.label"]',
     open: () => setOscInfoModalOpen(true),
     close: () => setOscInfoModalOpen(false)
   });
@@ -97,6 +140,7 @@ export function setupModalAndToggleListeners() {
     buttonId: 'telemetryGaugesInfoBtn',
     closeButtonId: 'telemetryGaugesInfoCloseBtn',
     modalId: 'telemetryGaugesInfoModal',
+    triggerSelector: '#latencySection .info-title',
     open: () => setTelemetryGaugesInfoModalOpen(true),
     close: () => setTelemetryGaugesInfoModalOpen(false)
   });
@@ -145,6 +189,7 @@ export function setupModalAndToggleListeners() {
     buttonId: 'inputInfoBtn',
     closeButtonId: 'inputInfoCloseBtn',
     modalId: 'inputInfoModal',
+    triggerSelector: '#audioInputSection .panel-title',
     open: () => setInputInfoModalOpen(true),
     close: () => setInputInfoModalOpen(false)
   });
