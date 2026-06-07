@@ -409,12 +409,6 @@ fn evaluation_build_config_from_live(
         request_template: RenderRequest {
             adm_position: [0.0, 0.0, 0.0],
             event_size: [0.0, 0.0, 0.0],
-            size_to_spread_mode: live.size_to_spread_mode,
-            spread_min: live.spread_min,
-            spread_max: live.spread_max,
-            spread_from_distance: live.spread_from_distance,
-            spread_distance_range: live.spread_distance_range,
-            spread_distance_curve: live.spread_distance_curve,
             room_ratio: live.room_ratio,
             room_ratio_rear: live.room_ratio_rear,
             room_ratio_lower: live.room_ratio_lower,

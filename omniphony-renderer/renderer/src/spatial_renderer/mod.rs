@@ -87,12 +87,6 @@ pub use components::{RenderedFrame, SpatialChannelEvent};
 struct LiveSnapshot<'a> {
     master_gain: f32,
     object_params: &'a [crate::live_params::ObjectLiveParams],
-    spread_min: f32,
-    spread_max: f32,
-    spread_from_distance: bool,
-    spread_distance_range: f32,
-    spread_distance_curve: f32,
-    size_to_spread_mode: crate::render_backend::SizeToSpreadMode,
     ramp_mode: RampMode,
     use_loudness: bool,
     auto_gain: bool,
@@ -293,12 +287,6 @@ impl SpatialRenderer {
 
     fn ramp_context(&self, live: &LiveSnapshot<'_>) -> RampContext {
         RampContext::new(RampRenderParams {
-            spread_min: live.spread_min,
-            spread_max: live.spread_max,
-            spread_from_distance: live.spread_from_distance,
-            spread_distance_range: live.spread_distance_range,
-            spread_distance_curve: live.spread_distance_curve,
-            size_to_spread_mode: live.size_to_spread_mode,
             room_ratio: live.room_ratio,
             room_ratio_rear: live.room_ratio_rear,
             room_ratio_lower: live.room_ratio_lower,
@@ -503,12 +491,6 @@ impl SpatialRenderer {
             LiveSnapshot {
                 master_gain: g.master_gain,
                 object_params: &self.object_params_buf[..input_channel_count],
-                spread_min: g.spread_min,
-                spread_max: g.spread_max,
-                spread_from_distance: g.spread_from_distance,
-                spread_distance_range: g.spread_distance_range,
-                spread_distance_curve: g.spread_distance_curve,
-                size_to_spread_mode: g.size_to_spread_mode,
                 ramp_mode: g.ramp_mode,
                 use_loudness: g.use_loudness,
                 auto_gain: g.auto_gain,

@@ -21,13 +21,13 @@ pub enum SerializedEvaluationMode {
     PrecomputedPolar,
 }
 
+/// Serialized snapshot of the non-position request fields used when a table was
+/// baked, recorded as artifact metadata. VBAP spread tuning is no longer a
+/// request field (it is baked into the backend and captured via
+/// `backend_restore_payload`), so it is not mirrored here; older artifacts that
+/// still carry the dropped spread keys deserialize fine (unknown fields ignored).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrozenRenderRequest {
-    pub spread_min: f32,
-    pub spread_max: f32,
-    pub spread_from_distance: bool,
-    pub spread_distance_range: f32,
-    pub spread_distance_curve: f32,
     pub room_ratio: [f32; 3],
     pub room_ratio_rear: f32,
     pub room_ratio_lower: f32,
@@ -41,11 +41,6 @@ pub struct FrozenRenderRequest {
 impl From<RenderRequest> for FrozenRenderRequest {
     fn from(value: RenderRequest) -> Self {
         Self {
-            spread_min: value.spread_min,
-            spread_max: value.spread_max,
-            spread_from_distance: value.spread_from_distance,
-            spread_distance_range: value.spread_distance_range,
-            spread_distance_curve: value.spread_distance_curve,
             room_ratio: value.room_ratio,
             room_ratio_rear: value.room_ratio_rear,
             room_ratio_lower: value.room_ratio_lower,

@@ -2,17 +2,11 @@ mod position;
 
 pub use position::PositionRampStrategy;
 
-use crate::render_backend::{RenderRequest, SizeToSpreadMode};
+use crate::render_backend::RenderRequest;
 use crate::spatial_vbap::DistanceModel;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RampRenderParams {
-    pub spread_min: f32,
-    pub spread_max: f32,
-    pub spread_from_distance: bool,
-    pub spread_distance_range: f32,
-    pub spread_distance_curve: f32,
-    pub size_to_spread_mode: SizeToSpreadMode,
     pub room_ratio: [f32; 3],
     pub room_ratio_rear: f32,
     pub room_ratio_lower: f32,
@@ -33,12 +27,6 @@ impl RampRenderParams {
         RenderRequest {
             adm_position: position,
             event_size,
-            size_to_spread_mode: self.size_to_spread_mode,
-            spread_min: self.spread_min,
-            spread_max: self.spread_max,
-            spread_from_distance: self.spread_from_distance,
-            spread_distance_range: self.spread_distance_range,
-            spread_distance_curve: self.spread_distance_curve,
             room_ratio: self.room_ratio,
             room_ratio_rear: self.room_ratio_rear,
             room_ratio_lower: self.room_ratio_lower,

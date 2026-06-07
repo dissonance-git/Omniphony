@@ -126,12 +126,6 @@ impl SpatialRenderer {
                     RenderRequest {
                         adm_position: [0.0, 0.0, 0.0],
                         event_size: [0.0, 0.0, 0.0],
-                        size_to_spread_mode: Default::default(),
-                        spread_min,
-                        spread_max,
-                        spread_from_distance,
-                        spread_distance_range,
-                        spread_distance_curve,
                         room_ratio,
                         room_ratio_rear,
                         room_ratio_lower,
