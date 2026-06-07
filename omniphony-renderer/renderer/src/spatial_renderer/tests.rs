@@ -3,6 +3,12 @@
 //! resolves to the renderer module and its private items.
 
 use super::*;
+// Types the tests construct directly. Imported here (not relied upon via
+// `super::*`) so the production `mod.rs` only imports what its own code uses.
+use crate::live_params::{LiveEvaluationMode, PreferredEvaluationMode};
+use crate::render_backend::EffectiveEvaluationMode;
+use crate::spatial_vbap::VbapTableMode;
+use crate::speaker_layout::SpeakerLayout;
 
 /// The unified multi-band cartesian table must render bit-equivalently to the
 /// per-band path it replaces. Build two identical crossover renderers, force
