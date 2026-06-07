@@ -22,8 +22,6 @@ function getRendererSummaryEl() { return inRendererPanel('rendererSummary'); }
 function getBackendParametersSectionEl() { return inRendererPanel('backendParametersSection'); }
 function getBackendSpecificParamsSectionEl() { return inRendererPanel('backendSpecificParamsSection'); }
 function getEvaluationSectionEl() { return inRendererPanel('evaluationSection'); }
-function getSpreadSectionEl() { return inRendererPanel('spreadSection'); }
-function getSpreadFromDistanceSectionEl() { return inRendererPanel('spreadFromDistanceSection'); }
 function getHybridSectionEl() { return inRendererPanel('hybridSection'); }
 function getHybridExternalBackendSelectEl() { return inRendererPanel('hybridExternalBackendSelect'); }
 function getHybridInternalBackendSelectEl() { return inRendererPanel('hybridInternalBackendSelect'); }
@@ -85,8 +83,6 @@ function applyRendererBackendVisibility(backend) {
   const backendParametersSectionEl = getBackendParametersSectionEl();
   const evaluationSectionEl = getEvaluationSectionEl();
   const backendSpecificParamsSectionEl = getBackendSpecificParamsSectionEl();
-  const spreadSectionEl = getSpreadSectionEl();
-  const spreadFromDistanceSectionEl = getSpreadFromDistanceSectionEl();
   const hybridSectionEl = getHybridSectionEl();
   const hybridConfigPanelEl = getHybridConfigPanelEl();
   const capabilities = backendCapabilities();
@@ -128,14 +124,6 @@ function applyRendererBackendVisibility(backend) {
     // in the DOM.
     backendSpecificParamsSectionEl.style.display =
       showsGeneric || showsHybrid ? 'flex' : 'none';
-  }
-  // VBAP spread tuning is now rendered via the generic schema controls; the old
-  // hand-written spread sections are retired (kept hidden pending removal).
-  if (spreadSectionEl) {
-    spreadSectionEl.style.display = 'none';
-  }
-  if (spreadFromDistanceSectionEl) {
-    spreadFromDistanceSectionEl.style.display = 'none';
   }
   if (hybridSectionEl) {
     hybridSectionEl.style.display = showsHybrid ? '' : 'none';

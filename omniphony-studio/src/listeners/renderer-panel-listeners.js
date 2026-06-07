@@ -10,18 +10,11 @@ import {
   updateVbapPositionInterpolation
 } from '../controls/vbap.js';
 import { renderHybridCurve, setupHybridCurveEditor } from '../controls/hybrid-curve.js';
-import { updateSpreadDisplay } from '../controls/spread.js';
 import { updateDistanceModelUI } from '../controls/master.js';
 import { updateDistanceDiffuseUI } from '../controls/distance-diffuse.js';
 import { renderVbapCartesianGridToggle, updateVbapCartesianFaceGrid } from '../scene/gizmos.js';
 
 export function setupRendererPanelListeners() {
-  const spreadMinSliderEl = document.getElementById('spreadMinSlider');
-  const spreadMaxSliderEl = document.getElementById('spreadMaxSlider');
-  const spreadFromDistanceToggleEl = document.getElementById('spreadFromDistanceToggle');
-  const spreadDistanceRangeSliderEl = document.getElementById('spreadDistanceRangeSlider');
-  const spreadDistanceCurveSliderEl = document.getElementById('spreadDistanceCurveSlider');
-  const sizeToSpreadModeSelectEl = document.getElementById('sizeToSpreadModeSelect');
   const distanceModelSelectEl = document.getElementById('distanceModelSelect');
   const distanceModelMetricSelectEl = document.getElementById('distanceModelMetricSelect');
   const distanceDiffuseMetricSelectEl = document.getElementById('distanceDiffuseMetricSelect');
@@ -48,81 +41,6 @@ export function setupRendererPanelListeners() {
   const hybridMetricSelectEl = document.getElementById('hybridMetricSelect');
   const hybridCurveSmoothingSliderEl = document.getElementById('hybridCurveSmoothingSlider');
   const hybridCurveSmoothingValEl = document.getElementById('hybridCurveSmoothingVal');
-
-  if (spreadMinSliderEl) {
-    spreadMinSliderEl.addEventListener('input', () => {
-      const valueDeg = Number(spreadMinSliderEl.value);
-      if (!Number.isFinite(valueDeg)) return;
-      const valueNorm = Math.max(0, Math.min(180, valueDeg)) / 180.0;
-      const maxValue = app.spreadState.max === null ? 1 : app.spreadState.max;
-      app.spreadState.min = Math.min(valueNorm, maxValue);
-      spreadMinSliderEl.value = String((app.spreadState.min ?? 0) * 180.0);
-      app.vbapRecomputing = true;
-      renderVbapStatus();
-      updateSpreadDisplay();
-      invoke('control_spread_min', { value: app.spreadState.min });
-    });
-  }
-
-  if (spreadMaxSliderEl) {
-    spreadMaxSliderEl.addEventListener('input', () => {
-      const valueDeg = Number(spreadMaxSliderEl.value);
-      if (!Number.isFinite(valueDeg)) return;
-      const valueNorm = Math.max(0, Math.min(180, valueDeg)) / 180.0;
-      const minValue = app.spreadState.min === null ? 0 : app.spreadState.min;
-      app.spreadState.max = Math.max(valueNorm, minValue);
-      spreadMaxSliderEl.value = String((app.spreadState.max ?? 1) * 180.0);
-      app.vbapRecomputing = true;
-      renderVbapStatus();
-      updateSpreadDisplay();
-      invoke('control_spread_max', { value: app.spreadState.max });
-    });
-  }
-
-  if (spreadFromDistanceToggleEl) {
-    spreadFromDistanceToggleEl.addEventListener('change', () => {
-      const enabled = spreadFromDistanceToggleEl.checked;
-      app.spreadState.fromDistance = enabled;
-      app.vbapRecomputing = true;
-      renderVbapStatus();
-      updateSpreadDisplay();
-      invoke('control_spread_from_distance', { enable: enabled ? 1 : 0 });
-    });
-  }
-
-  if (spreadDistanceRangeSliderEl) {
-    spreadDistanceRangeSliderEl.addEventListener('input', () => {
-      const value = Number(spreadDistanceRangeSliderEl.value);
-      if (!Number.isFinite(value)) return;
-      app.spreadState.distanceRange = Math.max(0.01, value);
-      app.vbapRecomputing = true;
-      renderVbapStatus();
-      updateSpreadDisplay();
-      invoke('control_spread_distance_range', { value: app.spreadState.distanceRange });
-    });
-  }
-
-  if (spreadDistanceCurveSliderEl) {
-    spreadDistanceCurveSliderEl.addEventListener('input', () => {
-      const value = Number(spreadDistanceCurveSliderEl.value);
-      if (!Number.isFinite(value)) return;
-      app.spreadState.distanceCurve = Math.max(0, value);
-      app.vbapRecomputing = true;
-      renderVbapStatus();
-      updateSpreadDisplay();
-      invoke('control_spread_distance_curve', { value: app.spreadState.distanceCurve });
-    });
-  }
-
-  if (sizeToSpreadModeSelectEl) {
-    sizeToSpreadModeSelectEl.addEventListener('change', () => {
-      const value = String(sizeToSpreadModeSelectEl.value || '').trim().toLowerCase();
-      if (!['max', 'mean', 'projection_perpendicular'].includes(value)) return;
-      app.spreadState.sizeToSpreadMode = value;
-      updateSpreadDisplay();
-      invoke('control_size_to_spread_mode', { value });
-    });
-  }
 
   if (distanceModelSelectEl) {
     distanceModelSelectEl.addEventListener('change', () => {

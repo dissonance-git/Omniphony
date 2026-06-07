@@ -64,7 +64,6 @@ import { setupVisualRecovery, teardownVisualRecovery } from './visual-recovery.j
 import { initRenderSurfaceController } from './core/render/render-surface-controller.js';
 
 // ── Flush callback wiring ──────────────────────────────────────────────────
-import { renderSpreadDisplay } from './controls/spread.js';
 import {
   renderVbapStatus,
   renderEvaluationMode,
@@ -99,7 +98,6 @@ import { rebuildTrailGeometry, captureTrailPointColor } from './trails.js';
 import { muteSoloCallbacks } from './mute-solo.js';
 
 flushCallbacks.renderRoomRatioDisplay = renderRoomRatioDisplay;
-flushCallbacks.renderSpreadDisplay = renderSpreadDisplay;
 flushCallbacks.renderEvaluationMode = renderEvaluationMode;
 flushCallbacks.renderRenderBackend = renderRenderBackend;
 flushCallbacks.renderHybridOptions = renderHybridOptions;

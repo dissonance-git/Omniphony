@@ -49,7 +49,6 @@ import {
   updateResampleRatioDisplay
 } from './controls/latency.js';
 import { updateMasterGainUI, updateLoudnessDisplay, updateDistanceModelUI, flashClipIndicator } from './controls/master.js';
-import { updateSpreadDisplay } from './controls/spread.js';
 import {
   updateRenderBackend,
   updateEvaluationMode,
