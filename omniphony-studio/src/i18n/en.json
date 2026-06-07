@@ -201,6 +201,7 @@
   "config.import": "Import layout",
   "config.export": "Export layout",
   "evaluation.title": "Evaluation",
+  "evaluation.objectSizeIntervals": "Object size intervals",
   "evaluation.infoButton": "Evaluation mode info",
   "evaluation.infoTitle": "Evaluation mode",
   "evaluation.infoBody": "Evaluation mode controls how speaker gains are computed for each object position.<br><br><strong>Realtime</strong> computes directly at runtime. <strong>Precomputed polar</strong> and <strong>precomputed cartesian</strong> trade memory for faster lookups and more stable cost. <strong>Auto</strong> lets the renderer choose the best available path for the current backend and tables.",

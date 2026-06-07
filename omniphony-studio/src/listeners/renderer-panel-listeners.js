@@ -31,6 +31,7 @@ export function setupRendererPanelListeners() {
   const vbapPolarDistanceResInputEl = document.getElementById('vbapPolarDistanceResInput');
   const vbapPolarDistanceMaxInputEl = document.getElementById('vbapPolarDistanceMaxInput');
   const vbapPositionInterpolationToggleEl = document.getElementById('vbapPositionInterpolationToggleEl');
+  const objectSizeIntervalsInputEl = document.getElementById('objectSizeIntervalsInput');
   const distanceDiffuseToggleEl = document.getElementById('distanceDiffuseToggle');
   const distanceDiffuseThresholdSliderEl = document.getElementById('distanceDiffuseThresholdSlider');
   const distanceDiffuseThresholdValEl = document.getElementById('distanceDiffuseThresholdVal');
@@ -86,6 +87,18 @@ export function setupRendererPanelListeners() {
       renderVbapStatus();
       updateVbapCartesian();
       invoke('control_render_evaluation_cartesian_x_size', { value });
+    });
+  }
+
+  if (objectSizeIntervalsInputEl) {
+    objectSizeIntervalsInputEl.addEventListener('change', () => {
+      const value = Math.max(0, Math.round(Number(objectSizeIntervalsInputEl.value) || 0));
+      app.objectSizeIntervals = value;
+      objectSizeIntervalsInputEl.value = String(value);
+      app.vbapRecomputing = true;
+      renderVbapStatus();
+      updateEvaluationMode();
+      invoke('control_render_evaluation_object_size_intervals', { value });
     });
   }
 
