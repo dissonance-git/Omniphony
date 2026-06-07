@@ -212,29 +212,21 @@ fn normalize(v: [f32; 3]) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use renderer::backend_conformance::{
+        ConformanceOptions, CountingAllocator, ZeroAllocReport, check, check_zero_alloc,
+    };
 
-    /// A neutral request at `pos`. Only `adm_position` matters to this backend;
-    /// the rest are filled with inert defaults. (A shared public test helper for
-    /// building requests is planned with the backend conformance harness.)
+    // Counting global allocator for the *test build only*, so the zero-allocation
+    // conformance check can actually observe heap traffic. Consumers that depend
+    // on `example_backend` normally are unaffected (this is gated on `test`).
+    #[global_allocator]
+    static GLOBAL: CountingAllocator = CountingAllocator;
+
+    /// A neutral request at `pos`, from the shared conformance harness helper.
     fn request(pos: [f64; 3]) -> RenderRequest {
-        RenderRequest {
-            adm_position: pos,
-            event_size: [0.0; 3],
-            size_to_spread_mode: Default::default(),
-            spread_min: 0.0,
-            spread_max: 0.0,
-            spread_from_distance: false,
-            spread_distance_range: 1.0,
-            spread_distance_curve: 1.0,
-            room_ratio: [1.0, 1.0, 1.0],
-            room_ratio_rear: 1.0,
-            room_ratio_lower: 1.0,
-            room_ratio_center_blend: 0.5,
-            use_distance_diffuse: false,
-            distance_diffuse_threshold: 1.0,
-            distance_diffuse_curve: 1.0,
-            distance_model: Default::default(),
-        }
+        let mut req = renderer::backend_conformance::neutral_request();
+        req.adm_position = pos;
+        req
     }
 
     /// A square of four speakers in the horizontal plane.
@@ -310,5 +302,30 @@ mod tests {
             .map(|(i, _)| i)
             .unwrap();
         assert_eq!(max_idx, 0);
+    }
+
+    /// The reference backend must pass the public conformance harness — this is
+    /// the template a contributor copies. Energy bounds are tight here because
+    /// this panner is explicitly unit-energy normalised.
+    #[test]
+    fn passes_backend_conformance() {
+        let opts = ConformanceOptions {
+            energy_bounds: Some((0.99, 1.01)),
+            ..Default::default()
+        };
+        check(&quad(), &opts).assert_passed();
+    }
+
+    /// `compute_gains` must not touch the heap. With the counting allocator
+    /// installed above, the check actually runs (not skipped) and must see zero
+    /// allocations.
+    #[test]
+    fn compute_gains_is_allocation_free() {
+        let report = check_zero_alloc(&quad(), &ConformanceOptions::default());
+        assert!(
+            matches!(report, ZeroAllocReport::Ran { .. }),
+            "counting allocator should be active in the test build"
+        );
+        report.assert_zero();
     }
 }
