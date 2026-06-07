@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app_state;
+mod commands;
 mod config;
 mod layouts;
 mod osc_listener;
@@ -20,26 +21,33 @@ use rfd::FileDialog;
 use tauri::{Manager, State};
 use tokio::sync::mpsc::UnboundedSender;
 
+// Tauri command handlers grouped into themed modules under `commands/`. Glob-
+// imported so `generate_handler!` can keep referring to them by bare name.
+use commands::resampling::*;
+
 // ── shared state wrapper ──────────────────────────────────────────────────
 
-struct SharedState {
-    inner: Arc<Mutex<AppState>>,
-    osc_tx: Arc<Mutex<Option<UnboundedSender<OscControlMsg>>>>,
-    config_dir: PathBuf,
-    listen_port: Arc<Mutex<u16>>,
-    realtime_seq: AtomicI32,
-    auto_tune_snapshot: Arc<Mutex<Option<serde_json::Value>>>,
+pub(crate) struct SharedState {
+    pub(crate) inner: Arc<Mutex<AppState>>,
+    pub(crate) osc_tx: Arc<Mutex<Option<UnboundedSender<OscControlMsg>>>>,
+    pub(crate) config_dir: PathBuf,
+    pub(crate) listen_port: Arc<Mutex<u16>>,
+    pub(crate) realtime_seq: AtomicI32,
+    pub(crate) auto_tune_snapshot: Arc<Mutex<Option<serde_json::Value>>>,
 }
 
 // ── helper ────────────────────────────────────────────────────────────────
 
-fn send_control(tx: &Arc<Mutex<Option<UnboundedSender<OscControlMsg>>>>, msg: OscControlMsg) {
+pub(crate) fn send_control(
+    tx: &Arc<Mutex<Option<UnboundedSender<OscControlMsg>>>>,
+    msg: OscControlMsg,
+) {
     if let Some(tx) = tx.lock().unwrap().as_ref() {
         let _ = tx.send(msg);
     }
 }
 
-fn send_json_control(
+pub(crate) fn send_json_control(
     tx: &Arc<Mutex<Option<UnboundedSender<OscControlMsg>>>>,
     address: &str,
     payload: serde_json::Value,
@@ -373,181 +381,6 @@ fn control_auto_gain_ceiling(state: State<SharedState>, db: f32) {
 }
 
 #[tauri::command]
-fn control_adaptive_resampling(state: State<SharedState>, enable: i32) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendInt {
-            address: "/omniphony/control/adaptive_resampling".to_string(),
-            value: if enable != 0 { 1 } else { 0 },
-        },
-    );
-}
-
-#[tauri::command]
-fn control_adaptive_resampling_enable_far_mode(state: State<SharedState>, enable: i32) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendInt {
-            address: "/omniphony/control/adaptive_resampling/enable_far_mode".to_string(),
-            value: if enable != 0 { 1 } else { 0 },
-        },
-    );
-}
-
-#[tauri::command]
-fn control_adaptive_resampling_force_silence_in_far_mode(state: State<SharedState>, enable: i32) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendInt {
-            address: "/omniphony/control/adaptive_resampling/force_silence_in_far_mode".to_string(),
-            value: if enable != 0 { 1 } else { 0 },
-        },
-    );
-}
-
-#[tauri::command]
-fn control_adaptive_resampling_hard_recover_high_in_far_mode(
-    state: State<SharedState>,
-    enable: i32,
-) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendInt {
-            address: "/omniphony/control/adaptive_resampling/hard_recover_high_in_far_mode"
-                .to_string(),
-            value: if enable != 0 { 1 } else { 0 },
-        },
-    );
-}
-
-#[tauri::command]
-fn control_adaptive_resampling_hard_recover_low_in_far_mode(
-    state: State<SharedState>,
-    enable: i32,
-) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendInt {
-            address: "/omniphony/control/adaptive_resampling/hard_recover_low_in_far_mode"
-                .to_string(),
-            value: if enable != 0 { 1 } else { 0 },
-        },
-    );
-}
-
-#[tauri::command]
-fn control_adaptive_resampling_far_mode_return_fade_in_ms(state: State<SharedState>, value: i32) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendInt {
-            address: "/omniphony/control/adaptive_resampling/far_mode_return_fade_in_ms"
-                .to_string(),
-            value: value.max(0),
-        },
-    );
-}
-
-#[tauri::command]
-fn control_latency_target(state: State<SharedState>, value: i32) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendInt {
-            address: "/omniphony/control/latency_target".to_string(),
-            value: value.max(1),
-        },
-    );
-}
-
-#[tauri::command]
-fn control_adaptive_resampling_kp_near(state: State<SharedState>, value: f32) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: "/omniphony/control/adaptive_resampling/kp_near".to_string(),
-            value: value.max(0.00000001),
-        },
-    );
-}
-
-#[tauri::command]
-fn control_adaptive_resampling_ki(state: State<SharedState>, value: f32) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: "/omniphony/control/adaptive_resampling/ki".to_string(),
-            value: value.max(0.00000001),
-        },
-    );
-}
-
-#[tauri::command]
-fn control_adaptive_resampling_integral_discharge_ratio(state: State<SharedState>, value: f32) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: "/omniphony/control/adaptive_resampling/integral_discharge_ratio".to_string(),
-            value: value.clamp(0.0, 1.0),
-        },
-    );
-}
-
-#[tauri::command]
-fn control_adaptive_resampling_max_adjust(state: State<SharedState>, value: f32) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: "/omniphony/control/adaptive_resampling/max_adjust".to_string(),
-            value: value.max(0.000001),
-        },
-    );
-}
-
-#[tauri::command]
-fn control_adaptive_resampling_update_interval_callbacks(state: State<SharedState>, value: i32) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendInt {
-            address: "/omniphony/control/adaptive_resampling/update_interval_callbacks".to_string(),
-            value: value.max(1),
-        },
-    );
-}
-
-#[tauri::command]
-fn control_adaptive_resampling_high_recover_entry_margin_ms(state: State<SharedState>, value: i32) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendInt {
-            address: "/omniphony/control/adaptive_resampling/high_recover_entry_margin_ms"
-                .to_string(),
-            value: value.max(1),
-        },
-    );
-}
-
-#[tauri::command]
-fn control_adaptive_resampling_pause(state: State<SharedState>, enable: i32) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendInt {
-            address: "/omniphony/control/adaptive_resampling/pause".to_string(),
-            value: if enable != 0 { 1 } else { 0 },
-        },
-    );
-}
-
-#[tauri::command]
-fn control_adaptive_resampling_reset_ratio(state: State<SharedState>) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendInt {
-            address: "/omniphony/control/adaptive_resampling/reset_ratio".to_string(),
-            value: 1,
-        },
-    );
-}
-
-#[tauri::command]
 fn auto_tune_snapshot_save(state: State<SharedState>, snapshot: serde_json::Value) {
     *state.auto_tune_snapshot.lock().unwrap() = Some(snapshot);
 }
@@ -692,7 +525,7 @@ fn control_distance_model(state: State<SharedState>, value: String) {
     );
 }
 
-fn send_distance_metric(state: &State<SharedState>, address: &str, value: String) {
+pub(crate) fn send_distance_metric(state: &State<SharedState>, address: &str, value: String) {
     let normalized = value.trim().to_ascii_lowercase();
     if !matches!(normalized.as_str(), "spherical" | "chebyshev") {
         return;
