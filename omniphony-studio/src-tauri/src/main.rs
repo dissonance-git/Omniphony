@@ -906,11 +906,11 @@ fn control_render_evaluation_cartesian_z_neg_size(state: State<SharedState>, val
 
 #[tauri::command]
 fn control_render_backend(state: State<SharedState>, value: String) {
+    // Forward any non-empty id; the engine validates it against its backend
+    // registry (which includes contributor-registered backends), so we must not
+    // hard-code the built-in set here.
     let normalized = value.trim().to_ascii_lowercase();
-    if !matches!(
-        normalized.as_str(),
-        "vbap" | "barycenter" | "experimental_distance" | "hybrid"
-    ) {
+    if normalized.is_empty() {
         return;
     }
     send_control(
@@ -918,6 +918,26 @@ fn control_render_backend(state: State<SharedState>, value: String) {
         OscControlMsg::SendString {
             address: "/omniphony/control/render_backend".to_string(),
             value: normalized,
+        },
+    );
+}
+
+/// Generic backend param setter: forwards `[string key, <scalar>]` to the engine
+/// for the currently selected backend. The scalar type follows the JSON value
+/// (bool / number / string), matching the param schema's kind.
+#[tauri::command]
+fn control_backend_param(state: State<SharedState>, key: String, value: serde_json::Value) {
+    let arg = match value {
+        serde_json::Value::Bool(b) => rosc::OscType::Bool(b),
+        serde_json::Value::Number(n) => rosc::OscType::Float(n.as_f64().unwrap_or(0.0) as f32),
+        serde_json::Value::String(s) => rosc::OscType::String(s),
+        _ => return,
+    };
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/backend/param".to_string(),
+            args: vec![rosc::OscType::String(key), arg],
         },
     );
 }
@@ -2661,6 +2681,7 @@ fn main() {
             control_render_evaluation_cartesian_z_size,
             control_render_evaluation_cartesian_z_neg_size,
             control_render_backend,
+            control_backend_param,
             control_barycenter_localize,
             control_restore_render_backend,
             control_render_evaluation_mode,
