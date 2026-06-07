@@ -744,3 +744,435 @@ pub fn compute_hard_recover_high_plan(
         desired_consume_output_samples,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AdaptiveControllerState, AdaptiveResamplingConfig, compute_adaptive_step};
+
+    // ── domain conversion & alignment ──────────────────────────────────────
+
+    #[test]
+    fn output_to_input_domain_scales_by_ratio() {
+        assert_eq!(output_to_input_domain_samples(100, 1.0), 100);
+        // The output domain runs at `ratio`× the input rate, so 100 output
+        // samples correspond to 50 input samples at ratio 2.0.
+        assert_eq!(output_to_input_domain_samples(100, 2.0), 50);
+        assert_eq!(output_to_input_domain_samples(100, 0.5), 200);
+        // Non-positive ratio is a guard: pass the value through unchanged.
+        assert_eq!(output_to_input_domain_samples(100, 0.0), 100);
+    }
+
+    #[test]
+    fn align_rounds_down_to_channel_multiple() {
+        assert_eq!(align_samples_to_audio_frame(7, 2), 6);
+        assert_eq!(align_samples_to_audio_frame(8, 2), 8);
+        assert_eq!(align_samples_to_audio_frame(10, 4), 8);
+        // channel_count 0 is a guard against a divide/modulo by zero.
+        assert_eq!(align_samples_to_audio_frame(7, 0), 7);
+    }
+
+    #[test]
+    fn paused_rate_adjust_reports_inverse_ratio() {
+        assert!((paused_rate_adjust(1.0, 1.0) - 1.0).abs() < 1e-6);
+        assert!((paused_rate_adjust(1.0, 2.0) - 0.5).abs() < 1e-6);
+        // effective ratio 0 is a guard.
+        assert!((paused_rate_adjust(1.0, 0.0) - 1.0).abs() < 1e-6);
+    }
+
+    // ── servo gating & band classification ─────────────────────────────────
+
+    #[test]
+    fn servo_runs_only_on_interval_with_enough_samples() {
+        assert!(should_run_adaptive_servo(10, 5, 1000, 500));
+        assert!(!should_run_adaptive_servo(11, 5, 1000, 500)); // not on interval
+        assert!(!should_run_adaptive_servo(10, 5, 400, 500)); // too few samples
+        // interval 0 is clamped to 1 (run every callback).
+        assert!(should_run_adaptive_servo(7, 0, 1000, 0));
+    }
+
+    fn cfg_far(margin_ms: u32) -> AdaptiveResamplingConfig {
+        AdaptiveResamplingConfig {
+            enable_far_mode: true,
+            high_recover_entry_margin_ms: margin_ms,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn far_band_classification() {
+        // far mode disabled → NONE regardless of latency.
+        let disabled = AdaptiveResamplingConfig {
+            enable_far_mode: false,
+            ..cfg_far(10)
+        };
+        assert_eq!(
+            far_mode_band_from_latency(&disabled, 5000, 1000, 48),
+            ADAPTIVE_BAND_NONE
+        );
+        // margin 0 disables the "far" classification (guard) → NEAR.
+        assert_eq!(
+            far_mode_band_from_latency(&cfg_far(0), 9999, 0, 48),
+            ADAPTIVE_BAND_NEAR
+        );
+        // 10 ms × 48 spm = 480 samples. Within margin → NEAR.
+        assert_eq!(
+            far_mode_band_from_latency(&cfg_far(10), 1000, 1100, 48),
+            ADAPTIVE_BAND_NEAR
+        );
+        // Beyond margin, above the target → FAR.
+        assert_eq!(
+            far_mode_band_from_latency(&cfg_far(10), 2000, 1000, 48),
+            ADAPTIVE_BAND_FAR
+        );
+        // Beyond margin, below the target (abs_diff is symmetric) → FAR.
+        assert_eq!(
+            far_mode_band_from_latency(&cfg_far(10), 0, 1000, 48),
+            ADAPTIVE_BAND_FAR
+        );
+    }
+
+    // ── state transitions ──────────────────────────────────────────────────
+
+    #[test]
+    fn reset_clears_controller_and_returns_base() {
+        let mut s = AdaptiveRuntimeState::new(1.0);
+        s.controller_state.accumulated_drift = 12.5;
+        s.low_recover_phase = LowRecoverPhase::Settling;
+        s.hard_recover_high_active = true;
+        let out = reset_adaptive_runtime(&mut s, 1.25);
+        assert_eq!(s.controller_state.accumulated_drift, 0.0);
+        assert_eq!(s.low_recover_phase, LowRecoverPhase::Inactive);
+        assert!(!s.hard_recover_high_active);
+        assert_eq!(out.effective_resample_ratio, 1.25);
+        assert!((out.displayed_rate_adjust - 1.0).abs() < 1e-6);
+        assert_eq!(out.adaptive_band, ADAPTIVE_BAND_NONE);
+    }
+
+    #[test]
+    fn reset_controller_integrator_zeroes_drift() {
+        let mut s = AdaptiveRuntimeState::new(1.0);
+        s.controller_state.accumulated_drift = -7.0;
+        reset_controller_integrator(&mut s);
+        assert_eq!(s.controller_state.accumulated_drift, 0.0);
+    }
+
+    #[test]
+    fn advance_callback_counts_monotonically() {
+        let mut s = AdaptiveRuntimeState::new(1.0);
+        assert_eq!(s.advance_callback(), 1);
+        assert_eq!(s.advance_callback(), 2);
+        assert_eq!(s.callback_count, 2);
+    }
+
+    #[test]
+    fn activate_startup_low_recover_enters_refill() {
+        let mut s = AdaptiveRuntimeState::new(1.0);
+        s.activate_startup_low_recover();
+        assert!(s.startup_low_recover_active);
+        assert_eq!(s.low_recover_phase, LowRecoverPhase::Refill);
+    }
+
+    #[test]
+    fn state_name_mapping() {
+        assert_eq!(
+            adaptive_runtime_state_name(LowRecoverPhase::Inactive, false),
+            "stable"
+        );
+        assert_eq!(
+            adaptive_runtime_state_name(LowRecoverPhase::Refill, false),
+            "low-recover"
+        );
+        assert_eq!(
+            adaptive_runtime_state_name(LowRecoverPhase::Settling, false),
+            "settling"
+        );
+        // hard-recover-high overrides whatever the low-recover phase is.
+        assert_eq!(
+            adaptive_runtime_state_name(LowRecoverPhase::Settling, true),
+            "high-recover"
+        );
+    }
+
+    // ── ring / buffer helpers ──────────────────────────────────────────────
+
+    #[test]
+    fn discard_ring_caps_at_available() {
+        let q = ArrayQueue::new(8);
+        for i in 0..5 {
+            q.push(i as f32).unwrap();
+        }
+        // Requesting more than present drains everything and reports the real count.
+        assert_eq!(discard_ring_samples(&q, 100), 5);
+        assert!(q.is_empty());
+    }
+
+    #[test]
+    fn discard_ring_drops_oldest_first() {
+        let q = ArrayQueue::new(8);
+        for i in 0..5 {
+            q.push(i as f32).unwrap();
+        }
+        assert_eq!(discard_ring_samples(&q, 3), 3);
+        assert_eq!(q.len(), 2);
+        // FIFO: the three oldest (0,1,2) are gone, 3.0 is now at the front.
+        assert_eq!(q.pop(), Some(3.0));
+    }
+
+    #[test]
+    fn zero_pad_tail_zeros_after_written() {
+        let mut buf = vec![1.0f32, 2.0, 3.0, 4.0];
+        zero_pad_tail(&mut buf, 2);
+        assert_eq!(buf, vec![1.0, 2.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn fade_is_noop_when_inactive() {
+        let mut s = AdaptiveRuntimeState::new(1.0);
+        let mut buf = vec![1.0f32; 8];
+        apply_interleaved_fade(&mut buf, 2, &mut s); // remaining/total are 0
+        assert!(buf.iter().all(|&x| x == 1.0));
+    }
+
+    #[test]
+    fn fade_ramps_gain_per_frame_and_drains() {
+        let mut s = AdaptiveRuntimeState::new(1.0);
+        s.far_mode_fade_total_frames = 4;
+        s.far_mode_fade_remaining_frames = 4;
+        let mut buf = vec![1.0f32; 2 * 4]; // 4 frames, width 2
+        apply_interleaved_fade(&mut buf, 2, &mut s);
+        // gain = (total - remaining) / total, evaluated before each decrement:
+        // 0/4, 1/4, 2/4, 3/4.
+        assert_eq!(&buf[0..2], &[0.0, 0.0]);
+        assert_eq!(&buf[2..4], &[0.25, 0.25]);
+        assert_eq!(&buf[4..6], &[0.5, 0.5]);
+        assert_eq!(&buf[6..8], &[0.75, 0.75]);
+        assert_eq!(s.far_mode_fade_remaining_frames, 0);
+    }
+
+    #[test]
+    fn postprocess_mutes_when_requested() {
+        let mut s = AdaptiveRuntimeState::new(1.0);
+        let mut buf = vec![0.5f32; 4];
+        postprocess_interleaved_output(&mut buf, 2, true, &mut s);
+        assert!(buf.iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn refill_streak_increments_and_warns_once() {
+        let mut s = AdaptiveRuntimeState::new(1.0);
+        note_refill_or_underrun(&mut s, "i", "d", 10, 40);
+        assert_eq!(s.refill_streak, 1);
+        assert!(s.underrun_warned);
+        note_refill_or_underrun(&mut s, "i", "d", 10, 40);
+        assert_eq!(s.refill_streak, 2);
+        assert!(s.underrun_warned); // stays latched
+    }
+
+    #[test]
+    fn hard_recover_plan_consumes_excess_above_target() {
+        // 2000 available, target 1000, ratio 1.0, 2 channels.
+        let plan = compute_hard_recover_high_plan(0, 2000, 1000, 1.0, 2);
+        assert_eq!(plan.desired_consume_input_samples, 1000);
+        assert_eq!(plan.desired_consume_output_samples, 1000);
+        // Below target → saturating_sub yields nothing to consume.
+        let none = compute_hard_recover_high_plan(0, 500, 1000, 1.0, 2);
+        assert_eq!(none.desired_consume_input_samples, 0);
+    }
+
+    #[test]
+    fn store_latency_metrics_publishes_atomics() {
+        let measured = Arc::new(AtomicU32::new(0));
+        let control = Arc::new(AtomicU32::new(0));
+        // 48000 samples available, 1 channel, 48 kHz → 1000 ms; +5 ms graph.
+        store_latency_metrics_from_control_available(
+            48_000,
+            1,
+            48_000,
+            5.0,
+            LatencyMetricTargets {
+                measured_latency_ms_bits: &measured,
+                control_latency_ms_bits: &control,
+            },
+        );
+        let control_ms = f32::from_bits(control.load(Ordering::Relaxed));
+        let measured_ms = f32::from_bits(measured.load(Ordering::Relaxed));
+        assert!((control_ms - 1000.0).abs() < 1e-3);
+        assert!((measured_ms - 1005.0).abs() < 1e-3);
+    }
+
+    // ── PI controller core (compute_adaptive_step) ─────────────────────────
+
+    /// Config isolating the proportional term (ki = 0) with a 10 % adjust cap.
+    fn p_only() -> AdaptiveResamplingConfig {
+        AdaptiveResamplingConfig {
+            kp_near: 100.0,
+            ki: 0.0,
+            max_adjust: 0.10,
+            enable_far_mode: false,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn servo_drains_when_buffer_above_target() {
+        // available > target → positive drift → consume_adjust > 1 → ratio < base,
+        // so the resampler consumes input faster and the buffer falls back to target.
+        let mut st = AdaptiveControllerState::default();
+        let step = compute_adaptive_step(
+            &mut st,
+            &p_only(),
+            6000,
+            5000,
+            0,
+            1.0,
+            0,
+            MAX_INTEGRAL_TERM,
+            48.0,
+        );
+        assert!(step.drift > 0);
+        assert!(
+            step.consume_adjust > 1.0,
+            "adjust = {}",
+            step.consume_adjust
+        );
+        assert!(step.current_ratio < 1.0);
+    }
+
+    #[test]
+    fn servo_fills_when_buffer_below_target() {
+        let mut st = AdaptiveControllerState::default();
+        let step = compute_adaptive_step(
+            &mut st,
+            &p_only(),
+            4000,
+            5000,
+            0,
+            1.0,
+            0,
+            MAX_INTEGRAL_TERM,
+            48.0,
+        );
+        assert!(step.drift < 0);
+        assert!(step.consume_adjust < 1.0);
+        assert!(step.current_ratio > 1.0);
+    }
+
+    #[test]
+    fn servo_saturates_consume_adjust_at_max_adjust() {
+        let mut st = AdaptiveControllerState::default();
+        let cfg = AdaptiveResamplingConfig {
+            max_adjust: 0.05,
+            ..p_only()
+        };
+        // Enormous drift → P term blows up but the adjust is clamped to 1 + max_adjust.
+        let step = compute_adaptive_step(
+            &mut st,
+            &cfg,
+            1_000_000,
+            0,
+            0,
+            1.0,
+            0,
+            MAX_INTEGRAL_TERM,
+            48.0,
+        );
+        assert!((step.consume_adjust - 1.05).abs() < 1e-9);
+    }
+
+    #[test]
+    fn servo_is_frozen_when_max_adjust_is_zero() {
+        let mut st = AdaptiveControllerState::default();
+        let cfg = AdaptiveResamplingConfig {
+            max_adjust: 0.0,
+            ..p_only()
+        };
+        // max_adjust 0 collapses the clamp window to [1, 1]: ratio stays at base.
+        let step =
+            compute_adaptive_step(&mut st, &cfg, 9999, 0, 0, 1.0, 0, MAX_INTEGRAL_TERM, 48.0);
+        assert!((step.consume_adjust - 1.0).abs() < 1e-9);
+        assert!((step.current_ratio - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn servo_deadband_blocks_integral_accumulation() {
+        let mut st = AdaptiveControllerState::default();
+        let cfg = AdaptiveResamplingConfig {
+            ki: 1000.0,
+            ..p_only()
+        };
+        // |drift| = 10 samples < deadband 100 → the integrator must not wind up.
+        let _ = compute_adaptive_step(
+            &mut st,
+            &cfg,
+            5010,
+            5000,
+            0,
+            1.0,
+            100,
+            MAX_INTEGRAL_TERM,
+            48.0,
+        );
+        assert_eq!(st.accumulated_drift, 0.0);
+    }
+
+    #[test]
+    fn servo_integral_windup_is_clamped() {
+        // Sustained large drift with only the integral active: accumulated drift
+        // saturates so the i_term never exceeds MAX_INTEGRAL_TERM.
+        let mut st = AdaptiveControllerState::default();
+        let cfg = AdaptiveResamplingConfig {
+            ki: 5000.0,
+            kp_near: 0.0,
+            ..p_only()
+        };
+        for _ in 0..1000 {
+            compute_adaptive_step(
+                &mut st,
+                &cfg,
+                8000,
+                5000,
+                0,
+                1.0,
+                0,
+                MAX_INTEGRAL_TERM,
+                48.0,
+            );
+        }
+        let i_term = st.accumulated_drift * cfg.ki / 1_000_000.0;
+        assert!(
+            i_term.abs() <= MAX_INTEGRAL_TERM + 1e-9,
+            "i_term = {i_term}"
+        );
+    }
+
+    #[test]
+    fn run_adaptive_servo_threads_the_decision() {
+        let mut s = AdaptiveRuntimeState::new(1.0);
+        let cfg = AdaptiveResamplingConfig {
+            high_recover_entry_margin_ms: 0,
+            ..p_only()
+        };
+        let metrics = LatencyMetrics {
+            total_available_input_domain: 6000,
+            control_available: 6000,
+            smoothed_control_available: 6000,
+            control_latency_ms: 0.0,
+            measured_latency_ms: 0.0,
+        };
+        let d = run_adaptive_servo(
+            &mut s,
+            &cfg,
+            metrics,
+            5000,
+            1.0,
+            0,
+            MAX_INTEGRAL_TERM,
+            48,
+            48.0,
+        );
+        assert_eq!(d.effective_resample_ratio, d.step.current_ratio);
+        assert_eq!(d.adaptive_band, d.step.band);
+        assert!((d.displayed_rate_adjust as f64 - d.step.consume_adjust).abs() < 1e-5);
+    }
+}
