@@ -25,6 +25,10 @@ pub struct ParamSpec {
     /// when the backend `supports_distance_model`). `None` = always shown.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requires: Option<&'static str>,
+    /// Optional one-line help shown next to the control (e.g. as an info tooltip).
+    /// `None` = no help affordance.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub help: Option<&'static str>,
 }
 
 impl ParamSpec {
@@ -43,6 +47,7 @@ impl ParamSpec {
             kind: ParamKind::Float { min, max, step },
             default: ParamValue::Float(default),
             requires: None,
+            help: None,
         }
     }
 
@@ -54,6 +59,7 @@ impl ParamSpec {
             kind: ParamKind::Int { min, max },
             default: ParamValue::Int(default),
             requires: None,
+            help: None,
         }
     }
 
@@ -65,12 +71,19 @@ impl ParamSpec {
             kind: ParamKind::Bool,
             default: ParamValue::Bool(default),
             requires: None,
+            help: None,
         }
     }
 
     /// Gate this control behind a backend capability flag.
     pub fn requires(mut self, capability: &'static str) -> Self {
         self.requires = Some(capability);
+        self
+    }
+
+    /// Attach a one-line help string, shown next to the control in the UI.
+    pub fn help(mut self, help: &'static str) -> Self {
+        self.help = Some(help);
         self
     }
 }
