@@ -38,7 +38,6 @@ import {
   updateResampleRatioDisplay
 } from './controls/latency.js';
 import { updateMasterGainUI, updateMasterMeterUI, updateAutoGainUI, updateAutoGainCeilingUI } from './controls/master.js';
-import { updateSpreadDisplay } from './controls/spread.js';
 import {
   updateRenderBackend,
   updateEvaluationMode,
@@ -144,30 +143,6 @@ export function applyInitState(payload) {
     updateRoomRatioDisplay();
     applyRoomRatioToScene();
   }
-  if (payload.spread) {
-    if (typeof payload.spread.min === 'number') {
-      app.spreadState.min = payload.spread.min;
-    }
-    if (typeof payload.spread.max === 'number') {
-      app.spreadState.max = payload.spread.max;
-    }
-    if (typeof payload.spread.fromDistance === 'boolean') {
-      app.spreadState.fromDistance = payload.spread.fromDistance;
-    }
-    if (typeof payload.spread.distanceRange === 'number') {
-      app.spreadState.distanceRange = payload.spread.distanceRange;
-    }
-    if (typeof payload.spread.distanceCurve === 'number') {
-      app.spreadState.distanceCurve = payload.spread.distanceCurve;
-    }
-    if (typeof payload.spread.sizeToSpreadMode === 'string') {
-      const v = payload.spread.sizeToSpreadMode.trim().toLowerCase();
-      if (['max', 'mean', 'projection_perpendicular'].includes(v)) {
-        app.spreadState.sizeToSpreadMode = v;
-      }
-    }
-  }
-  updateSpreadDisplay();
   if (payload.vbapCartesian) {
     if (typeof payload.vbapCartesian.xSize === 'number') {
       app.vbapCartesianState.xSize = payload.vbapCartesian.xSize > 0 ? payload.vbapCartesian.xSize : null;

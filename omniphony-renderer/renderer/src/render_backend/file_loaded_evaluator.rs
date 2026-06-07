@@ -107,14 +107,24 @@ pub struct FileLoadedEvaluator {
     file: LoadedVbapFile,
     allow_negative_z: bool,
     position_interpolation: bool,
+    /// Spread tuning, baked at construction. The loaded `.vbap` file holds a
+    /// spread-table axis; these knobs pick/interpolate between those tables.
+    /// They mirror `VbapBackend`'s baked tuning (no longer per-request).
+    spread: super::VbapSpreadParams,
 }
 
 impl FileLoadedEvaluator {
-    pub fn new(file: LoadedVbapFile, allow_negative_z: bool, position_interpolation: bool) -> Self {
+    pub fn new(
+        file: LoadedVbapFile,
+        allow_negative_z: bool,
+        position_interpolation: bool,
+        spread: super::VbapSpreadParams,
+    ) -> Self {
         Self {
             file,
             allow_negative_z,
             position_interpolation,
+            spread,
         }
     }
 
@@ -304,13 +314,15 @@ impl PreparedEvaluator for FileLoadedEvaluator {
         };
 
         let (_, _, dist) = adm_to_spherical(scaled_x, scaled_y, scaled_z);
-        let effective_spread = if req.spread_from_distance {
-            let t = (1.0 - dist / req.spread_distance_range)
+        let effective_spread = if self.spread.spread_from_distance {
+            let t = (1.0 - dist / self.spread.spread_distance_range)
                 .clamp(0.0, 1.0)
-                .powf(req.spread_distance_curve);
-            (req.spread_min + t * (req.spread_max - req.spread_min)).clamp(0.0, 1.0)
+                .powf(self.spread.spread_distance_curve);
+            (self.spread.spread_min
+                + t * (self.spread.spread_max - self.spread.spread_min))
+                .clamp(0.0, 1.0)
         } else {
-            req.spread_min.clamp(0.0, 1.0)
+            self.spread.spread_min.clamp(0.0, 1.0)
         };
 
         let z = if self.allow_negative_z {
@@ -376,6 +388,7 @@ pub fn build_from_file_render_engine(
     file: LoadedVbapFile,
     allow_negative_z: bool,
     position_interpolation: bool,
+    spread: super::VbapSpreadParams,
 ) -> super::PreparedRenderEngine {
     super::PreparedRenderEngine::new(
         "vbap",
@@ -387,6 +400,7 @@ pub fn build_from_file_render_engine(
             file,
             allow_negative_z,
             position_interpolation,
+            spread,
         )),
     )
 }

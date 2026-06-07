@@ -40,7 +40,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
-use crate::render_backend::{GainModel, RenderRequest, SizeToSpreadMode};
+use crate::render_backend::{GainModel, RenderRequest};
 use crate::spatial_vbap::DistanceModel;
 
 /// A neutral [`RenderRequest`] template: point source, no spread / distance /
@@ -50,12 +50,6 @@ pub fn neutral_request() -> RenderRequest {
     RenderRequest {
         adm_position: [0.0, 0.0, 0.0],
         event_size: [0.0, 0.0, 0.0],
-        size_to_spread_mode: SizeToSpreadMode::default(),
-        spread_min: 0.0,
-        spread_max: 1.0,
-        spread_from_distance: false,
-        spread_distance_range: 1.0,
-        spread_distance_curve: 1.0,
         room_ratio: [1.0, 1.0, 1.0],
         room_ratio_rear: 1.0,
         room_ratio_lower: 1.0,
@@ -442,7 +436,7 @@ mod tests {
         let panner = VbapPanner::new(&dirs, 1, 1, 0.0)
             .expect("panner")
             .with_negative_z(true);
-        VbapBackend::new(panner)
+        VbapBackend::new(panner, crate::render_backend::VbapSpreadParams::default())
     }
 
     #[test]

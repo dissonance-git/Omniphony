@@ -15,7 +15,6 @@ import './scene/gizmos.js';
 import './sources.js';
 import './speakers.js';
 import './controls/master.js';
-import './controls/spread.js';
 import './controls/vbap.js';
 import './controls/distance-diffuse.js';
 import './controls/adaptive.js';

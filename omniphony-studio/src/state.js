@@ -74,7 +74,6 @@ export const dirtyObjectLabels = new Set();
 export const dirty = {
   masterMeter: false,
   roomRatio: false,
-  spread: false,
   hybrid: false,
   vbapMode: false,
   renderBackend: false,
@@ -146,9 +145,6 @@ export const app = {
   saveRequested: false,
   saveError: null,
   vbapCartesianFaceGridEnabled: false,
-
-  // Spread
-  spreadState: { min: null, max: null, fromDistance: null, distanceRange: null, distanceCurve: null, sizeToSpreadMode: 'max' },
 
   // Distance diffuse
   distanceDiffuseState: { enabled: null, threshold: null, curve: null, metric: 'spherical' },

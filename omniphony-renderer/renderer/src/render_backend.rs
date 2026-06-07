@@ -27,7 +27,7 @@ pub use experimental_distance_backend::ExperimentalDistanceBackend;
 pub use few_speaker_backend::FewSpeakerBackend;
 pub use hybrid_backend::{BlendCurve, HybridBackend};
 pub use size_to_spread::{SizeToSpreadMode, reduce_size_to_spread};
-pub use vbap_backend::VbapBackend;
+pub use vbap_backend::{VbapBackend, VbapSpreadParams};
 
 #[derive(Debug, Clone, Copy, Default, Serialize)]
 pub struct BackendCapabilities {
@@ -83,16 +83,16 @@ pub struct RenderRequest {
     pub adm_position: [f64; 3],
     /// Per-event object size (w, d, h) ∈ [0, 1]³. `[0, 0, 0]` for a point
     /// source or when no size information is available.
+    ///
+    /// This is the only spread-related input that stays on the request: it is
+    /// genuine per-object metadata that varies frame to frame. The spread
+    /// *tuning* (min/max, distance ramp, size→scalar policy) is baked into the
+    /// backend at build time from the generic param bag — see
+    /// [`crate::render_backend::VbapSpreadParams`]. Because object-size spread is
+    /// resolved live from this field, it is honoured only in realtime evaluation;
+    /// the precomputed (sampled) modes index on position alone and therefore
+    /// freeze it at the build-time `event_size`.
     pub event_size: [f32; 3],
-    /// Reduction policy applied to `event_size` to derive a scalar spread.
-    /// Only consumed by backends whose `BackendCapabilities::supports_event_size`
-    /// is `true` (currently VBAP).
-    pub size_to_spread_mode: SizeToSpreadMode,
-    pub spread_min: f32,
-    pub spread_max: f32,
-    pub spread_from_distance: bool,
-    pub spread_distance_range: f32,
-    pub spread_distance_curve: f32,
     pub room_ratio: [f32; 3],
     pub room_ratio_rear: f32,
     pub room_ratio_lower: f32,

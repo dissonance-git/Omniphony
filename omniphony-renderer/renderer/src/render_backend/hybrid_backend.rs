@@ -301,12 +301,6 @@ mod tests {
         RenderRequest {
             adm_position: position,
             event_size: [0.0, 0.0, 0.0],
-            size_to_spread_mode: Default::default(),
-            spread_min: 0.0,
-            spread_max: 0.0,
-            spread_from_distance: false,
-            spread_distance_range: 1.0,
-            spread_distance_curve: 1.0,
             room_ratio: [1.0, 1.0, 1.0],
             room_ratio_rear: 1.0,
             room_ratio_lower: 1.0,
@@ -419,7 +413,10 @@ mod tests {
         let panner = VbapPanner::new(&positions, 5, 5, 0.0)
             .expect("vbap panner")
             .with_negative_z(true);
-        let external: Box<dyn GainModel> = Box::new(VbapBackend::new(panner));
+        let external: Box<dyn GainModel> = Box::new(VbapBackend::new(
+            panner,
+            crate::render_backend::VbapSpreadParams::default(),
+        ));
         let internal: Box<dyn GainModel> = Box::new(BarycenterBackend::new(speakers(), 0.0));
         let model: Box<dyn GainModel> = Box::new(HybridBackend::new(
             external,

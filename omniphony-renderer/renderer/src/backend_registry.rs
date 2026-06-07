@@ -213,6 +213,7 @@ pub struct VbapTopologyBuildPlan {
     pub spread_from_distance: bool,
     pub spread_distance_range: f32,
     pub spread_distance_curve: f32,
+    pub size_to_spread_mode: crate::render_backend::SizeToSpreadMode,
     pub room_ratio: [f32; 3],
     pub room_ratio_rear: f32,
     pub room_ratio_lower: f32,
@@ -239,7 +240,17 @@ impl VbapTopologyBuildPlan {
         .map_err(|e| anyhow::anyhow!("Failed to create VBAP panner: {}", e))?
         .with_negative_z(self.allow_negative_z);
 
-        Ok(Box::new(crate::render_backend::VbapBackend::new(vbap)))
+        Ok(Box::new(crate::render_backend::VbapBackend::new(
+            vbap,
+            crate::render_backend::VbapSpreadParams {
+                spread_min: self.spread_min,
+                spread_max: self.spread_max,
+                spread_from_distance: self.spread_from_distance,
+                spread_distance_range: self.spread_distance_range,
+                spread_distance_curve: self.spread_distance_curve,
+                size_to_spread_mode: self.size_to_spread_mode,
+            },
+        )))
     }
 }
 
@@ -433,6 +444,7 @@ fn build_vbap_build_plan(
     layout: &SpeakerLayout,
     live: &LiveParams,
     rebuild_params: BackendRebuildParams,
+    spread: crate::render_backend::VbapSpreadParams,
 ) -> Option<BackendBuildPlan> {
     let rebuild = rebuild_params.vbap?;
     let positions = layout
@@ -491,11 +503,12 @@ fn build_vbap_build_plan(
         distance_max,
         allow_negative_z: rebuild.allow_negative_z,
         distance_model: live.distance_model,
-        spread_min: live.spread_min,
-        spread_max: live.spread_max,
-        spread_from_distance: live.spread_from_distance,
-        spread_distance_range: live.spread_distance_range,
-        spread_distance_curve: live.spread_distance_curve,
+        spread_min: spread.spread_min,
+        spread_max: spread.spread_max,
+        spread_from_distance: spread.spread_from_distance,
+        spread_distance_range: spread.spread_distance_range,
+        spread_distance_curve: spread.spread_distance_curve,
+        size_to_spread_mode: spread.size_to_spread_mode,
         room_ratio: live.room_ratio,
         room_ratio_rear: live.room_ratio_rear,
         room_ratio_lower: live.room_ratio_lower,
@@ -504,6 +517,39 @@ fn build_vbap_build_plan(
         diffuse_thr: live.distance_diffuse_threshold,
         diffuse_curve: live.distance_diffuse_curve,
     }))
+}
+
+/// VBAP spread tuning, read from the param bag under `backend_id`, with each
+/// missing key falling back to the corresponding live value (the config / OSC
+/// path still seeds `LiveParams` during the transition to the generic bag).
+fn vbap_spread_params(
+    ctx: &BackendBuildCtx<'_>,
+    backend_id: &str,
+) -> crate::render_backend::VbapSpreadParams {
+    use crate::backend_params::ParamValue;
+    let live = ctx.live;
+    let float = |key: &str, fallback: f32| {
+        ctx.backend_param(backend_id, key)
+            .and_then(ParamValue::as_f32)
+            .unwrap_or(fallback)
+    };
+    let from_distance = ctx
+        .backend_param(backend_id, "spread_from_distance")
+        .and_then(ParamValue::as_bool)
+        .unwrap_or(live.spread_from_distance);
+    let size_to_spread_mode = ctx
+        .backend_param(backend_id, "size_to_spread_mode")
+        .and_then(ParamValue::as_str)
+        .and_then(crate::render_backend::SizeToSpreadMode::from_str)
+        .unwrap_or(live.size_to_spread_mode);
+    crate::render_backend::VbapSpreadParams {
+        spread_min: float("spread_min", live.spread_min),
+        spread_max: float("spread_max", live.spread_max),
+        spread_from_distance: from_distance,
+        spread_distance_range: float("spread_distance_range", live.spread_distance_range),
+        spread_distance_curve: float("spread_distance_curve", live.spread_distance_curve),
+        size_to_spread_mode,
+    }
 }
 
 /// Barycenter `localize`, read from the param bag under `backend_id` (so it
@@ -572,7 +618,12 @@ fn build_inner_backend_plan(
                 params: experimental_params(ctx, backend_id),
             },
         )),
-        "vbap" => build_vbap_build_plan(ctx.layout, ctx.live, ctx.backend_rebuild_params?),
+        "vbap" => build_vbap_build_plan(
+            ctx.layout,
+            ctx.live,
+            ctx.backend_rebuild_params?,
+            vbap_spread_params(ctx, backend_id),
+        ),
         _ => None,
     }
 }
@@ -768,6 +819,68 @@ impl BackendFactory for VbapFactory {
     }
     fn label(&self) -> &'static str {
         "VBAP"
+    }
+    fn param_schema(&self) -> Vec<crate::backend_params::ParamSpec> {
+        use crate::backend_params::{ParamKind, ParamOption, ParamSpec, ParamValue};
+        let enum_option = |value: &str, label: &str| ParamOption {
+            value: value.to_string(),
+            label: label.to_string(),
+        };
+        vec![
+            ParamSpec::float("spread_min", "Spread min", 0.0, 1.0, 0.01, 0.0).help(
+                "Lower bound of the spread range. A point source (no size, no distance \
+                 spread) pans at this value.",
+            ),
+            ParamSpec::float("spread_max", "Spread max", 0.0, 1.0, 0.01, 1.0).help(
+                "Upper bound of the spread range, reached by a full-size object or, with \
+                 distance spread, at the listener.",
+            ),
+            ParamSpec::bool("spread_from_distance", "Spread from distance", false)
+                .requires("supports_spread_from_distance")
+                .help(
+                    "Derive spread from the object's distance instead of its size: closer \
+                     objects spread wider. This is a pure function of position, so it is \
+                     baked into the precomputed table.",
+                ),
+            ParamSpec::float(
+                "spread_distance_range",
+                "Distance range",
+                0.01,
+                4.0,
+                0.01,
+                1.0,
+            )
+            .requires("supports_spread_from_distance")
+            .help("Normalised distance at which distance-based spread falls back to zero."),
+            ParamSpec::float(
+                "spread_distance_curve",
+                "Distance curve",
+                0.1,
+                8.0,
+                0.1,
+                1.0,
+            )
+            .requires("supports_spread_from_distance")
+            .help("Curve exponent applied to the distance-based spread ramp."),
+            ParamSpec {
+                key: "size_to_spread_mode",
+                label: "Object-size policy",
+                kind: ParamKind::Enum {
+                    options: vec![
+                        enum_option("max", "Max axis"),
+                        enum_option("mean", "Mean of axes"),
+                        enum_option("projection_perpendicular", "Perpendicular projection"),
+                    ],
+                },
+                default: ParamValue::Text("max".to_string()),
+                requires: Some("supports_event_size"),
+                help: Some(
+                    "How a 3-D object-size triplet (w, d, h) is reduced to a scalar spread. \
+                     Object-size spread is applied live and is honoured only in realtime \
+                     evaluation.",
+                ),
+            },
+        ]
     }
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
         build_inner_backend_plan(ctx, self.id())
@@ -969,12 +1082,6 @@ mod tests {
             request_template: RenderRequest {
                 adm_position: [0.0, 0.0, 0.0],
                 event_size: [0.0; 3],
-                size_to_spread_mode: Default::default(),
-                spread_min: 0.0,
-                spread_max: 0.0,
-                spread_from_distance: false,
-                spread_distance_range: 1.0,
-                spread_distance_curve: 1.0,
                 room_ratio: [1.0, 1.0, 1.0],
                 room_ratio_rear: 1.0,
                 room_ratio_lower: 1.0,

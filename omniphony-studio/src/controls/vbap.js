@@ -22,8 +22,6 @@ function getRendererSummaryEl() { return inRendererPanel('rendererSummary'); }
 function getBackendParametersSectionEl() { return inRendererPanel('backendParametersSection'); }
 function getBackendSpecificParamsSectionEl() { return inRendererPanel('backendSpecificParamsSection'); }
 function getEvaluationSectionEl() { return inRendererPanel('evaluationSection'); }
-function getSpreadSectionEl() { return inRendererPanel('spreadSection'); }
-function getSpreadFromDistanceSectionEl() { return inRendererPanel('spreadFromDistanceSection'); }
 function getHybridSectionEl() { return inRendererPanel('hybridSection'); }
 function getHybridExternalBackendSelectEl() { return inRendererPanel('hybridExternalBackendSelect'); }
 function getHybridInternalBackendSelectEl() { return inRendererPanel('hybridInternalBackendSelect'); }
@@ -85,8 +83,6 @@ function applyRendererBackendVisibility(backend) {
   const backendParametersSectionEl = getBackendParametersSectionEl();
   const evaluationSectionEl = getEvaluationSectionEl();
   const backendSpecificParamsSectionEl = getBackendSpecificParamsSectionEl();
-  const spreadSectionEl = getSpreadSectionEl();
-  const spreadFromDistanceSectionEl = getSpreadFromDistanceSectionEl();
   const hybridSectionEl = getHybridSectionEl();
   const hybridConfigPanelEl = getHybridConfigPanelEl();
   const capabilities = backendCapabilities();
@@ -107,15 +103,9 @@ function applyRendererBackendVisibility(backend) {
     paramBackend = hybridTab === 'hybrid' ? null : hybridTab;
   }
 
-  const supportsSpread = isHybrid
-    ? paramBackend === 'vbap'
-    : capabilities?.supportsSpread === true;
-  const supportsSpreadFromDistance = isHybrid
-    ? paramBackend === 'vbap'
-    : capabilities?.supportsSpreadFromDistance === true;
-  // Backends without a hand-written section (barycenter, distance, contributor
-  // backends) render their controls from the schema. `paramBackend` is null on
-  // the hybrid mix-config tab, where only the config panel shows.
+  // Backends without a hand-written section (VBAP, barycenter, distance,
+  // contributor backends) render their controls from the schema. `paramBackend`
+  // is null on the hybrid mix-config tab, where only the config panel shows.
   const showsGeneric =
     !!paramBackend
     && !BESPOKE_BACKENDS.includes(paramBackend)
@@ -133,13 +123,7 @@ function applyRendererBackendVisibility(backend) {
     // all tab content, including the inner-backend param sections that follow it
     // in the DOM.
     backendSpecificParamsSectionEl.style.display =
-      supportsSpread || showsGeneric || showsHybrid ? 'flex' : 'none';
-  }
-  if (spreadSectionEl) {
-    spreadSectionEl.style.display = supportsSpread ? '' : 'none';
-  }
-  if (spreadFromDistanceSectionEl) {
-    spreadFromDistanceSectionEl.style.display = supportsSpreadFromDistance ? '' : 'none';
+      showsGeneric || showsHybrid ? 'flex' : 'none';
   }
   if (hybridSectionEl) {
     hybridSectionEl.style.display = showsHybrid ? '' : 'none';
@@ -320,10 +304,11 @@ function syncBackendOptions(selectEl) {
 }
 
 // Backends that keep hand-written control sections instead of schema-generated
-// ones: VBAP (its spread/distance controls map to shared params) and Hybrid (the
-// mix-config tab). Every other backend — built-in barycenter/distance included,
-// and any contributor backend — gets its controls generated from the schema.
-const BESPOKE_BACKENDS = ['vbap', 'hybrid'];
+// ones. Only Hybrid remains bespoke (the mix-config tab). VBAP's spread tuning
+// is now published as generic backend params and rendered from the schema like
+// barycenter/distance/contributor backends; its evaluation grids, recompute
+// status and 3-D gizmo stay as separate (non-param) affordances.
+const BESPOKE_BACKENDS = ['hybrid'];
 
 // Param schema (`[{ key, label, kind, default, help? }]`) published for a
 // backend, or `[]` if it has none / is unknown.

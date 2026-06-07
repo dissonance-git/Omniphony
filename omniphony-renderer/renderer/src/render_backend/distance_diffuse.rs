@@ -109,12 +109,6 @@ mod tests {
         RenderRequest {
             adm_position: position,
             event_size: [0.0, 0.0, 0.0],
-            size_to_spread_mode: Default::default(),
-            spread_min: 0.0,
-            spread_max: 0.0,
-            spread_from_distance: false,
-            spread_distance_range: 1.0,
-            spread_distance_curve: 1.0,
             room_ratio: [1.0, 1.0, 1.0],
             room_ratio_rear: 1.0,
             room_ratio_lower: 1.0,

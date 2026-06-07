@@ -480,6 +480,39 @@ pub fn build_spatial_renderer(
                 cfg.experimental_distance_position_error_span_scale
                     .map(ParamValue::Float),
             );
+            // VBAP spread tuning moved from dedicated config keys / LiveParams
+            // into the same bag; migrate legacy keys so old configs keep working.
+            migrate(
+                "vbap",
+                "spread_min",
+                renderer::config_fields::vbap_spread_min::get(cfg).map(ParamValue::Float),
+            );
+            migrate(
+                "vbap",
+                "spread_max",
+                renderer::config_fields::vbap_spread_max::get(cfg).map(ParamValue::Float),
+            );
+            migrate(
+                "vbap",
+                "spread_from_distance",
+                renderer::config_fields::spread_from_distance::get(cfg).map(ParamValue::Bool),
+            );
+            migrate(
+                "vbap",
+                "spread_distance_range",
+                renderer::config_fields::spread_distance_range::get(cfg).map(ParamValue::Float),
+            );
+            migrate(
+                "vbap",
+                "spread_distance_curve",
+                renderer::config_fields::spread_distance_curve::get(cfg).map(ParamValue::Float),
+            );
+            migrate(
+                "vbap",
+                "size_to_spread_mode",
+                cfg.size_to_spread_mode
+                    .map(|mode| ParamValue::Text(mode.as_str().to_string())),
+            );
         }
         {
             let mut live = control.live.write();
