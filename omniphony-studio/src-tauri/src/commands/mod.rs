@@ -7,4 +7,5 @@
 //!
 //! [`SharedState`]: crate::SharedState
 
+pub mod render;
 pub mod resampling;
