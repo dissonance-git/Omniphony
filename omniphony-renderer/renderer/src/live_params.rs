@@ -21,10 +21,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
 use crate::backend_registry::{BackendRegistry, TopologyBuildPlan, prepare_topology_build_plan};
-use crate::render_backend::backend_descriptor_by_id;
-use crate::render_backend::{
-    EvaluationBuildConfig, GainModelKind, PreparedRenderEngine, RenderBackendKind, RenderRequest,
-};
+use crate::render_backend::{EvaluationBuildConfig, PreparedRenderEngine, RenderRequest};
 use crate::spatial_vbap::VbapTableMode;
 use crate::speaker_layout::SpeakerLayout;
 
@@ -360,16 +357,6 @@ impl LiveParams {
         self.backend_id.as_str()
     }
 
-    pub fn backend_kind(&self) -> Option<RenderBackendKind> {
-        RenderBackendKind::from_str(self.backend_id())
-    }
-
-    pub fn gain_model_kind(&self) -> GainModelKind {
-        backend_descriptor_by_id(self.backend_id())
-            .map(|descriptor| descriptor.gain_model_kind)
-            .unwrap_or(GainModelKind::Vbap)
-    }
-
     pub fn requested_evaluation_mode(&self) -> LiveEvaluationMode {
         self.evaluation.mode
     }
@@ -407,12 +394,6 @@ pub struct BackendRebuildParams {
 impl BackendRebuildParams {
     pub fn preferred_evaluation_mode(&self) -> PreferredEvaluationMode {
         self.preferred_evaluation_mode
-    }
-
-    pub fn gain_model_kind(&self) -> GainModelKind {
-        backend_descriptor_by_id(self.backend_id)
-            .map(|descriptor| descriptor.gain_model_kind)
-            .unwrap_or(GainModelKind::Vbap)
     }
 }
 

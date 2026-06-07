@@ -1,6 +1,6 @@
 use crate::context::RuntimeControlContext;
 use renderer::live_params::LiveEvaluationMode;
-use renderer::render_backend::RenderBackendKind;
+use renderer::render_backend::canonical_builtin_backend_id;
 use rosc::{OscMessage, OscType};
 use serde::Deserialize;
 use std::hash::{Hash, Hasher};
@@ -666,11 +666,11 @@ pub fn apply_simple_osc_control(
     // source of truth for both, persisted to config.
 
     if addr == "/omniphony/control/render_backend" {
-        // Accept enum names/aliases (e.g. "distance") and any registered backend
+        // Accept built-in ids/aliases (e.g. "distance") and any registered backend
         // id (e.g. a contributor's "example"), so the dropdown can offer them all.
         let requested_id = parse_string_arg(msg.args.first()).and_then(|value| {
-            RenderBackendKind::from_str(&value)
-                .map(|kind| kind.as_str().to_string())
+            canonical_builtin_backend_id(&value)
+                .map(|id| id.to_string())
                 .or_else(|| ctx.renderer.has_backend(&value).then_some(value))
         });
         if let Some(requested_id) = requested_id {
@@ -732,7 +732,7 @@ pub fn apply_simple_osc_control(
                 effects.evaluation_only = true;
             }
             {
-                if live.backend_kind() == Some(RenderBackendKind::Vbap) {
+                if live.backend_id() == "vbap" {
                     effects.mark_dirty = true;
                 }
                 effects.log_message = Some(format!(

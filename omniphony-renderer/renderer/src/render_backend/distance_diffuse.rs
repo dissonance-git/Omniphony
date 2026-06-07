@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use super::{BackendCapabilities, GainModel, GainModelKind, RenderRequest, RenderResponse};
+use super::{BackendCapabilities, GainModel, RenderRequest, RenderResponse};
 use crate::spatial_vbap::{DistanceMetric, Gains};
 use crate::speaker_layout::SpeakerLayout;
 
@@ -28,10 +28,6 @@ impl DistanceDiffuseModel {
 }
 
 impl GainModel for DistanceDiffuseModel {
-    fn kind(&self) -> GainModelKind {
-        self.inner.kind()
-    }
-
     fn backend_id(&self) -> &'static str {
         self.inner.backend_id()
     }

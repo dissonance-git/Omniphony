@@ -930,7 +930,7 @@ impl From<RampModeArg> for RampMode {
 }
 
 /// Spatial render backend selector. The string forms match the canonical
-/// backend ids in `renderer::render_backend` (`RenderBackendKind::from_str`).
+/// backend ids in `renderer::render_backend` (`canonical_builtin_backend_id`).
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
 pub enum RenderBackendArg {
     Vbap,

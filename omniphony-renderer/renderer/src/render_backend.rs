@@ -45,144 +45,20 @@ pub struct BackendCapabilities {
     pub supports_table_export: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct BackendDescriptor {
-    pub kind: RenderBackendKind,
-    pub gain_model_kind: GainModelKind,
-    pub id: &'static str,
-    pub label: &'static str,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GainModelKind {
-    Vbap,
-    Barycenter,
-    ExperimentalDistance,
-    Hybrid,
-}
-
-impl GainModelKind {
-    pub fn as_str(self) -> &'static str {
-        backend_descriptor_by_gain_model_kind(self).id
+/// Canonical id for a built-in backend, accepting the legacy aliases that older
+/// configs and OSC clients may still send (`"barycentre"`, `"distance"`,
+/// `"distance_based"`). Returns `None` for anything that is not a shipped
+/// built-in; callers then fall back to the
+/// [`BackendRegistry`](crate::backend_registry::BackendRegistry) to resolve
+/// contributor-registered backend ids.
+pub fn canonical_builtin_backend_id(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "vbap" => Some("vbap"),
+        "barycenter" | "barycentre" => Some("barycenter"),
+        "experimental_distance" | "distance" | "distance_based" => Some("experimental_distance"),
+        "hybrid" => Some("hybrid"),
+        _ => None,
     }
-
-    pub fn from_str(value: &str) -> Option<Self> {
-        let normalized = value.trim().to_ascii_lowercase();
-        if let Some(descriptor) = backend_descriptor_by_id(&normalized) {
-            return Some(descriptor.gain_model_kind);
-        }
-        match normalized.as_str() {
-            "barycentre" | "barycenter" => Some(Self::Barycenter),
-            "distance" | "distance_based" => Some(Self::ExperimentalDistance),
-            "hybrid" => Some(Self::Hybrid),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RenderBackendKind {
-    Vbap,
-    Barycenter,
-    ExperimentalDistance,
-    Hybrid,
-}
-
-impl RenderBackendKind {
-    pub fn as_str(self) -> &'static str {
-        backend_descriptor(self).id
-    }
-
-    pub fn from_str(value: &str) -> Option<Self> {
-        let normalized = value.trim().to_ascii_lowercase();
-        if let Some(descriptor) = backend_descriptor_by_id(&normalized) {
-            return Some(descriptor.kind);
-        }
-        match normalized.as_str() {
-            "barycentre" | "barycenter" => Some(Self::Barycenter),
-            "distance" | "distance_based" => Some(Self::ExperimentalDistance),
-            "hybrid" => Some(Self::Hybrid),
-            _ => None,
-        }
-    }
-
-    pub fn as_gain_model_kind(self) -> GainModelKind {
-        backend_descriptor(self).gain_model_kind
-    }
-
-    pub fn label(self) -> &'static str {
-        backend_descriptor(self).label
-    }
-}
-
-impl From<GainModelKind> for RenderBackendKind {
-    fn from(value: GainModelKind) -> Self {
-        match value {
-            GainModelKind::Vbap => Self::Vbap,
-            GainModelKind::Barycenter => Self::Barycenter,
-            GainModelKind::ExperimentalDistance => Self::ExperimentalDistance,
-            GainModelKind::Hybrid => Self::Hybrid,
-        }
-    }
-}
-
-impl From<RenderBackendKind> for GainModelKind {
-    fn from(value: RenderBackendKind) -> Self {
-        value.as_gain_model_kind()
-    }
-}
-
-const BACKEND_DESCRIPTORS: [BackendDescriptor; 4] = [
-    BackendDescriptor {
-        kind: RenderBackendKind::Vbap,
-        gain_model_kind: GainModelKind::Vbap,
-        id: "vbap",
-        label: "VBAP",
-    },
-    BackendDescriptor {
-        kind: RenderBackendKind::Barycenter,
-        gain_model_kind: GainModelKind::Barycenter,
-        id: "barycenter",
-        label: "Barycenter",
-    },
-    BackendDescriptor {
-        kind: RenderBackendKind::ExperimentalDistance,
-        gain_model_kind: GainModelKind::ExperimentalDistance,
-        id: "experimental_distance",
-        label: "Distance",
-    },
-    BackendDescriptor {
-        kind: RenderBackendKind::Hybrid,
-        gain_model_kind: GainModelKind::Hybrid,
-        id: "hybrid",
-        label: "Hybrid",
-    },
-];
-
-pub fn backend_descriptors() -> &'static [BackendDescriptor] {
-    &BACKEND_DESCRIPTORS
-}
-
-pub fn backend_descriptor(kind: RenderBackendKind) -> &'static BackendDescriptor {
-    backend_descriptors()
-        .iter()
-        .find(|descriptor| descriptor.kind == kind)
-        .expect("missing backend descriptor")
-}
-
-pub fn backend_descriptor_by_gain_model_kind(kind: GainModelKind) -> &'static BackendDescriptor {
-    backend_descriptors()
-        .iter()
-        .find(|descriptor| descriptor.gain_model_kind == kind)
-        .expect("missing backend descriptor")
-}
-
-pub fn backend_descriptor_by_id(id: &str) -> Option<&'static BackendDescriptor> {
-    backend_descriptors()
-        .iter()
-        .find(|descriptor| descriptor.id == id)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -280,7 +156,6 @@ pub struct EvaluationBuildConfig {
 /// thread — but that guard only catches the build-time probe, so honouring the
 /// contract above is still required for correct realtime behaviour.
 pub trait GainModel: Send + Sync + 'static {
-    fn kind(&self) -> GainModelKind;
     fn backend_id(&self) -> &'static str;
     fn backend_label(&self) -> &'static str;
     fn capabilities(&self) -> BackendCapabilities;
@@ -730,7 +605,6 @@ impl EvaluationStrategy for PrecomputedPolarStrategy {
 }
 
 pub struct PreparedRenderEngine {
-    gain_model_kind: GainModelKind,
     backend_id: &'static str,
     backend_label: &'static str,
     capabilities: BackendCapabilities,
@@ -741,7 +615,6 @@ pub struct PreparedRenderEngine {
 
 impl PreparedRenderEngine {
     pub fn new(
-        gain_model_kind: GainModelKind,
         backend_id: &'static str,
         backend_label: &'static str,
         capabilities: BackendCapabilities,
@@ -750,7 +623,6 @@ impl PreparedRenderEngine {
         evaluator: Box<dyn PreparedEvaluator>,
     ) -> Self {
         Self {
-            gain_model_kind,
             backend_id,
             backend_label,
             capabilities,
@@ -758,14 +630,6 @@ impl PreparedRenderEngine {
             backend_restore_snapshot,
             evaluator,
         }
-    }
-
-    pub fn kind(&self) -> RenderBackendKind {
-        self.gain_model_kind.into()
-    }
-
-    pub fn gain_model_kind(&self) -> GainModelKind {
-        self.gain_model_kind
     }
 
     pub fn backend_id(&self) -> &'static str {
@@ -868,7 +732,6 @@ pub fn wrap_prepared_engine(
     evaluation_mode: EffectiveEvaluationMode,
     config: &EvaluationBuildConfig,
 ) -> Result<PreparedRenderEngine> {
-    let gain_model_kind = model.kind();
     let backend_id = model.backend_id();
     let backend_label = model.backend_label();
     let capabilities = model.capabilities();
@@ -882,7 +745,6 @@ pub fn wrap_prepared_engine(
         }
     };
     Ok(PreparedRenderEngine::new(
-        gain_model_kind,
         backend_id,
         backend_label,
         capabilities,

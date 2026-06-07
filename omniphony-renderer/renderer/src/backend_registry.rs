@@ -7,8 +7,7 @@ use crate::live_params::{
 };
 use crate::render_backend::{
     BlendCurve, EffectiveEvaluationMode, EvaluationBuildConfig, FewSpeakerBackend, GainModel,
-    GainModelKind, HybridBackend, PreparedRenderEngine, RenderBackendKind,
-    backend_descriptor_by_id, build_prepared_render_engine, wrap_prepared_engine,
+    HybridBackend, PreparedRenderEngine, build_prepared_render_engine, wrap_prepared_engine,
 };
 use crate::speaker_layout::SpeakerLayout;
 
@@ -341,16 +340,6 @@ impl TopologyBuildPlan {
 
     pub fn backend_id(&self) -> &str {
         self.backend_id.as_str()
-    }
-
-    pub fn backend_kind(&self) -> Option<RenderBackendKind> {
-        RenderBackendKind::from_str(self.backend_id())
-    }
-
-    pub fn gain_model_kind(&self) -> GainModelKind {
-        backend_descriptor_by_id(self.backend_id())
-            .map(|descriptor| descriptor.gain_model_kind)
-            .unwrap_or(GainModelKind::Vbap)
     }
 
     pub fn evaluation_mode(&self) -> LiveEvaluationMode {
@@ -960,9 +949,6 @@ mod tests {
         ($name:ident, $id:literal, $compute:expr) => {
             struct $name;
             impl GainModel for $name {
-                fn kind(&self) -> GainModelKind {
-                    GainModelKind::Vbap
-                }
                 fn backend_id(&self) -> &'static str {
                     $id
                 }

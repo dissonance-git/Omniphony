@@ -378,7 +378,6 @@ pub fn build_from_file_render_engine(
     position_interpolation: bool,
 ) -> super::PreparedRenderEngine {
     super::PreparedRenderEngine::new(
-        super::GainModelKind::Vbap,
         "vbap",
         "VBAP",
         FileLoadedEvaluator::capabilities(),
