@@ -7,8 +7,13 @@
 //!
 //! [`SharedState`]: crate::SharedState
 
+pub mod app;
 pub mod audio;
+pub mod diag;
+pub mod engine;
+pub mod gain;
 pub mod input;
+pub mod layout_io;
 pub mod mpv_overlay;
 pub mod orender;
 pub mod render;
