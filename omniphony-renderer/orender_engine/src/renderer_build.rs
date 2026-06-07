@@ -408,6 +408,9 @@ pub fn build_spatial_renderer(
         let control = renderer.renderer_control();
         // Register the demonstration backend so `backend_id = "example"` resolves.
         control.register_backend(Box::new(example_backend::ExampleFactory));
+        // User-scriptable (Lua) backend; selecting `backend_id = "script"` routes
+        // a rebuild through it, reading its `.lua` path from the param store.
+        control.register_backend(Box::new(script_backend::ScriptFactory));
         // Resolve the configured backend id: built-in ids/aliases first (e.g.
         // "distance" -> experimental_distance), then any registered backend id.
         let configured_backend = configured_backend_cfg.and_then(|raw| {
