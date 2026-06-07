@@ -21,8 +21,6 @@ function getVbapPositionInterpolationInfoModalEl() { return document.getElementB
 function getEvaluationInfoModalEl() { return document.getElementById('evaluationInfoModal'); }
 function getBackendInfoModalEl() { return document.getElementById('backendInfoModal'); }
 function getDistanceModelInfoModalEl() { return document.getElementById('distanceModelInfoModal'); }
-function getBarycenterInfoModalEl() { return document.getElementById('barycenterInfoModal'); }
-function getExperimentalDistanceInfoModalEl() { return document.getElementById('experimentalDistanceInfoModal'); }
 function getInputInfoModalEl() { return document.getElementById('inputInfoModal'); }
 function getInputClockInfoModalEl() { return document.getElementById('inputClockInfoModal'); }
 function getInputLfeInfoModalEl() { return document.getElementById('inputLfeInfoModal'); }
@@ -126,18 +124,6 @@ export function setDistanceModelInfoModalOpen(open) {
   const distanceModelInfoModalEl = getDistanceModelInfoModalEl();
   if (!distanceModelInfoModalEl) return;
   distanceModelInfoModalEl.classList.toggle('open', Boolean(open));
-}
-
-export function setBarycenterInfoModalOpen(open) {
-  const barycenterInfoModalEl = getBarycenterInfoModalEl();
-  if (!barycenterInfoModalEl) return;
-  barycenterInfoModalEl.classList.toggle('open', Boolean(open));
-}
-
-export function setExperimentalDistanceInfoModalOpen(open) {
-  const experimentalDistanceInfoModalEl = getExperimentalDistanceInfoModalEl();
-  if (!experimentalDistanceInfoModalEl) return;
-  experimentalDistanceInfoModalEl.classList.toggle('open', Boolean(open));
 }
 
 export function setInputInfoModalOpen(open) {

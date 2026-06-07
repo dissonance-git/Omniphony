@@ -717,77 +717,6 @@ fn control_distance_diffuse_metric(state: State<SharedState>, value: String) {
 }
 
 #[tauri::command]
-fn control_experimental_distance_distance_floor(state: State<SharedState>, value: f32) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: "/omniphony/control/experimental_distance/distance_floor".to_string(),
-            value: value.max(0.0),
-        },
-    );
-}
-
-#[tauri::command]
-fn control_experimental_distance_min_active_speakers(state: State<SharedState>, value: i32) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendInt {
-            address: "/omniphony/control/experimental_distance/min_active_speakers".to_string(),
-            value: value.max(1),
-        },
-    );
-}
-
-#[tauri::command]
-fn control_experimental_distance_max_active_speakers(state: State<SharedState>, value: i32) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendInt {
-            address: "/omniphony/control/experimental_distance/max_active_speakers".to_string(),
-            value: value.max(1),
-        },
-    );
-}
-
-#[tauri::command]
-fn control_experimental_distance_position_error_floor(state: State<SharedState>, value: f32) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: "/omniphony/control/experimental_distance/position_error_floor".to_string(),
-            value: value.max(0.0),
-        },
-    );
-}
-
-#[tauri::command]
-fn control_experimental_distance_position_error_nearest_scale(
-    state: State<SharedState>,
-    value: f32,
-) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: "/omniphony/control/experimental_distance/position_error_nearest_scale"
-                .to_string(),
-            value: value.max(0.0),
-        },
-    );
-}
-
-#[tauri::command]
-fn control_experimental_distance_position_error_span_scale(state: State<SharedState>, value: f32) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: "/omniphony/control/experimental_distance/position_error_span_scale"
-                .to_string(),
-            value: value.max(0.0),
-        },
-    );
-}
-
-#[tauri::command]
 fn control_hybrid_external_backend(state: State<SharedState>, value: String) {
     let normalized = value.trim().to_ascii_lowercase();
     if !matches!(
@@ -952,17 +881,6 @@ fn control_backend_param(
         OscControlMsg::SendArgs {
             address: "/omniphony/control/backend/param".to_string(),
             args,
-        },
-    );
-}
-
-#[tauri::command]
-fn control_barycenter_localize(state: State<SharedState>, value: f32) {
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendFloat {
-            address: "/omniphony/control/barycenter/localize".to_string(),
-            value: value.max(0.0),
         },
     );
 }
@@ -2679,12 +2597,6 @@ fn main() {
             control_distance_model,
             control_distance_model_metric,
             control_distance_diffuse_metric,
-            control_experimental_distance_distance_floor,
-            control_experimental_distance_min_active_speakers,
-            control_experimental_distance_max_active_speakers,
-            control_experimental_distance_position_error_floor,
-            control_experimental_distance_position_error_nearest_scale,
-            control_experimental_distance_position_error_span_scale,
             control_hybrid_external_backend,
             control_hybrid_internal_backend,
             control_hybrid_curve,
@@ -2696,7 +2608,6 @@ fn main() {
             control_render_evaluation_cartesian_z_neg_size,
             control_render_backend,
             control_backend_param,
-            control_barycenter_localize,
             control_restore_render_backend,
             control_render_evaluation_mode,
             control_render_evaluation_polar_azimuth_resolution,

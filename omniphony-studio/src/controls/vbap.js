@@ -24,8 +24,6 @@ function getBackendSpecificParamsSectionEl() { return inRendererPanel('backendSp
 function getEvaluationSectionEl() { return inRendererPanel('evaluationSection'); }
 function getSpreadSectionEl() { return inRendererPanel('spreadSection'); }
 function getSpreadFromDistanceSectionEl() { return inRendererPanel('spreadFromDistanceSection'); }
-function getBarycenterSectionEl() { return inRendererPanel('barycenterSection'); }
-function getExperimentalDistanceSectionEl() { return inRendererPanel('experimentalDistanceSection'); }
 function getHybridSectionEl() { return inRendererPanel('hybridSection'); }
 function getHybridExternalBackendSelectEl() { return inRendererPanel('hybridExternalBackendSelect'); }
 function getHybridInternalBackendSelectEl() { return inRendererPanel('hybridInternalBackendSelect'); }
@@ -49,14 +47,6 @@ function getVbapPolarAzStepInfoEl() { return inRendererPanel('vbapPolarAzStepInf
 function getVbapPolarElStepInfoEl() { return inRendererPanel('vbapPolarElStepInfo'); }
 function getVbapPolarDistStepInfoEl() { return inRendererPanel('vbapPolarDistStepInfo'); }
 function getVbapPositionInterpolationToggleEl() { return inRendererPanel('vbapPositionInterpolationToggleEl'); }
-function getBarycenterLocalizeInputEl() { return inRendererPanel('barycenterLocalizeInput'); }
-function getBarycenterLocalizeValEl() { return inRendererPanel('barycenterLocalizeVal'); }
-function getExperimentalDistanceFloorInputEl() { return inRendererPanel('experimentalDistanceFloorInput'); }
-function getExperimentalDistanceMinActiveInputEl() { return inRendererPanel('experimentalDistanceMinActiveInput'); }
-function getExperimentalDistanceMaxActiveInputEl() { return inRendererPanel('experimentalDistanceMaxActiveInput'); }
-function getExperimentalDistanceErrorFloorInputEl() { return inRendererPanel('experimentalDistanceErrorFloorInput'); }
-function getExperimentalDistanceNearestScaleInputEl() { return inRendererPanel('experimentalDistanceNearestScaleInput'); }
-function getExperimentalDistanceSpanScaleInputEl() { return inRendererPanel('experimentalDistanceSpanScaleInput'); }
 
 // These are called from renderVbapCartesian but defined elsewhere in app.js.
 // They must be provided via the callback registry or imported separately.
@@ -97,8 +87,6 @@ function applyRendererBackendVisibility(backend) {
   const backendSpecificParamsSectionEl = getBackendSpecificParamsSectionEl();
   const spreadSectionEl = getSpreadSectionEl();
   const spreadFromDistanceSectionEl = getSpreadFromDistanceSectionEl();
-  const experimentalDistanceSectionEl = getExperimentalDistanceSectionEl();
-  const barycenterSectionEl = getBarycenterSectionEl();
   const hybridSectionEl = getHybridSectionEl();
   const hybridConfigPanelEl = getHybridConfigPanelEl();
   const capabilities = backendCapabilities();
@@ -125,8 +113,13 @@ function applyRendererBackendVisibility(backend) {
   const supportsSpreadFromDistance = isHybrid
     ? paramBackend === 'vbap'
     : capabilities?.supportsSpreadFromDistance === true;
-  const showsBarycenter = paramBackend === 'barycenter';
-  const showsExperimentalDistance = paramBackend === 'experimental_distance';
+  // Backends without a hand-written section (barycenter, distance, contributor
+  // backends) render their controls from the schema. `paramBackend` is null on
+  // the hybrid mix-config tab, where only the config panel shows.
+  const showsGeneric =
+    !!paramBackend
+    && !BESPOKE_BACKENDS.includes(paramBackend)
+    && backendSchemaParams(paramBackend).length > 0;
   const showsHybrid = isHybrid;
   if (backendParametersSectionEl) {
     backendParametersSectionEl.style.display = '';
@@ -140,9 +133,7 @@ function applyRendererBackendVisibility(backend) {
     // all tab content, including the inner-backend param sections that follow it
     // in the DOM.
     backendSpecificParamsSectionEl.style.display =
-      supportsSpread || showsBarycenter || showsExperimentalDistance || showsHybrid
-        ? 'flex'
-        : 'none';
+      supportsSpread || showsGeneric || showsHybrid ? 'flex' : 'none';
   }
   if (spreadSectionEl) {
     spreadSectionEl.style.display = supportsSpread ? '' : 'none';
@@ -150,18 +141,14 @@ function applyRendererBackendVisibility(backend) {
   if (spreadFromDistanceSectionEl) {
     spreadFromDistanceSectionEl.style.display = supportsSpreadFromDistance ? '' : 'none';
   }
-  if (experimentalDistanceSectionEl) {
-    experimentalDistanceSectionEl.style.display = showsExperimentalDistance ? '' : 'none';
-  }
-  if (barycenterSectionEl) {
-    barycenterSectionEl.style.display = showsBarycenter ? '' : 'none';
-  }
   if (hybridSectionEl) {
     hybridSectionEl.style.display = showsHybrid ? '' : 'none';
   }
   if (hybridConfigPanelEl) {
     hybridConfigPanelEl.style.display = isHybrid && hybridTab === 'hybrid' ? '' : 'none';
   }
+  // Schema-generated controls for the active (possibly inner) backend.
+  renderGenericBackendParams(paramBackend);
 }
 
 /** Distinct inner backends currently selected for the hybrid backend. */
@@ -332,17 +319,33 @@ function syncBackendOptions(selectEl) {
   }
 }
 
-// Built-in backends that already have hand-written control sections. Everything
-// else (e.g. a contributor backend) gets its controls generated from the schema.
-const BESPOKE_BACKENDS = ['vbap', 'barycenter', 'experimental_distance', 'hybrid'];
+// Backends that keep hand-written control sections instead of schema-generated
+// ones: VBAP (its spread/distance controls map to shared params) and Hybrid (the
+// mix-config tab). Every other backend — built-in barycenter/distance included,
+// and any contributor backend — gets its controls generated from the schema.
+const BESPOKE_BACKENDS = ['vbap', 'hybrid'];
 
-function sendBackendParam(key, value) {
-  invoke('control_backend_param', { key, value });
+// Param schema (`[{ key, label, kind, default, help? }]`) published for a
+// backend, or `[]` if it has none / is unknown.
+function backendSchemaParams(backendId) {
+  const available = app.renderBackendState && Array.isArray(app.renderBackendState.availableBackends)
+    ? app.renderBackendState.availableBackends
+    : [];
+  const entry = available.find((b) => String(b.id) === String(backendId));
+  return entry && Array.isArray(entry.params) ? entry.params : [];
+}
+
+// Set a param on a specific backend. `backend` is passed so an inner hybrid
+// backend (not the active selection) is addressed correctly; omitted, the engine
+// applies it to the currently selected backend.
+function sendBackendParam(key, value, backend) {
+  invoke('control_backend_param', backend ? { key, value, backend } : { key, value });
 }
 
 // Build one control row for a param spec, seeded with `current`. Returns the row
-// element with a `_setValue` hook used to refresh it without a rebuild.
-function buildParamControl(spec, current) {
+// element with a `_setValue` hook used to refresh it without a rebuild. Edits are
+// sent to `backend`.
+function buildParamControl(spec, current, backend) {
   const row = document.createElement('div');
   row.className = 'control-row generated-param-row';
   const label = document.createElement('label');
@@ -352,6 +355,14 @@ function buildParamControl(spec, current) {
     info.className = 'info-icon-btn';
     info.textContent = 'i';
     info.title = spec.help;
+    // `info-icon-btn` sizes a fixed square box, but a <span> is inline by
+    // default so width/height are ignored and it renders oblong. inline-flex
+    // applies the box and centers the glyph.
+    info.style.display = 'inline-flex';
+    info.style.alignItems = 'center';
+    info.style.justifyContent = 'center';
+    info.style.verticalAlign = 'middle';
+    info.style.flex = '0 0 auto';
     info.style.marginLeft = '0.35rem';
     label.appendChild(info);
   }
@@ -361,7 +372,7 @@ function buildParamControl(spec, current) {
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.checked = current === true;
-    input.addEventListener('change', () => sendBackendParam(spec.key, input.checked));
+    input.addEventListener('change', () => sendBackendParam(spec.key, input.checked, backend));
     row.appendChild(input);
     row._setValue = (v) => { input.checked = v === true; };
   } else if (kind.type === 'enum') {
@@ -373,7 +384,7 @@ function buildParamControl(spec, current) {
       select.appendChild(o);
     }
     select.value = String(current);
-    select.addEventListener('change', () => sendBackendParam(spec.key, select.value));
+    select.addEventListener('change', () => sendBackendParam(spec.key, select.value, backend));
     row.appendChild(select);
     row._setValue = (v) => { select.value = String(v); };
   } else {
@@ -387,9 +398,14 @@ function buildParamControl(spec, current) {
     const valEl = document.createElement('span');
     valEl.className = 'val';
     valEl.textContent = String(current);
+    // Fixed-width, right-aligned readout so the value's changing digit count
+    // does not resize its grid column and shift the slider as you drag.
+    valEl.style.display = 'inline-block';
+    valEl.style.minWidth = '3.5em';
+    valEl.style.textAlign = 'right';
     const parse = (v) => (isInt ? Math.round(Number(v)) : Number(v));
     input.addEventListener('input', () => { valEl.textContent = input.value; });
-    input.addEventListener('change', () => sendBackendParam(spec.key, parse(input.value)));
+    input.addEventListener('change', () => sendBackendParam(spec.key, parse(input.value), backend));
     row.appendChild(input);
     row.appendChild(valEl);
     row._setValue = (v) => { input.value = String(v); valEl.textContent = String(v); };
@@ -397,10 +413,16 @@ function buildParamControl(spec, current) {
   return row;
 }
 
-// Generate controls for the active backend from its published param schema.
-// Only used for backends without a hand-written section (contributor backends).
-function renderGenericBackendParams(activeBackend) {
-  const host = getBackendParametersSectionEl();
+// Generate controls for `targetBackend` from its published param schema. Used
+// for every backend without a hand-written section — the built-in barycenter and
+// distance backends as well as contributor backends — both when selected on their
+// own and as the active hybrid inner-backend tab. Values are read per backend id
+// (`backendParamValuesById`), and edits are addressed to `targetBackend`, so an
+// inner hybrid backend is tuned independently of the active selection. The
+// container lives in `backendSpecificParamsSection` so it sits below the hybrid
+// tab bar when one is shown.
+function renderGenericBackendParams(targetBackend) {
+  const host = getBackendSpecificParamsSectionEl();
   if (!host) return;
   let container = document.getElementById('backendGenericParamsSection');
   if (!container) {
@@ -410,28 +432,28 @@ function renderGenericBackendParams(activeBackend) {
     host.appendChild(container);
   }
 
-  const available = app.renderBackendState && Array.isArray(app.renderBackendState.availableBackends)
-    ? app.renderBackendState.availableBackends
+  const schema = targetBackend && !BESPOKE_BACKENDS.includes(targetBackend)
+    ? backendSchemaParams(targetBackend)
     : [];
-  const entry = available.find((b) => String(b.id) === String(activeBackend));
-  const schema = entry && Array.isArray(entry.params) ? entry.params : [];
 
-  if (BESPOKE_BACKENDS.includes(activeBackend) || schema.length === 0) {
+  if (schema.length === 0) {
     container.style.display = 'none';
+    container.dataset.backend = '';
     return;
   }
   container.style.display = '';
 
-  const values = (app.renderBackendState && app.renderBackendState.backendParamValues) || {};
+  const byId = (app.renderBackendState && app.renderBackendState.backendParamValuesById) || {};
+  const values = byId[targetBackend] || {};
   const valueFor = (spec) => (spec.key in values ? values[spec.key] : spec.default);
 
-  // Rebuild controls only when the backend changed; otherwise refresh values so
-  // an external change (OSC) is reflected without dropping focus.
-  if (container.dataset.backend !== String(activeBackend)) {
+  // Rebuild controls only when the target backend changed; otherwise refresh
+  // values so an external change (OSC) is reflected without dropping focus.
+  if (container.dataset.backend !== String(targetBackend)) {
     container.replaceChildren();
-    container.dataset.backend = String(activeBackend);
+    container.dataset.backend = String(targetBackend);
     for (const spec of schema) {
-      container.appendChild(buildParamControl(spec, valueFor(spec)));
+      container.appendChild(buildParamControl(spec, valueFor(spec), targetBackend));
     }
   } else {
     const rows = container.querySelectorAll('.generated-param-row');
@@ -474,76 +496,14 @@ export function renderRenderBackend() {
   if (importLayoutBtnEl) importLayoutBtnEl.disabled = layoutFrozen;
   if (exportLayoutBtnEl) exportLayoutBtnEl.disabled = layoutFrozen;
   applyRendererBackendVisibility(visibleBackend);
-  renderBarycenterOptions();
-  renderExperimentalDistanceOptions();
-  renderGenericBackendParams(visibleBackend);
   renderHybridOptions();
   renderEvaluationMode();
 }
 
 export function updateRenderBackend() {
   dirty.renderBackend = true;
-  dirty.barycenter = true;
-  dirty.experimentalDistance = true;
   dirty.hybrid = true;
   dirty.vbapMode = true;
-  scheduleUIFlush();
-}
-
-export function renderBarycenterOptions() {
-  const barycenterLocalizeInputEl = getBarycenterLocalizeInputEl();
-  const barycenterLocalizeValEl = getBarycenterLocalizeValEl();
-  const state = app.renderBackendState.barycenter || {};
-  const value = typeof state.localize === 'number' ? state.localize : 0;
-  if (barycenterLocalizeInputEl) {
-    barycenterLocalizeInputEl.value = String(value);
-  }
-  if (barycenterLocalizeValEl) {
-    barycenterLocalizeValEl.textContent = formatNumber(value, 2);
-  }
-}
-
-export function updateBarycenterOptions() {
-  dirty.barycenter = true;
-  scheduleUIFlush();
-}
-
-export function renderExperimentalDistanceOptions() {
-  const experimentalDistanceFloorInputEl = getExperimentalDistanceFloorInputEl();
-  const experimentalDistanceMinActiveInputEl = getExperimentalDistanceMinActiveInputEl();
-  const experimentalDistanceMaxActiveInputEl = getExperimentalDistanceMaxActiveInputEl();
-  const experimentalDistanceErrorFloorInputEl = getExperimentalDistanceErrorFloorInputEl();
-  const experimentalDistanceNearestScaleInputEl = getExperimentalDistanceNearestScaleInputEl();
-  const experimentalDistanceSpanScaleInputEl = getExperimentalDistanceSpanScaleInputEl();
-  const state = app.renderBackendState.experimentalDistance || {};
-  if (experimentalDistanceFloorInputEl) {
-    experimentalDistanceFloorInputEl.value =
-      typeof state.distanceFloor === 'number' ? String(state.distanceFloor) : '';
-  }
-  if (experimentalDistanceMinActiveInputEl) {
-    experimentalDistanceMinActiveInputEl.value =
-      typeof state.minActiveSpeakers === 'number' ? String(state.minActiveSpeakers) : '';
-  }
-  if (experimentalDistanceMaxActiveInputEl) {
-    experimentalDistanceMaxActiveInputEl.value =
-      typeof state.maxActiveSpeakers === 'number' ? String(state.maxActiveSpeakers) : '';
-  }
-  if (experimentalDistanceErrorFloorInputEl) {
-    experimentalDistanceErrorFloorInputEl.value =
-      typeof state.positionErrorFloor === 'number' ? String(state.positionErrorFloor) : '';
-  }
-  if (experimentalDistanceNearestScaleInputEl) {
-    experimentalDistanceNearestScaleInputEl.value =
-      typeof state.positionErrorNearestScale === 'number' ? String(state.positionErrorNearestScale) : '';
-  }
-  if (experimentalDistanceSpanScaleInputEl) {
-    experimentalDistanceSpanScaleInputEl.value =
-      typeof state.positionErrorSpanScale === 'number' ? String(state.positionErrorSpanScale) : '';
-  }
-}
-
-export function updateExperimentalDistanceOptions() {
-  dirty.experimentalDistance = true;
   scheduleUIFlush();
 }
 
