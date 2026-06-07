@@ -1,6 +1,10 @@
 {
   "app.title": "Omniphony Studio",
   "app.subtitle": "空间控制",
+  "updates.checkLabel": "启动时检查更新",
+  "updates.available": "有可用更新：{version}",
+  "updates.linkText": "在 GitHub 上查看",
+  "updates.checkFailed": "检查更新失败：{error}",
   "app.language": "语言",
   "app.language.auto": "自动",
   "app.language.en": "英语",

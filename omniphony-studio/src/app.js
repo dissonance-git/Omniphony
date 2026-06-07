@@ -80,6 +80,7 @@ import { renderConfigSavedUI } from './controls/config.js';
 import { renderLatencyDisplay, renderLatencyMeterUI, renderRenderTimeUI, renderResampleRatioDisplay } from './controls/latency.js';
 import { renderAudioFormatDisplay, applyAudioSampleRateNow } from './controls/audio.js';
 import { bindDrcListeners, renderDrcUI } from './controls/drc.js';
+import { initUpdateCheck, maybeCheck } from './controls/updates.js';
 import {
   updateObjectContributionUI,
   updateSpeakerContributionUI,
@@ -266,6 +267,8 @@ invoke('get_state')
     pushLog('error', tf('log.stateLoadFailed', { error: normalizeLogError(e) }));
   });
 
+initUpdateCheck();
+
 invoke('get_about_info')
   .then((info) => {
     const aboutNameEl = document.getElementById('aboutName');
@@ -281,6 +284,7 @@ invoke('get_about_info')
       aboutRepositoryLinkEl.href = info.repository;
       aboutRepositoryLinkEl.textContent = info.repository;
     }
+    maybeCheck(info.version);
   })
   .catch((e) => {
     console.error('[get_about_info]', e);

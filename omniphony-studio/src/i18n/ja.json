@@ -1,6 +1,10 @@
 {
   "app.title": "Omniphony Studio",
   "app.subtitle": "空間コントロール",
+  "updates.checkLabel": "起動時に更新を確認",
+  "updates.available": "更新が利用可能: {version}",
+  "updates.linkText": "GitHub で見る",
+  "updates.checkFailed": "更新の確認に失敗しました: {error}",
   "app.language": "言語",
   "app.language.auto": "自動",
   "app.language.en": "英語",
