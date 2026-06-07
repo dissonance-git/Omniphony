@@ -7,5 +7,8 @@
 //!
 //! [`SharedState`]: crate::SharedState
 
+pub mod audio;
+pub mod input;
 pub mod render;
 pub mod resampling;
+pub mod speakers;
