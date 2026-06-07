@@ -143,10 +143,20 @@ export function setupRendererPanelListeners() {
     });
   }
 
+  // A valid hybrid inner model is any registered backend except a nested hybrid.
+  const isValidHybridInner = (value) => {
+    if (!value || value === 'hybrid') return false;
+    const available = Array.isArray(app.renderBackendState.availableBackends)
+      ? app.renderBackendState.availableBackends
+      : null;
+    // If the engine hasn't published a list yet, accept any non-hybrid id.
+    return !available || available.some((b) => String(b.id) === value);
+  };
+
   if (hybridExternalBackendSelectEl) {
     hybridExternalBackendSelectEl.addEventListener('change', () => {
       const value = String(hybridExternalBackendSelectEl.value || '').trim().toLowerCase();
-      if (!['vbap', 'barycenter', 'experimental_distance'].includes(value)) return;
+      if (!isValidHybridInner(value)) return;
       app.renderBackendState.hybrid.externalBackend = value;
       app.vbapRecomputing = true;
       renderVbapStatus();
@@ -158,7 +168,7 @@ export function setupRendererPanelListeners() {
   if (hybridInternalBackendSelectEl) {
     hybridInternalBackendSelectEl.addEventListener('change', () => {
       const value = String(hybridInternalBackendSelectEl.value || '').trim().toLowerCase();
-      if (!['vbap', 'barycenter', 'experimental_distance'].includes(value)) return;
+      if (!isValidHybridInner(value)) return;
       app.renderBackendState.hybrid.internalBackend = value;
       app.vbapRecomputing = true;
       renderVbapStatus();

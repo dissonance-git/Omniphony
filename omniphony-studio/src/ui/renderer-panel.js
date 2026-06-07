@@ -167,19 +167,11 @@ export function rendererPanelMarkup() {
                 <div style="margin-top:0.2rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.3rem">
                   <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
                     <label for="hybridExternalBackendSelect" style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="hybrid.external">External backend (ratio = 1)</label>
-                    <select id="hybridExternalBackendSelect" class="delay-input" style="min-width:9rem">
-                      <option value="vbap">VBAP</option>
-                      <option value="barycenter">Barycenter</option>
-                      <option value="experimental_distance">Distance</option>
-                    </select>
+                    <select id="hybridExternalBackendSelect" class="delay-input" style="min-width:9rem"></select>
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
                     <label for="hybridInternalBackendSelect" style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="hybrid.internal">Internal backend (ratio = 0)</label>
-                    <select id="hybridInternalBackendSelect" class="delay-input" style="min-width:9rem">
-                      <option value="vbap">VBAP</option>
-                      <option value="barycenter">Barycenter</option>
-                      <option value="experimental_distance">Distance</option>
-                    </select>
+                    <select id="hybridInternalBackendSelect" class="delay-input" style="min-width:9rem"></select>
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
                     <label for="hybridMetricSelect" style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="distance.metric">Distance metric</label>

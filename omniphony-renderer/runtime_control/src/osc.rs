@@ -1071,11 +1071,9 @@ pub fn apply_simple_osc_control(
             "external_backend" | "internal_backend" => {
                 if let Some(value) = parse_string_arg(msg.args.first()) {
                     let normalized = value.trim().to_ascii_lowercase();
-                    // Only concrete backends are valid inner models (no nested hybrid).
-                    if matches!(
-                        normalized.as_str(),
-                        "vbap" | "barycenter" | "experimental_distance"
-                    ) {
+                    // Any registered backend is a valid inner model, except a
+                    // nested hybrid (which would recurse).
+                    if normalized != "hybrid" && ctx.renderer.has_backend(&normalized) {
                         let slot = if rest == "external_backend" {
                             &mut live.hybrid.external_backend_id
                         } else {

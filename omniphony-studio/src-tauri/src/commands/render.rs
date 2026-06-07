@@ -115,38 +115,36 @@ pub fn control_distance_diffuse_metric(state: State<SharedState>, value: String)
 
 #[tauri::command]
 pub fn control_hybrid_external_backend(state: State<SharedState>, value: String) {
-    let normalized = value.trim().to_ascii_lowercase();
-    if !matches!(
-        normalized.as_str(),
-        "vbap" | "barycenter" | "experimental_distance"
-    ) {
-        return;
+    if let Some(normalized) = valid_hybrid_inner_id(&value) {
+        send_control(
+            &state.osc_tx,
+            OscControlMsg::SendString {
+                address: "/omniphony/control/hybrid/external_backend".to_string(),
+                value: normalized,
+            },
+        );
     }
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendString {
-            address: "/omniphony/control/hybrid/external_backend".to_string(),
-            value: normalized,
-        },
-    );
 }
 
 #[tauri::command]
 pub fn control_hybrid_internal_backend(state: State<SharedState>, value: String) {
-    let normalized = value.trim().to_ascii_lowercase();
-    if !matches!(
-        normalized.as_str(),
-        "vbap" | "barycenter" | "experimental_distance"
-    ) {
-        return;
+    if let Some(normalized) = valid_hybrid_inner_id(&value) {
+        send_control(
+            &state.osc_tx,
+            OscControlMsg::SendString {
+                address: "/omniphony/control/hybrid/internal_backend".to_string(),
+                value: normalized,
+            },
+        );
     }
-    send_control(
-        &state.osc_tx,
-        OscControlMsg::SendString {
-            address: "/omniphony/control/hybrid/internal_backend".to_string(),
-            value: normalized,
-        },
-    );
+}
+
+/// Normalise a hybrid inner-backend id and reject the only structurally invalid
+/// choices (empty, or a nested `hybrid`). Any other id is forwarded; the renderer
+/// validates it against its backend registry authoritatively.
+fn valid_hybrid_inner_id(value: &str) -> Option<String> {
+    let normalized = value.trim().to_ascii_lowercase();
+    (!normalized.is_empty() && normalized != "hybrid").then_some(normalized)
 }
 
 #[tauri::command]

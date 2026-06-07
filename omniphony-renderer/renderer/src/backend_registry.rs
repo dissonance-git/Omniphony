@@ -600,9 +600,13 @@ fn experimental_params(
 }
 
 /// Build a `BackendBuildPlan` for one of the concrete (non-hybrid) backends.
-/// Used by the top-level barycenter/experimental_distance/vbap factories and by
-/// the hybrid backend for each of its inner models. Tuning params come from the
-/// bag keyed by `backend_id`. Returns `None` for an unknown id or `"hybrid"`.
+/// Used by the top-level barycenter/experimental_distance/vbap factories. Tuning
+/// params come from the bag keyed by `backend_id`. Returns `None` for an unknown
+/// id or `"hybrid"`.
+///
+/// This deliberately does NOT dispatch through the registry: it is called from
+/// the concrete factories' own `build_plan`, so routing back through the registry
+/// would recurse. Composite backends use [`resolve_hybrid_inner_plan`] instead.
 fn build_inner_backend_plan(
     ctx: &BackendBuildCtx<'_>,
     backend_id: &str,
@@ -628,6 +632,40 @@ fn build_inner_backend_plan(
     }
 }
 
+/// Resolve an inner model of the hybrid backend by id, dispatching through the
+/// registry so *any* registered backend (built-in, scriptable, or contributor)
+/// can be composed — not just the historical concrete ones. The inner factory's
+/// own `build_plan` runs, so e.g. the scriptable backend yields a `Dynamic` plan.
+///
+/// Nested hybrid is rejected to keep this from recursing indefinitely.
+fn resolve_hybrid_inner_plan(
+    ctx: &BackendBuildCtx<'_>,
+    backend_id: &str,
+) -> Option<BackendBuildPlan> {
+    if backend_id == "hybrid" {
+        return None;
+    }
+    ctx.registry.get(backend_id)?.build_plan(ctx)
+}
+
+/// Whether both named backends are hot-path-safe per the registry. An
+/// unregistered id is treated as realtime-capable (it will fail to build
+/// elsewhere). Used to force a precomputed evaluation mode when a hybrid inner
+/// backend (e.g. the scriptable backend) cannot run per sample.
+fn inners_realtime_capable(
+    registry: &BackendRegistry,
+    external_id: &str,
+    internal_id: &str,
+) -> bool {
+    let realtime = |id: &str| {
+        registry
+            .get(id)
+            .map(|factory| factory.realtime_capable())
+            .unwrap_or(true)
+    };
+    realtime(external_id) && realtime(internal_id)
+}
+
 fn preferred_evaluation_mode(
     backend_rebuild_params: Option<BackendRebuildParams>,
 ) -> PreferredEvaluationMode {
@@ -643,6 +681,10 @@ pub struct BackendBuildCtx<'a> {
     pub layout: &'a SpeakerLayout,
     pub live: &'a LiveParams,
     pub backend_rebuild_params: Option<BackendRebuildParams>,
+    /// The registry the active backend was looked up in. A composite backend
+    /// (hybrid) resolves its inner models through this so any registered backend
+    /// can be composed, not just a hard-coded set. See [`resolve_hybrid_inner_plan`].
+    pub registry: &'a BackendRegistry,
     /// All host-set backend param values, keyed by backend id then param key
     /// (see [`crate::backend_params`]). Read at build time only — never on the
     /// audio hot path. A backend reads its own entry via [`backend_param`]; a
@@ -993,11 +1035,12 @@ impl BackendFactory for HybridFactory {
         "Hybrid"
     }
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
-        // The hybrid backend composes two inner backends. Each inner model reads
-        // its own params from the bag keyed by the inner backend id, so a nested
-        // barycenter/experimental_distance is tuned exactly like the standalone one.
-        let external = build_inner_backend_plan(ctx, &ctx.live.hybrid.external_backend_id)?;
-        let internal = build_inner_backend_plan(ctx, &ctx.live.hybrid.internal_backend_id)?;
+        // The hybrid backend composes two inner backends, resolved through the
+        // registry so any registered backend can be an inner model (nested hybrid
+        // excepted). Each inner model reads its own params from the bag keyed by
+        // the inner backend id, so it is tuned exactly like the standalone one.
+        let external = resolve_hybrid_inner_plan(ctx, &ctx.live.hybrid.external_backend_id)?;
+        let internal = resolve_hybrid_inner_plan(ctx, &ctx.live.hybrid.internal_backend_id)?;
         Some(BackendBuildPlan::Hybrid(HybridBuildPlan {
             external: Box::new(external),
             internal: Box::new(internal),
@@ -1027,13 +1070,22 @@ pub fn prepare_topology_build_plan(
         live,
         backend_rebuild_params,
         backend_params,
+        registry,
     };
     let backend_build = factory.build_plan(&ctx)?;
     let preferred = preferred_evaluation_mode(backend_rebuild_params);
     let mut evaluation_mode = effective_live_evaluation_mode(live.evaluation.mode, preferred);
     // A backend that is not hot-path-safe (e.g. the scriptable backend) must
     // never run per sample: force a precomputed mode if realtime was requested.
-    if evaluation_mode == LiveEvaluationMode::Realtime && !factory.realtime_capable() {
+    // For hybrid this is recursive — a non-realtime *inner* backend forces it too.
+    let realtime_capable = factory.realtime_capable()
+        && (live.backend_id() != "hybrid"
+            || inners_realtime_capable(
+                registry,
+                &live.hybrid.external_backend_id,
+                &live.hybrid.internal_backend_id,
+            ));
+    if evaluation_mode == LiveEvaluationMode::Realtime && !realtime_capable {
         evaluation_mode = match preferred {
             PreferredEvaluationMode::PrecomputedCartesian => {
                 LiveEvaluationMode::PrecomputedCartesian
@@ -1283,6 +1335,41 @@ mod tests {
         assert_eq!(vbap.label, "VBAP");
         // Every builtin reports a non-empty label.
         assert!(listings.iter().all(|l| !l.label.is_empty()));
+    }
+
+    /// A registered factory that is not hot-path-safe (mirrors the scriptable
+    /// backend), used to check the recursive realtime gate for hybrid inners.
+    struct NonRealtimeFactory;
+    impl BackendFactory for NonRealtimeFactory {
+        fn id(&self) -> &'static str {
+            "non_realtime"
+        }
+        fn realtime_capable(&self) -> bool {
+            false
+        }
+        fn build_plan(&self, _ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
+            Some(BackendBuildPlan::Dynamic(DynamicBackendPlan::new(
+                "non_realtime",
+                || Ok(Box::new(GoodBackend)),
+            )))
+        }
+    }
+
+    #[test]
+    fn inners_realtime_capable_reflects_registry() {
+        let mut registry = BackendRegistry::builtin();
+        registry.register(Box::new(NonRealtimeFactory));
+        // Two realtime-capable builtins: hybrid can stay realtime.
+        assert!(inners_realtime_capable(&registry, "vbap", "barycenter"));
+        // A non-realtime inner forces the composite to be non-realtime.
+        assert!(!inners_realtime_capable(
+            &registry,
+            "non_realtime",
+            "barycenter"
+        ));
+        assert!(!inners_realtime_capable(&registry, "vbap", "non_realtime"));
+        // An unregistered id is treated as realtime-capable (fails to build later).
+        assert!(inners_realtime_capable(&registry, "vbap", "does_not_exist"));
     }
 
     #[test]
