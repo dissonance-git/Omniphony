@@ -128,8 +128,12 @@ binary's `#[global_allocator]` and call `check_zero_alloc` — again, see
 The engine is controlled and observed over OSC: clients send `/omniphony/control/…`
 messages and receive `/omniphony/state/…` updates. If you are writing an
 alternative client or host integration (rather than a backend), this is the
-surface you target. See [`docs/`](docs/) for the runtime-control and
-state-architecture notes.
+surface you target. The full contract — every address, its direction, arguments
+and semantics — is documented in
+[`docs/osc-control-contract.md`](docs/osc-control-contract.md), and the address
+strings have named constants in
+`omniphony-renderer/runtime_control/src/osc_contract.rs` (the single source of
+truth; `ALL_CONTROL` / `ALL_STATE` are the exhaustive lists).
 
 ## Coding conventions
 

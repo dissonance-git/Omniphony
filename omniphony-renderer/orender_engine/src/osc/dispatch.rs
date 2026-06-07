@@ -11,6 +11,7 @@ use runtime_control::osc::{
     BroadcastUpdate, BroadcastValue, ControlEffects, apply_simple_osc_control,
     gaintable_chunk_broadcasts,
 };
+use runtime_control::osc_contract;
 
 use super::client_registry::OscClientRegistry;
 use super::export::{build_live_state_bundle, export_current_layout, save_live_config};
@@ -43,20 +44,20 @@ pub(crate) fn handle_control_message(
     // Monitoring cadences live on RendererControl (the source of truth): both
     // CLI and embedded engine read them, they persist to config, and they are
     // broadcast in the live-state bundle. Changing them marks the config dirty.
-    if addr == "/omniphony/control/metering/rate_hz" {
+    if addr == osc_contract::CONTROL_METERING_RATE_HZ {
         if let Some(hz) = first_rate_hz_arg(msg) {
             control.set_meter_rate_hz(hz);
             control.mark_dirty();
-            broadcast_int(socket, clients, "/omniphony/state/config/saved", 0);
+            broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
             log::info!("OSC metering rate set to {:.1} Hz", control.meter_rate_hz());
         }
         return;
     }
-    if addr == "/omniphony/control/diag/rate_hz" {
+    if addr == osc_contract::CONTROL_DIAG_RATE_HZ {
         if let Some(hz) = first_rate_hz_arg(msg) {
             control.set_diag_rate_hz(hz);
             control.mark_dirty();
-            broadcast_int(socket, clients, "/omniphony/state/config/saved", 0);
+            broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
             log::info!("OSC diag rate set to {:.1} Hz", control.diag_rate_hz());
         }
         return;
@@ -66,7 +67,7 @@ pub(crate) fn handle_control_message(
     // the `overlay` module and pulled over FFI; Studio only configures it here
     // (it no longer transports overlay frames). These are transient view
     // preferences — not persisted, so no `mark_dirty`.
-    if addr == "/omniphony/control/overlay/enabled" {
+    if addr == osc_contract::CONTROL_OVERLAY_ENABLED {
         let enabled = match msg.args.first() {
             Some(OscType::Int(i)) => *i != 0,
             Some(OscType::Float(f)) => *f != 0.0,
@@ -76,7 +77,7 @@ pub(crate) fn handle_control_message(
         crate::overlay::set_enabled(enabled);
         return;
     }
-    if addr == "/omniphony/control/overlay/labels" {
+    if addr == osc_contract::CONTROL_OVERLAY_LABELS {
         let enabled = match msg.args.first() {
             Some(OscType::Int(i)) => *i != 0,
             Some(OscType::Float(f)) => *f != 0.0,
@@ -86,7 +87,7 @@ pub(crate) fn handle_control_message(
         crate::overlay::set_labels_enabled(enabled);
         return;
     }
-    if addr == "/omniphony/control/overlay/objects" {
+    if addr == osc_contract::CONTROL_OVERLAY_OBJECTS {
         let visible = match msg.args.first() {
             Some(OscType::Int(i)) => *i != 0,
             Some(OscType::Float(f)) => *f != 0.0,
@@ -96,7 +97,7 @@ pub(crate) fn handle_control_message(
         crate::overlay::set_objects_visible(visible);
         return;
     }
-    if addr == "/omniphony/control/overlay/heatmap_enabled" {
+    if addr == osc_contract::CONTROL_OVERLAY_HEATMAP_ENABLED {
         let enabled = match msg.args.first() {
             Some(OscType::Int(i)) => *i != 0,
             Some(OscType::Float(f)) => *f != 0.0,
@@ -106,7 +107,7 @@ pub(crate) fn handle_control_message(
         crate::overlay::set_heatmap_enabled(enabled);
         return;
     }
-    if addr == "/omniphony/control/overlay/heatmap_custom_stops" {
+    if addr == osc_contract::CONTROL_OVERLAY_HEATMAP_CUSTOM_STOPS {
         // Flat [pos, r, g, b, …] floats → grouped stops for the custom gradient.
         let flat: Vec<f32> = msg
             .args
@@ -124,7 +125,7 @@ pub(crate) fn handle_control_message(
         crate::overlay::set_heatmap_custom_stops(stops);
         return;
     }
-    if addr == "/omniphony/control/overlay/heatmap_bands" {
+    if addr == osc_contract::CONTROL_OVERLAY_HEATMAP_BANDS {
         let count = match msg.args.first() {
             Some(OscType::Int(i)) if *i > 0 => *i as usize,
             Some(OscType::Float(f)) if *f > 0.0 => *f as usize,
@@ -133,7 +134,7 @@ pub(crate) fn handle_control_message(
         crate::overlay::set_heatmap_bands(count);
         return;
     }
-    if addr == "/omniphony/control/overlay/heatmap_colormap" {
+    if addr == osc_contract::CONTROL_OVERLAY_HEATMAP_COLORMAP {
         let idx = match msg.args.first() {
             Some(OscType::Int(i)) if *i >= 0 => *i as usize,
             Some(OscType::Float(f)) if *f >= 0.0 => *f as usize,
@@ -142,7 +143,7 @@ pub(crate) fn handle_control_message(
         crate::overlay::set_heatmap_colormap(idx);
         return;
     }
-    if addr == "/omniphony/control/overlay/trails" {
+    if addr == osc_contract::CONTROL_OVERLAY_TRAILS {
         // Args mirror Studio's former wire fields: enabled, ttl_ms, mode, teleport.
         let enabled = match msg.args.first() {
             Some(OscType::Int(i)) => *i != 0,
@@ -167,7 +168,7 @@ pub(crate) fn handle_control_message(
         crate::overlay::set_trail_config(enabled, ttl_ms, diffuse, teleport);
         return;
     }
-    if addr == "/omniphony/control/overlay/tag" {
+    if addr == osc_contract::CONTROL_OVERLAY_TAG {
         // [id, tag]: tag "A"/"B" sets an override colour, anything else clears it.
         let Some(id) = msg.args.first().and_then(|a| match a {
             OscType::Int(v) if *v >= 0 => Some(*v as u32),
@@ -194,7 +195,7 @@ pub(crate) fn handle_control_message(
     // speaker's per-band field only if the version differs, and keeps pushing on
     // every topology rebuild while subscribed (see `recompute.rs`). Args:
     // [Int have_version, Int speaker_index].
-    if addr == "/omniphony/control/debug/speaker_gaintable/subscribe" {
+    if addr == osc_contract::CONTROL_DEBUG_SPEAKER_GAINTABLE_SUBSCRIBE {
         let have_version = match msg.args.first() {
             Some(OscType::Int(i)) if *i >= 0 => Some(*i as u32),
             _ => None,
@@ -221,13 +222,13 @@ pub(crate) fn handle_control_message(
         return;
     }
 
-    if addr == "/omniphony/control/debug/speaker_gaintable/unsubscribe" {
+    if addr == osc_contract::CONTROL_DEBUG_SPEAKER_GAINTABLE_UNSUBSCRIBE {
         let client = resolve_register_addr(src, &[]);
         clients.set_gaintable(client, false);
         return;
     }
 
-    if addr == "/omniphony/control/debug/speaker_gaintable/nack" {
+    if addr == osc_contract::CONTROL_DEBUG_SPEAKER_GAINTABLE_NACK {
         // Args: Int version, Int missing_index… — resend just the lost chunks for
         // the client's subscribed speaker.
         let mut ints = msg.args.iter().filter_map(|a| match a {
@@ -250,7 +251,7 @@ pub(crate) fn handle_control_message(
         return;
     }
 
-    if addr == "/omniphony/control/metering" {
+    if addr == osc_contract::CONTROL_METERING {
         let enabled = match msg.args.first() {
             Some(OscType::Int(i)) => *i != 0,
             Some(OscType::Float(f)) => *f != 0.0,
@@ -263,7 +264,7 @@ pub(crate) fn handle_control_message(
         return;
     }
 
-    if addr == "/omniphony/control/diag/enabled" {
+    if addr == osc_contract::CONTROL_DIAG_ENABLED {
         let enabled = match msg.args.first() {
             Some(OscType::Int(i)) => *i != 0,
             Some(OscType::Float(f)) => *f != 0.0,
@@ -277,14 +278,14 @@ pub(crate) fn handle_control_message(
         return;
     }
 
-    if addr == "/omniphony/control/input/refresh" {
+    if addr == osc_contract::CONTROL_INPUT_REFRESH {
         let state_bytes = build_live_state_bundle(control, host);
         super::transport::send_raw(socket, clients, &state_bytes);
         log::info!("OSC: input state refresh requested");
         return;
     }
 
-    if addr == "/omniphony/control/realtime/master_gain" {
+    if addr == osc_contract::CONTROL_REALTIME_MASTER_GAIN {
         let Some(value) = msg.args.first().and_then(|arg| match arg {
             OscType::Float(v) => Some(*v),
             OscType::Int(v) => Some(*v as f32),
@@ -304,9 +305,9 @@ pub(crate) fn handle_control_message(
         realtime_seq.master_gain = Some(seq);
         control.live.write().master_gain = value;
         control.mark_dirty();
-        broadcast_int(socket, clients, "/omniphony/state/config/saved", 0);
+        broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
         if let Ok(bytes) = rosc::encoder::encode(&rosc::OscPacket::Message(rosc::OscMessage {
-            addr: "/omniphony/state/realtime/master_gain".to_string(),
+            addr: osc_contract::STATE_REALTIME_MASTER_GAIN.to_string(),
             args: vec![OscType::Float(value), OscType::Int(seq)],
         })) {
             super::transport::send_raw(socket, clients, &bytes);
@@ -314,7 +315,7 @@ pub(crate) fn handle_control_message(
         return;
     }
 
-    if addr == "/omniphony/control/realtime/speaker_gain" {
+    if addr == osc_contract::CONTROL_REALTIME_SPEAKER_GAIN {
         let Some(idx) = msg.args.first().and_then(|arg| match arg {
             OscType::Int(v) if *v >= 0 => Some(*v as usize),
             OscType::Float(v) if *v >= 0.0 => Some(*v as usize),
@@ -347,9 +348,9 @@ pub(crate) fn handle_control_message(
         control.live.write().speakers.entry(idx).or_default().gain = value;
         control.mark_speaker_params_dirty();
         control.mark_dirty();
-        broadcast_int(socket, clients, "/omniphony/state/config/saved", 0);
+        broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
         if let Ok(bytes) = rosc::encoder::encode(&rosc::OscPacket::Message(rosc::OscMessage {
-            addr: "/omniphony/state/realtime/speaker_gain".to_string(),
+            addr: osc_contract::STATE_REALTIME_SPEAKER_GAIN.to_string(),
             args: vec![
                 OscType::Int(idx as i32),
                 OscType::Float(value),
@@ -361,7 +362,7 @@ pub(crate) fn handle_control_message(
         return;
     }
 
-    if addr == "/omniphony/control/realtime/object_gain" {
+    if addr == osc_contract::CONTROL_REALTIME_OBJECT_GAIN {
         let Some(id) = msg.args.first().and_then(|arg| match arg {
             OscType::String(v) => {
                 let trimmed = v.trim();
@@ -406,9 +407,9 @@ pub(crate) fn handle_control_message(
         control.live.write().objects.entry(idx).or_default().gain = clamped;
         control.mark_object_params_dirty();
         control.mark_dirty();
-        broadcast_int(socket, clients, "/omniphony/state/config/saved", 0);
+        broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
         if let Ok(bytes) = rosc::encoder::encode(&rosc::OscPacket::Message(rosc::OscMessage {
-            addr: "/omniphony/state/realtime/object_gain".to_string(),
+            addr: osc_contract::STATE_REALTIME_OBJECT_GAIN.to_string(),
             args: vec![
                 OscType::String(id.clone()),
                 OscType::Float(clamped),
@@ -426,7 +427,7 @@ pub(crate) fn handle_control_message(
         return;
     }
 
-    if addr == "/omniphony/control/render/bridge_path" {
+    if addr == osc_contract::CONTROL_RENDER_BRIDGE_PATH {
         let value = match msg.args.first() {
             Some(OscType::String(s)) => s.trim(),
             _ => return,
@@ -439,7 +440,7 @@ pub(crate) fn handle_control_message(
         if control.bridge_path() != next {
             control.set_bridge_path(next.clone());
             control.mark_dirty();
-            broadcast_int(socket, clients, "/omniphony/state/config/saved", 0);
+            broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
             let state_value = next
                 .as_ref()
                 .map(|path| path.display().to_string())
@@ -447,7 +448,7 @@ pub(crate) fn handle_control_message(
             broadcast_string(
                 socket,
                 clients,
-                "/omniphony/state/render/bridge_path",
+                osc_contract::STATE_RENDER_BRIDGE_PATH,
                 &state_value,
             );
             log::info!(
@@ -460,7 +461,7 @@ pub(crate) fn handle_control_message(
         return;
     }
 
-    if addr == "/omniphony/control/render/input_pipe" {
+    if addr == osc_contract::CONTROL_RENDER_INPUT_PIPE {
         let value = match msg.args.first() {
             Some(OscType::String(s)) => s.trim(),
             _ => return,
@@ -473,11 +474,11 @@ pub(crate) fn handle_control_message(
         if control.input_path() != next {
             control.set_input_path(next.clone());
             control.mark_dirty();
-            broadcast_int(socket, clients, "/omniphony/state/config/saved", 0);
+            broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
             broadcast_string(
                 socket,
                 clients,
-                "/omniphony/state/input_pipe",
+                osc_contract::STATE_INPUT_PIPE,
                 &next.clone().unwrap_or_default(),
             );
             log::info!(
@@ -504,7 +505,7 @@ pub(crate) fn handle_control_message(
                 broadcast_string(
                     socket,
                     clients,
-                    "/omniphony/state/log_level",
+                    osc_contract::STATE_LOG_LEVEL,
                     sys::live_log::current_runtime_level_name(),
                 );
                 log::info!(
@@ -527,7 +528,7 @@ pub(crate) fn handle_control_message(
         return;
     }
 
-    if addr == "/omniphony/control/layout/export" {
+    if addr == osc_contract::CONTROL_LAYOUT_EXPORT {
         let requested_name = match msg.args.first() {
             Some(OscType::String(s)) if !s.trim().is_empty() => Some(s.trim()),
             _ => None,
@@ -547,7 +548,7 @@ fn first_rate_hz_arg(msg: &OscMessage) -> Option<f32> {
 
 fn set_dirty(control: &Arc<RendererControl>, socket: &UdpSocket, clients: &OscClientRegistry) {
     control.mark_dirty();
-    broadcast_int(socket, clients, "/omniphony/state/config/saved", 0);
+    broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
 }
 
 fn apply_control_effects(
@@ -610,7 +611,7 @@ fn push_gaintable_subscribe(
                     socket,
                     client,
                     &BroadcastUpdate {
-                        addr: "/omniphony/state/debug/speaker_gaintable/uptodate".to_string(),
+                        addr: osc_contract::STATE_DEBUG_SPEAKER_GAINTABLE_UPTODATE.to_string(),
                         value: BroadcastValue::Int(version as i32),
                     },
                 );
@@ -625,7 +626,7 @@ fn push_gaintable_subscribe(
             socket,
             client,
             &BroadcastUpdate {
-                addr: "/omniphony/state/debug/speaker_gaintable/unavailable".to_string(),
+                addr: osc_contract::STATE_DEBUG_SPEAKER_GAINTABLE_UNAVAILABLE.to_string(),
                 value: BroadcastValue::String(
                     "{\"reason\":\"no precomputed gain table for the active backend\"}".to_string(),
                 ),
