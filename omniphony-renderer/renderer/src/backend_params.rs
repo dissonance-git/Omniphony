@@ -75,6 +75,20 @@ impl ParamSpec {
         }
     }
 
+    /// Filesystem-path control: a text field plus a file picker in the UI. The
+    /// value is carried as [`ParamValue::Text`]. Used by backends that load an
+    /// external asset (e.g. the scriptable backend's `.lua` file).
+    pub fn path(key: &'static str, label: &'static str, default: &str) -> Self {
+        Self {
+            key,
+            label,
+            kind: ParamKind::Path,
+            default: ParamValue::Text(default.to_string()),
+            requires: None,
+            help: None,
+        }
+    }
+
     /// Gate this control behind a backend capability flag.
     pub fn requires(mut self, capability: &'static str) -> Self {
         self.requires = Some(capability);
@@ -92,10 +106,22 @@ impl ParamSpec {
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ParamKind {
-    Float { min: f32, max: f32, step: f32 },
-    Int { min: i64, max: i64 },
+    Float {
+        min: f32,
+        max: f32,
+        step: f32,
+    },
+    Int {
+        min: i64,
+        max: i64,
+    },
     Bool,
-    Enum { options: Vec<ParamOption> },
+    Enum {
+        options: Vec<ParamOption>,
+    },
+    /// A filesystem path: rendered as a text field with a file picker. Value is
+    /// a [`ParamValue::Text`].
+    Path,
 }
 
 /// One choice of an [`ParamKind::Enum`] control.

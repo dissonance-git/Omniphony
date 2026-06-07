@@ -387,6 +387,19 @@ function buildParamControl(spec, current, backend) {
     select.addEventListener('change', () => sendBackendParam(spec.key, select.value, backend));
     row.appendChild(select);
     row._setValue = (v) => { select.value = String(v); };
+  } else if (kind.type === 'path') {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'delay-input';
+    input.style.minWidth = '12rem';
+    input.placeholder = '/path/to/backend.lua';
+    input.value = current == null ? '' : String(current);
+    input.addEventListener('change', () => sendBackendParam(spec.key, input.value.trim(), backend));
+    row.appendChild(input);
+    // Don't clobber the field while the user is typing in it.
+    row._setValue = (v) => {
+      if (document.activeElement !== input) input.value = v == null ? '' : String(v);
+    };
   } else {
     const isInt = kind.type === 'int';
     const input = document.createElement('input');
@@ -472,7 +485,11 @@ export function renderRenderBackend() {
   const renderBackendEffectiveEl = getRenderBackendEffectiveEl();
   const selection = typeof app.renderBackendState.selection === 'string' ? app.renderBackendState.selection : 'vbap';
   const effective = typeof app.renderBackendState.effective === 'string' ? app.renderBackendState.effective : null;
-  const visibleBackend = effective || selection;
+  // Normally show the active (effective) backend's sections. The script backend
+  // is the exception: until a valid .lua is set its build fails, so `effective`
+  // lags on the previous backend — follow the selection instead so its config
+  // (the file path field) is reachable to fix the error.
+  const visibleBackend = selection === 'script' ? selection : (effective || selection);
   const frozen = app.renderBackendState.frozenSpeakers === true;
   if (renderBackendSelectEl) {
     syncBackendOptions(renderBackendSelectEl);
