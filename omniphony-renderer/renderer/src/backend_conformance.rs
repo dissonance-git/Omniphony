@@ -442,7 +442,7 @@ mod tests {
         let panner = VbapPanner::new(&dirs, 1, 1, 0.0)
             .expect("panner")
             .with_negative_z(true);
-        VbapBackend::new(panner)
+        VbapBackend::new(panner, crate::render_backend::VbapSpreadParams::default())
     }
 
     #[test]

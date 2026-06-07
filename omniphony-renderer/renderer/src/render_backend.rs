@@ -27,7 +27,7 @@ pub use experimental_distance_backend::ExperimentalDistanceBackend;
 pub use few_speaker_backend::FewSpeakerBackend;
 pub use hybrid_backend::{BlendCurve, HybridBackend};
 pub use size_to_spread::{SizeToSpreadMode, reduce_size_to_spread};
-pub use vbap_backend::VbapBackend;
+pub use vbap_backend::{VbapBackend, VbapSpreadParams};
 
 #[derive(Debug, Clone, Copy, Default, Serialize)]
 pub struct BackendCapabilities {

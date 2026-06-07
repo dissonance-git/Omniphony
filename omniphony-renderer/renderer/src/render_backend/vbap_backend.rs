@@ -1,17 +1,51 @@
 use anyhow::Result;
 
 use super::room_transform::room_scaled_position;
-use super::{BackendCapabilities, GainModel, RenderRequest, RenderResponse, reduce_size_to_spread};
+use super::{
+    BackendCapabilities, GainModel, RenderRequest, RenderResponse, SizeToSpreadMode,
+    reduce_size_to_spread,
+};
 use crate::spatial_vbap::{VbapPanner, adm_to_spherical};
 use crate::speaker_layout::SpeakerLayout;
 
+/// VBAP spread tuning, baked into the backend at build time (read from the
+/// generic backend-param bag, see `backend_registry::vbap_spread_params`). These
+/// are *not* per-request inputs: changing one triggers a topology rebuild, so the
+/// hot-path `compute_gains` reads them from `self` rather than from the request.
+///
+/// The only genuinely per-event spread input is `RenderRequest::event_size`,
+/// which carries per-object metadata and stays on the request.
+#[derive(Debug, Clone, Copy)]
+pub struct VbapSpreadParams {
+    pub spread_min: f32,
+    pub spread_max: f32,
+    pub spread_from_distance: bool,
+    pub spread_distance_range: f32,
+    pub spread_distance_curve: f32,
+    pub size_to_spread_mode: SizeToSpreadMode,
+}
+
+impl Default for VbapSpreadParams {
+    fn default() -> Self {
+        Self {
+            spread_min: 0.0,
+            spread_max: 1.0,
+            spread_from_distance: false,
+            spread_distance_range: 1.0,
+            spread_distance_curve: 1.0,
+            size_to_spread_mode: SizeToSpreadMode::default(),
+        }
+    }
+}
+
 pub struct VbapBackend {
     panner: VbapPanner,
+    spread: VbapSpreadParams,
 }
 
 impl VbapBackend {
-    pub fn new(panner: VbapPanner) -> Self {
-        Self { panner }
+    pub fn new(panner: VbapPanner, spread: VbapSpreadParams) -> Self {
+        Self { panner, spread }
     }
 
     pub fn speaker_count(&self) -> usize {
@@ -29,25 +63,29 @@ impl VbapBackend {
 
         // Per-event 3-D size → scalar policy. `[0; 3]` yields 0, preserving the
         // legacy behaviour for streams that don't carry size metadata.
+        // `event_size` is the only per-request spread input; the policy and the
+        // output range are baked tuning (see `VbapSpreadParams`).
         let intrinsic = reduce_size_to_spread(
             req.event_size,
             [scaled_x, scaled_y, scaled_z],
-            req.size_to_spread_mode,
+            self.spread.size_to_spread_mode,
         );
 
-        let effective_spread = if req.spread_from_distance {
+        let effective_spread = if self.spread.spread_from_distance {
             let (_, _, dist) = adm_to_spherical(scaled_x, scaled_y, scaled_z);
-            let t = (1.0 - dist / req.spread_distance_range)
+            let t = (1.0 - dist / self.spread.spread_distance_range)
                 .clamp(0.0, 1.0)
-                .powf(req.spread_distance_curve);
-            (req.spread_min + t * (req.spread_max - req.spread_min)).clamp(0.0, 1.0)
+                .powf(self.spread.spread_distance_curve);
+            (self.spread.spread_min + t * (self.spread.spread_max - self.spread.spread_min))
+                .clamp(0.0, 1.0)
         } else {
             // `[spread_min, spread_max]` is now used as the output range that
             // bounds the per-event intrinsic. This also fixes the latent bug
             // where `spread_max` was ignored when `spread_from_distance` was
             // off: an `event_size = [0;3]` still yields `spread_min` (legacy
             // compatibility), while `intrinsic = 1.0` reaches `spread_max`.
-            (req.spread_min + intrinsic * (req.spread_max - req.spread_min)).clamp(0.0, 1.0)
+            (self.spread.spread_min + intrinsic * (self.spread.spread_max - self.spread.spread_min))
+                .clamp(0.0, 1.0)
         };
 
         // Distance diffuse blending is applied by the shared DistanceDiffuseModel

@@ -419,7 +419,10 @@ mod tests {
         let panner = VbapPanner::new(&positions, 5, 5, 0.0)
             .expect("vbap panner")
             .with_negative_z(true);
-        let external: Box<dyn GainModel> = Box::new(VbapBackend::new(panner));
+        let external: Box<dyn GainModel> = Box::new(VbapBackend::new(
+            panner,
+            crate::render_backend::VbapSpreadParams::default(),
+        ));
         let internal: Box<dyn GainModel> = Box::new(BarycenterBackend::new(speakers(), 0.0));
         let model: Box<dyn GainModel> = Box::new(HybridBackend::new(
             external,

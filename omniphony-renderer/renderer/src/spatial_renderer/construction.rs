@@ -105,7 +105,17 @@ impl SpatialRenderer {
         let vbap_triangles = vbap.num_triangles();
         let topology = RenderTopology::new(
             Arc::new(build_prepared_render_engine(
-                Box::new(VbapBackend::new(vbap)),
+                Box::new(VbapBackend::new(
+                    vbap,
+                    crate::render_backend::VbapSpreadParams {
+                        spread_min,
+                        spread_max,
+                        spread_from_distance,
+                        spread_distance_range,
+                        spread_distance_curve,
+                        size_to_spread_mode: Default::default(),
+                    },
+                )),
                 match table_mode {
                     VbapTableMode::Polar => EffectiveEvaluationMode::PrecomputedPolar,
                     VbapTableMode::Cartesian { .. } => {
