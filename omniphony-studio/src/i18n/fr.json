@@ -1,6 +1,10 @@
 {
   "app.title": "Omniphony Studio",
   "app.subtitle": "Contrôle spatial",
+  "updates.checkLabel": "Vérifier les mises à jour au démarrage",
+  "updates.available": "Mise à jour disponible : {version}",
+  "updates.linkText": "Voir sur GitHub",
+  "updates.checkFailed": "Échec de la vérification des mises à jour : {error}",
   "app.language": "Langue",
   "app.language.auto": "Auto",
   "app.language.en": "Anglais",
