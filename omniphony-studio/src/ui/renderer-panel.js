@@ -1,3 +1,5 @@
+import { wireInlineHelpFromMarkup } from '../controls/inline-help.js';
+
 export function rendererPanelMarkup() {
   return `
       <div id="rendererPanelRoot" class="renderer-panel-root">
@@ -64,7 +66,7 @@ export function rendererPanelMarkup() {
             <div class="renderer-subpanel-body" style="margin-top:0.25rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
               <div id="renderEvaluationCartesianBlock">
               <div class="control-row" id="renderEvaluationCartesianRow" style="margin-top:0;grid-template-columns:1fr auto;align-items:start">
-                <label style="font-size:12px;white-space:nowrap;color:#ffffff">Cartesian grid</label>
+                <label style="font-size:12px;white-space:nowrap;color:#ffffff" data-help-i18n="help.eval.cartesianGrid">Cartesian grid</label>
                 <div style="display:flex;flex-direction:column;gap:0.15rem;align-items:stretch">
                   <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0.15rem">
                     <input id="vbapCartXSizeInput" class="delay-input" type="number" min="1" step="1" placeholder="X" />
@@ -83,7 +85,7 @@ export function rendererPanelMarkup() {
               </div>
               <div id="renderEvaluationPolarBlock">
               <div class="control-row" id="renderEvaluationPolarRow" style="margin-top:0.1rem;grid-template-columns:1fr auto;align-items:start">
-                <label style="font-size:12px;white-space:nowrap;color:#ffffff">Polar grid</label>
+                <label style="font-size:12px;white-space:nowrap;color:#ffffff" data-help-i18n="help.eval.polarGrid">Polar grid</label>
                 <div style="display:flex;flex-direction:column;gap:0.15rem;align-items:stretch">
                   <div class="vbap-polar-grid">
                     <input id="vbapPolarAzimuthResolutionInput" class="delay-input" type="number" min="1" step="1" placeholder="az n" style="grid-column:1;grid-row:1" />
@@ -108,6 +110,12 @@ export function rendererPanelMarkup() {
                 <button id="vbapPositionInterpolationInfoBtn" type="button" class="info-icon-btn" data-i18n-title="vbap.positionInterpolationInfoButton" title="VBAP position interpolation info">i</button>
               </div>
               <input id="vbapPositionInterpolationToggleEl" type="checkbox" />
+            </div>
+            <div class="control-row" id="objectSizeIntervalsRow" style="margin-top:0.25rem;grid-template-columns:1fr auto;align-items:center">
+              <div class="title-with-info" style="min-width:0">
+                <span style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="evaluation.objectSizeIntervals" title="Object-size intervals to precompute: 0 = single table (size honoured only in realtime); N = N+1 tables interpolated at read time.">Object size intervals</span>
+              </div>
+              <input id="objectSizeIntervalsInput" class="delay-input" type="number" min="0" step="1" style="width:5rem" />
             </div>
             </div>
           </div>
@@ -166,22 +174,22 @@ export function rendererPanelMarkup() {
               <div id="hybridConfigPanel">
                 <div style="margin-top:0.2rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.3rem">
                   <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
-                    <label for="hybridExternalBackendSelect" style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="hybrid.external">External backend (ratio = 1)</label>
+                    <label for="hybridExternalBackendSelect" style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="hybrid.external" data-help-i18n="help.hybrid.external">External backend (ratio = 1)</label>
                     <select id="hybridExternalBackendSelect" class="delay-input" style="min-width:9rem"></select>
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
-                    <label for="hybridInternalBackendSelect" style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="hybrid.internal">Internal backend (ratio = 0)</label>
+                    <label for="hybridInternalBackendSelect" style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="hybrid.internal" data-help-i18n="help.hybrid.internal">Internal backend (ratio = 0)</label>
                     <select id="hybridInternalBackendSelect" class="delay-input" style="min-width:9rem"></select>
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
-                    <label for="hybridMetricSelect" style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="distance.metric">Distance metric</label>
+                    <label for="hybridMetricSelect" style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="distance.metric" data-help-i18n="help.hybrid.metric">Distance metric</label>
                     <select id="hybridMetricSelect" class="delay-input" style="min-width:9rem">
                       <option value="chebyshev" data-i18n="distance.metric.chebyshev">Chebyshev</option>
                       <option value="spherical" data-i18n="distance.metric.spherical">Spherical</option>
                     </select>
                   </div>
                   <div class="control-row" style="margin-top:0">
-                    <label style="font-size:12px;white-space:nowrap"><span data-i18n="hybrid.smoothing">Curve smoothing</span> <span id="hybridCurveSmoothingVal">0.00</span></label>
+                    <label style="font-size:12px;white-space:nowrap"><span data-i18n="hybrid.smoothing" data-help-i18n="help.hybrid.smoothing">Curve smoothing</span> <span id="hybridCurveSmoothingVal">0.00</span></label>
                     <input id="hybridCurveSmoothingSlider" type="range" min="0" max="1" step="0.01" value="0" class="gain-slider" />
                   </div>
                   <div style="font-size:11px;color:#b8b8b8;margin-top:0.1rem">
@@ -215,18 +223,18 @@ export function rendererPanelMarkup() {
             <div id="distanceDiffuseParams" class="conditional-params">
               <div class="renderer-subpanel-body" style="margin-top:0.25rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
                 <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
-                  <label for="distanceDiffuseMetricSelect" style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="distance.metric">Distance metric</label>
+                  <label for="distanceDiffuseMetricSelect" style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="distance.metric" data-help-i18n="help.distanceDiffuse.metric">Distance metric</label>
                   <select id="distanceDiffuseMetricSelect" class="delay-input" style="min-width:9rem">
                     <option value="spherical" data-i18n="distance.metric.spherical">Spherical</option>
                     <option value="chebyshev" data-i18n="distance.metric.chebyshev">Chebyshev</option>
                   </select>
                 </div>
                 <div class="control-row" style="margin-top:0">
-                  <label style="font-size:12px;white-space:nowrap"><span data-i18n="distance.threshold">Threshold</span> <span id="distanceDiffuseThresholdVal">1.00</span></label>
+                  <label style="font-size:12px;white-space:nowrap"><span data-i18n="distance.threshold" data-help-i18n="help.distanceDiffuse.threshold">Threshold</span> <span id="distanceDiffuseThresholdVal">1.00</span></label>
                   <input id="distanceDiffuseThresholdSlider" type="range" min="0.1" max="2.0" step="0.01" value="1.0" class="gain-slider" />
                 </div>
                 <div class="control-row" style="margin-top:0.15rem">
-                  <label style="font-size:12px;white-space:nowrap"><span data-i18n="distance.curve">Curve</span> <span id="distanceDiffuseCurveVal">1.00</span></label>
+                  <label style="font-size:12px;white-space:nowrap"><span data-i18n="distance.curve" data-help-i18n="help.distanceDiffuse.curve">Curve</span> <span id="distanceDiffuseCurveVal">1.00</span></label>
                   <input id="distanceDiffuseCurveSlider" type="range" min="0.5" max="2.0" step="0.05" value="1.0" class="gain-slider" />
                 </div>
               </div>
@@ -249,7 +257,7 @@ export function rendererPanelMarkup() {
             </div>
             <div id="distanceModelMetricRow" class="renderer-subpanel-body" style="margin-top:0.25rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
               <div class="control-row" style="margin-top:0;grid-template-columns:1fr auto;align-items:center">
-                <label for="distanceModelMetricSelect" style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="distance.metric">Distance metric</label>
+                <label for="distanceModelMetricSelect" style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="distance.metric" data-help-i18n="help.distanceModel.metric">Distance metric</label>
                 <select id="distanceModelMetricSelect" class="delay-input" style="min-width:9rem">
                   <option value="spherical" data-i18n="distance.metric.spherical">Spherical</option>
                   <option value="chebyshev" data-i18n="distance.metric.chebyshev">Chebyshev</option>
@@ -269,4 +277,7 @@ export function mountRendererPanel() {
     return;
   }
   mountEl.outerHTML = rendererPanelMarkup();
+  // Attach the inline help popovers (click a param name → panel below) to the
+  // hand-written renderer params annotated with `data-help-i18n`.
+  wireInlineHelpFromMarkup(document.getElementById('rendererPanelRoot') || document);
 }

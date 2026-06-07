@@ -11,6 +11,7 @@ import { formatNumber } from '../coordinates.js';
 import { scheduleUIFlush } from '../flush.js';
 import { inRendererPanel } from '../ui/panel-roots.js';
 import { renderHybridCurve } from './hybrid-curve.js';
+import { makeHelpPanel, attachInlineHelp, closeInlineHelp } from './inline-help.js';
 
 function getVbapStatusEl() { return inRendererPanel('vbapStatus'); }
 function getRenderBackendSelectEl() { return inRendererPanel('renderBackendSelect'); }
@@ -272,6 +273,24 @@ export function renderEvaluationMode() {
     : nextValue;
   applyEvaluationModeVisibility(visibleMode);
   renderVbapPositionInterpolation();
+  renderObjectSizeIntervals();
+}
+
+// Sync the object-size interval count input, and hide it for backends that do
+// not consume object size (the precomputed size tables would have no effect).
+function renderObjectSizeIntervals() {
+  const rowEl = inRendererPanel('objectSizeIntervalsRow');
+  const inputEl = inRendererPanel('objectSizeIntervalsInput');
+  if (inputEl && document.activeElement !== inputEl) {
+    inputEl.value = String(app.objectSizeIntervals ?? 0);
+  }
+  if (rowEl) {
+    const caps = backendCapabilities();
+    // Show unless the active backend explicitly reports no event-size support.
+    const supportsSize = !caps
+      || (caps.supports_event_size !== false && caps.supportsEventSize !== false);
+    rowEl.style.display = supportsSize ? '' : 'none';
+  }
 }
 
 export function updateEvaluationMode() {
@@ -331,27 +350,6 @@ function sendBackendParam(key, value, backend) {
   invoke('control_backend_param', backend ? { key, value, backend } : { key, value });
 }
 
-// Inline help popover for generated param controls. Clicking a param's name
-// shows its help in a small highlighted panel directly below its row (no "i"
-// button). Only one is open at a time and it closes on any click outside it.
-let openParamHelp = null;
-let paramHelpOutsideCloseBound = false;
-function closeParamHelp() {
-  if (openParamHelp) {
-    openParamHelp.style.display = 'none';
-    openParamHelp = null;
-  }
-}
-function ensureParamHelpOutsideClose() {
-  if (paramHelpOutsideCloseBound) return;
-  paramHelpOutsideCloseBound = true;
-  // The toggle stops propagation, so this only fires for clicks elsewhere.
-  document.addEventListener('click', (event) => {
-    if (!openParamHelp || openParamHelp.contains(event.target)) return;
-    closeParamHelp();
-  });
-}
-
 // Build one control field for a param spec, seeded with `current`. Returns a
 // wrapper holding the control row (with a `_setValue` hook used to refresh it
 // without a rebuild) and, when the spec has help, a collapsible help panel below
@@ -365,38 +363,9 @@ function buildParamControl(spec, current, backend) {
   label.textContent = spec.label || spec.key;
   let help = null;
   if (spec.help) {
-    // Highlighted panel shown below the row when the param name is clicked.
-    help = document.createElement('div');
-    help.className = 'generated-param-help';
-    help.textContent = spec.help;
-    help.style.display = 'none';
-    help.style.marginTop = '0.15rem';
-    help.style.padding = '0.3rem 0.45rem';
-    help.style.fontSize = '11px';
-    help.style.lineHeight = '1.35';
-    help.style.color = '#d9ecff';
-    help.style.background = 'rgba(120,200,255,0.10)';
-    help.style.border = '1px solid rgba(120,200,255,0.30)';
-    help.style.borderRadius = '6px';
-
-    // The param name itself is the toggle — no separate "i" button. A faint
-    // dotted underline hints that it is clickable.
-    label.setAttribute('role', 'button');
-    label.style.cursor = 'pointer';
-    label.style.textDecoration = 'underline dotted rgba(217,236,255,0.4)';
-    label.style.textUnderlineOffset = '2px';
-    label.addEventListener('click', (event) => {
-      // Stay put: don't trip the document outside-close handler.
-      event.preventDefault();
-      event.stopPropagation();
-      const wasOpen = help.style.display !== 'none';
-      closeParamHelp();
-      if (!wasOpen) {
-        help.style.display = '';
-        openParamHelp = help;
-        ensureParamHelpOutsideClose();
-      }
-    });
+    // The param name itself is the toggle for a help panel shown below the row.
+    help = makeHelpPanel(spec.help);
+    attachInlineHelp(label, help);
   }
   row.appendChild(label);
   const kind = spec.kind || {};
@@ -495,7 +464,7 @@ function renderGenericBackendParams(targetBackend) {
     : [];
 
   if (schema.length === 0) {
-    closeParamHelp();
+    closeInlineHelp();
     container.style.display = 'none';
     container.dataset.backend = '';
     return;
@@ -510,7 +479,7 @@ function renderGenericBackendParams(targetBackend) {
   // values so an external change (OSC) is reflected without dropping focus.
   if (container.dataset.backend !== String(targetBackend)) {
     // Rebuilding detaches any open help panel; drop the stale reference.
-    closeParamHelp();
+    closeInlineHelp();
     container.replaceChildren();
     container.dataset.backend = String(targetBackend);
     for (const spec of schema) {

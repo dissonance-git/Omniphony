@@ -164,6 +164,10 @@ pub struct EvaluationLiveParams {
     pub position_interpolation: bool,
     pub cartesian: CartesianEvaluationParams,
     pub polar: PolarEvaluationParams,
+    /// Number of object-size intervals to precompute (0 = single table, the
+    /// default; `N` ⇒ `N + 1` size tables interpolated at read time). Applies to
+    /// both precomputed modes; ignored for backends without `supports_event_size`.
+    pub object_size_intervals: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -434,6 +438,8 @@ fn evaluation_build_config_from_live(
         },
         distance_model_metric: live.distance_model_metric,
         distance_diffuse_metric: live.distance_diffuse_metric,
+        object_size_intervals: live.evaluation.object_size_intervals,
+        object_size_mode: live.size_to_spread_mode,
     }
 }
 

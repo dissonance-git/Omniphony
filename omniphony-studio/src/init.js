@@ -238,6 +238,9 @@ export function applyInitState(payload) {
       }
     }
   }
+  if (typeof payload.objectSizeIntervals === 'number' && payload.objectSizeIntervals >= 0) {
+    app.objectSizeIntervals = Math.round(payload.objectSizeIntervals);
+  }
   if (payload.renderEvaluationModeState && typeof payload.renderEvaluationModeState === 'object') {
     if (typeof payload.renderEvaluationModeState.selection === 'string') {
       const selection = payload.renderEvaluationModeState.selection.trim().toLowerCase();

@@ -86,6 +86,10 @@ pub struct RenderConfig {
     pub evaluation_cartesian_z_size: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub evaluation_cartesian_z_neg_size: Option<usize>,
+    /// Number of object-size intervals to precompute (0 = single table). Applies
+    /// to both precomputed evaluation modes; see `EvaluationLiveParams`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evaluation_object_size_intervals: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vbap_allow_negative_z: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -107,6 +107,10 @@ pub fn save_live_config(
         render.evaluation_cartesian_z_size = None;
         render.evaluation_cartesian_z_neg_size = None;
     }
+    // Object-size interval count applies to both precomputed modes; persist it
+    // only when enabled (0 is the default and stays out of the file).
+    render.evaluation_object_size_intervals = (live.evaluation.object_size_intervals > 0)
+        .then_some(live.evaluation.object_size_intervals);
     // VBAP spread tuning (min/max, from_distance, distance range/curve, size
     // policy) now lives in the generic param bag (`render.backend_params`,
     // written above via `all_backend_params`). Drop the legacy dedicated keys on

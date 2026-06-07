@@ -83,6 +83,10 @@ pub(super) fn evaluation_build_config(
         // evaluation_build_config_from_live.
         distance_model_metric: crate::spatial_vbap::DistanceMetric::default(),
         distance_diffuse_metric: crate::spatial_vbap::DistanceMetric::default(),
+        // Single table on the initial build; a configured interval count is
+        // applied via live params (evaluation_build_config_from_live) on rebuild.
+        object_size_intervals: 0,
+        object_size_mode: crate::render_backend::SizeToSpreadMode::default(),
     }
 }
 

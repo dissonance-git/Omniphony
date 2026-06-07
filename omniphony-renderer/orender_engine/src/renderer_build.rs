@@ -531,6 +531,12 @@ pub fn build_spatial_renderer(
                     requires_rebuild = true;
                 }
             }
+            if let Some(intervals) = render_cfg.and_then(|c| c.evaluation_object_size_intervals) {
+                if live.evaluation.object_size_intervals != intervals {
+                    live.evaluation.object_size_intervals = intervals;
+                    requires_rebuild = true;
+                }
+            }
             if let Some(hybrid) = hybrid_cfg {
                 if live.hybrid.external_backend_id != hybrid.external_backend_id
                     || live.hybrid.internal_backend_id != hybrid.internal_backend_id

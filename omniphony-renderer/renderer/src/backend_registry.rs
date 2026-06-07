@@ -1159,6 +1159,8 @@ mod tests {
             },
             distance_model_metric: DistanceMetric::default(),
             distance_diffuse_metric: DistanceMetric::default(),
+            object_size_intervals: 0,
+            object_size_mode: crate::render_backend::SizeToSpreadMode::default(),
         }
     }
 

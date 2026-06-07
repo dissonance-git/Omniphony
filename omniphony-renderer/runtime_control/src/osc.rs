@@ -963,6 +963,27 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
+    if addr == "/omniphony/control/render_evaluation/object_size_intervals" {
+        let intervals = match msg.args.first() {
+            Some(OscType::Int(i)) => Some((*i).max(0) as usize),
+            Some(OscType::Float(f)) => Some(f.round().max(0.0) as usize),
+            _ => None,
+        };
+        if let Some(intervals) = intervals {
+            ctx.renderer.live.write().evaluation.object_size_intervals = intervals;
+            effects.mark_dirty = true;
+            effects.trigger_layout_recompute = true;
+            // Object-size interval count is evaluation-layer only: re-sample the
+            // tables, reuse the backend geometry.
+            effects.evaluation_only = true;
+            effects.broadcasts.push(BroadcastUpdate {
+                addr: "/omniphony/state/render_evaluation/object_size_intervals".to_string(),
+                value: BroadcastValue::Int(intervals as i32),
+            });
+        }
+        return Some(effects);
+    }
+
     if let Some(rest) = addr.strip_prefix("/omniphony/control/render_evaluation/polar/") {
         match rest {
             "azimuth_resolution" | "elevation_resolution" => {
