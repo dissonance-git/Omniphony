@@ -374,36 +374,6 @@ pub fn build_spatial_renderer(
     let configured_evaluation = render_cfg
         .and_then(|cfg| cfg.render_evaluation_mode.as_deref())
         .and_then(LiveEvaluationMode::from_str);
-    let hybrid_cfg = render_cfg.map(|cfg| {
-        let defaults = renderer::live_params::HybridLiveParams::default();
-        let valid_inner = |id: &str| matches!(id, "vbap" | "barycenter" | "experimental_distance");
-        renderer::live_params::HybridLiveParams {
-            external_backend_id: cfg
-                .hybrid_external_backend
-                .clone()
-                .filter(|id| valid_inner(id))
-                .unwrap_or(defaults.external_backend_id),
-            internal_backend_id: cfg
-                .hybrid_internal_backend
-                .clone()
-                .filter(|id| valid_inner(id))
-                .unwrap_or(defaults.internal_backend_id),
-            curve: cfg
-                .hybrid_curve
-                .clone()
-                .filter(|points| points.len() >= 2)
-                .unwrap_or(defaults.curve),
-            curve_smoothing: cfg
-                .hybrid_curve_smoothing
-                .map(|v| v.clamp(0.0, 1.0))
-                .unwrap_or(defaults.curve_smoothing),
-            metric: cfg
-                .hybrid_metric
-                .as_deref()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(defaults.metric),
-        }
-    });
     {
         let control = renderer.renderer_control();
         // Register the demonstration backend so `backend_id = "example"` resolves.
@@ -411,6 +381,39 @@ pub fn build_spatial_renderer(
         // User-scriptable (Lua) backend; selecting `backend_id = "script"` routes
         // a rebuild through it, reading its `.lua` path from the param store.
         control.register_backend(Box::new(script_backend::ScriptFactory));
+        // Resolved after registration so any registered backend (not just the
+        // historical concrete ones) is accepted as a hybrid inner model; a nested
+        // hybrid or an unregistered id falls back to the default.
+        let hybrid_cfg = render_cfg.map(|cfg| {
+            let defaults = renderer::live_params::HybridLiveParams::default();
+            let valid_inner = |id: &str| id != "hybrid" && control.has_backend(id);
+            renderer::live_params::HybridLiveParams {
+                external_backend_id: cfg
+                    .hybrid_external_backend
+                    .clone()
+                    .filter(|id| valid_inner(id))
+                    .unwrap_or(defaults.external_backend_id),
+                internal_backend_id: cfg
+                    .hybrid_internal_backend
+                    .clone()
+                    .filter(|id| valid_inner(id))
+                    .unwrap_or(defaults.internal_backend_id),
+                curve: cfg
+                    .hybrid_curve
+                    .clone()
+                    .filter(|points| points.len() >= 2)
+                    .unwrap_or(defaults.curve),
+                curve_smoothing: cfg
+                    .hybrid_curve_smoothing
+                    .map(|v| v.clamp(0.0, 1.0))
+                    .unwrap_or(defaults.curve_smoothing),
+                metric: cfg
+                    .hybrid_metric
+                    .as_deref()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(defaults.metric),
+            }
+        });
         // Resolve the configured backend id: built-in ids/aliases first (e.g.
         // "distance" -> experimental_distance), then any registered backend id.
         let configured_backend = configured_backend_cfg.and_then(|raw| {

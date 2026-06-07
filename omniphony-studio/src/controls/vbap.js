@@ -282,15 +282,19 @@ export function updateEvaluationMode() {
 // Populate the backend dropdown from the engine-published list of selectable
 // backends (built-in + contributor-registered). Falls back to the static HTML
 // options when the engine doesn't send a list (older builds).
-function syncBackendOptions(selectEl) {
+function syncBackendOptions(selectEl, excludeIds) {
   const available = app.renderBackendState && Array.isArray(app.renderBackendState.availableBackends)
     ? app.renderBackendState.availableBackends
     : null;
   if (!selectEl || !available || available.length === 0) return;
-  const desired = available.map((b) => ({
-    value: String(b.id),
-    label: String(b.label || b.id),
-  }));
+  const exclude = excludeIds instanceof Set ? excludeIds : new Set(excludeIds || []);
+  const desired = available
+    .filter((b) => !exclude.has(String(b.id)))
+    .map((b) => ({
+      value: String(b.id),
+      label: String(b.label || b.id),
+    }));
+  if (desired.length === 0) return;
   const current = Array.from(selectEl.options).map((o) => `${o.value}=${o.textContent}`).join('|');
   const next = desired.map((d) => `${d.value}=${d.label}`).join('|');
   if (current === next) return;
@@ -513,6 +517,10 @@ export function renderHybridOptions() {
   const hybridExternalBackendSelectEl = getHybridExternalBackendSelectEl();
   const hybridInternalBackendSelectEl = getHybridInternalBackendSelectEl();
   const state = app.renderBackendState.hybrid || {};
+  // Inner models can be any registered backend except a nested hybrid.
+  const innerExclude = new Set(['hybrid']);
+  syncBackendOptions(hybridExternalBackendSelectEl, innerExclude);
+  syncBackendOptions(hybridInternalBackendSelectEl, innerExclude);
   if (hybridExternalBackendSelectEl && typeof state.externalBackend === 'string') {
     hybridExternalBackendSelectEl.value = state.externalBackend;
   }

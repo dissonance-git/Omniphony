@@ -199,8 +199,17 @@ export function applyInitState(payload) {
       : {};
     const hybrid = payload.renderBackendState.hybrid;
     if (hybrid && typeof hybrid === 'object') {
+      // Any registered backend can be a hybrid inner model, except a nested
+      // hybrid. The dropdown is populated from `availableBackends`; accept an id
+      // present in that list (or any non-hybrid id if the list isn't published).
+      const available = app.renderBackendState.availableBackends;
       const validInner = (id) =>
-        id === 'vbap' || id === 'barycenter' || id === 'experimental_distance';
+        typeof id === 'string'
+        && id.length > 0
+        && id !== 'hybrid'
+        && (!Array.isArray(available)
+          || available.length === 0
+          || available.some((b) => String(b.id) === id));
       const external = typeof hybrid.externalBackend === 'string'
         ? hybrid.externalBackend.trim().toLowerCase()
         : null;
