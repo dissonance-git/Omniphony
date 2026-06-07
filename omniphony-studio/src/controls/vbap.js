@@ -347,6 +347,14 @@ function buildParamControl(spec, current) {
   row.className = 'control-row generated-param-row';
   const label = document.createElement('label');
   label.textContent = spec.label || spec.key;
+  if (spec.help) {
+    const info = document.createElement('span');
+    info.className = 'info-icon-btn';
+    info.textContent = 'i';
+    info.title = spec.help;
+    info.style.marginLeft = '0.35rem';
+    label.appendChild(info);
+  }
   row.appendChild(label);
   const kind = spec.kind || {};
   if (kind.type === 'bool') {

@@ -741,9 +741,14 @@ impl BackendFactory for BarycenterFactory {
         "Barycenter"
     }
     fn param_schema(&self) -> Vec<crate::backend_params::ParamSpec> {
-        vec![crate::backend_params::ParamSpec::float(
-            "localize", "Localize", 0.0, 4.0, 0.05, 0.0,
-        )]
+        vec![
+            crate::backend_params::ParamSpec::float("localize", "Localize", 0.0, 4.0, 0.05, 0.0)
+                .help(
+                    "Higher values collapse energy more tightly toward the target point; lower \
+                     values stay broader and softer. Barycenter blends nearby speakers around a \
+                     weighted center instead of VBAP triplet selection.",
+                ),
+        ]
     }
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
         build_inner_backend_plan(ctx, self.id())
@@ -769,6 +774,10 @@ impl BackendFactory for ExperimentalDistanceFactory {
                 1.0,
                 0.01,
                 d.distance_floor,
+            )
+            .help(
+                "Minimum distance used when scoring speakers, so a speaker right on the target \
+                 point cannot dominate without bound.",
             ),
             ParamSpec::int(
                 "min_active_speakers",
@@ -776,14 +785,16 @@ impl BackendFactory for ExperimentalDistanceFactory {
                 1,
                 32,
                 d.min_active_speakers as i64,
-            ),
+            )
+            .help("Fewest speakers allowed to share energy for one object."),
             ParamSpec::int(
                 "max_active_speakers",
                 "Max active speakers",
                 1,
                 32,
                 d.max_active_speakers as i64,
-            ),
+            )
+            .help("Most speakers allowed to share energy for one object."),
             ParamSpec::float(
                 "position_error_floor",
                 "Position error floor",
@@ -791,7 +802,8 @@ impl BackendFactory for ExperimentalDistanceFactory {
                 1.0,
                 0.01,
                 d.position_error_floor,
-            ),
+            )
+            .help("Position error tolerated before gains start to be clamped or spread wider."),
             ParamSpec::float(
                 "position_error_nearest_scale",
                 "Position error nearest scale",
@@ -799,7 +811,8 @@ impl BackendFactory for ExperimentalDistanceFactory {
                 4.0,
                 0.05,
                 d.position_error_nearest_scale,
-            ),
+            )
+            .help("How aggressively the nearest speakers dominate as position error grows."),
             ParamSpec::float(
                 "position_error_span_scale",
                 "Position error span scale",
@@ -807,7 +820,8 @@ impl BackendFactory for ExperimentalDistanceFactory {
                 4.0,
                 0.05,
                 d.position_error_span_scale,
-            ),
+            )
+            .help("How much energy spreads to more speakers as position error grows."),
         ]
     }
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {

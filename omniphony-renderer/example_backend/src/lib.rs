@@ -165,14 +165,10 @@ impl BackendFactory for ExampleFactory {
     fn param_schema(&self) -> Vec<ParamSpec> {
         // One tunable, declared as data: the UI renders a slider and the host
         // stores the value generically — no typed field anywhere in the renderer.
-        vec![ParamSpec::float(
-            "sharpness",
-            "Sharpness",
-            0.5,
-            8.0,
-            0.1,
-            DEFAULT_SHARPNESS,
-        )]
+        vec![
+            ParamSpec::float("sharpness", "Sharpness", 0.5, 8.0, 0.1, DEFAULT_SHARPNESS)
+                .help("Cosine-lobe exponent: higher = tighter localisation, lower = more spread."),
+        ]
     }
 
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
