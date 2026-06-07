@@ -2,399 +2,238 @@
 
 ## Purpose
 
-This document explains how to add your own gain model / render backend to `omniphony-renderer` after the recent backend refactor.
+This document explains how to add your own gain model / render backend to
+`omniphony-renderer`. A backend is a **gain model**: it maps an object position
+(plus live render parameters) to a per-speaker gain vector, and is then prepared
+and executed by the render pipeline.
 
-> **Starting point:** the `example_backend` crate
-> (`omniphony-renderer/example_backend/`) is a minimal, heavily commented
-> `GainModel` that depends on `renderer` through its public API only. Copy it as
-> a skeleton. It is built and tested as a workspace member in CI, so it always
-> stays in sync with the public surface a backend needs.
+The goal of the current design is that adding a backend costs **one new file and
+one registration line** — no edits to any central enum, `match`, serde bridge,
+or Studio JavaScript. A buggy contributor backend is rejected at build time and
+can never crash the audio thread.
 
-The goal is to help a contributor:
+> **Starting point:** copy the `example_backend` crate
+> (`omniphony-renderer/example_backend/`). It is a minimal, heavily commented
+> backend that depends on `renderer` through its **public API only**, and it is
+> built and tested as a workspace member in CI — so it always stays in sync with
+> the public surface a backend needs. Everything below is implemented there; read
+> it alongside this guide.
 
-- understand where to plug in
-- implement a custom gain computation
-- declare backend capabilities
-- expose the backend to the runtime and to Studio
+## The two traits
 
-In current Omniphony terminology, a "backend" means:
+A backend is two small pieces, both implementable from your own crate:
 
-- a concrete **gain model**
-- prepared and executed through the render pipeline
+1. [`GainModel`](../omniphony-renderer/renderer/src/render_backend.rs) — the
+   model itself: identity, capabilities, and the hot-path gain computation.
+2. [`BackendFactory`](../omniphony-renderer/renderer/src/backend_registry.rs) —
+   how the runtime builds your model: a stable id, a label, a declarative
+   parameter schema, and a `build_plan` that captures what it needs from the
+   build context and returns a builder closure.
 
-## Overview
+There is **no** `BackendDescriptor`, `RenderBackendKind`, or `GainModelKind` to
+extend any more. Identity is a plain string id carried on the model and the
+factory.
 
-The relevant architecture is now split into four layers:
-
-1. `GainModel`
-2. `PreparedRenderEngine`
-3. `TopologyBuildPlan`
-4. UI/runtime driven by `backend_id` and backend capabilities
-
-The main entry points are:
-
-- [`render_backend.rs`](/home/user/dev/spatial-renderer/Omniphony/omniphony-renderer/renderer/src/render_backend.rs)
-- [`backend_registry.rs`](/home/user/dev/spatial-renderer/Omniphony/omniphony-renderer/renderer/src/backend_registry.rs)
-- [`live_params.rs`](/home/user/dev/spatial-renderer/Omniphony/omniphony-renderer/renderer/src/live_params.rs)
-- [`snapshot.rs`](/home/user/dev/spatial-renderer/Omniphony/omniphony-renderer/runtime_control/src/snapshot.rs)
-- [`vbap.js`](/home/user/dev/spatial-renderer/Omniphony/omniphony-studio/src/controls/vbap.js)
-
-## Current Architecture
-
-### 1. Backend identity
-
-Backend product identity is centralized in:
-
-- [`render_backend.rs`](/home/user/dev/spatial-renderer/Omniphony/omniphony-renderer/renderer/src/render_backend.rs)
-
-The static registry contains:
-
-- `BackendDescriptor`
-- `backend_descriptors()`
-- `backend_descriptor()`
-- `backend_descriptor_by_id()`
-
-Each backend has:
-
-- a stable `backend_id`, for example `vbap`
-- a user-facing label, for example `VBAP`
-- a `RenderBackendKind`
-- a `GainModelKind`
-
-### 2. Model contract
-
-A concrete backend implements the `GainModel` trait in:
-
-- [`render_backend.rs`](/home/user/dev/spatial-renderer/Omniphony/omniphony-renderer/renderer/src/render_backend.rs)
-
-The current contract is:
+## Step 1 — Implement `GainModel`
 
 ```rust
 pub trait GainModel: Send + Sync + 'static {
-    fn kind(&self) -> GainModelKind;
     fn backend_id(&self) -> &'static str;
     fn backend_label(&self) -> &'static str;
     fn capabilities(&self) -> BackendCapabilities;
     fn speaker_count(&self) -> usize;
     fn compute_gains(&self, req: &RenderRequest) -> RenderResponse;
-    fn save_to_file(
-        &self,
-        path: &std::path::Path,
-        speaker_layout: &SpeakerLayout,
-    ) -> Result<()>;
+    fn save_to_file(&self, path: &Path, speaker_layout: &SpeakerLayout) -> Result<()>;
 }
 ```
 
-The audio hot path consumes a `PreparedRenderEngine`, not your concrete type directly.
+`backend_id` is the stable selection key (e.g. `"my_model"`); `backend_label` is
+what the UI shows. The audio hot path runs `compute_gains` through a
+`PreparedRenderEngine` wrapping your model — you never wire that up yourself.
 
-### 3. Backend build / rebuild
+### The hot-path contract (read before writing `compute_gains`)
 
-Topology preparation is centralized in:
+`compute_gains` runs in the realtime audio thread, once per object per band per
+frame. It **MUST**:
 
-- [`backend_registry.rs`](/home/user/dev/spatial-renderer/Omniphony/omniphony-renderer/renderer/src/backend_registry.rs)
+- **not panic** — return a best-effort gain vector instead (e.g. zeroed);
+- **not allocate** on the heap, lock, or block;
+- return exactly `speaker_count()` finite gains.
 
-This module contains:
+Do any expensive setup (triangulation, lookup tables, caches) when the model is
+*built*, not here. As a safety net the engine smoke-tests every freshly built
+backend on a few reference positions on the build thread: a model that panics or
+returns a malformed gain vector is rejected at topology build time (surfaced to
+Studio as a recompute error) instead of crashing the audio thread. That guard
+only covers the build-time probe, so honouring the contract above is still
+required for correct realtime behaviour.
 
-- `BackendBuildPlan`
-- one concrete build plan per backend
-- `TopologyBuildPlan`
-- `prepare_topology_build_plan(...)`
+Use the stack-backed `Gains` buffer for output (`Gains::zeroed(n)` does not
+allocate). See `example_backend`'s `compute_gains` for a complete, allocation-free
+example.
 
-The runtime no longer selects its backend through a large backend-specific `match` inside `live_params.rs`.
-`live_params.rs` now gathers live inputs and delegates plan construction to the registry.
+## Step 2 — Declare capabilities
 
-### 4. Backend capabilities
-
-Capabilities are exposed through `BackendCapabilities` in:
-
-- [`render_backend.rs`](/home/user/dev/spatial-renderer/Omniphony/omniphony-renderer/renderer/src/render_backend.rs)
-
-They drive:
-
-- the runtime snapshot
-- OSC state publishing
-- Studio visibility and controls
-
-Studio should no longer reason with:
-
-- `if backend == vbap`
-
-but with capabilities such as:
-
-- `supports_spread`
-- `supports_distance_model`
-- `supports_precomputed_cartesian`
-- `supports_precomputed_polar`
-
-## Integration Procedure
-
-## Step 1: Declare backend identity
-
-Add a descriptor to the registry in:
-
-- [`render_backend.rs`](/home/user/dev/spatial-renderer/Omniphony/omniphony-renderer/renderer/src/render_backend.rs)
-
-Conceptual example:
-
-```rust
-BackendDescriptor {
-    kind: RenderBackendKind::MyModel,
-    gain_model_kind: GainModelKind::MyModel,
-    id: "my_model",
-    label: "My Model",
-}
-```
-
-At the moment this still requires adding enum variants to:
-
-- `RenderBackendKind`
-- `GainModelKind`
-
-But the identity cost is now localized to that area.
-
-## Step 2: Implement the gain model
-
-Add your concrete struct in:
-
-- [`render_backend.rs`](/home/user/dev/spatial-renderer/Omniphony/omniphony-renderer/renderer/src/render_backend.rs)
-
-or move it into a dedicated module if it grows large.
-
-Minimal example:
-
-```rust
-pub struct MyModelBackend {
-    speaker_positions: Vec<[f32; 3]>,
-}
-
-impl GainModel for MyModelBackend {
-    fn kind(&self) -> GainModelKind { ... }
-    fn backend_id(&self) -> &'static str { "my_model" }
-    fn backend_label(&self) -> &'static str { "My Model" }
-    fn capabilities(&self) -> BackendCapabilities { ... }
-    fn speaker_count(&self) -> usize { ... }
-    fn compute_gains(&self, req: &RenderRequest) -> RenderResponse { ... }
-    fn save_to_file(&self, path: &Path, speaker_layout: &SpeakerLayout) -> Result<()> { ... }
-}
-```
-
-### Runtime recommendations
-
-- do not allocate in `compute_gains()`
-- do not use `HashMap` in the hot path
-- build lookup tables or caches during topology preparation if needed
-- keep the output in `Gains` form
-
-## Step 3: Declare capabilities
-
-In `capabilities()`, declare only what is actually supported.
-
-Example:
+In `capabilities()`, declare only what your model actually supports:
 
 ```rust
 BackendCapabilities {
     supports_realtime: true,
     supports_precomputed_polar: false,
-    supports_precomputed_cartesian: true,
-    supports_position_interpolation: true,
+    supports_precomputed_cartesian: false,
+    supports_position_interpolation: false,
     supports_distance_model: false,
     supports_spread: false,
     supports_spread_from_distance: false,
+    supports_event_size: false,
     supports_distance_diffuse: false,
-    supports_heatmap_cartesian: true,
     supports_table_export: false,
 }
 ```
 
-These flags directly affect:
+These flags drive the available evaluation modes, which Studio sections are
+visible, and table-export support. The UI and runtime trust them, so do **not**
+over-declare a capability "for later". Studio reasons with capabilities
+(`supports_spread`, `supports_distance_model`, …), never with `if backend == vbap`.
 
-- available evaluation modes
-- which Studio sections are visible
-- debug heatmap support
-- table export support
+If `supports_table_export` is `false`, return an explicit error from
+`save_to_file` rather than silently succeeding.
 
-Do not over-declare a capability "for later". The UI and runtime trust these flags.
-
-## Step 4: Add a backend build plan
-
-Add a concrete build plan in:
-
-- [`backend_registry.rs`](/home/user/dev/spatial-renderer/Omniphony/omniphony-renderer/renderer/src/backend_registry.rs)
-
-Example:
+## Step 3 — Implement `BackendFactory`
 
 ```rust
-#[derive(Clone)]
-pub struct MyModelBuildPlan {
-    pub speaker_positions: Vec<[f32; 3]>,
-    pub custom_param: f32,
-}
-
-impl MyModelBuildPlan {
-    pub fn build_gain_model(&self) -> Result<Box<dyn GainModel>> {
-        Ok(Box::new(MyModelBackend::new(...)))
-    }
+pub trait BackendFactory: Send + Sync {
+    fn id(&self) -> &'static str;
+    fn label(&self) -> &'static str { self.id() }            // defaults to id
+    fn param_schema(&self) -> Vec<ParamSpec> { Vec::new() }  // defaults to none
+    fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan>;
 }
 ```
 
-Then wire that plan into:
-
-- `BackendBuildPlan`
-- `TopologyBuildPlan::build_topology()`
-- `TopologyBuildPlan::log_summary()`
-
-## Step 5: Hook plan preparation into the registry
-
-The final integration point is:
-
-- `prepare_topology_build_plan(...)`
-  in [`backend_registry.rs`](/home/user/dev/spatial-renderer/Omniphony/omniphony-renderer/renderer/src/backend_registry.rs)
-
-This function receives:
-
-- the `layout`
-- the `LiveParams`
-- the `BackendRebuildParams`
-- the evaluation config built by the runtime
-
-It must:
-
-1. recognize `backend_id`
-2. build the matching `BackendBuildPlan`
-3. choose the effective `evaluation_mode`
-4. return a `TopologyBuildPlan`
-
-Conceptual example:
+`build_plan` is where you turn the live build context into a model. Capture
+everything you need from `ctx` (it is only borrowed) into a closure, and return a
+`BackendBuildPlan::Dynamic` — the open variant for backends that are not one of
+the shipped built-ins:
 
 ```rust
-match live.backend_id() {
-    "my_model" => Some(TopologyBuildPlan {
-        layout,
-        backend_id: "my_model".to_string(),
-        backend_build: BackendBuildPlan::MyModel(MyModelBuildPlan { ... }),
-        evaluation_mode: ...,
-        evaluation_build_config,
-    }),
-    ...
+fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan> {
+    // Read geometry from the layout on the build thread.
+    let (azimuth_elevation, _) = ctx.layout.spatializable_positions();
+    let speaker_positions: Vec<[f32; 3]> = azimuth_elevation
+        .iter()
+        .map(|[az, el]| { let (x, y, z) = spherical_to_adm(*az, *el, 1.0); [x, y, z] })
+        .collect();
+
+    // Resolve any host-set parameters (Step 4), with a default fallback.
+    let sharpness = ctx
+        .backend_param(self.id(), "sharpness")
+        .and_then(ParamValue::as_f32)
+        .unwrap_or(DEFAULT_SHARPNESS);
+
+    Some(BackendBuildPlan::Dynamic(DynamicBackendPlan::new(
+        "my_model",
+        move || Ok(Box::new(MyModelBackend::new(&speaker_positions, sharpness))),
+    )))
 }
 ```
 
-## Step 6: Define rebuild parameters
+Return `None` if the backend cannot be prepared for the given context. The
+closure runs on the build thread, never on the audio thread, so it may allocate
+and do heavy setup.
 
-If your backend needs persistent backend-specific data to rebuild topology after a live update, extend:
+`BackendBuildCtx` exposes `layout`, `live` (the `LiveParams`),
+`backend_rebuild_params`, and the full `backend_params` store; read your own
+parameter values through `ctx.backend_param(self.id(), key)`.
 
-- [`live_params.rs`](/home/user/dev/spatial-renderer/Omniphony/omniphony-renderer/renderer/src/live_params.rs)
+## Step 4 — Declare tunable parameters (optional)
 
-`BackendRebuildParams` still contains a `vbap` block today.
+Parameters are **declared as data** in `param_schema()`; the host stores values
+generically and Studio renders the matching control (slider / checkbox / select)
+automatically. There is no typed field to add anywhere in the renderer and no
+Studio code to touch.
 
-If your backend also needs rebuild-specific state:
+```rust
+fn param_schema(&self) -> Vec<ParamSpec> {
+    vec![
+        ParamSpec::float("sharpness", "Sharpness", 0.5, 8.0, 0.1, DEFAULT_SHARPNESS),
+        // ParamSpec::int(key, label, min, max, default)
+        // ParamSpec::bool(key, label, default)
+    ]
+}
+```
 
-- add an equivalent backend-specific block
-- keep `backend_id` as the selection key
-- avoid duplicating backend selection logic elsewhere
+Read the values at build time via `BackendBuildCtx::backend_param` (Step 3).
+Values set over OSC (`/omniphony/control/backend/param`) or loaded from config
+are replayed into the store and trigger a rebuild, so your backend picks them up
+on the next build.
 
-## Step 7: Expose the backend to OSC and config
+## Step 5 — Register it (the one line)
 
-Backend parsing still goes through:
+A host registers your factory at startup through `RendererControl`:
 
-- [`render_backend.rs`](/home/user/dev/spatial-renderer/Omniphony/omniphony-renderer/renderer/src/render_backend.rs)
-  via `RenderBackendKind::from_str()`
+```rust
+control.register_backend(Box::new(my_backend::MyFactory));
+```
 
-and is used notably in:
+The built-in host does this in
+[`renderer_build.rs`](../omniphony-renderer/orender_engine/src/renderer_build.rs)
+(see the `example_backend::ExampleFactory` registration). After that line,
+selecting `backend_id = "my_model"` — from config (`render_backend = "my_model"`),
+over OSC, or from the Studio dropdown — routes a topology rebuild through your
+factory. A later registration with the same id replaces an earlier one, so a host
+can override a built-in.
 
-- [`runtime_control/src/osc.rs`](/home/user/dev/spatial-renderer/Omniphony/omniphony-renderer/runtime_control/src/osc.rs)
-- [`src/cli/decode/bootstrap.rs`](/home/user/dev/spatial-renderer/Omniphony/omniphony-renderer/src/cli/decode/bootstrap.rs)
+## Step 6 — It appears in Studio automatically
 
-So you must:
+The runtime snapshot
+([`snapshot.rs`](../omniphony-renderer/runtime_control/src/snapshot.rs)) publishes
+the registry's `available_backends` (id, label, **and parameter schema**) plus the
+current param values. Studio populates its backend dropdown and generates the
+parameter controls from that snapshot — no per-backend JavaScript, no manual
+serde bridge. If your capabilities are correct, the surrounding UI sections adapt
+on their own.
 
-- add your backend to the identity registry
-- make sure `from_str()` accepts it
+There is nothing backend-specific to add in `vbap.js`, `app_state.rs`, or the
+OSC/state plumbing for a backend that uses the generic parameter schema.
 
-If you want it to be selectable from config, also verify:
-
-- [`runtime_control/src/persist.rs`](/home/user/dev/spatial-renderer/Omniphony/omniphony-renderer/runtime_control/src/persist.rs)
-
-## Step 8: Expose capabilities to Studio
-
-The runtime snapshot publishes backend state in:
-
-- [`snapshot.rs`](/home/user/dev/spatial-renderer/Omniphony/omniphony-renderer/runtime_control/src/snapshot.rs)
-
-Studio consumes it in:
-
-- [`tauri-bridge.js`](/home/user/dev/spatial-renderer/Omniphony/omniphony-studio/src/tauri-bridge.js)
-- [`vbap.js`](/home/user/dev/spatial-renderer/Omniphony/omniphony-studio/src/controls/vbap.js)
-
-In theory, if your capabilities are correct, most UI sections will already adapt correctly.
-
-In practice, verify at least:
-
-- backend label rendering
-- available evaluation modes
-- section visibility
-- heatmap behavior if supported
-
-## Step 9: Validate
-
-Minimum recommended validation:
+## Step 7 — Validate
 
 1. `cargo fmt`
-2. `cargo check` in `omniphony-renderer`
-3. `cargo check` in `omniphony-studio/src-tauri`
-4. manual backend selection test
-5. manual rebuild test after layout changes
+2. `cargo build --workspace` and `cargo test --workspace` in `omniphony-renderer`
+   (CI runs the same, including the build-time smoke test that rejects a
+   misbehaving backend).
+3. Select your backend in Studio and confirm: label, generated parameter
+   controls, available evaluation modes, and section visibility.
+4. Change the layout and confirm a clean rebuild.
 
 ## Quick checklist
 
-- add a backend descriptor
-- add or extend `RenderBackendKind`
-- add or extend `GainModelKind`
-- implement `GainModel`
-- declare `BackendCapabilities`
-- add a backend build plan
-- wire `prepare_topology_build_plan(...)`
-- verify `from_str()` / config / OSC
-- verify Studio behavior
-- verify `cargo check`
+- [ ] implement `GainModel` (id, label, capabilities, `compute_gains`, …)
+- [ ] honour the hot-path contract in `compute_gains`
+- [ ] declare honest `BackendCapabilities`
+- [ ] implement `BackendFactory` returning a `BackendBuildPlan::Dynamic`
+- [ ] declare any tunables in `param_schema()` and read them via `backend_param`
+- [ ] `register_backend(...)` your factory in the host (one line)
+- [ ] `cargo fmt` + `cargo build/test --workspace`
+- [ ] verify selection, parameters, and rebuild in Studio
 
 ## Design advice
 
-### If your model is purely realtime
+- **Purely realtime model:** set only `supports_realtime = true`; leave the
+  `supports_precomputed_*` flags `false` and keep `build_plan` simple.
+- **Needs caches/tables:** build them in `build_plan`'s closure (build thread),
+  never in `compute_gains`.
+- **Cannot export a table:** keep `supports_table_export = false` and return an
+  explicit error from `save_to_file`.
+- **No spread / distance model:** set those flags `false` so the UI does not
+  expose controls that have no meaning for your model.
 
-- support only `supports_realtime`
-- leave `supports_precomputed_* = false`
-- keep the build plan simple
+## Built-in backends and typed plans
 
-### If your model needs caches
-
-- build them during topology preparation
-- not inside `compute_gains()`
-
-### If your model cannot export a table
-
-- keep `supports_table_export = false`
-- return an explicit error in `save_to_file()`
-
-### If your model does not support `spread` or `distance_model`
-
-- set the relevant flags to `false`
-- do not let the UI expose controls that have no meaning
-
-## Current limitations
-
-The architecture is now much more contribution-friendly than before, but it is not fully dynamic yet.
-
-Some identity points are still enum-based:
-
-- `RenderBackendKind`
-- `GainModelKind`
-
-So adding a backend is not yet a pure external drop-in module.
-
-However, the cost is now localized:
-
-- identity in `render_backend.rs`
-- build logic in `backend_registry.rs`
-- model implementation in your backend code
-
-The audio core, live runtime, and Studio no longer need to be rethought for every new model.
+The shipped backends (VBAP, Barycenter, Distance, Hybrid) use *typed*
+`BackendBuildPlan` variants (`Vbap`, `Barycenter`, …) rather than `Dynamic`,
+because they share geometry/evaluation machinery and the composite Hybrid backend
+builds inner backends by id. Contributor backends do **not** need a typed
+variant: `Dynamic` carries an arbitrary builder closure and is a first-class
+plan, prepared and reused exactly like the typed ones. Reach for a typed variant
+only if you are extending a built-in inside the `renderer` crate itself.
