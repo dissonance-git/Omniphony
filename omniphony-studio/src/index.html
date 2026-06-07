@@ -47,6 +47,16 @@
         </div>
       </div>
       <div id="overlayScroll">
+      <div id="updatePanelRoot">
+        <label class="switch-row" style="font-size:13px;cursor:pointer">
+          <span data-i18n="updates.checkLabel">Check for updates on startup</span>
+          <input id="updateCheckToggle" type="checkbox" />
+        </label>
+        <div id="updateAvailableBanner" style="display:none;margin-top:0.4rem;padding:0.55rem 0.65rem;font-size:14px;line-height:1.5;font-weight:600;color:#d9ecff;background:rgba(88,160,255,0.15);border:1px solid rgba(88,160,255,0.38);border-radius:7px">
+          <span id="updateAvailableText"></span>
+          <a id="updateAvailableLink" href="https://github.com/mgth/Omniphony/releases" target="_blank" rel="noreferrer" style="color:#9cc6ff;margin-left:0.5rem;text-decoration:underline"></a>
+        </div>
+      </div>
       <div id="oscPanelRoot">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div><span class="osc-status-dot" id="oscStatusDot"></span><span data-i18n="osc.label">OSC</span>: <span id="status">Initializing...</span></div>

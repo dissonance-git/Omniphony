@@ -1,6 +1,10 @@
 {
   "app.title": "Omniphony Studio",
   "app.subtitle": "Spatial Control",
+  "updates.checkLabel": "Check for updates on startup",
+  "updates.available": "Update available: {version}",
+  "updates.linkText": "View on GitHub",
+  "updates.checkFailed": "Update check failed: {error}",
   "app.language": "Language",
   "app.language.auto": "Auto",
   "app.language.en": "English",

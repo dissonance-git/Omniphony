@@ -1,6 +1,10 @@
 {
   "app.title": "Omniphony Studio",
   "app.subtitle": "Räumliche Steuerung",
+  "updates.checkLabel": "Beim Start nach Updates suchen",
+  "updates.available": "Update verfügbar: {version}",
+  "updates.linkText": "Auf GitHub ansehen",
+  "updates.checkFailed": "Update-Prüfung fehlgeschlagen: {error}",
   "app.language": "Sprache",
   "app.language.auto": "Automatisch",
   "app.language.en": "Englisch",

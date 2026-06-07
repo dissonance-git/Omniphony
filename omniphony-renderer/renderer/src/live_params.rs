@@ -676,7 +676,11 @@ impl RendererControl {
     /// Id + label of every registered backend, for the host to publish so the UI
     /// can list the selectable backends (built-in and contributor-registered).
     pub fn available_backends(&self) -> Vec<crate::backend_registry::BackendListing> {
-        self.backend_registry.read().available()
+        // Resolve dynamic schemas (e.g. the scriptable backend's, which depends
+        // on its selected file) against the current param store.
+        self.backend_registry
+            .read()
+            .available_with(&self.backend_params.read())
     }
 
     /// Set one backend parameter value (host/OSC). Stored generically and applied

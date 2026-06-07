@@ -687,6 +687,26 @@ pub trait BackendFactory: Send + Sync {
     fn param_schema(&self) -> Vec<crate::backend_params::ParamSpec> {
         Vec::new()
     }
+    /// Like [`param_schema`](BackendFactory::param_schema), but with access to the
+    /// backend's currently stored param values, so a backend whose schema depends
+    /// on its own state can report a *dynamic* schema. The scriptable backend
+    /// uses this to expose the params its currently-selected `.lua` declares.
+    /// Defaults to the static schema. Called by the host whenever it publishes
+    /// the backend list (i.e. after every param change).
+    fn param_schema_for(
+        &self,
+        params: &std::collections::HashMap<String, crate::backend_params::ParamValue>,
+    ) -> Vec<crate::backend_params::ParamSpec> {
+        let _ = params;
+        self.param_schema()
+    }
+    /// Whether this backend can run in the realtime (per-sample) evaluation mode.
+    /// A backend whose `compute_gains` is not hot-path-safe (allocates, locks,
+    /// crosses into an interpreter — e.g. the scriptable backend) returns `false`
+    /// so the host forces a precomputed mode and never calls it per sample.
+    fn realtime_capable(&self) -> bool {
+        true
+    }
     /// Build this backend's plan, or `None` if it cannot be prepared for the
     /// given context (e.g. VBAP without geometry rebuild params).
     fn build_plan(&self, ctx: &BackendBuildCtx<'_>) -> Option<BackendBuildPlan>;
@@ -759,6 +779,28 @@ impl BackendRegistry {
                 id: f.id(),
                 label: f.label(),
                 params: f.param_schema(),
+            })
+            .collect()
+    }
+
+    /// Like [`available`](BackendRegistry::available) but resolving each
+    /// backend's *dynamic* schema against the current param store, so a backend
+    /// whose controls depend on its own state (the scriptable backend) reports
+    /// the right schema. `params_by_backend` is keyed by backend id.
+    pub fn available_with(
+        &self,
+        params_by_backend: &std::collections::HashMap<
+            String,
+            std::collections::HashMap<String, crate::backend_params::ParamValue>,
+        >,
+    ) -> Vec<BackendListing> {
+        let empty = std::collections::HashMap::new();
+        self.factories
+            .iter()
+            .map(|f| BackendListing {
+                id: f.id(),
+                label: f.label(),
+                params: f.param_schema_for(params_by_backend.get(f.id()).unwrap_or(&empty)),
             })
             .collect()
     }
@@ -988,7 +1030,17 @@ pub fn prepare_topology_build_plan(
     };
     let backend_build = factory.build_plan(&ctx)?;
     let preferred = preferred_evaluation_mode(backend_rebuild_params);
-    let evaluation_mode = effective_live_evaluation_mode(live.evaluation.mode, preferred);
+    let mut evaluation_mode = effective_live_evaluation_mode(live.evaluation.mode, preferred);
+    // A backend that is not hot-path-safe (e.g. the scriptable backend) must
+    // never run per sample: force a precomputed mode if realtime was requested.
+    if evaluation_mode == LiveEvaluationMode::Realtime && !factory.realtime_capable() {
+        evaluation_mode = match preferred {
+            PreferredEvaluationMode::PrecomputedCartesian => {
+                LiveEvaluationMode::PrecomputedCartesian
+            }
+            PreferredEvaluationMode::PrecomputedPolar => LiveEvaluationMode::PrecomputedPolar,
+        };
+    }
     Some(TopologyBuildPlan {
         layout,
         backend_id: live.backend_id().to_string(),
