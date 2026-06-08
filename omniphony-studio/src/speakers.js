@@ -585,6 +585,15 @@ export function createSpeakerItem(id, speaker) {
   level.className = 'meter-row';
   level.classList.add('speaker-meter-row');
 
+  // Top-view position thumbnail, shown between the name chip and the filter
+  // glyph. A thin square frames the normalized room (X left/right, Y rear/front
+  // with front up); a small marker sits at the speaker's (x, y) and is coloured
+  // by height (Z): blue ≤0, green 0.5, red 1.0. Populated by
+  // `applySpeakerPositionIcon`.
+  const positionIcon = document.createElement('span');
+  positionIcon.className = 'speaker-position-icon';
+  level.appendChild(positionIcon);
+
   // Per-speaker crossover-filter glyph, shown between the name chip and the dB
   // value. Its shape (low-/high-/band-pass or full-band) reflects the speaker's
   // freqLow/freqHigh, with the upper cutoff (freqHigh) in small text above and
@@ -660,6 +669,7 @@ export function createSpeakerItem(id, speaker) {
     root,
     idStrip,
     label: idText,
+    positionIcon,
     filterIcon,
     filterGlyph,
     filterFreqTop,
@@ -745,6 +755,43 @@ function formatCutoffHz(hz) {
   return String(Math.round(hz));
 }
 
+// Height (normalized Z) → marker colour: blue ≤0, green 0.5, red 1.0, with the
+// hue swept linearly through the in-between values. Clamped, so anything at or
+// below 0 stays blue and anything at or above 1 stays red.
+function heightToColor(z) {
+  const t = Math.max(0, Math.min(1, Number(z) || 0));
+  // 240° (blue) → 120° (green) at 0.5 → 0° (red) at 1.0.
+  const hue = 240 * (1 - t);
+  return `hsl(${hue.toFixed(0)}, 75%, 52%)`;
+}
+
+// Top-view position thumbnail. Normalized X (left/right) maps to the horizontal
+// axis, normalized Y (rear/front) to the vertical axis with front at the top.
+// The marker colour encodes height (Z) via `heightToColor`.
+function positionIconMarkup(speaker) {
+  const x = Math.max(-1, Math.min(1, Number(speaker?.x) || 0));
+  const y = Math.max(-1, Math.min(1, Number(speaker?.y) || 0));
+  const z = Number(speaker?.z) || 0;
+  // viewBox 0..16; inset the plotting area by 2px so the marker never clips the
+  // frame. cx grows rightward with +X; cy grows downward, so +Y (front) is up.
+  const cx = 2 + ((x + 1) / 2) * 12;
+  const cy = 2 + ((1 - y) / 2) * 12;
+  const fill = heightToColor(z);
+  return `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">`
+    + `<rect x="0.6" y="0.6" width="14.8" height="14.8" rx="1.2" fill="none" stroke="currentColor" stroke-width="0.9"/>`
+    + `<rect x="${(cx - 1.6).toFixed(2)}" y="${(cy - 1.6).toFixed(2)}" width="3.2" height="3.2" rx="0.5" fill="${fill}"/>`
+    + `</svg>`;
+}
+
+function applySpeakerPositionIcon(entry, speaker) {
+  if (!entry.positionIcon) return;
+  entry.positionIcon.innerHTML = positionIconMarkup(speaker);
+  const x = (Number(speaker?.x) || 0).toFixed(2);
+  const y = (Number(speaker?.y) || 0).toFixed(2);
+  const z = (Number(speaker?.z) || 0).toFixed(2);
+  entry.positionIcon.title = `X ${x}  Y ${y}  Z ${z}`;
+}
+
 function applySpeakerFilterIcon(entry, speaker) {
   if (!entry.filterIcon) return;
   const low = Number(speaker?.freqLow);
@@ -769,6 +816,7 @@ export function updateSpeakerItem(entry, id, speaker) {
   const selectedSpeakerIndex = get_selectedSpeakerIndex();
   const soloTarget = getSoloTarget('speaker');
   entry.label.textContent = String(speaker.id ?? id);
+  applySpeakerPositionIcon(entry, speaker);
   applySpeakerFilterIcon(entry, speaker);
   entry.muteBtn.classList.toggle('active', speakerMuted.has(id));
   entry.soloBtn.classList.toggle('active', soloTarget === id);
@@ -889,6 +937,7 @@ export function updateSpeakerVisualsFromState(index) {
   const entry = speakerItems.get(String(index));
   if (entry) {
     entry.label.textContent = String(speaker.id ?? index);
+    applySpeakerPositionIcon(entry, speaker);
   }
 
   if (selectedSpeakerIndex === index) {
