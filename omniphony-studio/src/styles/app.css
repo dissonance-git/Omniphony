@@ -183,7 +183,12 @@
         width: 100%;
         min-height: auto;
         box-sizing: border-box;
-        padding-right: 0.85rem;
+        /* Match the scroll above: same gutter + right inset so the editor's
+           content lines up with the scrolling sections and its own scrollbar
+           clears the right-hand controls. */
+        scrollbar-gutter: stable both-edges;
+        scrollbar-width: thin;
+        padding-right: 1.15rem;
         max-height: 45vh;
         overflow-y: auto;
       }
@@ -451,7 +456,9 @@
         scrollbar-gutter: stable both-edges;
         scrollbar-width: thin;
         box-sizing: border-box;
-        padding-right: 0.85rem;
+        /* Extra right inset so the scrollbar clears the per-section collapse/“i”
+           buttons that sit on the right of each section header. */
+        padding-right: 1.15rem;
       }
 
       #logOverlay {
