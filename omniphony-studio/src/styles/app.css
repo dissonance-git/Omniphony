@@ -2140,10 +2140,40 @@
         border-color: rgba(255, 255, 255, 0.45);
       }
 
-      .coord-caption {
+      .cart-coord-table {
+        display: grid;
+        grid-template-columns: auto repeat(3, minmax(0, 1fr));
+        gap: 0.2rem 0.35rem;
+        align-items: center;
+      }
+
+      .cart-coord-head {
         font-size: 11px;
         color: #9fb6cf;
-        margin-top: 0.1rem;
+        text-align: center;
+      }
+
+      .cart-coord-rowlabel {
+        font-size: 11px;
+        color: #d9ecff;
+        white-space: nowrap;
+      }
+
+      .cart-coord-table input {
+        width: 100%;
+        box-sizing: border-box;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 6px;
+        color: #dfe8f3;
+        font-size: 11px;
+        padding: 0.15rem 0.35rem;
+        text-align: right;
+      }
+
+      .cart-coord-table input:focus {
+        outline: none;
+        border-color: rgba(255, 255, 255, 0.45);
       }
 
       .coord-mode-row {
