@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { t } from '../i18n.js';
 import { app, isSpeakerLayoutFrozen, speakerBaseGains, speakerDelays } from '../state.js';
-import { normalizedToMeters, metersToSceneUnits } from '../coordinates.js';
+import { normalizedToMeters, metersToSceneUnits, metersPerUnit } from '../coordinates.js';
 import { syncSpeakerHeatmapBandSelect } from '../scene/speaker-band-select.js';
 import {
   renderSpeakerEditor, requestAddSpeaker, requestMoveSpeaker, requestRemoveSpeaker,
@@ -36,6 +36,7 @@ export function setupSpeakerEditorListeners() {
   const speakerEditAzInputEl = document.getElementById('speakerEditAzInput');
   const speakerEditElInputEl = document.getElementById('speakerEditElInput');
   const speakerEditRInputEl = document.getElementById('speakerEditRInput');
+  const speakerEditRMetersInputEl = document.getElementById('speakerEditRMetersInput');
   const speakerEditSpatializeToggleEl = document.getElementById('speakerEditSpatializeToggle');
   const speakerEditFreqLowInputEl = document.getElementById('speakerEditFreqLowInput');
   const speakerEditFreqHighInputEl = document.getElementById('speakerEditFreqHighInput');
@@ -284,6 +285,22 @@ export function setupSpeakerEditorListeners() {
       Number(speaker.azimuthDeg) || 0,
       Number(speaker.elevationDeg) || 0,
       r,
+      true,
+    );
+  });
+
+  // Real-world distance in metres: convert back to a scene-space radius
+  // (metres / metersPerUnit) and keep the current azimuth/elevation.
+  bindSpeakerCoordChange(speakerEditRMetersInputEl, (idx) => {
+    const speaker = app.currentLayoutSpeakers[idx];
+    if (!speaker) return;
+    const rMeters = Number(speakerEditRMetersInputEl?.value);
+    if (!Number.isFinite(rMeters)) return;
+    applySpeakerPolarEdit(
+      idx,
+      Number(speaker.azimuthDeg) || 0,
+      Number(speaker.elevationDeg) || 0,
+      rMeters / metersPerUnit(),
       true,
     );
   });

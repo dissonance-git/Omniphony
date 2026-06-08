@@ -185,6 +185,7 @@ function getSpeakerEditCartesianModeEl() { return document.getElementById('speak
 function getSpeakerEditAzInputEl() { return document.getElementById('speakerEditAzInput'); }
 function getSpeakerEditElInputEl() { return document.getElementById('speakerEditElInput'); }
 function getSpeakerEditRInputEl() { return document.getElementById('speakerEditRInput'); }
+function getSpeakerEditRMetersInputEl() { return document.getElementById('speakerEditRMetersInput'); }
 function getSpeakerEditPolarModeEl() { return document.getElementById('speakerEditPolarMode'); }
 function getSpeakerEditCartesianGizmoBtnEl() { return document.getElementById('speakerEditCartesianGizmoBtn'); }
 function getSpeakerEditPolarGizmoBtnEl() { return document.getElementById('speakerEditPolarGizmoBtn'); }
@@ -903,6 +904,7 @@ export function renderSpeakerEditor() {
   const speakerEditAzInputEl = getSpeakerEditAzInputEl();
   const speakerEditElInputEl = getSpeakerEditElInputEl();
   const speakerEditRInputEl = getSpeakerEditRInputEl();
+  const speakerEditRMetersInputEl = getSpeakerEditRMetersInputEl();
   const speakerEditGainSliderEl = getSpeakerEditGainSliderEl();
   const speakerEditGainBoxEl = getSpeakerEditGainBoxEl();
   const speakerEditDelayMsInputEl = getSpeakerEditDelayMsInputEl();
@@ -962,6 +964,10 @@ export function renderSpeakerEditor() {
   syncInputValueUnlessEditing(speakerEditAzInputEl, formatNumber(az, 1));
   syncInputValueUnlessEditing(speakerEditElInputEl, formatNumber(el, 1));
   syncInputValueUnlessEditing(speakerEditRInputEl, formatNumber(r, 3));
+  // Real-world distance = scene-space distance × metersPerUnit; the metre
+  // vector is already uniformly scaled, so its magnitude is the metre distance.
+  const rMeters = Math.hypot(speakerMeters.x, speakerMeters.y, speakerMeters.z);
+  syncInputValueUnlessEditing(speakerEditRMetersInputEl, formatNumber(rMeters, 2));
   if (speakerEditGainSliderEl) speakerEditGainSliderEl.value = String(gain);
   if (speakerEditGainBoxEl) speakerEditGainBoxEl.textContent = linearToDb(gain);
   if (speakerEditDelayMsInputEl) speakerEditDelayMsInputEl.value = String(Math.max(0, delayMs));
@@ -991,6 +997,7 @@ export function renderSpeakerEditor() {
     speakerEditAzInputEl,
     speakerEditElInputEl,
     speakerEditRInputEl,
+    speakerEditRMetersInputEl,
     speakerEditGainSliderEl,
     speakerEditDelayMsInputEl,
     speakerEditDelaySamplesInputEl,
