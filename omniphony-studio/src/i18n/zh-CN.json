@@ -316,7 +316,7 @@
   "speaker.up": "上移",
   "speaker.down": "下移",
   "speaker.delete": "删除",
-  "speaker.xyzOmniphony": "XYZ (Omniphony):",
+  "speaker.coordinates": "坐标：",
   "speaker.edit3d": "3D 编辑",
   "speaker.gain": "增益",
   "speaker.delayMs": "延迟 (ms)",

@@ -311,7 +311,7 @@
   "speaker.up": "上へ",
   "speaker.down": "下へ",
   "speaker.delete": "削除",
-  "speaker.xyzOmniphony": "XYZ (Omniphony):",
+  "speaker.coordinates": "座標：",
   "speaker.edit3d": "3D 編集",
   "speaker.gain": "ゲイン",
   "speaker.delayMs": "ディレイ (ms)",

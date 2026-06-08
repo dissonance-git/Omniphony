@@ -455,7 +455,7 @@
   "speaker.up": "Monter",
   "speaker.down": "Descendre",
   "speaker.delete": "Supprimer",
-  "speaker.xyzOmniphony": "XYZ (Omniphony) :",
+  "speaker.coordinates": "Coordonnées :",
   "speaker.normalizedCoords": "Norm.",
   "speaker.metersCoords": "Réel (m)",
   "speaker.edit3d": "Éditer en 3D",

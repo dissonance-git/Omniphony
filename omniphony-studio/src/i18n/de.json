@@ -320,7 +320,7 @@
   "speaker.up": "Hoch",
   "speaker.down": "Runter",
   "speaker.delete": "Löschen",
-  "speaker.xyzOmniphony": "XYZ (Omniphony):",
+  "speaker.coordinates": "Koordinaten:",
   "speaker.edit3d": "3D bearbeiten",
   "speaker.gain": "Gain",
   "speaker.delayMs": "Verzögerung (ms)",
