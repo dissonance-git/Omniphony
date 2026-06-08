@@ -148,7 +148,7 @@
   "help.room.rear": "Distance from the listener to the rear wall, in metres (the −Y depth). When it differs from Front, the Y center blend control appears.",
   "help.room.height": "Distance from the listener up to the ceiling, in metres (the +Z extent).",
   "help.room.lower": "Distance from the listener down to the floor, in metres (the −Z extent).",
-  "help.room.centerBlend": "When Front and Rear depths differ, biases where the Y origin (listener) sits between them. 50/50 keeps it centred; double-click the value to reset.",
+  "help.room.centerBlend": "When Front and Rear depths differ, the front/back axis is warped so its front edge maps to the Front extent and its rear edge to the Rear extent. This sets the depth scale right at the listener — the slope of that warp through the centre — as a Front/Rear blend: 100/0 uses the Front scale, 0/100 the Rear scale, 50/50 the average. It shapes how the front-to-rear scale change is spread around you; it does not move the listener, which always stays at the centre. Double-click to reset.",
   "section.objects": "Objects",
   "section.display": "Display",
   "section.drc": "DRC",
