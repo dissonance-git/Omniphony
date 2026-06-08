@@ -51,6 +51,56 @@ function setup(speakers, params) return {} end
 Distance attenuation and distance-diffuse are applied by Omniphony *around* your
 script, so you only write the directional panning law.
 
+## Engine helpers
+
+The VM injects engine-provided functions you can call from your script:
+
+- `vbap` — a **VBAP** object for the full layout. Call it (`vbap(pos [, spread])`)
+  or use `vbap:gains(pos [, spread])` to get one gain per speaker in speaker order.
+  Optional `spread` in `[0, 1]` (default 0). Using it when the layout can't be
+  triangulated errors with a clear message.
+- `vbap_new(speakers)` — build your **own** VBAP object from a chosen list of
+  speaker directions (`{ {x=,y=,z=}, ... }`, e.g. a subset of the `speakers` table
+  selected in `setup`). The returned object has `:gains(pos [, spread])`, `:count()`
+  and is callable. Its gains are in the order of the list you passed, so map them
+  back to full speaker indices yourself. Raises a clear error if the subset can't
+  be triangulated.
+- `normalize_energy(out)` — return a copy of a gain array scaled to **unit energy**
+  (constant power); an all-zero input falls back to equal power, so you never emit
+  silence or non-finite gains.
+
+So the smallest useful script just defers to the engine:
+
+```lua
+function gains(pos, speakers, state, params)
+  return normalize_energy(vbap(pos))
+end
+```
+
+To use only a **subset** of speakers, build the panner once in `setup` and scatter
+its gains back into full speaker order:
+
+```lua
+function setup(speakers, params)
+  local subset, map = {}, {}
+  for i, s in ipairs(speakers) do
+    if math.abs(s.z) < 0.1 or s.z > 0.5 then        -- e.g. ground ring + tops
+      subset[#subset + 1] = s
+      map[#map + 1] = i
+    end
+  end
+  return { v = vbap_new(subset), map = map, n = #speakers }
+end
+
+function gains(pos, speakers, state, params)
+  local sub = state.v:gains(pos)
+  local out = {}
+  for i = 1, state.n do out[i] = 0.0 end
+  for k, g in ipairs(sub) do out[state.map[k]] = g end
+  return out
+end
+```
+
 ## Sandbox & limits
 
 Scripts run sandboxed: only `math`, `table` and `string` are available (no
@@ -63,3 +113,7 @@ rejected at build time (the engine smoke-tests every freshly built backend).
 
 - [`nearest_inverse_distance.lua`](nearest_inverse_distance.lua) — inverse-distance,
   constant-power panning, with `falloff`/`sharpness` params. A good template.
+- [`vbap_blend.lua`](vbap_blend.lua) — defers to the engine: `vbap(pos, spread)`
+  with a `spread` slider, then `normalize_energy`. Shows the engine helpers.
+- [`vbap_subset.lua`](vbap_subset.lua) — builds a VBAP over a chosen speaker
+  subset in `setup` (`vbap_new`) and scatters its gains back. Shows `vbap_new`.
