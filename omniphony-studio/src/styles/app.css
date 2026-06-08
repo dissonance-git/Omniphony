@@ -2154,6 +2154,21 @@
         border-color: rgba(255, 255, 255, 0.45);
       }
 
+      .coord-table-row {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+
+      .coord-table-row .cart-coord-table {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .coord-table-row .toggle-btn {
+        flex: 0 0 auto;
+      }
+
       .cart-coord-table {
         display: grid;
         grid-template-columns: auto repeat(3, minmax(0, 1fr));
