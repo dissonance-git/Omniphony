@@ -74,6 +74,27 @@
 //! object (from `vbap` or `vbap_new`) is callable (`v(pos)`) and has `v:gains(pos)`
 //! and `v:count()`.
 //!
+//! ### Coordinates
+//!
+//! `pos` is the **raw** ADM **real cartesian** position (`{x,y,z}`, actual
+//! distance); each `speakers[i]` is a **unit (normalized) cartesian** direction
+//! (distance 1). ADM axes: X right(+), Y front(+), Z up(+); azimuth 0° = front,
+//! +90° = right; elevation 0° = level, +90° = up. Conversion helpers (angles in
+//! degrees):
+//!
+//! ```lua
+//! local q = polar(pos)            -- real polar      { az=, el=, dist= }
+//! q.dist = 1                       -- normalized polar (az/el unchanged)
+//! local d = normalize(pos)        -- normalized cartesian { x=, y=, z= }
+//! local p = cartesian(q)          -- cartesian from polar ({az,el,dist?}); dist→1
+//! local r = distance(pos)         -- radius |pos|
+//! ```
+//!
+//! **Room ratios:** the conversions above are pure geometry on the value you pass
+//! and do *not* apply the room warp. `vbap`/`vbap_new` already warp internally (so
+//! they match the built-in VBAP backend); for a custom law that needs the same
+//! room-relative space, warp first with `room_scale(pos)` — e.g. `polar(room_scale(pos))`.
+//!
 //! ## Sandbox
 //!
 //! Each VM exposes only `math`/`table`/`string` (no `io`/`os`/`require`/
@@ -81,6 +102,7 @@
 //! budget so a runaway script fails the build instead of hanging it.
 
 use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -94,7 +116,9 @@ use renderer::backend_params::{ParamSpec, ParamValue};
 use renderer::backend_registry::{
     BackendBuildCtx, BackendBuildPlan, BackendFactory, DynamicBackendPlan,
 };
-use renderer::render_backend::{BackendCapabilities, GainModel, RenderRequest, RenderResponse};
+use renderer::render_backend::{
+    BackendCapabilities, GainModel, RenderRequest, RenderResponse, room_scaled_position,
+};
 use renderer::spatial_vbap::{Gains, VbapPanner, adm_to_spherical, spherical_to_adm};
 use renderer::speaker_layout::SpeakerLayout;
 
@@ -161,7 +185,7 @@ impl ScriptBackend {
         };
         // Eager smoke: compile + setup + one probe call.
         let vm = backend.build_vm()?;
-        vm.eval_gains([0.0, 0.0, 0.0])
+        vm.eval_gains([0.0, 0.0, 0.0], RoomParams::default())
             .map_err(|e| anyhow!("script `gains` failed on probe: {e}"))?;
         Ok(backend)
     }
@@ -231,7 +255,7 @@ impl GainModel for ScriptBackend {
                 });
             }
             let vm = &slot.as_ref().expect("vm just inserted").vm;
-            let values = vm.eval_gains(pos)?;
+            let values = vm.eval_gains(pos, RoomParams::from_request(req))?;
             let mut gains = Gains::zeroed(self.speakers.len());
             for (i, g) in values.into_iter().enumerate() {
                 gains.set(i, g);
@@ -263,6 +287,47 @@ impl GainModel for ScriptBackend {
 // The VM
 // ===========================================================================
 
+/// The room-ratio warp for the current request, shared into the engine helpers
+/// so `vbap`/`room_scale` map a position into the same room-relative space the
+/// built-in backends pan in. Constant within a table build; set per call from the
+/// request. Default is identity (no warp).
+#[derive(Clone, Copy)]
+struct RoomParams {
+    ratio: [f32; 3],
+    rear: f32,
+    lower: f32,
+    center_blend: f32,
+}
+
+impl Default for RoomParams {
+    fn default() -> Self {
+        Self {
+            ratio: [1.0; 3],
+            rear: 1.0,
+            lower: 1.0,
+            center_blend: 0.5,
+        }
+    }
+}
+
+impl RoomParams {
+    fn from_request(req: &RenderRequest) -> Self {
+        Self {
+            ratio: req.room_ratio,
+            rear: req.room_ratio_rear,
+            lower: req.room_ratio_lower,
+            center_blend: req.room_ratio_center_blend,
+        }
+    }
+
+    fn scale(&self, p: [f32; 3]) -> [f32; 3] {
+        room_scaled_position(p, self.ratio, self.rear, self.lower, self.center_blend)
+    }
+}
+
+/// Shared, per-thread handle to the current room warp (the VM is thread-local).
+type RoomCell = Rc<Cell<RoomParams>>;
+
 struct ScriptVm {
     _lua: Lua,
     gains_fn: Function,
@@ -271,6 +336,8 @@ struct ScriptVm {
     state: Value,
     params_tbl: Table,
     pos_tbl: Table,
+    /// Updated each call from the request; read by the engine helpers.
+    room: RoomCell,
 }
 
 impl ScriptVm {
@@ -281,9 +348,12 @@ impl ScriptVm {
         panner: Option<Arc<VbapPanner>>,
     ) -> Result<Self> {
         let lua = sandboxed_lua()?;
-        // Register the engine-provided helpers (`vbap`, `normalize_energy`) before
-        // executing the chunk so top-level code may use them too.
-        register_engine_api(&lua, panner).map_err(lua_err)?;
+        // The room warp is shared into the engine helpers and refreshed per call.
+        let room: RoomCell = Rc::new(Cell::new(RoomParams::default()));
+        // Register the engine-provided helpers (`vbap`, `room_scale`, conversions,
+        // `normalize_energy`) before executing the chunk so top-level code may use
+        // them too.
+        register_engine_api(&lua, panner, room.clone()).map_err(lua_err)?;
         lua.load(source)
             .exec()
             .map_err(|e| anyhow!("failed to load script: {e}"))?;
@@ -321,10 +391,14 @@ impl ScriptVm {
             state,
             params_tbl,
             pos_tbl,
+            room,
         })
     }
 
-    fn eval_gains(&self, pos: [f32; 3]) -> Result<Vec<f32>> {
+    fn eval_gains(&self, pos: [f32; 3], room: RoomParams) -> Result<Vec<f32>> {
+        // Publish the current room warp for the engine helpers, then pass the raw
+        // position to the script (it can warp via `room_scale` / `vbap`).
+        self.room.set(room);
         self.pos_tbl.set("x", pos[0]).map_err(lua_err)?;
         self.pos_tbl.set("y", pos[1]).map_err(lua_err)?;
         self.pos_tbl.set("z", pos[2]).map_err(lua_err)?;
@@ -395,7 +469,10 @@ fn reset_instructions() {
 /// order the panner was built with), with `v:count()` for the speaker count.
 /// Built either for the full layout (the global `vbap`) or by the script from a
 /// chosen speaker subset via `vbap_new(speakers)`.
-struct LuaVbap(Arc<VbapPanner>);
+struct LuaVbap {
+    panner: Arc<VbapPanner>,
+    room: RoomCell,
+}
 
 impl LuaVbap {
     fn gains_table(&self, lua: &Lua, pos: &Table, spread: Option<f32>) -> mlua::Result<Table> {
@@ -403,7 +480,10 @@ impl LuaVbap {
         let y: f32 = pos.get("y")?;
         let z: f32 = pos.get("z")?;
         let spread = spread.unwrap_or(0.0).clamp(0.0, 1.0);
-        let gains = self.0.get_gains_cartesian(x, y, z, spread);
+        // Warp the (raw) position by the current room ratios first, exactly like
+        // the built-in VBAP backend, so `vbap(pos)` matches it.
+        let [sx, sy, sz] = self.room.get().scale([x, y, z]);
+        let gains = self.panner.get_gains_cartesian(sx, sy, sz, spread);
         let out = lua.create_table_with_capacity(gains.len(), 0)?;
         for (i, g) in gains.iter().enumerate() {
             out.set(i + 1, *g)?;
@@ -417,7 +497,7 @@ impl UserData for LuaVbap {
         methods.add_method("gains", |lua, this, (pos, spread): (Table, Option<f32>)| {
             this.gains_table(lua, &pos, spread)
         });
-        methods.add_method("count", |_, this, ()| Ok(this.0.num_speakers()));
+        methods.add_method("count", |_, this, ()| Ok(this.panner.num_speakers()));
         // `v(pos)` is sugar for `v:gains(pos)`.
         methods.add_meta_method(
             MetaMethod::Call,
@@ -428,8 +508,9 @@ impl UserData for LuaVbap {
 
 /// Build a VBAP panner from a Lua array of speaker entries (`{ x=, y=, z= }` unit
 /// directions, e.g. a subset of the `speakers` table), converting each to the
-/// azimuth/elevation the engine panner needs.
-fn build_lua_vbap(speakers: &Table) -> mlua::Result<LuaVbap> {
+/// azimuth/elevation the engine panner needs. Shares the VM's room warp so its
+/// `:gains` is room-aware like the global `vbap`.
+fn build_lua_vbap(speakers: &Table, room: RoomCell) -> mlua::Result<LuaVbap> {
     let n = speakers.raw_len();
     let mut az_el = Vec::with_capacity(n);
     for i in 1..=n {
@@ -442,7 +523,10 @@ fn build_lua_vbap(speakers: &Table) -> mlua::Result<LuaVbap> {
     }
     let panner = VbapPanner::new(&az_el, 5, 5, 0.0)
         .map_err(|e| mlua::Error::RuntimeError(format!("vbap_new: {e}")))?;
-    Ok(LuaVbap(Arc::new(panner)))
+    Ok(LuaVbap {
+        panner: Arc::new(panner),
+        room,
+    })
 }
 
 /// Inject the engine-provided helpers as Lua globals:
@@ -454,15 +538,23 @@ fn build_lua_vbap(speakers: &Table) -> mlua::Result<LuaVbap> {
 /// - `vbap_new(speakers)` — build a VBAP object from a chosen list of speaker
 ///   directions (e.g. a subset selected in `setup`); returns gains in *that* list's
 ///   order. Raises a clear error if the subset cannot be triangulated.
+/// - `room_scale(p)` — warp a cartesian point by the current room ratios into the
+///   room-relative space the backends pan in (the same warp `vbap` applies).
 /// - `normalize_energy(out)` — return a copy of the gain array scaled to unit
 ///   energy (constant power); an all-zero input falls back to equal power so the
 ///   script never emits silence or non-finite gains.
-fn register_engine_api(lua: &Lua, panner: Option<Arc<VbapPanner>>) -> mlua::Result<()> {
+fn register_engine_api(
+    lua: &Lua,
+    panner: Option<Arc<VbapPanner>>,
+    room: RoomCell,
+) -> mlua::Result<()> {
     let globals = lua.globals();
 
-    // Constructor for a script-built VBAP over any speaker subset.
-    let vbap_new = lua.create_function(|lua, speakers: Table| {
-        let v = build_lua_vbap(&speakers)?;
+    // Constructor for a script-built VBAP over any speaker subset; it shares the
+    // VM's room warp so its `:gains` is room-aware too.
+    let room_for_new = room.clone();
+    let vbap_new = lua.create_function(move |lua, speakers: Table| {
+        let v = build_lua_vbap(&speakers, room_for_new.clone())?;
         lua.create_userdata(v)
     })?;
     globals.set("vbap_new", vbap_new)?;
@@ -470,7 +562,13 @@ fn register_engine_api(lua: &Lua, panner: Option<Arc<VbapPanner>>) -> mlua::Resu
     // Full-layout convenience object, or an erroring stub when not triangulable so
     // `vbap(pos)` still fails with a precise message at build time.
     match panner {
-        Some(panner) => globals.set("vbap", lua.create_userdata(LuaVbap(panner))?)?,
+        Some(panner) => globals.set(
+            "vbap",
+            lua.create_userdata(LuaVbap {
+                panner,
+                room: room.clone(),
+            })?,
+        )?,
         None => {
             let unavailable =
                 lua.create_function(|_, _: mlua::MultiValue| -> mlua::Result<Table> {
@@ -511,7 +609,89 @@ fn register_engine_api(lua: &Lua, panner: Option<Arc<VbapPanner>>) -> mlua::Resu
     })?;
     globals.set("normalize_energy", normalize)?;
 
+    // Warp a cartesian point by the current room ratios (the room-relative "effect
+    // space" the backends pan in). `vbap` applies this internally; a custom law
+    // calls it explicitly before its own geometry/conversions.
+    let room_for_scale = room.clone();
+    let room_scale = lua.create_function(move |lua, p: Table| {
+        let (x, y, z) = read_xyz(&p)?;
+        let [sx, sy, sz] = room_for_scale.get().scale([x, y, z]);
+        let out = lua.create_table_with_capacity(0, 3)?;
+        out.set("x", sx)?;
+        out.set("y", sy)?;
+        out.set("z", sz)?;
+        Ok(out)
+    })?;
+    globals.set("room_scale", room_scale)?;
+
+    // ── Coordinate conversions (ADM; angles in degrees) ───────────────────────
+    // ADM axes: X right(+)/left(-), Y front(+)/back(-), Z up(+)/down(-). Azimuth
+    // 0° = front (+Y), +90° = right (+X); elevation 0° = horizontal, +90° = up.
+    // `pos` arrives as real cartesian; `speakers[i]` as unit (normalized) cartesian.
+
+    // Real polar of a cartesian point: { x=, y=, z= } -> { az=, el=, dist= }.
+    // Normalized polar is the same with dist = 1 (az/el are unchanged).
+    let polar = lua.create_function(|lua, p: Table| {
+        let (x, y, z) = read_xyz(&p)?;
+        let (az, el, dist) = adm_to_spherical(x, y, z);
+        let out = lua.create_table_with_capacity(0, 3)?;
+        out.set("az", az)?;
+        out.set("el", el)?;
+        out.set("dist", dist)?;
+        Ok(out)
+    })?;
+    globals.set("polar", polar)?;
+
+    // Cartesian from polar: { az=, el=, dist?= } -> { x=, y=, z= }. `dist` defaults
+    // to 1, so `cartesian({ az=, el= })` is the unit (normalized) cartesian
+    // direction, and `cartesian(polar(p))` round-trips to `p`.
+    let cartesian = lua.create_function(|lua, s: Table| {
+        let az: f32 = s.get("az")?;
+        let el: f32 = s.get("el")?;
+        let dist: f32 = s.get::<Option<f32>>("dist")?.unwrap_or(1.0);
+        let (x, y, z) = spherical_to_adm(az, el, dist);
+        let out = lua.create_table_with_capacity(0, 3)?;
+        out.set("x", x)?;
+        out.set("y", y)?;
+        out.set("z", z)?;
+        Ok(out)
+    })?;
+    globals.set("cartesian", cartesian)?;
+
+    // Unit (normalized) cartesian direction of a point; the zero vector maps to
+    // the zero vector (no usable direction).
+    let normalize_vec = lua.create_function(|lua, p: Table| {
+        let (x, y, z) = read_xyz(&p)?;
+        let len = (x * x + y * y + z * z).sqrt();
+        let out = lua.create_table_with_capacity(0, 3)?;
+        let (nx, ny, nz) = if len > f32::EPSILON {
+            (x / len, y / len, z / len)
+        } else {
+            (0.0, 0.0, 0.0)
+        };
+        out.set("x", nx)?;
+        out.set("y", ny)?;
+        out.set("z", nz)?;
+        Ok(out)
+    })?;
+    globals.set("normalize", normalize_vec)?;
+
+    // Distance (radius) of a cartesian point.
+    let distance = lua.create_function(|_, p: Table| {
+        let (x, y, z) = read_xyz(&p)?;
+        Ok((x * x + y * y + z * z).sqrt())
+    })?;
+    globals.set("distance", distance)?;
+
     Ok(())
+}
+
+/// Read `{ x=, y=, z= }` from a Lua table as `f32`s.
+fn read_xyz(t: &Table) -> mlua::Result<(f32, f32, f32)> {
+    let x: f32 = t.get("x")?;
+    let y: f32 = t.get("y")?;
+    let z: f32 = t.get("z")?;
+    Ok((x, y, z))
 }
 
 fn speakers_table(lua: &Lua, speakers: &[[f32; 3]]) -> mlua::Result<Table> {
@@ -847,6 +1027,63 @@ mod tests {
         assert_eq!(gains[3], 0.0);
         // Aiming at the overhead speaker (subset member, full index 5) wins it.
         assert!(gains[4] > 0.9, "overhead gain {}", gains[4]);
+    }
+
+    #[test]
+    fn coordinate_helpers_convert_and_round_trip() {
+        // The script exercises every coordinate helper and returns markers in the
+        // gain array (length must equal #speakers = 4 here).
+        let src = r#"
+            function gains(pos, speakers, state, params)
+              -- pos is front-up-right-ish; check polar() axis conventions.
+              local front = polar({ x = 0.0, y = 2.0, z = 0.0 })   -- az 0, dist 2
+              local right = polar({ x = 1.0, y = 0.0, z = 0.0 })   -- az +90
+              local up    = polar({ x = 0.0, y = 0.0, z = 1.0 })   -- el +90
+              -- round trip cartesian(polar(p)) == p
+              local p = { x = 0.3, y = 0.5, z = -0.2 }
+              local rt = cartesian(polar(p))
+              -- normalized cartesian has unit length; default dist is 1.
+              local n = normalize({ x = 0.0, y = 3.0, z = 0.0 })
+              return {
+                math.abs(front.az) + math.abs(front.dist - 2.0),
+                math.abs(right.az - 90.0),
+                math.abs(up.el - 90.0),
+                math.abs(rt.x - p.x) + math.abs(rt.y - p.y) + math.abs(rt.z - p.z)
+                  + math.abs(distance(n) - 1.0),
+              }
+            end
+        "#;
+        let model = backend(src).expect("valid script");
+        let gains = model.compute_gains(&request([0.0, 0.0, 0.0])).gains;
+        assert_eq!(gains.len(), 4);
+        // Every marker is a near-zero error term.
+        for (i, g) in gains.iter().enumerate() {
+            assert!(g.abs() < 1e-3, "coordinate marker {i} off by {g}");
+        }
+    }
+
+    #[test]
+    fn room_scale_applies_the_request_room_ratio() {
+        // `room_scale` warps by the live room ratios, matching the built-in
+        // backends. With room_ratio.x = 2, x=0.5 maps to 1.0.
+        let src = r#"
+            function gains(pos, speakers, state, params)
+              local s = room_scale({ x = 0.5, y = 0.0, z = 0.0 })
+              local out = {}
+              for i = 1, #speakers do out[i] = 0.0 end
+              out[1] = s.x
+              return out
+            end
+        "#;
+        let model = backend(src).expect("valid script");
+        let mut req = request([0.0, 0.0, 0.0]);
+        req.room_ratio = [2.0, 1.0, 1.0];
+        let gains = model.compute_gains(&req).gains;
+        assert!(
+            (gains[0] - 1.0).abs() < 1e-4,
+            "room_scaled x = {}",
+            gains[0]
+        );
     }
 
     #[test]
