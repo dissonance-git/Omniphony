@@ -1862,6 +1862,16 @@
         user-select: none;
       }
 
+      /* The dB value and the filter glyph are readouts, not controls — let clicks
+         fall through to the row so clicking them selects the speaker. The dB value
+         in particular is rewritten continuously by the meter loop, so making it a
+         hit target also dropped clicks when its text node churned mid-click. The
+         M/S buttons and the drag-handle name chip keep their own pointer events. */
+      .speaker-item .fixed-metric,
+      .speaker-item .speaker-filter-icon {
+        pointer-events: none;
+      }
+
       /* Clip indicator: flash just the speaker's name chip, not the whole row. */
       .speaker-item .id-strip.clip-flash {
         animation: speaker-clip-flash 1s ease-out;
