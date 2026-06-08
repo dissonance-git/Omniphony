@@ -683,10 +683,14 @@ impl RendererControl {
     /// can list the selectable backends (built-in and contributor-registered).
     pub fn available_backends(&self) -> Vec<crate::backend_registry::BackendListing> {
         // Resolve dynamic schemas (e.g. the scriptable backend's, which depends
-        // on its selected file) against the current param store.
-        self.backend_registry
+        // on its selected file) against the current param store. Hybrid composes
+        // the other backends, so it is forced to the end of the selection combo
+        // regardless of registration order (see `hybrid_last`).
+        let listings = self
+            .backend_registry
             .read()
-            .available_with(&self.backend_params.read())
+            .available_with(&self.backend_params.read());
+        crate::backend_registry::hybrid_last(listings)
     }
 
     /// Set one backend parameter value (host/OSC). Stored generically and applied
