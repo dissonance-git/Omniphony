@@ -89,6 +89,33 @@ impl ParamSpec {
         }
     }
 
+    /// Editable-file control: a handle field plus a Browse button and, when
+    /// `editable`, an Edit button opening a local editor. See [`ParamKind::File`].
+    /// The value is carried as a [`ParamValue::Text`] handle whose *content* is
+    /// owned by the renderer (so it works with a remote renderer); `language` is a
+    /// UI hint (e.g. `Some("lua")`) and `extensions` restricts the Browse picker.
+    pub fn file(
+        key: &'static str,
+        label: &'static str,
+        default: &str,
+        editable: bool,
+        language: Option<&'static str>,
+        extensions: Vec<&'static str>,
+    ) -> Self {
+        Self {
+            key,
+            label,
+            kind: ParamKind::File {
+                editable,
+                language,
+                extensions,
+            },
+            default: ParamValue::Text(default.to_string()),
+            requires: None,
+            help: None,
+        }
+    }
+
     /// Gate this control behind a backend capability flag.
     pub fn requires(mut self, capability: &'static str) -> Self {
         self.requires = Some(capability);
@@ -122,6 +149,22 @@ pub enum ParamKind {
     /// A filesystem path: rendered as a text field with a file picker. Value is
     /// a [`ParamValue::Text`].
     Path,
+    /// An editable file resource whose content is owned by the renderer. Rendered
+    /// as a handle field with a Browse button (offered only when the renderer is
+    /// local) and, when `editable`, an Edit button opening a local editor. The
+    /// value is a [`ParamValue::Text`] handle — an absolute path on the renderer
+    /// host, or a bare name in the renderer's managed store. Its *content* is
+    /// fetched/pushed over OSC, so it works with a remote renderer and no shared
+    /// filesystem.
+    File {
+        /// Whether the UI offers an editor for this file.
+        editable: bool,
+        /// Optional editor language hint (e.g. `"lua"`).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        language: Option<&'static str>,
+        /// Extensions the Browse picker restricts to (e.g. `["lua"]`).
+        extensions: Vec<&'static str>,
+    },
 }
 
 /// One choice of an [`ParamKind::Enum`] control.
@@ -195,6 +238,21 @@ mod tests {
         // Untagged: the UI receives `2.0`, not `{"Float":2.0}`.
         let json = serde_json::to_string(&ParamValue::Float(2.0)).unwrap();
         assert_eq!(json, "2.0");
+    }
+
+    #[test]
+    fn file_kind_serialises_with_a_type_discriminator() {
+        // The UI switches on `kind.type`; File must tag as "file" and carry its
+        // editor hints. `language: None` is skipped.
+        let spec = ParamSpec::file("path", "Script file", "", true, Some("lua"), vec!["lua"]);
+        assert!(matches!(spec.kind, ParamKind::File { editable: true, .. }));
+        let json = serde_json::to_string(&spec.kind).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"file","editable":true,"language":"lua","extensions":["lua"]}"#
+        );
+        // Default value is a bare text handle.
+        assert_eq!(spec.default.as_str(), Some(""));
     }
 
     #[test]

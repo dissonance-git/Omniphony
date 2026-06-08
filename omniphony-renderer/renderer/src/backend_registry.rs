@@ -824,6 +824,16 @@ pub struct BackendListing {
     pub params: Vec<crate::backend_params::ParamSpec>,
 }
 
+/// Reorder a published backend list so the composite `hybrid` backend always
+/// comes last in the selection combo, regardless of registration order
+/// (contributor backends register after the builtins, so registration order
+/// alone does not keep hybrid last). Stable: every other backend keeps its
+/// registration order. The bool key sorts `false` (non-hybrid) before `true`.
+pub fn hybrid_last(mut listings: Vec<BackendListing>) -> Vec<BackendListing> {
+    listings.sort_by_key(|listing| listing.id == "hybrid");
+    listings
+}
+
 /// Ordered set of backend factories keyed by id. Use [`BackendRegistry::builtin`]
 /// for the shipped backends; a host can `register` additional ones at startup.
 pub struct BackendRegistry {
@@ -1430,6 +1440,32 @@ mod tests {
         assert!(!inners_realtime_capable(&registry, "vbap", "non_realtime"));
         // An unregistered id is treated as realtime-capable (fails to build later).
         assert!(inners_realtime_capable(&registry, "vbap", "does_not_exist"));
+    }
+
+    #[test]
+    fn hybrid_last_moves_hybrid_to_the_end() {
+        let mk = |id: &'static str| BackendListing {
+            id,
+            label: id,
+            params: Vec::new(),
+        };
+        // Hybrid sits mid-list, with backends registered after it (example,
+        // script) — exactly the case registration order alone gets wrong.
+        let out = hybrid_last(vec![mk("vbap"), mk("hybrid"), mk("example"), mk("script")]);
+        let ids: Vec<_> = out.iter().map(|l| l.id).collect();
+        assert_eq!(ids, ["vbap", "example", "script", "hybrid"]);
+    }
+
+    #[test]
+    fn hybrid_last_keeps_order_when_no_hybrid() {
+        let mk = |id: &'static str| BackendListing {
+            id,
+            label: id,
+            params: Vec::new(),
+        };
+        let out = hybrid_last(vec![mk("vbap"), mk("barycenter"), mk("example")]);
+        let ids: Vec<_> = out.iter().map(|l| l.id).collect();
+        assert_eq!(ids, ["vbap", "barycenter", "example"]);
     }
 
     #[test]

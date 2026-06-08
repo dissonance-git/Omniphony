@@ -31,7 +31,7 @@ pub(crate) fn map_depth_with_room_ratios(
 /// Scale an ADM position into room-relative effect space: the coordinates the
 /// gain models pan in and from which distance attenuation measures distance.
 #[inline]
-pub(crate) fn room_scaled_position(
+pub fn room_scaled_position(
     position: [f32; 3],
     room_ratio: [f32; 3],
     room_ratio_rear: f32,

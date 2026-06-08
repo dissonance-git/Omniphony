@@ -321,6 +321,21 @@ pub enum OscEvent {
     StateSpeakersRecomputing { enabled: bool },
     #[serde(rename = "state:speakers:recompute_error")]
     StateSpeakersRecomputeError { message: String },
+    #[serde(rename = "state:backend:file:content")]
+    StateBackendFileContent {
+        backend: String,
+        key: String,
+        name: String,
+        content: String,
+    },
+    #[serde(rename = "state:backend:file:list")]
+    StateBackendFileList { backend: String, json: String },
+    #[serde(rename = "state:backend:file:error")]
+    StateBackendFileError {
+        backend: String,
+        key: String,
+        message: String,
+    },
     #[serde(rename = "state:config:save_error")]
     StateConfigSaveError { message: String },
     #[serde(rename = "state:adaptive_resampling")]
@@ -720,6 +735,27 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
         (4, "config") if parts[3] == "save_error" => Some(OscEvent::StateConfigSaveError {
             message: raw_args.first().and_then(unwrap_string).unwrap_or_default(),
         }),
+        (5, "backend") if parts[3] == "file" => match parts[4] {
+            // [backend_id, key, name, content]
+            "content" => Some(OscEvent::StateBackendFileContent {
+                backend: raw_args.first().and_then(unwrap_string)?,
+                key: raw_args.get(1).and_then(unwrap_string)?,
+                name: raw_args.get(2).and_then(unwrap_string).unwrap_or_default(),
+                content: raw_args.get(3).and_then(unwrap_string).unwrap_or_default(),
+            }),
+            // [backend_id, json_names]
+            "list" => Some(OscEvent::StateBackendFileList {
+                backend: raw_args.first().and_then(unwrap_string)?,
+                json: raw_args.get(1).and_then(unwrap_string).unwrap_or_default(),
+            }),
+            // [backend_id, key, message]
+            "error" => Some(OscEvent::StateBackendFileError {
+                backend: raw_args.first().and_then(unwrap_string)?,
+                key: raw_args.get(1).and_then(unwrap_string)?,
+                message: raw_args.get(2).and_then(unwrap_string).unwrap_or_default(),
+            }),
+            _ => None,
+        },
         (3, "adaptive_resampling") => Some(OscEvent::StateAdaptiveResampling {
             enabled: to_number(args[0])? != 0.0,
         }),

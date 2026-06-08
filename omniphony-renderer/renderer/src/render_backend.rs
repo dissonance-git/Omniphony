@@ -26,6 +26,7 @@ pub use evaluation_artifact::{
 };
 pub use experimental_distance_backend::ExperimentalDistanceBackend;
 pub use hybrid_backend::{BlendCurve, HybridBackend};
+pub use room_transform::room_scaled_position;
 pub use size_to_spread::{SizeToSpreadMode, reduce_size_to_spread};
 pub use vbap_backend::{VbapBackend, VbapSpreadParams};
 

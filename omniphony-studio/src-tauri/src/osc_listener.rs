@@ -2305,6 +2305,40 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     removed_ids,
                 )
             }
+            OscEvent::StateBackendFileContent {
+                backend,
+                key,
+                name,
+                content,
+            } => (
+                Some((
+                    "backend-file:content",
+                    serde_json::json!({ "backend": backend, "key": key, "name": name, "content": content }),
+                )),
+                removed_ids,
+            ),
+            OscEvent::StateBackendFileList { backend, json } => {
+                let names = serde_json::from_str::<serde_json::Value>(&json)
+                    .unwrap_or_else(|_| serde_json::Value::Array(Vec::new()));
+                (
+                    Some((
+                        "backend-file:list",
+                        serde_json::json!({ "backend": backend, "names": names }),
+                    )),
+                    removed_ids,
+                )
+            }
+            OscEvent::StateBackendFileError {
+                backend,
+                key,
+                message,
+            } => (
+                Some((
+                    "backend-file:error",
+                    serde_json::json!({ "backend": backend, "key": key, "message": message }),
+                )),
+                removed_ids,
+            ),
             OscEvent::StateAdaptiveResampling { enabled } => {
                 s.adaptive_resampling = Some(if enabled { 1 } else { 0 });
                 (

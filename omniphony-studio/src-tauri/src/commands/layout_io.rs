@@ -132,6 +132,22 @@ pub fn pick_orender_path() -> Option<String> {
         .map(|path| path.to_string_lossy().to_string())
 }
 
+/// Native picker for an editable backend file (e.g. a script `.lua`), restricted
+/// to `extensions` when non-empty. The returned path is in *this* machine's
+/// namespace, so the UI only offers Browse when the renderer is local
+/// (see `renderer_is_local`).
+#[tauri::command]
+pub fn pick_backend_file_path(extensions: Vec<String>) -> Option<String> {
+    let mut dialog = FileDialog::new().set_title("Select backend file");
+    if !extensions.is_empty() {
+        let exts: Vec<&str> = extensions.iter().map(String::as_str).collect();
+        dialog = dialog.add_filter("Backend file", &exts);
+    }
+    dialog
+        .pick_file()
+        .map(|path| path.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 pub fn export_layout_to_path(path: String, layout: Layout) -> Result<(), String> {
     let trimmed = path.trim();

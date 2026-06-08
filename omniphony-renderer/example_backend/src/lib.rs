@@ -72,7 +72,7 @@ impl GainModel for ExampleBackend {
     }
 
     fn backend_label(&self) -> &'static str {
-        "Example (cosine panner)"
+        "Cosine panner"
     }
 
     fn capabilities(&self) -> BackendCapabilities {
@@ -159,7 +159,7 @@ impl BackendFactory for ExampleFactory {
     }
 
     fn label(&self) -> &'static str {
-        "Example (cosine panner)"
+        "Cosine panner"
     }
 
     fn param_schema(&self) -> Vec<ParamSpec> {
