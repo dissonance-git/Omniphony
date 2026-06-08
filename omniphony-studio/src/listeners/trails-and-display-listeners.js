@@ -4,7 +4,7 @@ import { persistTrailPrefs, persistEffectiveRenderPrefs, refreshEffectiveRenderV
 import { rebuildTrailGeometry, createTrailRenderable } from '../trails.js';
 import { scene } from '../scene/setup.js';
 import { applySpeakerLevel, updateSourceDecorations, updateSourceSelectionStyles, applyObjectsVisibility } from '../sources.js';
-import { refreshOverlayLists, updateSpeakerVisualsFromState } from '../speakers.js';
+import { refreshOverlayLists, updateSpeakerVisualsFromState, refreshSpeakerOrientations } from '../speakers.js';
 import { syncSpeakerHeatmapBandSelect } from '../scene/speaker-band-select.js';
 import { acquireGainTable, releaseGainTable } from '../scene/speaker-gaintable.js';
 import { refreshObjectEnergyVolume } from '../scene/object-energy-volume.js';
@@ -34,6 +34,7 @@ export function setupTrailsAndDisplayListeners() {
   const objectDetailsToggleBtnEl = document.getElementById('objectDetailsToggleBtn');
   const speakerLabelsToggleEl = document.getElementById('speakerLabelsToggle');
   const speakerBandBarsToggleEl = document.getElementById('speakerBandBarsToggle');
+  const speakerFaceListenerToggleEl = document.getElementById('speakerFaceListenerToggle');
   const speakerSizeSliderEl = document.getElementById('speakerSizeSlider');
   const speakerSizeValEl = document.getElementById('speakerSizeVal');
   const trailModeSelectEl = document.getElementById('trailModeSelect');
@@ -212,6 +213,15 @@ export function setupTrailsAndDisplayListeners() {
           bar.visible = app.speakerBandBarsEnabled;
         }
       });
+      persistEffectiveRenderPrefs();
+    });
+  }
+
+  if (speakerFaceListenerToggleEl) {
+    speakerFaceListenerToggleEl.checked = app.speakerFaceListenerEnabled;
+    speakerFaceListenerToggleEl.addEventListener('change', () => {
+      app.speakerFaceListenerEnabled = speakerFaceListenerToggleEl.checked;
+      refreshSpeakerOrientations();
       persistEffectiveRenderPrefs();
     });
   }
