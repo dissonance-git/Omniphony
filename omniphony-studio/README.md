@@ -96,7 +96,8 @@ Ce script applique `NO_STRIP=true` et permet de générer les trois formats, y c
   Raison : l’overlay peut remonter, remplacer ou réinitialiser des sous-arbres. Une ref capturée hors timing casse facilement la synchro UI et empêche d’isoler proprement le viewport 3D du reste du DOM.
   En review, considérer comme odeur d’architecture tout accès DOM persistant à un panneau monté dynamiquement.
 - Couches compositeur au-dessus du canvas WebGL :
-  aucun élément promu en couche compositeur GPU ne doit chevaucher `#omniphony-renderer-mount`. Ça inclut `backdrop-filter`, `filter`, et l'ajout d'un canvas supplémentaire au-dessus du canvas WebGL. Sinon : aliasing avec les `CanvasTexture` des sprites, labels qui affichent une copie du viewport ou une autre texture. Voir `../docs/webgl-compositor-aliasing.md` pour le mécanisme, les tentatives ratées, et les options encore ouvertes pour récupérer un effet de blur.
+  aucun élément promu en couche compositeur GPU ne doit chevaucher `#omniphony-renderer-mount`. Ça inclut `filter`, et l'ajout d'un canvas supplémentaire au-dessus du canvas WebGL. Sinon : aliasing avec les `CanvasTexture` des sprites, labels qui affichent une copie du viewport ou une autre texture.
+  Update (2026-06, WebKitGTK 2.52.4): `backdrop-filter: blur()` on the side/log overlays is allowed again, guarded by a canvas-scoped native-DnD block (the orbit-drag trigger). See `../docs/webgl-compositor-aliasing.md` → "Resolution" before touching it. The rule above still applies to every other compositor-promoting property.
 
 ## Messages envoyés par le studio vers le renderer
 

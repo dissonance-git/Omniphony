@@ -13,11 +13,24 @@
         background: #0a0b10;
       }
 
+      /* Stop the WebGL canvas from being picked up as a native drag source.
+         An orbit-drag could otherwise start a native drag-and-drop whose drag
+         image is a compositor snapshot; dropping it aliases the sprite textures
+         (see docs/webgl-compositor-aliasing.md). This is the guard that lets the
+         overlay backdrop blur below stay enabled safely. */
+      #omniphony-renderer-mount,
+      #omniphony-renderer-mount canvas {
+        -webkit-user-drag: none;
+        user-select: none;
+      }
+
       #overlay {
         position: fixed;
         top: 1rem;
         left: 1rem;
         background: rgba(0, 0, 0, 0.5);
+        -webkit-backdrop-filter: blur(8px);
+        backdrop-filter: blur(8px);
         border: 1px solid rgba(255, 255, 255, 0.2);
         border-radius: 12px;
         padding: 0.75rem 1rem;
@@ -38,6 +51,7 @@
         overflow: visible;
         background: transparent;
         border: none;
+        -webkit-backdrop-filter: none;
         backdrop-filter: none;
         height: auto;
       }
@@ -124,6 +138,7 @@
       body.overlay-layout-resizing #overlay,
       body.overlay-layout-resizing #speakersOverlay,
       body.overlay-layout-resizing #logOverlay.expanded {
+        -webkit-backdrop-filter: none;
         backdrop-filter: none;
         transition: none !important;
       }
@@ -410,6 +425,8 @@
         top: 1rem;
         right: 1rem;
         background: rgba(0, 0, 0, 0.5);
+        -webkit-backdrop-filter: blur(8px);
+        backdrop-filter: blur(8px);
         border: 1px solid rgba(255, 255, 255, 0.2);
         border-radius: 12px;
         padding: 0.75rem 1rem;
@@ -458,6 +475,7 @@
         background: transparent;
         border: 0;
         border-radius: 0;
+        -webkit-backdrop-filter: none;
         backdrop-filter: none;
         box-shadow: none;
         padding: 0;
@@ -465,6 +483,8 @@
 
       #logOverlay.expanded {
         background: rgba(8, 11, 18, 0.42);
+        -webkit-backdrop-filter: blur(10px);
+        backdrop-filter: blur(10px);
         border: 1px solid rgba(255, 255, 255, 0.14);
         border-radius: 14px;
         box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
