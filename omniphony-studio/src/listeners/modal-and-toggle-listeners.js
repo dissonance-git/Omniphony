@@ -10,7 +10,8 @@ import {
   setInputClockInfoModalOpen, setInputLfeInfoModalOpen,
   setDrcInfoModalOpen, setHeatmapInfoModalOpen,
   setTelemetryGaugesOpen,
-  setDisplaySectionOpen, setDrcSectionOpen, setAudioOutputSectionOpen, setInputSectionOpen, setRendererSectionOpen
+  setDisplaySectionOpen, setDrcSectionOpen, setAudioOutputSectionOpen, setInputSectionOpen, setRendererSectionOpen,
+  setAutoGainSectionOpen
 } from '../modals.js';
 import { closeAutoTuneWizardOnEscape } from '../auto-tune/wizard-ui.js';
 
@@ -269,6 +270,7 @@ export function setupModalAndToggleListeners() {
   const audioOutputSectionToggleBtnEl = document.getElementById('audioOutputSectionToggleBtn');
   const inputSectionToggleBtnEl = document.getElementById('inputSectionToggleBtn');
   const rendererSectionToggleBtnEl = document.getElementById('rendererSectionToggleBtn');
+  const autoGainSectionToggleBtnEl = document.getElementById('autoGainSectionToggleBtn');
 
   if (telemetryGaugesToggleBtnEl) {
     telemetryGaugesToggleBtnEl.addEventListener('click', () => {
@@ -297,6 +299,12 @@ export function setupModalAndToggleListeners() {
   if (inputSectionToggleBtnEl) {
     inputSectionToggleBtnEl.addEventListener('click', () => {
       setInputSectionOpen(!app.inputSectionOpen);
+    });
+  }
+
+  if (autoGainSectionToggleBtnEl) {
+    autoGainSectionToggleBtnEl.addEventListener('click', () => {
+      setAutoGainSectionOpen(!app.autoGainSectionOpen);
     });
   }
 

@@ -255,28 +255,31 @@ export function audioPanelMarkup() {
         </div>
       </div>
       <div class="info-section" id="masterSection">
-        <div class="info-title" data-i18n="master.title">Master</div>
-        <div class="meter-row">
-          <div id="masterMeterText" class="fixed-metric">— dB</div>
-          <div class="meter-bar level-meter">
+        <div class="master-header">
+          <div class="info-title" style="margin:0;white-space:nowrap" data-i18n="master.title">Master</div>
+          <div class="meter-bar level-meter" style="flex:1 1 auto;min-width:0">
             <div id="masterMeterFill" class="meter-fill"></div>
             <div id="masterMeterPeak" class="meter-peak"></div>
           </div>
+          <div id="masterMeterText" class="fixed-metric" style="text-align:right">— dB</div>
+          <button id="autoGainSectionToggleBtn" type="button" class="panel-toggle-btn" data-i18n-title="autoGain.toggle" title="Auto-gain settings">▸</button>
         </div>
         <div class="control-row">
           <input id="masterGainSlider" class="gain-slider" type="range" min="0" max="2" step="0.01" value="1" />
           <div id="masterGainBox" class="gain-box">0.0 dB</div>
         </div>
-        <div class="switch-row">
-          <span style="display:flex;align-items:center;gap:0.4rem;font-size:12px;color:#ffffff">
-            <span id="clipIndicator" class="clip-indicator" title="Clip" aria-label="Clip indicator"></span>
-            <span data-i18n="autoGain.title">Auto-gain (anti-clip)</span>
-          </span>
-          <input id="autoGainToggle" type="checkbox" />
-        </div>
-        <div class="control-row" id="autoGainCeilingRow">
-          <label style="font-size:12px;white-space:nowrap;color:#ffffff" for="autoGainCeilingSlider"><span data-i18n="autoGain.ceiling">Ceiling</span> <span id="autoGainCeilingVal">-1.0 dB</span></label>
-          <input id="autoGainCeilingSlider" class="gain-slider" type="range" min="-12" max="0" step="0.1" value="-1" />
+        <div id="autoGainSection" class="conditional-params">
+          <div class="switch-row">
+            <span style="display:flex;align-items:center;gap:0.4rem;font-size:12px;color:#ffffff">
+              <span id="clipIndicator" class="clip-indicator" title="Clip" aria-label="Clip indicator"></span>
+              <span data-i18n="autoGain.title">Auto-gain (anti-clip)</span>
+            </span>
+            <input id="autoGainToggle" type="checkbox" />
+          </div>
+          <div class="control-row" id="autoGainCeilingRow">
+            <label style="font-size:12px;white-space:nowrap;color:#ffffff" for="autoGainCeilingSlider"><span data-i18n="autoGain.ceiling">Ceiling</span> <span id="autoGainCeilingVal">-1.0 dB</span></label>
+            <input id="autoGainCeilingSlider" class="gain-slider" type="range" min="-12" max="0" step="0.1" value="-1" />
+          </div>
         </div>
       </div>
       </div>`;

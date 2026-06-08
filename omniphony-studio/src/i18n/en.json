@@ -457,6 +457,7 @@
   "distance.title": "Distance Diffuse",
   "autoGain.title": "Auto-gain (anti-clip)",
   "autoGain.ceiling": "Ceiling",
+  "autoGain.toggle": "Auto-gain settings",
   "distance.model": "Distance model",
   "distance.metric": "Distance metric",
   "distance.metric.spherical": "Spherical",
