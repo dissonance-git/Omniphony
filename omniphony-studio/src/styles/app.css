@@ -2046,7 +2046,23 @@
       }
 
       .speaker-meter-row {
-        grid-template-columns: 8ch 1fr auto;
+        grid-template-columns: auto 8ch 1fr auto;
+      }
+
+      .speaker-filter-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: #8fb0d0;
+      }
+
+      /* Full-band is the common, "nothing configured" case — de-emphasise it. */
+      .speaker-filter-icon[data-filter='full'] {
+        color: #5d6b7d;
+      }
+
+      .speaker-filter-icon svg {
+        display: block;
       }
 
       .speaker-contrib-row {
