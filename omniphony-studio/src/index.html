@@ -478,10 +478,19 @@
               </label>
               <button id="speakerEditCartesianGizmoBtn" type="button" class="toggle-btn" data-i18n="speaker.edit3d">3D Edit</button>
             </div>
-            <div class="coord-grid">
-              <input id="speakerEditXInput" type="number" step="0.001" placeholder="X" title="Omniphony X (left/right)" />
-              <input id="speakerEditYInput" type="number" step="0.001" placeholder="Y" title="Omniphony Y (rear/front)" />
-              <input id="speakerEditZInput" type="number" step="0.001" placeholder="Z" title="Omniphony Z (down/up)" />
+            <div class="cart-coord-table">
+              <span class="cart-coord-corner" aria-hidden="true"></span>
+              <span class="cart-coord-head" title="Omniphony X (left/right)">X</span>
+              <span class="cart-coord-head" title="Omniphony Y (rear/front)">Y</span>
+              <span class="cart-coord-head" title="Omniphony Z (down/up)">Z</span>
+              <span class="cart-coord-rowlabel" data-i18n="speaker.normalizedCoords">Norm.</span>
+              <input id="speakerEditXInput" type="number" step="0.001" title="Omniphony X (left/right)" />
+              <input id="speakerEditYInput" type="number" step="0.001" title="Omniphony Y (rear/front)" />
+              <input id="speakerEditZInput" type="number" step="0.001" title="Omniphony Z (down/up)" />
+              <span class="cart-coord-rowlabel" data-i18n="speaker.metersCoords" data-help-i18n="help.speaker.positionMeters" data-help-anchor=".editor-meta">Real (m)</span>
+              <input id="speakerEditXMetersInput" type="number" step="0.01" title="Omniphony X in meters (left/right)" />
+              <input id="speakerEditYMetersInput" type="number" step="0.01" title="Omniphony Y in meters (rear/front)" />
+              <input id="speakerEditZMetersInput" type="number" step="0.01" title="Omniphony Z in meters (down/up)" />
             </div>
             <div class="coord-mode-row">
               <label class="coord-mode-label" for="speakerEditPolarMode">
@@ -490,10 +499,19 @@
               </label>
               <button id="speakerEditPolarGizmoBtn" type="button" class="toggle-btn" data-i18n="speaker.edit3d">3D Edit</button>
             </div>
-            <div class="coord-grid">
-              <input id="speakerEditAzInput" type="number" step="0.1" />
-              <input id="speakerEditElInput" type="number" step="0.1" />
-              <input id="speakerEditRInput" type="number" step="0.001" min="0.01" />
+            <div class="cart-coord-table">
+              <span class="cart-coord-corner" aria-hidden="true"></span>
+              <span class="cart-coord-head" title="Azimuth (degrees)">Az°</span>
+              <span class="cart-coord-head" title="Elevation (degrees)">El°</span>
+              <span class="cart-coord-head" title="Distance">Dist</span>
+              <span class="cart-coord-rowlabel" data-i18n="speaker.normalizedCoords">Norm.</span>
+              <input id="speakerEditAzInput" type="number" step="0.1" title="Azimuth (degrees)" />
+              <input id="speakerEditElInput" type="number" step="0.1" title="Elevation (degrees)" />
+              <input id="speakerEditRInput" type="number" step="0.001" min="0.01" title="Distance" />
+              <span class="cart-coord-rowlabel" data-i18n="speaker.metersCoords" data-help-i18n="help.speaker.positionMeters" data-help-anchor=".editor-meta">Real (m)</span>
+              <span aria-hidden="true"></span>
+              <span aria-hidden="true"></span>
+              <input id="speakerEditRMetersInput" type="number" step="0.01" min="0.01" title="Distance in meters" />
             </div>
           </div>
           <div class="editor-row gain-row">
