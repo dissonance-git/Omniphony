@@ -69,6 +69,39 @@ The VM injects engine-provided functions you can call from your script:
   (constant power); an all-zero input falls back to equal power, so you never emit
   silence or non-finite gains.
 
+### Coordinates
+
+`pos` is **real cartesian** (`{x, y, z}`, with the object's actual distance); each
+`speakers[i]` is a **unit (normalized) cartesian** direction (distance 1). ADM
+axes: X right(+)/left(-), Y front(+)/back(-), Z up(+)/down(-). Azimuth `0°` = front
+(`+Y`), `+90°` = right (`+X`); elevation `0°` = level, `+90°` = up. Conversion
+helpers (angles in **degrees**):
+
+- `polar(p)` — cartesian `{x,y,z}` → **real polar** `{ az, el, dist }`. For
+  **normalized polar**, set `dist = 1` (the angles are unchanged).
+- `cartesian(s)` — polar `{ az, el, dist? }` → cartesian `{x,y,z}`. `dist` defaults
+  to `1`, so `cartesian({ az=, el= })` is the unit direction and
+  `cartesian(polar(p))` round-trips to `p`.
+- `normalize(p)` — `{x,y,z}` → **normalized cartesian** unit direction (zero vector
+  maps to zero).
+- `distance(p)` — the radius `|p|`.
+
+```lua
+local q = polar(pos)        -- real polar
+q.dist = 1                  -- normalized polar
+local dir = normalize(pos)  -- normalized cartesian
+local back = cartesian(q)   -- cartesian from polar
+```
+
+**Room ratios.** The conversions above are pure geometry on the value you pass —
+they do **not** apply the room warp. `vbap`/`vbap_new` already warp the position
+internally (so they match the built-in VBAP backend). For a custom law that needs
+the same room-relative space the engine pans in, warp first with `room_scale(p)`:
+
+```lua
+local g = polar(room_scale(pos))   -- room-aware polar of the object
+```
+
 So the smallest useful script just defers to the engine:
 
 ```lua
