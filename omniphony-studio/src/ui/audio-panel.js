@@ -14,7 +14,7 @@ export function audioPanelMarkup() {
         <div id="audioOutputSectionContent" class="conditional-params">
           <div id="audioFormatInfo">audio: — / —</div>
           <div class="control-row" style="margin-top:0.3rem;grid-template-columns:auto minmax(0, 1fr)">
-            <label for="audioOutputDeviceSelect" style="font-size:12px;white-space:nowrap" data-i18n="audio.outputDevice">Output device</label>
+            <label for="audioOutputDeviceSelect" style="font-size:12px;white-space:nowrap" data-i18n="audio.outputDevice" data-help-i18n="help.audio.outputDevice">Output device</label>
             <div style="display:flex;align-items:center;gap:0.3rem;min-width:0">
               <select id="audioOutputDeviceSelect" class="delay-input" style="flex:1 1 auto;min-width:0">
                 <option value="">Default</option>
@@ -23,7 +23,7 @@ export function audioPanelMarkup() {
             </div>
           </div>
           <div class="control-row" style="margin-top:0.3rem;grid-template-columns:auto 1fr">
-            <label for="audioSampleRateInput" style="font-size:12px;white-space:nowrap" data-i18n="audio.sampleRate">Sample rate</label>
+            <label for="audioSampleRateInput" style="font-size:12px;white-space:nowrap" data-i18n="audio.sampleRate" data-help-i18n="help.audio.sampleRate">Sample rate</label>
             <div id="audioSampleRateControl" style="position:relative;display:flex;align-items:center;gap:0.2rem;flex:1 1 auto;min-width:0">
               <input id="audioSampleRateInput" class="delay-input" type="text" inputmode="numeric" value="0" style="flex:1 1 auto;min-width:0" />
               ${secondaryButton({ id: 'audioSampleRateMenuBtn', text: '▾', compact: true })}
@@ -90,7 +90,7 @@ export function audioPanelMarkup() {
         </div>
         <div id="telemetryGaugesForm" class="telemetry-gauges-form">
           <div class="control-row" style="margin-top:0;grid-template-columns:auto auto 1fr">
-            <label for="latencyTargetInput" style="font-size:12px;white-space:nowrap" data-i18n="audio.targetLatency">Target latency</label>
+            <label for="latencyTargetInput" style="font-size:12px;white-space:nowrap" data-i18n="audio.targetLatency" data-help-i18n="help.audio.targetLatency">Target latency</label>
             <div style="display:flex;align-items:center;gap:0.35rem">
               <input id="latencyTargetInput" class="delay-input" type="number" min="1" step="1" value="500" style="width:5.5rem" />
               ${primaryButton({ id: 'latencyTargetApplyBtn', text: 'Apply', textKey: 'adaptive.apply' })}
@@ -111,11 +111,11 @@ export function audioPanelMarkup() {
                 <div style="grid-column:1 / -1;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:#8fa6bd" data-i18n="adaptive.globalActions">Global far actions</div>
               </div>
               <div class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveFarHardRecoverHighToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.hardRecoverHigh">Hard recover high in far mode</label>
+                <label for="adaptiveFarHardRecoverHighToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.hardRecoverHigh" data-help-i18n="help.adaptive.hardRecoverHigh">Hard recover high in far mode</label>
                 <input id="adaptiveFarHardRecoverHighToggle" type="checkbox" />
               </div>
               <div id="adaptiveHighRecoverEntryMarginRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveHighRecoverEntryMarginInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.threshold">High-recover entry margin</label>
+                <label for="adaptiveHighRecoverEntryMarginInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.threshold" data-help-i18n="help.adaptive.threshold">High-recover entry margin</label>
                 <div style="display:flex;align-items:center;gap:0.35rem">
                   <input id="adaptiveHighRecoverEntryMarginInput" class="delay-input" type="number" min="1" step="1" value="120" style="width:8rem" />
                   <span style="font-size:11px;color:#8fa6bd">ms</span>
@@ -123,11 +123,11 @@ export function audioPanelMarkup() {
                 </div>
               </div>
               <div class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveFarHardRecoverLowToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.hardRecoverLow">Hard recover low in far mode</label>
+                <label for="adaptiveFarHardRecoverLowToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.hardRecoverLow" data-help-i18n="help.adaptive.hardRecoverLow">Hard recover low in far mode</label>
                 <input id="adaptiveFarHardRecoverLowToggle" type="checkbox" />
               </div>
               <div id="adaptiveLowRecoverEntryMarginMsRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveLowRecoverEntryMarginMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverEntryMargin">Low-recover entry margin</label>
+                <label for="adaptiveLowRecoverEntryMarginMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverEntryMargin" data-help-i18n="help.adaptive.lowRecoverEntryMargin">Low-recover entry margin</label>
                 <div style="display:flex;align-items:center;gap:0.35rem">
                   <input id="adaptiveLowRecoverEntryMarginMsInput" class="delay-input" type="number" min="0" step="0.1" value="18" style="width:7rem" />
                   <span style="font-size:11px;color:#8fa6bd">ms</span>
@@ -135,7 +135,7 @@ export function audioPanelMarkup() {
                 </div>
               </div>
               <div id="adaptiveLowRecoverExitMarginMsRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveLowRecoverExitMarginMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverExitMargin">Low-recover exit margin</label>
+                <label for="adaptiveLowRecoverExitMarginMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverExitMargin" data-help-i18n="help.adaptive.lowRecoverExitMargin">Low-recover exit margin</label>
                 <div style="display:flex;align-items:center;gap:0.35rem">
                   <input id="adaptiveLowRecoverExitMarginMsInput" class="delay-input" type="number" min="0" step="0.1" value="6" style="width:7rem" />
                   <span style="font-size:11px;color:#8fa6bd">ms</span>
@@ -143,11 +143,11 @@ export function audioPanelMarkup() {
                 </div>
               </div>
               <div id="adaptiveFarSilenceRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveFarSilenceToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.silenceFar">Silence in Far Mode</label>
+                <label for="adaptiveFarSilenceToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.silenceFar" data-help-i18n="help.adaptive.silenceFar">Silence in Far Mode</label>
                 <input id="adaptiveFarSilenceToggle" type="checkbox" />
               </div>
               <div id="adaptiveFarFadeRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveFarFadeInMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.fadeNearReturn">Fade-In on Near Return</label>
+                <label for="adaptiveFarFadeInMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.fadeNearReturn" data-help-i18n="help.adaptive.fadeNearReturn">Fade-In on Near Return</label>
                 <input id="adaptiveFarFadeInMsInput" class="delay-input" type="number" min="0" step="1" value="0" style="width:8rem" />
               </div>
             </div>
@@ -163,15 +163,15 @@ export function audioPanelMarkup() {
                 </div>
               </div>
               <div class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveResamplingToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.title">Adaptive resampling</label>
+                <label for="adaptiveResamplingToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.title" data-help-i18n="help.adaptive.title">Adaptive resampling</label>
                 <input id="adaptiveResamplingToggle" type="checkbox" />
               </div>
               <div id="adaptiveUpdateIntervalRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveUpdateIntervalCallbacksInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.updateInterval">Update interval</label>
+                <label for="adaptiveUpdateIntervalCallbacksInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.updateInterval" data-help-i18n="help.adaptive.updateInterval">Update interval</label>
                 <input id="adaptiveUpdateIntervalCallbacksInput" class="delay-input" type="number" min="1" step="1" value="10" style="width:8rem" />
               </div>
               <div id="adaptiveMaxAdjustRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveMaxAdjustInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.max">Adaptive max</label>
+                <label for="adaptiveMaxAdjustInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.max" data-help-i18n="help.adaptive.max">Adaptive max</label>
                 <div style="display:flex;align-items:center;gap:0.35rem">
                   <input id="adaptiveMaxAdjustInput" class="delay-input" type="number" min="0.001" step="1" value="10000" style="width:7rem" />
                   <span style="font-size:11px;color:#8fa6bd">ppm</span>
@@ -179,15 +179,15 @@ export function audioPanelMarkup() {
                 </div>
               </div>
               <div id="adaptiveKpNearRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveKpNearInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.kpNear">Adaptive KP</label>
+                <label for="adaptiveKpNearInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.kpNear" data-help-i18n="help.adaptive.kpNear">Adaptive KP</label>
                 <input id="adaptiveKpNearInput" class="delay-input" type="number" min="0.001" step="0.001" value="10" style="width:8rem" />
               </div>
               <div id="adaptiveKiRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveKiInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.ki">Adaptive Ki</label>
+                <label for="adaptiveKiInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.ki" data-help-i18n="help.adaptive.ki">Adaptive Ki</label>
                 <input id="adaptiveKiInput" class="delay-input" type="number" min="0" step="0.001" value="50" style="width:8rem" />
               </div>
               <div id="adaptiveIntegralDischargeRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveIntegralDischargeRatioInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.integralDischarge">Integral discharge</label>
+                <label for="adaptiveIntegralDischargeRatioInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.integralDischarge" data-help-i18n="help.adaptive.integralDischarge">Integral discharge</label>
                 <input id="adaptiveIntegralDischargeRatioInput" class="delay-input" type="number" min="0" max="1" step="0.001" value="0.25" style="width:8rem" />
               </div>
             </div>
@@ -196,44 +196,44 @@ export function audioPanelMarkup() {
                 <div style="grid-column:1 / -1;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:#8fa6bd" data-i18n="adaptive.stabilizationPhases">Stabilization phases</div>
               </div>
               <div id="adaptiveLowRecoverSettleStableMsRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveLowRecoverSettleStableMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverSettleStable">Settling hold</label>
+                <label for="adaptiveLowRecoverSettleStableMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverSettleStable" data-help-i18n="help.adaptive.lowRecoverSettleStable">Settling hold</label>
                 <div style="display:flex;align-items:center;gap:0.35rem">
                   <input id="adaptiveLowRecoverSettleStableMsInput" class="delay-input" type="number" min="0" step="1" value="200" style="width:7rem" />
                   <span style="font-size:11px;color:#8fa6bd">ms</span>
                 </div>
               </div>
               <div id="adaptiveLowRecoverSettleMarginMsRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveLowRecoverSettleMarginMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverSettleMargin">Settling margin</label>
+                <label for="adaptiveLowRecoverSettleMarginMsInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverSettleMargin" data-help-i18n="help.adaptive.lowRecoverSettleMargin">Settling margin</label>
                 <div style="display:flex;align-items:center;gap:0.35rem">
                   <input id="adaptiveLowRecoverSettleMarginMsInput" class="delay-input" type="number" min="0" step="0.1" value="6" style="width:7rem" />
                   <span style="font-size:11px;color:#8fa6bd">ms</span>
                 </div>
               </div>
               <div id="adaptiveLowRecoverRefillDeltaAlphaRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveLowRecoverRefillDeltaAlphaInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverRefillDeltaAlpha">Refill EMA α</label>
+                <label for="adaptiveLowRecoverRefillDeltaAlphaInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.lowRecoverRefillDeltaAlpha" data-help-i18n="help.adaptive.lowRecoverRefillDeltaAlpha">Refill EMA α</label>
                 <input id="adaptiveLowRecoverRefillDeltaAlphaInput" class="delay-input" type="number" min="0" max="1" step="0.01" value="0.5" style="width:8rem" />
               </div>
               <div id="adaptiveControlSmoothingCutoffRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveControlSmoothingCutoffHzInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.controlSmoothingCutoffHz">IIR cutoff (Hz)</label>
+                <label for="adaptiveControlSmoothingCutoffHzInput" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.controlSmoothingCutoffHz" data-help-i18n="help.adaptive.controlSmoothingCutoffHz">IIR cutoff (Hz)</label>
                 <input id="adaptiveControlSmoothingCutoffHzInput" class="delay-input" type="number" min="0.001" max="20" step="0.05" value="0.5" style="width:8rem" />
               </div>
               <div id="adaptiveControlSmoothingOrderRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveControlSmoothingOrderSelect" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.controlSmoothingOrder">IIR order</label>
+                <label for="adaptiveControlSmoothingOrderSelect" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.controlSmoothingOrder" data-help-i18n="help.adaptive.controlSmoothingOrder">IIR order</label>
                 <select id="adaptiveControlSmoothingOrderSelect" style="font-size:11px;background:rgba(255,255,255,0.06);color:#d9ecff;border:1px solid rgba(255,255,255,0.18);border-radius:4px;padding:0.1rem 0.25rem">
                   <option value="1">1 (single pole, 6 dB/oct)</option>
                   <option value="2">2 (Butterworth, 12 dB/oct)</option>
                 </select>
               </div>
               <div id="adaptiveUsePreBridgeClockRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveUsePreBridgeClockToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.usePreBridgeClock" data-i18n-title="adaptive.usePreBridgeClockTitle" title="Feed the PI servo with the IEC958 source-clock signal (pre-decoder) instead of the post-decode ring level. The source clock is smooth by construction, so the PI reacts directly to genuine hardware drift without the decoder's batching ripple.">Pre-bridge clock (PI input)</label>
+                <label for="adaptiveUsePreBridgeClockToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.usePreBridgeClock" data-help-i18n="help.adaptive.usePreBridgeClock" data-i18n-title="adaptive.usePreBridgeClockTitle" title="Feed the PI servo with the IEC958 source-clock signal (pre-decoder) instead of the post-decode ring level. The source clock is smooth by construction, so the PI reacts directly to genuine hardware drift without the decoder's batching ripple.">Pre-bridge clock (PI input)</label>
                 <input id="adaptiveUsePreBridgeClockToggle" type="checkbox" />
               </div>
               <div id="adaptiveUseOutputPacingRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveUseOutputPacingToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.useOutputPacing" data-i18n-title="adaptive.useOutputPacingTitle" title="Buffer rendered speaker PCM and drain it into the ring buffer in lockstep with IEC958 chunk arrival, so the ring sees a smooth flow regardless of the decoder's burst pattern. Adds ~64 ms of pre-roll latency on startup; eliminates the 3.1 Hz sawtooth at the source.">Output pacing (post-render)</label>
+                <label for="adaptiveUseOutputPacingToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.useOutputPacing" data-help-i18n="help.adaptive.useOutputPacing" data-i18n-title="adaptive.useOutputPacingTitle" title="Buffer rendered speaker PCM and drain it into the ring buffer in lockstep with IEC958 chunk arrival, so the ring sees a smooth flow regardless of the decoder's burst pattern. Adds ~64 ms of pre-roll latency on startup; eliminates the 3.1 Hz sawtooth at the source.">Output pacing (post-render)</label>
                 <input id="adaptiveUseOutputPacingToggle" type="checkbox" />
               </div>
               <div id="adaptiveDisableBackpressureRow" class="control-row" style="margin-top:0.2rem">
-                <label for="adaptiveDisableBackpressureToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.disableBackpressure" data-i18n-title="adaptive.disableBackpressureTitle" title="Diagnostic: stop blocking the renderer when the output buffer is full — push what fits and drop the overflow instead of waiting. This unhooks the source (mpv) from the DAC drain clock, removing the back-pressure relaxation sawtooth at the cost of dropped samples on overflow. Leave off for normal playback.">Disable back-pressure (diag)</label>
+                <label for="adaptiveDisableBackpressureToggle" style="font-size:12px;white-space:nowrap" data-i18n="adaptive.disableBackpressure" data-help-i18n="help.adaptive.disableBackpressure" data-i18n-title="adaptive.disableBackpressureTitle" title="Diagnostic: stop blocking the renderer when the output buffer is full — push what fits and drop the overflow instead of waiting. This unhooks the source (mpv) from the DAC drain clock, removing the back-pressure relaxation sawtooth at the cost of dropped samples on overflow. Leave off for normal playback.">Disable back-pressure (diag)</label>
                 <input id="adaptiveDisableBackpressureToggle" type="checkbox" />
               </div>
             </div>

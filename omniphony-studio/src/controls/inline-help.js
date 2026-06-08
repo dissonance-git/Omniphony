@@ -75,9 +75,12 @@ export function attachInlineHelp(triggerEl, panelEl) {
 
 /**
  * Scan `root` for elements carrying a `data-help-i18n` key, inserting a help
- * panel just below each one's row (the nearest `.control-row` / `.inline-toggle`)
- * and wiring its name as the toggle. Idempotent — wired elements are marked with
- * `data-help-wired`, so it is safe to call again after re-rendering markup.
+ * panel just below each one's row and wiring its name as the toggle. The row is
+ * the nearest `.control-row` / `.inline-toggle` by default; an element can
+ * override it with `data-help-anchor="<css selector>"` (matched with `closest`)
+ * so the panel lands below a whole group instead of inside a dense grid cell.
+ * Idempotent — wired elements are marked with `data-help-wired`, so it is safe to
+ * call again after re-rendering markup.
  */
 export function wireInlineHelpFromMarkup(root = document) {
   root.querySelectorAll('[data-help-i18n]:not([data-help-wired])').forEach((el) => {
@@ -85,7 +88,11 @@ export function wireInlineHelpFromMarkup(root = document) {
     const text = t(key);
     // Skip until a translation exists, so a raw key never leaks into the UI.
     if (!text || text === key) return;
-    const row = el.closest('.control-row, .inline-toggle') || el.parentElement;
+    const anchorSelector = el.getAttribute('data-help-anchor');
+    const row =
+      (anchorSelector && el.closest(anchorSelector))
+      || el.closest('.control-row, .inline-toggle')
+      || el.parentElement;
     if (!row || !row.parentElement) return;
     const panel = makeHelpPanel(text);
     row.after(panel);
