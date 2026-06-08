@@ -321,7 +321,7 @@
   "speaker.up": "Subir",
   "speaker.down": "Descer",
   "speaker.delete": "Excluir",
-  "speaker.xyzOmniphony": "XYZ (Omniphony):",
+  "speaker.coordinates": "Coordenadas:",
   "speaker.edit3d": "Editar 3D",
   "speaker.gain": "Ganho",
   "speaker.delayMs": "Delay (ms)",
