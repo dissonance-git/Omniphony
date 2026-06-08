@@ -256,7 +256,7 @@ export function audioPanelMarkup() {
       </div>
       <div class="info-section" id="masterSection">
         <div class="master-header">
-          <div class="info-title" style="margin:0;white-space:nowrap" data-i18n="master.title">Master</div>
+          <div class="info-title" style="margin:0;white-space:nowrap" data-i18n="master.title" data-help-i18n="help.master.gain" data-help-anchor=".master-header">Master</div>
           <div class="meter-bar level-meter" style="flex:1 1 auto;min-width:0">
             <div id="masterMeterFill" class="meter-fill"></div>
             <div id="masterMeterPeak" class="meter-peak"></div>
@@ -272,12 +272,12 @@ export function audioPanelMarkup() {
           <div class="switch-row">
             <span style="display:flex;align-items:center;gap:0.4rem;font-size:12px;color:#ffffff">
               <span id="clipIndicator" class="clip-indicator" title="Clip" aria-label="Clip indicator"></span>
-              <span data-i18n="autoGain.title">Auto-gain (anti-clip)</span>
+              <span data-i18n="autoGain.title" data-help-i18n="help.master.autoGain" data-help-anchor=".switch-row">Auto-gain (anti-clip)</span>
             </span>
             <input id="autoGainToggle" type="checkbox" />
           </div>
           <div class="control-row" id="autoGainCeilingRow">
-            <label style="font-size:12px;white-space:nowrap;color:#ffffff" for="autoGainCeilingSlider"><span data-i18n="autoGain.ceiling">Ceiling</span> <span id="autoGainCeilingVal">-1.0 dB</span></label>
+            <label style="font-size:12px;white-space:nowrap;color:#ffffff" for="autoGainCeilingSlider"><span data-i18n="autoGain.ceiling" data-help-i18n="help.master.ceiling">Ceiling</span> <span id="autoGainCeilingVal">-1.0 dB</span></label>
             <input id="autoGainCeilingSlider" class="gain-slider" type="range" min="-12" max="0" step="0.1" value="-1" />
           </div>
         </div>
