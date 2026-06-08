@@ -487,6 +487,8 @@
   "confirm.delayToDist": "Convertir les délais en distances ?\n\nCela DÉPLACE chaque haut-parleur le long de sa direction actuelle pour que sa distance corresponde à son délai (le plus éloigné sert de référence). Les positions des haut-parleurs seront écrasées.",
   "speaker.spatialize": "Spatialiser",
   "display.speakerLabels": "Étiquettes des enceintes",
+  "display.speakerBands": "Bandes de fréquence",
+  "display.speakerFaceListener": "Orienter vers l'auditeur",
   "mpvOverlay.title": "Overlay mpv",
   "speaker.freqLow": "Fréq. min (Hz)",
   "telemetry.diagPlotToggle": "Afficher/masquer le graphe des métriques de diagnostic",

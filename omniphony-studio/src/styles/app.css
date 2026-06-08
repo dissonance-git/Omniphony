@@ -1884,6 +1884,7 @@
          hit target also dropped clicks when its text node churned mid-click. The
          M/S buttons and the drag-handle name chip keep their own pointer events. */
       .speaker-item .fixed-metric,
+      .speaker-item .speaker-position-icon,
       .speaker-item .speaker-filter-icon {
         pointer-events: none;
       }
@@ -2078,7 +2079,18 @@
       }
 
       .speaker-meter-row {
-        grid-template-columns: auto 8ch 1fr auto;
+        grid-template-columns: auto auto 8ch 1fr auto;
+      }
+
+      .speaker-position-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: #5d6b7d;
+      }
+
+      .speaker-position-icon svg {
+        display: block;
       }
 
       .speaker-filter-icon {

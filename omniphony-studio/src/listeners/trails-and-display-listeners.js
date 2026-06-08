@@ -1,10 +1,10 @@
-import { app, sourceMeshes, sourceTrails, speakerLabels, speakerLevels, speakerMeshes } from '../state.js';
+import { app, sourceMeshes, sourceTrails, speakerLabels, speakerBandBars, speakerLevels, speakerMeshes } from '../state.js';
 import { setLocale } from '../i18n.js';
 import { persistTrailPrefs, persistEffectiveRenderPrefs, refreshEffectiveRenderVisibility } from '../controls/room-geometry.js';
 import { rebuildTrailGeometry, createTrailRenderable } from '../trails.js';
 import { scene } from '../scene/setup.js';
 import { applySpeakerLevel, updateSourceDecorations, updateSourceSelectionStyles, applyObjectsVisibility } from '../sources.js';
-import { refreshOverlayLists, updateSpeakerVisualsFromState } from '../speakers.js';
+import { refreshOverlayLists, updateSpeakerVisualsFromState, refreshSpeakerOrientations } from '../speakers.js';
 import { syncSpeakerHeatmapBandSelect } from '../scene/speaker-band-select.js';
 import { acquireGainTable, releaseGainTable } from '../scene/speaker-gaintable.js';
 import { refreshObjectEnergyVolume } from '../scene/object-energy-volume.js';
@@ -33,6 +33,8 @@ export function setupTrailsAndDisplayListeners() {
   const showObjectDetailsToggleEl = document.getElementById('showObjectDetailsToggle');
   const objectDetailsToggleBtnEl = document.getElementById('objectDetailsToggleBtn');
   const speakerLabelsToggleEl = document.getElementById('speakerLabelsToggle');
+  const speakerBandBarsToggleEl = document.getElementById('speakerBandBarsToggle');
+  const speakerFaceListenerToggleEl = document.getElementById('speakerFaceListenerToggle');
   const speakerSizeSliderEl = document.getElementById('speakerSizeSlider');
   const speakerSizeValEl = document.getElementById('speakerSizeVal');
   const trailModeSelectEl = document.getElementById('trailModeSelect');
@@ -198,6 +200,28 @@ export function setupTrailsAndDisplayListeners() {
           label.visible = app.speakerLabelsEnabled;
         }
       });
+      persistEffectiveRenderPrefs();
+    });
+  }
+
+  if (speakerBandBarsToggleEl) {
+    speakerBandBarsToggleEl.checked = app.speakerBandBarsEnabled;
+    speakerBandBarsToggleEl.addEventListener('change', () => {
+      app.speakerBandBarsEnabled = speakerBandBarsToggleEl.checked;
+      speakerBandBars.forEach((bar) => {
+        if (bar) {
+          bar.visible = app.speakerBandBarsEnabled;
+        }
+      });
+      persistEffectiveRenderPrefs();
+    });
+  }
+
+  if (speakerFaceListenerToggleEl) {
+    speakerFaceListenerToggleEl.checked = app.speakerFaceListenerEnabled;
+    speakerFaceListenerToggleEl.addEventListener('change', () => {
+      app.speakerFaceListenerEnabled = speakerFaceListenerToggleEl.checked;
+      refreshSpeakerOrientations();
       persistEffectiveRenderPrefs();
     });
   }

@@ -12,6 +12,7 @@ import {
   app,
   speakerMeshes,
   speakerLabels,
+  speakerBandBars,
   speakerItems,
   objectItems,
   speakerLevels,
@@ -76,8 +77,11 @@ import {
 } from './scene/setup.js';
 
 import {
+  SPEAKER_BASE_SIZE,
   speakerGeometry,
   speakerMaterial,
+  speakerDriverGeometry,
+  speakerDriverMaterial,
   speakerBaseColor,
   speakerHotColor,
   speakerSelectedColor,
@@ -91,6 +95,7 @@ import {
 } from './scene/materials.js';
 
 import { createLabelSprite, setLabelSpriteText, updateSpeakerLabelsFromSelection } from './scene/labels.js';
+import { createSpeakerBandBar, updateSpeakerBandBar } from './scene/speaker-band-bars.js';
 import { syncSpeakerHeatmapBandSelect } from './scene/speaker-band-select.js';
 import { refreshGaintableSubscription } from './scene/speaker-gaintable.js';
 
@@ -109,7 +114,7 @@ import { t, tf } from './i18n.js';
 import { pushLog } from './log.js';
 import { scheduleUIFlush } from './flush.js';
 import { updateItemClasses, updateSpeakerMeterUI, updateObjectMeterUI } from './flush.js';
-import { computeCrossoverBandLabels } from './crossover-bands.js';
+import { computeCrossoverBandLabels, computeCrossoverBandEdges } from './crossover-bands.js';
 
 import {
   linearToDb,
@@ -163,6 +168,49 @@ import {
   gainToMix,
   getSelectedSourceBandContributions
 } from './sources.js';
+
+// Lateral offset (scene units) of a speaker's frequency-extent gauge from its
+// cube, so the billboard sits beside the speaker rather than over it.
+const SPEAKER_BAND_BAR_OFFSET = 0.11;
+
+// Listener position (scene origin) and the world up used to aim speakers. The
+// driver marker sits on the cube's +Z face, so we orient +Z toward the listener
+// while keeping +Y up — like Object3D.lookAt for a non-camera object — which
+// avoids the roll a shortest-arc rotation introduces on elevated speakers.
+// Reused matrix keeps re-orientation allocation-free.
+const SPEAKER_LISTENER_POS = new THREE.Vector3(0, 0, 0);
+const SPEAKER_WORLD_UP = new THREE.Vector3(0, 1, 0);
+const speakerAimMatrix = new THREE.Matrix4();
+
+// Aim a speaker's front face at the listener when the option is on, and
+// show/hide its driver marker accordingly. Identity orientation (and a hidden
+// marker) otherwise — the default plain cube.
+function applySpeakerOrientation(index) {
+  const mesh = speakerMeshes[index];
+  if (!mesh) return;
+  const driver = mesh.userData.driver;
+  const enabled = app.speakerFaceListenerEnabled;
+  if (driver) driver.visible = enabled;
+  if (!enabled) {
+    mesh.quaternion.identity();
+    return;
+  }
+  if (mesh.position.lengthSq() < 1e-8) {
+    mesh.quaternion.identity(); // speaker sits on the listener: nothing to aim at
+    return;
+  }
+  // lookAt(eye, target, up) puts +Z along (eye - target); eye = listener,
+  // target = speaker → +Z points from the speaker toward the listener.
+  speakerAimMatrix.lookAt(SPEAKER_LISTENER_POS, mesh.position, SPEAKER_WORLD_UP);
+  mesh.quaternion.setFromRotationMatrix(speakerAimMatrix);
+}
+
+// Re-aim every speaker (e.g. after toggling the option).
+export function refreshSpeakerOrientations() {
+  for (let i = 0; i < speakerMeshes.length; i += 1) {
+    applySpeakerOrientation(i);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // DOM references
@@ -585,6 +633,15 @@ export function createSpeakerItem(id, speaker) {
   level.className = 'meter-row';
   level.classList.add('speaker-meter-row');
 
+  // Top-view position thumbnail, shown between the name chip and the filter
+  // glyph. A thin square frames the normalized room (X left/right, Y rear/front
+  // with front up); a small marker sits at the speaker's (x, y) and is coloured
+  // by height (Z): blue ≤0, green 0.5, red 1.0. Populated by
+  // `applySpeakerPositionIcon`.
+  const positionIcon = document.createElement('span');
+  positionIcon.className = 'speaker-position-icon';
+  level.appendChild(positionIcon);
+
   // Per-speaker crossover-filter glyph, shown between the name chip and the dB
   // value. Its shape (low-/high-/band-pass or full-band) reflects the speaker's
   // freqLow/freqHigh, with the upper cutoff (freqHigh) in small text above and
@@ -660,6 +717,7 @@ export function createSpeakerItem(id, speaker) {
     root,
     idStrip,
     label: idText,
+    positionIcon,
     filterIcon,
     filterGlyph,
     filterFreqTop,
@@ -745,6 +803,46 @@ function formatCutoffHz(hz) {
   return String(Math.round(hz));
 }
 
+// Height (normalized Z) → marker colour: blue ≤0, green 0.5, red 1.0, with the
+// hue swept linearly through the in-between values. Clamped, so anything at or
+// below 0 stays blue and anything at or above 1 stays red.
+function heightToColor(z) {
+  const t = Math.max(0, Math.min(1, Number(z) || 0));
+  // 240° (blue) → 120° (green) at 0.5 → 0° (red) at 1.0.
+  const hue = 240 * (1 - t);
+  return `hsl(${hue.toFixed(0)}, 75%, 52%)`;
+}
+
+// Top-view position thumbnail. Normalized X (left/right) maps to the horizontal
+// axis, normalized Y (rear/front) to the vertical axis with front at the top.
+// The marker colour encodes height (Z) via `heightToColor`.
+function positionIconMarkup(speaker) {
+  const x = Math.max(-1, Math.min(1, Number(speaker?.x) || 0));
+  const y = Math.max(-1, Math.min(1, Number(speaker?.y) || 0));
+  const z = Number(speaker?.z) || 0;
+  // viewBox 0..16; inset the plotting area by 2px so the marker never clips the
+  // frame. cx grows rightward with +X; cy grows downward, so +Y (front) is up.
+  const cx = 2 + ((x + 1) / 2) * 12;
+  const cy = 2 + ((1 - y) / 2) * 12;
+  const fill = heightToColor(z);
+  // Non-spatialized speakers (e.g. direct/LFE feeds) sit outside the room model,
+  // so draw the room frame black instead of the usual subtle stroke.
+  const frameStroke = speaker?.spatialize === 0 ? '#000' : 'currentColor';
+  return `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">`
+    + `<rect x="0.6" y="0.6" width="14.8" height="14.8" rx="1.2" fill="none" stroke="${frameStroke}" stroke-width="0.9"/>`
+    + `<rect x="${(cx - 1.6).toFixed(2)}" y="${(cy - 1.6).toFixed(2)}" width="3.2" height="3.2" rx="0.5" fill="${fill}"/>`
+    + `</svg>`;
+}
+
+function applySpeakerPositionIcon(entry, speaker) {
+  if (!entry.positionIcon) return;
+  entry.positionIcon.innerHTML = positionIconMarkup(speaker);
+  const x = (Number(speaker?.x) || 0).toFixed(2);
+  const y = (Number(speaker?.y) || 0).toFixed(2);
+  const z = (Number(speaker?.z) || 0).toFixed(2);
+  entry.positionIcon.title = `X ${x}  Y ${y}  Z ${z}`;
+}
+
 function applySpeakerFilterIcon(entry, speaker) {
   if (!entry.filterIcon) return;
   const low = Number(speaker?.freqLow);
@@ -769,6 +867,7 @@ export function updateSpeakerItem(entry, id, speaker) {
   const selectedSpeakerIndex = get_selectedSpeakerIndex();
   const soloTarget = getSoloTarget('speaker');
   entry.label.textContent = String(speaker.id ?? id);
+  applySpeakerPositionIcon(entry, speaker);
   applySpeakerFilterIcon(entry, speaker);
   entry.muteBtn.classList.toggle('active', speakerMuted.has(id));
   entry.soloBtn.classList.toggle('active', soloTarget === id);
@@ -877,6 +976,7 @@ export function updateSpeakerVisualsFromState(index) {
   const mesh = speakerMeshes[index];
   if (mesh) {
     mesh.position.set(scenePosition.x, scenePosition.y, scenePosition.z);
+    applySpeakerOrientation(index);
   }
 
   const label = speakerLabels[index];
@@ -886,9 +986,17 @@ export function updateSpeakerVisualsFromState(index) {
     setLabelSpriteText(label, String(speaker.id ?? index));
   }
 
+  const bandBar = speakerBandBars[index];
+  if (bandBar) {
+    bandBar.visible = app.speakerBandBarsEnabled;
+    bandBar.position.set(scenePosition.x + SPEAKER_BAND_BAR_OFFSET, scenePosition.y, scenePosition.z);
+    updateSpeakerBandBar(bandBar, speaker, computeCrossoverBandEdges(currentLayoutSpeakers));
+  }
+
   const entry = speakerItems.get(String(index));
   if (entry) {
     entry.label.textContent = String(speaker.id ?? index);
+    applySpeakerPositionIcon(entry, speaker);
   }
 
   if (selectedSpeakerIndex === index) {
@@ -1285,6 +1393,7 @@ export function renderSpeakersList() {
 
   speakersListEl.textContent = '';
   const activeIds = new Set();
+  const bandEdges = computeCrossoverBandEdges(currentLayoutSpeakers);
   currentLayoutSpeakers.forEach((speaker, index) => {
     const id = String(index);
     activeIds.add(id);
@@ -1294,6 +1403,12 @@ export function renderSpeakersList() {
       speakerItems.set(id, entry);
     }
     updateSpeakerItem(entry, id, speaker);
+    // Keep the 3D frequency-extent gauge in sync with crossover edits; it
+    // redraws only when the cutoffs actually change.
+    const bandBar = speakerBandBars[index];
+    if (bandBar) {
+      updateSpeakerBandBar(bandBar, speaker, bandEdges);
+    }
     speakersListEl.appendChild(entry.root);
   });
   speakerItems.forEach((entry, id) => {
@@ -1978,6 +2093,7 @@ export function renderLayout(key) {
     }
   });
 
+  const bandEdges = computeCrossoverBandEdges(layout.speakers);
   layout.speakers.forEach((speaker, index) => {
     const mesh = new THREE.Mesh(speakerGeometry.clone(), speakerMaterial.clone());
     const scenePosition = normalizedOmniphonyToScenePosition(speaker);
@@ -1985,8 +2101,17 @@ export function renderLayout(key) {
     const baseOpacity = getSpeakerBaseOpacity(speaker);
     mesh.userData.baseOpacity = baseOpacity;
     mesh.material.opacity = baseOpacity;
+
+    // Front "driver" marker on the cube's +Z face (shared geometry/material).
+    const driver = new THREE.Mesh(speakerDriverGeometry, speakerDriverMaterial);
+    driver.position.set(0, 0, SPEAKER_BASE_SIZE / 2 + 0.0008);
+    driver.visible = app.speakerFaceListenerEnabled;
+    mesh.add(driver);
+    mesh.userData.driver = driver;
+
     scene.add(mesh);
     speakerMeshes.push(mesh);
+    applySpeakerOrientation(index);
 
     const label = createLabelSprite(String(speaker.id || index));
     label.userData.speakerIndex = index;
@@ -1994,6 +2119,14 @@ export function renderLayout(key) {
     label.position.set(scenePosition.x, scenePosition.y + 0.12, scenePosition.z);
     scene.add(label);
     speakerLabels.push(label);
+
+    const bandBar = createSpeakerBandBar();
+    bandBar.userData.speakerIndex = index;
+    bandBar.visible = app.speakerBandBarsEnabled;
+    bandBar.position.set(scenePosition.x + SPEAKER_BAND_BAR_OFFSET, scenePosition.y, scenePosition.z);
+    updateSpeakerBandBar(bandBar, speaker, bandEdges);
+    scene.add(bandBar);
+    speakerBandBars.push(bandBar);
 
     applySpeakerLevel(mesh, speakerLevels.get(String(index)));
   });

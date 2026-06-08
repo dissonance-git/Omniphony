@@ -213,6 +213,8 @@
   "display.objectSphereSize": "Objektkugelgröße",
   "display.objectLabels": "Objektbeschriftungen",
   "display.speakerLabels": "Lautsprecherbeschriftungen",
+  "display.speakerBands": "Frequenzbänder",
+  "display.speakerFaceListener": "Auf Hörer ausrichten",
   "display.speakerSize": "Lautsprechergröße",
   "display.grid": "Gitter",
   "vbap.title": "VBAP",

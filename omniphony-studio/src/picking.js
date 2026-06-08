@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { app, speakerMeshes, sourceMeshes, sourceLabels, sourceOutlines, speakerLabels } from './state.js';
+import { app, speakerMeshes, sourceMeshes, sourceLabels, sourceOutlines, speakerLabels, speakerBandBars } from './state.js';
 import { scene, camera, renderer, controls } from './scene/setup.js';
 import { raycaster, pointer } from './scene/materials.js';
 import { speakerGizmo, distanceGizmo, cartesianGizmo } from './scene/gizmos.js';
@@ -128,7 +128,8 @@ export function getPickableSceneTargets() {
   ].filter((object) => object && object.visible !== false);
   const speakerTargets = [
     ...speakerMeshes,
-    ...speakerLabels
+    ...speakerLabels,
+    ...speakerBandBars
   ].filter((object) => object && object.visible !== false);
   return [...sourceTargets, ...speakerTargets];
 }
@@ -147,6 +148,13 @@ export function pickSpeakerFromIntersects(intersects) {
     if (labelIdx >= 0) {
       setSelectedSource(null);
       setSelectedSpeaker(labelIdx);
+      return true;
+    }
+
+    const bandIdx = speakerBandBars.indexOf(object);
+    if (bandIdx >= 0) {
+      setSelectedSource(null);
+      setSelectedSpeaker(bandIdx);
       return true;
     }
   }

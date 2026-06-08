@@ -55,6 +55,8 @@ export const layoutsByKey = new Map();
 // Speaker meshes/labels are arrays (indexed by speaker slot)
 export const speakerMeshes = [];
 export const speakerLabels = [];
+// Per-speaker crossover frequency-extent gauges (3D billboard sprites).
+export const speakerBandBars = [];
 
 // ---------------------------------------------------------------------------
 // UI item registries
@@ -426,6 +428,8 @@ export const app = {
   objectLabelsEnabled: true,
   showObjectDetails: true,
   speakerLabelsEnabled: false,
+  speakerBandBarsEnabled: false,
+  speakerFaceListenerEnabled: false,
   objectDisplayMode: 'circle',
   objectSphereSize: 0.07,
   lastTrailDecayAt: 0,

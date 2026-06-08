@@ -214,6 +214,8 @@
   "display.objectSphereSize": "Tamaño de esfera del objeto",
   "display.objectLabels": "Etiquetas de objetos",
   "display.speakerLabels": "Etiquetas de altavoces",
+  "display.speakerBands": "Bandas de frecuencia",
+  "display.speakerFaceListener": "Orientar hacia el oyente",
   "display.speakerSize": "Tamaño de altavoces",
   "display.grid": "Cuadrícula",
   "vbap.title": "VBAP",
