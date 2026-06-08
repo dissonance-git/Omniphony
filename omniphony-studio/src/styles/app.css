@@ -2071,16 +2071,27 @@
         display: block;
       }
 
-      /* Tiny cutoff labels above/below the glyph. The fixed height keeps every
-         icon column the same height (and the glyph vertically centred) whether
-         0, 1 or 2 cutoffs are shown. */
+      /* Tiny cutoff labels above/below the glyph. Empty labels collapse to zero
+         height (no reserved space) so the visible curve+text group stays centred
+         as a unit — the row's align-items:center then centres the whole column. */
       .speaker-filter-icon .filter-freq {
-        height: 8px;
         font-size: 7px;
-        line-height: 8px;
+        line-height: 1;
         color: #9fb6cf;
         font-variant-numeric: tabular-nums;
         letter-spacing: -0.02em;
+      }
+
+      .speaker-filter-icon .filter-freq:empty {
+        display: none;
+      }
+
+      .speaker-filter-icon .filter-freq-top {
+        margin-bottom: 1px;
+      }
+
+      .speaker-filter-icon .filter-freq-bottom {
+        margin-top: 1px;
       }
 
       .speaker-contrib-row {
