@@ -10,7 +10,12 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@codemirror/language": "^6",
+    "@codemirror/legacy-modes": "^6",
+    "@codemirror/state": "^6",
+    "@codemirror/view": "^6",
     "@tauri-apps/api": "^2",
+    "codemirror": "^6",
     "three": "^0.165.0"
   },
   "devDependencies": {

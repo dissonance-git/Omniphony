@@ -66,6 +66,16 @@ pub const CONTROL_AUDIO_OUTPUT_DEVICES_REFRESH: &str =
 pub const CONTROL_AUDIO_SAMPLE_RATE: &str = "/omniphony/control/audio/sample_rate";
 pub const CONTROL_AUTO_GAIN: &str = "/omniphony/control/auto_gain";
 pub const CONTROL_AUTO_GAIN_CEILING: &str = "/omniphony/control/auto_gain_ceiling";
+// Editable backend file (e.g. the scriptable backend's `.lua`). Content is owned
+// by the renderer, so the editor reads/writes it over OSC rather than via a
+// cross-host path. `get [backend_id, key]` replies STATE_BACKEND_FILE_CONTENT;
+// `list [backend_id]` replies STATE_BACKEND_FILE_LIST; `put [backend_id, key,
+// name, content]` writes the renderer-managed store and rebuilds. The whole file
+// rides in a single message (small text); an absolute handle is only honoured for
+// a loopback caller.
+pub const CONTROL_BACKEND_FILE_GET: &str = "/omniphony/control/backend/file/get";
+pub const CONTROL_BACKEND_FILE_LIST: &str = "/omniphony/control/backend/file/list";
+pub const CONTROL_BACKEND_FILE_PUT: &str = "/omniphony/control/backend/file/put";
 pub const CONTROL_BACKEND_PARAM: &str = "/omniphony/control/backend/param";
 pub const CONTROL_CONFIG_AUDIO: &str = "/omniphony/control/config/audio";
 pub const CONTROL_CONFIG_AUDIO_APPLY: &str = "/omniphony/control/config/audio/apply";
@@ -153,6 +163,9 @@ pub const CONTROL_OBJECT_PREFIX: &str = "/omniphony/control/object/";
 pub const STATE_ADAPTIVE_RESAMPLING_BAND: &str = "/omniphony/state/adaptive_resampling/band";
 pub const STATE_ADAPTIVE_RESAMPLING_STATE: &str = "/omniphony/state/adaptive_resampling/state";
 pub const STATE_AUDIO: &str = "/omniphony/state/audio";
+pub const STATE_BACKEND_FILE_CONTENT: &str = "/omniphony/state/backend/file/content";
+pub const STATE_BACKEND_FILE_ERROR: &str = "/omniphony/state/backend/file/error";
+pub const STATE_BACKEND_FILE_LIST: &str = "/omniphony/state/backend/file/list";
 pub const STATE_CAPABILITIES: &str = "/omniphony/state/capabilities";
 pub const STATE_CLIP: &str = "/omniphony/state/clip";
 pub const STATE_CONFIG_SAVED: &str = "/omniphony/state/config/saved";
@@ -246,6 +259,9 @@ pub const ALL_CONTROL: &[&str] = &[
     CONTROL_AUDIO_SAMPLE_RATE,
     CONTROL_AUTO_GAIN,
     CONTROL_AUTO_GAIN_CEILING,
+    CONTROL_BACKEND_FILE_GET,
+    CONTROL_BACKEND_FILE_LIST,
+    CONTROL_BACKEND_FILE_PUT,
     CONTROL_BACKEND_PARAM,
     CONTROL_CONFIG_AUDIO,
     CONTROL_CONFIG_AUDIO_APPLY,
@@ -323,6 +339,9 @@ pub const ALL_STATE: &[&str] = &[
     STATE_ADAPTIVE_RESAMPLING_BAND,
     STATE_ADAPTIVE_RESAMPLING_STATE,
     STATE_AUDIO,
+    STATE_BACKEND_FILE_CONTENT,
+    STATE_BACKEND_FILE_ERROR,
+    STATE_BACKEND_FILE_LIST,
     STATE_CAPABILITIES,
     STATE_CLIP,
     STATE_CONFIG_SAVED,

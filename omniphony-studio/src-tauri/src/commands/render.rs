@@ -291,6 +291,69 @@ pub fn control_backend_param(
     );
 }
 
+/// Request the current content of an editable backend file from the renderer.
+/// The renderer replies on `/omniphony/state/backend/file/content` (or `.../error`),
+/// surfaced to the frontend by the OSC listener as a `backend-file-content` event.
+#[tauri::command]
+pub fn backend_file_get(
+    state: State<SharedState>,
+    backend: String,
+    key: String,
+    name: Option<String>,
+) {
+    let mut args = vec![rosc::OscType::String(backend), rosc::OscType::String(key)];
+    if let Some(name) = name {
+        // An explicit name previews any managed-store file; omitted, the renderer
+        // reads the param's current handle.
+        args.push(rosc::OscType::String(name));
+    }
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/backend/file/get".to_string(),
+            args,
+        },
+    );
+}
+
+/// Ask the renderer for the names of its managed files for `backend`. The reply
+/// arrives on `/omniphony/state/backend/file/list` as a `backend-file-list` event.
+#[tauri::command]
+pub fn backend_file_list(state: State<SharedState>, backend: String) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/backend/file/list".to_string(),
+            args: vec![rosc::OscType::String(backend)],
+        },
+    );
+}
+
+/// Save `content` for an editable backend file under `name` on the renderer and
+/// select it. The renderer writes its managed store (or, for a local renderer, an
+/// absolute path), persists the handle and rebuilds the backend.
+#[tauri::command]
+pub fn backend_file_put(
+    state: State<SharedState>,
+    backend: String,
+    key: String,
+    name: String,
+    content: String,
+) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/backend/file/put".to_string(),
+            args: vec![
+                rosc::OscType::String(backend),
+                rosc::OscType::String(key),
+                rosc::OscType::String(name),
+                rosc::OscType::String(content),
+            ],
+        },
+    );
+}
+
 #[tauri::command]
 pub fn control_restore_render_backend(state: State<SharedState>) {
     send_control(

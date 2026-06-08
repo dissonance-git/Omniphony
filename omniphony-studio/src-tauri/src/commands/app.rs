@@ -34,6 +34,20 @@ pub fn get_osc_config(state: State<SharedState>) -> OscConfig {
     load_config(&state.config_dir)
 }
 
+/// Whether the configured renderer host is loopback, so the renderer shares this
+/// machine's filesystem. The native Browse dialog returns a path in this machine's
+/// namespace, so the UI only offers it for editable file params when this is true;
+/// editing a remote renderer's files still works through the OSC content channel.
+#[tauri::command]
+pub fn renderer_is_local(state: State<SharedState>) -> bool {
+    let host = load_config(&state.config_dir).host;
+    let host = host.trim();
+    host.is_empty()
+        || host.eq_ignore_ascii_case("localhost")
+        || host == "::1"
+        || host.starts_with("127.")
+}
+
 #[tauri::command]
 pub fn get_about_info() -> AboutInfo {
     AboutInfo {
