@@ -213,6 +213,7 @@
   "display.objectSphereSize": "对象球体大小",
   "display.objectLabels": "对象标签",
   "display.speakerLabels": "扬声器标签",
+  "display.speakerBands": "频段",
   "display.speakerSize": "扬声器大小",
   "display.grid": "网格",
   "vbap.title": "VBAP",
