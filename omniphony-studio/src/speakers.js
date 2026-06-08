@@ -587,9 +587,19 @@ export function createSpeakerItem(id, speaker) {
 
   // Per-speaker crossover-filter glyph, shown between the name chip and the dB
   // value. Its shape (low-/high-/band-pass or full-band) reflects the speaker's
-  // freqLow/freqHigh; populated by `applySpeakerFilterIcon` in updateSpeakerItem.
+  // freqLow/freqHigh, with the upper cutoff (freqHigh) in small text above and
+  // the lower cutoff (freqLow) below. Populated by `applySpeakerFilterIcon`.
   const filterIcon = document.createElement('span');
   filterIcon.className = 'speaker-filter-icon';
+  const filterFreqTop = document.createElement('span');
+  filterFreqTop.className = 'filter-freq filter-freq-top';
+  const filterGlyph = document.createElement('span');
+  filterGlyph.className = 'filter-glyph';
+  const filterFreqBottom = document.createElement('span');
+  filterFreqBottom.className = 'filter-freq filter-freq-bottom';
+  filterIcon.appendChild(filterFreqTop);
+  filterIcon.appendChild(filterGlyph);
+  filterIcon.appendChild(filterFreqBottom);
   level.appendChild(filterIcon);
 
   const levelText = document.createElement('div');
@@ -651,6 +661,9 @@ export function createSpeakerItem(id, speaker) {
     idStrip,
     label: idText,
     filterIcon,
+    filterGlyph,
+    filterFreqTop,
+    filterFreqBottom,
     levelText,
     meterFill,
     peakCursor,
@@ -723,16 +736,33 @@ function filterIconMarkup(type) {
   return `<svg viewBox="0 0 16 11" width="16" height="11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${FILTER_ICON_SVG[type]}</svg>`;
 }
 
+// Compact cutoff label, e.g. 80 → "80", 1500 → "1.5k", 2000 → "2k".
+function formatCutoffHz(hz) {
+  if (hz >= 1000) {
+    const k = hz / 1000;
+    return `${Number.isInteger(k) ? k.toFixed(0) : k.toFixed(1)}k`;
+  }
+  return String(Math.round(hz));
+}
+
 function applySpeakerFilterIcon(entry, speaker) {
   if (!entry.filterIcon) return;
-  const type = speakerFilterType(speaker);
-  // Tooltip is cheap to set every refresh (keeps it correct across locale
-  // changes); the SVG is only rebuilt when the type actually changes.
+  const low = Number(speaker?.freqLow);
+  const high = Number(speaker?.freqHigh);
+  const hasLow = Number.isFinite(low) && low > 0;
+  const hasHigh = Number.isFinite(high) && high > 0;
+  const type = hasLow && hasHigh ? 'band' : hasLow ? 'high' : hasHigh ? 'low' : 'full';
+
+  // Upper cutoff (freqHigh / low-pass edge) above the glyph, lower cutoff
+  // (freqLow / high-pass edge) below it. Cheap to set every refresh.
+  entry.filterFreqTop.textContent = hasHigh ? formatCutoffHz(high) : '';
+  entry.filterFreqBottom.textContent = hasLow ? formatCutoffHz(low) : '';
+  // Tooltip kept correct across locale changes; the SVG only rebuilt on type change.
   entry.filterIcon.title = t(`speaker.filter.${type}`);
   if (entry.filterType === type) return;
   entry.filterType = type;
   entry.filterIcon.dataset.filter = type;
-  entry.filterIcon.innerHTML = filterIconMarkup(type);
+  entry.filterGlyph.innerHTML = filterIconMarkup(type);
 }
 
 export function updateSpeakerItem(entry, id, speaker) {
