@@ -1,4 +1,4 @@
-import { app, sourceMeshes, sourceTrails, speakerLabels, speakerLevels, speakerMeshes } from '../state.js';
+import { app, sourceMeshes, sourceTrails, speakerLabels, speakerBandBars, speakerLevels, speakerMeshes } from '../state.js';
 import { setLocale } from '../i18n.js';
 import { persistTrailPrefs, persistEffectiveRenderPrefs, refreshEffectiveRenderVisibility } from '../controls/room-geometry.js';
 import { rebuildTrailGeometry, createTrailRenderable } from '../trails.js';
@@ -33,6 +33,7 @@ export function setupTrailsAndDisplayListeners() {
   const showObjectDetailsToggleEl = document.getElementById('showObjectDetailsToggle');
   const objectDetailsToggleBtnEl = document.getElementById('objectDetailsToggleBtn');
   const speakerLabelsToggleEl = document.getElementById('speakerLabelsToggle');
+  const speakerBandBarsToggleEl = document.getElementById('speakerBandBarsToggle');
   const speakerSizeSliderEl = document.getElementById('speakerSizeSlider');
   const speakerSizeValEl = document.getElementById('speakerSizeVal');
   const trailModeSelectEl = document.getElementById('trailModeSelect');
@@ -196,6 +197,19 @@ export function setupTrailsAndDisplayListeners() {
       speakerLabels.forEach((label) => {
         if (label) {
           label.visible = app.speakerLabelsEnabled;
+        }
+      });
+      persistEffectiveRenderPrefs();
+    });
+  }
+
+  if (speakerBandBarsToggleEl) {
+    speakerBandBarsToggleEl.checked = app.speakerBandBarsEnabled;
+    speakerBandBarsToggleEl.addEventListener('change', () => {
+      app.speakerBandBarsEnabled = speakerBandBarsToggleEl.checked;
+      speakerBandBars.forEach((bar) => {
+        if (bar) {
+          bar.visible = app.speakerBandBarsEnabled;
         }
       });
       persistEffectiveRenderPrefs();

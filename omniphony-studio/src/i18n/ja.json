@@ -208,6 +208,7 @@
   "display.objectSphereSize": "オブジェクト球サイズ",
   "display.objectLabels": "オブジェクトラベル",
   "display.speakerLabels": "スピーカーラベル",
+  "display.speakerBands": "周波数帯域",
   "display.speakerSize": "スピーカーサイズ",
   "display.grid": "グリッド",
   "vbap.title": "VBAP",

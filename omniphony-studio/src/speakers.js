@@ -12,6 +12,7 @@ import {
   app,
   speakerMeshes,
   speakerLabels,
+  speakerBandBars,
   speakerItems,
   objectItems,
   speakerLevels,
@@ -91,6 +92,7 @@ import {
 } from './scene/materials.js';
 
 import { createLabelSprite, setLabelSpriteText, updateSpeakerLabelsFromSelection } from './scene/labels.js';
+import { createSpeakerBandBar, updateSpeakerBandBar } from './scene/speaker-band-bars.js';
 import { syncSpeakerHeatmapBandSelect } from './scene/speaker-band-select.js';
 import { refreshGaintableSubscription } from './scene/speaker-gaintable.js';
 
@@ -109,7 +111,7 @@ import { t, tf } from './i18n.js';
 import { pushLog } from './log.js';
 import { scheduleUIFlush } from './flush.js';
 import { updateItemClasses, updateSpeakerMeterUI, updateObjectMeterUI } from './flush.js';
-import { computeCrossoverBandLabels } from './crossover-bands.js';
+import { computeCrossoverBandLabels, computeCrossoverBandEdges } from './crossover-bands.js';
 
 import {
   linearToDb,
@@ -163,6 +165,10 @@ import {
   gainToMix,
   getSelectedSourceBandContributions
 } from './sources.js';
+
+// Lateral offset (scene units) of a speaker's frequency-extent gauge from its
+// cube, so the billboard sits beside the speaker rather than over it.
+const SPEAKER_BAND_BAR_OFFSET = 0.11;
 
 // ---------------------------------------------------------------------------
 // DOM references
@@ -937,6 +943,13 @@ export function updateSpeakerVisualsFromState(index) {
     setLabelSpriteText(label, String(speaker.id ?? index));
   }
 
+  const bandBar = speakerBandBars[index];
+  if (bandBar) {
+    bandBar.visible = app.speakerBandBarsEnabled;
+    bandBar.position.set(scenePosition.x + SPEAKER_BAND_BAR_OFFSET, scenePosition.y, scenePosition.z);
+    updateSpeakerBandBar(bandBar, speaker, computeCrossoverBandEdges(currentLayoutSpeakers));
+  }
+
   const entry = speakerItems.get(String(index));
   if (entry) {
     entry.label.textContent = String(speaker.id ?? index);
@@ -1337,6 +1350,7 @@ export function renderSpeakersList() {
 
   speakersListEl.textContent = '';
   const activeIds = new Set();
+  const bandEdges = computeCrossoverBandEdges(currentLayoutSpeakers);
   currentLayoutSpeakers.forEach((speaker, index) => {
     const id = String(index);
     activeIds.add(id);
@@ -1346,6 +1360,12 @@ export function renderSpeakersList() {
       speakerItems.set(id, entry);
     }
     updateSpeakerItem(entry, id, speaker);
+    // Keep the 3D frequency-extent gauge in sync with crossover edits; it
+    // redraws only when the cutoffs actually change.
+    const bandBar = speakerBandBars[index];
+    if (bandBar) {
+      updateSpeakerBandBar(bandBar, speaker, bandEdges);
+    }
     speakersListEl.appendChild(entry.root);
   });
   speakerItems.forEach((entry, id) => {
@@ -2030,6 +2050,7 @@ export function renderLayout(key) {
     }
   });
 
+  const bandEdges = computeCrossoverBandEdges(layout.speakers);
   layout.speakers.forEach((speaker, index) => {
     const mesh = new THREE.Mesh(speakerGeometry.clone(), speakerMaterial.clone());
     const scenePosition = normalizedOmniphonyToScenePosition(speaker);
@@ -2046,6 +2067,14 @@ export function renderLayout(key) {
     label.position.set(scenePosition.x, scenePosition.y + 0.12, scenePosition.z);
     scene.add(label);
     speakerLabels.push(label);
+
+    const bandBar = createSpeakerBandBar();
+    bandBar.userData.speakerIndex = index;
+    bandBar.visible = app.speakerBandBarsEnabled;
+    bandBar.position.set(scenePosition.x + SPEAKER_BAND_BAR_OFFSET, scenePosition.y, scenePosition.z);
+    updateSpeakerBandBar(bandBar, speaker, bandEdges);
+    scene.add(bandBar);
+    speakerBandBars.push(bandBar);
 
     applySpeakerLevel(mesh, speakerLevels.get(String(index)));
   });

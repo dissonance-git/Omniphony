@@ -53,6 +53,7 @@ function getObjectSphereSizeValEl() { return inDisplayPanel('objectSphereSizeVal
 function getObjectLabelsToggleEl() { return inDisplayPanel('objectLabelsToggle'); }
 function getShowObjectDetailsToggleEl() { return inDisplayPanel('showObjectDetailsToggle'); }
 function getSpeakerLabelsToggleEl() { return inDisplayPanel('speakerLabelsToggle'); }
+function getSpeakerBandBarsToggleEl() { return inDisplayPanel('speakerBandBarsToggle'); }
 function getSpeakerSizeSliderEl() { return inDisplayPanel('speakerSizeSlider'); }
 function getSpeakerSizeValEl() { return inDisplayPanel('speakerSizeVal'); }
 function getSpeakerHeatmapVolumeToggleEl() { return inDisplayPanel('speakerHeatmapVolumeToggle'); }
@@ -103,6 +104,7 @@ export function persistEffectiveRenderPrefs() {
       objectLabels: app.objectLabelsEnabled,
       showObjectDetails: app.showObjectDetails,
       speakerLabels: app.speakerLabelsEnabled,
+      speakerBands: app.speakerBandBarsEnabled,
       speakerSize: app.speakerSize,
       speakerHeatmapVolumeEnabled: app.speakerHeatmapVolumeEnabled,
       speakerHeatmapVolumeColormap: app.speakerHeatmapVolumeColormap,
@@ -163,6 +165,7 @@ export function applyEffectiveRenderPrefsToUi() {
   const objectLabelsToggleEl = getObjectLabelsToggleEl();
   const showObjectDetailsToggleEl = getShowObjectDetailsToggleEl();
   const speakerLabelsToggleEl = getSpeakerLabelsToggleEl();
+  const speakerBandBarsToggleEl = getSpeakerBandBarsToggleEl();
   const speakerSizeSliderEl = getSpeakerSizeSliderEl();
   const speakerSizeValEl = getSpeakerSizeValEl();
   const speakerHeatmapVolumeToggleEl = getSpeakerHeatmapVolumeToggleEl();
@@ -194,6 +197,9 @@ export function applyEffectiveRenderPrefsToUi() {
   }
   if (speakerLabelsToggleEl) {
     speakerLabelsToggleEl.checked = app.speakerLabelsEnabled;
+  }
+  if (speakerBandBarsToggleEl) {
+    speakerBandBarsToggleEl.checked = app.speakerBandBarsEnabled;
   }
   if (speakerSizeSliderEl) {
     speakerSizeSliderEl.value = String(app.speakerSize);
@@ -327,6 +333,9 @@ export function loadEffectiveRenderPrefs() {
       }
       if (typeof parsed?.speakerLabels === 'boolean') {
         app.speakerLabelsEnabled = parsed.speakerLabels;
+      }
+      if (typeof parsed?.speakerBands === 'boolean') {
+        app.speakerBandBarsEnabled = parsed.speakerBands;
       }
       const speakerSize = Number(parsed?.speakerSize);
       if (Number.isFinite(speakerSize)) {

@@ -214,6 +214,7 @@
   "display.objectSphereSize": "Tamanho da esfera do objeto",
   "display.objectLabels": "Rótulos dos objetos",
   "display.speakerLabels": "Rótulos dos alto-falantes",
+  "display.speakerBands": "Bandas de frequência",
   "display.speakerSize": "Tamanho dos alto-falantes",
   "display.grid": "Grade",
   "vbap.title": "VBAP",

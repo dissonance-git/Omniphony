@@ -32,6 +32,7 @@ import {
   sourceDirectSpeakerIndices,
   speakerMeshes,
   speakerLabels,
+  speakerBandBars,
   speakerItems,
   objectItems,
   sourceBaseColors,
@@ -69,6 +70,7 @@ import {
   setLabelSpriteText,
   updateSpeakerLabelsFromSelection
 } from './scene/labels.js';
+import { disposeSpeakerBandBar } from './scene/speaker-band-bars.js';
 import { createTrailRenderable } from './trails.js';
 import { shouldAppendTrailPoint, recordTrailPoint, shouldRebuildTrailGeometry } from './trails.js';
 import {
@@ -1264,6 +1266,11 @@ export function clearSpeakers() {
     scene.remove(label);
     disposeLabelSprite(label);
   });
+  speakerBandBars.forEach((bar) => {
+    scene.remove(bar);
+    disposeSpeakerBandBar(bar);
+  });
   speakerMeshes.length = 0;
   speakerLabels.length = 0;
+  speakerBandBars.length = 0;
 }
