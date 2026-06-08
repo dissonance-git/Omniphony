@@ -49,7 +49,7 @@
       <div id="overlayScroll">
       <div id="updatePanelRoot">
         <label class="switch-row" style="font-size:13px;cursor:pointer">
-          <span data-i18n="updates.checkLabel">Check for updates on startup</span>
+          <span data-i18n="updates.checkLabel" data-help-i18n="help.updates.check" data-help-anchor=".switch-row">Check for updates on startup</span>
           <input id="updateCheckToggle" type="checkbox" />
         </label>
         <div id="updateAvailableBanner" style="display:none;margin-top:0.4rem;padding:0.55rem 0.65rem;font-size:14px;line-height:1.5;font-weight:600;color:#d9ecff;background:rgba(88,160,255,0.15);border:1px solid rgba(88,160,255,0.38);border-radius:7px">
@@ -158,7 +158,7 @@
         <div id="displaySectionContent" class="conditional-params">
           <div style="margin-top:0.25rem;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03);display:grid;gap:0.3rem">
             <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
-              <label for="localeSelect" data-i18n="app.language" style="font-size:12px;white-space:nowrap">Language</label>
+              <label for="localeSelect" data-i18n="app.language" data-help-i18n="help.display.language" style="font-size:12px;white-space:nowrap">Language</label>
               <select id="localeSelect" style="flex:1;min-width:0">
                 <option value="auto">Auto</option>
                 <option value="en">English</option>
@@ -174,14 +174,14 @@
             <div id="mpvOverlaySection" style="display:grid;gap:0.3rem">
               <div class="inline-toggle" style="margin-top:0">
                 <div class="title-with-info" style="min-width:0">
-                  <span data-i18n="mpvOverlay.title">mpv overlay</span>
+                  <span data-i18n="mpvOverlay.title" data-help-i18n="help.display.mpvOverlay">mpv overlay</span>
                 </div>
                 <input id="mpvOverlayToggle" type="checkbox" />
               </div>
             </div>
             <div id="gridDisplaySection" style="display:grid;gap:0.3rem">
               <div class="inline-toggle" style="margin-top:0">
-                <div data-i18n="display.grid">Grid</div>
+                <div data-i18n="display.grid" data-help-i18n="help.display.grid">Grid</div>
                 <input id="vbapCartesianGridToggleBtn" type="checkbox" />
               </div>
             </div>
@@ -192,11 +192,11 @@
               <div id="objectAppearanceSectionContent" class="conditional-params open">
                 <div style="margin-top:0.15rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
                   <div class="inline-toggle" style="margin-top:0">
-                    <div data-i18n="display.showObjects">Show objects</div>
+                    <div data-i18n="display.showObjects" data-help-i18n="help.display.showObjects">Show objects</div>
                     <input id="showObjectsToggle" type="checkbox" checked />
                   </div>
                   <div class="inline-toggle" style="margin-top:0">
-                    <div data-i18n="display.objectColors">Object colors</div>
+                    <div data-i18n="display.objectColors" data-help-i18n="help.display.objectColors">Object colors</div>
                     <input id="objectColorsToggle" type="checkbox" />
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
@@ -212,11 +212,11 @@
                     <input id="objectSphereSizeSlider" type="range" min="0.03" max="0.2" step="0.002" value="0.07" class="gain-slider" />
                   </div>
                   <div class="inline-toggle" style="margin-top:0">
-                    <div data-i18n="display.objectLabels">Object labels</div>
+                    <div data-i18n="display.objectLabels" data-help-i18n="help.display.objectLabels">Object labels</div>
                     <input id="objectLabelsToggle" type="checkbox" />
                   </div>
                   <div class="inline-toggle" style="margin-top:0">
-                    <div data-i18n="display.showObjectDetails">Show object details</div>
+                    <div data-i18n="display.showObjectDetails" data-help-i18n="help.display.showObjectDetails">Show object details</div>
                     <input id="showObjectDetailsToggle" type="checkbox" checked />
                   </div>
                   <div class="inline-toggle" id="effectiveRenderSection" style="margin-top:0">
@@ -264,7 +264,7 @@
               <div id="speakersDisplaySectionContent" class="conditional-params open">
                 <div style="margin-top:0.15rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
                   <div class="inline-toggle" style="margin-top:0">
-                    <div data-i18n="display.speakerLabels">Speaker labels</div>
+                    <div data-i18n="display.speakerLabels" data-help-i18n="help.display.speakerLabels">Speaker labels</div>
                     <input id="speakerLabelsToggle" type="checkbox" />
                   </div>
                   <div class="control-row" style="margin-top:0.1rem;grid-template-columns:auto 1fr;gap:0.3rem">
@@ -285,7 +285,7 @@
                 <div style="margin-top:0.15rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
                   <div style="font-size:12px;font-weight:600;opacity:0.85" data-i18n="heatmap.speakers">Speakers</div>
                   <div class="inline-toggle" style="margin-top:0">
-                    <div>Heatmap volume</div>
+                    <div data-help-i18n="help.heatmap.speakerVolume">Heatmap volume</div>
                     <input id="speakerHeatmapVolumeToggle" type="checkbox" />
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
@@ -300,14 +300,14 @@
                   </div>
                   <div id="speakerGradientEditor" class="gradient-editor" style="display:none;margin-top:0.1rem"></div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="speakerHeatmapBandSelect" style="font-size:12px;white-space:nowrap">Crossover band</label>
+                    <label for="speakerHeatmapBandSelect" style="font-size:12px;white-space:nowrap" data-help-i18n="help.heatmap.crossoverBand">Crossover band</label>
                     <select id="speakerHeatmapBandSelect" style="flex:1;min-width:0"></select>
                   </div>
                 </div>
                 <div style="margin-top:0.3rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
                   <div style="font-size:12px;font-weight:600;opacity:0.85" data-i18n="heatmap.objects">Objects</div>
                   <div class="inline-toggle" style="margin-top:0">
-                    <div data-i18n="heatmap.objectEnergy">Objects energy field</div>
+                    <div data-i18n="heatmap.objectEnergy" data-help-i18n="help.heatmap.objectEnergy">Objects energy field</div>
                     <input id="objectEnergyHeatmapToggle" type="checkbox" />
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
@@ -329,7 +329,7 @@
                 <div style="margin-top:0.3rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
                   <div style="font-size:12px;font-weight:600;opacity:0.85" data-i18n="heatmap.common">Common parameters</div>
                   <div class="inline-toggle" style="margin-top:0">
-                    <div data-i18n="heatmap.smooth">Smooth gradient</div>
+                    <div data-i18n="heatmap.smooth" data-help-i18n="help.heatmap.smooth">Smooth gradient</div>
                     <input id="volumeSmoothToggle" type="checkbox" />
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
@@ -418,7 +418,7 @@
           </div>
         </div>
         <div class="inline-toggle" style="margin-bottom:0.35rem;gap:0.5rem">
-          <div data-i18n="osc.metering">Metering</div>
+          <div data-i18n="osc.metering" data-help-i18n="help.osc.metering">Metering</div>
           <input id="oscMeteringToggle" type="checkbox" />
           <select
             id="oscMeteringRateSelect"
@@ -724,11 +724,9 @@
     <div id="backendInfoModal" class="info-modal" aria-hidden="true">
       <div class="info-modal-card">
         <div class="info-modal-title" data-i18n="backend.infoTitle">Render backend</div>
-        <div class="info-modal-text" data-i18n-html="backend.infoBody">
-          The backend selects the spatial rendering model used for object panning.<br /><br />
-          <strong>VBAP</strong> is the main speaker-based panner. <strong>Barycenter</strong> exposes a softer, more blended localisation model. <strong>Distance</strong> is a more experimental solver with extra tuning controls.<br /><br />
-          <strong>Restore backend</strong> reverts a temporary runtime override back to the persisted configuration.
-        </div>
+        <!-- Body is filled by setBackendInfoModalOpen: a generic intro plus a
+             blurb specific to the currently-selected backend. -->
+        <div class="info-modal-text" id="backendInfoBody"></div>
         <div class="info-modal-actions">
           <button id="backendInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>
         </div>
@@ -832,18 +830,6 @@
       </div>
     </div>
 
-    <div id="vbapPositionInterpolationInfoModal" class="info-modal" aria-hidden="true">
-      <div class="info-modal-card">
-        <div class="info-modal-title" data-i18n="vbap.positionInterpolationInfoTitle">VBAP position interpolation</div>
-        <div class="info-modal-text" data-i18n-html="vbap.positionInterpolationInfoBody">
-          <strong>On</strong>: interpolate between neighbouring VBAP table cells for smoother spatial motion and lookup continuity.<br /><br />
-          <strong>Off</strong>: use nearest-cell lookup. This is cheaper and more deterministic, but movement can become more stepped.
-        </div>
-        <div class="info-modal-actions">
-          <button id="vbapPositionInterpolationInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>
-        </div>
-      </div>
-    </div>
 
     <script type="module" src="./bootstrap-ui.js"></script>
     <script type="module" src="./app.js"></script>

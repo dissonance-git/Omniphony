@@ -3,7 +3,7 @@ import {
   setTrailInfoModalOpen, setEffectiveRenderInfoModalOpen,
   setOscInfoModalOpen, setAboutModalOpen, setRoomGeometryInfoModalOpen,
   setAdaptiveResamplingInfoModalOpen, setTelemetryGaugesInfoModalOpen,
-  setRampModeInfoModalOpen, setVbapPositionInterpolationInfoModalOpen,
+  setRampModeInfoModalOpen,
   setSpreadFromDistanceInfoModalOpen, setDistanceDiffuseInfoModalOpen,
   setEvaluationInfoModalOpen, setBackendInfoModalOpen,
   setDistanceModelInfoModalOpen, setInputInfoModalOpen,
@@ -152,14 +152,6 @@ export function setupModalAndToggleListeners() {
     modalId: 'rampModeInfoModal',
     open: () => setRampModeInfoModalOpen(true),
     close: () => setRampModeInfoModalOpen(false)
-  });
-
-  bindModalOpenClose({
-    buttonId: 'vbapPositionInterpolationInfoBtn',
-    closeButtonId: 'vbapPositionInterpolationInfoCloseBtn',
-    modalId: 'vbapPositionInterpolationInfoModal',
-    open: () => setVbapPositionInterpolationInfoModalOpen(true),
-    close: () => setVbapPositionInterpolationInfoModalOpen(false)
   });
 
   bindModalOpenClose({
@@ -326,7 +318,6 @@ export function setupModalAndToggleListeners() {
       setRoomGeometryInfoModalOpen(false);
       setTelemetryGaugesInfoModalOpen(false);
       setRampModeInfoModalOpen(false);
-      setVbapPositionInterpolationInfoModalOpen(false);
       setEvaluationInfoModalOpen(false);
       setBackendInfoModalOpen(false);
       setDistanceModelInfoModalOpen(false);
