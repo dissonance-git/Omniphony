@@ -48,6 +48,7 @@ import {
   hydrateSpeakerCoordinateState,
   normalizedOmniphonyToScenePosition,
   scenePositionToNormalizedOmniphony,
+  normalizedToMeters,
   cartesianToSpherical,
   sphericalToCartesianDeg,
   clampNumber,
@@ -177,6 +178,9 @@ function getSpeakerEditNameInputEl() { return document.getElementById('speakerEd
 function getSpeakerEditXInputEl() { return document.getElementById('speakerEditXInput'); }
 function getSpeakerEditYInputEl() { return document.getElementById('speakerEditYInput'); }
 function getSpeakerEditZInputEl() { return document.getElementById('speakerEditZInput'); }
+function getSpeakerEditXMetersInputEl() { return document.getElementById('speakerEditXMetersInput'); }
+function getSpeakerEditYMetersInputEl() { return document.getElementById('speakerEditYMetersInput'); }
+function getSpeakerEditZMetersInputEl() { return document.getElementById('speakerEditZMetersInput'); }
 function getSpeakerEditCartesianModeEl() { return document.getElementById('speakerEditCartesianMode'); }
 function getSpeakerEditAzInputEl() { return document.getElementById('speakerEditAzInput'); }
 function getSpeakerEditElInputEl() { return document.getElementById('speakerEditElInput'); }
@@ -891,6 +895,9 @@ export function renderSpeakerEditor() {
   const speakerEditXInputEl = getSpeakerEditXInputEl();
   const speakerEditYInputEl = getSpeakerEditYInputEl();
   const speakerEditZInputEl = getSpeakerEditZInputEl();
+  const speakerEditXMetersInputEl = getSpeakerEditXMetersInputEl();
+  const speakerEditYMetersInputEl = getSpeakerEditYMetersInputEl();
+  const speakerEditZMetersInputEl = getSpeakerEditZMetersInputEl();
   const speakerEditCartesianModeEl = getSpeakerEditCartesianModeEl();
   const speakerEditPolarModeEl = getSpeakerEditPolarModeEl();
   const speakerEditAzInputEl = getSpeakerEditAzInputEl();
@@ -946,6 +953,10 @@ export function renderSpeakerEditor() {
   syncInputValueUnlessEditing(speakerEditXInputEl, formatNumber(Number(speaker.x), 3));
   syncInputValueUnlessEditing(speakerEditYInputEl, formatNumber(Number(speaker.y), 3));
   syncInputValueUnlessEditing(speakerEditZInputEl, formatNumber(Number(speaker.z), 3));
+  const speakerMeters = normalizedToMeters(speaker);
+  syncInputValueUnlessEditing(speakerEditXMetersInputEl, formatNumber(speakerMeters.x, 2));
+  syncInputValueUnlessEditing(speakerEditYMetersInputEl, formatNumber(speakerMeters.y, 2));
+  syncInputValueUnlessEditing(speakerEditZMetersInputEl, formatNumber(speakerMeters.z, 2));
   if (speakerEditCartesianModeEl) speakerEditCartesianModeEl.checked = getSpeakerCoordMode(speaker) === 'cartesian';
   if (speakerEditPolarModeEl) speakerEditPolarModeEl.checked = getSpeakerCoordMode(speaker) === 'polar';
   syncInputValueUnlessEditing(speakerEditAzInputEl, formatNumber(az, 1));
@@ -974,6 +985,9 @@ export function renderSpeakerEditor() {
     speakerEditXInputEl,
     speakerEditYInputEl,
     speakerEditZInputEl,
+    speakerEditXMetersInputEl,
+    speakerEditYMetersInputEl,
+    speakerEditZMetersInputEl,
     speakerEditAzInputEl,
     speakerEditElInputEl,
     speakerEditRInputEl,

@@ -1,10 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import { t } from '../i18n.js';
 import { app, isSpeakerLayoutFrozen, speakerBaseGains, speakerDelays } from '../state.js';
+import { normalizedToMeters, metersToSceneUnits } from '../coordinates.js';
 import { syncSpeakerHeatmapBandSelect } from '../scene/speaker-band-select.js';
 import {
   renderSpeakerEditor, requestAddSpeaker, requestMoveSpeaker, requestRemoveSpeaker,
-  applySpeakerCartesianEdit, applySpeakerPolarEdit,
+  applySpeakerCartesianEdit, applySpeakerPolarEdit, applySpeakerSceneCartesianEdit,
   setSpeakerSpatializeLocal, setSpeakerCoordMode, updateSpeakerLayoutPatch, sendSpeakersPatch,
   updateSpeakerVisualsFromState, updateSpeakerGizmo, updateControlsForEditMode,
   computeAndApplySpeakerDelays, adjustSpeakerDistancesFromDelays,
@@ -29,6 +30,9 @@ export function setupSpeakerEditorListeners() {
   const speakerEditXInputEl = document.getElementById('speakerEditXInput');
   const speakerEditYInputEl = document.getElementById('speakerEditYInput');
   const speakerEditZInputEl = document.getElementById('speakerEditZInput');
+  const speakerEditXMetersInputEl = document.getElementById('speakerEditXMetersInput');
+  const speakerEditYMetersInputEl = document.getElementById('speakerEditYMetersInput');
+  const speakerEditZMetersInputEl = document.getElementById('speakerEditZMetersInput');
   const speakerEditAzInputEl = document.getElementById('speakerEditAzInput');
   const speakerEditElInputEl = document.getElementById('speakerEditElInput');
   const speakerEditRInputEl = document.getElementById('speakerEditRInput');
@@ -220,6 +224,27 @@ export function setupSpeakerEditorListeners() {
     if (!Number.isFinite(z)) return;
     applySpeakerCartesianEdit(idx, Number(speaker.x) || 0, Number(speaker.y) || 0, z, true);
   });
+
+  // Real-world metres mirror the cartesian X/Y/Z above. The edited axis comes
+  // from the field that fired; the other two are pulled from the canonical
+  // speaker state (converted to metres), never re-read from the DOM, so they
+  // don't drift on the display rounding — same rule as the normalized inputs.
+  function bindSpeakerMetersChange(inputEl, axis) {
+    bindSpeakerCoordChange(inputEl, (idx) => {
+      const speaker = app.currentLayoutSpeakers[idx];
+      if (!speaker) return;
+      const value = Number(inputEl?.value);
+      if (!Number.isFinite(value)) return;
+      const meters = normalizedToMeters(speaker);
+      meters[axis] = value;
+      const scn = metersToSceneUnits(meters);
+      applySpeakerSceneCartesianEdit(idx, scn.x, scn.y, scn.z, true);
+    });
+  }
+
+  bindSpeakerMetersChange(speakerEditXMetersInputEl, 'x');
+  bindSpeakerMetersChange(speakerEditYMetersInputEl, 'y');
+  bindSpeakerMetersChange(speakerEditZMetersInputEl, 'z');
 
   bindSpeakerCoordChange(speakerEditAzInputEl, (idx) => {
     const speaker = app.currentLayoutSpeakers[idx];

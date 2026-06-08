@@ -158,6 +158,34 @@ export function normalizedOmniphonyToScenePosition(position) {
   return mapRoomPosition(rawScene);
 }
 
+// ---------------------------------------------------------------------------
+// Real-world meters ↔ normalised ADM
+//
+// `metersPerUnit` (mpu) is the world scale = room half-width; scene units are
+// metres / mpu. These helpers expose a speaker/object position in real metres,
+// laid out on the Omniphony axes (X left/right, Y rear/front, Z down/up) so the
+// values line up with the cartesian X/Y/Z editor fields.
+// ---------------------------------------------------------------------------
+
+export function metersPerUnit() {
+  return Math.max(0.001, Number(app.metersPerUnit) || 1);
+}
+
+// Normalised ADM position → Omniphony-axis metres (honours the room geometry).
+export function normalizedToMeters(position) {
+  const mpu = metersPerUnit();
+  const scene = normalizedOmniphonyToScenePosition(position);
+  return sceneToOmniphonyCartesian({ x: scene.x * mpu, y: scene.y * mpu, z: scene.z * mpu });
+}
+
+// Omniphony-axis metres → scene units (the input expected by
+// `applySpeakerSceneCartesianEdit`).
+export function metersToSceneUnits(meters) {
+  const mpu = metersPerUnit();
+  const sceneMeters = omniphonyToSceneCartesian(meters);
+  return { x: sceneMeters.x / mpu, y: sceneMeters.y / mpu, z: sceneMeters.z / mpu };
+}
+
 // Tolerance for snapping a normalized cartesian component to {-1, 0, 1}.
 // The pipeline is cartesian end-to-end (config + bridge + evaluation), but
 // two Studio paths leak polar precision into stored cart values:
