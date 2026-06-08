@@ -2,6 +2,29 @@
 
 Note interne sur une classe de bug récurrente dans Omniphony Studio sous Tauri Linux. À lire avant d'ajouter quoi que ce soit qui chevauche le canvas WebGL ou de proposer une solution dynamique de blur, glow, ou snapshot du viewport 3D.
 
+> ## Resolution (2026-06, WebKitGTK 2.52.4) — backdrop blur re-enabled
+>
+> The overlay backdrop blur is back on the left/right panels and the expanded
+> log overlay. Re-tested on WebKitGTK **2.52.4** (webkit2gtk-4.1): the broad
+> triggers from the historical record (panel resize, visibility transitions) no
+> longer reproduce on this version. The **one remaining trigger** was a native
+> HTML5 drag accidentally started by an orbit-drag on the WebGL canvas — the OS
+> drag ghost is a compositor snapshot, and dropping it aliases the sprite
+> textures (the classic corruption).
+>
+> Fix / guard: a `dragstart` `preventDefault` scoped to `#omniphony-renderer-mount`
+> (in `scene/setup.js`, on the persistent mount) plus `-webkit-user-drag: none`
+> on the canvas. This blocks only native drag *originating in the 3D canvas* — the
+> speaker list's own drag-to-reorder and all pointer/slider/text input are
+> untouched. With that guard in place, native `backdrop-filter: blur()` is safe
+> again. Defense-in-depth kept from the earlier mitigation: blur is still reset to
+> `none` while a panel is collapsed or being resized.
+>
+> The historical analysis below stays as the decision record — and the hard rule
+> still holds for **other** compositor-promoting properties (`filter`, extra
+> stacked canvases, `will-change`, etc.); only the orbit-drag DnD trigger has been
+> understood and neutralised.
+
 ## Symptôme
 
 Des sprites Three.js (typiquement les labels de sources et de HP, mais aussi les graduations du gizmo) affichent un contenu qui n'est pas le leur :
@@ -50,6 +73,11 @@ Commit `3a243fa`, annulé par `d4ca167`. Hypothèse : si on insère un `<canvas>
 Test rapide non commité (`#omniphony-renderer-mount { isolation: isolate; contain: paint; transform: translateZ(0); }`). Réfuté empiriquement : promouvoir explicitement le canvas WebGL en couche compositeur casse les labels dès le boot. La promotion crée le contexte exact qui produit l'aliasing.
 
 ## Options pour récupérer un effet de blur sur les panneaux
+
+> **Superseded — see "Resolution (2026-06)" at the top.** On WebKitGTK 2.52.4
+> native `backdrop-filter` is viable once the orbit-drag native-DnD trigger is
+> neutralised; the fallbacks below were written when no dynamic solution was
+> known and are kept for context.
 
 Aucune solution dynamique connue à ce jour ne tient sous WebKitGTK. Les pistes restantes sont :
 
