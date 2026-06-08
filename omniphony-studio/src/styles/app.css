@@ -2051,8 +2051,10 @@
 
       .speaker-filter-icon {
         display: inline-flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
+        line-height: 1;
         color: #8fb0d0;
       }
 
@@ -2061,8 +2063,24 @@
         color: #5d6b7d;
       }
 
+      .speaker-filter-icon .filter-glyph {
+        display: flex;
+      }
+
       .speaker-filter-icon svg {
         display: block;
+      }
+
+      /* Tiny cutoff labels above/below the glyph. The fixed height keeps every
+         icon column the same height (and the glyph vertically centred) whether
+         0, 1 or 2 cutoffs are shown. */
+      .speaker-filter-icon .filter-freq {
+        height: 8px;
+        font-size: 7px;
+        line-height: 8px;
+        color: #9fb6cf;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.02em;
       }
 
       .speaker-contrib-row {
