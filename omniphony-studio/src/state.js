@@ -429,6 +429,7 @@ export const app = {
   showObjectDetails: true,
   speakerLabelsEnabled: false,
   speakerBandBarsEnabled: false,
+  speakerFaceListenerEnabled: false,
   objectDisplayMode: 'circle',
   objectSphereSize: 0.07,
   lastTrailDecayAt: 0,

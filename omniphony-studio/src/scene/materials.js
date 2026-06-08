@@ -26,6 +26,17 @@ export const speakerMaterial = new THREE.MeshStandardMaterial({
   opacity: 0.65
 });
 
+// "Driver" marker drawn on a speaker's front face so its orientation is visible
+// when speakers are aimed at the listener. Shared across all speakers (static,
+// flat disc facing local +Z); added as a child of each speaker cube so it
+// inherits the cube's position/level scaling and rotation.
+export const speakerDriverGeometry = new THREE.CircleGeometry(SPEAKER_BASE_SIZE * 0.36, 24);
+export const speakerDriverMaterial = new THREE.MeshBasicMaterial({
+  color: 0x0c1118,
+  transparent: true,
+  opacity: 0.85
+});
+
 export const speakerBaseColor = new THREE.Color(0x8ec8ff);
 export const speakerHotColor = new THREE.Color(0xff3030);
 export const speakerSelectedColor = new THREE.Color(0x4dff88);

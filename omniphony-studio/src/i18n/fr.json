@@ -475,6 +475,7 @@
   "speaker.spatialize": "Spatialiser",
   "display.speakerLabels": "Étiquettes des enceintes",
   "display.speakerBands": "Bandes de fréquence",
+  "display.speakerFaceListener": "Orienter vers l'auditeur",
   "mpvOverlay.title": "Overlay mpv",
   "speaker.freqLow": "Fréq. min (Hz)",
   "telemetry.diagPlotToggle": "Afficher/masquer le graphe des métriques de diagnostic",

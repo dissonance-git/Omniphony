@@ -77,8 +77,11 @@ import {
 } from './scene/setup.js';
 
 import {
+  SPEAKER_BASE_SIZE,
   speakerGeometry,
   speakerMaterial,
+  speakerDriverGeometry,
+  speakerDriverMaterial,
   speakerBaseColor,
   speakerHotColor,
   speakerSelectedColor,
@@ -169,6 +172,45 @@ import {
 // Lateral offset (scene units) of a speaker's frequency-extent gauge from its
 // cube, so the billboard sits beside the speaker rather than over it.
 const SPEAKER_BAND_BAR_OFFSET = 0.11;
+
+// Listener position (scene origin) and the world up used to aim speakers. The
+// driver marker sits on the cube's +Z face, so we orient +Z toward the listener
+// while keeping +Y up — like Object3D.lookAt for a non-camera object — which
+// avoids the roll a shortest-arc rotation introduces on elevated speakers.
+// Reused matrix keeps re-orientation allocation-free.
+const SPEAKER_LISTENER_POS = new THREE.Vector3(0, 0, 0);
+const SPEAKER_WORLD_UP = new THREE.Vector3(0, 1, 0);
+const speakerAimMatrix = new THREE.Matrix4();
+
+// Aim a speaker's front face at the listener when the option is on, and
+// show/hide its driver marker accordingly. Identity orientation (and a hidden
+// marker) otherwise — the default plain cube.
+function applySpeakerOrientation(index) {
+  const mesh = speakerMeshes[index];
+  if (!mesh) return;
+  const driver = mesh.userData.driver;
+  const enabled = app.speakerFaceListenerEnabled;
+  if (driver) driver.visible = enabled;
+  if (!enabled) {
+    mesh.quaternion.identity();
+    return;
+  }
+  if (mesh.position.lengthSq() < 1e-8) {
+    mesh.quaternion.identity(); // speaker sits on the listener: nothing to aim at
+    return;
+  }
+  // lookAt(eye, target, up) puts +Z along (eye - target); eye = listener,
+  // target = speaker → +Z points from the speaker toward the listener.
+  speakerAimMatrix.lookAt(SPEAKER_LISTENER_POS, mesh.position, SPEAKER_WORLD_UP);
+  mesh.quaternion.setFromRotationMatrix(speakerAimMatrix);
+}
+
+// Re-aim every speaker (e.g. after toggling the option).
+export function refreshSpeakerOrientations() {
+  for (let i = 0; i < speakerMeshes.length; i += 1) {
+    applySpeakerOrientation(i);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // DOM references
@@ -934,6 +976,7 @@ export function updateSpeakerVisualsFromState(index) {
   const mesh = speakerMeshes[index];
   if (mesh) {
     mesh.position.set(scenePosition.x, scenePosition.y, scenePosition.z);
+    applySpeakerOrientation(index);
   }
 
   const label = speakerLabels[index];
@@ -2058,8 +2101,17 @@ export function renderLayout(key) {
     const baseOpacity = getSpeakerBaseOpacity(speaker);
     mesh.userData.baseOpacity = baseOpacity;
     mesh.material.opacity = baseOpacity;
+
+    // Front "driver" marker on the cube's +Z face (shared geometry/material).
+    const driver = new THREE.Mesh(speakerDriverGeometry, speakerDriverMaterial);
+    driver.position.set(0, 0, SPEAKER_BASE_SIZE / 2 + 0.0008);
+    driver.visible = app.speakerFaceListenerEnabled;
+    mesh.add(driver);
+    mesh.userData.driver = driver;
+
     scene.add(mesh);
     speakerMeshes.push(mesh);
+    applySpeakerOrientation(index);
 
     const label = createLabelSprite(String(speaker.id || index));
     label.userData.speakerIndex = index;
