@@ -111,7 +111,7 @@ import { t, tf } from './i18n.js';
 import { pushLog } from './log.js';
 import { scheduleUIFlush } from './flush.js';
 import { updateItemClasses, updateSpeakerMeterUI, updateObjectMeterUI } from './flush.js';
-import { computeCrossoverBandLabels } from './crossover-bands.js';
+import { computeCrossoverBandLabels, computeCrossoverBandEdges } from './crossover-bands.js';
 
 import {
   linearToDb,
@@ -947,7 +947,7 @@ export function updateSpeakerVisualsFromState(index) {
   if (bandBar) {
     bandBar.visible = app.speakerBandBarsEnabled;
     bandBar.position.set(scenePosition.x + SPEAKER_BAND_BAR_OFFSET, scenePosition.y, scenePosition.z);
-    updateSpeakerBandBar(bandBar, speaker);
+    updateSpeakerBandBar(bandBar, speaker, computeCrossoverBandEdges(currentLayoutSpeakers));
   }
 
   const entry = speakerItems.get(String(index));
@@ -1350,6 +1350,7 @@ export function renderSpeakersList() {
 
   speakersListEl.textContent = '';
   const activeIds = new Set();
+  const bandEdges = computeCrossoverBandEdges(currentLayoutSpeakers);
   currentLayoutSpeakers.forEach((speaker, index) => {
     const id = String(index);
     activeIds.add(id);
@@ -1363,7 +1364,7 @@ export function renderSpeakersList() {
     // redraws only when the cutoffs actually change.
     const bandBar = speakerBandBars[index];
     if (bandBar) {
-      updateSpeakerBandBar(bandBar, speaker);
+      updateSpeakerBandBar(bandBar, speaker, bandEdges);
     }
     speakersListEl.appendChild(entry.root);
   });
@@ -2049,6 +2050,7 @@ export function renderLayout(key) {
     }
   });
 
+  const bandEdges = computeCrossoverBandEdges(layout.speakers);
   layout.speakers.forEach((speaker, index) => {
     const mesh = new THREE.Mesh(speakerGeometry.clone(), speakerMaterial.clone());
     const scenePosition = normalizedOmniphonyToScenePosition(speaker);
@@ -2070,7 +2072,7 @@ export function renderLayout(key) {
     bandBar.userData.speakerIndex = index;
     bandBar.visible = app.speakerBandBarsEnabled;
     bandBar.position.set(scenePosition.x + SPEAKER_BAND_BAR_OFFSET, scenePosition.y, scenePosition.z);
-    updateSpeakerBandBar(bandBar, speaker);
+    updateSpeakerBandBar(bandBar, speaker, bandEdges);
     scene.add(bandBar);
     speakerBandBars.push(bandBar);
 
