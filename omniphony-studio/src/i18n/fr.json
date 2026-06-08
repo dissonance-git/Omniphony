@@ -436,7 +436,7 @@
   "status.connected": "Connecté",
   "status.reconnecting": "Reconnexion...",
   "status.error": "Erreur",
-  "status.connectingHint": "Aucun renderer connecté. Lance soit <strong>orender</strong> pour créer une entrée audio SPDIF, soit <strong>mpv-omniphony</strong> qui embarque son propre renderer.",
+  "status.connectingHint": "Aucun renderer connecté. Lance soit <strong>orender</strong> pour créer une entrée audio SPDIF, soit <a href=\"https://github.com/mgth/mpv-omniphony/releases\" target=\"_blank\" rel=\"noreferrer\" style=\"color:inherit;text-decoration:underline\"><strong>mpv-omniphony</strong></a> qui embarque son propre renderer.",
   "status.bridgeErrorTitle": "Bridge décodeur introuvable — audio spatial désactivé",
   "status.audioFormat": "audio : {rate} / {format}",
   "status.latencyFallback": "latence : raw {raw} | ctrl {ctrl}",
