@@ -6,7 +6,7 @@ import { updateConfigSavedUI } from '../controls/config.js';
 import {
   renderSpeakerEditor,
   sanitizeLayoutExportName, defaultLayoutExportNameFromSpeakers, serializeCurrentLayoutForExport,
-  refreshOverlayLists, hydrateLayoutSelect
+  refreshOverlayLists, hydrateLayoutSelect, renderLayout, applyLayoutToRenderer
 } from '../speakers.js';
 
 export function setupLayoutListeners() {
@@ -47,6 +47,10 @@ export function setupLayoutListeners() {
           return invoke('import_layout_from_path', { path: trimmed })
             .then((payload) => {
               hydrateLayoutSelect(payload.layouts || [], payload.selectedLayoutKey);
+              // Push the imported layout to the renderer so it actually takes
+              // effect (and gets persisted on the next save). hydrateLayoutSelect
+              // has already made it the current layout.
+              applyLayoutToRenderer(payload.selectedLayoutKey);
               app.configSaved = false;
               updateConfigSavedUI();
               refreshOverlayLists();
@@ -64,7 +68,12 @@ export function setupLayoutListeners() {
   if (layoutSelectEl) {
     layoutSelectEl.addEventListener('change', () => {
       if (isSpeakerLayoutFrozen()) return;
-      invoke('select_layout', { key: layoutSelectEl.value });
+      const key = layoutSelectEl.value;
+      invoke('select_layout', { key });
+      // Show the picked layout, then push it to the renderer (no-op for the
+      // live mirror) so a preset selection actually applies and persists.
+      renderLayout(key);
+      applyLayoutToRenderer(key);
     });
   }
 }

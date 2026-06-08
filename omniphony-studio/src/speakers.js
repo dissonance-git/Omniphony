@@ -338,6 +338,47 @@ export function serializeCurrentLayoutForExport() {
   };
 }
 
+// Build the `replaceLayout` OSC payload (camelCase, matching the renderer's
+// LayoutReplacePatch) from a layout + its speakers.
+function buildReplaceLayoutPayload(layout, speakers) {
+  return {
+    replaceLayout: {
+      radiusM: Math.max(0.01, Number(layout?.radius_m) || Number(sceneState.metersPerUnit) || 1),
+      speakers: (speakers || []).map((speaker, index) => {
+        hydrateSpeakerCoordinateState(speaker);
+        return {
+          name: String(speaker?.id ?? `spk-${index}`),
+          coordMode: getSpeakerCoordMode(speaker),
+          x: clampNumber(Number(speaker?.x) || 0, -1, 1),
+          y: clampNumber(Number(speaker?.y) || 0, -1, 1),
+          z: clampNumber(Number(speaker?.z) || 0, -1, 1),
+          azimuth: Number.isFinite(Number(speaker?.azimuthDeg)) ? Number(speaker.azimuthDeg) : 0,
+          elevation: Number.isFinite(Number(speaker?.elevationDeg)) ? Number(speaker.elevationDeg) : 0,
+          distance: Math.max(0.01, Number(speaker?.distanceM) || 1),
+          spatialize: getSpeakerSpatializeValue(speaker) !== 0,
+          delayMs: Math.max(0, Number(speaker?.delay_ms) || 0),
+          freqLow: Number.isFinite(Number(speaker?.freqLow)) && Number(speaker.freqLow) > 0 ? Number(speaker.freqLow) : null,
+          freqHigh: Number.isFinite(Number(speaker?.freqHigh)) && Number(speaker.freqHigh) > 0 ? Number(speaker.freqHigh) : null
+        };
+      })
+    }
+  };
+}
+
+// Push a preset/imported layout to the renderer wholesale, then commit it. This
+// is what makes "import a layout" / selecting a preset actually take effect:
+// without it Studio and the renderer desync and a save persists the wrong (or
+// empty) layout. No-op for the renderer's own mirror ('omniphony-live'), which
+// already matches the live layout — pushing it back would just echo.
+export function applyLayoutToRenderer(key) {
+  if (isSpeakerLayoutFrozen()) return;
+  if (!key || key === 'omniphony-live') return;
+  const layout = layoutsByKey.get(key);
+  if (!layout) return;
+  sendLayoutPatch(buildReplaceLayoutPayload(layout, get_currentLayoutSpeakers()));
+  applyLayoutPatch();
+}
+
 // ---------------------------------------------------------------------------
 // Delay / distance utilities
 // ---------------------------------------------------------------------------

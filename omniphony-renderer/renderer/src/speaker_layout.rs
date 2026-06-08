@@ -280,6 +280,37 @@ impl Speaker {
         }
     }
 
+    /// Create a speaker from normalised cartesian coordinates in `[-1, 1]`,
+    /// deriving the polar representation — the same conversion the YAML
+    /// deserializer applies to a `coord_mode: cartesian` entry.
+    pub fn from_cartesian(
+        name: impl Into<String>,
+        x: f32,
+        y: f32,
+        z: f32,
+        spatialize: bool,
+        delay_ms: f32,
+    ) -> Self {
+        let x = x.clamp(-1.0, 1.0);
+        let y = y.clamp(-1.0, 1.0);
+        let z = z.clamp(-1.0, 1.0);
+        let (azimuth, elevation, distance) = cartesian_to_spherical(x, y, z);
+        Self {
+            name: name.into(),
+            azimuth,
+            elevation,
+            distance: distance.max(0.01),
+            coord_mode: "cartesian".to_string(),
+            x,
+            y,
+            z,
+            spatialize,
+            delay_ms: delay_ms.max(0.0),
+            freq_low: None,
+            freq_high: None,
+        }
+    }
+
     pub fn with_freq_low(mut self, freq_low: f32) -> Self {
         self.freq_low = Some(freq_low.max(0.0));
         self
@@ -611,23 +642,26 @@ impl SpeakerLayout {
         ])
     }
 
-    /// 7.1.4 spatial audio layout (ITU-R BS.2051-3 Config 4+5+0)
+    /// 7.1.4 spatial audio layout, the renderer's default when no layout is
+    /// configured. Kept byte-for-byte in sync with `layouts/7.1.4.yaml` (the
+    /// "omniphony (live)" default) in normalised cartesian coordinates — see
+    /// `preset_7_1_4_matches_bundled_yaml`.
     pub fn preset_7_1_4() -> Result<Self> {
         Self::from_speakers(vec![
             // Bed layer (7.1)
-            speaker_with_distance("FL", -26.565052, 0.0, 2.236068),
-            speaker_with_distance("FR", 26.565052, 0.0, 2.236068),
-            speaker_with_distance("C", 0.0, 0.0, 2.0),
-            speaker_with_distance("LFE", 26.565052, -12.6043825, 2.291288),
-            speaker_with_distance("BL", -153.43495, 0.0, 2.236068),
-            speaker_with_distance("BR", 153.43495, 0.0, 2.236068),
-            speaker_with_distance("SL", -90.0, 0.0, 1.0),
-            speaker_with_distance("SR", 90.0, 0.0, 1.0),
-            // Height layer (4 speakers at 45° elevation)
-            speaker_with_distance("TFL", -45.0, 35.26439, 1.7320508),
-            speaker_with_distance("TFR", 45.0, 35.26439, 1.7320508),
-            speaker_with_distance("TBL", -135.0, 35.26439, 1.7320508),
-            speaker_with_distance("TBR", 135.0, 35.26439, 1.7320508),
+            Speaker::from_cartesian("FL", -1.0, 1.0, 0.0, true, 0.0),
+            Speaker::from_cartesian("FR", 1.0, 1.0, 0.0, true, 0.0),
+            Speaker::from_cartesian("C", 0.0, 1.0, 0.0, true, 0.0),
+            Speaker::from_cartesian("LFE", 1.0, 1.0, -1.0, false, 0.0),
+            Speaker::from_cartesian("BL", -1.0, -1.0, 0.0, true, 0.0),
+            Speaker::from_cartesian("BR", 1.0, -1.0, 0.0, true, 0.0),
+            Speaker::from_cartesian("SL", -1.0, 0.0, 0.0, true, 0.0),
+            Speaker::from_cartesian("SR", 1.0, 0.0, 0.0, true, 0.0),
+            // Height layer
+            Speaker::from_cartesian("TFL", -1.0, 1.0, 1.0, true, 0.0),
+            Speaker::from_cartesian("TFR", 1.0, 1.0, 1.0, true, 0.0),
+            Speaker::from_cartesian("TBL", -1.0, -1.0, 1.0, true, 0.0),
+            Speaker::from_cartesian("TBR", 1.0, -1.0, 1.0, true, 0.0),
         ])
     }
 
@@ -739,14 +773,18 @@ mod tests {
         let layout = SpeakerLayout::preset("7.1.4").unwrap();
         assert_eq!(layout.num_speakers(), 12);
 
-        let positions = layout.positions();
-        assert_eq!(positions.len(), 12);
+        // The preset mirrors layouts/7.1.4.yaml (normalised cartesian).
+        let fl = &layout.speakers[0];
+        assert_eq!(fl.name, "FL");
+        assert_eq!(fl.coord_mode, "cartesian");
+        assert_eq!([fl.x, fl.y, fl.z], [-1.0, 1.0, 0.0]);
 
-        // Check first speaker (FL)
-        assert_eq!(positions[0], [-26.565052, 0.0]);
+        let tfl = &layout.speakers[8];
+        assert_eq!(tfl.name, "TFL");
+        assert_eq!([tfl.x, tfl.y, tfl.z], [-1.0, 1.0, 1.0]);
 
-        // Check height speaker (TFL)
-        assert_eq!(positions[8], [-45.0, 35.26439]);
+        // LFE stays non-spatialized.
+        assert!(!layout.speakers[3].spatialize);
     }
 
     #[test]
@@ -813,6 +851,29 @@ mod integration_tests {
 
         let layout = layout.unwrap();
         assert_eq!(layout.num_speakers(), 12);
+    }
+
+    #[test]
+    fn preset_7_1_4_matches_bundled_yaml() {
+        // The default fallback layout (`SpeakerLayout::preset("7.1.4")`, used by
+        // bootstrap/degraded/engine when no layout is configured) must stay in
+        // sync with the shipped `layouts/7.1.4.yaml` ("omniphony (live)").
+        let preset = SpeakerLayout::preset("7.1.4").expect("7.1.4 preset");
+        let yaml = SpeakerLayout::from_file(layout_path("7.1.4.yaml")).expect("load 7.1.4.yaml");
+
+        assert_eq!(preset.speakers.len(), yaml.speakers.len());
+        for (p, y) in preset.speakers.iter().zip(&yaml.speakers) {
+            assert_eq!(p.name, y.name, "speaker order/name mismatch");
+            assert_eq!(p.coord_mode, y.coord_mode, "{} coord_mode mismatch", p.name);
+            assert_eq!(p.spatialize, y.spatialize, "{} spatialize mismatch", p.name);
+            assert!(
+                (p.x - y.x).abs() < 1e-6 && (p.y - y.y).abs() < 1e-6 && (p.z - y.z).abs() < 1e-6,
+                "{} cartesian mismatch: preset {:?} vs yaml {:?}",
+                p.name,
+                (p.x, p.y, p.z),
+                (y.x, y.y, y.z)
+            );
+        }
     }
 
     #[test]
