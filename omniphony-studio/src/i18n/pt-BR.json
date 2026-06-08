@@ -350,6 +350,7 @@
   "backend.file.browse": "Procurar…",
   "backend.file.edit": "Editar",
   "backend.file.editor.title": "Editar arquivo do backend",
+  "backend.file.editor.theme": "Tema do editor",
   "backend.file.editor.close": "Fechar",
   "backend.file.editor.new": "Novo",
   "backend.file.editor.reload": "Recarregar",

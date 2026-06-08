@@ -340,6 +340,7 @@
   "backend.file.browse": "参照…",
   "backend.file.edit": "編集",
   "backend.file.editor.title": "バックエンドファイルを編集",
+  "backend.file.editor.theme": "エディターのテーマ",
   "backend.file.editor.close": "閉じる",
   "backend.file.editor.new": "新規",
   "backend.file.editor.reload": "再読み込み",

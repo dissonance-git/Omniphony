@@ -13,15 +13,52 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { EditorView, basicSetup } from 'codemirror';
-import { EditorState } from '@codemirror/state';
+import { Compartment, EditorState } from '@codemirror/state';
 import { StreamLanguage } from '@codemirror/language';
 import { lua } from '@codemirror/legacy-modes/mode/lua';
+import { oneDark } from '@codemirror/theme-one-dark';
+import {
+  amy, ayuLight, cobalt, coolGlow, dracula, espresso,
+  rosePineDawn, solarizedLight, tomorrow,
+} from 'thememirror';
 import { t } from '../i18n.js';
+
+// Selectable editor colour themes. `ext: null` keeps CodeMirror's built-in light
+// theme. Dark themes come first since the Studio panel is dark; the default is
+// One Dark. Each theme extension carries both the editor chrome and the syntax
+// highlight colours, so applying one is a single extension.
+const THEMES = [
+  { id: 'one-dark', label: 'One Dark', ext: oneDark },
+  { id: 'dracula', label: 'Dracula', ext: dracula },
+  { id: 'cobalt', label: 'Cobalt', ext: cobalt },
+  { id: 'cool-glow', label: 'Cool Glow', ext: coolGlow },
+  { id: 'espresso', label: 'Espresso', ext: espresso },
+  { id: 'amy', label: 'Amy', ext: amy },
+  { id: 'tomorrow', label: 'Tomorrow (light)', ext: tomorrow },
+  { id: 'solarized-light', label: 'Solarized Light', ext: solarizedLight },
+  { id: 'ayu-light', label: 'Ayu Light', ext: ayuLight },
+  { id: 'rose-pine-dawn', label: 'Rosé Pine Dawn', ext: rosePineDawn },
+  { id: 'default', label: 'Default (light)', ext: null },
+];
+const THEME_KEY = 'omniphony.scriptEditor.theme';
+const DEFAULT_THEME = 'one-dark';
+const themeCompartment = new Compartment();
+
+function selectedThemeId() {
+  const id = localStorage.getItem(THEME_KEY);
+  return THEMES.some((entry) => entry.id === id) ? id : DEFAULT_THEME;
+}
+
+function themeExtensionFor(id) {
+  const entry = THEMES.find((e) => e.id === id);
+  return entry && entry.ext ? entry.ext : [];
+}
 
 let modalEl = null;
 let view = null;
 let filenameEl = null;
 let pickerEl = null;
+let themeEl = null;
 let browseBtn = null;
 let statusEl = null;
 // The file currently open: { backend, key, language, extensions, rendererIsLocal }.
@@ -38,13 +75,17 @@ function langExtensions(language) {
   return language === 'lua' ? [StreamLanguage.define(lua)] : [];
 }
 
-// Replace the whole document, keeping the language for the active session. Used
-// on load and New so the editor stays consistent.
+// Replace the whole document, keeping the language + theme for the active session.
+// Used on load and New so the editor stays consistent.
 function resetEditor(text) {
   if (!view) return;
   view.setState(EditorState.create({
     doc: text || '',
-    extensions: [basicSetup, ...langExtensions(session && session.language)],
+    extensions: [
+      basicSetup,
+      ...langExtensions(session && session.language),
+      themeCompartment.of(themeExtensionFor(selectedThemeId())),
+    ],
   }));
 }
 
@@ -122,9 +163,31 @@ function buildModal() {
   header.style.cssText = 'display:flex;align-items:center;justify-content:space-between';
   const title = document.createElement('strong');
   title.textContent = t('backend.file.editor.title');
+  // Colour-theme picker (persisted): the Studio panel is dark, so a dark editor
+  // theme reads far better than CodeMirror's default light one.
+  themeEl = document.createElement('select');
+  themeEl.title = t('backend.file.editor.theme');
+  themeEl.style.fontSize = '12px';
+  for (const entry of THEMES) {
+    const opt = document.createElement('option');
+    opt.value = entry.id;
+    opt.textContent = entry.label;
+    themeEl.appendChild(opt);
+  }
+  themeEl.value = selectedThemeId();
+  themeEl.addEventListener('change', () => {
+    localStorage.setItem(THEME_KEY, themeEl.value);
+    if (view) {
+      view.dispatch({ effects: themeCompartment.reconfigure(themeExtensionFor(themeEl.value)) });
+    }
+  });
+
   const closeBtn = button(t('backend.file.editor.close'));
   closeBtn.addEventListener('click', closeEditor);
-  header.append(title, closeBtn);
+  const headerRight = document.createElement('div');
+  headerRight.style.cssText = 'display:flex;gap:0.4rem;align-items:center';
+  headerRight.append(themeEl, closeBtn);
+  header.append(title, headerRight);
 
   // Toolbar: managed-file picker, filename, Browse, New, Reload, Save.
   const toolbar = document.createElement('div');
@@ -185,7 +248,11 @@ function buildModal() {
   modalEl.addEventListener('mousedown', (e) => { if (e.target === modalEl) closeEditor(); });
   document.body.appendChild(modalEl);
 
-  view = new EditorView({ parent: host, doc: '', extensions: [basicSetup] });
+  view = new EditorView({
+    parent: host,
+    doc: '',
+    extensions: [basicSetup, themeCompartment.of(themeExtensionFor(selectedThemeId()))],
+  });
 }
 
 // Ask the renderer for content: an explicit `name` previews a managed file;

@@ -345,6 +345,7 @@
   "backend.file.browse": "浏览…",
   "backend.file.edit": "编辑",
   "backend.file.editor.title": "编辑后端文件",
+  "backend.file.editor.theme": "编辑器主题",
   "backend.file.editor.close": "关闭",
   "backend.file.editor.new": "新建",
   "backend.file.editor.reload": "重新加载",
