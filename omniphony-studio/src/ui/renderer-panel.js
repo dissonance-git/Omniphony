@@ -106,8 +106,7 @@ export function rendererPanelMarkup() {
             </div>
             <div class="inline-toggle" id="renderEvaluationPositionInterpolationRow" style="margin-top:0.25rem;display:flex;align-items:center;gap:0.35rem">
               <div class="title-with-info" style="min-width:0">
-                <span style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="vbap.positionInterpolation">Position interpolation</span>
-                <button id="vbapPositionInterpolationInfoBtn" type="button" class="info-icon-btn" data-i18n-title="vbap.positionInterpolationInfoButton" title="VBAP position interpolation info">i</button>
+                <span style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="vbap.positionInterpolation" data-help-i18n="help.vbap.positionInterpolation">Position interpolation</span>
               </div>
               <input id="vbapPositionInterpolationToggleEl" type="checkbox" />
             </div>

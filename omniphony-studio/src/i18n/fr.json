@@ -383,6 +383,7 @@
   "distance.title": "Distance Diffuse",
   "autoGain.title": "Gain auto (anti-clip)",
   "autoGain.ceiling": "Plafond",
+  "autoGain.toggle": "Réglages du gain auto",
   "distance.model": "Modèle de distance",
   "distance.metric": "Métrique de distance",
   "distance.metric.spherical": "Sphérique",

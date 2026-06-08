@@ -49,7 +49,8 @@ import {
   setInputSectionOpen,
   setRendererSectionOpen,
   setDisplaySectionOpen,
-  setDrcSectionOpen
+  setDrcSectionOpen,
+  setAutoGainSectionOpen
 } from './modals.js';
 
 // ── Initialization & wiring ─────────────────────────────────────────────────
@@ -230,6 +231,7 @@ setInputSectionOpen(false);
 setRendererSectionOpen(false);
 setDisplaySectionOpen(false);
 setDrcSectionOpen(false);
+setAutoGainSectionOpen(false);
 
 // Register UI event listeners
 initRenderSurfaceController({

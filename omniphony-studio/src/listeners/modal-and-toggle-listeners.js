@@ -3,14 +3,15 @@ import {
   setTrailInfoModalOpen, setEffectiveRenderInfoModalOpen,
   setOscInfoModalOpen, setAboutModalOpen, setRoomGeometryInfoModalOpen,
   setAdaptiveResamplingInfoModalOpen, setTelemetryGaugesInfoModalOpen,
-  setRampModeInfoModalOpen, setVbapPositionInterpolationInfoModalOpen,
+  setRampModeInfoModalOpen,
   setSpreadFromDistanceInfoModalOpen, setDistanceDiffuseInfoModalOpen,
   setEvaluationInfoModalOpen, setBackendInfoModalOpen,
   setDistanceModelInfoModalOpen, setInputInfoModalOpen,
   setInputClockInfoModalOpen, setInputLfeInfoModalOpen,
   setDrcInfoModalOpen, setHeatmapInfoModalOpen,
   setTelemetryGaugesOpen,
-  setDisplaySectionOpen, setDrcSectionOpen, setAudioOutputSectionOpen, setInputSectionOpen, setRendererSectionOpen
+  setDisplaySectionOpen, setDrcSectionOpen, setAudioOutputSectionOpen, setInputSectionOpen, setRendererSectionOpen,
+  setAutoGainSectionOpen
 } from '../modals.js';
 import { closeAutoTuneWizardOnEscape } from '../auto-tune/wizard-ui.js';
 
@@ -154,14 +155,6 @@ export function setupModalAndToggleListeners() {
   });
 
   bindModalOpenClose({
-    buttonId: 'vbapPositionInterpolationInfoBtn',
-    closeButtonId: 'vbapPositionInterpolationInfoCloseBtn',
-    modalId: 'vbapPositionInterpolationInfoModal',
-    open: () => setVbapPositionInterpolationInfoModalOpen(true),
-    close: () => setVbapPositionInterpolationInfoModalOpen(false)
-  });
-
-  bindModalOpenClose({
     buttonId: 'evaluationInfoBtn',
     closeButtonId: 'evaluationInfoCloseBtn',
     modalId: 'evaluationInfoModal',
@@ -269,6 +262,7 @@ export function setupModalAndToggleListeners() {
   const audioOutputSectionToggleBtnEl = document.getElementById('audioOutputSectionToggleBtn');
   const inputSectionToggleBtnEl = document.getElementById('inputSectionToggleBtn');
   const rendererSectionToggleBtnEl = document.getElementById('rendererSectionToggleBtn');
+  const autoGainSectionToggleBtnEl = document.getElementById('autoGainSectionToggleBtn');
 
   if (telemetryGaugesToggleBtnEl) {
     telemetryGaugesToggleBtnEl.addEventListener('click', () => {
@@ -300,6 +294,12 @@ export function setupModalAndToggleListeners() {
     });
   }
 
+  if (autoGainSectionToggleBtnEl) {
+    autoGainSectionToggleBtnEl.addEventListener('click', () => {
+      setAutoGainSectionOpen(!app.autoGainSectionOpen);
+    });
+  }
+
   if (rendererSectionToggleBtnEl) {
     rendererSectionToggleBtnEl.addEventListener('click', () => {
       setRendererSectionOpen(!app.rendererSectionOpen);
@@ -318,7 +318,6 @@ export function setupModalAndToggleListeners() {
       setRoomGeometryInfoModalOpen(false);
       setTelemetryGaugesInfoModalOpen(false);
       setRampModeInfoModalOpen(false);
-      setVbapPositionInterpolationInfoModalOpen(false);
       setEvaluationInfoModalOpen(false);
       setBackendInfoModalOpen(false);
       setDistanceModelInfoModalOpen(false);

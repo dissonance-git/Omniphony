@@ -3,6 +3,7 @@
  */
 
 import { app } from './state.js';
+import { t } from './i18n.js';
 import { emitOverlayLayoutChanged } from './ui/layout/overlay-layout-state.js';
 
 // ---------------------------------------------------------------------------
@@ -17,7 +18,6 @@ function getRoomGeometryInfoModalEl() { return document.getElementById('roomGeom
 function getAdaptiveResamplingInfoModalEl() { return document.getElementById('adaptiveResamplingInfoModal'); }
 function getTelemetryGaugesInfoModalEl() { return document.getElementById('telemetryGaugesInfoModal'); }
 function getRampModeInfoModalEl() { return document.getElementById('rampModeInfoModal'); }
-function getVbapPositionInterpolationInfoModalEl() { return document.getElementById('vbapPositionInterpolationInfoModal'); }
 function getEvaluationInfoModalEl() { return document.getElementById('evaluationInfoModal'); }
 function getBackendInfoModalEl() { return document.getElementById('backendInfoModal'); }
 function getDistanceModelInfoModalEl() { return document.getElementById('distanceModelInfoModal'); }
@@ -102,11 +102,6 @@ export function setRampModeInfoModalOpen(open) {
   rampModeInfoModalEl.classList.toggle('open', Boolean(open));
 }
 
-export function setVbapPositionInterpolationInfoModalOpen(open) {
-  const vbapPositionInterpolationInfoModalEl = getVbapPositionInterpolationInfoModalEl();
-  if (!vbapPositionInterpolationInfoModalEl) return;
-  vbapPositionInterpolationInfoModalEl.classList.toggle('open', Boolean(open));
-}
 
 export function setEvaluationInfoModalOpen(open) {
   const evaluationInfoModalEl = getEvaluationInfoModalEl();
@@ -117,6 +112,26 @@ export function setEvaluationInfoModalOpen(open) {
 export function setBackendInfoModalOpen(open) {
   const backendInfoModalEl = getBackendInfoModalEl();
   if (!backendInfoModalEl) return;
+  // Compose the body on open: a generic intro that doesn't go stale plus a blurb
+  // for the currently-selected backend (keyed by its id). Backends without a
+  // specific blurb (e.g. third-party ones) just show the intro.
+  if (open) {
+    const bodyEl = document.getElementById('backendInfoBody');
+    if (bodyEl) {
+      const state = app.renderBackendState || {};
+      const id = String(state.selection || state.effective || '').trim();
+      const list = Array.isArray(state.availableBackends) ? state.availableBackends : [];
+      const entry = list.find((b) => b && b.id === id);
+      const label = (entry && entry.label) || id;
+      let html = t('backend.infoBody');
+      const key = id ? `help.backend.${id}` : '';
+      const specific = key ? t(key) : '';
+      if (id && specific && specific !== key) {
+        html += `<br /><br /><strong>${label}</strong><br />${specific}`;
+      }
+      bodyEl.innerHTML = html;
+    }
+  }
   backendInfoModalEl.classList.toggle('open', Boolean(open));
 }
 
@@ -242,6 +257,19 @@ export function setAudioOutputSectionOpen(open) {
     audioOutputSectionEl.classList.toggle('section-collapsed', !app.audioOutputSectionOpen);
   }
   emitOverlayLayoutChanged('audio-output-section-toggle');
+}
+
+export function setAutoGainSectionOpen(open) {
+  app.autoGainSectionOpen = Boolean(open);
+  const content = document.getElementById('autoGainSection');
+  const toggleBtn = document.getElementById('autoGainSectionToggleBtn');
+  if (content) {
+    content.classList.toggle('open', app.autoGainSectionOpen);
+  }
+  if (toggleBtn) {
+    toggleBtn.textContent = app.autoGainSectionOpen ? '▾' : '▸';
+  }
+  emitOverlayLayoutChanged('auto-gain-section-toggle');
 }
 
 export function setInputSectionOpen(open) {
