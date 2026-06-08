@@ -19,7 +19,7 @@ export function inputPanelMarkup() {
           </div>
           <div class="input-panel-grid">
             <div class="input-panel-row">
-              <label for="inputModeSelect" data-i18n="input.mode">Mode</label>
+              <label for="inputModeSelect" data-i18n="input.mode" data-help-i18n="help.input.mode">Mode</label>
               <select id="inputModeSelect" class="delay-input">
                 <option value="pipe_bridge" data-i18n="input.mode.pipe_bridge">Pipe bridge</option>
                 <option value="pipewire" data-i18n="input.mode.pipewire">PipeWire</option>
@@ -30,7 +30,7 @@ export function inputPanelMarkup() {
           <div id="inputBridgeFields" class="input-panel-stack">
             <div class="input-panel-subtitle" data-i18n="input.bridgeInput">Bridge Input</div>
             <div class="input-panel-row">
-              <label for="oscBridgePathInput" data-i18n="input.bridgeBinary">Bridge</label>
+              <label for="oscBridgePathInput" data-i18n="input.bridgeBinary" data-help-i18n="help.input.bridge">Bridge</label>
               <div style="display:flex;align-items:center;gap:0.4rem;min-width:0">
                 <input id="oscBridgePathInput" type="text" value="" spellcheck="false" placeholder="Auto-detect" data-i18n-placeholder="input.autoDetect" class="delay-input" style="min-width:0;flex:1 1 auto" />
                 ${secondaryButton({ id: 'oscBridgeBrowseBtn', text: 'Browse', textKey: 'input.browse' })}
@@ -38,25 +38,25 @@ export function inputPanelMarkup() {
             </div>
             <div id="oscBridgePathStatus" class="input-panel-inline-status" aria-live="polite"></div>
             <div class="input-panel-row">
-              <label data-i18n="input.pipe">Pipe</label>
+              <label data-i18n="input.pipe" data-help-i18n="help.input.pipe">Pipe</label>
               <input id="pipeStatus" class="delay-input" type="text" spellcheck="false" placeholder="Auto-detect" data-i18n-placeholder="input.autoDetect" style="width:100%;min-width:0;box-sizing:border-box;text-align:left" />
             </div>
           </div>
           <div id="inputLiveFields" class="input-panel-stack">
             <div class="input-panel-subtitle" data-i18n="input.liveSource">Live Source</div>
             <div class="input-panel-row">
-              <label for="inputBackendSelect" data-i18n="input.backend">Backend</label>
+              <label for="inputBackendSelect" data-i18n="input.backend" data-help-i18n="help.input.backend">Backend</label>
               <select id="inputBackendSelect" class="delay-input">
                 <option value="pipewire" data-i18n="input.backend.pipewire">PipeWire</option>
                 <option value="asio" data-i18n="input.backend.asio">ASIO</option>
               </select>
             </div>
             <div class="input-panel-row">
-              <label for="inputNodeInput" data-i18n="input.node">Node</label>
+              <label for="inputNodeInput" data-i18n="input.node" data-help-i18n="help.input.node">Node</label>
               <input id="inputNodeInput" class="delay-input" type="text" placeholder="omniphony_input_7_1" />
             </div>
             <div class="input-panel-row">
-              <label for="inputDescriptionInput" data-i18n="input.description">Description</label>
+              <label for="inputDescriptionInput" data-i18n="input.description" data-help-i18n="help.input.description">Description</label>
               <input id="inputDescriptionInput" class="delay-input" type="text" placeholder="Omniphony Input 7.1" />
             </div>
             <div class="input-panel-row">
@@ -71,7 +71,7 @@ export function inputPanelMarkup() {
               </select>
             </div>
             <div class="input-panel-row">
-              <label for="inputLayoutInput" data-i18n="input.layout">Layout</label>
+              <label for="inputLayoutInput" data-i18n="input.layout" data-help-i18n="help.input.layout">Layout</label>
               <div style="display:flex;align-items:center;gap:0.4rem;min-width:0">
                 <input id="inputLayoutInput" class="delay-input" type="text" placeholder="No imported layout" data-i18n-placeholder="input.noImportedLayout" readonly style="min-width:0;flex:1 1 auto" />
                 ${secondaryButton({ id: 'inputLayoutBrowseBtn', text: 'Import', textKey: 'input.import' })}
@@ -79,24 +79,24 @@ export function inputPanelMarkup() {
             </div>
             <div class="input-panel-inline-grid">
               <div class="input-panel-field">
-                <label for="inputChannelsInput" class="input-panel-inline-label" data-i18n="input.channels">Channels</label>
+                <label for="inputChannelsInput" class="input-panel-inline-label" data-i18n="input.channels" data-help-i18n="help.input.channels" data-help-anchor=".input-panel-inline-grid">Channels</label>
                 <input id="inputChannelsInput" class="delay-input" type="number" min="1" step="1" value="8" />
               </div>
               <div class="input-panel-field">
-                <label for="inputSampleRateInput" class="input-panel-inline-label" data-i18n="audio.sampleRate">Sample rate</label>
+                <label for="inputSampleRateInput" class="input-panel-inline-label" data-i18n="audio.sampleRate" data-help-i18n="help.input.sampleRate" data-help-anchor=".input-panel-inline-grid">Sample rate</label>
                 <input id="inputSampleRateInput" class="delay-input" type="number" min="1" step="1" value="48000" />
               </div>
             </div>
             <div class="input-panel-triple-grid">
               <div class="input-panel-field">
-                <label for="inputFormatSelect" class="input-panel-inline-label" data-i18n="input.format">Format</label>
+                <label for="inputFormatSelect" class="input-panel-inline-label" data-i18n="input.format" data-help-i18n="help.input.format" data-help-anchor=".input-panel-triple-grid">Format</label>
                 <select id="inputFormatSelect" class="delay-input">
                   <option value="f32">f32</option>
                   <option value="s16">s16</option>
                 </select>
               </div>
               <div class="input-panel-field">
-                <label for="inputMapSelect" class="input-panel-inline-label" data-i18n="input.map">Map</label>
+                <label for="inputMapSelect" class="input-panel-inline-label" data-i18n="input.map" data-help-i18n="help.input.map" data-help-anchor=".input-panel-triple-grid">Map</label>
                 <select id="inputMapSelect" class="delay-input">
                   <option value="7.1-fixed">7.1 fixed</option>
                 </select>
