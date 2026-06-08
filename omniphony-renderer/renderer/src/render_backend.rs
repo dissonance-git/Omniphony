@@ -1,9 +1,9 @@
 mod barycenter_backend;
+mod degenerate_vbap_backend;
 mod distance_attenuation;
 mod distance_diffuse;
 mod evaluation_artifact;
 mod experimental_distance_backend;
-mod few_speaker_backend;
 mod hybrid_backend;
 mod room_transform;
 pub mod size_to_spread;
@@ -18,13 +18,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub use barycenter_backend::BarycenterBackend;
+pub use degenerate_vbap_backend::DegenerateVbapBackend;
 use distance_attenuation::DistanceAttenuatedModel;
 use distance_diffuse::DistanceDiffuseModel;
 pub use evaluation_artifact::{
     BackendRestoreSnapshot, SerializedEvaluationMode, build_backend_restore_snapshot,
 };
 pub use experimental_distance_backend::ExperimentalDistanceBackend;
-pub use few_speaker_backend::FewSpeakerBackend;
 pub use hybrid_backend::{BlendCurve, HybridBackend};
 pub use size_to_spread::{SizeToSpreadMode, reduce_size_to_spread};
 pub use vbap_backend::{VbapBackend, VbapSpreadParams};

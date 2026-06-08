@@ -6,7 +6,7 @@ use crate::live_params::{
     BackendRebuildParams, LiveEvaluationMode, LiveParams, PreferredEvaluationMode, RenderTopology,
 };
 use crate::render_backend::{
-    BlendCurve, EffectiveEvaluationMode, EvaluationBuildConfig, FewSpeakerBackend, GainModel,
+    BlendCurve, DegenerateVbapBackend, EffectiveEvaluationMode, EvaluationBuildConfig, GainModel,
     HybridBackend, PreparedRenderEngine, build_prepared_render_engine, wrap_prepared_engine,
 };
 use crate::speaker_layout::SpeakerLayout;
@@ -120,10 +120,12 @@ impl DynamicBackendPlan {
 #[derive(Clone)]
 pub enum BackendBuildPlan {
     Vbap(VbapTopologyBuildPlan),
-    /// VBAP for degenerate (1–2 speaker) geometry, where the panner cannot
+    /// Triangulation-free VBAP for degenerate geometry, where the panner cannot
     /// triangulate. Substituted for `Vbap` by `build_vbap_build_plan` when the
-    /// resolved layout has fewer than 3 spatializable speakers.
-    FewSpeaker(FewSpeakerBuildPlan),
+    /// resolved layout has fewer than 3 spatializable speakers, and by
+    /// `VbapTopologyBuildPlan::build_gain_model` as a fallback when the full panner
+    /// build fails on a ≥3 but still-degenerate set.
+    Degenerate(DegenerateVbapBuildPlan),
     Barycenter(BarycenterBuildPlan),
     ExperimentalDistance(ExperimentalDistanceBuildPlan),
     Hybrid(HybridBuildPlan),
@@ -139,7 +141,7 @@ impl BackendBuildPlan {
     pub fn build_gain_model(&self) -> Result<Box<dyn GainModel>> {
         match self {
             BackendBuildPlan::Vbap(plan) => plan.build_gain_model(LiveEvaluationMode::Realtime),
-            BackendBuildPlan::FewSpeaker(plan) => plan.build_gain_model(),
+            BackendBuildPlan::Degenerate(plan) => plan.build_gain_model(),
             BackendBuildPlan::Barycenter(plan) => plan.build_gain_model(),
             BackendBuildPlan::ExperimentalDistance(plan) => plan.build_gain_model(),
             BackendBuildPlan::Hybrid(plan) => plan.build_gain_model(),
@@ -149,14 +151,21 @@ impl BackendBuildPlan {
 }
 
 #[derive(Clone)]
-pub struct FewSpeakerBuildPlan {
-    /// Speaker `[azimuth, elevation]` in degrees (room-adjusted), 1 or 2 entries.
+pub struct DegenerateVbapBuildPlan {
+    /// Speaker `[azimuth, elevation]` in degrees (room-adjusted).
     pub positions: Vec<[f32; 2]>,
+    /// `omni[i]` marks speakers at the listener (no usable direction, e.g. a
+    /// spatialised LFE) that take a constant baseline share. Same length / order
+    /// as `positions`.
+    pub omni: Vec<bool>,
 }
 
-impl FewSpeakerBuildPlan {
+impl DegenerateVbapBuildPlan {
     pub fn build_gain_model(&self) -> Result<Box<dyn GainModel>> {
-        Ok(Box::new(FewSpeakerBackend::new(self.positions.clone())))
+        Ok(Box::new(DegenerateVbapBackend::with_omni(
+            self.positions.clone(),
+            self.omni.clone(),
+        )))
     }
 }
 
@@ -231,14 +240,42 @@ impl VbapTopologyBuildPlan {
         // The panner is geometry-only: it computes gains directly per position and
         // owns no table, so the evaluation mode does not affect how it is built.
         // Any precomputation happens in the evaluation layer that samples it.
-        let vbap = crate::spatial_vbap::VbapPanner::new(
+        let vbap = match crate::spatial_vbap::VbapPanner::new(
             &self.positions,
             self.azimuth_resolution,
             self.elevation_resolution,
             0.0,
-        )
-        .map_err(|e| anyhow::anyhow!("Failed to create VBAP panner: {}", e))?
-        .with_negative_z(self.allow_negative_z);
+        ) {
+            Ok(panner) => panner.with_negative_z(self.allow_negative_z),
+            // Degenerate geometry (collinear/coplanar, or a speaker at the
+            // listener) that can't be triangulated — most often a crossover band
+            // that drops below a triangulable speaker set. Don't kill the engine:
+            // degrade to the triangulation-free directional pan and warn loudly so
+            // it surfaces in the log (stderr + Studio log panel) instead of failing
+            // silently with no audio.
+            Err(e) => {
+                let names: Vec<&str> = self
+                    .layout
+                    .speakers
+                    .iter()
+                    .filter(|s| s.spatialize)
+                    .map(|s| s.name.as_str())
+                    .collect();
+                log::warn!(
+                    "VBAP triangulation failed for {} spatializable speaker(s) {:?}: {}. \
+                     Falling back to degenerate directional pan (no triangulation) — audio \
+                     continues, but this layout/band cannot use full VBAP. Check the speaker \
+                     geometry (collinear/coplanar speakers, or one placed at the listener).",
+                    self.positions.len(),
+                    names,
+                    e
+                );
+                return Ok(Box::new(DegenerateVbapBackend::with_omni(
+                    self.positions.clone(),
+                    collect_omni_mask(&self.layout),
+                )));
+            }
+        };
 
         Ok(Box::new(crate::render_backend::VbapBackend::new(
             vbap,
@@ -371,8 +408,8 @@ impl TopologyBuildPlan {
                 plan.distance_res,
                 plan.distance_max,
             ),
-            BackendBuildPlan::FewSpeaker(plan) => format!(
-                "gain_model=vbap(few-speaker) evaluation_mode={} speakers={}",
+            BackendBuildPlan::Degenerate(plan) => format!(
+                "gain_model=vbap(degenerate) evaluation_mode={} speakers={}",
                 self.evaluation_mode().as_str(),
                 plan.positions.len()
             ),
@@ -405,7 +442,7 @@ impl TopologyBuildPlan {
 fn inner_backend_summary(plan: &BackendBuildPlan) -> &'static str {
     match plan {
         BackendBuildPlan::Vbap(_) => "vbap",
-        BackendBuildPlan::FewSpeaker(_) => "vbap",
+        BackendBuildPlan::Degenerate(_) => "vbap",
         BackendBuildPlan::Barycenter(_) => "barycenter",
         BackendBuildPlan::ExperimentalDistance(_) => "experimental_distance",
         BackendBuildPlan::Hybrid(_) => "hybrid",
@@ -434,6 +471,24 @@ fn collect_spatializable_positions(layout: &SpeakerLayout) -> Vec<[f32; 3]> {
         .iter()
         .filter(|speaker| speaker.spatialize)
         .map(|speaker| [speaker.x, speaker.y, speaker.z])
+        .collect()
+}
+
+/// Normalised magnitude below which a spatializable speaker is treated as sitting
+/// at the listener (no usable direction), e.g. a spatialised LFE near the origin.
+/// Such speakers get a constant baseline share in the degenerate backend instead
+/// of being panned. Same `spatialize` filter / order as the panner positions.
+pub(crate) const ORIGIN_DIR_EPS: f32 = 0.05;
+
+pub(crate) fn collect_omni_mask(layout: &SpeakerLayout) -> Vec<bool> {
+    layout
+        .speakers
+        .iter()
+        .filter(|speaker| speaker.spatialize)
+        .map(|speaker| {
+            (speaker.x * speaker.x + speaker.y * speaker.y + speaker.z * speaker.z).sqrt()
+                < ORIGIN_DIR_EPS
+        })
         .collect()
 }
 
@@ -487,10 +542,13 @@ fn build_vbap_build_plan(
     };
 
     // Fewer than 3 spatializable speakers can't be triangulated: pan them with
-    // the degenerate-VBAP backend (same direction-only model) instead.
+    // the degenerate-VBAP backend (same direction-only model) instead. Larger but
+    // still-degenerate sets are caught at build time in
+    // `VbapTopologyBuildPlan::build_gain_model`.
     if positions.len() < 3 {
-        return Some(BackendBuildPlan::FewSpeaker(FewSpeakerBuildPlan {
+        return Some(BackendBuildPlan::Degenerate(DegenerateVbapBuildPlan {
             positions,
+            omni: collect_omni_mask(layout),
         }));
     }
 
