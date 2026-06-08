@@ -1854,6 +1854,12 @@
         gap: 0.45rem;
         align-items: stretch;
         position: relative;
+        /* The row is a click target (select the speaker); its labels (name, dB,
+           cutoffs) aren't meant to be selected as text — a click-drag on the dB
+           value would otherwise start a text selection instead of selecting the
+           speaker. No text inputs live in this row, so this is safe. */
+        -webkit-user-select: none;
+        user-select: none;
       }
 
       /* Clip indicator: flash just the speaker's name chip, not the whole row. */
