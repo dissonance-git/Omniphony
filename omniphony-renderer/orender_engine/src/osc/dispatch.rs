@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 use std::net::{SocketAddr, UdpSocket};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use renderer::backend_files;
+use renderer::backend_params::ParamValue;
 use renderer::live_params::RendererControl;
 use rosc::{OscMessage, OscType};
 use runtime_control::HostControlHandler;
@@ -19,7 +22,8 @@ use super::gaintable::GaintableCache;
 use super::recompute::trigger_layout_recompute;
 use super::transport::{
     broadcast_blob, broadcast_fff, broadcast_float, broadcast_int, broadcast_string,
-    resolve_register_addr, send_diag_state, send_metering_state, send_update_to_client,
+    resolve_register_addr, send_diag_state, send_message_to_client, send_metering_state,
+    send_update_to_client,
 };
 
 #[derive(Default)]
@@ -517,6 +521,22 @@ pub(crate) fn handle_control_message(
         return;
     }
 
+    // Editable backend files (e.g. the scriptable backend's `.lua`). The content
+    // is owned by the renderer, so the editor reads/writes it here over OSC; these
+    // reply point-to-point to the requester (`src`) rather than broadcasting.
+    if addr == osc_contract::CONTROL_BACKEND_FILE_GET {
+        handle_backend_file_get(msg, src, control, socket);
+        return;
+    }
+    if addr == osc_contract::CONTROL_BACKEND_FILE_LIST {
+        handle_backend_file_list(msg, src, control, socket);
+        return;
+    }
+    if addr == osc_contract::CONTROL_BACKEND_FILE_PUT {
+        handle_backend_file_put(msg, src, control, host, socket, clients, gaintable_cache);
+        return;
+    }
+
     if let Some(effects) = apply_simple_osc_control(msg, &runtime_ctx) {
         apply_control_effects(effects, control, host, socket, clients, gaintable_cache);
         return;
@@ -590,6 +610,217 @@ fn apply_control_effects(
         }
         trigger_layout_recompute(control, socket, clients, gaintable_cache);
     }
+}
+
+/// Max bytes for an editable backend file carried in one OSC datagram. Scripts
+/// are tiny, so a save/load stays a single all-or-nothing message (no chunk
+/// reassembly), well under the UDP datagram limit.
+const BACKEND_FILE_MAX_BYTES: usize = 60_000;
+
+fn str_arg(msg: &OscMessage, index: usize) -> Option<String> {
+    match msg.args.get(index) {
+        Some(OscType::String(s)) => Some(s.clone()),
+        _ => None,
+    }
+}
+
+/// The directory holding the YAML config, used to root the managed file store.
+fn backend_file_config_dir(control: &RendererControl) -> Option<PathBuf> {
+    control
+        .config_path()
+        .and_then(|path| path.parent().map(|dir| dir.to_path_buf()))
+}
+
+fn send_backend_file_error(
+    socket: &UdpSocket,
+    src: SocketAddr,
+    backend_id: &str,
+    key: &str,
+    message: impl Into<String>,
+) {
+    let message = message.into();
+    log::warn!("backend file {backend_id}.{key}: {message}");
+    send_message_to_client(
+        socket,
+        src,
+        osc_contract::STATE_BACKEND_FILE_ERROR,
+        vec![
+            OscType::String(backend_id.to_string()),
+            OscType::String(key.to_string()),
+            OscType::String(message),
+        ],
+    );
+}
+
+/// `get [backend_id, key, name?]` → read a file's content on the renderer and
+/// reply STATE_BACKEND_FILE_CONTENT to the requester. With an explicit `name` the
+/// editor previews any managed-store file; without it, the param's current handle
+/// is read. An absolute handle is only honoured for a loopback caller (see
+/// [`backend_files::resolve`]).
+fn handle_backend_file_get(
+    msg: &OscMessage,
+    src: SocketAddr,
+    control: &Arc<RendererControl>,
+    socket: &UdpSocket,
+) {
+    let (Some(backend_id), Some(key)) = (str_arg(msg, 0), str_arg(msg, 1)) else {
+        return;
+    };
+    let handle = match str_arg(msg, 2) {
+        Some(name) if !name.trim().is_empty() => name,
+        _ => control
+            .backend_params_for(&backend_id)
+            .get(&key)
+            .and_then(|value| value.as_str().map(str::to_string))
+            .unwrap_or_default(),
+    };
+    let config_dir = backend_file_config_dir(control);
+    let allow_absolute = src.ip().is_loopback();
+    let Some(path) =
+        backend_files::resolve(config_dir.as_deref(), &backend_id, &handle, allow_absolute)
+    else {
+        send_backend_file_error(socket, src, &backend_id, &key, "no file selected");
+        return;
+    };
+    match std::fs::read_to_string(&path) {
+        Ok(content) => send_message_to_client(
+            socket,
+            src,
+            osc_contract::STATE_BACKEND_FILE_CONTENT,
+            vec![
+                OscType::String(backend_id),
+                OscType::String(key),
+                OscType::String(handle),
+                OscType::String(content),
+            ],
+        ),
+        Err(e) => {
+            send_backend_file_error(socket, src, &backend_id, &key, format!("read failed: {e}"))
+        }
+    }
+}
+
+/// `list [backend_id]` → reply STATE_BACKEND_FILE_LIST with the managed store's
+/// file names as a JSON array, so the editor can offer them when the renderer is
+/// remote (no native Browse).
+fn handle_backend_file_list(
+    msg: &OscMessage,
+    src: SocketAddr,
+    control: &Arc<RendererControl>,
+    socket: &UdpSocket,
+) {
+    let Some(backend_id) = str_arg(msg, 0) else {
+        return;
+    };
+    let config_dir = backend_file_config_dir(control);
+    let names = backend_files::list(config_dir.as_deref(), &backend_id);
+    let json = serde_json::to_string(&names).unwrap_or_else(|_| "[]".to_string());
+    send_message_to_client(
+        socket,
+        src,
+        osc_contract::STATE_BACKEND_FILE_LIST,
+        vec![OscType::String(backend_id), OscType::String(json)],
+    );
+}
+
+/// `put [backend_id, key, name, content]` → write the content into the managed
+/// store (or, for a loopback caller, an absolute path), persist the handle, and
+/// rebuild the backend. Replies STATE_BACKEND_FILE_CONTENT as a save ack; build
+/// errors surface through the usual recompute-error banner.
+fn handle_backend_file_put(
+    msg: &OscMessage,
+    src: SocketAddr,
+    control: &Arc<RendererControl>,
+    host: Option<&Arc<dyn HostControlHandler>>,
+    socket: &Arc<UdpSocket>,
+    clients: &Arc<OscClientRegistry>,
+    gaintable_cache: &Arc<GaintableCache>,
+) {
+    let (Some(backend_id), Some(key), Some(name)) =
+        (str_arg(msg, 0), str_arg(msg, 1), str_arg(msg, 2))
+    else {
+        return;
+    };
+    let content = str_arg(msg, 3).unwrap_or_default();
+    if content.len() > BACKEND_FILE_MAX_BYTES {
+        send_backend_file_error(
+            socket,
+            src,
+            &backend_id,
+            &key,
+            format!(
+                "file too large ({} bytes, max {BACKEND_FILE_MAX_BYTES})",
+                content.len()
+            ),
+        );
+        return;
+    }
+    let config_dir = backend_file_config_dir(control);
+    let allow_absolute = src.ip().is_loopback();
+    let Some(path) =
+        backend_files::resolve(config_dir.as_deref(), &backend_id, &name, allow_absolute)
+    else {
+        send_backend_file_error(socket, src, &backend_id, &key, "invalid file name");
+        return;
+    };
+    // The handle we persist must resolve back to `path` at build time (which
+    // always allows absolute paths): keep an allowed absolute name as-is,
+    // otherwise the safe store basename.
+    let stored_handle = if allow_absolute && Path::new(name.trim()).is_absolute() {
+        name.trim().to_string()
+    } else {
+        match backend_files::sanitize_name(&name) {
+            Some(basename) => basename,
+            None => {
+                send_backend_file_error(socket, src, &backend_id, &key, "invalid file name");
+                return;
+            }
+        }
+    };
+    if let Some(parent) = path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            send_backend_file_error(
+                socket,
+                src,
+                &backend_id,
+                &key,
+                format!("cannot create store dir: {e}"),
+            );
+            return;
+        }
+    }
+    if let Err(e) = std::fs::write(&path, content.as_bytes()) {
+        send_backend_file_error(socket, src, &backend_id, &key, format!("write failed: {e}"));
+        return;
+    }
+    control.set_backend_param(&backend_id, &key, ParamValue::Text(stored_handle.clone()));
+    // Ack the save back to the editor.
+    send_message_to_client(
+        socket,
+        src,
+        osc_contract::STATE_BACKEND_FILE_CONTENT,
+        vec![
+            OscType::String(backend_id.clone()),
+            OscType::String(key.clone()),
+            OscType::String(stored_handle),
+            OscType::String(content),
+        ],
+    );
+    // Republish state and rebuild the backend with the new content; a bad script
+    // surfaces via the recompute-error path like any other build failure.
+    apply_control_effects(
+        ControlEffects {
+            mark_dirty: true,
+            trigger_layout_recompute: true,
+            log_message: Some(format!("OSC: backend file {backend_id}.{key} saved")),
+            ..Default::default()
+        },
+        control,
+        host,
+        socket,
+        clients,
+        gaintable_cache,
+    );
 }
 
 /// Reply to a gain-table subscribe: push the full chunked table if the client's

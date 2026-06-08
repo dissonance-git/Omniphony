@@ -194,6 +194,27 @@ pub(crate) fn send_update_to_client(
     }
 }
 
+/// Send a multi-arg OSC message straight to one client (the requester), rather
+/// than broadcasting to all registered clients. Used for point-to-point replies
+/// such as backend-file content/list/error, which are only of interest to the
+/// editor that asked.
+pub(crate) fn send_message_to_client(
+    socket: &UdpSocket,
+    client: SocketAddr,
+    addr: &str,
+    args: Vec<OscType>,
+) {
+    let packet = OscPacket::Message(OscMessage {
+        addr: addr.to_string(),
+        args,
+    });
+    if let Ok(bytes) = rosc::encoder::encode(&packet) {
+        if let Err(e) = socket.send_to(&bytes, client) {
+            log::warn!("Failed to send {addr} to {client}: {e}");
+        }
+    }
+}
+
 pub(crate) fn resolve_register_addr(src: SocketAddr, args: &[OscType]) -> SocketAddr {
     if let Some(OscType::Int(port)) = args.first() {
         if let Ok(port) = u16::try_from(*port) {

@@ -12,6 +12,21 @@ import { scheduleUIFlush } from '../flush.js';
 import { inRendererPanel } from '../ui/panel-roots.js';
 import { renderHybridCurve } from './hybrid-curve.js';
 import { makeHelpPanel, attachInlineHelp, closeInlineHelp } from './inline-help.js';
+import { openBackendFileEditor } from './script-editor.js';
+
+// Whether the renderer shares this machine's filesystem (its OSC host is
+// loopback). The native Browse dialog returns a path in *this* machine's
+// namespace, which is only meaningful to the renderer when they are the same
+// host — so Browse is hidden when the renderer is remote. Editing still works
+// remotely through the editor's renderer-side content channel. Cached here and
+// refreshed from the Tauri host; defaults to local (the common 127.0.0.1 case).
+let rendererIsLocal = true;
+export function refreshRendererLocality() {
+  return invoke('renderer_is_local')
+    .then((local) => { rendererIsLocal = !!local; })
+    .catch(() => {});
+}
+refreshRendererLocality();
 
 function getVbapStatusEl() { return inRendererPanel('vbapStatus'); }
 function getRenderBackendSelectEl() { return inRendererPanel('renderBackendSelect'); }
@@ -398,6 +413,59 @@ function buildParamControl(spec, current, backend) {
     input.addEventListener('change', () => sendBackendParam(spec.key, input.value.trim(), backend));
     row.appendChild(input);
     // Don't clobber the field while the user is typing in it.
+    row._setValue = (v) => {
+      if (document.activeElement !== input) input.value = v == null ? '' : String(v);
+    };
+  } else if (kind.type === 'file') {
+    // A renderer-owned file handle: a text field for the handle, a Browse button
+    // (native dialog, shown only when the renderer is local) and, when editable,
+    // an Edit button opening the local editor that loads/saves over the renderer.
+    const exts = Array.isArray(kind.extensions) ? kind.extensions.map(String) : [];
+    const wrap = document.createElement('div');
+    wrap.style.display = 'flex';
+    wrap.style.gap = '0.3rem';
+    wrap.style.alignItems = 'center';
+    wrap.style.flexWrap = 'wrap';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'delay-input';
+    input.style.minWidth = '10rem';
+    input.placeholder = exts.length ? `name.${exts[0]}` : '/path/to/file';
+    input.value = current == null ? '' : String(current);
+    input.addEventListener('change', () => sendBackendParam(spec.key, input.value.trim(), backend));
+    wrap.appendChild(input);
+
+    const browse = document.createElement('button');
+    browse.type = 'button';
+    browse.className = 'mini-btn';
+    browse.textContent = t('backend.file.browse');
+    browse.style.display = rendererIsLocal ? '' : 'none';
+    browse.addEventListener('click', async () => {
+      const picked = await invoke('pick_backend_file_path', { extensions: exts }).catch(() => null);
+      if (picked) {
+        input.value = picked;
+        sendBackendParam(spec.key, picked, backend);
+      }
+    });
+    wrap.appendChild(browse);
+
+    if (kind.editable) {
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'mini-btn';
+      edit.textContent = t('backend.file.edit');
+      edit.addEventListener('click', () => openBackendFileEditor({
+        backend,
+        key: spec.key,
+        language: kind.language || null,
+        extensions: exts,
+        rendererIsLocal,
+      }));
+      wrap.appendChild(edit);
+    }
+
+    row.appendChild(wrap);
     row._setValue = (v) => {
       if (document.activeElement !== input) input.value = v == null ? '' : String(v);
     };

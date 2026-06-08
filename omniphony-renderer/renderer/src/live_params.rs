@@ -683,14 +683,38 @@ impl RendererControl {
     /// can list the selectable backends (built-in and contributor-registered).
     pub fn available_backends(&self) -> Vec<crate::backend_registry::BackendListing> {
         // Resolve dynamic schemas (e.g. the scriptable backend's, which depends
-        // on its selected file) against the current param store. Hybrid composes
-        // the other backends, so it is forced to the end of the selection combo
-        // regardless of registration order (see `hybrid_last`).
-        let listings = self
-            .backend_registry
-            .read()
-            .available_with(&self.backend_params.read());
+        // on its selected file) against the current param store, with File-kind
+        // handles resolved to absolute renderer paths so the schema reader can open
+        // the file. Hybrid composes the other backends, so it is forced to the end
+        // of the selection combo regardless of registration order (see `hybrid_last`).
+        let registry = self.backend_registry.read();
+        let resolved = self.resolved_backend_params(&registry);
+        let listings = registry.available_with(&resolved);
         crate::backend_registry::hybrid_last(listings)
+    }
+
+    /// Resolve File-kind param handles to absolute renderer paths so backend
+    /// factories read a real path (see [`crate::backend_files`]). Takes the
+    /// already-held registry guard to avoid re-locking it.
+    fn resolved_backend_params(
+        &self,
+        registry: &BackendRegistry,
+    ) -> HashMap<String, HashMap<String, crate::backend_params::ParamValue>> {
+        let config_dir = self
+            .config_path()
+            .and_then(|path| path.parent().map(|dir| dir.to_path_buf()));
+        let raw = self.backend_params.read();
+        crate::backend_files::resolve_file_params(&raw, config_dir.as_deref(), |backend_id, key| {
+            registry
+                .get(backend_id)
+                .map(|factory| {
+                    factory.param_schema().iter().any(|spec| {
+                        spec.key == key
+                            && matches!(spec.kind, crate::backend_params::ParamKind::File { .. })
+                    })
+                })
+                .unwrap_or(false)
+        })
     }
 
     /// Set one backend parameter value (host/OSC). Stored generically and applied
@@ -876,7 +900,9 @@ impl RendererControl {
         );
         let geometry_generation = self.geometry_generation();
         let registry = self.backend_registry.read();
-        let backend_params = self.backend_params.read();
+        // File-kind handles are resolved to absolute renderer paths here too, so
+        // the backend's `build_plan` opens a real path (mirrors `available_backends`).
+        let backend_params = self.resolved_backend_params(&registry);
         prepare_topology_build_plan(
             &registry,
             layout,
