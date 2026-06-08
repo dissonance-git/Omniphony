@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { t } from '../i18n.js';
 import { app, isSpeakerLayoutFrozen, speakerBaseGains, speakerDelays } from '../state.js';
 import { syncSpeakerHeatmapBandSelect } from '../scene/speaker-band-select.js';
 import {
@@ -155,6 +156,8 @@ export function setupSpeakerEditorListeners() {
   if (speakerEditAutoDelayBtnEl) {
     speakerEditAutoDelayBtnEl.addEventListener('click', () => {
       if (isSpeakerLayoutFrozen()) return;
+      // Bulk action: overwrites every speaker's delay. Confirm first.
+      if (!window.confirm(t('confirm.calcDelays'))) return;
       computeAndApplySpeakerDelays();
     });
   }
@@ -162,6 +165,8 @@ export function setupSpeakerEditorListeners() {
   if (speakerEditDelayToDistanceBtnEl) {
     speakerEditDelayToDistanceBtnEl.addEventListener('click', () => {
       if (isSpeakerLayoutFrozen()) return;
+      // Bulk action: moves every speaker (overwrites positions). Confirm first.
+      if (!window.confirm(t('confirm.delayToDist'))) return;
       adjustSpeakerDistancesFromDelays();
     });
   }

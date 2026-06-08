@@ -538,6 +538,8 @@
   "help.speaker.delayMs": "Per-speaker output delay, in milliseconds. Kept in sync with the sample delay below.",
   "help.speaker.delaySamples": "Per-speaker output delay, in samples at the output rate. Kept in sync with the millisecond delay above.",
   "help.speaker.delayTools": "“Calc delays” derives every speaker's delay from its distance; “Delay → Dist” does the inverse, setting distance from the current delay.",
+  "confirm.calcDelays": "Calculate delays from distances?\n\nThis overwrites the delay of EVERY speaker so they are time-aligned to the farthest speaker (nearer speakers get more delay). Existing per-speaker delays will be replaced.",
+  "confirm.delayToDist": "Convert delays to distances?\n\nThis MOVES every speaker along its current direction so its distance matches its delay (the farthest speaker is the reference). Speaker positions will be overwritten.",
   "help.speaker.spatialize": "Whether this speaker takes part in object panning. Off makes it a fixed bed / LFE channel that is not used as a VBAP vertex.",
   "help.speaker.freqLow": "Low edge of this speaker's crossover band, in Hz. Empty = full range; below this the speaker receives nothing.",
   "help.speaker.freqHigh": "High edge of this speaker's crossover band, in Hz. Empty = full range; above this the speaker receives nothing.",
