@@ -724,11 +724,9 @@
     <div id="backendInfoModal" class="info-modal" aria-hidden="true">
       <div class="info-modal-card">
         <div class="info-modal-title" data-i18n="backend.infoTitle">Render backend</div>
-        <div class="info-modal-text" data-i18n-html="backend.infoBody">
-          The backend selects the spatial rendering model used for object panning.<br /><br />
-          <strong>VBAP</strong> is the main speaker-based panner. <strong>Barycenter</strong> exposes a softer, more blended localisation model. <strong>Distance</strong> is a more experimental solver with extra tuning controls.<br /><br />
-          <strong>Restore backend</strong> reverts a temporary runtime override back to the persisted configuration.
-        </div>
+        <!-- Body is filled by setBackendInfoModalOpen: a generic intro plus a
+             blurb specific to the currently-selected backend. -->
+        <div class="info-modal-text" id="backendInfoBody"></div>
         <div class="info-modal-actions">
           <button id="backendInfoCloseBtn" type="button" class="toggle-btn" data-i18n="common.close">Close</button>
         </div>

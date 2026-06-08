@@ -3,6 +3,7 @@
  */
 
 import { app } from './state.js';
+import { t } from './i18n.js';
 import { emitOverlayLayoutChanged } from './ui/layout/overlay-layout-state.js';
 
 // ---------------------------------------------------------------------------
@@ -111,6 +112,26 @@ export function setEvaluationInfoModalOpen(open) {
 export function setBackendInfoModalOpen(open) {
   const backendInfoModalEl = getBackendInfoModalEl();
   if (!backendInfoModalEl) return;
+  // Compose the body on open: a generic intro that doesn't go stale plus a blurb
+  // for the currently-selected backend (keyed by its id). Backends without a
+  // specific blurb (e.g. third-party ones) just show the intro.
+  if (open) {
+    const bodyEl = document.getElementById('backendInfoBody');
+    if (bodyEl) {
+      const state = app.renderBackendState || {};
+      const id = String(state.selection || state.effective || '').trim();
+      const list = Array.isArray(state.availableBackends) ? state.availableBackends : [];
+      const entry = list.find((b) => b && b.id === id);
+      const label = (entry && entry.label) || id;
+      let html = t('backend.infoBody');
+      const key = id ? `help.backend.${id}` : '';
+      const specific = key ? t(key) : '';
+      if (id && specific && specific !== key) {
+        html += `<br /><br /><strong>${label}</strong><br />${specific}`;
+      }
+      bodyEl.innerHTML = html;
+    }
+  }
   backendInfoModalEl.classList.toggle('open', Boolean(open));
 }
 
