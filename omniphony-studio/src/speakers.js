@@ -777,8 +777,11 @@ function positionIconMarkup(speaker) {
   const cx = 2 + ((x + 1) / 2) * 12;
   const cy = 2 + ((1 - y) / 2) * 12;
   const fill = heightToColor(z);
+  // Non-spatialized speakers (e.g. direct/LFE feeds) sit outside the room model,
+  // so draw the room frame black instead of the usual subtle stroke.
+  const frameStroke = speaker?.spatialize === 0 ? '#000' : 'currentColor';
   return `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">`
-    + `<rect x="0.6" y="0.6" width="14.8" height="14.8" rx="1.2" fill="none" stroke="currentColor" stroke-width="0.9"/>`
+    + `<rect x="0.6" y="0.6" width="14.8" height="14.8" rx="1.2" fill="none" stroke="${frameStroke}" stroke-width="0.9"/>`
     + `<rect x="${(cx - 1.6).toFixed(2)}" y="${(cy - 1.6).toFixed(2)}" width="3.2" height="3.2" rx="0.5" fill="${fill}"/>`
     + `</svg>`;
 }
