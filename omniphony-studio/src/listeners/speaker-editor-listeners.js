@@ -4,7 +4,7 @@ import { app, isSpeakerLayoutFrozen, speakerBaseGains, speakerDelays } from '../
 import { normalizedToMeters, metersToSceneUnits, metersPerUnit } from '../coordinates.js';
 import { syncSpeakerHeatmapBandSelect } from '../scene/speaker-band-select.js';
 import {
-  renderSpeakerEditor, requestAddSpeaker, requestMoveSpeaker, requestRemoveSpeaker,
+  renderSpeakerEditor, renderSpeakersList, requestAddSpeaker, requestMoveSpeaker, requestRemoveSpeaker,
   applySpeakerCartesianEdit, applySpeakerPolarEdit, applySpeakerSceneCartesianEdit,
   setSpeakerSpatializeLocal, setSpeakerCoordMode, updateSpeakerLayoutPatch, sendSpeakersPatch,
   updateSpeakerVisualsFromState, updateSpeakerGizmo, updateControlsForEditMode,
@@ -338,6 +338,9 @@ export function setupSpeakerEditorListeners() {
       );
       syncSpeakerHeatmapBandSelect();
       renderSpeakerEditor();
+      // Refresh the speaker list so its per-speaker filter icon reflects the new
+      // low/high cutoff immediately.
+      renderSpeakersList();
     };
 
     inputEl.addEventListener('change', () => {

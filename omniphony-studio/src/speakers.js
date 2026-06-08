@@ -585,6 +585,13 @@ export function createSpeakerItem(id, speaker) {
   level.className = 'meter-row';
   level.classList.add('speaker-meter-row');
 
+  // Per-speaker crossover-filter glyph, shown between the name chip and the dB
+  // value. Its shape (low-/high-/band-pass or full-band) reflects the speaker's
+  // freqLow/freqHigh; populated by `applySpeakerFilterIcon` in updateSpeakerItem.
+  const filterIcon = document.createElement('span');
+  filterIcon.className = 'speaker-filter-icon';
+  level.appendChild(filterIcon);
+
   const levelText = document.createElement('div');
   levelText.className = 'fixed-metric';
   level.appendChild(levelText);
@@ -643,6 +650,7 @@ export function createSpeakerItem(id, speaker) {
     root,
     idStrip,
     label: idText,
+    filterIcon,
     levelText,
     meterFill,
     peakCursor,
@@ -691,10 +699,47 @@ export function flashSpeakerClip(index) {
   );
 }
 
+// Crossover-filter type from the per-speaker band limits. A `freqLow` cutoff
+// passes frequencies above it (high-pass); a `freqHigh` cutoff passes below it
+// (low-pass); both → band-pass; neither → full-band.
+function speakerFilterType(speaker) {
+  const hasLow = Number.isFinite(Number(speaker?.freqLow)) && Number(speaker.freqLow) > 0;
+  const hasHigh = Number.isFinite(Number(speaker?.freqHigh)) && Number(speaker.freqHigh) > 0;
+  if (hasLow && hasHigh) return 'band';
+  if (hasLow) return 'high';
+  if (hasHigh) return 'low';
+  return 'full';
+}
+
+// Tiny filter-response glyphs (stroke uses currentColor so CSS sets the colour).
+const FILTER_ICON_SVG = {
+  full: '<path d="M1,5.5 L15,5.5"/>',
+  low: '<path d="M1,4 L8.5,4 L14,9.5"/>',
+  high: '<path d="M2,9.5 L7.5,4 L15,4"/>',
+  band: '<path d="M1,9.5 L5,4 L11,4 L15,9.5"/>'
+};
+
+function filterIconMarkup(type) {
+  return `<svg viewBox="0 0 16 11" width="16" height="11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${FILTER_ICON_SVG[type]}</svg>`;
+}
+
+function applySpeakerFilterIcon(entry, speaker) {
+  if (!entry.filterIcon) return;
+  const type = speakerFilterType(speaker);
+  // Tooltip is cheap to set every refresh (keeps it correct across locale
+  // changes); the SVG is only rebuilt when the type actually changes.
+  entry.filterIcon.title = t(`speaker.filter.${type}`);
+  if (entry.filterType === type) return;
+  entry.filterType = type;
+  entry.filterIcon.dataset.filter = type;
+  entry.filterIcon.innerHTML = filterIconMarkup(type);
+}
+
 export function updateSpeakerItem(entry, id, speaker) {
   const selectedSpeakerIndex = get_selectedSpeakerIndex();
   const soloTarget = getSoloTarget('speaker');
   entry.label.textContent = String(speaker.id ?? id);
+  applySpeakerFilterIcon(entry, speaker);
   entry.muteBtn.classList.toggle('active', speakerMuted.has(id));
   entry.soloBtn.classList.toggle('active', soloTarget === id);
   updateItemClasses(entry, speakerMuted.has(id), soloTarget && soloTarget !== id);
