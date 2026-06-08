@@ -156,9 +156,10 @@ pub(super) struct BandRenderer {
     /// Band-restricted render topology (its `backend` is the prepared engine).
     /// Stored (rather than just the engine) so a geometry-unchanged refresh can
     /// reuse its gain model via `build_topology_reusing`. Always `Some` for a band
-    /// with ≥1 speaker — 1–2 speakers use the degenerate-VBAP `FewSpeakerBackend`,
-    /// ≥3 the full panner. `None` only for an empty (coverage-gap) band, which
-    /// renders silence.
+    /// with ≥1 speaker — 1–2 speakers use the degenerate-VBAP `DegenerateVbapBackend`,
+    /// ≥3 the full panner, falling back to `DegenerateVbapBackend` when that set
+    /// still can't be triangulated. `None` only for an empty (coverage-gap) band,
+    /// which renders silence.
     topology: Option<Arc<RenderTopology>>,
     /// `true` when this band covers every speaker in identity order
     /// (`speaker_indices == 0..num_speakers`) — the no-crossover case. Then the
@@ -258,7 +259,8 @@ impl BandRenderer {
         let band_gains = match self.engine() {
             Some(engine) => engine.compute_gains(&req).gains,
             // Only an empty (coverage-gap) band has no engine; it renders silence.
-            // Bands with 1–2 speakers carry a `FewSpeakerBackend` engine.
+            // Bands with 1–2 (or degenerate ≥3) speakers carry a
+            // `DegenerateVbapBackend` engine.
             None => crate::spatial_vbap::Gains::zeroed(n),
         };
         // No crossover: band gains are already full-size and in speaker order, so

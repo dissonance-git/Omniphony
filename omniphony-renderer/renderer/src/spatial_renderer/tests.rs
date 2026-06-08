@@ -188,7 +188,7 @@ fn unified_polar_matches_per_band() {
 
 /// A crossover band with only 1–2 speakers used to have no engine (hardcoded
 /// equal-power), which disabled the unified table for the whole crossover.
-/// Now such a band carries a `FewSpeakerBackend`, so the unified table builds
+/// Now such a band carries a `DegenerateVbapBackend`, so the unified table builds
 /// and must stay bit-equivalent to the per-band path. Here the top band keeps
 /// exactly 2 spatializable speakers (pairwise-VBAP fallback).
 #[test]

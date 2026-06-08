@@ -14,8 +14,8 @@ use crate::live_params::{
     PolarEvaluationParams, PreferredEvaluationMode, RampMode, RenderTopology, RendererControl,
 };
 use crate::render_backend::{
-    EffectiveEvaluationMode, MultiBandTable, RenderRequest, VbapBackend,
-    build_prepared_render_engine,
+    DegenerateVbapBackend, EffectiveEvaluationMode, GainModel, MultiBandTable, RenderRequest,
+    VbapBackend, build_prepared_render_engine,
 };
 use crate::spatial_vbap::{DistanceModel, VbapPanner, VbapTableMode};
 use crate::speaker_layout::SpeakerLayout;
@@ -94,28 +94,65 @@ impl SpatialRenderer {
             .0;
         let num_vbap_speakers = spatializable_positions.len();
 
-        let vbap = VbapPanner::new(&spatializable_positions, az_res_deg, el_res_deg, 0.0)
-            .map_err(|e| anyhow::anyhow!("Failed to create VBAP panner: {}", e))?
-            .with_negative_z(allow_negative_z);
         let distance_step = if spread_resolution > 0.0 {
             spread_resolution
         } else {
             0.25
         };
-        let vbap_triangles = vbap.num_triangles();
+        // Build the full triangulating panner; if the geometry is degenerate
+        // (collinear/coplanar, or a speaker at the listener) and can't be
+        // triangulated, degrade to the triangulation-free directional pan and warn
+        // loudly rather than failing the whole engine (which would leave the host
+        // with no audio at all). The warning surfaces on stderr and in Studio's log
+        // panel.
+        let (model, vbap_triangles): (Box<dyn GainModel>, usize) =
+            match VbapPanner::new(&spatializable_positions, az_res_deg, el_res_deg, 0.0) {
+                Ok(panner) => {
+                    let panner = panner.with_negative_z(allow_negative_z);
+                    let triangles = panner.num_triangles();
+                    (
+                        Box::new(VbapBackend::new(
+                            panner,
+                            crate::render_backend::VbapSpreadParams {
+                                spread_min,
+                                spread_max,
+                                spread_from_distance,
+                                spread_distance_range,
+                                spread_distance_curve,
+                                size_to_spread_mode: Default::default(),
+                            },
+                        )),
+                        triangles,
+                    )
+                }
+                Err(e) => {
+                    let names: Vec<&str> = speaker_layout
+                        .speakers
+                        .iter()
+                        .filter(|s| s.spatialize)
+                        .map(|s| s.name.as_str())
+                        .collect();
+                    log::warn!(
+                        "VBAP triangulation failed for {} spatializable speaker(s) {:?}: {}. \
+                         Falling back to degenerate directional pan (no triangulation) — audio \
+                         continues, but this layout cannot use full VBAP. Check the speaker \
+                         geometry (collinear/coplanar speakers, or one placed at the listener).",
+                        num_vbap_speakers,
+                        names,
+                        e
+                    );
+                    (
+                        Box::new(DegenerateVbapBackend::with_omni(
+                            spatializable_positions.clone(),
+                            crate::backend_registry::collect_omni_mask(&speaker_layout),
+                        )),
+                        0,
+                    )
+                }
+            };
         let topology = RenderTopology::new(
             Arc::new(build_prepared_render_engine(
-                Box::new(VbapBackend::new(
-                    vbap,
-                    crate::render_backend::VbapSpreadParams {
-                        spread_min,
-                        spread_max,
-                        spread_from_distance,
-                        spread_distance_range,
-                        spread_distance_curve,
-                        size_to_spread_mode: Default::default(),
-                    },
-                )),
+                model,
                 match table_mode {
                     VbapTableMode::Polar => EffectiveEvaluationMode::PrecomputedPolar,
                     VbapTableMode::Cartesian { .. } => {
