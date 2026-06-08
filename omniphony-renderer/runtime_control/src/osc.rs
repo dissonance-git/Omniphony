@@ -87,10 +87,23 @@ struct LayoutMoveSpeakerPatch {
     to: usize,
 }
 
+/// Wholesale replacement of the editable layout: the full speaker set in one
+/// message. Studio sends this when a layout is imported or a preset is selected,
+/// instead of trying to morph the live layout with a fragile add/remove/move
+/// sequence (which desynced Studio and the renderer and could empty the layout).
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct LayoutReplacePatch {
+    radius_m: Option<f32>,
+    #[serde(default)]
+    speakers: Vec<LayoutAddSpeakerPatch>,
+}
+
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct LayoutConfigPatch {
     radius_m: Option<f32>,
+    replace_layout: Option<LayoutReplacePatch>,
     speaker_edits: Option<Vec<LayoutSpeakerPatch>>,
     add_speaker: Option<LayoutAddSpeakerPatch>,
     remove_speaker: Option<usize>,
@@ -509,6 +522,43 @@ pub fn apply_simple_osc_control(
         let patch = parse_json_string_arg::<LayoutConfigPatch>(msg.args.first());
         if let Some(patch) = patch {
             let mut changed = false;
+
+            // Wholesale layout replacement must run first: it resets the whole
+            // speaker set, so any add/remove/edit in the same message would apply
+            // against the new layout (Studio never combines them, but the order
+            // keeps the semantics well-defined).
+            if let Some(replace) = patch.replace_layout {
+                let new_speakers: Vec<renderer::speaker_layout::Speaker> = replace
+                    .speakers
+                    .into_iter()
+                    .enumerate()
+                    .map(|(idx, sp)| build_layout_speaker_from_patch(sp, format!("spk-{idx}")))
+                    .collect();
+                // Per-speaker live params are keyed by position, so a wholesale
+                // swap invalidates every entry — capture the new delays before
+                // moving the speakers into the layout.
+                let delays: Vec<(usize, f32)> = new_speakers
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, spk)| spk.delay_ms > 0.0)
+                    .map(|(idx, spk)| (idx, spk.delay_ms))
+                    .collect();
+                ctx.renderer.with_editable_layout(|layout| {
+                    if let Some(radius_m) = replace.radius_m {
+                        layout.radius_m = radius_m.max(0.01);
+                    }
+                    layout.speakers = new_speakers;
+                });
+                {
+                    let mut live = ctx.renderer.live.write();
+                    live.speakers.clear();
+                    for (idx, delay_ms) in delays {
+                        live.speakers.entry(idx).or_default().delay_ms = delay_ms;
+                    }
+                }
+                ctx.renderer.mark_speaker_params_dirty();
+                changed = true;
+            }
 
             if let Some(radius_m) = patch.radius_m {
                 let radius_m = radius_m.max(0.01);
