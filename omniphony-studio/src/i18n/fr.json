@@ -209,6 +209,7 @@
   "backend.file.browse": "Parcourir…",
   "backend.file.edit": "Éditer",
   "backend.file.editor.title": "Éditer le fichier du backend",
+  "backend.file.editor.theme": "Thème de l’éditeur",
   "backend.file.editor.close": "Fermer",
   "backend.file.editor.new": "Nouveau",
   "backend.file.editor.reload": "Recharger",

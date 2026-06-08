@@ -345,6 +345,7 @@
   "backend.file.browse": "Sfoglia…",
   "backend.file.edit": "Modifica",
   "backend.file.editor.title": "Modifica file del backend",
+  "backend.file.editor.theme": "Tema dell’editor",
   "backend.file.editor.close": "Chiudi",
   "backend.file.editor.new": "Nuovo",
   "backend.file.editor.reload": "Ricarica",
