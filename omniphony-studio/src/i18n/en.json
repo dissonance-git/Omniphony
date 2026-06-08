@@ -76,7 +76,7 @@
   "help.display.objectDisplayMode": "How objects are drawn in the 3D scene: a flat circle, a transparent sphere, or a diffuse sphere. Display only.",
   "help.display.objectSphereSize": "Radius of the object markers in the 3D scene. Display only.",
   "help.display.speakerLabels": "Show each speaker's name next to its marker in the scene.",
-  "help.display.speakerBands": "Show a small frequency-extent gauge beside each speaker on a log axis (20 Hz at the bottom, 20 kHz at the top). The lit segment is the speaker's crossover pass-band, so you can tell its role at a glance: a low-pass (sub) fills the bottom, a high-pass (tweeter) the top, a band-pass (mid) a floating middle segment, and a full-band speaker the whole bar. Display only.",
+  "help.display.speakerBands": "Show a small frequency-extent gauge beside each speaker on a log axis (20 Hz at the bottom, 20 kHz at the top). The lit segment is the speaker's crossover pass-band, so you can tell its role at a glance: a low-pass (sub) fills the bottom, a high-pass (tweeter) the top, a band-pass (mid) a floating middle segment, and a full-band speaker the whole bar. The axis is tinted by frequency — warm (red/orange) at the low end, cool (cyan/blue) at the high end — so the lit segment also shows which part of the spectrum it covers. Display only.",
   "help.display.speakerSize": "Radius of the speaker markers in the 3D scene. Display only.",
   "help.trail.mode": "How object motion trails are drawn: a diffuse fading cloud or a connected line.",
   "help.trail.duration": "How long a trail stays visible, in seconds.",

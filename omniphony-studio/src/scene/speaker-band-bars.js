@@ -22,11 +22,33 @@ const SCALE_Y = 0.22;
 // Reference gridlines (Hz) drawn faintly across the track.
 const TICKS_HZ = [100, 1000, 10000];
 
-const ACCENT = '#8ec8ff'; // matches the speaker base colour
+// Frequency → colour ramp along the log axis: warm at the low end (bass),
+// cool at the high end (treble). Each stop is a reference frequency so the
+// colours line up with absolute frequency, not with the segment, and a
+// speaker's lit pass-band naturally shows the colours of the band it covers.
+const FREQ_COLOR_STOPS = [
+  { hz: 20, color: '#d23b3b' },    // sub / deep bass — red
+  { hz: 60, color: '#e8772e' },    // bass — orange
+  { hz: 250, color: '#e8b53a' },   // low-mid — amber
+  { hz: 1000, color: '#7ec850' },  // mid — green
+  { hz: 4000, color: '#3fb6c8' },  // presence — cyan
+  { hz: 20000, color: '#5b6fe0' }  // air / treble — blue
+];
 
 function logPos(freq) {
   const f = Math.min(FMAX, Math.max(FMIN, Number(freq) || FMIN));
   return (Math.log(f) - LOG_MIN) / LOG_SPAN; // 0 at FMIN (bottom), 1 at FMAX (top)
+}
+
+// Build the spectral gradient spanning the whole track (top = high freq, bottom
+// = low freq) so colours map to absolute frequency. Filling any sub-rect of the
+// track with it shows the correct local colours.
+function spectrumGradient(ctx, yTop, yBottom) {
+  const grad = ctx.createLinearGradient(0, yTop, 0, yBottom);
+  FREQ_COLOR_STOPS.forEach(({ hz, color }) => {
+    grad.addColorStop(1 - logPos(hz), color); // offset 0 at top (high freq)
+  });
+  return grad;
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -66,17 +88,43 @@ function drawBar(ctx, speaker) {
   const trackH = H - padY * 2;
   const yFor = (freq) => trackTop + (1 - logPos(freq)) * trackH;
 
-  // Track background + border.
-  ctx.fillStyle = 'rgba(20, 28, 38, 0.78)';
+  const grad = spectrumGradient(ctx, trackTop, trackTop + trackH);
+
+  // Dark base so the dim spectrum reads against the scene.
+  ctx.fillStyle = 'rgba(16, 22, 30, 0.82)';
   roundRect(ctx, trackX, trackTop, trackW, trackH, 8);
   ctx.fill();
+
+  // Whole-axis spectrum, dimmed — shows the frequency colours everywhere.
+  ctx.save();
+  roundRect(ctx, trackX, trackTop, trackW, trackH, 8);
+  ctx.clip();
+  ctx.globalAlpha = 0.22;
+  ctx.fillStyle = grad;
+  ctx.fillRect(trackX, trackTop, trackW, trackH);
+  ctx.restore();
+
+  // Lit pass-band segment at full colour (same gradient, so the colours match
+  // the frequencies the band actually covers).
+  const { lo, hi } = bandEdges(speaker);
+  const yHi = yFor(hi); // smaller y (top)
+  const yLo = yFor(lo); // larger y (bottom)
+  ctx.save();
+  roundRect(ctx, trackX, trackTop, trackW, trackH, 8);
+  ctx.clip();
+  ctx.fillStyle = grad;
+  ctx.fillRect(trackX + 2, yHi, trackW - 4, Math.max(2, yLo - yHi));
+  ctx.restore();
+
+  // Border.
   ctx.lineWidth = 2;
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
+  roundRect(ctx, trackX, trackTop, trackW, trackH, 8);
   ctx.stroke();
 
   // Faint reference gridlines at the decade frequencies.
   ctx.lineWidth = 1;
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
   TICKS_HZ.forEach((hz) => {
     const y = yFor(hz);
     ctx.beginPath();
@@ -84,20 +132,6 @@ function drawBar(ctx, speaker) {
     ctx.lineTo(trackX + trackW - 3, y);
     ctx.stroke();
   });
-
-  // Lit pass-band segment (clipped to the rounded track).
-  const { lo, hi } = bandEdges(speaker);
-  const yHi = yFor(hi); // smaller y (top)
-  const yLo = yFor(lo); // larger y (bottom)
-  ctx.save();
-  roundRect(ctx, trackX, trackTop, trackW, trackH, 8);
-  ctx.clip();
-  const grad = ctx.createLinearGradient(0, yHi, 0, yLo);
-  grad.addColorStop(0, ACCENT);
-  grad.addColorStop(1, '#5b86c8');
-  ctx.fillStyle = grad;
-  ctx.fillRect(trackX + 2, yHi, trackW - 4, Math.max(2, yLo - yHi));
-  ctx.restore();
 }
 
 export function createSpeakerBandBar() {
