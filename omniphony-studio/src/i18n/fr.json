@@ -463,6 +463,8 @@
   "speaker.delayTools": "Outils de délai",
   "speaker.calcDelays": "Calculer délais",
   "speaker.delayToDist": "Délai → Dist",
+  "confirm.calcDelays": "Calculer les délais à partir des distances ?\n\nCela écrase le délai de TOUS les haut-parleurs pour les aligner temporellement sur le plus éloigné (les plus proches reçoivent plus de délai). Les délais actuels seront remplacés.",
+  "confirm.delayToDist": "Convertir les délais en distances ?\n\nCela DÉPLACE chaque haut-parleur le long de sa direction actuelle pour que sa distance corresponde à son délai (le plus éloigné sert de référence). Les positions des haut-parleurs seront écrasées.",
   "speaker.spatialize": "Spatialiser",
   "display.speakerLabels": "Étiquettes des enceintes",
   "mpvOverlay.title": "Overlay mpv",

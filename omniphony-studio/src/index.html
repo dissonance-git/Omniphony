@@ -457,7 +457,7 @@
       <div class="info-section" id="speakerEditSection" style="display:none">
         <div class="info-title" id="speakerEditTitle" data-i18n="section.speakerEditor">Speaker Editor</div>
         <div class="editor-row" style="margin-bottom:0.35rem">
-          <label data-i18n="speaker.layout">Layout</label>
+          <label data-i18n="speaker.layout" data-help-i18n="help.speaker.layout">Layout</label>
           <div style="display:flex;gap:0.3rem;justify-content:flex-end">
             <button id="speakerMoveUpBtn" type="button" class="toggle-btn" data-i18n="speaker.up">Up</button>
             <button id="speakerMoveDownBtn" type="button" class="toggle-btn" data-i18n="speaker.down">Down</button>
@@ -468,7 +468,7 @@
           <div class="editor-meta">
             <div><strong data-i18n="common.name">Name:</strong></div>
             <input id="speakerEditNameInput" class="name-input" type="text" value="" />
-            <div><strong data-i18n="speaker.xyzOmniphony">XYZ (Omniphony):</strong></div>
+            <div><strong data-i18n="speaker.xyzOmniphony" data-help-i18n="help.speaker.position" data-help-anchor=".editor-meta">XYZ (Omniphony):</strong></div>
             <div class="coord-mode-row">
               <label class="coord-mode-label" for="speakerEditCartesianMode">
                 <input id="speakerEditCartesianMode" type="radio" name="speakerCoordMode" value="cartesian" />
@@ -495,35 +495,35 @@
             </div>
           </div>
           <div class="editor-row gain-row">
-            <label for="speakerEditGainSlider" data-i18n="speaker.gain">Gain</label>
+            <label for="speakerEditGainSlider" data-i18n="speaker.gain" data-help-i18n="help.speaker.gain">Gain</label>
             <input id="speakerEditGainSlider" class="gain-slider" type="range" min="0" max="2" step="0.01" value="1" />
             <div id="speakerEditGainBox" class="gain-box">0.0 dB</div>
           </div>
           <div class="editor-row">
-            <label for="speakerEditDelayMsInput" data-i18n="speaker.delayMs">Delay (ms)</label>
+            <label for="speakerEditDelayMsInput" data-i18n="speaker.delayMs" data-help-i18n="help.speaker.delayMs">Delay (ms)</label>
             <input id="speakerEditDelayMsInput" class="delay-input" type="number" min="0" step="0.1" value="0" />
           </div>
           <div class="editor-row">
-            <label for="speakerEditDelaySamplesInput" data-i18n="speaker.delaySamples">Delay samples</label>
+            <label for="speakerEditDelaySamplesInput" data-i18n="speaker.delaySamples" data-help-i18n="help.speaker.delaySamples">Delay samples</label>
             <input id="speakerEditDelaySamplesInput" class="delay-input" type="number" min="0" step="1" value="0" />
           </div>
           <div class="editor-row">
-            <label data-i18n="speaker.delayTools">Delay tools</label>
+            <label data-i18n="speaker.delayTools" data-help-i18n="help.speaker.delayTools">Delay tools</label>
             <div style="display:flex;gap:0.3rem;justify-content:flex-end">
               <button id="speakerEditAutoDelayBtn" type="button" class="toggle-btn" data-i18n="speaker.calcDelays">Calc delays</button>
               <button id="speakerEditDelayToDistanceBtn" type="button" class="toggle-btn" data-i18n="speaker.delayToDist">Delay → Dist</button>
             </div>
           </div>
           <div class="inline-toggle">
-            <label for="speakerEditSpatializeToggle" data-i18n="speaker.spatialize">Spatialize</label>
+            <label for="speakerEditSpatializeToggle" data-i18n="speaker.spatialize" data-help-i18n="help.speaker.spatialize">Spatialize</label>
             <input id="speakerEditSpatializeToggle" type="checkbox" />
           </div>
           <div class="editor-row">
-            <label for="speakerEditFreqLowInput" data-i18n="speaker.freqLow">Freq. min (Hz)</label>
+            <label for="speakerEditFreqLowInput" data-i18n="speaker.freqLow" data-help-i18n="help.speaker.freqLow">Freq. min (Hz)</label>
             <input id="speakerEditFreqLowInput" class="delay-input" type="number" min="0" step="10" placeholder="full range" />
           </div>
           <div class="editor-row">
-            <label for="speakerEditFreqHighInput">Freq. max (Hz)</label>
+            <label for="speakerEditFreqHighInput" data-help-i18n="help.speaker.freqHigh">Freq. max (Hz)</label>
             <input id="speakerEditFreqHighInput" class="delay-input" type="number" min="0" step="10" placeholder="full range" />
           </div>
         </div>
