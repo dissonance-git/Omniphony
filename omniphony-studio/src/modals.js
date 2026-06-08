@@ -17,7 +17,6 @@ function getRoomGeometryInfoModalEl() { return document.getElementById('roomGeom
 function getAdaptiveResamplingInfoModalEl() { return document.getElementById('adaptiveResamplingInfoModal'); }
 function getTelemetryGaugesInfoModalEl() { return document.getElementById('telemetryGaugesInfoModal'); }
 function getRampModeInfoModalEl() { return document.getElementById('rampModeInfoModal'); }
-function getVbapPositionInterpolationInfoModalEl() { return document.getElementById('vbapPositionInterpolationInfoModal'); }
 function getEvaluationInfoModalEl() { return document.getElementById('evaluationInfoModal'); }
 function getBackendInfoModalEl() { return document.getElementById('backendInfoModal'); }
 function getDistanceModelInfoModalEl() { return document.getElementById('distanceModelInfoModal'); }
@@ -102,11 +101,6 @@ export function setRampModeInfoModalOpen(open) {
   rampModeInfoModalEl.classList.toggle('open', Boolean(open));
 }
 
-export function setVbapPositionInterpolationInfoModalOpen(open) {
-  const vbapPositionInterpolationInfoModalEl = getVbapPositionInterpolationInfoModalEl();
-  if (!vbapPositionInterpolationInfoModalEl) return;
-  vbapPositionInterpolationInfoModalEl.classList.toggle('open', Boolean(open));
-}
 
 export function setEvaluationInfoModalOpen(open) {
   const evaluationInfoModalEl = getEvaluationInfoModalEl();
