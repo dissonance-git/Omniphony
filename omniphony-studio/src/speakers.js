@@ -173,15 +173,18 @@ import {
 // cube, so the billboard sits beside the speaker rather than over it.
 const SPEAKER_BAND_BAR_OFFSET = 0.11;
 
-// Local axis of the speaker cube that carries the front "driver" marker; aiming
-// this at the listener (scene origin) orients the speaker. Reused temp vector
-// keeps re-orientation allocation-free.
-const SPEAKER_FRONT_AXIS = new THREE.Vector3(0, 0, 1);
-const speakerAimDir = new THREE.Vector3();
+// Listener position (scene origin) and the world up used to aim speakers. The
+// driver marker sits on the cube's +Z face, so we orient +Z toward the listener
+// while keeping +Y up — like Object3D.lookAt for a non-camera object — which
+// avoids the roll a shortest-arc rotation introduces on elevated speakers.
+// Reused matrix keeps re-orientation allocation-free.
+const SPEAKER_LISTENER_POS = new THREE.Vector3(0, 0, 0);
+const SPEAKER_WORLD_UP = new THREE.Vector3(0, 1, 0);
+const speakerAimMatrix = new THREE.Matrix4();
 
-// Aim a speaker's front face at the listener (scene origin) when the option is
-// on, and show/hide its driver marker accordingly. Identity orientation (and a
-// hidden marker) otherwise — the default plain cube.
+// Aim a speaker's front face at the listener when the option is on, and
+// show/hide its driver marker accordingly. Identity orientation (and a hidden
+// marker) otherwise — the default plain cube.
 function applySpeakerOrientation(index) {
   const mesh = speakerMeshes[index];
   if (!mesh) return;
@@ -192,13 +195,14 @@ function applySpeakerOrientation(index) {
     mesh.quaternion.identity();
     return;
   }
-  speakerAimDir.set(-mesh.position.x, -mesh.position.y, -mesh.position.z);
-  if (speakerAimDir.lengthSq() < 1e-8) {
+  if (mesh.position.lengthSq() < 1e-8) {
     mesh.quaternion.identity(); // speaker sits on the listener: nothing to aim at
     return;
   }
-  speakerAimDir.normalize();
-  mesh.quaternion.setFromUnitVectors(SPEAKER_FRONT_AXIS, speakerAimDir);
+  // lookAt(eye, target, up) puts +Z along (eye - target); eye = listener,
+  // target = speaker → +Z points from the speaker toward the listener.
+  speakerAimMatrix.lookAt(SPEAKER_LISTENER_POS, mesh.position, SPEAKER_WORLD_UP);
+  mesh.quaternion.setFromRotationMatrix(speakerAimMatrix);
 }
 
 // Re-aim every speaker (e.g. after toggling the option).
