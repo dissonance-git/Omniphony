@@ -73,15 +73,15 @@
       </div>
       <div class="osc-config-form" id="oscConfigForm">
         <div class="osc-config-row">
-          <label for="oscHostInput" data-i18n="osc.host">Host</label>
+          <label for="oscHostInput" data-i18n="osc.host" data-help-i18n="help.osc.host">Host</label>
           <input id="oscHostInput" type="text" value="127.0.0.1" spellcheck="false" />
         </div>
         <div class="osc-config-row">
-          <label for="oscRxPortInput" data-i18n="osc.omniphonyPort">Omniphony Port</label>
+          <label for="oscRxPortInput" data-i18n="osc.omniphonyPort" data-help-i18n="help.osc.omniphonyPort">Omniphony Port</label>
           <input id="oscRxPortInput" type="number" min="1" max="65535" value="9000" />
         </div>
         <div class="osc-config-row">
-          <label for="oscListenPortInput" data-i18n="osc.listenPort">Listen Port</label>
+          <label for="oscListenPortInput" data-i18n="osc.listenPort" data-help-i18n="help.osc.listenPort">Listen Port</label>
           <input id="oscListenPortInput" type="number" min="0" max="65535" value="0" />
         </div>
         <div class="osc-config-actions">
@@ -120,28 +120,28 @@
         <div style="text-align:right;font-size:12px;opacity:0.8;font-weight:600">Z</div>
 
         <div style="display:grid;gap:0.3rem;min-width:0">
-          <label for="roomDimWidthInput" style="font-size:10px;opacity:0.7;text-align:right" data-i18n="room.axis.width">width</label>
+          <label for="roomDimWidthInput" style="font-size:10px;opacity:0.7;text-align:right" data-i18n="room.axis.width" data-help-i18n="help.room.width" data-help-anchor="#roomGeometryForm">width</label>
           <input id="roomDimWidthInput" class="delay-input" style="width:100%;box-sizing:border-box;text-align:right" type="number" min="0.01" step="0.01" value="2.00" />
           <label style="font-size:10px;opacity:0.7;text-align:right">m/u</label>
           <div id="roomMpuValue" style="font-size:11px;text-align:right;color:#d9ecff;opacity:0.85;padding:0.2rem 0">—</div>
         </div>
 
         <div style="display:grid;gap:0.3rem;min-width:0">
-          <label for="roomDimLengthInput" style="font-size:10px;opacity:0.7;text-align:right" data-i18n="room.axis.length">front</label>
+          <label for="roomDimLengthInput" style="font-size:10px;opacity:0.7;text-align:right" data-i18n="room.axis.length" data-help-i18n="help.room.front" data-help-anchor="#roomGeometryForm">front</label>
           <input id="roomDimLengthInput" class="delay-input" style="width:100%;box-sizing:border-box;text-align:right" type="number" min="0.01" step="0.01" value="2.00" />
-          <label for="roomDimRearInput" style="font-size:10px;opacity:0.7;text-align:right" data-i18n="room.axis.rear">rear</label>
+          <label for="roomDimRearInput" style="font-size:10px;opacity:0.7;text-align:right" data-i18n="room.axis.rear" data-help-i18n="help.room.rear" data-help-anchor="#roomGeometryForm">rear</label>
           <input id="roomDimRearInput" class="delay-input" style="width:100%;box-sizing:border-box;text-align:right" type="number" min="0.01" step="0.01" value="1.00" title="Rear depth (m)" />
         </div>
 
         <div style="display:grid;gap:0.3rem;min-width:0">
-          <label for="roomDimHeightInput" style="font-size:10px;opacity:0.7;text-align:right" data-i18n="room.axis.height">height</label>
+          <label for="roomDimHeightInput" style="font-size:10px;opacity:0.7;text-align:right" data-i18n="room.axis.height" data-help-i18n="help.room.height" data-help-anchor="#roomGeometryForm">height</label>
           <input id="roomDimHeightInput" class="delay-input" style="width:100%;box-sizing:border-box;text-align:right" type="number" min="0.01" step="0.01" value="1.00" />
-          <label for="roomDimLowerInput" style="font-size:10px;opacity:0.7;text-align:right" data-i18n="room.axis.lower">lower</label>
+          <label for="roomDimLowerInput" style="font-size:10px;opacity:0.7;text-align:right" data-i18n="room.axis.lower" data-help-i18n="help.room.lower" data-help-anchor="#roomGeometryForm">lower</label>
           <input id="roomDimLowerInput" class="delay-input" style="width:100%;box-sizing:border-box;text-align:right" type="number" min="0.01" step="0.01" value="0.50" />
         </div>
         </div>
         <div id="roomCenterBlendRow" style="margin-top:0.25rem;display:flex;align-items:center;gap:0.45rem">
-          <label for="roomRatioCenterBlendSlider" style="font-size:12px;white-space:nowrap;opacity:0.9" data-i18n="room.centerBlend">Y center blend</label>
+          <label for="roomRatioCenterBlendSlider" style="font-size:12px;white-space:nowrap;opacity:0.9" data-i18n="room.centerBlend" data-help-i18n="help.room.centerBlend" data-help-anchor="#roomCenterBlendRow">Y center blend</label>
           <input id="roomRatioCenterBlendSlider" type="range" min="0" max="100" step="1" value="50" class="gain-slider" style="flex:1 1 auto;min-width:0" />
           <span id="roomRatioCenterBlendValue" style="min-width:3.5rem;text-align:right;font-size:11px;color:#d9ecff;cursor:default" data-i18n-title="room.centerBlend.resetTitle" title="Double click to reset 50/50">50/50</span>
         </div>
@@ -200,7 +200,7 @@
                     <input id="objectColorsToggle" type="checkbox" />
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="objectDisplayModeSelect" style="font-size:12px;white-space:nowrap" data-i18n="display.objectDisplayMode">Object appearance</label>
+                    <label for="objectDisplayModeSelect" style="font-size:12px;white-space:nowrap" data-i18n="display.objectDisplayMode" data-help-i18n="help.display.objectDisplayMode">Object appearance</label>
                     <select id="objectDisplayModeSelect" style="flex:1;min-width:0">
                       <option value="circle" data-i18n="display.objectDisplayMode.circle">Circle</option>
                       <option value="transparent-sphere" data-i18n="display.objectDisplayMode.transparentSphere">Transparent sphere</option>
@@ -208,7 +208,7 @@
                     </select>
                   </div>
                   <div class="control-row" style="margin-top:0.1rem;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="objectSphereSizeSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="display.objectSphereSize">Object sphere size</span> <span id="objectSphereSizeVal">0.070</span></label>
+                    <label for="objectSphereSizeSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="display.objectSphereSize" data-help-i18n="help.display.objectSphereSize">Object sphere size</span> <span id="objectSphereSizeVal">0.070</span></label>
                     <input id="objectSphereSizeSlider" type="range" min="0.03" max="0.2" step="0.002" value="0.07" class="gain-slider" />
                   </div>
                   <div class="inline-toggle" style="margin-top:0">
@@ -240,18 +240,18 @@
               <div id="trailSectionContent" class="conditional-params open">
                 <div style="margin-top:0.15rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label style="font-size:12px;white-space:nowrap"><span data-i18n="trail.mode">Mode</span></label>
+                    <label style="font-size:12px;white-space:nowrap"><span data-i18n="trail.mode" data-help-i18n="help.trail.mode">Mode</span></label>
                     <select id="trailModeSelect" style="flex:1;min-width:0">
                       <option value="diffuse" data-i18n="trail.mode.diffuse">Diffuse</option>
                       <option value="line" data-i18n="trail.mode.line">Line</option>
                     </select>
                   </div>
                   <div class="control-row" style="margin-top:0.1rem;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label style="font-size:12px;white-space:nowrap"><span data-i18n="trail.duration">Duration</span> <span id="trailTtlVal">7.0s</span></label>
+                    <label style="font-size:12px;white-space:nowrap"><span data-i18n="trail.duration" data-help-i18n="help.trail.duration">Duration</span> <span id="trailTtlVal">7.0s</span></label>
                     <input id="trailTtlSlider" type="range" min="1.0" max="20.0" step="0.5" value="7.0" class="gain-slider" />
                   </div>
                   <div class="control-row" style="margin-top:0.1rem;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label style="font-size:12px;white-space:nowrap"><span data-i18n="trail.teleport">Teleport threshold</span> <span id="trailTeleportVal">0.50</span></label>
+                    <label style="font-size:12px;white-space:nowrap"><span data-i18n="trail.teleport" data-help-i18n="help.trail.teleport">Teleport threshold</span> <span id="trailTeleportVal">0.50</span></label>
                     <input id="trailTeleportSlider" type="range" min="0.05" max="2.0" step="0.05" value="0.5" class="gain-slider" />
                   </div>
                 </div>
@@ -268,7 +268,7 @@
                     <input id="speakerLabelsToggle" type="checkbox" />
                   </div>
                   <div class="control-row" style="margin-top:0.1rem;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="speakerSizeSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="display.speakerSize">Speaker size</span> <span id="speakerSizeVal">0.080</span></label>
+                    <label for="speakerSizeSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="display.speakerSize" data-help-i18n="help.display.speakerSize">Speaker size</span> <span id="speakerSizeVal">0.080</span></label>
                     <input id="speakerSizeSlider" type="range" min="0.04" max="0.2" step="0.002" value="0.08" class="gain-slider" />
                   </div>
                 </div>
@@ -289,7 +289,7 @@
                     <input id="speakerHeatmapVolumeToggle" type="checkbox" />
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="speakerHeatmapVolumeColormap" style="font-size:12px;white-space:nowrap" data-i18n="heatmap.objectEnergy.colormap">Gradient</label>
+                    <label for="speakerHeatmapVolumeColormap" style="font-size:12px;white-space:nowrap" data-i18n="heatmap.objectEnergy.colormap" data-help-i18n="help.heatmap.colormap">Gradient</label>
                     <select id="speakerHeatmapVolumeColormap" style="flex:1;min-width:0">
                       <option value="heatmap" selected data-i18n="heatmap.objectEnergy.colormapHeatmap">Heatmap</option>
                       <option value="blueWhite" data-i18n="heatmap.objectEnergy.colormapBlueWhite">Blue → White</option>
@@ -311,7 +311,7 @@
                     <input id="objectEnergyHeatmapToggle" type="checkbox" />
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="objectEnergyColormap" style="font-size:12px;white-space:nowrap" data-i18n="heatmap.objectEnergy.colormap">Gradient</label>
+                    <label for="objectEnergyColormap" style="font-size:12px;white-space:nowrap" data-i18n="heatmap.objectEnergy.colormap" data-help-i18n="help.heatmap.colormap">Gradient</label>
                     <select id="objectEnergyColormap" style="flex:1;min-width:0">
                       <option value="heatmap" data-i18n="heatmap.objectEnergy.colormapHeatmap">Heatmap</option>
                       <option value="blueWhite" selected data-i18n="heatmap.objectEnergy.colormapBlueWhite">Blue → White</option>
@@ -322,7 +322,7 @@
                   </div>
                   <div id="objectGradientEditor" class="gradient-editor" style="display:none;margin-top:0.1rem"></div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="objectEnergyHeatmapRadiusSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.radius">Falloff radius</span> <span id="objectEnergyHeatmapRadiusVal">0.50</span></label>
+                    <label for="objectEnergyHeatmapRadiusSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.radius" data-help-i18n="help.heatmap.radius">Falloff radius</span> <span id="objectEnergyHeatmapRadiusVal">0.50</span></label>
                     <input id="objectEnergyHeatmapRadiusSlider" type="range" min="0.02" max="0.5" step="0.01" value="0.5" class="gain-slider" />
                   </div>
                 </div>
@@ -333,23 +333,23 @@
                     <input id="volumeSmoothToggle" type="checkbox" />
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="objectEnergyVolumeMixSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.mix">Accumulate ↔ Peak</span> <span id="objectEnergyVolumeMixVal">0.60</span></label>
+                    <label for="objectEnergyVolumeMixSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.mix" data-help-i18n="help.heatmap.mix">Accumulate ↔ Peak</span> <span id="objectEnergyVolumeMixVal">0.60</span></label>
                     <input id="objectEnergyVolumeMixSlider" type="range" min="0" max="1" step="0.01" value="0.6" class="gain-slider" />
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="objectEnergyVolumeGammaAccumulateSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.gammaAccumulate">Accumulate γ</span> <span id="objectEnergyVolumeGammaAccumulateVal">4.0</span></label>
+                    <label for="objectEnergyVolumeGammaAccumulateSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.gammaAccumulate" data-help-i18n="help.heatmap.gammaAccumulate">Accumulate γ</span> <span id="objectEnergyVolumeGammaAccumulateVal">4.0</span></label>
                     <input id="objectEnergyVolumeGammaAccumulateSlider" type="range" min="1" max="10" step="0.1" value="4" class="gain-slider" />
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="objectEnergyVolumeGammaMipSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.gammaMip">Peak γ</span> <span id="objectEnergyVolumeGammaMipVal">3.00</span></label>
+                    <label for="objectEnergyVolumeGammaMipSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.gammaMip" data-help-i18n="help.heatmap.gammaMip">Peak γ</span> <span id="objectEnergyVolumeGammaMipVal">3.00</span></label>
                     <input id="objectEnergyVolumeGammaMipSlider" type="range" min="0.2" max="3" step="0.05" value="3" class="gain-slider" />
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="objectEnergyHeatmapResolutionSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.resolution">Field resolution</span> <span id="objectEnergyHeatmapResolutionVal">64</span></label>
+                    <label for="objectEnergyHeatmapResolutionSlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.resolution" data-help-i18n="help.heatmap.resolution">Field resolution</span> <span id="objectEnergyHeatmapResolutionVal">64</span></label>
                     <input id="objectEnergyHeatmapResolutionSlider" type="range" min="8" max="64" step="2" value="64" class="gain-slider" />
                   </div>
                   <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
-                    <label for="objectEnergyHeatmapOpacitySlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.opacity">Field opacity</span> <span id="objectEnergyHeatmapOpacityVal">1.00</span></label>
+                    <label for="objectEnergyHeatmapOpacitySlider" style="font-size:12px;white-space:nowrap"><span data-i18n="heatmap.objectEnergy.opacity" data-help-i18n="help.heatmap.opacity">Field opacity</span> <span id="objectEnergyHeatmapOpacityVal">1.00</span></label>
                     <input id="objectEnergyHeatmapOpacitySlider" type="range" min="0.05" max="1.0" step="0.05" value="1.0" class="gain-slider" />
                   </div>
                 </div>
@@ -380,19 +380,19 @@
         <div id="drcSectionContent" class="conditional-params">
           <div style="margin-top:0.25rem;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03);display:grid;gap:0.35rem">
             <div class="inline-toggle" id="drcControlRow" style="margin-top:0; display:none;">
-              <div data-i18n="input.drc">DRC</div>
+              <div data-i18n="input.drc" data-help-i18n="help.drc.mode">DRC</div>
               <select id="drcModeSelect" class="form-select" style="font-size:0.75rem; padding:0.1rem 0.2rem; width:auto; min-width:80px;"></select>
             </div>
             <div id="drcWeightRow" style="display:none;">
               <div style="font-size: 0.65rem; color: #888; margin-bottom: 0.15rem; display: flex; justify-content: space-between;">
-                <span data-i18n="input.drc_weight">DRC weight</span>
+                <span data-i18n="input.drc_weight" data-help-i18n="help.drc.weight" data-help-anchor="#drcWeightRow">DRC weight</span>
                 <span id="drcWeightValue">100%</span>
               </div>
               <input id="drcWeightSlider" type="range" min="0" max="100" step="1" value="100" style="width:100%;" />
             </div>
             <div style="margin-top:0.2rem; border-top:1px solid rgba(255,255,255,0.05); padding-top:0.3rem; display:grid; gap:0.25rem;">
               <div class="inline-toggle" style="margin-top:0">
-                <div data-i18n="section.loudness">Loudness / Dialog Norm</div>
+                <div data-i18n="section.loudness" data-help-i18n="help.drc.loudness">Loudness / Dialog Norm</div>
                 <input id="loudnessToggle" type="checkbox" />
               </div>
               <div id="loudnessInfo" style="font-size:10px; color:#8fa6bd; font-family:ui-monospace, monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">source: — | target: — | correction: —</div>
