@@ -244,6 +244,19 @@ export function setAudioOutputSectionOpen(open) {
   emitOverlayLayoutChanged('audio-output-section-toggle');
 }
 
+export function setAutoGainSectionOpen(open) {
+  app.autoGainSectionOpen = Boolean(open);
+  const content = document.getElementById('autoGainSection');
+  const toggleBtn = document.getElementById('autoGainSectionToggleBtn');
+  if (content) {
+    content.classList.toggle('open', app.autoGainSectionOpen);
+  }
+  if (toggleBtn) {
+    toggleBtn.textContent = app.autoGainSectionOpen ? '▾' : '▸';
+  }
+  emitOverlayLayoutChanged('auto-gain-section-toggle');
+}
+
 export function setInputSectionOpen(open) {
   const inputSectionContentEl = getInputSectionContentEl();
   const inputSummaryEl = getInputSummaryEl();

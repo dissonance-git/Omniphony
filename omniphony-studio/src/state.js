@@ -329,6 +329,7 @@ export const app = {
   rendererSectionOpen: false,
   displaySectionOpen: false,
   drcSectionOpen: false,
+  autoGainSectionOpen: false,
 
   // Selection & drag
   selectedSourceId: null,
