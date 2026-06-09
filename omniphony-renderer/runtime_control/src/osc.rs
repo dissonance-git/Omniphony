@@ -735,6 +735,23 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
+    if addr == "/omniphony/control/output_mode" {
+        // Switch between the classic speaker (VBAP) path and the independent
+        // binaural (headphone) stage. No topology recompute: the binaural path
+        // does not use the speaker topology.
+        if let Some(mode) =
+            parse_string_arg(msg.args.first()).and_then(|v| renderer::live_params::OutputMode::from_str(&v))
+        {
+            let mut live = ctx.renderer.live.write();
+            if live.binaural.output_mode != mode {
+                live.binaural.output_mode = mode;
+                effects.mark_dirty = true;
+                effects.log_message = Some(format!("OSC: output_mode -> {}", mode.as_str()));
+            }
+        }
+        return Some(effects);
+    }
+
     if addr == "/omniphony/control/render_backend/restore" {
         effects.log_message = Some(
             "OSC: render_backend/restore is no longer supported after removing from_file"

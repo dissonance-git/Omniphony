@@ -173,6 +173,11 @@ pub struct SpatialRenderer {
     /// Optional contributor-provided ramp strategy override.
     ramp_strategy_override: Option<Arc<dyn RampStrategy>>,
 
+    /// Independent binaural (headphone) output stage. Used only when
+    /// `LiveParams::binaural.output_mode == OutputMode::Binaural`; otherwise the
+    /// classic VBAP path runs and this holds no live state.
+    binaural: crate::binaural::BinauralRenderer,
+
     /// Per-band VBAP engines.  Always has at least one entry (the "all speakers" band when
     /// no crossover is configured).  Each engine returns full-size `Gains` (`num_speakers`).
     render_bands: Vec<BandRenderer>,
@@ -426,6 +431,34 @@ impl SpatialRenderer {
         samples_buf: Vec<f32>,
         measure_breakdown: bool,
     ) -> Result<RenderedFrame> {
+        // ── 0. Independent binaural path ──────────────────────────────────────
+        // When headphone output is selected, bypass the entire VBAP / crossover /
+        // speaker chain and emit a 2-channel frame. The position-ramp metadata is
+        // still consumed (M1) so object trajectories drive the binaural stage.
+        if self.control.live.read().binaural.output_mode == crate::live_params::OutputMode::Binaural
+        {
+            let sample_length = if input_channel_count > 0 {
+                input_pcm.len() / input_channel_count
+            } else {
+                0
+            };
+            let mut output = samples_buf;
+            output.clear();
+            output.resize(sample_length * 2, 0.0);
+            self.binaural.render_passthrough(
+                input_pcm,
+                input_channel_count,
+                sample_length,
+                &mut output,
+            );
+            return Ok(RenderedFrame {
+                samples: output,
+                object_gains: Vec::new(),
+                object_band_gains: Vec::new(),
+                crossover_time_ms: 0.0,
+            });
+        }
+
         // ── 1. Load the current immutable render topology and keep band engines in sync ──
         let topology_guard = self.control.active_topology();
         let topology = &*topology_guard;
@@ -1209,6 +1242,16 @@ impl SpatialRenderer {
     /// Get the number of output speakers
     pub fn num_speakers(&self) -> usize {
         self.num_speakers
+    }
+
+    /// Number of channels the renderer actually emits this frame: 2 in binaural
+    /// (headphone) mode, otherwise the speaker count. Hosts must size their sink
+    /// and `RenderedAudio` from this, not from [`num_speakers`](Self::num_speakers).
+    pub fn output_channel_count(&self) -> usize {
+        match self.control.live.read().binaural.output_mode {
+            crate::live_params::OutputMode::Binaural => 2,
+            crate::live_params::OutputMode::SpeakerArray => self.num_speakers,
+        }
     }
 
     pub fn speaker_layout(&self) -> crate::speaker_layout::SpeakerLayout {
