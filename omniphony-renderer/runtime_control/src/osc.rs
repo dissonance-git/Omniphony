@@ -752,6 +752,33 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
+    if addr == "/omniphony/control/head/orientation" {
+        // Static head pose from Euler degrees [yaw, pitch, roll]. The live
+        // head-tracking input (SensorsOSC) lands in M2; this lets Studio / tests
+        // drive the pose directly. No topology rebuild (binaural is topology-free).
+        let yaw = parse_f32_arg(msg.args.first()).unwrap_or(0.0);
+        let pitch = parse_f32_arg(msg.args.get(1)).unwrap_or(0.0);
+        let roll = parse_f32_arg(msg.args.get(2)).unwrap_or(0.0);
+        let mut live = ctx.renderer.live.write();
+        live.binaural.head_pose = renderer::binaural::HeadPose::from_euler_deg(yaw, pitch, roll);
+        effects.mark_dirty = true;
+        effects.log_message = Some(format!("OSC: head/orientation -> {yaw},{pitch},{roll}"));
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/head/quat" {
+        // Static head pose from a raw quaternion [w, x, y, z].
+        let w = parse_f32_arg(msg.args.first()).unwrap_or(1.0);
+        let x = parse_f32_arg(msg.args.get(1)).unwrap_or(0.0);
+        let y = parse_f32_arg(msg.args.get(2)).unwrap_or(0.0);
+        let z = parse_f32_arg(msg.args.get(3)).unwrap_or(0.0);
+        let mut live = ctx.renderer.live.write();
+        live.binaural.head_pose = renderer::binaural::HeadPose::from_quat(w, x, y, z);
+        effects.mark_dirty = true;
+        effects.log_message = Some("OSC: head/quat".to_string());
+        return Some(effects);
+    }
+
     if addr == "/omniphony/control/render_backend/restore" {
         effects.log_message = Some(
             "OSC: render_backend/restore is no longer supported after removing from_file"

@@ -579,6 +579,8 @@ impl SpatialRenderer {
             },
             ramp_strategy_override: None,
             binaural: crate::binaural::BinauralRenderer::new(sample_rate),
+            binaural_pos_buf: Vec::new(),
+            binaural_gain_buf: Vec::new(),
             render_bands,
             unified_table,
             render_bands_topology_identity: topology_identity,

@@ -178,6 +178,12 @@ pub struct SpatialRenderer {
     /// classic VBAP path runs and this holds no live state.
     binaural: crate::binaural::BinauralRenderer,
 
+    /// Scratch per-channel world positions for the binaural path (reused).
+    binaural_pos_buf: Vec<[f64; 3]>,
+
+    /// Scratch per-channel gains for the binaural path (reused).
+    binaural_gain_buf: Vec<f32>,
+
     /// Per-band VBAP engines.  Always has at least one entry (the "all speakers" band when
     /// no crossover is configured).  Each engine returns full-size `Gains` (`num_speakers`).
     render_bands: Vec<BandRenderer>,
@@ -431,33 +437,15 @@ impl SpatialRenderer {
         samples_buf: Vec<f32>,
         measure_breakdown: bool,
     ) -> Result<RenderedFrame> {
-        // ── 0. Independent binaural path ──────────────────────────────────────
+        // ── 0. Independent binaural (headphone) path ─────────────────────────
         // When headphone output is selected, bypass the entire VBAP / crossover /
-        // speaker chain and emit a 2-channel frame. The position-ramp metadata is
-        // still consumed (M1) so object trajectories drive the binaural stage.
-        if self.control.live.read().binaural.output_mode == crate::live_params::OutputMode::Binaural
-        {
-            let sample_length = if input_channel_count > 0 {
-                input_pcm.len() / input_channel_count
-            } else {
-                0
-            };
-            let mut output = samples_buf;
-            output.clear();
-            output.resize(sample_length * 2, 0.0);
-            self.binaural.render_passthrough(
-                input_pcm,
-                input_channel_count,
-                sample_length,
-                &mut output,
-            );
-            return Ok(RenderedFrame {
-                samples: output,
-                object_gains: Vec::new(),
-                object_band_gains: Vec::new(),
-                crossover_time_ms: 0.0,
-            });
-        }
+        // speaker chain and emit a 2-channel frame. The branch is taken below,
+        // after `update_metadata` has advanced the object position ramps (the
+        // binaural stage reads those positions). Flag it here.
+        let binaural_active = matches!(
+            self.control.live.read().binaural.output_mode,
+            crate::live_params::OutputMode::Binaural
+        );
 
         // ── 1. Load the current immutable render topology and keep band engines in sync ──
         let topology_guard = self.control.active_topology();
@@ -584,6 +572,63 @@ impl SpatialRenderer {
         let bed_indices = self.bed_indices.load_full();
         let active_layout = &topology.speaker_layout;
         let active_bed_to_speaker_mapping = &topology.bed_to_speaker_mapping;
+
+        // ── Binaural branch ──────────────────────────────────────────────────
+        // Build per-channel world positions (beds → speaker direction, objects →
+        // ramp position) and gains, then render to interleaved stereo. Bypasses
+        // the entire speaker/VBAP path below.
+        if binaural_active {
+            self.binaural_pos_buf.clear();
+            self.binaural_pos_buf
+                .resize(input_channel_count, [0.0, 1.0, 0.0]);
+            self.binaural_gain_buf.clear();
+            self.binaural_gain_buf.resize(input_channel_count, 0.0);
+            let num_beds = bed_indices.len();
+            {
+                let states = self.channel_states.lock();
+                for c in 0..input_channel_count {
+                    self.binaural_gain_buf[c] = match self.object_params_buf.get(c) {
+                        Some(o) if o.muted => 0.0,
+                        Some(o) => o.gain,
+                        None => 1.0,
+                    };
+                    if c < num_beds {
+                        // Bed channel: place it at its mapped speaker's direction.
+                        if let Some(&spk) = active_bed_to_speaker_mapping.get(&bed_indices[c]) {
+                            if let Some(s) = active_layout.speakers.get(spk) {
+                                self.binaural_pos_buf[c] = [s.x as f64, s.y as f64, s.z as f64];
+                            }
+                        }
+                    } else if let Some(st) = states.get(&c) {
+                        self.binaural_pos_buf[c] = st.ramp.current_position;
+                    }
+                }
+            }
+            let (head_pose, unit_scale_m) = {
+                let g = self.control.live.read();
+                (g.binaural.head_pose, g.binaural.unit_scale_m)
+            };
+            let mut output = samples_buf;
+            output.clear();
+            output.resize(sample_length * 2, 0.0);
+            self.binaural.render_frame(
+                input_pcm,
+                input_channel_count,
+                sample_length,
+                head_pose,
+                unit_scale_m,
+                &self.binaural_pos_buf,
+                &self.binaural_gain_buf,
+                &mut output,
+            );
+            return Ok(RenderedFrame {
+                samples: output,
+                object_gains: Vec::new(),
+                object_band_gains: Vec::new(),
+                crossover_time_ms: 0.0,
+            });
+        }
+
         // Reuse the donated buffer — resize (no alloc if capacity suffices) and zero it.
         let mut output = samples_buf;
         let required = sample_length * self.num_speakers;
