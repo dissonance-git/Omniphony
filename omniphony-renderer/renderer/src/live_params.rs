@@ -144,8 +144,11 @@ pub struct BinauralLiveParams {
     /// Metres represented by one ADM unit; scales physical distance for the
     /// 1/d gain and ITD/ILD without altering object directions.
     pub unit_scale_m: f32,
-    /// Current (smoothed) head orientation applied to world positions.
+    /// Current (smoothed) head orientation applied to world positions. Updated by
+    /// the head-tracking input or set directly via the `head/*` OSC controls.
     pub head_pose: crate::binaural::HeadPose,
+    /// Live head-tracking input config + recenter/smoothing state (SensorsOSC).
+    pub tracking: crate::binaural::HeadTracking,
 }
 
 impl Default for BinauralLiveParams {
@@ -154,6 +157,7 @@ impl Default for BinauralLiveParams {
             output_mode: OutputMode::default(),
             unit_scale_m: 1.0,
             head_pose: crate::binaural::HeadPose::identity(),
+            tracking: crate::binaural::HeadTracking::default(),
         }
     }
 }

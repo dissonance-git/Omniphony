@@ -321,7 +321,14 @@ impl OscSender {
                                     }
                                 }
 
-                                Ok(_) => {}
+                                // Any other packet (incl. bundles) may be a
+                                // head-tracking feed on a user-configured address
+                                // (e.g. SensorsOSC `/android/rotationvector`).
+                                Ok((_, packet)) => {
+                                    if let Some(ref ctrl) = control {
+                                        apply_head_tracking_packet(&packet, ctrl);
+                                    }
+                                }
                                 Err(e) => {
                                     log::debug!("OSC decode error from {}: {}", src, e)
                                 }
@@ -387,6 +394,47 @@ impl Drop for OscSender {
         self.listener_stop.store(true, Ordering::Relaxed);
         if let Some(handle) = self.listener_thread.lock().unwrap().take() {
             let _ = handle.join();
+        }
+    }
+}
+
+/// Numeric OSC args → `f32`, accepting the common scalar types a sensor app may
+/// emit (float, double, int).
+fn collect_f32(args: &[rosc::OscType]) -> Vec<f32> {
+    args.iter()
+        .filter_map(|a| match a {
+            rosc::OscType::Float(f) => Some(*f),
+            rosc::OscType::Double(d) => Some(*d as f32),
+            rosc::OscType::Int(i) => Some(*i as f32),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Apply a head-tracking packet if its address matches the configured tracking
+/// address. Recurses into bundles (sensor apps often batch readings). Reads the
+/// config under a short read lock and only takes the write lock on a match.
+fn apply_head_tracking_packet(packet: &OscPacket, ctrl: &RendererControl) {
+    match packet {
+        OscPacket::Message(msg) => {
+            let format = {
+                let live = ctrl.live.read();
+                if !live.binaural.tracking.matches(&msg.addr) {
+                    return;
+                }
+                live.binaural.tracking.format
+            };
+            let args = collect_f32(&msg.args);
+            if let Some(raw) = format.parse(&args) {
+                let mut live = ctrl.live.write();
+                let current = live.binaural.head_pose;
+                live.binaural.head_pose = live.binaural.tracking.ingest(raw, current);
+            }
+        }
+        OscPacket::Bundle(bundle) => {
+            for inner in &bundle.content {
+                apply_head_tracking_packet(inner, ctrl);
+            }
         }
     }
 }

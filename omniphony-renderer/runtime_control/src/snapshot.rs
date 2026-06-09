@@ -190,6 +190,12 @@ pub fn build_renderer_state_json(
                 "x": live.binaural.head_pose.x,
                 "y": live.binaural.head_pose.y,
                 "z": live.binaural.head_pose.z
+            },
+            "tracking": {
+                "address": live.binaural.tracking.address,
+                "format": live.binaural.tracking.format.as_str(),
+                "smoothing": live.binaural.tracking.smoothing,
+                "invert": live.binaural.tracking.invert
             }
         }
     })

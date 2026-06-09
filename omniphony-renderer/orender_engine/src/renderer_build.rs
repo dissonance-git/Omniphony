@@ -592,6 +592,18 @@ pub fn build_spatial_renderer(
                         live.binaural.unit_scale_m = scale;
                     }
                 }
+                if let Some(ht) = bin.head_tracking.as_ref() {
+                    if let Some(addr) = ht.osc_address.as_ref() {
+                        live.binaural.tracking.address = (!addr.is_empty()).then(|| addr.clone());
+                    }
+                    if let Some(fmt) = ht
+                        .format
+                        .as_deref()
+                        .and_then(renderer::binaural::HeadTrackingFormat::from_str)
+                    {
+                        live.binaural.tracking.format = fmt;
+                    }
+                }
             }
         }
         if requires_rebuild {

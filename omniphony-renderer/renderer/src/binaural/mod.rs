@@ -23,8 +23,10 @@ pub mod convolver;
 pub mod head_pose;
 pub mod hrir;
 pub mod itd;
+pub mod tracking;
 
 pub use head_pose::HeadPose;
+pub use tracking::{HeadTracking, HeadTrackingFormat};
 
 use crate::delay_line::DelayLine;
 use convolver::EarConvolver;

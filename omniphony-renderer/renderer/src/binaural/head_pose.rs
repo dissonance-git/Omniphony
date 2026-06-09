@@ -127,6 +127,25 @@ impl HeadPose {
             v[2] + w * tz + (ux * ty - uy * tx),
         ]
     }
+
+    /// Normalised linear interpolation toward `target` by `t` ∈ [0, 1].
+    ///
+    /// Cheaper than slerp and indistinguishable for the small per-update steps of
+    /// head-tracking smoothing. The shorter arc is taken (sign-corrected), and the
+    /// result is renormalised. `t = 1` returns `target`; `t = 0` returns `self`.
+    pub fn nlerp(self, target: HeadPose, t: f32) -> HeadPose {
+        // Take the shorter arc: if the quaternions are more than 90° apart,
+        // negate one (q and −q are the same rotation).
+        let dot = self.w * target.w + self.x * target.x + self.y * target.y + self.z * target.z;
+        let s = if dot < 0.0 { -1.0 } else { 1.0 };
+        let it = 1.0 - t;
+        HeadPose::from_quat(
+            it * self.w + t * s * target.w,
+            it * self.x + t * s * target.x,
+            it * self.y + t * s * target.y,
+            it * self.z + t * s * target.z,
+        )
+    }
 }
 
 #[cfg(test)]

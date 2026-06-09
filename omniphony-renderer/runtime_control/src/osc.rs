@@ -779,6 +779,58 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
+    if addr == "/omniphony/control/head/recenter" {
+        // Capture the current raw tracker orientation as "forward" and snap the
+        // rendered pose to identity so the scene faces straight ahead.
+        let mut live = ctx.renderer.live.write();
+        live.binaural.tracking.recenter();
+        live.binaural.head_pose = renderer::binaural::HeadPose::identity();
+        effects.mark_dirty = true;
+        effects.log_message = Some("OSC: head/recenter".to_string());
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/head/tracking/address" {
+        // Empty string disables tracking.
+        let raw = parse_string_arg(msg.args.first()).unwrap_or_default();
+        let mut live = ctx.renderer.live.write();
+        live.binaural.tracking.address = if raw.is_empty() {
+            None
+        } else {
+            Some(raw.clone())
+        };
+        effects.mark_dirty = true;
+        effects.log_message = Some(format!("OSC: head/tracking/address -> {raw:?}"));
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/head/tracking/format" {
+        if let Some(fmt) = parse_string_arg(msg.args.first())
+            .and_then(|s| renderer::binaural::HeadTrackingFormat::from_str(&s))
+        {
+            ctx.renderer.live.write().binaural.tracking.format = fmt;
+            effects.mark_dirty = true;
+            effects.log_message = Some(format!("OSC: head/tracking/format -> {}", fmt.as_str()));
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/head/tracking/smoothing" {
+        if let Some(v) = parse_f32_arg(msg.args.first()) {
+            ctx.renderer.live.write().binaural.tracking.smoothing = v.clamp(0.0, 0.999);
+            effects.mark_dirty = true;
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/head/tracking/invert" {
+        if let Some(v) = parse_bool_arg(msg.args.first()) {
+            ctx.renderer.live.write().binaural.tracking.invert = v;
+            effects.mark_dirty = true;
+        }
+        return Some(effects);
+    }
+
     if addr == "/omniphony/control/render_backend/restore" {
         effects.log_message = Some(
             "OSC: render_backend/restore is no longer supported after removing from_file"
