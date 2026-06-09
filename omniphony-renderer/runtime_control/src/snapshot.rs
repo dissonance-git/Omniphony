@@ -181,7 +181,17 @@ pub fn build_renderer_state_json(
             "positionInterpolation": live.evaluation.position_interpolation
         },
         "renderBackendState": serde_json::from_str::<serde_json::Value>(&render_backend_state_json)
-            .unwrap_or_else(|_| json!({}))
+            .unwrap_or_else(|_| json!({})),
+        "binaural": {
+            "outputMode": live.binaural.output_mode.as_str(),
+            "unitScaleM": live.binaural.unit_scale_m,
+            "headPose": {
+                "w": live.binaural.head_pose.w,
+                "x": live.binaural.head_pose.x,
+                "y": live.binaural.head_pose.y,
+                "z": live.binaural.head_pose.z
+            }
+        }
     })
     .to_string()
 }

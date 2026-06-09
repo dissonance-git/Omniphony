@@ -265,10 +265,49 @@ pub struct RenderConfig {
     /// Barycenter backend: localization sharpness (`live_params` default 0.0).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub barycenter_localize: Option<f32>,
+    /// Independent binaural (headphone) output stage. Absent → classic speaker
+    /// rendering. See [`crate::binaural`] and [`BinauralConfig`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub binaural: Option<BinauralConfig>,
     /// See `Config::extra` — preserve unknown keys through round-trips.
     /// This matters most for `render.*`: any field added by a future
     /// version of the CLI / a host that we haven't migrated into this
     /// struct yet survives a save from another embedder.
+    #[serde(flatten, default, skip_serializing_if = "Mapping::is_empty")]
+    pub extra: Mapping,
+}
+
+/// `render.binaural` config section: selects and tunes the headphone output.
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
+pub struct BinauralConfig {
+    /// Output path: `"speaker"` (default) or `"binaural"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_mode: Option<String>,
+    /// Metres represented by one ADM unit (isotropic distance scale). Default 1.0.
+    /// Deliberately separate from `room_ratio`, which is anisotropic.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit_scale_m: Option<f32>,
+    /// Head-tracking input wiring (SensorsOSC). Consumed from M2; stored now so
+    /// the section round-trips.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub head_tracking: Option<HeadTrackingConfig>,
+    /// See `Config::extra` — preserve unknown keys through round-trips.
+    #[serde(flatten, default, skip_serializing_if = "Mapping::is_empty")]
+    pub extra: Mapping,
+}
+
+/// Head-tracking OSC input configuration. The orientation arrives on an
+/// arbitrary OSC address (e.g. SensorsOSC `/android/rotationvector`), so both
+/// the address and the value format are configurable.
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
+pub struct HeadTrackingConfig {
+    /// OSC address carrying the head orientation. Empty/None → tracking disabled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub osc_address: Option<String>,
+    /// Orientation value format: `"auto"` (default), `"quat"`, `"rotvec"`, `"euler"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+    /// See `Config::extra` — preserve unknown keys through round-trips.
     #[serde(flatten, default, skip_serializing_if = "Mapping::is_empty")]
     pub extra: Mapping,
 }

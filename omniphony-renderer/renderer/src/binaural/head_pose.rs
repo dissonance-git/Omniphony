@@ -141,7 +141,10 @@ mod tests {
 
     #[test]
     fn identity_is_no_rotation() {
-        approx(HeadPose::identity().rotate([0.0, 1.0, 0.0]), [0.0, 1.0, 0.0]);
+        approx(
+            HeadPose::identity().rotate([0.0, 1.0, 0.0]),
+            [0.0, 1.0, 0.0],
+        );
     }
 
     #[test]

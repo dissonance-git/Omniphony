@@ -576,6 +576,23 @@ pub fn build_spatial_renderer(
             {
                 live.auto_gain_ceiling_db = ceiling;
             }
+            // Binaural (headphone) stage: seed from config so a saved mode/scale is
+            // honoured at startup. No topology rebuild — the binaural path does not
+            // use the speaker topology.
+            if let Some(bin) = render_cfg.and_then(|cfg| cfg.binaural.as_ref()) {
+                if let Some(mode) = bin
+                    .output_mode
+                    .as_deref()
+                    .and_then(renderer::live_params::OutputMode::from_str)
+                {
+                    live.binaural.output_mode = mode;
+                }
+                if let Some(scale) = bin.unit_scale_m {
+                    if scale.is_finite() && scale > 0.0 {
+                        live.binaural.unit_scale_m = scale;
+                    }
+                }
+            }
         }
         if requires_rebuild {
             if let Some(plan) = control.prepare_topology_rebuild() {
