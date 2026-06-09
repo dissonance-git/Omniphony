@@ -113,6 +113,16 @@ jobs:
         working-directory: omniphony-studio
         run: npm install
 
+      # The cargo cache restores src-tauri/target, which still holds bundle
+      # artifacts from earlier runs (older versions). The staging step below
+      # globs the bundle dir and picks matches[0] — the lowest version present —
+      # so a fresh 0.3.3 build was being published as a stale 0.3.2 bundle. Wipe
+      # stale bundles before rebuilding; compiled deps in target/ are kept, so
+      # this does not force a full recompile.
+      - name: Remove stale bundles restored from cache
+        shell: bash
+        run: rm -rf omniphony-studio/src-tauri/target/release/bundle
+
       # No tagName → tauri-action only builds (runs beforeBuildCommand: frontend
       # build + prepare-sidecar), leaving bundles under src-tauri/target/.../bundle/.
       - name: Build Studio bundles
