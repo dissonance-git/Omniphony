@@ -24,3 +24,7 @@ anyhow = "1.0"
 log = "0.4"
 rosc = "0.11"
 serde_json = "1.0"
+
+[features]
+# Personalised HRTF loading (SOFA files) in the binaural stage.
+sofa = ["renderer/sofa"]
