@@ -114,6 +114,44 @@ export function initBinauralPanel() {
     });
   }
 
+  const revEnabled = el('binauralRevEnabled');
+  if (revEnabled) {
+    revEnabled.addEventListener('change', (e) => {
+      if (applying) return;
+      send('control_binaural_reverb_enabled', { enable: e.target.checked ? 1 : 0 });
+    });
+  }
+
+  const revLevel = el('binauralRevLevel');
+  if (revLevel) {
+    revLevel.addEventListener('input', (e) => {
+      if (applying) return;
+      const v = Number(e.target.value);
+      const out = el('binauralRevLevelVal');
+      if (out) out.textContent = v.toFixed(2);
+      send('control_binaural_reverb_level', { value: v });
+    });
+  }
+
+  const revRt60 = el('binauralRevRt60');
+  if (revRt60) {
+    revRt60.addEventListener('input', (e) => {
+      if (applying) return;
+      const v = Number(e.target.value);
+      const out = el('binauralRevRt60Val');
+      if (out) out.textContent = v.toFixed(2);
+      send('control_binaural_reverb_rt60', { value: v });
+    });
+  }
+
+  const airAbs = el('binauralAirAbsorption');
+  if (airAbs) {
+    airAbs.addEventListener('change', (e) => {
+      if (applying) return;
+      send('control_binaural_air_absorption', { enable: e.target.checked ? 1 : 0 });
+    });
+  }
+
   const recenter = el('binauralRecenter');
   if (recenter) {
     recenter.addEventListener('click', () => send('control_head_recenter', {}));
@@ -196,6 +234,24 @@ export function applyBinauralState(b) {
         }
       }
     }
+
+    const rev = b.reverb;
+    if (rev && typeof rev === 'object') {
+      const en = el('binauralRevEnabled');
+      if (en && typeof rev.enabled === 'boolean') en.checked = rev.enabled;
+      if (typeof rev.level === 'number') {
+        setVal('binauralRevLevel', rev.level);
+        const out = el('binauralRevLevelVal');
+        if (out) out.textContent = Number(rev.level).toFixed(2);
+      }
+      if (typeof rev.rt60S === 'number') {
+        setVal('binauralRevRt60', rev.rt60S);
+        const out = el('binauralRevRt60Val');
+        if (out) out.textContent = Number(rev.rt60S).toFixed(2);
+      }
+    }
+    const air = el('binauralAirAbsorption');
+    if (air && typeof b.airAbsorption === 'boolean') air.checked = b.airAbsorption;
 
     const t = b.tracking || {};
     if (typeof t.address === 'string') setVal('binauralTrackAddress', t.address);

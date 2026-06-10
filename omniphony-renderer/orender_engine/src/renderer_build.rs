@@ -622,6 +622,30 @@ pub fn build_spatial_renderer(
                         }
                     }
                 }
+                if let Some(rev) = bin.reverb.as_ref() {
+                    let r = &mut live.binaural.reverb;
+                    if let Some(en) = rev.enabled {
+                        r.enabled = en;
+                    }
+                    if let Some(level) = rev.level {
+                        if level.is_finite() {
+                            r.level = level.clamp(0.0, 1.0);
+                        }
+                    }
+                    if let Some(rt60) = rev.rt60_s {
+                        if rt60.is_finite() && rt60 > 0.0 {
+                            r.rt60_s = rt60.clamp(0.1, 3.0);
+                        }
+                    }
+                    if let Some(pd) = rev.predelay_ms {
+                        if pd.is_finite() && pd >= 0.0 {
+                            r.predelay_ms = pd.clamp(0.0, 100.0);
+                        }
+                    }
+                }
+                if let Some(air) = bin.air_absorption {
+                    live.binaural.air_absorption = air;
+                }
                 if let Some(ht) = bin.head_tracking.as_ref() {
                     if let Some(addr) = ht.osc_address.as_ref() {
                         live.binaural.tracking.address = (!addr.is_empty()).then(|| addr.clone());

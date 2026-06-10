@@ -191,6 +191,13 @@ pub fn build_renderer_state_json(
                 "roomM": live.binaural.reflections.room_size_m,
                 "level": live.binaural.reflections.level,
             },
+            "reverb": {
+                "enabled": live.binaural.reverb.enabled,
+                "level": live.binaural.reverb.level,
+                "rt60S": live.binaural.reverb.rt60_s,
+                "predelayMs": live.binaural.reverb.predelay_ms,
+            },
+            "airAbsorption": live.binaural.air_absorption,
             "hrirSource": live.binaural.hrir_source.as_str(),
             "headPose": {
                 "w": live.binaural.head_pose.w,

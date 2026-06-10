@@ -100,6 +100,50 @@ pub fn control_binaural_reflections_room(state: State<SharedState>, axis: String
 }
 
 #[tauri::command]
+pub fn control_binaural_reverb_enabled(state: State<SharedState>, enable: i32) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendInt {
+            address: "/omniphony/control/binaural/reverb/enabled".to_string(),
+            value: if enable != 0 { 1 } else { 0 },
+        },
+    );
+}
+
+#[tauri::command]
+pub fn control_binaural_reverb_level(state: State<SharedState>, value: f32) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendFloat {
+            address: "/omniphony/control/binaural/reverb/level".to_string(),
+            value: value.clamp(0.0, 1.0),
+        },
+    );
+}
+
+#[tauri::command]
+pub fn control_binaural_reverb_rt60(state: State<SharedState>, value: f32) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendFloat {
+            address: "/omniphony/control/binaural/reverb/rt60".to_string(),
+            value: value.clamp(0.1, 3.0),
+        },
+    );
+}
+
+#[tauri::command]
+pub fn control_binaural_air_absorption(state: State<SharedState>, enable: i32) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendInt {
+            address: "/omniphony/control/binaural/air_absorption".to_string(),
+            value: if enable != 0 { 1 } else { 0 },
+        },
+    );
+}
+
+#[tauri::command]
 pub fn control_head_recenter(state: State<SharedState>) {
     send_control(
         &state.osc_tx,

@@ -860,6 +860,54 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
+    if addr == "/omniphony/control/binaural/reverb/enabled" {
+        if let Some(v) = parse_bool_arg(msg.args.first()) {
+            ctx.renderer.live.write().binaural.reverb.enabled = v;
+            effects.mark_dirty = true;
+            effects.log_message = Some(format!("OSC: binaural/reverb/enabled -> {v}"));
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/reverb/level" {
+        if let Some(v) = parse_f32_arg(msg.args.first()) {
+            if v.is_finite() {
+                ctx.renderer.live.write().binaural.reverb.level = v.clamp(0.0, 1.0);
+                effects.mark_dirty = true;
+            }
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/reverb/rt60" {
+        if let Some(v) = parse_f32_arg(msg.args.first()) {
+            if v.is_finite() && v > 0.0 {
+                ctx.renderer.live.write().binaural.reverb.rt60_s = v.clamp(0.1, 3.0);
+                effects.mark_dirty = true;
+            }
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/reverb/predelay" {
+        if let Some(v) = parse_f32_arg(msg.args.first()) {
+            if v.is_finite() && v >= 0.0 {
+                ctx.renderer.live.write().binaural.reverb.predelay_ms = v.clamp(0.0, 100.0);
+                effects.mark_dirty = true;
+            }
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/air_absorption" {
+        if let Some(v) = parse_bool_arg(msg.args.first()) {
+            ctx.renderer.live.write().binaural.air_absorption = v;
+            effects.mark_dirty = true;
+            effects.log_message = Some(format!("OSC: binaural/air_absorption -> {v}"));
+        }
+        return Some(effects);
+    }
+
     if addr == "/omniphony/control/head/recenter" {
         // Capture the current raw tracker orientation as "forward" and snap the
         // rendered pose to identity so the scene faces straight ahead.

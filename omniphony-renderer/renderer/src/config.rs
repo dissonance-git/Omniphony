@@ -305,6 +305,12 @@ pub struct BinauralConfig {
     /// Shoebox early-reflection settings (externalization).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reflections: Option<ReflectionsConfig>,
+    /// Late-reverb (FDN) tail settings (distance / externalization).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reverb: Option<ReverbConfig>,
+    /// Distance low-pass on the direct path (air absorption). Default true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub air_absorption: Option<bool>,
     /// See `Config::extra` — preserve unknown keys through round-trips.
     #[serde(flatten, default, skip_serializing_if = "Mapping::is_empty")]
     pub extra: Mapping,
@@ -312,6 +318,27 @@ pub struct BinauralConfig {
 
 /// Head-tracking OSC input configuration. The orientation arrives on an
 /// arbitrary OSC address (e.g. SensorsOSC `/android/rotationvector`), so both
+/// `render.binaural.reverb`: late-reverb (FDN) tail of the binaural stage.
+/// Models the (small, dry) listening room, not the scene's acoustics.
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
+pub struct ReverbConfig {
+    /// Master enable. Default true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    /// Return level (0..1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level: Option<f32>,
+    /// Broadband decay time (s).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rt60_s: Option<f32>,
+    /// Pre-delay (ms).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub predelay_ms: Option<f32>,
+    /// See `Config::extra` — preserve unknown keys through round-trips.
+    #[serde(flatten, default, skip_serializing_if = "Mapping::is_empty")]
+    pub extra: Mapping,
+}
+
 /// `render.binaural.reflections`: shoebox early reflections for the binaural
 /// stage (six first-order images, listener at the room centre).
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]

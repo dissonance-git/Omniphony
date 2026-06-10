@@ -10,8 +10,10 @@ Per channel, per block:
 
 ```
 position → rotate(head pose) → (azimuth, elevation, distance)
+         → air-absorption low-pass (cutoff falls with distance)
          → 1/d gain → per-ear ITD delay → per-ear HRIR convolution
          → + 6 first-order shoebox reflections (delay + ILD pan per ear)
+         → + shared late-reverb tail (stereo FDN, distance-driven DRR)
          → mix into [L, R]
 ```
 
@@ -57,6 +59,11 @@ in Studio and over OSC (addresses listed at the end).
 | `reflections.room_depth_m` | `5.0` | room extent, y |
 | `reflections.room_height_m` | `2.7` | room extent, z |
 | `reflections.level` | `0.5` | per-reflection wall gain (0–1) |
+| `reverb.enabled` | `true` | late-reverb tail (stereo FDN) |
+| `reverb.level` | `0.25` | reverb return level (0–1) |
+| `reverb.rt60_s` | `0.35` | broadband decay time (s) — living-room-ish, not a hall |
+| `reverb.predelay_ms` | `20` | gap between direct sound and tail start |
+| `air_absorption` | `true` | distance low-pass on the direct path (HF dies with distance — true outdoors too) |
 
 ## Head tracking
 
@@ -84,14 +91,28 @@ with Game Rotation Vector you can usually lower it.
 
 ## Usage tips
 
-- **Externalization / "inside the head" feeling**: that cue comes almost
-  entirely from the early reflections. Start from the defaults and adjust
-  **Reflection level** by ear — too high colours dialogue and sounds echoey,
-  too low collapses back into the head. Set the room dimensions roughly to
-  your actual listening room; they do not need to be exact.
-- **Distance**: `unit_scale_m` sets how far "1 ADM unit" is in metres. Raising
-  it pushes the whole mix further away (quieter directs, relatively stronger
-  reflections); the direct/reflected ratio is the main distance cue.
+- **The room is YOUR room, not the scene's.** The reflections and the reverb
+  tail model the *listening* room — a constant, small, dry space, exactly like
+  the room around a loudspeaker setup. The mix's own acoustics (outdoor
+  ambience, cathedral reverb…) are in the content and pass through untouched;
+  the brain factors the constant listening-room signature out, and
+  externalization actually works best when that signature plausibly matches
+  the room you are sitting in. So: keep RT60 short and the levels modest, and
+  set the room dimensions roughly to your actual room.
+- **Externalization / "inside the head" feeling**: driven by the
+  direct-to-reverberant ratio. The late tail (`reverb.*`) does most of the
+  work, the early reflections add the room's geometry. Adjust **Reverb
+  level** and **Reflection level** by ear — too high colours dialogue and
+  sounds echoey, too low collapses back into the head.
+- **Distance**: past ~1 m the brain judges distance mostly from the
+  direct/reverb ratio, not loudness. The reverberant field is
+  distance-independent (like a real room) while the direct falls as 1/d, so
+  raising `unit_scale_m` makes far objects genuinely *sound* far. Air
+  absorption adds the matching "far sounds dull" high-frequency roll-off
+  (bypassed within 3 m, ~14 kHz cutoff at 10 m, ~5 kHz at 30 m).
+- **Scale**: `unit_scale_m` sets how far "1 ADM unit" is in metres. At the
+  default 1.0 the far wall of the mix is one metre from your nose — try 3–4
+  for a room-sized stage.
 - **ITD fit**: `head_radius_m` defaults to a KEMAR-ish 8.75 cm. If
   localisation feels smeared, measure ear-to-ear width and set half of it.
 - **HRTF**: the embedded measured KEMAR (`saf`) is the best generic default.
@@ -118,6 +139,11 @@ with Game Rotation Vector you can usually lower it.
 | `/omniphony/control/binaural/reflections/room_width` | `f` (m) | room x |
 | `/omniphony/control/binaural/reflections/room_depth` | `f` (m) | room y |
 | `/omniphony/control/binaural/reflections/room_height` | `f` (m) | room z |
+| `/omniphony/control/binaural/reverb/enabled` | `i\|f` (bool) | late tail on/off |
+| `/omniphony/control/binaural/reverb/level` | `f` (0–1) | reverb return level |
+| `/omniphony/control/binaural/reverb/rt60` | `f` (s) | decay time |
+| `/omniphony/control/binaural/reverb/predelay` | `f` (ms) | pre-delay |
+| `/omniphony/control/binaural/air_absorption` | `i\|f` (bool) | distance HF roll-off |
 | `/omniphony/control/head/orientation` | `fff` (euler) | set pose directly |
 | `/omniphony/control/head/quat` | `ffff` | set pose directly |
 | `/omniphony/control/head/recenter` | — | current orientation becomes "front" |

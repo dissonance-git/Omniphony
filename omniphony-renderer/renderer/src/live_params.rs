@@ -156,6 +156,35 @@ impl Default for BinauralReflections {
     }
 }
 
+/// Late-reverb (FDN) settings for the binaural stage. Models the LISTENING
+/// room — a small, dry, constant space like the room around a loudspeaker
+/// setup — not the scene's acoustics (those are in the content and pass
+/// through). The reverberant field level is distance-independent while the
+/// direct falls as 1/d, so the direct/reverb ratio carries distance.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinauralReverb {
+    /// Master enable for the late tail.
+    pub enabled: bool,
+    /// Return level (0..1) of the reverb bus.
+    pub level: f32,
+    /// Broadband decay time (s). Living-room-ish by default; cinema halls
+    /// are deliberately NOT the target.
+    pub rt60_s: f32,
+    /// Pre-delay (ms) between the direct sound and the start of the tail.
+    pub predelay_ms: f32,
+}
+
+impl Default for BinauralReverb {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            level: 0.25,
+            rt60_s: 0.35,
+            predelay_ms: 20.0,
+        }
+    }
+}
+
 /// Live-tunable parameters for the binaural (headphone) output stage.
 ///
 /// `unit_scale_m` is an **isotropic** metres-per-ADM-unit factor for distance
@@ -180,6 +209,11 @@ pub struct BinauralLiveParams {
     pub hrir_source: crate::binaural::HrirSource,
     /// Shoebox early-reflection settings (externalization).
     pub reflections: BinauralReflections,
+    /// Late-reverb tail settings (distance / externalization).
+    pub reverb: BinauralReverb,
+    /// Distance low-pass on the direct path (air absorption): physically
+    /// true indoors and outdoors, the natural "far sounds dull" cue.
+    pub air_absorption: bool,
 }
 
 impl Default for BinauralLiveParams {
@@ -192,6 +226,8 @@ impl Default for BinauralLiveParams {
             tracking: crate::binaural::HeadTracking::default(),
             hrir_source: crate::binaural::HrirSource::default(),
             reflections: BinauralReflections::default(),
+            reverb: BinauralReverb::default(),
+            air_absorption: true,
         }
     }
 }

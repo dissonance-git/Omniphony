@@ -203,6 +203,14 @@ pub fn save_live_config(
             level: Some(live.binaural.reflections.level),
             extra: Default::default(),
         }),
+        reverb: Some(renderer::config::ReverbConfig {
+            enabled: Some(live.binaural.reverb.enabled),
+            level: Some(live.binaural.reverb.level),
+            rt60_s: Some(live.binaural.reverb.rt60_s),
+            predelay_ms: Some(live.binaural.reverb.predelay_ms),
+            extra: Default::default(),
+        }),
+        air_absorption: Some(live.binaural.air_absorption),
         extra: Default::default(),
     });
     // barycenter / experimental_distance params now live in the generic param bag

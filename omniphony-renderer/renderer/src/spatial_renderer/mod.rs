@@ -636,6 +636,8 @@ impl SpatialRenderer {
                         unit_scale_m: g.binaural.unit_scale_m,
                         head_radius_m: g.binaural.head_radius_m,
                         reflections: g.binaural.reflections.clone(),
+                        reverb: g.binaural.reverb.clone(),
+                        air_absorption: g.binaural.air_absorption,
                     },
                     g.binaural.hrir_source.clone(),
                 )
