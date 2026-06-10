@@ -302,6 +302,9 @@ pub struct BinauralConfig {
     /// the section round-trips.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub head_tracking: Option<HeadTrackingConfig>,
+    /// Shoebox early-reflection settings (externalization).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reflections: Option<ReflectionsConfig>,
     /// See `Config::extra` — preserve unknown keys through round-trips.
     #[serde(flatten, default, skip_serializing_if = "Mapping::is_empty")]
     pub extra: Mapping,
@@ -309,6 +312,30 @@ pub struct BinauralConfig {
 
 /// Head-tracking OSC input configuration. The orientation arrives on an
 /// arbitrary OSC address (e.g. SensorsOSC `/android/rotationvector`), so both
+/// `render.binaural.reflections`: shoebox early reflections for the binaural
+/// stage (six first-order images, listener at the room centre).
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
+pub struct ReflectionsConfig {
+    /// Master enable. Default true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    /// Room width (x), metres.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub room_width_m: Option<f32>,
+    /// Room depth (y), metres.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub room_depth_m: Option<f32>,
+    /// Room height (z), metres.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub room_height_m: Option<f32>,
+    /// Per-reflection wall gain (0..1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level: Option<f32>,
+    /// See `Config::extra` — preserve unknown keys through round-trips.
+    #[serde(flatten, default, skip_serializing_if = "Mapping::is_empty")]
+    pub extra: Mapping,
+}
+
 /// the address and the value format are configurable.
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
 pub struct HeadTrackingConfig {

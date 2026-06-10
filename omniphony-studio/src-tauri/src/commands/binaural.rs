@@ -60,6 +60,46 @@ pub fn control_binaural_head_radius(state: State<SharedState>, value: f32) {
 }
 
 #[tauri::command]
+pub fn control_binaural_reflections_enabled(state: State<SharedState>, enable: i32) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendInt {
+            address: "/omniphony/control/binaural/reflections/enabled".to_string(),
+            value: if enable != 0 { 1 } else { 0 },
+        },
+    );
+}
+
+#[tauri::command]
+pub fn control_binaural_reflections_level(state: State<SharedState>, value: f32) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendFloat {
+            address: "/omniphony/control/binaural/reflections/level".to_string(),
+            value: value.clamp(0.0, 1.0),
+        },
+    );
+}
+
+#[tauri::command]
+pub fn control_binaural_reflections_room(state: State<SharedState>, axis: String, value: f32) {
+    // axis: "width" | "depth" | "height"; value in metres.
+    let address = match axis.as_str() {
+        "width" => "/omniphony/control/binaural/reflections/room_width",
+        "depth" => "/omniphony/control/binaural/reflections/room_depth",
+        "height" => "/omniphony/control/binaural/reflections/room_height",
+        _ => return,
+    };
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendFloat {
+            address: address.to_string(),
+            value: value.clamp(1.0, 20.0),
+        },
+    );
+}
+
+#[tauri::command]
 pub fn control_head_recenter(state: State<SharedState>) {
     send_control(
         &state.osc_tx,

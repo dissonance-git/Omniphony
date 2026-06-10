@@ -186,6 +186,11 @@ pub fn build_renderer_state_json(
             "outputMode": live.binaural.output_mode.as_str(),
             "unitScaleM": live.binaural.unit_scale_m,
             "headRadiusM": live.binaural.head_radius_m,
+            "reflections": {
+                "enabled": live.binaural.reflections.enabled,
+                "roomM": live.binaural.reflections.room_size_m,
+                "level": live.binaural.reflections.level,
+            },
             "hrirSource": live.binaural.hrir_source.as_str(),
             "headPose": {
                 "w": live.binaural.head_pose.w,

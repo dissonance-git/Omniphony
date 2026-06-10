@@ -132,6 +132,30 @@ impl OutputMode {
     }
 }
 
+/// Early-reflection (shoebox) settings for the binaural stage. World-fixed
+/// room, listener at the centre; six first-order image sources per channel.
+/// The direct/reflected ratio falling with distance is the main
+/// externalization / distance cue an anechoic HRTF render lacks.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinauralReflections {
+    /// Master enable for the reflection bank.
+    pub enabled: bool,
+    /// Room extents in metres: [width (x), depth (y), height (z)].
+    pub room_size_m: [f32; 3],
+    /// Per-reflection wall gain (0..1) applied on top of the 1/d law.
+    pub level: f32,
+}
+
+impl Default for BinauralReflections {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            room_size_m: [4.0, 5.0, 2.7],
+            level: 0.5,
+        }
+    }
+}
+
 /// Live-tunable parameters for the binaural (headphone) output stage.
 ///
 /// `unit_scale_m` is an **isotropic** metres-per-ADM-unit factor for distance
@@ -154,6 +178,8 @@ pub struct BinauralLiveParams {
     pub tracking: crate::binaural::HeadTracking,
     /// HRIR data set to convolve with (synthetic / embedded KEMAR / SOFA).
     pub hrir_source: crate::binaural::HrirSource,
+    /// Shoebox early-reflection settings (externalization).
+    pub reflections: BinauralReflections,
 }
 
 impl Default for BinauralLiveParams {
@@ -165,6 +191,7 @@ impl Default for BinauralLiveParams {
             head_pose: crate::binaural::HeadPose::identity(),
             tracking: crate::binaural::HeadTracking::default(),
             hrir_source: crate::binaural::HrirSource::default(),
+            reflections: BinauralReflections::default(),
         }
     }
 }

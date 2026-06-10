@@ -597,6 +597,31 @@ pub fn build_spatial_renderer(
                         live.binaural.head_radius_m = radius.clamp(0.05, 0.15);
                     }
                 }
+                if let Some(refl) = bin.reflections.as_ref() {
+                    let r = &mut live.binaural.reflections;
+                    if let Some(en) = refl.enabled {
+                        r.enabled = en;
+                    }
+                    for (slot, v) in [
+                        (0usize, refl.room_width_m),
+                        (1, refl.room_depth_m),
+                        (2, refl.room_height_m),
+                    ] {
+                        if let Some(v) = v {
+                            if v.is_finite() && v > 0.0 {
+                                r.room_size_m[slot] = v.clamp(
+                                    renderer::binaural::reflections::MIN_ROOM_M,
+                                    renderer::binaural::reflections::MAX_ROOM_M,
+                                );
+                            }
+                        }
+                    }
+                    if let Some(level) = refl.level {
+                        if level.is_finite() {
+                            r.level = level.clamp(0.0, 1.0);
+                        }
+                    }
+                }
                 if let Some(ht) = bin.head_tracking.as_ref() {
                     if let Some(addr) = ht.osc_address.as_ref() {
                         live.binaural.tracking.address = (!addr.is_empty()).then(|| addr.clone());

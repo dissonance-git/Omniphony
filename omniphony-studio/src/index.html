@@ -492,6 +492,28 @@
               <input id="binauralHeadRadius" type="range" min="5" max="15" step="0.1" value="8.75" style="width:100%;" />
             </div>
             <div style="margin-top:0.2rem;border-top:1px solid rgba(255,255,255,0.05);padding-top:0.3rem;display:grid;gap:0.3rem">
+              <div style="font-size:0.7rem;color:#8fa6bd;display:flex;justify-content:space-between;align-items:center;">
+                <span>Room (early reflections)</span>
+                <input id="binauralReflEnabled" type="checkbox" checked />
+              </div>
+              <div>
+                <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
+                  <span>Reflection level</span>
+                  <span id="binauralReflLevelVal">0.50</span>
+                </div>
+                <input id="binauralReflLevel" type="range" min="0" max="1" step="0.01" value="0.5" style="width:100%;" />
+              </div>
+              <div>
+                <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
+                  <span>Room W × D × H (m)</span>
+                  <span id="binauralReflRoomVal">4.0 × 5.0 × 2.7</span>
+                </div>
+                <input id="binauralReflRoomW" type="range" min="1" max="20" step="0.1" value="4" style="width:100%;" />
+                <input id="binauralReflRoomD" type="range" min="1" max="20" step="0.1" value="5" style="width:100%;" />
+                <input id="binauralReflRoomH" type="range" min="1" max="20" step="0.1" value="2.7" style="width:100%;" />
+              </div>
+            </div>
+            <div style="margin-top:0.2rem;border-top:1px solid rgba(255,255,255,0.05);padding-top:0.3rem;display:grid;gap:0.3rem">
               <div style="font-size:0.7rem;color:#8fa6bd">Head tracking (SensorsOSC)</div>
               <div class="inline-toggle" style="margin-top:0">
                 <div>OSC address</div>

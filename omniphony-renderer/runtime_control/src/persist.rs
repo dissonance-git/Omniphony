@@ -195,6 +195,14 @@ pub fn save_live_config(
             format: Some(live.binaural.tracking.format.as_str().to_string()),
             extra: Default::default(),
         }),
+        reflections: Some(renderer::config::ReflectionsConfig {
+            enabled: Some(live.binaural.reflections.enabled),
+            room_width_m: Some(live.binaural.reflections.room_size_m[0]),
+            room_depth_m: Some(live.binaural.reflections.room_size_m[1]),
+            room_height_m: Some(live.binaural.reflections.room_size_m[2]),
+            level: Some(live.binaural.reflections.level),
+            extra: Default::default(),
+        }),
         extra: Default::default(),
     });
     // barycenter / experimental_distance params now live in the generic param bag

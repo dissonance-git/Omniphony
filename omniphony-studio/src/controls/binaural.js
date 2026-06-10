@@ -73,6 +73,47 @@ export function initBinauralPanel() {
     });
   }
 
+  const reflEnabled = el('binauralReflEnabled');
+  if (reflEnabled) {
+    reflEnabled.addEventListener('change', (e) => {
+      if (applying) return;
+      send('control_binaural_reflections_enabled', { enable: e.target.checked ? 1 : 0 });
+    });
+  }
+
+  const reflLevel = el('binauralReflLevel');
+  if (reflLevel) {
+    reflLevel.addEventListener('input', (e) => {
+      if (applying) return;
+      const v = Number(e.target.value);
+      const out = el('binauralReflLevelVal');
+      if (out) out.textContent = v.toFixed(2);
+      send('control_binaural_reflections_level', { value: v });
+    });
+  }
+
+  const updateRoomReadout = () => {
+    const out = el('binauralReflRoomVal');
+    if (!out) return;
+    const w = Number(el('binauralReflRoomW')?.value ?? 0);
+    const d = Number(el('binauralReflRoomD')?.value ?? 0);
+    const h = Number(el('binauralReflRoomH')?.value ?? 0);
+    out.textContent = `${w.toFixed(1)} × ${d.toFixed(1)} × ${h.toFixed(1)}`;
+  };
+  for (const [id, axis] of [
+    ['binauralReflRoomW', 'width'],
+    ['binauralReflRoomD', 'depth'],
+    ['binauralReflRoomH', 'height'],
+  ]) {
+    const slider = el(id);
+    if (!slider) continue;
+    slider.addEventListener('input', (e) => {
+      if (applying) return;
+      updateRoomReadout();
+      send('control_binaural_reflections_room', { axis, value: Number(e.target.value) });
+    });
+  }
+
   const recenter = el('binauralRecenter');
   if (recenter) {
     recenter.addEventListener('click', () => send('control_head_recenter', {}));
@@ -134,6 +175,26 @@ export function applyBinauralState(b) {
       setVal('binauralHeadRadius', b.headRadiusM * 100);
       const out = el('binauralHeadRadiusVal');
       if (out) out.textContent = (b.headRadiusM * 100).toFixed(1);
+    }
+
+    const refl = b.reflections;
+    if (refl && typeof refl === 'object') {
+      const en = el('binauralReflEnabled');
+      if (en && typeof refl.enabled === 'boolean') en.checked = refl.enabled;
+      if (typeof refl.level === 'number') {
+        setVal('binauralReflLevel', refl.level);
+        const out = el('binauralReflLevelVal');
+        if (out) out.textContent = Number(refl.level).toFixed(2);
+      }
+      if (Array.isArray(refl.roomM) && refl.roomM.length === 3) {
+        setVal('binauralReflRoomW', refl.roomM[0]);
+        setVal('binauralReflRoomD', refl.roomM[1]);
+        setVal('binauralReflRoomH', refl.roomM[2]);
+        const out = el('binauralReflRoomVal');
+        if (out) {
+          out.textContent = refl.roomM.map((v) => Number(v).toFixed(1)).join(' × ');
+        }
+      }
     }
 
     const t = b.tracking || {};
