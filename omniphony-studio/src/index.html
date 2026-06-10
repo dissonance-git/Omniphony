@@ -698,6 +698,13 @@
         <div class="info-modal-title">SOFA HRTF database — sofacoustics.org</div>
         <div id="sofaBrowserCrumbs" style="font-size:0.72rem;color:#8fa6bd;margin:0.3rem 0;word-break:break-all;"></div>
         <div id="sofaBrowserStatus" style="font-size:0.72rem;color:#c9d6e2;min-height:1.1em;margin-bottom:0.25rem;"></div>
+        <div id="sofaDlRow" style="display:none;align-items:center;gap:0.5rem;margin-bottom:0.3rem;">
+          <div style="flex:1;height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;">
+            <div id="sofaDlBar" style="height:100%;width:0%;background:#569cff;transition:width 0.12s linear;"></div>
+          </div>
+          <span id="sofaDlText" style="font-size:0.7rem;color:#8fa6bd;white-space:nowrap;min-width:7.5em;text-align:right;"></span>
+          <button id="sofaDlCancel" type="button" class="ui-btn" style="font-size:0.7rem;padding:0.1rem 0.5rem;">Cancel</button>
+        </div>
         <div id="sofaBrowserList" style="max-height:50vh;overflow-y:auto;border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:0.25rem;font-size:0.78rem;">
           Loading…
         </div>

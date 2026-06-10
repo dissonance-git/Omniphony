@@ -7,6 +7,7 @@
 // "database/", where the per-subject HRTF sets live.
 
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 
 const el = (id) => document.getElementById(id);
 
@@ -15,6 +16,33 @@ let busy = false;
 // Remote path (currentPath + href) of the currently active .sofa, so the
 // entry stays visibly marked while scrolling / navigating / reopening.
 let activeRemotePath = '';
+
+const fmtMB = (b) => `${(b / (1024 * 1024)).toFixed(1)} MB`;
+
+function setDownloadUiVisible(visible) {
+  const row = el('sofaDlRow');
+  if (row) row.style.display = visible ? 'flex' : 'none';
+  if (visible) {
+    const bar = el('sofaDlBar');
+    const txt = el('sofaDlText');
+    if (bar) bar.style.width = '0%';
+    if (txt) txt.textContent = '';
+  }
+}
+
+function onDownloadProgress({ bytes, total }) {
+  const bar = el('sofaDlBar');
+  const txt = el('sofaDlText');
+  if (total) {
+    const pct = Math.min(100, (bytes / total) * 100);
+    if (bar) bar.style.width = `${pct.toFixed(1)}%`;
+    if (txt) txt.textContent = `${fmtMB(bytes)} / ${fmtMB(total)}`;
+  } else {
+    // Unknown size: full-width pulse + byte counter.
+    if (bar) { bar.style.width = '100%'; bar.style.opacity = '0.35'; }
+    if (txt) txt.textContent = fmtMB(bytes);
+  }
+}
 
 function setStatus(text, isError = false) {
   const n = el('sofaBrowserStatus');
@@ -137,6 +165,7 @@ async function downloadAndActivate(entry) {
   if (busy) return;
   busy = true;
   setStatus(`Downloading ${entry.name} (${entry.size})…`);
+  setDownloadUiVisible(true);
   try {
     const remotePath = currentPath + entry.href;
     const localPath = await invoke('sofa_download', { path: remotePath });
@@ -164,8 +193,10 @@ async function downloadAndActivate(entry) {
       }
     }
   } catch (e) {
-    setStatus(String(e), true);
+    const msg = String(e);
+    setStatus(msg.includes('cancelled') ? 'Download cancelled.' : msg, !msg.includes('cancelled'));
   } finally {
+    setDownloadUiVisible(false);
     busy = false;
   }
 }
@@ -184,5 +215,16 @@ export function initSofaBrowser() {
   }
   modal.addEventListener('click', (e) => {
     if (e.target === modal) modal.classList.remove('open');
+  });
+  const cancel = el('sofaDlCancel');
+  if (cancel) {
+    // Deliberately not gated by `busy`: cancelling is only meaningful while
+    // a download is in flight.
+    cancel.addEventListener('click', () => {
+      invoke('sofa_download_cancel').catch((e) => console.error('[sofa] cancel', e));
+    });
+  }
+  listen('sofa:download_progress', ({ payload }) => {
+    if (payload && typeof payload === 'object') onDownloadProgress(payload);
   });
 }

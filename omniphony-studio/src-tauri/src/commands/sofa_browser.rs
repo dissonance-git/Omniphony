@@ -5,18 +5,22 @@
 //! app data dir, and the frontend then activates it through the existing
 //! `control_hrir_source` command (`sofa:<local path>`).
 
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// Fixed browse root. `path` arguments are relative to this and sanitised —
 /// the browser can never escape it.
 const ROOT: &str = "https://sofacoustics.org/data/";
 
-/// Hard cap on a downloaded file (some database entries are huge ambisonics
-/// sets; HRIR files are a few MB).
-const MAX_DOWNLOAD_BYTES: u64 = 512 * 1024 * 1024;
+/// Cancellation flag for the (single) in-flight download. The UI serialises
+/// downloads, so one global flag is enough.
+static CANCEL: AtomicBool = AtomicBool::new(false);
+
+/// Progress event emitted to the webview every ~100 ms while downloading.
+const PROGRESS_EVENT: &str = "sofa:download_progress";
 
 #[derive(serde::Serialize)]
 pub struct SofaEntry {
@@ -131,9 +135,19 @@ pub async fn sofa_browse(path: String) -> Result<Vec<SofaEntry>, String> {
     .map_err(|e| format!("task failed: {e}"))?
 }
 
+/// Abort the in-flight download (the `.part` file is removed).
+#[tauri::command]
+pub fn sofa_download_cancel() {
+    CANCEL.store(true, Ordering::Relaxed);
+}
+
 /// Download one `.sofa` file into `<app data dir>/hrtf/` and return its local
 /// path. The file name flattens the relative path so different databases
-/// cannot collide.
+/// cannot collide. Streams in chunks, emitting `sofa:download_progress`
+/// `{bytes, total}` events (~10 Hz) and honouring [`sofa_download_cancel`].
+/// No size limit — some database entries are hundreds of MB; the progress
+/// bar and the cancel button are the safety valve. An already-downloaded
+/// file whose size matches the server's Content-Length is reused as-is.
 #[tauri::command]
 pub async fn sofa_download(app: tauri::AppHandle, path: String) -> Result<String, String> {
     let rel = sanitize(&path)?;
@@ -146,6 +160,7 @@ pub async fn sofa_download(app: tauri::AppHandle, path: String) -> Result<String
         .map_err(|e| format!("no app data dir: {e}"))?
         .join("hrtf");
     tauri::async_runtime::spawn_blocking(move || {
+        CANCEL.store(false, Ordering::Relaxed);
         std::fs::create_dir_all(&dir).map_err(|e| format!("create {dir:?}: {e}"))?;
         let flat = percent_decode(&rel).replace('/', "_");
         let dest: PathBuf = dir.join(flat);
@@ -154,14 +169,58 @@ pub async fn sofa_download(app: tauri::AppHandle, path: String) -> Result<String
             .get(&url)
             .call()
             .map_err(|e| format!("fetch {url}: {e}"))?;
-        let mut reader = resp.into_reader().take(MAX_DOWNLOAD_BYTES);
+        let total: Option<u64> = resp
+            .header("Content-Length")
+            .and_then(|v| v.parse().ok());
+
+        // Cached copy with the expected size → reuse, no network transfer.
+        if let (Some(expected), Ok(meta)) = (total, std::fs::metadata(&dest)) {
+            if meta.len() == expected {
+                let _ = app.emit(
+                    PROGRESS_EVENT,
+                    serde_json::json!({ "bytes": expected, "total": expected }),
+                );
+                return Ok(dest.to_string_lossy().into_owned());
+            }
+        }
+
+        let mut reader = resp.into_reader();
         let tmp = dest.with_extension("part");
         let mut file =
             std::fs::File::create(&tmp).map_err(|e| format!("create {tmp:?}: {e}"))?;
-        std::io::copy(&mut reader, &mut file).map_err(|e| {
-            let _ = std::fs::remove_file(&tmp);
-            format!("download {url}: {e}")
-        })?;
+        let mut buf = vec![0u8; 256 * 1024];
+        let mut done: u64 = 0;
+        let mut last_emit = std::time::Instant::now();
+        loop {
+            if CANCEL.load(Ordering::Relaxed) {
+                drop(file);
+                let _ = std::fs::remove_file(&tmp);
+                return Err("cancelled".into());
+            }
+            let n = reader.read(&mut buf).map_err(|e| {
+                let _ = std::fs::remove_file(&tmp);
+                format!("download {url}: {e}")
+            })?;
+            if n == 0 {
+                break;
+            }
+            file.write_all(&buf[..n]).map_err(|e| {
+                let _ = std::fs::remove_file(&tmp);
+                format!("write {tmp:?}: {e}")
+            })?;
+            done += n as u64;
+            if last_emit.elapsed() >= std::time::Duration::from_millis(100) {
+                last_emit = std::time::Instant::now();
+                let _ = app.emit(
+                    PROGRESS_EVENT,
+                    serde_json::json!({ "bytes": done, "total": total }),
+                );
+            }
+        }
+        let _ = app.emit(
+            PROGRESS_EVENT,
+            serde_json::json!({ "bytes": done, "total": total }),
+        );
         std::fs::rename(&tmp, &dest).map_err(|e| format!("finalize {dest:?}: {e}"))?;
         Ok(dest.to_string_lossy().into_owned())
     })
