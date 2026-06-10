@@ -80,8 +80,14 @@ impl DelayLine {
         }
 
         // Fractional read (linear interpolation).
-        let read_f = (self.write_pos as f32 - self.current).rem_euclid(cap as f32);
-        let i0 = read_f as usize; // floor — always < cap because rem_euclid
+        let mut read_f = (self.write_pos as f32 - self.current).rem_euclid(cap as f32);
+        // f32 edge: rem_euclid of a tiny negative (current a hair above
+        // write_pos) rounds to exactly `cap`, which floor()s to an
+        // out-of-bounds index. `cap` is the same position as 0 — wrap it.
+        if read_f >= cap as f32 {
+            read_f = 0.0;
+        }
+        let i0 = read_f as usize;
         let i1 = (i0 + 1) % cap;
         let frac = read_f - i0 as f32;
         let output = self.buf[i0] + frac * (self.buf[i1] - self.buf[i0]);
@@ -90,5 +96,29 @@ impl DelayLine {
         self.write_pos = (self.write_pos + 1) % cap;
 
         output
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: a fractional target a hair above an integer write position
+    /// makes `(write_pos - current)` a tiny negative; `rem_euclid(cap)` then
+    /// rounds to exactly `cap` in f32 and the floor()ed read index lands out
+    /// of bounds. Sweep fractional targets right above 5 samples through full
+    /// buffer laps — this panicked before the wrap guard.
+    #[test]
+    fn fractional_delay_just_above_write_pos_does_not_panic() {
+        for k in 0..400 {
+            let mut dl = DelayLine::new(144);
+            // Targets densely covering (5.0, 5.0 + ~1e-5) samples.
+            let target_samples = 5.0f32 + k as f32 * 2.5e-8;
+            dl.set_target_ms(target_samples / 48.0, 48_000);
+            for i in 0..600 {
+                let y = dl.process((i % 7) as f32 - 3.0);
+                assert!(y.is_finite());
+            }
+        }
     }
 }
