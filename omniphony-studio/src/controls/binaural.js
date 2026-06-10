@@ -202,7 +202,15 @@ export function applyBinauralState(b) {
   if (!b || typeof b !== 'object') return;
   applying = true;
   try {
-    const setVal = (id, v) => { const n = el(id); if (n && v != null) n.value = String(v); };
+    // Never overwrite a control the user is interacting with: while a text
+    // field is being typed into (or a slider dragged), the ~10 Hz state echo
+    // would keep resetting it to the previous value, making edits impossible.
+    const setVal = (id, v) => {
+      const n = el(id);
+      if (!n || v == null) return;
+      if (document.activeElement === n) return;
+      n.value = String(v);
+    };
 
     if (typeof b.outputMode === 'string') setVal('binauralOutputMode', b.outputMode);
     if (typeof b.hrirSource === 'string') setVal('binauralHrirSource', b.hrirSource);
