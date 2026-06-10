@@ -7,6 +7,7 @@
 // guarded so a missing node never throws.
 
 import { invoke } from '@tauri-apps/api/core';
+import { initSofaBrowser } from './sofa-browser.js';
 
 const el = (id) => document.getElementById(id);
 
@@ -23,6 +24,8 @@ function send(cmd, args) {
 export function initBinauralPanel() {
   if (bound) return;
   bound = true;
+
+  initSofaBrowser();
 
   // Collapsible section: the content carries `conditional-params` (collapsed by
   // default) and is revealed by toggling the `open` class, like the other panels.

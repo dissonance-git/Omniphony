@@ -23,6 +23,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use commands::app::*;
 use commands::audio::*;
 use commands::binaural::*;
+use commands::sofa_browser::*;
 use commands::diag::*;
 use commands::engine::*;
 use commands::gain::*;
@@ -277,6 +278,8 @@ fn main() {
             control_binaural_reverb_level,
             control_binaural_reverb_rt60,
             control_binaural_air_absorption,
+            sofa_browse,
+            sofa_download,
             control_head_recenter,
             control_head_tracking_address,
             control_head_tracking_format,
