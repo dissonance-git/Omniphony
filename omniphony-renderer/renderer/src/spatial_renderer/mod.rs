@@ -655,6 +655,22 @@ impl SpatialRenderer {
                 &self.binaural_gain_buf,
                 &mut output,
             );
+            // Output gain parity with the speaker path: master gain × dialnorm
+            // (auto-gain reductions are already folded into master_gain).
+            let loudness = if live.use_loudness {
+                f32::from_bits(
+                    self.loudness_gain
+                        .load(std::sync::atomic::Ordering::Relaxed),
+                )
+            } else {
+                1.0
+            };
+            let total_gain = live.master_gain * loudness;
+            if (total_gain - 1.0).abs() > f32::EPSILON {
+                for s in output.iter_mut() {
+                    *s *= total_gain;
+                }
+            }
             return Ok(RenderedFrame {
                 samples: output,
                 object_gains: Vec::new(),

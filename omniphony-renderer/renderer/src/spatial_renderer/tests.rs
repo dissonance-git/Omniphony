@@ -652,5 +652,94 @@ fn binaural_object_ramp_advances_and_lateralizes() {
     );
 }
 
+/// Regression: the master gain must scale the binaural output exactly like
+/// it scales the speaker path (it used to be applied only in the VBAP
+/// branch, so the master control was inert on headphones).
+#[test]
+fn binaural_output_follows_master_gain() {
+    fn build() -> SpatialRenderer {
+        let layout = SpeakerLayout::preset("7.1.4").unwrap();
+        SpatialRenderer::new(
+            layout,
+            48_000,
+            1,
+            1,
+            0.0,
+            2.0,
+            VbapTableMode::Cartesian {
+                x_size: 21,
+                y_size: 21,
+                z_size: 9,
+                z_neg_size: 9,
+            },
+            false,
+            true,
+            DistanceModel::Linear,
+            false,
+            1.0,
+            1.0,
+            0.0,
+            1.0,
+            false,
+            [1.0, 2.0, 0.5],
+            2.0,
+            0.5,
+            0.0,
+            0.0,
+            false,
+            false,
+            false,
+            1.0,
+            1.0,
+            PreferredEvaluationMode::PrecomputedCartesian,
+            LiveEvaluationMode::PrecomputedCartesian,
+            21,
+            21,
+            9,
+            9,
+        )
+        .unwrap()
+    }
+
+    let pcm: Vec<f32> = (0..40).map(|i| (i * 7 % 13) as f32 / 13.0 - 0.5).collect();
+    let event = vec![SpatialChannelEvent {
+        channel_idx: 0,
+        is_bed: false,
+        gain_db: Some(0),
+        ramp_length: Some(40),
+        size: Some([0.0, 0.0, 0.0]),
+        position: Some([0.5, 1.0, 0.0]),
+        sample_pos: Some(0),
+    }];
+
+    let render = |master: f32| -> Vec<f32> {
+        let mut r = build();
+        {
+            let mut live = r.control.live.write();
+            live.binaural.output_mode = crate::live_params::OutputMode::Binaural;
+            live.master_gain = master;
+        }
+        let mut out = Vec::new();
+        for i in 0..4 {
+            let ev: &[SpatialChannelEvent] = if i == 0 { &event } else { &[] };
+            out = r
+                .render_frame(&pcm, 1, ev, Vec::new(), false)
+                .unwrap()
+                .samples;
+        }
+        out
+    };
+
+    let unity = render(1.0);
+    let double = render(2.0);
+    assert!(unity.iter().any(|x| x.abs() > 1e-6), "silent baseline");
+    for (a, b) in unity.iter().zip(&double) {
+        assert!(
+            (b - a * 2.0).abs() <= a.abs() * 1e-4 + 1e-6,
+            "master gain not applied: {a} vs {b}"
+        );
+    }
+}
+
 // TODO: Add integration test with real spatial metadata
 // For now, testing is done via real spatial audio content decoding
