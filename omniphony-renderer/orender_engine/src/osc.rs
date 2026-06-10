@@ -426,9 +426,25 @@ fn apply_head_tracking_packet(packet: &OscPacket, ctrl: &RendererControl) {
             };
             let args = collect_f32(&msg.args);
             if let Some(raw) = format.parse(&args) {
-                let mut live = ctrl.live.write();
-                let current = live.binaural.head_pose;
-                live.binaural.head_pose = live.binaural.tracking.ingest(raw, current);
+                {
+                    let mut live = ctrl.live.write();
+                    let current = live.binaural.head_pose;
+                    live.binaural.head_pose = live.binaural.tracking.ingest(raw, current);
+                }
+                // Re-broadcast the live state so connected clients (Studio) see the
+                // moving pose. Throttled to ~10 Hz so a 60–100 Hz sensor stream
+                // doesn't resend the full state bundle on every packet.
+                static LAST_BUMP_MS: std::sync::atomic::AtomicU64 =
+                    std::sync::atomic::AtomicU64::new(0);
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                let last = LAST_BUMP_MS.load(std::sync::atomic::Ordering::Relaxed);
+                if now_ms.saturating_sub(last) >= 100 {
+                    LAST_BUMP_MS.store(now_ms, std::sync::atomic::Ordering::Relaxed);
+                    ctrl.bump_live_state();
+                }
             }
         }
         OscPacket::Bundle(bundle) => {
