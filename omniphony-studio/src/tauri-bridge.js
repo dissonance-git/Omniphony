@@ -73,6 +73,7 @@ import {
 } from './controls/room-geometry.js';
 import { normalizeLogLevel, renderLogLevelControl, logState, pushLog } from './log.js';
 import { applyInitState } from './init.js';
+import { setHeadPoseQuat } from './scene/head-pose.js';
 import { setInputSectionOpen } from './modals.js';
 import { syncSpeakerHeatmapBandSelect } from './scene/speaker-band-select.js';
 
@@ -102,6 +103,9 @@ function applyBatchedEvent(event, payload) {
       break;
     case 'meter:drc_gain':
       updateDrcMeterUI(Number(payload.value));
+      break;
+    case 'binaural:head_pose':
+      setHeadPoseQuat(payload);
       break;
     default:
       break;

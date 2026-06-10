@@ -16,10 +16,14 @@ import { headPoseGroup } from './setup.js';
 // permuting its vector part the same way.
 const target = new THREE.Quaternion();
 const identity = new THREE.Quaternion();
+// Gate for the fast pose channel: only rotate while the binaural stage is
+// actually applying the pose. Maintained by the (10 Hz) full-state path.
+let trackingActive = false;
 
-/// Fraction of the remaining arc covered per rendered frame (~60 fps →
-/// ≈80 ms time constant, comfortably bridging the 10 Hz broadcast).
-const SLERP_PER_FRAME = 0.18;
+// Fraction of the remaining arc covered per rendered frame. The dedicated
+// ~30 Hz pose channel leaves little to mask, so this can stay snappy
+// (~25 ms time constant at 60 fps).
+const SLERP_PER_FRAME = 0.4;
 
 /**
  * Update the target orientation from the renderer's `binaural` state object.
@@ -32,11 +36,21 @@ export function setHeadPoseTarget(binaural) {
   const active = binaural.outputMode === 'binaural'
     && pose && typeof pose.w === 'number'
     && [pose.x, pose.y, pose.z].every((v) => typeof v === 'number');
+  trackingActive = active;
   if (!active) {
     target.copy(identity);
     return;
   }
   // Conjugate (head-in-world), then permute omni (x, y, z) → scene (y, z, x).
+  target.set(-pose.y, -pose.z, -pose.x, pose.w).normalize();
+}
+
+/**
+ * Fast path: a bare quaternion from the dedicated ~30 Hz `head_pose`
+ * channel. Activity gating still comes from the full-state path above.
+ */
+export function setHeadPoseQuat(pose) {
+  if (!trackingActive || !pose || typeof pose.w !== 'number') return;
   target.set(-pose.y, -pose.z, -pose.x, pose.w).normalize();
 }
 

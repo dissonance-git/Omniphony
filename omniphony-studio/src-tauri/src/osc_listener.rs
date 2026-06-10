@@ -1427,6 +1427,7 @@ fn decode_evaluation_artifact(bytes: &[u8], version: u32) -> Option<serde_json::
 const BATCH_FLUSH_INTERVAL: Duration = Duration::from_millis(16);
 
 const BATCHED_EVENTS: &[&str] = &[
+    "binaural:head_pose",
     "source:update",
     "source:meter",
     "source:gains",
@@ -1881,6 +1882,15 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
             }
             OscEvent::StateClip { speaker } => (
                 Some(("clip:detected", serde_json::json!({ "speaker": speaker }))),
+                removed_ids,
+            ),
+            OscEvent::StateHeadPose { w, x, y, z } => (
+                // Fast path for the 3D head: no AppState mutation, just a
+                // coalesced event straight to the webview (latest pose wins).
+                Some((
+                    "binaural:head_pose",
+                    serde_json::json!({ "w": w, "x": x, "y": y, "z": z }),
+                )),
                 removed_ids,
             ),
             OscEvent::StateRenderer { value } => {
