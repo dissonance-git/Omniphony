@@ -22,6 +22,7 @@ use tokio::sync::mpsc::UnboundedSender;
 // imported so `generate_handler!` can keep referring to them by bare name.
 use commands::app::*;
 use commands::audio::*;
+use commands::binaural::*;
 use commands::diag::*;
 use commands::engine::*;
 use commands::gain::*;
@@ -265,6 +266,13 @@ fn main() {
             control_reload_config,
             control_log_level,
             control_ramp_mode,
+            control_output_mode,
+            control_hrir_source,
+            control_head_recenter,
+            control_head_tracking_address,
+            control_head_tracking_format,
+            control_head_tracking_smoothing,
+            control_head_tracking_invert,
             control_audio_config,
             control_audio_config_apply,
             control_audio_output_device,

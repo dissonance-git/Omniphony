@@ -80,6 +80,7 @@ import { renderConfigSavedUI } from './controls/config.js';
 import { renderLatencyDisplay, renderLatencyMeterUI, renderRenderTimeUI, renderResampleRatioDisplay } from './controls/latency.js';
 import { renderAudioFormatDisplay, applyAudioSampleRateNow } from './controls/audio.js';
 import { bindDrcListeners, renderDrcUI } from './controls/drc.js';
+import { initBinauralPanel } from './controls/binaural.js';
 import { initUpdateCheck, maybeCheck } from './controls/updates.js';
 import {
   updateObjectContributionUI,
@@ -223,6 +224,7 @@ pushLog('info', t('log.boot'));
 loadTrailPrefs();
 loadEffectiveRenderPrefs();
 bindDrcListeners();
+initBinauralPanel();
 refreshRoomGeometryInputState();
 setRoomGeometryExpanded(false);
 setTelemetryGaugesOpen(false);

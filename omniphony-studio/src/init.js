@@ -54,6 +54,7 @@ import { syncDiagRateFromRenderer } from './controls/diag-plot.js';
 import { updateDistanceDiffuseUI } from './controls/distance-diffuse.js';
 import { setOscStatus } from './controls/osc.js';
 import { renderDrcUI } from './controls/drc.js';
+import { applyBinauralState } from './controls/binaural.js';
 import { updateLoudnessDisplay, updateDistanceModelUI } from './controls/master.js';
 import { updateRoomRatioDisplay, applyRoomRatio, applyRoomRatioToScene } from './controls/room-geometry.js';
 import { updateConfigSavedUI, updateAboutConfigPath, updateAboutRendererVersion } from './controls/config.js';
@@ -86,6 +87,7 @@ export function applyProducerCapabilityVisibility() {
 }
 
 export function applyInitState(payload) {
+  applyBinauralState(payload?.binaural);
   app.producerCapabilities =
     payload?.producerCapabilities && typeof payload.producerCapabilities === 'object'
       ? payload.producerCapabilities
