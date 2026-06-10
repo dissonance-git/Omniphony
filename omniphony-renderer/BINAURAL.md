@@ -115,9 +115,17 @@ with Game Rotation Vector you can usually lower it.
   for a room-sized stage.
 - **ITD fit**: `head_radius_m` defaults to a KEMAR-ish 8.75 cm. If
   localisation feels smeared, measure ear-to-ear width and set half of it.
-- **HRTF**: the embedded measured KEMAR (`saf`) is the best generic default.
-  `sofa` lets you load a personalised or alternative measured set (build with
-  `--features sofa`). `synthetic` is a lightweight fallback.
+- **HRTF**: the embedded measured KEMAR (`saf`) is the best generic default —
+  but generic HRTFs rarely deliver elevation: the up/down cues are spectral
+  notches carved by *your* pinna, the most individual part of spatial
+  hearing. If elevation feels flat or the image sits too high, go HRTF
+  shopping: the **Browse…** button next to the HRTF select opens the
+  sofacoustics.org database (HUTUBS has 96 measured subjects under
+  `database/hutubs/` — try the `*_HRIRs_measured.sofa` files of a dozen
+  subjects and keep the best match). A click downloads and activates the
+  file live. `synthetic` is the no-measured-HRTF baseline (analytic head
+  shadow, no pinna colouration) — useful as an A/B reference.
+  SOFA support is compiled into liborender by default (`sofa` feature).
 - **Head-tracking reaction latency under mpv**: rendered audio waits in mpv's
   output queue, so rotation is only audible once that queue drains. Set
   `audio-buffer=0.05` in `mpv.conf` (default is 0.2 s) to cut the dominant
