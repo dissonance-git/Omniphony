@@ -175,6 +175,27 @@ pub fn save_live_config(
     } else {
         None
     };
+    // Binaural (headphone) stage: persist the live selection so it survives a
+    // restart — output mode, HRIR source (+ SOFA path), isotropic scale, and the
+    // head-tracking OSC address/format.
+    let (hrir_source, hrtf_sofa_path) = match &live.binaural.hrir_source {
+        renderer::binaural::HrirSource::Sofa(p) if !p.is_empty() => {
+            ("sofa".to_string(), Some(std::path::PathBuf::from(p)))
+        }
+        other => (other.as_str().to_string(), None),
+    };
+    render.binaural = Some(renderer::config::BinauralConfig {
+        output_mode: Some(live.binaural.output_mode.as_str().to_string()),
+        unit_scale_m: Some(live.binaural.unit_scale_m),
+        hrir_source: Some(hrir_source),
+        hrtf_sofa_path,
+        head_tracking: Some(renderer::config::HeadTrackingConfig {
+            osc_address: live.binaural.tracking.address.clone(),
+            format: Some(live.binaural.tracking.format.as_str().to_string()),
+            extra: Default::default(),
+        }),
+        extra: Default::default(),
+    });
     // barycenter / experimental_distance params now live in the generic param bag
     // (`render.backend_params`, written below), so drop the legacy dedicated keys
     // on save. Reading an old config still migrates them into the bag on load.
