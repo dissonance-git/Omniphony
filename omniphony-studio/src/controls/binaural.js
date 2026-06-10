@@ -24,6 +24,17 @@ export function initBinauralPanel() {
   if (bound) return;
   bound = true;
 
+  // Collapsible section: the content carries `conditional-params` (collapsed by
+  // default) and is revealed by toggling the `open` class, like the other panels.
+  const toggleBtn = el('binauralSectionToggleBtn');
+  const content = el('binauralSectionContent');
+  if (toggleBtn && content) {
+    toggleBtn.addEventListener('click', () => {
+      const open = content.classList.toggle('open');
+      toggleBtn.textContent = open ? '▾' : '▸';
+    });
+  }
+
   const mode = el('binauralOutputMode');
   if (mode) {
     mode.addEventListener('change', (e) => {
