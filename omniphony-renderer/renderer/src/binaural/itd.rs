@@ -5,8 +5,9 @@
 //! baked into the HRIR phase, so head-tracking can move it smoothly without
 //! re-deriving filters.
 
-/// Effective head radius (m) — KEMAR-ish.
-const HEAD_RADIUS_M: f32 = 0.0875;
+/// Default effective head radius (m) — KEMAR-ish. Live-tunable via
+/// `BinauralLiveParams::head_radius_m` for per-listener ITD fit.
+pub const DEFAULT_HEAD_RADIUS_M: f32 = 0.0875;
 /// Speed of sound (m/s).
 const SPEED_OF_SOUND: f32 = 343.0;
 
@@ -19,7 +20,7 @@ const SPEED_OF_SOUND: f32 = 343.0;
 /// Returns `(left_delay_s, right_delay_s)`, both ≥ 0: the ear nearer the source
 /// gets 0, the far (contralateral) ear gets the positive ITD. A source on the
 /// right therefore delays the **left** ear.
-pub fn ear_delays_seconds(azimuth_rad: f32, elevation_rad: f32) -> (f32, f32) {
+pub fn ear_delays_seconds(azimuth_rad: f32, elevation_rad: f32, head_radius_m: f32) -> (f32, f32) {
     // Woodworth: Δt = (r/c)(θ + sinθ) for the far ear, with θ measured from the
     // median plane and clamped to ±90° (rear hemisphere mirrors the front).
     let mut theta = azimuth_rad.rem_euclid(std::f32::consts::TAU);
@@ -34,7 +35,7 @@ pub fn ear_delays_seconds(azimuth_rad: f32, elevation_rad: f32) -> (f32, f32) {
     } else {
         theta
     };
-    let mag = (HEAD_RADIUS_M / SPEED_OF_SOUND)
+    let mag = (head_radius_m / SPEED_OF_SOUND)
         * (folded.abs() + folded.abs().sin())
         * elevation_rad.cos().abs();
     if folded >= 0.0 {
@@ -51,13 +52,13 @@ mod tests {
 
     #[test]
     fn front_source_has_zero_itd() {
-        let (l, r) = ear_delays_seconds(0.0, 0.0);
+        let (l, r) = ear_delays_seconds(0.0, 0.0, DEFAULT_HEAD_RADIUS_M);
         assert!(l.abs() < 1e-9 && r.abs() < 1e-9);
     }
 
     #[test]
     fn right_source_delays_left_ear() {
-        let (l, r) = ear_delays_seconds(std::f32::consts::FRAC_PI_2, 0.0);
+        let (l, r) = ear_delays_seconds(std::f32::consts::FRAC_PI_2, 0.0, DEFAULT_HEAD_RADIUS_M);
         assert!(l > r);
         assert!(r.abs() < 1e-9);
         // Max ITD for a 0.0875 m head ≈ 0.66 ms.
@@ -66,16 +67,20 @@ mod tests {
 
     #[test]
     fn left_source_delays_right_ear() {
-        let (l, r) = ear_delays_seconds(-std::f32::consts::FRAC_PI_2, 0.0);
+        let (l, r) = ear_delays_seconds(-std::f32::consts::FRAC_PI_2, 0.0, DEFAULT_HEAD_RADIUS_M);
         assert!(r > l);
         assert!(l.abs() < 1e-9);
     }
 
     #[test]
     fn elevated_source_has_smaller_itd_than_horizontal() {
-        let (l_horiz, _) = ear_delays_seconds(std::f32::consts::FRAC_PI_2, 0.0);
-        let (l_high, _) =
-            ear_delays_seconds(std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_4);
+        let (l_horiz, _) =
+            ear_delays_seconds(std::f32::consts::FRAC_PI_2, 0.0, DEFAULT_HEAD_RADIUS_M);
+        let (l_high, _) = ear_delays_seconds(
+            std::f32::consts::FRAC_PI_2,
+            std::f32::consts::FRAC_PI_4,
+            DEFAULT_HEAD_RADIUS_M,
+        );
         assert!(l_high < l_horiz && l_high > 0.0);
     }
 }

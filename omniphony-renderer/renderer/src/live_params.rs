@@ -144,6 +144,9 @@ pub struct BinauralLiveParams {
     /// Metres represented by one ADM unit; scales physical distance for the
     /// 1/d gain and ITD/ILD without altering object directions.
     pub unit_scale_m: f32,
+    /// Effective head radius (m) for the Woodworth ITD model — half the
+    /// inter-ear distance. Per-listener fit; default is KEMAR-ish.
+    pub head_radius_m: f32,
     /// Current (smoothed) head orientation applied to world positions. Updated by
     /// the head-tracking input or set directly via the `head/*` OSC controls.
     pub head_pose: crate::binaural::HeadPose,
@@ -158,6 +161,7 @@ impl Default for BinauralLiveParams {
         Self {
             output_mode: OutputMode::default(),
             unit_scale_m: 1.0,
+            head_radius_m: crate::binaural::itd::DEFAULT_HEAD_RADIUS_M,
             head_pose: crate::binaural::HeadPose::identity(),
             tracking: crate::binaural::HeadTracking::default(),
             hrir_source: crate::binaural::HrirSource::default(),

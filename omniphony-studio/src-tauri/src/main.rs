@@ -268,6 +268,8 @@ fn main() {
             control_ramp_mode,
             control_output_mode,
             control_hrir_source,
+            control_binaural_unit_scale,
+            control_binaural_head_radius,
             control_head_recenter,
             control_head_tracking_address,
             control_head_tracking_format,

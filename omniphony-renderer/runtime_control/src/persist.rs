@@ -187,6 +187,7 @@ pub fn save_live_config(
     render.binaural = Some(renderer::config::BinauralConfig {
         output_mode: Some(live.binaural.output_mode.as_str().to_string()),
         unit_scale_m: Some(live.binaural.unit_scale_m),
+        head_radius_m: Some(live.binaural.head_radius_m),
         hrir_source: Some(hrir_source),
         hrtf_sofa_path,
         head_tracking: Some(renderer::config::HeadTrackingConfig {

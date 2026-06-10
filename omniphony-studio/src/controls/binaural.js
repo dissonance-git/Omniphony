@@ -51,6 +51,28 @@ export function initBinauralPanel() {
     });
   }
 
+  const unitScale = el('binauralUnitScale');
+  if (unitScale) {
+    unitScale.addEventListener('input', (e) => {
+      if (applying) return;
+      const v = Number(e.target.value);
+      const out = el('binauralUnitScaleVal');
+      if (out) out.textContent = v.toFixed(1);
+      send('control_binaural_unit_scale', { value: v });
+    });
+  }
+
+  const headRadius = el('binauralHeadRadius');
+  if (headRadius) {
+    headRadius.addEventListener('input', (e) => {
+      if (applying) return;
+      const cm = Number(e.target.value);
+      const out = el('binauralHeadRadiusVal');
+      if (out) out.textContent = cm.toFixed(1);
+      send('control_binaural_head_radius', { value: cm / 100 });
+    });
+  }
+
   const recenter = el('binauralRecenter');
   if (recenter) {
     recenter.addEventListener('click', () => send('control_head_recenter', {}));
@@ -102,6 +124,17 @@ export function applyBinauralState(b) {
 
     if (typeof b.outputMode === 'string') setVal('binauralOutputMode', b.outputMode);
     if (typeof b.hrirSource === 'string') setVal('binauralHrirSource', b.hrirSource);
+
+    if (typeof b.unitScaleM === 'number') {
+      setVal('binauralUnitScale', b.unitScaleM);
+      const out = el('binauralUnitScaleVal');
+      if (out) out.textContent = Number(b.unitScaleM).toFixed(1);
+    }
+    if (typeof b.headRadiusM === 'number') {
+      setVal('binauralHeadRadius', b.headRadiusM * 100);
+      const out = el('binauralHeadRadiusVal');
+      if (out) out.textContent = (b.headRadiusM * 100).toFixed(1);
+    }
 
     const t = b.tracking || {};
     if (typeof t.address === 'string') setVal('binauralTrackAddress', t.address);

@@ -287,6 +287,10 @@ pub struct BinauralConfig {
     /// Deliberately separate from `room_ratio`, which is anisotropic.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unit_scale_m: Option<f32>,
+    /// Effective head radius in metres for the ITD model (half the inter-ear
+    /// distance). Default 0.0875 (KEMAR-ish).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub head_radius_m: Option<f32>,
     /// HRIR data set: `"synthetic"`, `"saf"`/`"kemar"` (embedded measured, default),
     /// or `"sofa"` (uses `hrtf_sofa_path`; needs the `sofa` build feature).
     #[serde(skip_serializing_if = "Option::is_none")]

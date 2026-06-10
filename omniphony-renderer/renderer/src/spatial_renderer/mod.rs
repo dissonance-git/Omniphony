@@ -628,11 +628,12 @@ impl SpatialRenderer {
                     }
                 }
             }
-            let (head_pose, unit_scale_m, hrir_source) = {
+            let (head_pose, unit_scale_m, head_radius_m, hrir_source) = {
                 let g = self.control.live.read();
                 (
                     g.binaural.head_pose,
                     g.binaural.unit_scale_m,
+                    g.binaural.head_radius_m,
                     g.binaural.hrir_source.clone(),
                 )
             };
@@ -646,6 +647,7 @@ impl SpatialRenderer {
                 sample_length,
                 head_pose,
                 unit_scale_m,
+                head_radius_m,
                 &self.binaural_pos_buf,
                 &self.binaural_gain_buf,
                 &mut output,

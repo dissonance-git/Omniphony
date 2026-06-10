@@ -592,6 +592,11 @@ pub fn build_spatial_renderer(
                         live.binaural.unit_scale_m = scale;
                     }
                 }
+                if let Some(radius) = bin.head_radius_m {
+                    if radius.is_finite() && radius > 0.0 {
+                        live.binaural.head_radius_m = radius.clamp(0.05, 0.15);
+                    }
+                }
                 if let Some(ht) = bin.head_tracking.as_ref() {
                     if let Some(addr) = ht.osc_address.as_ref() {
                         live.binaural.tracking.address = (!addr.is_empty()).then(|| addr.clone());

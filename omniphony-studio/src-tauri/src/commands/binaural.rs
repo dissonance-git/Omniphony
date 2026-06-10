@@ -36,6 +36,30 @@ pub fn control_hrir_source(state: State<SharedState>, value: String) {
 }
 
 #[tauri::command]
+pub fn control_binaural_unit_scale(state: State<SharedState>, value: f32) {
+    // Metres per ADM unit (isotropic distance scale).
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendFloat {
+            address: "/omniphony/control/binaural/unit_scale".to_string(),
+            value: value.clamp(0.01, 100.0),
+        },
+    );
+}
+
+#[tauri::command]
+pub fn control_binaural_head_radius(state: State<SharedState>, value: f32) {
+    // Effective head radius in metres (half the inter-ear distance).
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendFloat {
+            address: "/omniphony/control/binaural/head_radius".to_string(),
+            value: value.clamp(0.05, 0.15),
+        },
+    );
+}
+
+#[tauri::command]
 pub fn control_head_recenter(state: State<SharedState>) {
     send_control(
         &state.osc_tx,

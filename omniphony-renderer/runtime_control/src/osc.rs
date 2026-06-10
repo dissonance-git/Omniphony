@@ -795,6 +795,33 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
+    if addr == "/omniphony/control/binaural/unit_scale" {
+        // Metres per ADM unit (isotropic distance scale for the binaural stage).
+        if let Some(v) = parse_f32_arg(msg.args.first()) {
+            if v.is_finite() && v > 0.0 {
+                let v = v.clamp(0.01, 100.0);
+                ctx.renderer.live.write().binaural.unit_scale_m = v;
+                effects.mark_dirty = true;
+                effects.log_message = Some(format!("OSC: binaural/unit_scale -> {v}"));
+            }
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/head_radius" {
+        // Effective head radius (m) for the ITD model — half the inter-ear
+        // distance. Human range is roughly 6–12 cm.
+        if let Some(v) = parse_f32_arg(msg.args.first()) {
+            if v.is_finite() && v > 0.0 {
+                let v = v.clamp(0.05, 0.15);
+                ctx.renderer.live.write().binaural.head_radius_m = v;
+                effects.mark_dirty = true;
+                effects.log_message = Some(format!("OSC: binaural/head_radius -> {v}"));
+            }
+        }
+        return Some(effects);
+    }
+
     if addr == "/omniphony/control/head/recenter" {
         // Capture the current raw tracker orientation as "forward" and snap the
         // rendered pose to identity so the scene faces straight ahead.

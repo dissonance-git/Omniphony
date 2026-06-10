@@ -184,6 +184,7 @@ impl BinauralRenderer {
         sample_length: usize,
         head_pose: HeadPose,
         unit_scale_m: f32,
+        head_radius_m: f32,
         chan_pos: &[[f64; 3]],
         chan_gain: &[f32],
         out: &mut [f32],
@@ -223,7 +224,7 @@ impl BinauralRenderer {
                 el_rad.to_degrees(),
                 &mut self.hrir_scratch,
             );
-            let (itd_l, itd_r) = itd::ear_delays_seconds(az_rad, el_rad);
+            let (itd_l, itd_r) = itd::ear_delays_seconds(az_rad, el_rad, head_radius_m);
 
             let dsp = self.channels[c].get_or_insert_with(|| ChannelDsp::new(self.sample_rate));
             dsp.conv_l.set_coeffs(&self.hrir_scratch.left);
@@ -262,6 +263,7 @@ mod tests {
             n,
             HeadPose::identity(),
             1.0,
+            itd::DEFAULT_HEAD_RADIUS_M,
             &[pos],
             &[1.0],
             &mut out,
@@ -306,6 +308,7 @@ mod tests {
             n,
             HeadPose::identity(),
             1.0,
+            itd::DEFAULT_HEAD_RADIUS_M,
             &[[1.0, 0.0, 0.0]],
             &[0.0],
             &mut out,
