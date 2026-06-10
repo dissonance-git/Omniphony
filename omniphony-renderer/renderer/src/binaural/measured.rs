@@ -132,6 +132,54 @@ impl HrirProvider for MeasuredHrirData {
     }
 }
 
+/// Build an [`HrirSet`](super::hrir::HrirSet) from a SOFA file, resampled to
+/// `sample_rate`. `sofar` does the spatial interpolation and delay extraction,
+/// so the returned per-ear IRs are time-aligned (the renderer adds the analytic
+/// ITD). Requires the `sofa` build feature.
+#[cfg(feature = "sofa")]
+pub fn hrir_set_from_sofa(path: &str, sample_rate: u32) -> anyhow::Result<super::hrir::HrirSet> {
+    use sofar::reader::OpenOptions;
+    let mut opts = OpenOptions::new();
+    opts.sample_rate(sample_rate as f32);
+    let sofa = opts
+        .open(path)
+        .map_err(|e| anyhow::anyhow!("open SOFA '{path}': {e:?}"))?;
+    let filter_len = sofa.filter_len();
+    let provider = SofaProvider { sofa, filter_len };
+    Ok(super::hrir::HrirSet::new(&provider, sample_rate))
+}
+
+/// Adapts a loaded SOFA file to [`HrirProvider`]: maps the renderer's direction
+/// convention to SOFA Cartesian (x = front, y = left, z = up) and lets `sofar`
+/// interpolate the nearest measurements.
+#[cfg(feature = "sofa")]
+struct SofaProvider {
+    sofa: sofar::reader::Sofar,
+    filter_len: usize,
+}
+
+#[cfg(feature = "sofa")]
+impl HrirProvider for SofaProvider {
+    fn render(&self, az_deg: f32, el_deg: f32, _sample_rate: u32) -> HrirPair {
+        let az = az_deg.to_radians();
+        let el = el_deg.to_radians();
+        let ce = el.cos();
+        // renderer (+az=right, +Y=front) → SOFA (x=front, y=left, z=up).
+        let x = az.cos() * ce;
+        let y = -(az.sin() * ce);
+        let z = el.sin();
+        let mut filter = sofar::reader::Filter::new(self.filter_len);
+        self.sofa.filter(x, y, z, &mut filter);
+        let mut pair = HrirPair {
+            left: [0.0; HRIR_LEN],
+            right: [0.0; HRIR_LEN],
+        };
+        align_into(&filter.left, &mut pair.left);
+        align_into(&filter.right, &mut pair.right);
+        pair
+    }
+}
+
 /// Unit vector for a direction (az 0 = front/+Y, +az = right/+X; el up = +Z).
 fn dir_vec(az_deg: f32, el_deg: f32) -> [f32; 3] {
     let az = az_deg.to_radians();

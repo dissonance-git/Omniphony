@@ -147,8 +147,8 @@ impl BinauralRenderer {
 
     #[cfg(feature = "sofa")]
     fn load_sofa(path: &str, sample_rate: u32) -> Option<HrirSet> {
-        match MeasuredHrirData::from_sofa(path) {
-            Ok(data) => Some(HrirSet::new(&data, sample_rate)),
+        match measured::hrir_set_from_sofa(path, sample_rate) {
+            Ok(set) => Some(set),
             Err(e) => {
                 log::warn!("binaural: failed to load SOFA '{path}': {e}");
                 None
