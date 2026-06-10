@@ -417,20 +417,20 @@
       <div class="info-section" id="binauralSection">
         <div class="panel-header">
           <div class="panel-header-main">
-            <div class="info-title panel-title" data-i18n="section.binaural">Binaural / Headphones</div>
+            <div class="info-title panel-title">Binaural / Headphones</div>
           </div>
         </div>
-        <div class="conditional-params">
+        <div>
           <div style="margin-top:0.25rem;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03);display:grid;gap:0.35rem">
             <div class="inline-toggle" style="margin-top:0">
-              <div data-i18n="binaural.outputMode">Output</div>
+              <div>Output</div>
               <select id="binauralOutputMode" class="form-select" style="font-size:0.75rem;padding:0.1rem 0.2rem;width:auto;min-width:90px;">
                 <option value="speaker">Speakers</option>
                 <option value="binaural">Headphones</option>
               </select>
             </div>
             <div class="inline-toggle" style="margin-top:0">
-              <div data-i18n="binaural.hrir">HRTF</div>
+              <div>HRTF</div>
               <select id="binauralHrirSource" class="form-select" style="font-size:0.75rem;padding:0.1rem 0.2rem;width:auto;min-width:90px;">
                 <option value="saf">KEMAR (measured)</option>
                 <option value="synthetic">Synthetic</option>
@@ -438,13 +438,13 @@
               </select>
             </div>
             <div style="margin-top:0.2rem;border-top:1px solid rgba(255,255,255,0.05);padding-top:0.3rem;display:grid;gap:0.3rem">
-              <div style="font-size:0.7rem;color:#8fa6bd" data-i18n="binaural.headTracking">Head tracking (SensorsOSC)</div>
+              <div style="font-size:0.7rem;color:#8fa6bd">Head tracking (SensorsOSC)</div>
               <div class="inline-toggle" style="margin-top:0">
-                <div data-i18n="binaural.address">OSC address</div>
+                <div>OSC address</div>
                 <input id="binauralTrackAddress" type="text" class="form-input" placeholder="/android/rotationvector" style="font-size:0.7rem;width:11rem;" />
               </div>
               <div class="inline-toggle" style="margin-top:0">
-                <div data-i18n="binaural.format">Format</div>
+                <div>Format</div>
                 <select id="binauralTrackFormat" class="form-select" style="font-size:0.75rem;padding:0.1rem 0.2rem;width:auto;min-width:90px;">
                   <option value="auto">Auto</option>
                   <option value="quat">Quaternion</option>
@@ -454,17 +454,17 @@
               </div>
               <div>
                 <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
-                  <span data-i18n="binaural.smoothing">Smoothing</span>
+                  <span>Smoothing</span>
                   <span id="binauralTrackSmoothingVal">0.20</span>
                 </div>
                 <input id="binauralTrackSmoothing" type="range" min="0" max="0.99" step="0.01" value="0.2" style="width:100%;" />
               </div>
               <div class="inline-toggle" style="margin-top:0">
-                <div data-i18n="binaural.invert">Invert rotation</div>
+                <div>Invert rotation</div>
                 <input id="binauralTrackInvert" type="checkbox" />
               </div>
               <div style="display:flex;align-items:center;gap:0.5rem">
-                <button id="binauralRecenter" type="button" class="form-button" data-i18n="binaural.recenter">Recenter</button>
+                <button id="binauralRecenter" type="button" class="form-button">Recenter</button>
                 <span id="binauralPoseReadout" style="font-size:10px;color:#8fa6bd;font-family:ui-monospace, monospace;">yaw 0°  pitch 0°  roll 0°</span>
               </div>
             </div>
