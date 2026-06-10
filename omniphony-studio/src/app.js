@@ -19,9 +19,10 @@ import { pushLog, renderLogLevelControl, renderLogPanel, normalizeLogError } fro
 // ── Scene ───────────────────────────────────────────────────────────────────
 import {
   scene, camera, renderer, controls,
-  brassempouyAnchor,
+  headPoseGroup,
   BRASSEMPOUY_TARGET_MAX_DIMENSION, brassempouyAssetUrl
 } from './scene/setup.js';
+import { updateHeadPose } from './scene/head-pose.js';
 import './scene/axes.js';
 import { refreshObjectEnergyVolume } from './scene/object-energy-volume.js';
 import { refreshSpeakerSoloVolume } from './scene/speaker-solo-volume.js';
@@ -207,7 +208,7 @@ gltfLoader.load(
 
     model.rotation.y = -Math.PI / 2;
     model.updateMatrixWorld(true);
-    brassempouyAnchor.add(model);
+    headPoseGroup.add(model);
   },
   undefined,
   (error) => {
@@ -298,6 +299,7 @@ let animationFrameId = 0;
 function animate() {
   animationFrameId = requestAnimationFrame(animate);
   controls.update();
+  updateHeadPose();
   updateRoomFaceVisibility();
   updateSelectedSpeakerFaceShadows();
   updateSelectedObjectFaceShadows();
