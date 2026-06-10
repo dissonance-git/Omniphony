@@ -440,8 +440,9 @@ impl SpatialRenderer {
         // ── 0. Independent binaural (headphone) path ─────────────────────────
         // When headphone output is selected, bypass the entire VBAP / crossover /
         // speaker chain and emit a 2-channel frame. The branch is taken below,
-        // after `update_metadata` has advanced the object position ramps (the
-        // binaural stage reads those positions). Flag it here.
+        // after `update_metadata` has applied the pending events (new ramp
+        // targets); the branch itself advances each object's position ramp for
+        // the block. Flag it here.
         let binaural_active = matches!(
             self.control.live.read().binaural.output_mode,
             crate::live_params::OutputMode::Binaural
@@ -585,13 +586,22 @@ impl SpatialRenderer {
             self.binaural_gain_buf.resize(input_channel_count, 0.0);
             let num_beds = bed_indices.len();
             {
-                let states = self.channel_states.lock();
+                let mut states = self.channel_states.lock();
                 for c in 0..input_channel_count {
-                    self.binaural_gain_buf[c] = match self.object_params_buf.get(c) {
+                    let obj_gain = match self.object_params_buf.get(c) {
                         Some(o) if o.muted => 0.0,
                         Some(o) => o.gain,
                         None => 1.0,
                     };
+                    // Stream metadata gain, same semantics as the VBAP path:
+                    // silent (-128 = -inf dB) until the first metadata arrives.
+                    let gain_db = states.get(&c).map(|s| s.gain_db).unwrap_or(-128);
+                    let gain_linear = if gain_db == -128 {
+                        0.0
+                    } else {
+                        10.0_f32.powf(gain_db as f32 / 20.0)
+                    };
+                    self.binaural_gain_buf[c] = obj_gain * gain_linear;
                     if c < num_beds {
                         // Bed channel: place it at its mapped speaker's direction.
                         if let Some(&spk) = active_bed_to_speaker_mapping.get(&bed_indices[c]) {
@@ -599,8 +609,22 @@ impl SpatialRenderer {
                                 self.binaural_pos_buf[c] = [s.x as f64, s.y as f64, s.z as f64];
                             }
                         }
-                    } else if let Some(st) = states.get(&c) {
-                        self.binaural_pos_buf[c] = st.ramp.current_position;
+                    } else if let Some(st) = states.get_mut(&c) {
+                        // Advance the position ramp for this block (Frame-mode
+                        // granularity: the binaural stage updates HRIR/ITD once
+                        // per block anyway). Nothing else advances ramps in
+                        // binaural mode — the VBAP mix loop that normally does
+                        // is bypassed — so without this every object stays at
+                        // the ramp default [0,0,0]: dead centre, and rotation-
+                        // invariant (the zero vector ignores the head pose).
+                        let progress = st.ramp.current_progress().unwrap_or(RampProgress {
+                            completed_units: 0,
+                            total_units: 0,
+                        });
+                        ramp_strategy.evaluate(&mut st.ramp, progress, &ramp_context);
+                        self.binaural_pos_buf[c] = st.ramp.output_position;
+                        st.ramp.commit_output_position();
+                        st.ramp.advance_ramp(sample_length as u64);
                     }
                 }
             }

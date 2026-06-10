@@ -539,5 +539,118 @@ fn all_four_ramp_modes_render_distinctly() {
     );
 }
 
+/// Regression: in binaural mode the object position ramps MUST advance.
+/// The VBAP mix loop that normally drives `advance_ramp` is bypassed, so the
+/// binaural branch advances them itself; before that fix every object stayed
+/// at the ramp default [0,0,0] — dead centre, and rotation-invariant (the
+/// zero vector ignores the head pose) — which rendered as near-mono audio
+/// that did not react to head tracking.
+#[test]
+fn binaural_object_ramp_advances_and_lateralizes() {
+    let layout = SpeakerLayout::preset("7.1.4").unwrap();
+    let mut r = SpatialRenderer::new(
+        layout,
+        48_000,
+        1,
+        1,
+        0.0,
+        2.0,
+        VbapTableMode::Cartesian {
+            x_size: 21,
+            y_size: 21,
+            z_size: 9,
+            z_neg_size: 9,
+        },
+        false,
+        true,
+        DistanceModel::Linear,
+        false,
+        1.0,
+        1.0,
+        0.0,
+        1.0,
+        false,
+        [1.0, 2.0, 0.5],
+        2.0,
+        0.5,
+        0.0,
+        0.0,
+        false,
+        false,
+        false,
+        1.0,
+        1.0,
+        PreferredEvaluationMode::PrecomputedCartesian,
+        LiveEvaluationMode::PrecomputedCartesian,
+        21,
+        21,
+        9,
+        9,
+    )
+    .unwrap();
+    r.control.live.write().binaural.output_mode = crate::live_params::OutputMode::Binaural;
+
+    // One object channel ramping from the default [0,0,0] to hard right.
+    // Broadband pseudo-noise input: head-shadow ILD is a high-frequency
+    // phenomenon, so a DC input would show almost no ear asymmetry.
+    let mut lcg: u32 = 0x1234_5678;
+    let mut noise_block = move || -> Vec<f32> {
+        (0..40)
+            .map(|_| {
+                lcg = lcg.wrapping_mul(1664525).wrapping_add(1013904223);
+                (lcg >> 8) as f32 / (1u32 << 24) as f32 - 0.5
+            })
+            .collect()
+    };
+    let pcm = noise_block();
+    let event = vec![SpatialChannelEvent {
+        channel_idx: 0,
+        is_bed: false,
+        gain_db: Some(0),
+        ramp_length: Some(40),
+        size: Some([0.0, 0.0, 0.0]),
+        position: Some([1.0, 0.0, 0.0]),
+        sample_pos: Some(0),
+    }];
+
+    let first = r.render_frame(&pcm, 1, &event, Vec::new(), false).unwrap();
+    assert_eq!(
+        first.samples.len(),
+        40 * 2,
+        "binaural output must be stereo"
+    );
+
+    // Let the ramp finish and the ITD delay lines / HRIR tails settle, then
+    // measure ear energies over a few blocks.
+    let (mut e_l, mut e_r) = (0.0f32, 0.0f32);
+    for i in 0..8 {
+        let pcm = noise_block();
+        let out = r.render_frame(&pcm, 1, &[], Vec::new(), false).unwrap();
+        if i >= 4 {
+            for s in out.samples.chunks_exact(2) {
+                e_l += s[0] * s[0];
+                e_r += s[1] * s[1];
+            }
+        }
+    }
+
+    let pos = r
+        .channel_states
+        .lock()
+        .get(&0)
+        .expect("channel state")
+        .ramp
+        .current_position;
+    assert!(
+        pos[0] > 0.99,
+        "object ramp did not advance in binaural mode: current_position = {pos:?}"
+    );
+    assert!(e_l + e_r > 0.0, "binaural output is silent");
+    assert!(
+        e_r > 1.5 * e_l,
+        "hard-right object not lateralized: E_L={e_l} E_R={e_r}"
+    );
+}
+
 // TODO: Add integration test with real spatial metadata
 // For now, testing is done via real spatial audio content decoding
