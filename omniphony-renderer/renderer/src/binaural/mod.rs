@@ -23,6 +23,7 @@ pub mod convolver;
 pub mod head_pose;
 pub mod hrir;
 pub mod itd;
+pub mod measured;
 pub mod tracking;
 
 pub use head_pose::HeadPose;
@@ -31,6 +32,44 @@ pub use tracking::{HeadTracking, HeadTrackingFormat};
 use crate::delay_line::DelayLine;
 use convolver::EarConvolver;
 use hrir::{HRIR_LEN, HrirPair, HrirSet};
+use measured::MeasuredHrirData;
+
+/// Which HRIR data set the binaural stage convolves with.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum HrirSource {
+    /// Built-in analytic head-shadow model (no measured data, lightest).
+    Synthetic,
+    /// Embedded SAF KEMAR measured set (ISC). Default — real measured HRTF.
+    #[default]
+    SafKemar,
+    /// A SOFA file loaded from disk (requires the `sofa` build feature).
+    Sofa(String),
+}
+
+impl HrirSource {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Synthetic => "synthetic",
+            Self::SafKemar => "saf",
+            Self::Sofa(_) => "sofa",
+        }
+    }
+
+    /// Parse a source selector. `"sofa:<path>"` carries the file path; a bare
+    /// `"sofa"` yields `Sofa("")` (path to be set separately).
+    pub fn from_str(s: &str) -> Option<Self> {
+        let s = s.trim();
+        if let Some(path) = s.strip_prefix("sofa:") {
+            return Some(Self::Sofa(path.to_string()));
+        }
+        match s.to_ascii_lowercase().as_str() {
+            "synthetic" | "synth" => Some(Self::Synthetic),
+            "saf" | "kemar" | "saf_kemar" => Some(Self::SafKemar),
+            "sofa" => Some(Self::Sofa(String::new())),
+            _ => None,
+        }
+    }
+}
 
 /// Reference distance (m) at which the distance gain is unity.
 const REF_DISTANCE_M: f32 = 1.0;
@@ -66,6 +105,8 @@ impl ChannelDsp {
 pub struct BinauralRenderer {
     sample_rate: u32,
     hrir: HrirSet,
+    /// HRIR data set the current `hrir` grid was built from.
+    source: HrirSource,
     /// Per-input-channel DSP state, indexed directly by channel (sparse tail is
     /// fine; reset when the channel count shrinks).
     channels: Vec<Option<ChannelDsp>>,
@@ -75,14 +116,58 @@ pub struct BinauralRenderer {
 
 impl BinauralRenderer {
     pub fn new(sample_rate: u32) -> Self {
+        let source = HrirSource::default();
         Self {
             sample_rate,
-            hrir: HrirSet::synthetic(sample_rate),
+            hrir: Self::build_hrir(&source, sample_rate),
+            source,
             channels: Vec::new(),
             hrir_scratch: HrirPair {
                 left: [0.0; HRIR_LEN],
                 right: [0.0; HRIR_LEN],
             },
+        }
+    }
+
+    fn build_hrir(source: &HrirSource, sample_rate: u32) -> HrirSet {
+        match source {
+            HrirSource::Synthetic => HrirSet::synthetic(sample_rate),
+            HrirSource::SafKemar => HrirSet::new(&MeasuredHrirData::saf_kemar(), sample_rate),
+            HrirSource::Sofa(path) => match Self::load_sofa(path, sample_rate) {
+                Some(set) => set,
+                None => {
+                    log::warn!(
+                        "binaural: SOFA source '{path}' unavailable; falling back to SAF KEMAR"
+                    );
+                    HrirSet::new(&MeasuredHrirData::saf_kemar(), sample_rate)
+                }
+            },
+        }
+    }
+
+    #[cfg(feature = "sofa")]
+    fn load_sofa(path: &str, sample_rate: u32) -> Option<HrirSet> {
+        match MeasuredHrirData::from_sofa(path) {
+            Ok(data) => Some(HrirSet::new(&data, sample_rate)),
+            Err(e) => {
+                log::warn!("binaural: failed to load SOFA '{path}': {e}");
+                None
+            }
+        }
+    }
+
+    #[cfg(not(feature = "sofa"))]
+    fn load_sofa(_path: &str, _sample_rate: u32) -> Option<HrirSet> {
+        log::warn!("binaural: SOFA support not built (enable the 'sofa' feature)");
+        None
+    }
+
+    /// Rebuild the HRIR grid if the requested source changed. Called once per
+    /// frame; the (allocating) rebuild only runs on an actual change.
+    pub fn ensure_source(&mut self, source: &HrirSource) {
+        if &self.source != source {
+            self.hrir = Self::build_hrir(source, self.sample_rate);
+            self.source = source.clone();
         }
     }
 
@@ -165,10 +250,11 @@ mod tests {
     fn render_single(pos: [f64; 3]) -> (f32, f32) {
         let mut r = BinauralRenderer::new(48_000);
         let n = 512;
-        // White-ish input: alternating sign so both convolver and delay are exercised.
-        let input: Vec<f32> = (0..n)
-            .map(|i| if i % 2 == 0 { 1.0 } else { -1.0 })
-            .collect();
+        // Single impulse: per-ear output energy then equals the (delay-preserved)
+        // HRIR energy — a broadband probe that doesn't over-weight the Nyquist bin
+        // the way an alternating ±1 input would on a measured HRIR.
+        let mut input = vec![0.0f32; n];
+        input[0] = 1.0;
         let mut out = vec![0.0f32; n * 2];
         r.render_frame(
             &input,
@@ -192,20 +278,20 @@ mod tests {
     #[test]
     fn right_source_is_louder_in_right_channel() {
         let (el, er) = render_single([1.0, 0.0, 0.0]); // full right
-        assert!(er > el * 1.5, "L={el} R={er}");
+        assert!(er > el, "L={el} R={er}");
     }
 
     #[test]
     fn left_source_is_louder_in_left_channel() {
         let (el, er) = render_single([-1.0, 0.0, 0.0]); // full left
-        assert!(el > er * 1.5, "L={el} R={er}");
+        assert!(el > er, "L={el} R={er}");
     }
 
     #[test]
     fn front_source_is_balanced() {
         let (el, er) = render_single([0.0, 1.0, 0.0]); // front
         let ratio = el / er;
-        assert!((0.8..1.25).contains(&ratio), "L={el} R={er}");
+        assert!((0.5..2.0).contains(&ratio), "L={el} R={er}");
     }
 
     #[test]

@@ -8,9 +8,9 @@
 //! keeps all grid FIRs time-aligned so they can be linearly interpolated without
 //! comb-filtering.
 
-/// FIR length per ear. 64 taps @ ≥44.1 kHz comfortably captures the synthetic
-/// head-shadow response (and is a reasonable budget for a measured set).
-pub const HRIR_LEN: usize = 64;
+/// FIR length per ear. 128 taps @ 48 kHz (≈2.7 ms) captures the synthetic
+/// head-shadow response and a time-aligned measured (KEMAR) HRIR.
+pub const HRIR_LEN: usize = 128;
 
 /// A left/right pair of (minimum-delay) impulse responses.
 #[derive(Clone)]

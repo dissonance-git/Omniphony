@@ -185,6 +185,7 @@ pub fn build_renderer_state_json(
         "binaural": {
             "outputMode": live.binaural.output_mode.as_str(),
             "unitScaleM": live.binaural.unit_scale_m,
+            "hrirSource": live.binaural.hrir_source.as_str(),
             "headPose": {
                 "w": live.binaural.head_pose.w,
                 "x": live.binaural.head_pose.x,

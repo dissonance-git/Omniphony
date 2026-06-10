@@ -604,6 +604,25 @@ pub fn build_spatial_renderer(
                         live.binaural.tracking.format = fmt;
                     }
                 }
+                // HRIR source: a "sofa" selector resolves its path from
+                // `hrtf_sofa_path` (or an inline "sofa:<path>").
+                if let Some(src) = bin
+                    .hrir_source
+                    .as_deref()
+                    .and_then(renderer::binaural::HrirSource::from_str)
+                {
+                    live.binaural.hrir_source = match src {
+                        renderer::binaural::HrirSource::Sofa(p) if p.is_empty() => {
+                            match bin.hrtf_sofa_path.as_ref() {
+                                Some(path) => renderer::binaural::HrirSource::Sofa(
+                                    path.to_string_lossy().into_owned(),
+                                ),
+                                None => renderer::binaural::HrirSource::SafKemar,
+                            }
+                        }
+                        other => other,
+                    };
+                }
             }
         }
         if requires_rebuild {

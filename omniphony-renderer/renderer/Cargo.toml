@@ -34,3 +34,6 @@ harness = false
 
 [features]
 saf_vbap = []
+# Enables loading external SOFA HRTF files for the binaural stage (adds a SOFA
+# reader dependency). Off by default — the embedded SAF KEMAR set is always available.
+sofa = []

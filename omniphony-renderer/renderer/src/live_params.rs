@@ -149,6 +149,8 @@ pub struct BinauralLiveParams {
     pub head_pose: crate::binaural::HeadPose,
     /// Live head-tracking input config + recenter/smoothing state (SensorsOSC).
     pub tracking: crate::binaural::HeadTracking,
+    /// HRIR data set to convolve with (synthetic / embedded KEMAR / SOFA).
+    pub hrir_source: crate::binaural::HrirSource,
 }
 
 impl Default for BinauralLiveParams {
@@ -158,6 +160,7 @@ impl Default for BinauralLiveParams {
             unit_scale_m: 1.0,
             head_pose: crate::binaural::HeadPose::identity(),
             tracking: crate::binaural::HeadTracking::default(),
+            hrir_source: crate::binaural::HrirSource::default(),
         }
     }
 }

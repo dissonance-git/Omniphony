@@ -287,6 +287,13 @@ pub struct BinauralConfig {
     /// Deliberately separate from `room_ratio`, which is anisotropic.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unit_scale_m: Option<f32>,
+    /// HRIR data set: `"synthetic"`, `"saf"`/`"kemar"` (embedded measured, default),
+    /// or `"sofa"` (uses `hrtf_sofa_path`; needs the `sofa` build feature).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hrir_source: Option<String>,
+    /// Path to a SOFA HRTF file, used when `hrir_source = "sofa"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hrtf_sofa_path: Option<PathBuf>,
     /// Head-tracking input wiring (SensorsOSC). Consumed from M2; stored now so
     /// the section round-trips.
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -779,6 +779,22 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
+    if addr == "/omniphony/control/binaural/hrir_source" {
+        // "synthetic" | "saf"/"kemar" | "sofa:<path>". No topology rebuild; the
+        // render thread rebuilds the HRIR grid lazily when the source changes.
+        if let Some(src) = parse_string_arg(msg.args.first())
+            .and_then(|s| renderer::binaural::HrirSource::from_str(&s))
+        {
+            let mut live = ctx.renderer.live.write();
+            if live.binaural.hrir_source != src {
+                live.binaural.hrir_source = src.clone();
+                effects.mark_dirty = true;
+                effects.log_message = Some(format!("OSC: hrir_source -> {}", src.as_str()));
+            }
+        }
+        return Some(effects);
+    }
+
     if addr == "/omniphony/control/head/recenter" {
         // Capture the current raw tracker orientation as "forward" and snap the
         // rendered pose to identity so the scene faces straight ahead.
