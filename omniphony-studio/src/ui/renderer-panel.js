@@ -8,6 +8,10 @@ export function rendererPanelMarkup() {
           <div class="panel-header">
             <div class="panel-header-main">
             <div class="info-title panel-title" data-i18n="section.renderer">Renderer</div>
+            <div style="display:flex;gap:0.25rem;flex:0 0 auto;margin-left:auto">
+              <button id="outputModeHeadphonesBtn" type="button" class="toggle-btn output-mode-btn">🎧 Headphones</button>
+              <button id="outputModeSpeakersBtn" type="button" class="toggle-btn output-mode-btn">🔊 Speakers</button>
+            </div>
             <div id="rendererPerfWrap" style="display:none;min-width:180px;flex:0 0 auto">
               <div style="display:grid;gap:0.18rem;min-width:180px">
                 <div style="display:grid;grid-template-columns:180px max-content;align-items:center;gap:0.35rem">
@@ -46,6 +50,131 @@ export function rendererPanelMarkup() {
         </div>
         <div id="rendererSectionContent" class="conditional-params">
           <div class="renderer-panel-stack" style="margin-top:0.25rem;display:grid;gap:0.35rem">
+          <div class="output-mode-mpv-note" style="font-size:0.65rem;color:#8fa6bd;padding:0 0.1rem;">mpv host: the output mode is applied at player start — restart playback after switching.</div>
+          <div class="info-section renderer-subpanel binaural-subpanel" id="binauralHrtfSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
+            <div class="renderer-subpanel-bar" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
+              <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff">HRTF</div>
+              <div class="renderer-subpanel-actions" style="display:flex;align-items:center;gap:0.35rem">
+                <select id="binauralHrirSource" class="form-select" style="font-size:0.75rem;padding:0.1rem 0.2rem;width:auto;min-width:90px;">
+                  <option value="saf">KEMAR (measured)</option>
+                  <option value="synthetic">Synthetic</option>
+                  <option value="sofa">SOFA file</option>
+                </select>
+                <button id="sofaBrowseBtn" type="button" class="toggle-btn" style="display:none" title="Browse the sofacoustics.org HRTF database">Browse…</button>
+              </div>
+            </div>
+            <div class="renderer-subpanel-body" style="margin-top:0.25rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.3rem">
+              <div id="binauralSofaInfo" style="display:none;font-size:0.65rem;word-break:break-all;"></div>
+              <div>
+                <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
+                  <span>Head radius (cm)</span>
+                  <span id="binauralHeadRadiusVal">8.8</span>
+                </div>
+                <input id="binauralHeadRadius" type="range" min="5" max="15" step="0.1" value="8.75" style="width:100%;" />
+              </div>
+            </div>
+          </div>
+          <div class="info-section renderer-subpanel binaural-subpanel" id="binauralDistanceSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
+            <div class="renderer-subpanel-bar" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
+              <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff">Distance</div>
+            </div>
+            <div class="renderer-subpanel-body" style="margin-top:0.25rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.3rem">
+              <div>
+                <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
+                  <span>Distance scale (m / unit)</span>
+                  <span id="binauralUnitScaleVal">1.0</span>
+                </div>
+                <input id="binauralUnitScale" type="range" min="0.1" max="10" step="0.1" value="1" style="width:100%;" />
+              </div>
+              <div class="inline-toggle" style="margin-top:0">
+                <div>Air absorption (distance HF roll-off)</div>
+                <input id="binauralAirAbsorption" type="checkbox" checked />
+              </div>
+            </div>
+          </div>
+          <div class="info-section renderer-subpanel binaural-subpanel" id="binauralRoomSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
+            <div class="renderer-subpanel-bar" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
+              <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff">Listening room</div>
+            </div>
+            <div class="renderer-subpanel-body" style="margin-top:0.25rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.3rem">
+              <div class="switch-row" style="margin-top:0;font-size:0.7rem;color:#8fa6bd;">
+                <span>Early reflections</span>
+                <input id="binauralReflEnabled" type="checkbox" checked />
+              </div>
+              <div>
+                <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
+                  <span>Reflection level</span>
+                  <span id="binauralReflLevelVal">0.50</span>
+                </div>
+                <input id="binauralReflLevel" type="range" min="0" max="1" step="0.01" value="0.5" style="width:100%;" />
+              </div>
+              <div>
+                <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
+                  <span>Room W × D × H (m)</span>
+                  <span id="binauralReflRoomVal">4.0 × 5.0 × 2.7</span>
+                </div>
+                <input id="binauralReflRoomW" type="range" min="1" max="20" step="0.1" value="4" style="width:100%;" />
+                <input id="binauralReflRoomD" type="range" min="1" max="20" step="0.1" value="5" style="width:100%;" />
+                <input id="binauralReflRoomH" type="range" min="1" max="20" step="0.1" value="2.7" style="width:100%;" />
+              </div>
+              <div class="switch-row" style="font-size:0.7rem;color:#8fa6bd;margin-top:0.2rem;border-top:1px solid rgba(255,255,255,0.05);padding-top:0.3rem;">
+                <span>Late reverb</span>
+                <input id="binauralRevEnabled" type="checkbox" checked />
+              </div>
+              <div>
+                <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
+                  <span>Reverb level</span>
+                  <span id="binauralRevLevelVal">0.25</span>
+                </div>
+                <input id="binauralRevLevel" type="range" min="0" max="1" step="0.01" value="0.25" style="width:100%;" />
+              </div>
+              <div>
+                <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
+                  <span>RT60 (s)</span>
+                  <span id="binauralRevRt60Val">0.35</span>
+                </div>
+                <input id="binauralRevRt60" type="range" min="0.1" max="1.5" step="0.05" value="0.35" style="width:100%;" />
+              </div>
+            </div>
+          </div>
+          <div class="info-section renderer-subpanel binaural-subpanel" id="binauralTrackingSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
+            <div class="renderer-subpanel-bar" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
+              <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff">Head tracking (SensorsOSC)</div>
+              <div class="renderer-subpanel-actions" style="display:flex;align-items:center;gap:0.35rem">
+                <button id="binauralRecenter" type="button" class="form-button">Recenter</button>
+              </div>
+            </div>
+            <div class="renderer-subpanel-body" style="margin-top:0.25rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.3rem">
+              <div class="inline-toggle" style="margin-top:0">
+                <div>OSC address</div>
+                <input id="binauralTrackAddress" type="text" class="form-input" placeholder="/android/rotationvector" style="font-size:0.7rem;width:11rem;" />
+              </div>
+              <div class="inline-toggle" style="margin-top:0">
+                <div>Format</div>
+                <select id="binauralTrackFormat" class="form-select" style="font-size:0.75rem;padding:0.1rem 0.2rem;width:auto;min-width:90px;">
+                  <option value="auto">Auto</option>
+                  <option value="quat">Quaternion</option>
+                  <option value="rotvec">Rotation vector</option>
+                  <option value="euler">Euler</option>
+                </select>
+              </div>
+              <div>
+                <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
+                  <span>Smoothing</span>
+                  <span id="binauralTrackSmoothingVal">0.20</span>
+                </div>
+                <input id="binauralTrackSmoothing" type="range" min="0" max="0.99" step="0.01" value="0.2" style="width:100%;" />
+              </div>
+              <div class="inline-toggle" style="margin-top:0">
+                <div>Invert rotation</div>
+                <input id="binauralTrackInvert" type="checkbox" />
+              </div>
+              <div style="display:flex;align-items:center;gap:0.5rem">
+                <span style="font-size:0.65rem;color:#888;">Pose</span>
+                <span id="binauralPoseReadout" style="font-size:10px;color:#8fa6bd;font-family:ui-monospace, monospace;">yaw 0°  pitch 0°  roll 0°</span>
+              </div>
+            </div>
+          </div>
           <div class="info-section renderer-subpanel" id="evaluationSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
             <div class="renderer-subpanel-bar" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
               <div class="title-with-info" style="margin:0;font-size:12px;font-weight:600;color:#ffffff">

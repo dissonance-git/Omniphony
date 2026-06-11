@@ -150,6 +150,11 @@ export const brassempouyFill = new THREE.PointLight(0xfff4dc, 0.9, 2.2, 2);
 brassempouyFill.position.set(-0.18, 0.42, 0.22);
 brassempouyAnchor.add(brassempouyFill);
 
+// Rotation carrier for the head model: head-tracking rotates this group (see
+// scene/head-pose.js) so the fill light above stays world-aligned.
+export const headPoseGroup = new THREE.Group();
+brassempouyAnchor.add(headPoseGroup);
+
 // ---------------------------------------------------------------------------
 // Room box
 // ---------------------------------------------------------------------------

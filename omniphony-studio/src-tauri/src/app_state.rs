@@ -297,6 +297,11 @@ pub struct LiveInputState {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppState {
     pub sources: HashMap<String, SourcePosition>,
+    /// Binaural stage state forwarded verbatim from the renderer (output mode,
+    /// HRIR source, head pose, tracking). Passthrough JSON so new sub-fields reach
+    /// the UI without a typed mirror here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binaural: Option<serde_json::Value>,
     #[serde(rename = "sourceLevels")]
     pub source_levels: HashMap<String, Meter>,
     #[serde(rename = "speakerLevels")]
@@ -647,6 +652,7 @@ impl Default for AppState {
             render_backend_state: RenderBackendState::default(),
             render_evaluation_mode_state: RenderEvaluationModeState::default(),
             object_size_intervals: 0,
+            binaural: None,
             vbap_allow_negative_z: None,
             adaptive_resampling: Some(0),
             adaptive_resampling_enable_far_mode: Some(1),

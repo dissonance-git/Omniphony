@@ -52,6 +52,29 @@ pub(crate) fn broadcast_fff(
     }
 }
 
+pub(crate) fn broadcast_ffff(
+    socket: &UdpSocket,
+    clients: &OscClientRegistry,
+    addr: &str,
+    a: f32,
+    b: f32,
+    c: f32,
+    d: f32,
+) {
+    let msg = OscMessage {
+        addr: addr.to_string(),
+        args: vec![
+            OscType::Float(a),
+            OscType::Float(b),
+            OscType::Float(c),
+            OscType::Float(d),
+        ],
+    };
+    if let Ok(bytes) = rosc::encoder::encode(&OscPacket::Message(msg)) {
+        send_raw(socket, clients, &bytes);
+    }
+}
+
 pub(crate) fn broadcast_string(
     socket: &UdpSocket,
     clients: &OscClientRegistry,

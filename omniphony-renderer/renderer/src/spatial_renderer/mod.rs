@@ -173,6 +173,17 @@ pub struct SpatialRenderer {
     /// Optional contributor-provided ramp strategy override.
     ramp_strategy_override: Option<Arc<dyn RampStrategy>>,
 
+    /// Independent binaural (headphone) output stage. Used only when
+    /// `LiveParams::binaural.output_mode == OutputMode::Binaural`; otherwise the
+    /// classic VBAP path runs and this holds no live state.
+    binaural: crate::binaural::BinauralRenderer,
+
+    /// Scratch per-channel world positions for the binaural path (reused).
+    binaural_pos_buf: Vec<[f64; 3]>,
+
+    /// Scratch per-channel gains for the binaural path (reused).
+    binaural_gain_buf: Vec<f32>,
+
     /// Per-band VBAP engines.  Always has at least one entry (the "all speakers" band when
     /// no crossover is configured).  Each engine returns full-size `Gains` (`num_speakers`).
     render_bands: Vec<BandRenderer>,
@@ -426,6 +437,17 @@ impl SpatialRenderer {
         samples_buf: Vec<f32>,
         measure_breakdown: bool,
     ) -> Result<RenderedFrame> {
+        // ── 0. Independent binaural (headphone) path ─────────────────────────
+        // When headphone output is selected, bypass the entire VBAP / crossover /
+        // speaker chain and emit a 2-channel frame. The branch is taken below,
+        // after `update_metadata` has applied the pending events (new ramp
+        // targets); the branch itself advances each object's position ramp for
+        // the block. Flag it here.
+        let binaural_active = matches!(
+            self.control.live.read().binaural.output_mode,
+            crate::live_params::OutputMode::Binaural
+        );
+
         // ── 1. Load the current immutable render topology and keep band engines in sync ──
         let topology_guard = self.control.active_topology();
         let topology = &*topology_guard;
@@ -551,6 +573,123 @@ impl SpatialRenderer {
         let bed_indices = self.bed_indices.load_full();
         let active_layout = &topology.speaker_layout;
         let active_bed_to_speaker_mapping = &topology.bed_to_speaker_mapping;
+
+        // ── Binaural branch ──────────────────────────────────────────────────
+        // Build per-channel world positions (beds → speaker direction, objects →
+        // ramp position) and gains, then render to interleaved stereo. Bypasses
+        // the entire speaker/VBAP path below.
+        if binaural_active {
+            self.binaural_pos_buf.clear();
+            self.binaural_pos_buf
+                .resize(input_channel_count, [0.0, 1.0, 0.0]);
+            self.binaural_gain_buf.clear();
+            self.binaural_gain_buf.resize(input_channel_count, 0.0);
+            let num_beds = bed_indices.len();
+            {
+                let mut states = self.channel_states.lock();
+                for c in 0..input_channel_count {
+                    let obj_gain = match self.object_params_buf.get(c) {
+                        Some(o) if o.muted => 0.0,
+                        Some(o) => o.gain,
+                        None => 1.0,
+                    };
+                    // Stream metadata gain, same semantics as the VBAP path:
+                    // silent (-128 = -inf dB) until the first metadata arrives.
+                    let gain_db = states.get(&c).map(|s| s.gain_db).unwrap_or(-128);
+                    let gain_linear = if gain_db == -128 {
+                        0.0
+                    } else {
+                        10.0_f32.powf(gain_db as f32 / 20.0)
+                    };
+                    self.binaural_gain_buf[c] = obj_gain * gain_linear;
+                    if c < num_beds {
+                        // Bed channel: place it at its mapped speaker's direction.
+                        if let Some(&spk) = active_bed_to_speaker_mapping.get(&bed_indices[c]) {
+                            if let Some(s) = active_layout.speakers.get(spk) {
+                                self.binaural_pos_buf[c] = [s.x as f64, s.y as f64, s.z as f64];
+                            }
+                        }
+                    } else if let Some(st) = states.get_mut(&c) {
+                        // Advance the position ramp for this block (Frame-mode
+                        // granularity: the binaural stage updates HRIR/ITD once
+                        // per block anyway). Nothing else advances ramps in
+                        // binaural mode — the VBAP mix loop that normally does
+                        // is bypassed — so without this every object stays at
+                        // the ramp default [0,0,0]: dead centre, and rotation-
+                        // invariant (the zero vector ignores the head pose).
+                        let progress = st.ramp.current_progress().unwrap_or(RampProgress {
+                            completed_units: 0,
+                            total_units: 0,
+                        });
+                        ramp_strategy.evaluate(&mut st.ramp, progress, &ramp_context);
+                        self.binaural_pos_buf[c] = st.ramp.output_position;
+                        st.ramp.commit_output_position();
+                        st.ramp.advance_ramp(sample_length as u64);
+                    }
+                }
+            }
+            let (binaural_params, hrir_source) = {
+                let g = self.control.live.read();
+                (
+                    crate::binaural::BinauralFrameParams {
+                        head_pose: g.binaural.head_pose,
+                        unit_scale_m: g.binaural.unit_scale_m,
+                        head_radius_m: g.binaural.head_radius_m,
+                        reflections: g.binaural.reflections.clone(),
+                        reverb: g.binaural.reverb.clone(),
+                        air_absorption: g.binaural.air_absorption,
+                    },
+                    g.binaural.hrir_source.clone(),
+                )
+            };
+            self.binaural.ensure_source(&hrir_source);
+            let mut output = samples_buf;
+            output.clear();
+            output.resize(sample_length * 2, 0.0);
+            self.binaural.render_frame(
+                input_pcm,
+                input_channel_count,
+                sample_length,
+                &binaural_params,
+                &self.binaural_pos_buf,
+                &self.binaural_gain_buf,
+                &mut output,
+            );
+            // Output gain parity with the speaker path: master gain × dialnorm
+            // (auto-gain reductions are already folded into master_gain).
+            let loudness = if live.use_loudness {
+                f32::from_bits(
+                    self.loudness_gain
+                        .load(std::sync::atomic::Ordering::Relaxed),
+                )
+            } else {
+                1.0
+            };
+            let total_gain = live.master_gain * loudness;
+            // Ear-channel mute/gain: Studio's headphone L/R rows reuse the
+            // first two speaker param slots (the same slots the L/R meters
+            // ride), so M/S on them works in binaural mode too.
+            let ear = |idx: usize| -> f32 {
+                live.speaker_params
+                    .get(idx)
+                    .map_or(1.0, |p| if p.muted { 0.0 } else { p.gain })
+            };
+            let gain_l = total_gain * ear(0);
+            let gain_r = total_gain * ear(1);
+            if (gain_l - 1.0).abs() > f32::EPSILON || (gain_r - 1.0).abs() > f32::EPSILON {
+                for frame in output.chunks_exact_mut(2) {
+                    frame[0] *= gain_l;
+                    frame[1] *= gain_r;
+                }
+            }
+            return Ok(RenderedFrame {
+                samples: output,
+                object_gains: Vec::new(),
+                object_band_gains: Vec::new(),
+                crossover_time_ms: 0.0,
+            });
+        }
+
         // Reuse the donated buffer — resize (no alloc if capacity suffices) and zero it.
         let mut output = samples_buf;
         let required = sample_length * self.num_speakers;
@@ -1209,6 +1348,16 @@ impl SpatialRenderer {
     /// Get the number of output speakers
     pub fn num_speakers(&self) -> usize {
         self.num_speakers
+    }
+
+    /// Number of channels the renderer actually emits this frame: 2 in binaural
+    /// (headphone) mode, otherwise the speaker count. Hosts must size their sink
+    /// and `RenderedAudio` from this, not from [`num_speakers`](Self::num_speakers).
+    pub fn output_channel_count(&self) -> usize {
+        match self.control.live.read().binaural.output_mode {
+            crate::live_params::OutputMode::Binaural => 2,
+            crate::live_params::OutputMode::SpeakerArray => self.num_speakers,
+        }
     }
 
     pub fn speaker_layout(&self) -> crate::speaker_layout::SpeakerLayout {

@@ -20,6 +20,7 @@ parking_lot = "0.12"
 flate2 = "1.0"
 rayon = "1"
 sys = { path = "../sys" }
+sofar = { version = "0.3", optional = true }
 
 [build-dependencies]
 anyhow = "1"
@@ -34,3 +35,6 @@ harness = false
 
 [features]
 saf_vbap = []
+# Enables loading external SOFA HRTF files for the binaural stage (adds a SOFA
+# reader dependency). Off by default — the embedded SAF KEMAR set is always available.
+sofa = ["dep:sofar"]

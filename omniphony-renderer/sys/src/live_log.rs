@@ -96,9 +96,33 @@ impl DynamicLogger {
     }
 }
 
+/// Third-party modules whose routine output is operational noise — e.g. the
+/// `sofar` HDF parser narrates every chunk it reads while loading a SOFA
+/// file (hundreds of INFO/WARN lines per load). Their records are capped to
+/// Error unless the global level is Debug/Trace, so `log_level debug` still
+/// exposes them when actually investigating.
+const QUIET_MODULES: &[&str] = &["sofar"];
+
+fn is_quiet_module(target: &str) -> bool {
+    QUIET_MODULES.iter().any(|m| {
+        target
+            .strip_prefix(m)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with("::"))
+    })
+}
+
 impl Log for DynamicLogger {
     fn enabled(&self, metadata: &Metadata<'_>) -> bool {
-        self.accepts(metadata.level())
+        if !self.accepts(metadata.level()) {
+            return false;
+        }
+        if metadata.level() > Level::Error
+            && self.current_level() < LevelFilter::Debug
+            && is_quiet_module(metadata.target())
+        {
+            return false;
+        }
+        true
     }
 
     fn log(&self, record: &Record<'_>) {
@@ -223,5 +247,18 @@ pub fn records_since(last_seq: u64) -> Vec<BufferedLogRecord> {
 pub fn emit_external_record(level: Level, target: &str, message: &str) {
     if let Some(logger) = LOGGER.get() {
         logger.emit_external_record(level, target, message);
+    }
+}
+
+#[cfg(test)]
+mod quiet_module_tests {
+    use super::is_quiet_module;
+
+    #[test]
+    fn matches_module_and_children_only() {
+        assert!(is_quiet_module("sofar"));
+        assert!(is_quiet_module("sofar::hdf::btree"));
+        assert!(!is_quiet_module("sofarlike"));
+        assert!(!is_quiet_module("renderer::binaural"));
     }
 }

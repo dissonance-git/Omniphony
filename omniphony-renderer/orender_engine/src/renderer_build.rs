@@ -576,6 +576,108 @@ pub fn build_spatial_renderer(
             {
                 live.auto_gain_ceiling_db = ceiling;
             }
+            // Binaural (headphone) stage: seed from config so a saved mode/scale is
+            // honoured at startup. No topology rebuild — the binaural path does not
+            // use the speaker topology.
+            if let Some(bin) = render_cfg.and_then(|cfg| cfg.binaural.as_ref()) {
+                if let Some(mode) = bin
+                    .output_mode
+                    .as_deref()
+                    .and_then(renderer::live_params::OutputMode::from_str)
+                {
+                    live.binaural.output_mode = mode;
+                }
+                if let Some(scale) = bin.unit_scale_m {
+                    if scale.is_finite() && scale > 0.0 {
+                        live.binaural.unit_scale_m = scale;
+                    }
+                }
+                if let Some(radius) = bin.head_radius_m {
+                    if radius.is_finite() && radius > 0.0 {
+                        live.binaural.head_radius_m = radius.clamp(0.05, 0.15);
+                    }
+                }
+                if let Some(refl) = bin.reflections.as_ref() {
+                    let r = &mut live.binaural.reflections;
+                    if let Some(en) = refl.enabled {
+                        r.enabled = en;
+                    }
+                    for (slot, v) in [
+                        (0usize, refl.room_width_m),
+                        (1, refl.room_depth_m),
+                        (2, refl.room_height_m),
+                    ] {
+                        if let Some(v) = v {
+                            if v.is_finite() && v > 0.0 {
+                                r.room_size_m[slot] = v.clamp(
+                                    renderer::binaural::reflections::MIN_ROOM_M,
+                                    renderer::binaural::reflections::MAX_ROOM_M,
+                                );
+                            }
+                        }
+                    }
+                    if let Some(level) = refl.level {
+                        if level.is_finite() {
+                            r.level = level.clamp(0.0, 1.0);
+                        }
+                    }
+                }
+                if let Some(rev) = bin.reverb.as_ref() {
+                    let r = &mut live.binaural.reverb;
+                    if let Some(en) = rev.enabled {
+                        r.enabled = en;
+                    }
+                    if let Some(level) = rev.level {
+                        if level.is_finite() {
+                            r.level = level.clamp(0.0, 1.0);
+                        }
+                    }
+                    if let Some(rt60) = rev.rt60_s {
+                        if rt60.is_finite() && rt60 > 0.0 {
+                            r.rt60_s = rt60.clamp(0.1, 3.0);
+                        }
+                    }
+                    if let Some(pd) = rev.predelay_ms {
+                        if pd.is_finite() && pd >= 0.0 {
+                            r.predelay_ms = pd.clamp(0.0, 100.0);
+                        }
+                    }
+                }
+                if let Some(air) = bin.air_absorption {
+                    live.binaural.air_absorption = air;
+                }
+                if let Some(ht) = bin.head_tracking.as_ref() {
+                    if let Some(addr) = ht.osc_address.as_ref() {
+                        live.binaural.tracking.address = (!addr.is_empty()).then(|| addr.clone());
+                    }
+                    if let Some(fmt) = ht
+                        .format
+                        .as_deref()
+                        .and_then(renderer::binaural::HeadTrackingFormat::from_str)
+                    {
+                        live.binaural.tracking.format = fmt;
+                    }
+                }
+                // HRIR source: a "sofa" selector resolves its path from
+                // `hrtf_sofa_path` (or an inline "sofa:<path>").
+                if let Some(src) = bin
+                    .hrir_source
+                    .as_deref()
+                    .and_then(renderer::binaural::HrirSource::from_str)
+                {
+                    live.binaural.hrir_source = match src {
+                        renderer::binaural::HrirSource::Sofa(p) if p.is_empty() => {
+                            match bin.hrtf_sofa_path.as_ref() {
+                                Some(path) => renderer::binaural::HrirSource::Sofa(
+                                    path.to_string_lossy().into_owned(),
+                                ),
+                                None => renderer::binaural::HrirSource::SafKemar,
+                            }
+                        }
+                        other => other,
+                    };
+                }
+            }
         }
         if requires_rebuild {
             if let Some(plan) = control.prepare_topology_rebuild() {

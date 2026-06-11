@@ -103,6 +103,135 @@ impl RampMode {
     }
 }
 
+/// Output rendering path: a multichannel speaker array (VBAP) or an independent
+/// 2-channel headphone (binaural) stage. See [`crate::binaural`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputMode {
+    /// Classic VBAP render to the configured speaker layout.
+    #[default]
+    SpeakerArray,
+    /// Independent binaural render to stereo (ITD/ILD/HRTF) for headphones.
+    Binaural,
+}
+
+impl OutputMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::SpeakerArray => "speaker",
+            Self::Binaural => "binaural",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "speaker" | "speakers" | "speaker_array" | "vbap" => Some(Self::SpeakerArray),
+            "binaural" | "headphone" | "headphones" => Some(Self::Binaural),
+            _ => None,
+        }
+    }
+}
+
+/// Early-reflection (shoebox) settings for the binaural stage. World-fixed
+/// room, listener at the centre; six first-order image sources per channel.
+/// The direct/reflected ratio falling with distance is the main
+/// externalization / distance cue an anechoic HRTF render lacks.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinauralReflections {
+    /// Master enable for the reflection bank.
+    pub enabled: bool,
+    /// Room extents in metres: [width (x), depth (y), height (z)].
+    pub room_size_m: [f32; 3],
+    /// Per-reflection wall gain (0..1) applied on top of the 1/d law.
+    pub level: f32,
+}
+
+impl Default for BinauralReflections {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            room_size_m: [4.0, 5.0, 2.7],
+            level: 0.5,
+        }
+    }
+}
+
+/// Late-reverb (FDN) settings for the binaural stage. Models the LISTENING
+/// room — a small, dry, constant space like the room around a loudspeaker
+/// setup — not the scene's acoustics (those are in the content and pass
+/// through). The reverberant field level is distance-independent while the
+/// direct falls as 1/d, so the direct/reverb ratio carries distance.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinauralReverb {
+    /// Master enable for the late tail.
+    pub enabled: bool,
+    /// Return level (0..1) of the reverb bus.
+    pub level: f32,
+    /// Broadband decay time (s). Living-room-ish by default; cinema halls
+    /// are deliberately NOT the target.
+    pub rt60_s: f32,
+    /// Pre-delay (ms) between the direct sound and the start of the tail.
+    pub predelay_ms: f32,
+}
+
+impl Default for BinauralReverb {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            level: 0.25,
+            rt60_s: 0.35,
+            predelay_ms: 20.0,
+        }
+    }
+}
+
+/// Live-tunable parameters for the binaural (headphone) output stage.
+///
+/// `unit_scale_m` is an **isotropic** metres-per-ADM-unit factor for distance
+/// cues only — `room_ratio` is intentionally not reused here (it is anisotropic
+/// and would distort directions / HRTF localisation).
+#[derive(Debug, Clone)]
+pub struct BinauralLiveParams {
+    /// Selected output path. `SpeakerArray` keeps the classic VBAP renderer.
+    pub output_mode: OutputMode,
+    /// Metres represented by one ADM unit; scales physical distance for the
+    /// 1/d gain and ITD/ILD without altering object directions.
+    pub unit_scale_m: f32,
+    /// Effective head radius (m) for the Woodworth ITD model — half the
+    /// inter-ear distance. Per-listener fit; default is KEMAR-ish.
+    pub head_radius_m: f32,
+    /// Current (smoothed) head orientation applied to world positions. Updated by
+    /// the head-tracking input or set directly via the `head/*` OSC controls.
+    pub head_pose: crate::binaural::HeadPose,
+    /// Live head-tracking input config + recenter/smoothing state (SensorsOSC).
+    pub tracking: crate::binaural::HeadTracking,
+    /// HRIR data set to convolve with (synthetic / embedded KEMAR / SOFA).
+    pub hrir_source: crate::binaural::HrirSource,
+    /// Shoebox early-reflection settings (externalization).
+    pub reflections: BinauralReflections,
+    /// Late-reverb tail settings (distance / externalization).
+    pub reverb: BinauralReverb,
+    /// Distance low-pass on the direct path (air absorption): physically
+    /// true indoors and outdoors, the natural "far sounds dull" cue.
+    pub air_absorption: bool,
+}
+
+impl Default for BinauralLiveParams {
+    fn default() -> Self {
+        Self {
+            output_mode: OutputMode::default(),
+            unit_scale_m: 1.0,
+            head_radius_m: crate::binaural::itd::DEFAULT_HEAD_RADIUS_M,
+            head_pose: crate::binaural::HeadPose::identity(),
+            tracking: crate::binaural::HeadTracking::default(),
+            hrir_source: crate::binaural::HrirSource::default(),
+            reflections: BinauralReflections::default(),
+            reverb: BinauralReverb::default(),
+            air_absorption: true,
+        }
+    }
+}
+
 /// Live-tunable parameters for a single input object (bed or audio object).
 #[derive(Clone)]
 pub struct ObjectLiveParams {
@@ -350,6 +479,11 @@ pub struct LiveParams {
     /// 0.0 bypasses it entirely. Intermediate values scale the dB reduction
     /// linearly (effective_gain = bridge_gain.powf(drc_weight)).
     pub drc_weight: f32,
+
+    /// Binaural (headphone) output stage parameters. When
+    /// `binaural.output_mode == OutputMode::Binaural`, the renderer bypasses the
+    /// speaker/VBAP path and emits a 2-channel frame instead.
+    pub binaural: BinauralLiveParams,
 }
 
 impl LiveParams {

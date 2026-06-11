@@ -93,6 +93,7 @@ import {
   sourceNeutralEmissive,
   sourceDefaultEmissive
 } from './scene/materials.js';
+import { updateHeadphoneMeter, updateHeadphoneControlsUI } from './controls/headphone-meter.js';
 
 import { createLabelSprite, setLabelSpriteText, updateSpeakerLabelsFromSelection } from './scene/labels.js';
 import { createSpeakerBandBar, updateSpeakerBandBar } from './scene/speaker-band-bars.js';
@@ -512,6 +513,7 @@ export function updateSpeakerControlsUI() {
     entry.root.classList.toggle('is-selected', selectedSpeakerIndex !== null && Number(id) === selectedSpeakerIndex);
     updateSpeakerContributionUI_src(entry, id);
   });
+  updateHeadphoneControlsUI();
   renderSpeakerEditor();
 }
 
@@ -988,6 +990,31 @@ export function updateAllSpeakerBandBars() {
 // Speaker spatialize / visuals / edit
 // ---------------------------------------------------------------------------
 
+// ── Headphones-mode ghosting ────────────────────────────────────────────────
+// In binaural output the speakers do not emit sound; the meshes stay visible
+// as bed-anchor directions but are faded so the scene reads correctly.
+let speakersGhosted = false;
+const GHOST_OPACITY_FACTOR = 0.18;
+
+function ghostFactor() {
+  return speakersGhosted ? GHOST_OPACITY_FACTOR : 1;
+}
+
+export function setSpeakersGhosted(on) {
+  const next = Boolean(on);
+  if (next === speakersGhosted) return;
+  speakersGhosted = next;
+  speakerMeshes.forEach((mesh) => {
+    if (!mesh) return;
+    mesh.material.transparent = true;
+    mesh.material.opacity = (mesh.userData.baseOpacity ?? 1) * ghostFactor();
+  });
+  speakerLabels.forEach((label) => {
+    if (!label || !label.material) return;
+    label.material.opacity = speakersGhosted ? 0.3 : 1;
+  });
+}
+
 export function setSpeakerSpatializeLocal(index, spatialize) {
   const currentLayoutSpeakers = get_currentLayoutSpeakers();
   const speaker = currentLayoutSpeakers[index];
@@ -999,7 +1026,7 @@ export function setSpeakerSpatializeLocal(index, spatialize) {
   if (mesh) {
     const baseOpacity = getSpeakerBaseOpacity(speaker);
     mesh.userData.baseOpacity = baseOpacity;
-    mesh.material.opacity = baseOpacity;
+    mesh.material.opacity = baseOpacity * ghostFactor();
   }
   syncSpeakerHeatmapBandSelect();
   updateSpeakerColorsFromSelection();
@@ -2141,7 +2168,7 @@ export function renderLayout(key) {
     mesh.position.set(scenePosition.x, scenePosition.y, scenePosition.z);
     const baseOpacity = getSpeakerBaseOpacity(speaker);
     mesh.userData.baseOpacity = baseOpacity;
-    mesh.material.opacity = baseOpacity;
+    mesh.material.opacity = baseOpacity * ghostFactor();
 
     // Front "driver" marker on the cube's +Z face (shared geometry/material).
     const driver = new THREE.Mesh(speakerDriverGeometry, speakerDriverMaterial);
@@ -2195,6 +2222,9 @@ export function updateSpeakerLevel(index, meter) {
   const mesh = speakerMeshes[index];
   if (mesh) {
     applySpeakerLevel(mesh, speakerLevels.get(key));
+  }
+  if (index === 0 || index === 1) {
+    updateHeadphoneMeter(index, speakerLevels.get(key));
   }
   updateSpeakerMeterUI(key);
   dirty.masterMeter = true;

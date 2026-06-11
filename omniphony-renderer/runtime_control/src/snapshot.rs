@@ -181,7 +181,41 @@ pub fn build_renderer_state_json(
             "positionInterpolation": live.evaluation.position_interpolation
         },
         "renderBackendState": serde_json::from_str::<serde_json::Value>(&render_backend_state_json)
-            .unwrap_or_else(|_| json!({}))
+            .unwrap_or_else(|_| json!({})),
+        "binaural": {
+            "outputMode": live.binaural.output_mode.as_str(),
+            "unitScaleM": live.binaural.unit_scale_m,
+            "headRadiusM": live.binaural.head_radius_m,
+            "reflections": {
+                "enabled": live.binaural.reflections.enabled,
+                "roomM": live.binaural.reflections.room_size_m,
+                "level": live.binaural.reflections.level,
+            },
+            "reverb": {
+                "enabled": live.binaural.reverb.enabled,
+                "level": live.binaural.reverb.level,
+                "rt60S": live.binaural.reverb.rt60_s,
+                "predelayMs": live.binaural.reverb.predelay_ms,
+            },
+            "airAbsorption": live.binaural.air_absorption,
+            "hrirSource": live.binaural.hrir_source.as_str(),
+            "hrtfSofaPath": match &live.binaural.hrir_source {
+                renderer::binaural::HrirSource::Sofa(p) => p.as_str(),
+                _ => "",
+            },
+            "headPose": {
+                "w": live.binaural.head_pose.w,
+                "x": live.binaural.head_pose.x,
+                "y": live.binaural.head_pose.y,
+                "z": live.binaural.head_pose.z
+            },
+            "tracking": {
+                "address": live.binaural.tracking.address,
+                "format": live.binaural.tracking.format.as_str(),
+                "smoothing": live.binaural.tracking.smoothing,
+                "invert": live.binaural.tracking.invert
+            }
+        }
     })
     .to_string()
 }

@@ -122,6 +122,19 @@ PI tuning (`--adaptive-resampling-*`) are all exposable on the CLI as well as vi
 OSC/Studio. See `docs/option-surface-parity.fr.md` for the full per-surface
 parity matrix. Run `orender render --help` for the complete flag list.
 
+## Binaural Headphone Output
+
+Besides the speaker/VBAP path, the renderer has an independent binaural stage
+for headphones: objects and beds are rendered straight to stereo through a
+measured HRTF (embedded KEMAR, or a SOFA file), with ITD, shoebox early
+reflections for externalization, and live head tracking over OSC (e.g. the
+Sensors2OSC Android app — use its *Game Rotation Vector* sensor). Enable it
+with `render.binaural.output_mode: binaural` in the config, then drive
+everything live from the Studio panel or OSC.
+
+See [BINAURAL.md](BINAURAL.md) for setup, tuning tips and the full control
+surface.
+
 ## Configuration
 
 Global and render settings are loaded from a YAML config file.
@@ -136,6 +149,7 @@ You can point to another file with `--config`, and persist the current effective
 ## Repository Pointers
 
 - [BUILD.md](BUILD.md): build profiles and feature flags
+- [BINAURAL.md](BINAURAL.md): binaural headphone output, head tracking, tuning
 - [OSC_PROTOCOL.md](OSC_PROTOCOL.md): OSC message surface
 - [QUICKSTART.md](QUICKSTART.md): local bring-up notes
 - [../layouts/README.md](../layouts/README.md): speaker layout format

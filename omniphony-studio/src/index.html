@@ -456,15 +456,17 @@
       <div class="info-section" id="speakersSection">
         <div class="panel-header">
           <div class="panel-header-main">
-          <div class="info-title panel-title" data-i18n="section.speakers">Speakers</div>
+          <div class="info-title panel-title speakers-title-speakers" data-i18n="section.speakers">Speakers</div>
+          <div class="info-title panel-title speakers-title-binaural">Headphones</div>
           </div>
-          <div style="display:flex;align-items:center;gap:0.35rem">
+          <div class="speakers-layout-actions" style="display:flex;align-items:center;gap:0.35rem">
             <button id="importLayoutBtn" class="ui-btn ui-btn-primary" data-i18n="config.import">Import layout</button>
             <button id="exportLayoutBtn" class="ui-btn ui-btn-primary" data-i18n="config.export">Export layout</button>
             <button id="speakerAddBtn" type="button" class="toggle-btn">+ Add</button>
           </div>
         </div>
         <div id="speakersList" class="info-list">No speakers.</div>
+        <div id="hpChannelsList" class="info-list"></div>
       </div>
       </div>
       <!-- Speaker editor pinned below the scroll so it stays visible while editing. -->
@@ -572,6 +574,30 @@
     </div>
 
     <div id="rendererInfoModalsRoot">
+    <div id="sofaBrowserModal" class="info-modal" aria-hidden="true">
+      <div class="info-modal-card" style="max-width:560px;width:90vw;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;">
+          <div class="info-modal-title" id="sofaBrowserTitle" style="margin:0;">SOFA HRTF files</div>
+          <button id="sofaSourceToggleBtn" type="button" class="toggle-btn">Online database…</button>
+        </div>
+        <div id="sofaBrowserCrumbs" style="font-size:0.72rem;color:#8fa6bd;margin:0.3rem 0;word-break:break-all;"></div>
+        <div id="sofaLicenseNote" style="display:none;font-size:0.65rem;color:#8fa6bd;margin-bottom:0.25rem;">Licensing varies per database (CC BY, non-commercial, sometimes none) — each file's embedded license is shown once downloaded. Files are fetched directly from sofacoustics.org to your machine.</div>
+        <div id="sofaBrowserStatus" style="font-size:0.72rem;color:#c9d6e2;min-height:1.1em;margin-bottom:0.25rem;"></div>
+        <div id="sofaDlRow" style="display:none;align-items:center;gap:0.5rem;margin-bottom:0.3rem;">
+          <div style="flex:1;height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;">
+            <div id="sofaDlBar" style="height:100%;width:0%;background:#569cff;transition:width 0.12s linear;"></div>
+          </div>
+          <span id="sofaDlText" style="font-size:0.7rem;color:#8fa6bd;white-space:nowrap;min-width:7.5em;text-align:right;"></span>
+          <button id="sofaDlCancel" type="button" class="ui-btn" style="font-size:0.7rem;padding:0.1rem 0.5rem;">Cancel</button>
+        </div>
+        <div id="sofaBrowserList" style="max-height:50vh;overflow-y:auto;border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:0.25rem;font-size:0.78rem;">
+          Loading…
+        </div>
+        <div class="info-modal-actions">
+          <button id="sofaBrowserClose" type="button" class="ui-btn">Close</button>
+        </div>
+      </div>
+    </div>
     <div id="distanceDiffuseInfoModal" class="info-modal" aria-hidden="true">
       <div class="info-modal-card">
         <div class="info-modal-title" data-i18n="distance.infoTitle">Distance Diffuse</div>

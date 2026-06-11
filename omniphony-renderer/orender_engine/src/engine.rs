@@ -412,9 +412,10 @@ impl Engine {
         Ok(engine)
     }
 
-    /// Number of output channels the renderer produces (speaker count).
+    /// Number of output channels the renderer produces (speaker count, or 2 in
+    /// binaural mode). Hosts size their output sink from this.
     pub fn channel_count(&self) -> u32 {
-        self.renderer.num_speakers() as u32
+        self.renderer.output_channel_count() as u32
     }
 
     /// Per-channel labels of the active output layout, one entry per speaker in
@@ -422,6 +423,15 @@ impl Engine {
     /// map. Speakers whose layout name is unrecognised map to
     /// [`RChannelLabel::Unknown`].
     pub fn channel_layout(&self) -> Vec<RChannelLabel> {
+        // Binaural output is a plain stereo pair; the layout MUST match
+        // `channel_count()` (2) or the host builds an inconsistent chmap and the
+        // frame is malformed (silence).
+        if self.renderer.output_channel_count() == 2 {
+            return vec![
+                crate::channel_layout::label_for_speaker_name("FL"),
+                crate::channel_layout::label_for_speaker_name("FR"),
+            ];
+        }
         self.renderer
             .speaker_layout()
             .speakers
@@ -657,7 +667,7 @@ impl Engine {
                     // No virtual-bed VBAP map for these labels → emit silence so
                     // the host still advances by the frame's sample count.
                     self.frame_events.clear();
-                    let n_channels = self.renderer.num_speakers() as u32;
+                    let n_channels = self.renderer.output_channel_count() as u32;
                     return Ok(Some(RenderedAudio {
                         samples: vec![0.0; sample_count * n_channels as usize],
                         n_channels,
@@ -765,7 +775,7 @@ impl Engine {
         self.pcm_f32_buf = pcm_f32;
         self.frame_events.clear();
 
-        let n_channels = self.renderer.num_speakers() as u32;
+        let n_channels = self.renderer.output_channel_count() as u32;
 
         if want_metering {
             let frame_duration_ms = sample_count as f32 / sample_rate as f32 * 1000.0;

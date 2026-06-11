@@ -416,6 +416,7 @@ impl SpatialRenderer {
             drc_mode: "Off".to_string(),
             drc_weight: 1.0,
             hybrid: crate::live_params::HybridLiveParams::default(),
+            binaural: crate::live_params::BinauralLiveParams::default(),
         }
     }
 
@@ -577,6 +578,9 @@ impl SpatialRenderer {
                     .collect()
             },
             ramp_strategy_override: None,
+            binaural: crate::binaural::BinauralRenderer::new(sample_rate),
+            binaural_pos_buf: Vec::new(),
+            binaural_gain_buf: Vec::new(),
             render_bands,
             unified_table,
             render_bands_topology_identity: topology_identity,

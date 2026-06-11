@@ -11,6 +11,13 @@ path = "src/main.rs"
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# SOFA database browser (sofacoustics.org): tiny blocking HTTP client, rustls.
+ureq = "2"
+# Read SOFA global attributes (License, AuthorContact, Organization) for the
+# per-file license display required before using downloaded HRTF sets.
+sofar = "0.3"
+# Native file-open dialog for importing local SOFA files.
+tauri-plugin-dialog = "2"
 # 0.11+ required: rosc 0.10's UDP decoder fails on OSC blob args (ReadError(Eof)),
 # which silently dropped the gain-table chunks. 0.10-encoded blobs (from the
 # renderer) decode fine under 0.11.

@@ -9,7 +9,12 @@
 //!
 //! Usage:
 //!   cargo run -p orender_engine --example perf_probe --release -- \
-//!       <stream.thd> [--ramp frame|sample] [--max-mb N] [--bridge PATH]
+//!       <stream.thd> [--ramp frame|sample] [--max-mb N] [--bridge PATH] \
+//!       [--config PATH]
+//!
+//! `--config` replaces the generated minimal YAML with an existing config file
+//! (e.g. a copy of the user's real one) so a render setup can be reproduced
+//! exactly; `--ramp` is ignored in that case.
 //!
 //! The bridge is taken from `--bridge` or the `ORENDER_BRIDGE` env var. Stats are
 //! printed ~1 Hz (and once at the end) by the engine's ORENDER_PERF_LOG path,
@@ -31,10 +36,12 @@ fn main() {
     let mut ramp = "frame".to_string();
     let mut max_mb: u64 = 200;
     let mut bridge = std::env::var("ORENDER_BRIDGE").ok().map(PathBuf::from);
+    let mut config: Option<PathBuf> = None;
 
     while let Some(a) = args.next() {
         match a.as_str() {
             "--ramp" => ramp = args.next().expect("--ramp needs a value"),
+            "--config" => config = Some(PathBuf::from(args.next().expect("--config needs a path"))),
             "--max-mb" => {
                 max_mb = args
                     .next()
@@ -55,19 +62,29 @@ fn main() {
     unsafe { std::env::set_var("ORENDER_PERF_LOG", "1") };
 
     // Drive ramp_mode through the real config path (also exercises the engine's
-    // config→live wiring). A temp YAML with just the bits from_paths reads.
-    let cfg_path = std::env::temp_dir().join(format!("perf_probe_{}.yaml", std::process::id()));
-    std::fs::write(
-        &cfg_path,
-        format!(
-            "render:\n  bridge_path: {}\n  ramp_mode: {}\n",
-            bridge.display(),
-            ramp
-        ),
-    )
-    .expect("write temp config");
+    // config→live wiring). With `--config` an existing YAML (e.g. a copy of the
+    // user's real config) is used as-is; otherwise a temp YAML with just the
+    // bits from_paths reads.
+    let (cfg_path, cfg_is_temp) = match config {
+        Some(path) => (path, false),
+        None => {
+            let path = std::env::temp_dir().join(format!("perf_probe_{}.yaml", std::process::id()));
+            std::fs::write(
+                &path,
+                format!(
+                    "render:\n  bridge_path: {}\n  ramp_mode: {}\n",
+                    bridge.display(),
+                    ramp
+                ),
+            )
+            .expect("write temp config");
+            (path, true)
+        }
+    };
 
-    let mut engine = Engine::from_paths(Some(&cfg_path), None, None, None, 48_000)
+    // Pass the bridge explicitly too (like mpv's --ad-orender-bridge-path) so a
+    // config that fails to parse still loads the bridge.
+    let mut engine = Engine::from_paths(Some(&cfg_path), None, Some(&bridge), None, 48_000)
         .expect("build engine from temp config");
     eprintln!(
         "perf_probe: stream={} ramp={ramp} max_mb={max_mb} channels={} spatial={}",
@@ -87,12 +104,18 @@ fn main() {
             break; // EOF
         }
         read_total += n as u64;
-        engine.process_raw(&chunk[..n]).expect("process_raw");
+        // Like mpv's ad_orender: log decode errors and keep feeding — the
+        // decoder resyncs on the next major sync.
+        if let Err(e) = engine.process_raw(&chunk[..n]) {
+            eprintln!("perf_probe: process_raw error (continuing): {e:#}");
+        }
     }
 
     // Engine's Drop flushes the final perf line.
     drop(engine);
-    let _ = std::fs::remove_file(&cfg_path);
+    if cfg_is_temp {
+        let _ = std::fs::remove_file(&cfg_path);
+    }
     eprintln!(
         "perf_probe: done ({} MiB processed)",
         read_total / (1024 * 1024)

@@ -5,6 +5,23 @@ use rosc::{OscMessage, OscType};
 use serde::Deserialize;
 use std::hash::{Hash, Hasher};
 
+/// In-flight SOFA upload (single slot — Studio serialises uploads).
+struct HrtfUpload {
+    name: String,
+    total: usize,
+    data: Vec<u8>,
+    chunks: u32,
+}
+
+/// 1 GiB cap on an uploaded HRTF file.
+const HRTF_UPLOAD_MAX_BYTES: usize = 1 << 30;
+
+fn hrtf_upload_state() -> &'static std::sync::Mutex<Option<HrtfUpload>> {
+    static STATE: std::sync::OnceLock<std::sync::Mutex<Option<HrtfUpload>>> =
+        std::sync::OnceLock::new();
+    STATE.get_or_init(|| std::sync::Mutex::new(None))
+}
+
 #[derive(Debug, Clone)]
 pub enum BroadcastValue {
     Int(i32),
@@ -731,6 +748,333 @@ pub fn apply_simple_osc_control(
                 effects.trigger_layout_recompute = true;
                 effects.log_message = Some(format!("OSC: render_backend -> {requested_id}"));
             }
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/output_mode" {
+        // Switch between the classic speaker (VBAP) path and the independent
+        // binaural (headphone) stage. No topology recompute: the binaural path
+        // does not use the speaker topology.
+        if let Some(mode) = parse_string_arg(msg.args.first())
+            .and_then(|v| renderer::live_params::OutputMode::from_str(&v))
+        {
+            let mut live = ctx.renderer.live.write();
+            if live.binaural.output_mode != mode {
+                live.binaural.output_mode = mode;
+                effects.mark_dirty = true;
+                effects.log_message = Some(format!("OSC: output_mode -> {}", mode.as_str()));
+            }
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/head/orientation" {
+        // Static head pose from Euler degrees [yaw, pitch, roll]. The live
+        // head-tracking input (SensorsOSC) lands in M2; this lets Studio / tests
+        // drive the pose directly. No topology rebuild (binaural is topology-free).
+        let yaw = parse_f32_arg(msg.args.first()).unwrap_or(0.0);
+        let pitch = parse_f32_arg(msg.args.get(1)).unwrap_or(0.0);
+        let roll = parse_f32_arg(msg.args.get(2)).unwrap_or(0.0);
+        let mut live = ctx.renderer.live.write();
+        live.binaural.head_pose = renderer::binaural::HeadPose::from_euler_deg(yaw, pitch, roll);
+        effects.mark_dirty = true;
+        effects.log_message = Some(format!("OSC: head/orientation -> {yaw},{pitch},{roll}"));
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/head/quat" {
+        // Static head pose from a raw quaternion [w, x, y, z].
+        let w = parse_f32_arg(msg.args.first()).unwrap_or(1.0);
+        let x = parse_f32_arg(msg.args.get(1)).unwrap_or(0.0);
+        let y = parse_f32_arg(msg.args.get(2)).unwrap_or(0.0);
+        let z = parse_f32_arg(msg.args.get(3)).unwrap_or(0.0);
+        let mut live = ctx.renderer.live.write();
+        live.binaural.head_pose = renderer::binaural::HeadPose::from_quat(w, x, y, z);
+        effects.mark_dirty = true;
+        effects.log_message = Some("OSC: head/quat".to_string());
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/hrir_source" {
+        // "synthetic" | "saf"/"kemar" | "sofa:<path>". No topology rebuild; the
+        // render thread rebuilds the HRIR grid lazily when the source changes.
+        if let Some(src) = parse_string_arg(msg.args.first())
+            .and_then(|s| renderer::binaural::HrirSource::from_str(&s))
+        {
+            let mut live = ctx.renderer.live.write();
+            if live.binaural.hrir_source != src {
+                live.binaural.hrir_source = src.clone();
+                effects.mark_dirty = true;
+                effects.log_message = Some(format!("OSC: hrir_source -> {}", src.as_str()));
+            }
+        }
+        return Some(effects);
+    }
+
+    // ── SOFA upload (Studio → renderer, chunked OSC blobs) ──────────────────
+    // For setups where Studio does not share a filesystem with the renderer:
+    // begin [s name, i total_bytes] → chunk [i seq, b data]* → end [i chunks].
+    // The file lands in <config dir>/hrtf/ and is activated on completion.
+    if addr == "/omniphony/control/binaural/hrtf_upload/begin" {
+        let name = parse_string_arg(msg.args.first()).unwrap_or_default();
+        let total = match msg.args.get(1) {
+            Some(rosc::OscType::Int(i)) if *i > 0 => *i as usize,
+            _ => 0,
+        };
+        let base = std::path::Path::new(&name)
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let mut upload = hrtf_upload_state().lock().unwrap();
+        if base.is_empty() || !base.to_ascii_lowercase().ends_with(".sofa") {
+            *upload = None;
+            effects.log_message = Some(format!("hrtf upload rejected: bad name {name:?}"));
+        } else if total == 0 || total > HRTF_UPLOAD_MAX_BYTES {
+            *upload = None;
+            effects.log_message = Some(format!("hrtf upload rejected: bad size {total}"));
+        } else {
+            *upload = Some(HrtfUpload {
+                name: base.clone(),
+                total,
+                data: Vec::with_capacity(total),
+                chunks: 0,
+            });
+            effects.log_message = Some(format!("hrtf upload started: {base} ({total} bytes)"));
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/hrtf_upload/chunk" {
+        let seq = match msg.args.first() {
+            Some(rosc::OscType::Int(i)) if *i >= 0 => *i as u32,
+            _ => return Some(effects),
+        };
+        let mut upload = hrtf_upload_state().lock().unwrap();
+        let abort = match (upload.as_mut(), msg.args.get(1)) {
+            (Some(up), Some(rosc::OscType::Blob(data))) => {
+                if seq != up.chunks || up.data.len() + data.len() > up.total {
+                    true
+                } else {
+                    up.data.extend_from_slice(data);
+                    up.chunks += 1;
+                    false
+                }
+            }
+            _ => return Some(effects),
+        };
+        if abort {
+            *upload = None;
+            effects.log_message =
+                Some("hrtf upload aborted: chunk out of sequence or oversize".to_string());
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/hrtf_upload/end" {
+        let chunks = match msg.args.first() {
+            Some(rosc::OscType::Int(i)) if *i >= 0 => *i as u32,
+            _ => 0,
+        };
+        let done = hrtf_upload_state().lock().unwrap().take();
+        match done {
+            Some(up) if up.chunks == chunks && up.data.len() == up.total => {
+                let dir = renderer::config::default_config_path()
+                    .and_then(|p| p.parent().map(|d| d.join("hrtf")))
+                    .unwrap_or_else(|| std::path::PathBuf::from("hrtf"));
+                let write = std::fs::create_dir_all(&dir)
+                    .and_then(|_| std::fs::write(dir.join(&up.name), &up.data));
+                match write {
+                    Ok(()) => {
+                        let path = dir.join(&up.name).to_string_lossy().into_owned();
+                        ctx.renderer.live.write().binaural.hrir_source =
+                            renderer::binaural::HrirSource::Sofa(path.clone());
+                        effects.mark_dirty = true;
+                        effects.log_message =
+                            Some(format!("hrtf upload complete, activated: {path}"));
+                    }
+                    Err(e) => {
+                        effects.log_message = Some(format!("hrtf upload write failed: {e}"));
+                    }
+                }
+            }
+            Some(up) => {
+                effects.log_message = Some(format!(
+                    "hrtf upload incomplete: {}/{} bytes, {}/{} chunks",
+                    up.data.len(),
+                    up.total,
+                    up.chunks,
+                    chunks
+                ));
+            }
+            None => {
+                effects.log_message = Some("hrtf upload end without begin".to_string());
+            }
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/unit_scale" {
+        // Metres per ADM unit (isotropic distance scale for the binaural stage).
+        if let Some(v) = parse_f32_arg(msg.args.first()) {
+            if v.is_finite() && v > 0.0 {
+                let v = v.clamp(0.01, 100.0);
+                ctx.renderer.live.write().binaural.unit_scale_m = v;
+                effects.mark_dirty = true;
+                effects.log_message = Some(format!("OSC: binaural/unit_scale -> {v}"));
+            }
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/head_radius" {
+        // Effective head radius (m) for the ITD model — half the inter-ear
+        // distance. Human range is roughly 6–12 cm.
+        if let Some(v) = parse_f32_arg(msg.args.first()) {
+            if v.is_finite() && v > 0.0 {
+                let v = v.clamp(0.05, 0.15);
+                ctx.renderer.live.write().binaural.head_radius_m = v;
+                effects.mark_dirty = true;
+                effects.log_message = Some(format!("OSC: binaural/head_radius -> {v}"));
+            }
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/reflections/enabled" {
+        if let Some(v) = parse_bool_arg(msg.args.first()) {
+            ctx.renderer.live.write().binaural.reflections.enabled = v;
+            effects.mark_dirty = true;
+            effects.log_message = Some(format!("OSC: binaural/reflections/enabled -> {v}"));
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/reflections/level" {
+        if let Some(v) = parse_f32_arg(msg.args.first()) {
+            if v.is_finite() {
+                ctx.renderer.live.write().binaural.reflections.level = v.clamp(0.0, 1.0);
+                effects.mark_dirty = true;
+            }
+        }
+        return Some(effects);
+    }
+
+    if let Some(axis) = match addr {
+        "/omniphony/control/binaural/reflections/room_width" => Some(0usize),
+        "/omniphony/control/binaural/reflections/room_depth" => Some(1),
+        "/omniphony/control/binaural/reflections/room_height" => Some(2),
+        _ => None,
+    } {
+        if let Some(v) = parse_f32_arg(msg.args.first()) {
+            if v.is_finite() && v > 0.0 {
+                let v = v.clamp(
+                    renderer::binaural::reflections::MIN_ROOM_M,
+                    renderer::binaural::reflections::MAX_ROOM_M,
+                );
+                ctx.renderer.live.write().binaural.reflections.room_size_m[axis] = v;
+                effects.mark_dirty = true;
+            }
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/reverb/enabled" {
+        if let Some(v) = parse_bool_arg(msg.args.first()) {
+            ctx.renderer.live.write().binaural.reverb.enabled = v;
+            effects.mark_dirty = true;
+            effects.log_message = Some(format!("OSC: binaural/reverb/enabled -> {v}"));
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/reverb/level" {
+        if let Some(v) = parse_f32_arg(msg.args.first()) {
+            if v.is_finite() {
+                ctx.renderer.live.write().binaural.reverb.level = v.clamp(0.0, 1.0);
+                effects.mark_dirty = true;
+            }
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/reverb/rt60" {
+        if let Some(v) = parse_f32_arg(msg.args.first()) {
+            if v.is_finite() && v > 0.0 {
+                ctx.renderer.live.write().binaural.reverb.rt60_s = v.clamp(0.1, 3.0);
+                effects.mark_dirty = true;
+            }
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/reverb/predelay" {
+        if let Some(v) = parse_f32_arg(msg.args.first()) {
+            if v.is_finite() && v >= 0.0 {
+                ctx.renderer.live.write().binaural.reverb.predelay_ms = v.clamp(0.0, 100.0);
+                effects.mark_dirty = true;
+            }
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/air_absorption" {
+        if let Some(v) = parse_bool_arg(msg.args.first()) {
+            ctx.renderer.live.write().binaural.air_absorption = v;
+            effects.mark_dirty = true;
+            effects.log_message = Some(format!("OSC: binaural/air_absorption -> {v}"));
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/head/recenter" {
+        // Capture the current raw tracker orientation as "forward" and snap the
+        // rendered pose to identity so the scene faces straight ahead.
+        let mut live = ctx.renderer.live.write();
+        live.binaural.tracking.recenter();
+        live.binaural.head_pose = renderer::binaural::HeadPose::identity();
+        effects.mark_dirty = true;
+        effects.log_message = Some("OSC: head/recenter".to_string());
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/head/tracking/address" {
+        // Empty string disables tracking.
+        let raw = parse_string_arg(msg.args.first()).unwrap_or_default();
+        let mut live = ctx.renderer.live.write();
+        live.binaural.tracking.address = if raw.is_empty() {
+            None
+        } else {
+            Some(raw.clone())
+        };
+        effects.mark_dirty = true;
+        effects.log_message = Some(format!("OSC: head/tracking/address -> {raw:?}"));
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/head/tracking/format" {
+        if let Some(fmt) = parse_string_arg(msg.args.first())
+            .and_then(|s| renderer::binaural::HeadTrackingFormat::from_str(&s))
+        {
+            ctx.renderer.live.write().binaural.tracking.format = fmt;
+            effects.mark_dirty = true;
+            effects.log_message = Some(format!("OSC: head/tracking/format -> {}", fmt.as_str()));
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/head/tracking/smoothing" {
+        if let Some(v) = parse_f32_arg(msg.args.first()) {
+            ctx.renderer.live.write().binaural.tracking.smoothing = v.clamp(0.0, 0.999);
+            effects.mark_dirty = true;
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/head/tracking/invert" {
+        if let Some(v) = parse_bool_arg(msg.args.first()) {
+            ctx.renderer.live.write().binaural.tracking.invert = v;
+            effects.mark_dirty = true;
         }
         return Some(effects);
     }

@@ -109,6 +109,7 @@ struct RendererDomainState {
     render_evaluation_mode: Option<String>,
     render_evaluation_mode_effective: Option<String>,
     object_size_intervals: Option<u32>,
+    binaural: Option<serde_json::Value>,
     master_gain: Option<f64>,
     auto_gain: Option<bool>,
     auto_gain_ceiling_db: Option<f64>,
@@ -571,6 +572,9 @@ fn apply_renderer_domain_state(s: &mut AppState, value: &str) -> bool {
     }
     if let Some(object_size_intervals) = parsed.object_size_intervals {
         s.object_size_intervals = object_size_intervals;
+    }
+    if let Some(binaural) = parsed.binaural {
+        s.binaural = Some(binaural);
     }
     if let Some(master_gain) = parsed.master_gain {
         s.master_gain = Some(master_gain);
@@ -1423,6 +1427,7 @@ fn decode_evaluation_artifact(bytes: &[u8], version: u32) -> Option<serde_json::
 const BATCH_FLUSH_INTERVAL: Duration = Duration::from_millis(16);
 
 const BATCHED_EVENTS: &[&str] = &[
+    "binaural:head_pose",
     "source:update",
     "source:meter",
     "source:gains",
@@ -1877,6 +1882,15 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
             }
             OscEvent::StateClip { speaker } => (
                 Some(("clip:detected", serde_json::json!({ "speaker": speaker }))),
+                removed_ids,
+            ),
+            OscEvent::StateHeadPose { w, x, y, z } => (
+                // Fast path for the 3D head: no AppState mutation, just a
+                // coalesced event straight to the webview (latest pose wins).
+                Some((
+                    "binaural:head_pose",
+                    serde_json::json!({ "w": w, "x": x, "y": y, "z": z }),
+                )),
                 removed_ids,
             ),
             OscEvent::StateRenderer { value } => {

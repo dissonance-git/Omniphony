@@ -2082,6 +2082,11 @@
         grid-template-columns: auto auto 8ch 1fr auto;
       }
 
+      /* Headphone L/R rows: same layout minus the crossover-glyph column. */
+      .speaker-meter-row.hp-meter-row {
+        grid-template-columns: auto 8ch 1fr auto;
+      }
+
       .speaker-position-icon {
         display: inline-flex;
         align-items: center;
@@ -2406,5 +2411,42 @@ body.cap-no-resampler #latencySection {
  * Hide the connect/service/launch action buttons; keep the OSC host/port fields
  * (Studio still needs to reach the renderer). */
 body.cap-embedded .osc-config-actions {
+  display: none !important;
+}
+
+/* ── Output mode (Headphones / Speakers) — renderer panel ─────────────────── */
+/* Headphones: the speaker-path renderer blocks are inert — hide them. */
+body.output-binaural #evaluationSection,
+body.output-binaural #rampSection,
+body.output-binaural #backendParametersSection,
+body.output-binaural #distanceDiffuseSection,
+body.output-binaural #distanceModelSection {
+  display: none !important;
+}
+/* Speakers: the binaural blocks are inert — hide them. */
+body:not(.output-binaural) .binaural-subpanel {
+  display: none !important;
+}
+/* Segmented selector buttons. */
+.output-mode-btn {
+  opacity: 0.55;
+}
+.output-mode-btn.active {
+  opacity: 1;
+  border-color: rgba(86, 156, 255, 0.8);
+  background: rgba(86, 156, 255, 0.18);
+  color: #cfe4ff;
+}
+/* The mode is locked at player start only under the embedded (mpv) host. */
+body:not(.cap-embedded) .output-mode-mpv-note {
+  display: none;
+}
+/* Speakers section: full control rows in speaker mode, read-only bed-anchor
+   directions in headphones mode (per-speaker gain/mute/delay are inert). */
+body.output-binaural #speakersList,
+body.output-binaural .speakers-layout-actions,
+body.output-binaural .speakers-title-speakers,
+body:not(.output-binaural) #hpChannelsList,
+body:not(.output-binaural) .speakers-title-binaural {
   display: none !important;
 }

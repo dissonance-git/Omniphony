@@ -22,6 +22,8 @@ use tokio::sync::mpsc::UnboundedSender;
 // imported so `generate_handler!` can keep referring to them by bare name.
 use commands::app::*;
 use commands::audio::*;
+use commands::binaural::*;
+use commands::sofa_browser::*;
 use commands::diag::*;
 use commands::engine::*;
 use commands::gain::*;
@@ -90,6 +92,7 @@ pub(crate) fn send_distance_metric(state: &State<SharedState>, address: &str, va
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 let decoded = image::load_from_memory(include_bytes!("../icons/icon.png"))
@@ -265,6 +268,30 @@ fn main() {
             control_reload_config,
             control_log_level,
             control_ramp_mode,
+            control_output_mode,
+            control_hrir_source,
+            control_binaural_unit_scale,
+            control_binaural_head_radius,
+            control_binaural_reflections_enabled,
+            control_binaural_reflections_level,
+            control_binaural_reflections_room,
+            control_binaural_reverb_enabled,
+            control_binaural_reverb_level,
+            control_binaural_reverb_rt60,
+            control_binaural_air_absorption,
+            sofa_browse,
+            sofa_download,
+            sofa_list_local,
+            sofa_file_meta,
+            sofa_delete_local,
+            sofa_import_local,
+            sofa_upload_to_renderer,
+            sofa_download_cancel,
+            control_head_recenter,
+            control_head_tracking_address,
+            control_head_tracking_format,
+            control_head_tracking_smoothing,
+            control_head_tracking_invert,
             control_audio_config,
             control_audio_config_apply,
             control_audio_output_device,

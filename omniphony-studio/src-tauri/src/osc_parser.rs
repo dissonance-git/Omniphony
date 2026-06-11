@@ -211,6 +211,8 @@ pub enum OscEvent {
     StateCapabilities { value: String },
     #[serde(rename = "state:renderer")]
     StateRenderer { value: String },
+    #[serde(rename = "state:head_pose")]
+    StateHeadPose { w: f32, x: f32, y: f32, z: f32 },
     #[serde(rename = "state:clip")]
     StateClip { speaker: i32 },
     #[serde(rename = "state:audio")]
@@ -628,6 +630,14 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
         }),
         (3, "renderer") => Some(OscEvent::StateRenderer {
             value: raw_args.first().and_then(unwrap_string)?,
+        }),
+        // Lightweight ~30 Hz head-pose channel (w, x, y, z) for the 3D head;
+        // the full renderer state stays at 10 Hz.
+        (3, "head_pose") if args.len() >= 4 => Some(OscEvent::StateHeadPose {
+            w: to_number(args[0])? as f32,
+            x: to_number(args[1])? as f32,
+            y: to_number(args[2])? as f32,
+            z: to_number(args[3])? as f32,
         }),
         (3, "clip") => Some(OscEvent::StateClip {
             speaker: match raw_args.first() {

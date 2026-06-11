@@ -19,5 +19,12 @@ anyhow = "1.0"
 log = "0.4"
 env_logger = "0.11"
 
+[features]
+# SOFA (personalised HRTF) support, on by default: liborender is the desktop
+# artifact and the pure-Rust reader adds no system dependency. Embedded
+# builds can use --no-default-features.
+default = ["sofa"]
+sofa = ["orender_engine/sofa"]
+
 [build-dependencies]
 cbindgen = "0.27"

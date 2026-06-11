@@ -321,7 +321,16 @@ impl OscSender {
                                     }
                                 }
 
-                                Ok(_) => {}
+                                // Any other packet (incl. bundles) may be a
+                                // head-tracking feed on a user-configured address
+                                // (e.g. SensorsOSC `/android/rotationvector`).
+                                Ok((_, packet)) => {
+                                    if let Some(ref ctrl) = control {
+                                        if apply_head_tracking_packet(&packet, ctrl) {
+                                            maybe_broadcast_head_pose(ctrl, &socket, &clients);
+                                        }
+                                    }
+                                }
                                 Err(e) => {
                                     log::debug!("OSC decode error from {}: {}", src, e)
                                 }
@@ -389,4 +398,99 @@ impl Drop for OscSender {
             let _ = handle.join();
         }
     }
+}
+
+/// Numeric OSC args → `f32`, accepting the common scalar types a sensor app may
+/// emit (float, double, int).
+fn collect_f32(args: &[rosc::OscType]) -> Vec<f32> {
+    args.iter()
+        .filter_map(|a| match a {
+            rosc::OscType::Float(f) => Some(*f),
+            rosc::OscType::Double(d) => Some(*d as f32),
+            rosc::OscType::Int(i) => Some(*i as f32),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Apply a head-tracking packet if its address matches the configured tracking
+/// address. Recurses into bundles (sensor apps often batch readings). Reads the
+/// config under a short read lock and only takes the write lock on a match.
+/// Returns `true` if the pose was updated.
+fn apply_head_tracking_packet(packet: &OscPacket, ctrl: &RendererControl) -> bool {
+    match packet {
+        OscPacket::Message(msg) => {
+            let format = {
+                let live = ctrl.live.read();
+                if !live.binaural.tracking.matches(&msg.addr) {
+                    return false;
+                }
+                live.binaural.tracking.format
+            };
+            let args = collect_f32(&msg.args);
+            if let Some(raw) = format.parse(&args) {
+                {
+                    let mut live = ctrl.live.write();
+                    let current = live.binaural.head_pose;
+                    live.binaural.head_pose = live.binaural.tracking.ingest(raw, current);
+                }
+                // Re-broadcast the live state so connected clients (Studio) see the
+                // moving pose. Throttled to ~10 Hz so a 60–100 Hz sensor stream
+                // doesn't resend the full state bundle on every packet. (The 3D
+                // head view rides the lighter 30 Hz `/state/head_pose` channel —
+                // see `maybe_broadcast_head_pose`.)
+                static LAST_BUMP_MS: std::sync::atomic::AtomicU64 =
+                    std::sync::atomic::AtomicU64::new(0);
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                let last = LAST_BUMP_MS.load(std::sync::atomic::Ordering::Relaxed);
+                if now_ms.saturating_sub(last) >= 100 {
+                    LAST_BUMP_MS.store(now_ms, std::sync::atomic::Ordering::Relaxed);
+                    ctrl.bump_live_state();
+                }
+                return true;
+            }
+            false
+        }
+        OscPacket::Bundle(bundle) => {
+            let mut updated = false;
+            for inner in &bundle.content {
+                updated |= apply_head_tracking_packet(inner, ctrl);
+            }
+            updated
+        }
+    }
+}
+
+/// Lightweight head-pose channel: a 4-float `/omniphony/state/head_pose`
+/// message at ~30 Hz, so the Studio 3D head can follow tracking with low
+/// latency without re-sending the full state JSON (which stays at 10 Hz for
+/// the text readout).
+fn maybe_broadcast_head_pose(
+    ctrl: &RendererControl,
+    socket: &std::net::UdpSocket,
+    clients: &OscClientRegistry,
+) {
+    static LAST_POSE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let last = LAST_POSE_MS.load(std::sync::atomic::Ordering::Relaxed);
+    if now_ms.saturating_sub(last) < 33 {
+        return;
+    }
+    LAST_POSE_MS.store(now_ms, std::sync::atomic::Ordering::Relaxed);
+    let pose = ctrl.live.read().binaural.head_pose;
+    transport::broadcast_ffff(
+        socket,
+        clients,
+        "/omniphony/state/head_pose",
+        pose.w as f32,
+        pose.x as f32,
+        pose.y as f32,
+        pose.z as f32,
+    );
 }

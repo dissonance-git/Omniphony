@@ -424,6 +424,13 @@ pub unsafe extern "C" fn orender_process(
         let mut n_channels = engine.channel_count();
         let mut first_sample_pos: Option<u64> = None;
         for chunk in &chunks {
+            // An output-mode switch can land between blocks of one packet; a
+            // mixed-layout copy would corrupt the frame geometry. Keep the
+            // call single-layout and drop the tail (sub-millisecond of audio,
+            // once per switch) — the next call carries the new layout.
+            if total_frames > 0 && chunk.n_channels != n_channels {
+                break;
+            }
             out_slice[written..written + chunk.samples.len()].copy_from_slice(&chunk.samples);
             written += chunk.samples.len();
             total_frames += chunk.n_frames;

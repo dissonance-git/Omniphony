@@ -175,6 +175,44 @@ pub fn save_live_config(
     } else {
         None
     };
+    // Binaural (headphone) stage: persist the live selection so it survives a
+    // restart — output mode, HRIR source (+ SOFA path), isotropic scale, and the
+    // head-tracking OSC address/format.
+    let (hrir_source, hrtf_sofa_path) = match &live.binaural.hrir_source {
+        renderer::binaural::HrirSource::Sofa(p) if !p.is_empty() => {
+            ("sofa".to_string(), Some(std::path::PathBuf::from(p)))
+        }
+        other => (other.as_str().to_string(), None),
+    };
+    render.binaural = Some(renderer::config::BinauralConfig {
+        output_mode: Some(live.binaural.output_mode.as_str().to_string()),
+        unit_scale_m: Some(live.binaural.unit_scale_m),
+        head_radius_m: Some(live.binaural.head_radius_m),
+        hrir_source: Some(hrir_source),
+        hrtf_sofa_path,
+        head_tracking: Some(renderer::config::HeadTrackingConfig {
+            osc_address: live.binaural.tracking.address.clone(),
+            format: Some(live.binaural.tracking.format.as_str().to_string()),
+            extra: Default::default(),
+        }),
+        reflections: Some(renderer::config::ReflectionsConfig {
+            enabled: Some(live.binaural.reflections.enabled),
+            room_width_m: Some(live.binaural.reflections.room_size_m[0]),
+            room_depth_m: Some(live.binaural.reflections.room_size_m[1]),
+            room_height_m: Some(live.binaural.reflections.room_size_m[2]),
+            level: Some(live.binaural.reflections.level),
+            extra: Default::default(),
+        }),
+        reverb: Some(renderer::config::ReverbConfig {
+            enabled: Some(live.binaural.reverb.enabled),
+            level: Some(live.binaural.reverb.level),
+            rt60_s: Some(live.binaural.reverb.rt60_s),
+            predelay_ms: Some(live.binaural.reverb.predelay_ms),
+            extra: Default::default(),
+        }),
+        air_absorption: Some(live.binaural.air_absorption),
+        extra: Default::default(),
+    });
     // barycenter / experimental_distance params now live in the generic param bag
     // (`render.backend_params`, written below), so drop the legacy dedicated keys
     // on save. Reading an old config still migrates them into the bag on load.
