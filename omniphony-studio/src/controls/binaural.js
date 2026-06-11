@@ -45,9 +45,17 @@ export function initBinauralPanel() {
     });
   }
 
+  // The SOFA browser only makes sense for the 'sofa' source (KEMAR is
+  // embedded, synthetic is analytic) — show the button accordingly.
+  const syncSofaBrowseVisibility = (value) => {
+    const btn = el('sofaBrowseBtn');
+    if (btn) btn.style.display = value === 'sofa' ? '' : 'none';
+  };
+
   const src = el('binauralHrirSource');
   if (src) {
     src.addEventListener('change', (e) => {
+      syncSofaBrowseVisibility(e.target.value);
       if (applying) return;
       send('control_hrir_source', { value: e.target.value });
     });
@@ -222,7 +230,11 @@ export function applyBinauralState(b) {
       if (hp) hp.classList.toggle('active', binaural);
       if (sp) sp.classList.toggle('active', !binaural);
     }
-    if (typeof b.hrirSource === 'string') setVal('binauralHrirSource', b.hrirSource);
+    if (typeof b.hrirSource === 'string') {
+      setVal('binauralHrirSource', b.hrirSource);
+      const btn = el('sofaBrowseBtn');
+      if (btn) btn.style.display = b.hrirSource === 'sofa' ? '' : 'none';
+    }
 
     if (typeof b.unitScaleM === 'number') {
       setVal('binauralUnitScale', b.unitScaleM);

@@ -65,7 +65,7 @@ export function rendererPanelMarkup() {
                   <option value="synthetic">Synthetic</option>
                   <option value="sofa">SOFA file</option>
                 </select>
-                <button id="sofaBrowseBtn" type="button" class="toggle-btn" title="Browse the sofacoustics.org HRTF database">Browse…</button>
+                <button id="sofaBrowseBtn" type="button" class="toggle-btn" style="display:none" title="Browse the sofacoustics.org HRTF database">Browse…</button>
               </div>
             </div>
             <div class="renderer-subpanel-body" style="margin-top:0.25rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.3rem">
