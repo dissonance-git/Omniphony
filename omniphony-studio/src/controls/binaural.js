@@ -8,6 +8,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { initSofaBrowser, setActiveSofaPath } from './sofa-browser.js';
+import { setSpeakersGhosted } from '../speakers.js';
 
 const el = (id) => document.getElementById(id);
 
@@ -225,6 +226,7 @@ export function applyBinauralState(b) {
       // body.output-binaural hides the speaker-path subpanels, and the
       // binaural panel is hidden without it).
       document.body.classList.toggle('output-binaural', binaural);
+      setSpeakersGhosted(binaural);
       const hp = el('outputModeHeadphonesBtn');
       const sp = el('outputModeSpeakersBtn');
       if (hp) hp.classList.toggle('active', binaural);
