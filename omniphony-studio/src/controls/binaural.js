@@ -38,11 +38,21 @@ export function initBinauralPanel() {
     });
   }
 
-  const mode = el('binauralOutputMode');
-  if (mode) {
-    mode.addEventListener('change', (e) => {
+  // Output mode: segmented buttons in the renderer panel's Output block.
+  // The pressed state is NOT toggled optimistically — the renderer's state
+  // broadcast is the source of truth (applyBinauralState flips it).
+  const hpBtn = el('outputModeHeadphonesBtn');
+  if (hpBtn) {
+    hpBtn.addEventListener('click', () => {
       if (applying) return;
-      send('control_output_mode', { value: e.target.value });
+      send('control_output_mode', { value: 'binaural' });
+    });
+  }
+  const spBtn = el('outputModeSpeakersBtn');
+  if (spBtn) {
+    spBtn.addEventListener('click', () => {
+      if (applying) return;
+      send('control_output_mode', { value: 'speaker' });
     });
   }
 
@@ -212,7 +222,17 @@ export function applyBinauralState(b) {
       n.value = String(v);
     };
 
-    if (typeof b.outputMode === 'string') setVal('binauralOutputMode', b.outputMode);
+    if (typeof b.outputMode === 'string') {
+      const binaural = b.outputMode === 'binaural';
+      // Drives the per-mode visibility of the renderer blocks (see app.css:
+      // body.output-binaural hides the speaker-path subpanels, and the
+      // binaural panel is hidden without it).
+      document.body.classList.toggle('output-binaural', binaural);
+      const hp = el('outputModeHeadphonesBtn');
+      const sp = el('outputModeSpeakersBtn');
+      if (hp) hp.classList.toggle('active', binaural);
+      if (sp) sp.classList.toggle('active', !binaural);
+    }
     if (typeof b.hrirSource === 'string') setVal('binauralHrirSource', b.hrirSource);
 
     if (typeof b.unitScaleM === 'number') {

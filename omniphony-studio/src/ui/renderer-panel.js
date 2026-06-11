@@ -46,6 +46,16 @@ export function rendererPanelMarkup() {
         </div>
         <div id="rendererSectionContent" class="conditional-params">
           <div class="renderer-panel-stack" style="margin-top:0.25rem;display:grid;gap:0.35rem">
+          <div class="info-section renderer-subpanel" id="outputModeSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
+              <div class="info-title" style="font-size:0.8rem">Output</div>
+              <div style="display:flex;gap:0.25rem">
+                <button id="outputModeHeadphonesBtn" type="button" class="toggle-btn output-mode-btn">🎧 Headphones</button>
+                <button id="outputModeSpeakersBtn" type="button" class="toggle-btn output-mode-btn">🔊 Speakers</button>
+              </div>
+            </div>
+            <div class="output-mode-mpv-note" style="font-size:0.65rem;color:#8fa6bd;margin-top:0.25rem;">mpv host: the output mode is applied at player start — restart playback after switching.</div>
+          </div>
           <div class="info-section renderer-subpanel" id="evaluationSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
             <div class="renderer-subpanel-bar" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
               <div class="title-with-info" style="margin:0;font-size:12px;font-weight:600;color:#ffffff">
