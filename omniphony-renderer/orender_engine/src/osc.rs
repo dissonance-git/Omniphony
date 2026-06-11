@@ -30,6 +30,105 @@ use self::transport::{
 /// Timeout after which a registered client (one that must heartbeat) is considered dead.
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// How long a starting instance waits for a yieldable holder of the OSC RX
+/// port to shut down after `/omniphony/control/yield_port`. Generous on
+/// purpose: the standby flushes its audio output and joins its threads before
+/// the port is released.
+const YIELD_REBIND_BUDGET: Duration = Duration::from_secs(5);
+
+/// Poll interval while waiting for the RX port to free up after a yield request.
+const YIELD_REBIND_POLL: Duration = Duration::from_millis(50);
+
+/// Fire-and-forget `/omniphony/control/yield_port` to the local holder of `rx_port`.
+fn send_yield_request(rx_port: u16) {
+    let Ok(socket) = UdpSocket::bind("127.0.0.1:0") else {
+        return;
+    };
+    let msg = OscMessage {
+        addr: runtime_control::osc_contract::CONTROL_YIELD_PORT.to_string(),
+        args: vec![],
+    };
+    if let Ok(bytes) = rosc::encoder::encode(&OscPacket::Message(msg)) {
+        let _ = socket.send_to(&bytes, ("127.0.0.1", rx_port));
+    }
+}
+
+/// Reservation socket from [`negotiate_rx_port`]: keeps the RX port HELD
+/// between the pre-flight negotiation and the real listener bind. Without it
+/// the port would sit free during the whole engine build (bridge load, table
+/// generation — seconds), long enough for Studio's auto-start watchdog to
+/// probe it, spawn a fresh standby, and have that standby steal the
+/// live-state sidecar meant for this instance.
+static PORT_RESERVATION: Mutex<Option<(u16, UdpSocket)>> = Mutex::new(None);
+
+/// Bind the OSC RX socket. On `AddrInUse` with `request_yield`, ask the local
+/// holder to yield (honoured only by `--osc-yield` instances) and poll for the
+/// port to free up within `budget`. The non-conflict path is a single bind.
+/// Releases this process's own port reservation first.
+fn bind_rx_socket(
+    rx_port: u16,
+    request_yield: bool,
+    budget: Duration,
+) -> std::io::Result<UdpSocket> {
+    {
+        let mut reservation = PORT_RESERVATION.lock().unwrap();
+        if reservation
+            .as_ref()
+            .is_some_and(|(port, _)| *port == rx_port)
+        {
+            *reservation = None;
+        }
+    }
+    let first_err = match UdpSocket::bind(("0.0.0.0", rx_port)) {
+        Ok(socket) => return Ok(socket),
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && request_yield => e,
+        Err(e) => return Err(e),
+    };
+    log::info!(
+        "OSC RX port {} is busy; asking the holder to yield",
+        rx_port
+    );
+    send_yield_request(rx_port);
+    let start = std::time::Instant::now();
+    let mut resent = false;
+    loop {
+        std::thread::sleep(YIELD_REBIND_POLL);
+        match UdpSocket::bind(("0.0.0.0", rx_port)) {
+            Ok(socket) => {
+                log::info!("OSC RX port {} acquired after yield", rx_port);
+                return Ok(socket);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                if start.elapsed() >= budget {
+                    return Err(first_err);
+                }
+                // One UDP retry in case the first request was lost.
+                if !resent && start.elapsed() >= budget / 2 {
+                    resent = true;
+                    send_yield_request(rx_port);
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+/// Pre-flight port negotiation for hosts that must settle ownership of the RX
+/// port *before* loading config (the FFI host consumes the live-state sidecar
+/// a yielded instance writes on shutdown). On success the bound socket is kept
+/// as a process-wide reservation, released when the real listener (or the
+/// degraded reporter) binds via [`bind_rx_socket`] — so the port is never
+/// observably free between negotiation and the listener coming up.
+pub fn negotiate_rx_port(rx_port: u16) -> bool {
+    match bind_rx_socket(rx_port, true, YIELD_REBIND_BUDGET) {
+        Ok(socket) => {
+            *PORT_RESERVATION.lock().unwrap() = Some((rx_port, socket));
+            true
+        }
+        Err(_) => false,
+    }
+}
+
 /// Generic description of a single spatial audio object for OSC broadcast.
 /// Built by the caller from whatever source format it uses.
 pub struct ObjectMeta {
@@ -162,7 +261,13 @@ impl OscSender {
     /// If the optional `Int` arg is present it overrides the source port (useful when
     /// the client's send and receive ports differ).
     /// On registration the client immediately receives the current live-state bundle.
-    pub fn start_listener(&mut self, rx_port: u16) -> Result<()> {
+    ///
+    /// `request_yield`: on a port conflict, ask the local holder to yield
+    /// (honoured only by `--osc-yield` standby instances) and retry. If the
+    /// port still can't be bound the engine keeps running without a listener
+    /// (loud error, no audio regression) — a port squatter must never cost the
+    /// listener spatial audio.
+    pub fn start_listener(&mut self, rx_port: u16, request_yield: bool) -> Result<()> {
         let socket = Arc::clone(&self.socket);
         let clients = Arc::clone(&self.clients);
         let control = self.control.clone();
@@ -176,19 +281,23 @@ impl OscSender {
             self.listener_stop.store(false, Ordering::Relaxed);
         }
 
+        let rx_socket = match bind_rx_socket(rx_port, request_yield, YIELD_REBIND_BUDGET) {
+            Ok(socket) => socket,
+            Err(e) => {
+                log::error!(
+                    "OSC listener: failed to bind port {} ({}); running without OSC control",
+                    rx_port,
+                    e
+                );
+                return Ok(());
+            }
+        };
+        let _ = rx_socket.set_read_timeout(Some(Duration::from_millis(200)));
+        log::info!("OSC listener ready on port {}", rx_port);
+
         let handle = std::thread::Builder::new()
             .name("osc-listener".into())
             .spawn(move || {
-                let rx_socket = match UdpSocket::bind(format!("0.0.0.0:{}", rx_port)) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        log::error!("OSC listener: failed to bind port {}: {}", rx_port, e);
-                        return;
-                    }
-                };
-                let _ = rx_socket.set_read_timeout(Some(Duration::from_millis(200)));
-                log::info!("OSC listener ready on port {}", rx_port);
-
                 let mut realtime_seq = RealtimeSeqState::default();
                 // Serialized gain table is cached here and shared with the
                 // recompute threads this loop spawns, so it's re-serialized only
@@ -393,6 +502,50 @@ impl OscSender {
 
 impl Drop for OscSender {
     fn drop(&mut self) {
+        // Graceful-shutdown handoff, done while the RX port is still held so a
+        // successor polling for the port is guaranteed to see the sidecar by
+        // the time the port frees up. Skipped on reload_config, whose contract
+        // is "discard live state and re-read the config".
+        let reloading = sys::ShutdownHandle::is_restart_from_config_requested();
+        if !reloading {
+            if let Some(control) = self.control.as_ref() {
+                // Only unsaved changes are worth handing over; a clean state
+                // would just make the successor flag a phantom "unsaved" diff.
+                if control.config_dirty.load(Ordering::Relaxed) {
+                    let config_path = control.config_path.lock().as_ref().cloned();
+                    if let Some(path) = config_path {
+                        let sidecar = renderer::config::live_sidecar_path(&path);
+                        match runtime_control::persist::save_live_config_to_path(
+                            control,
+                            self.host_handler.as_deref(),
+                            &path,
+                            &sidecar,
+                        ) {
+                            Ok(()) => {
+                                // A fresh sidecar invalidates any overlay this
+                                // process consumed earlier (destroy→create
+                                // cycles of the FFI host re-read it).
+                                renderer::config::clear_live_overlay_cache();
+                                log::info!("live state handed off to {}", sidecar.display());
+                            }
+                            Err(e) => {
+                                log::warn!("failed to write live-state sidecar: {e}")
+                            }
+                        }
+                    }
+                }
+            }
+            // Goodbye broadcast: lets clients reconnect to the next instance
+            // immediately instead of waiting out their heartbeat timeout.
+            let goodbye = OscMessage {
+                addr: runtime_control::osc_contract::STATE_SHUTDOWN.to_string(),
+                args: vec![rosc::OscType::String("shutdown".to_string())],
+            };
+            if let Ok(bytes) = rosc::encoder::encode(&OscPacket::Message(goodbye)) {
+                send_raw_filtered(&self.socket, &self.clients, &bytes, |_| true);
+            }
+        }
+
         self.listener_stop.store(true, Ordering::Relaxed);
         if let Some(handle) = self.listener_thread.lock().unwrap().take() {
             let _ = handle.join();
@@ -493,4 +646,81 @@ fn maybe_broadcast_head_pose(
         pose.y as f32,
         pose.z as f32,
     );
+}
+
+#[cfg(test)]
+mod yield_tests {
+    use super::*;
+
+    /// Grab a free UDP port by binding port 0, then release it.
+    fn free_port() -> u16 {
+        let s = UdpSocket::bind("127.0.0.1:0").unwrap();
+        s.local_addr().unwrap().port()
+    }
+
+    #[test]
+    fn bind_succeeds_on_free_port() {
+        let port = free_port();
+        let socket = bind_rx_socket(port, true, Duration::from_millis(200)).expect("free port");
+        assert_eq!(socket.local_addr().unwrap().port(), port);
+    }
+
+    #[test]
+    fn bind_fails_after_budget_when_holder_keeps_port_and_yield_was_sent() {
+        let port = free_port();
+        let holder = UdpSocket::bind(("0.0.0.0", port)).unwrap();
+        holder
+            .set_read_timeout(Some(Duration::from_millis(500)))
+            .unwrap();
+
+        let err = bind_rx_socket(port, true, Duration::from_millis(200))
+            .expect_err("holder never releases the port");
+        assert_eq!(err.kind(), std::io::ErrorKind::AddrInUse);
+
+        // The holder must have received exactly the yield request.
+        let mut buf = [0u8; 256];
+        let (len, _) = holder.recv_from(&mut buf).expect("yield datagram");
+        let (_, packet) = rosc::decoder::decode_udp(&buf[..len]).expect("valid OSC");
+        match packet {
+            OscPacket::Message(msg) => {
+                assert_eq!(msg.addr, runtime_control::osc_contract::CONTROL_YIELD_PORT)
+            }
+            other => panic!("expected a message, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn negotiation_reservation_holds_the_port_until_the_listener_binds() {
+        let port = free_port();
+        assert!(negotiate_rx_port(port), "free port must negotiate");
+        // The reservation keeps the port held: an external bind must fail …
+        assert_eq!(
+            UdpSocket::bind(("0.0.0.0", port)).unwrap_err().kind(),
+            std::io::ErrorKind::AddrInUse
+        );
+        // … but this process's own listener bind releases it and succeeds.
+        let socket = bind_rx_socket(port, false, Duration::from_millis(100))
+            .expect("listener bind must reuse the reserved port");
+        assert_eq!(socket.local_addr().unwrap().port(), port);
+    }
+
+    #[test]
+    fn bind_recovers_when_holder_yields() {
+        let port = free_port();
+        let holder = UdpSocket::bind(("0.0.0.0", port)).unwrap();
+        holder
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        // Holder thread: release the port upon receiving the yield request.
+        let t = std::thread::spawn(move || {
+            let mut buf = [0u8; 256];
+            let _ = holder.recv_from(&mut buf);
+            drop(holder);
+        });
+
+        let socket =
+            bind_rx_socket(port, true, Duration::from_secs(5)).expect("port freed after yield");
+        assert_eq!(socket.local_addr().unwrap().port(), port);
+        t.join().unwrap();
+    }
 }

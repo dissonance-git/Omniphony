@@ -148,6 +148,7 @@ and heatmap configuration.
 | `/control/save_config` | — | Persist the current config. |
 | `/control/reload_config` | — | Reload config from disk. |
 | `/control/quit` | — | Shut the engine down. |
+| `/control/yield_port` | — | Ask this instance to shut down and free the OSC RX port. Honoured only by instances started with `--osc-yield` (a Studio-launched standby renderer); ignored otherwise, so an embedded (mpv) renderer can never be evicted. Sent automatically by a starting instance that finds the port busy. |
 
 ---
 
@@ -158,7 +159,10 @@ individual deltas use the addresses below. `osc_contract::ALL_STATE` is the
 exhaustive machine-readable list.
 
 - **Snapshot / lifecycle** — `renderer` (full JSON), `snapshot_complete`,
-  `capabilities`, `config/saved`, `config/save_error`.
+  `capabilities`, `config/saved`, `config/save_error`, `shutdown` (goodbye
+  broadcast on graceful engine teardown, one string arg with the reason;
+  clients should treat the connection as gone and re-register with the next
+  instance).
 - **Render** — `render/version`, `render/config_path`, `render/config_status`,
   `render/bridge_path`, `render/bridge_error`, `vbap/allow_negative_z`,
   `render_evaluation/*` (mirrors of the control resolutions), `speakers`,

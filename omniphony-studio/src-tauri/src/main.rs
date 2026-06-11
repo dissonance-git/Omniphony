@@ -23,7 +23,6 @@ use tokio::sync::mpsc::UnboundedSender;
 use commands::app::*;
 use commands::audio::*;
 use commands::binaural::*;
-use commands::sofa_browser::*;
 use commands::diag::*;
 use commands::engine::*;
 use commands::gain::*;
@@ -33,9 +32,31 @@ use commands::mpv_overlay::*;
 use commands::orender::*;
 use commands::render::*;
 use commands::resampling::*;
+use commands::sofa_browser::*;
 use commands::speakers::*;
 
 // ── shared state wrapper ──────────────────────────────────────────────────
+
+/// State of the local-renderer auto-start watchdog (see `osc_listener`).
+#[derive(Default)]
+pub(crate) struct WatchdogControl {
+    /// Consecutive fast-fail spawn attempts since the last re-arm.
+    pub(crate) attempts: u8,
+    /// No spawn before this instant (backoff after a fast-failing child).
+    pub(crate) cooldown_until: Option<std::time::Instant>,
+    /// When the current child was spawned (fast-fail detection window).
+    pub(crate) last_spawn_at: Option<std::time::Instant>,
+    /// Set on a renderer goodbye broadcast: run the watchdog checks as soon
+    /// as this is ~500 ms old instead of waiting out the heartbeat timeout.
+    pub(crate) check_requested_at: Option<std::time::Instant>,
+}
+
+impl WatchdogControl {
+    pub(crate) fn rearm(&mut self) {
+        self.attempts = 0;
+        self.cooldown_until = None;
+    }
+}
 
 pub(crate) struct SharedState {
     pub(crate) inner: Arc<Mutex<AppState>>,
@@ -44,6 +65,9 @@ pub(crate) struct SharedState {
     pub(crate) listen_port: Arc<Mutex<u16>>,
     pub(crate) realtime_seq: AtomicI32,
     pub(crate) auto_tune_snapshot: Arc<Mutex<Option<serde_json::Value>>>,
+    /// Local renderer process spawned by Studio (manual launch or watchdog).
+    pub(crate) renderer_child: Arc<Mutex<Option<std::process::Child>>>,
+    pub(crate) watchdog: Arc<Mutex<WatchdogControl>>,
 }
 
 // ── helper ────────────────────────────────────────────────────────────────
@@ -137,6 +161,8 @@ fn main() {
                 listen_port: listen_port.clone(),
                 realtime_seq: AtomicI32::new(0),
                 auto_tune_snapshot: Arc::new(Mutex::new(None)),
+                renderer_child: Arc::new(Mutex::new(None)),
+                watchdog: Arc::new(Mutex::new(WatchdogControl::default())),
             };
             app.manage(shared);
 
@@ -329,6 +355,46 @@ fn main() {
             mpv_overlay_set_heatmap_bands,
             mpv_overlay_set_heatmap_colormap,
         ])
-        .run(tauri::generate_context!())
-        .expect("error running Tauri application");
+        .build(tauri::generate_context!())
+        .expect("error building Tauri application")
+        .run(|app_handle, event| {
+            // On exit, take the Studio-launched standby renderer down with us
+            // (unless the user opted to keep it): ask for a graceful quit so
+            // it writes its live-state handoff sidecar, then kill as a last
+            // resort. mpv-embedded renderers are unaffected (separate process).
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                let state = app_handle.state::<SharedState>();
+                let keep_alive = load_config(&state.config_dir).keep_renderer_alive_on_quit;
+                let mut child_guard = state.renderer_child.lock().unwrap();
+                if let Some(child) = child_guard.as_mut() {
+                    if keep_alive {
+                        log::info!("leaving the local renderer running (keep alive on quit)");
+                    } else {
+                        send_control(
+                            &state.osc_tx,
+                            OscControlMsg::SendNoArgs {
+                                address: "/omniphony/control/quit".to_string(),
+                            },
+                        );
+                        let deadline =
+                            std::time::Instant::now() + std::time::Duration::from_secs(2);
+                        loop {
+                            match child.try_wait() {
+                                Ok(Some(_)) => break,
+                                Ok(None) if std::time::Instant::now() < deadline => {
+                                    std::thread::sleep(std::time::Duration::from_millis(50));
+                                }
+                                _ => {
+                                    log::warn!("local renderer did not quit in time; killing it");
+                                    let _ = child.kill();
+                                    let _ = child.wait();
+                                    break;
+                                }
+                            }
+                        }
+                        *child_guard = None;
+                    }
+                }
+            }
+        });
 }

@@ -8,6 +8,17 @@ pub struct OscConfig {
     pub osc_rx_port: u16,
     #[serde(default)]
     pub osc_metering_enabled: bool,
+    /// Auto-launch a local standby renderer (with --osc-yield) when nothing
+    /// answers on a loopback target. See the watchdog in osc_listener.
+    #[serde(default = "default_true")]
+    pub auto_start_renderer: bool,
+    /// Leave the Studio-launched standby renderer running when Studio quits.
+    #[serde(default)]
+    pub keep_renderer_alive_on_quit: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for OscConfig {
@@ -17,6 +28,8 @@ impl Default for OscConfig {
             osc_port: 0,
             osc_rx_port: 9000,
             osc_metering_enabled: false,
+            auto_start_renderer: true,
+            keep_renderer_alive_on_quit: false,
         }
     }
 }

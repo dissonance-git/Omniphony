@@ -330,10 +330,7 @@ pub async fn sofa_upload_to_renderer(
                 &tx,
                 OscControlMsg::SendArgs {
                     address: "/omniphony/control/binaural/hrtf_upload/chunk".to_string(),
-                    args: vec![
-                        rosc::OscType::Int(seq),
-                        rosc::OscType::Blob(chunk.to_vec()),
-                    ],
+                    args: vec![rosc::OscType::Int(seq), rosc::OscType::Blob(chunk.to_vec())],
                 },
             );
             seq += 1;
@@ -389,9 +386,7 @@ pub async fn sofa_download(app: tauri::AppHandle, path: String) -> Result<String
             .get(&url)
             .call()
             .map_err(|e| format!("fetch {url}: {e}"))?;
-        let total: Option<u64> = resp
-            .header("Content-Length")
-            .and_then(|v| v.parse().ok());
+        let total: Option<u64> = resp.header("Content-Length").and_then(|v| v.parse().ok());
 
         // Cached copy with the expected size → reuse, no network transfer.
         if let (Some(expected), Ok(meta)) = (total, std::fs::metadata(&dest)) {
@@ -406,8 +401,7 @@ pub async fn sofa_download(app: tauri::AppHandle, path: String) -> Result<String
 
         let mut reader = resp.into_reader();
         let tmp = dest.with_extension("part");
-        let mut file =
-            std::fs::File::create(&tmp).map_err(|e| format!("create {tmp:?}: {e}"))?;
+        let mut file = std::fs::File::create(&tmp).map_err(|e| format!("create {tmp:?}: {e}"))?;
         let mut buf = vec![0u8; 256 * 1024];
         let mut done: u64 = 0;
         let mut last_emit = std::time::Instant::now();
@@ -479,6 +473,9 @@ mod tests {
 
     #[test]
     fn decodes_percent_names() {
-        assert_eq!(percent_decode("aachen%20(high-resolution)"), "aachen (high-resolution)");
+        assert_eq!(
+            percent_decode("aachen%20(high-resolution)"),
+            "aachen (high-resolution)"
+        );
     }
 }

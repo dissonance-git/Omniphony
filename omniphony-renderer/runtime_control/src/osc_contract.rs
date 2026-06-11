@@ -154,6 +154,7 @@ pub const CONTROL_SPREAD_MAX: &str = "/omniphony/control/spread/max";
 pub const CONTROL_SPREAD_MIN: &str = "/omniphony/control/spread/min";
 pub const CONTROL_SPREAD_SIZE_TO_SPREAD_MODE: &str =
     "/omniphony/control/spread/size_to_spread_mode";
+pub const CONTROL_YIELD_PORT: &str = "/omniphony/control/yield_port";
 
 /// Prefix for the per-object mute address. Append `"{id}/mute"`.
 pub const CONTROL_OBJECT_PREFIX: &str = "/omniphony/control/object/";
@@ -228,6 +229,7 @@ pub const STATE_RENDER_EVALUATION_POSITION_INTERPOLATION: &str =
 pub const STATE_RENDER_TIME_MS: &str = "/omniphony/state/render_time_ms";
 pub const STATE_RENDER_VERSION: &str = "/omniphony/state/render/version";
 pub const STATE_RESAMPLE_RATIO: &str = "/omniphony/state/resample_ratio";
+pub const STATE_SHUTDOWN: &str = "/omniphony/state/shutdown";
 pub const STATE_SNAPSHOT_COMPLETE: &str = "/omniphony/state/snapshot_complete";
 pub const STATE_SPEAKERS: &str = "/omniphony/state/speakers";
 pub const STATE_SPEAKERS_RECOMPUTE_ERROR: &str = "/omniphony/state/speakers/recompute_error";
@@ -333,6 +335,7 @@ pub const ALL_CONTROL: &[&str] = &[
     CONTROL_SPREAD_MAX,
     CONTROL_SPREAD_MIN,
     CONTROL_SPREAD_SIZE_TO_SPREAD_MODE,
+    CONTROL_YIELD_PORT,
 ];
 
 pub const ALL_STATE: &[&str] = &[
@@ -391,6 +394,7 @@ pub const ALL_STATE: &[&str] = &[
     STATE_RENDER_TIME_MS,
     STATE_RENDER_VERSION,
     STATE_RESAMPLE_RATIO,
+    STATE_SHUTDOWN,
     STATE_SNAPSHOT_COMPLETE,
     STATE_SPEAKERS,
     STATE_SPEAKERS_RECOMPUTE_ERROR,

@@ -5,7 +5,7 @@
 //!
 //! The private helpers below are platform glue used only by these commands.
 
-use crate::config::{save_config, OscConfig};
+use crate::config::{load_config, save_config};
 use crate::osc_listener::OscControlMsg;
 use crate::{send_control, SharedState};
 use std::env;
@@ -150,6 +150,9 @@ fn resolve_orender_launch_spec(
         osc_rx_port.to_string(),
         "--osc-rx-port".to_string(),
         osc_rx_port.to_string(),
+        // Every Studio-launched local renderer is a yieldable standby: an
+        // mpv-embedded renderer must be able to take the OSC port over.
+        "--osc-yield".to_string(),
     ];
 
     if osc_metering_enabled {
@@ -181,15 +184,14 @@ fn resolve_orender_launch_spec(
         }
     }
 
-    let _ = save_config(
-        &state.config_dir,
-        &OscConfig {
-            host: host.trim().to_string(),
-            osc_rx_port,
-            osc_port,
-            osc_metering_enabled,
-        },
-    );
+    // Persist the connection settings used for this launch, preserving the
+    // fields this function doesn't manage (auto-start / keep-alive toggles).
+    let mut cfg = load_config(&state.config_dir);
+    cfg.host = host.trim().to_string();
+    cfg.osc_rx_port = osc_rx_port;
+    cfg.osc_port = osc_port;
+    cfg.osc_metering_enabled = osc_metering_enabled;
+    let _ = save_config(&state.config_dir, &cfg);
 
     Ok(OrenderLaunchSpec { orender_path, args })
 }
@@ -323,6 +325,14 @@ fn windows_service_bin_path(exec_path: &PathBuf, args: &[String]) -> String {
         }
     }
     parts.join(" ")
+}
+
+/// Whether a managed orender service instance is running (watchdog gate: a
+/// service-owned renderer must not be doubled by an auto-started one).
+pub(crate) fn orender_service_running() -> bool {
+    get_orender_service_status()
+        .map(|status| status.running)
+        .unwrap_or(false)
 }
 
 #[tauri::command]
@@ -618,28 +628,14 @@ pub fn restart_pipewire_services() -> Result<(), String> {
     Err("PipeWire restart is only supported on Linux".to_string())
 }
 
-#[tauri::command]
-pub fn launch_orender(
-    app: tauri::AppHandle,
-    state: State<SharedState>,
-    host: String,
-    osc_rx_port: u16,
-    osc_port: u16,
-    osc_metering_enabled: bool,
-    orender_path: Option<String>,
-    log_level: Option<String>,
+/// Spawn the renderer from a resolved launch spec, keeping the `Child` in the
+/// shared state so the watchdog can detect fast failures and the exit hook can
+/// take it down with Studio. Used by the manual `launch_orender` command and
+/// by the auto-start watchdog.
+fn spawn_orender_process(
+    state: &SharedState,
+    spec: &OrenderLaunchSpec,
 ) -> Result<serde_json::Value, String> {
-    let spec = resolve_orender_launch_spec(
-        &app,
-        &state,
-        host,
-        osc_rx_port,
-        osc_port,
-        osc_metering_enabled,
-        orender_path,
-        log_level,
-    )?;
-
     let log_path = default_orender_log_path();
     let stdout = File::create(&log_path).map_err(|e| format!("failed to create log file: {e}"))?;
     let stderr = stdout
@@ -661,13 +657,73 @@ pub fn launch_orender(
         cmd.creation_flags(CREATE_NO_WINDOW | NORMAL_PRIORITY_CLASS);
     }
 
-    cmd.spawn()
+    let child = cmd
+        .spawn()
         .map_err(|e| format!("failed to launch orender: {e}"))?;
+
+    {
+        let mut guard = state.renderer_child.lock().unwrap();
+        // A previously tracked child that already exited is just dropped;
+        // a still-running one is left alone (it owns the OSC port and the
+        // new instance will negotiate it via --osc-yield).
+        *guard = Some(child);
+    }
+    {
+        let mut wd = state.watchdog.lock().unwrap();
+        wd.last_spawn_at = Some(std::time::Instant::now());
+        wd.check_requested_at = None;
+    }
 
     Ok(serde_json::json!({
         "command": format!("{} {}", spec.orender_path.display(), spec.args.join(" ")),
         "logPath": log_path.display().to_string()
     }))
+}
+
+/// Watchdog entry point: launch a standby renderer from the saved OSC config
+/// (binary discovery only — no user-supplied path or log level).
+pub(crate) fn autostart_orender(
+    app: &tauri::AppHandle,
+    state: &SharedState,
+) -> Result<serde_json::Value, String> {
+    let cfg = load_config(&state.config_dir);
+    let spec = resolve_orender_launch_spec(
+        app,
+        state,
+        cfg.host.clone(),
+        cfg.osc_rx_port,
+        cfg.osc_port,
+        cfg.osc_metering_enabled,
+        None,
+        None,
+    )?;
+    spawn_orender_process(state, &spec)
+}
+
+#[tauri::command]
+pub fn launch_orender(
+    app: tauri::AppHandle,
+    state: State<SharedState>,
+    host: String,
+    osc_rx_port: u16,
+    osc_port: u16,
+    osc_metering_enabled: bool,
+    orender_path: Option<String>,
+    log_level: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let spec = resolve_orender_launch_spec(
+        &app,
+        &state,
+        host,
+        osc_rx_port,
+        osc_port,
+        osc_metering_enabled,
+        orender_path,
+        log_level,
+    )?;
+    // A manual launch is a deliberate user action: re-arm the watchdog.
+    state.watchdog.lock().unwrap().rearm();
+    spawn_orender_process(&state, &spec)
 }
 
 #[tauri::command]

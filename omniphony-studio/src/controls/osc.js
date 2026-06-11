@@ -30,6 +30,8 @@ function getOscHostInputEl() { return inOscPanel('oscHostInput'); }
 function getOscRxPortInputEl() { return inOscPanel('oscRxPortInput'); }
 function getOscListenPortInputEl() { return inOscPanel('oscListenPortInput'); }
 function getOscMeteringToggleEl() { return inObjectsPanel('oscMeteringToggle'); }
+function getAutoStartRendererToggleEl() { return inOscPanel('autoStartRendererToggle'); }
+function getKeepRendererAliveToggleEl() { return inOscPanel('keepRendererAliveToggle'); }
 function getOscMeteringRateSelectEl() { return inObjectsPanel('oscMeteringRateSelect'); }
 function getOscConfigApplyBtnEl() { return inOscPanel('oscConfigApplyBtn'); }
 function getOscServiceBtnEl() { return inOscPanel('oscServiceBtn'); }
@@ -208,10 +210,14 @@ export function loadOscConfigIntoPanel() {
     const oscRxPortInputEl = getOscRxPortInputEl();
     const oscListenPortInputEl = getOscListenPortInputEl();
     const oscMeteringToggleEl = getOscMeteringToggleEl();
+    const autoStartToggleEl = getAutoStartRendererToggleEl();
+    const keepAliveToggleEl = getKeepRendererAliveToggleEl();
     if (oscHostInputEl) oscHostInputEl.value = cfg.host;
     if (oscRxPortInputEl) oscRxPortInputEl.value = String(cfg.osc_rx_port);
     if (oscListenPortInputEl) oscListenPortInputEl.value = String(cfg.osc_port);
     if (oscMeteringToggleEl) oscMeteringToggleEl.checked = Boolean(cfg.osc_metering_enabled);
+    if (autoStartToggleEl) autoStartToggleEl.checked = Boolean(cfg.auto_start_renderer);
+    if (keepAliveToggleEl) keepAliveToggleEl.checked = Boolean(cfg.keep_renderer_alive_on_quit);
     app.oscConfigBaselineKey = oscConfigStateKey();
     dirty.audioFormat = true;
     scheduleUIFlush();
@@ -225,11 +231,15 @@ export function readOscConfigForm() {
   const oscRxPortInputEl = getOscRxPortInputEl();
   const oscListenPortInputEl = getOscListenPortInputEl();
   const oscMeteringToggleEl = getOscMeteringToggleEl();
+  const autoStartToggleEl = getAutoStartRendererToggleEl();
+  const keepAliveToggleEl = getKeepRendererAliveToggleEl();
   return {
     host: oscHostInputEl?.value.trim() || '127.0.0.1',
     osc_rx_port: Math.max(1, Math.min(65535, parseInt(oscRxPortInputEl?.value || '9000', 10))),
     osc_port: Math.max(0, Math.min(65535, parseInt(oscListenPortInputEl?.value || '0', 10))),
-    osc_metering_enabled: Boolean(oscMeteringToggleEl?.checked)
+    osc_metering_enabled: Boolean(oscMeteringToggleEl?.checked),
+    auto_start_renderer: autoStartToggleEl ? Boolean(autoStartToggleEl.checked) : true,
+    keep_renderer_alive_on_quit: Boolean(keepAliveToggleEl?.checked)
   };
 }
 
@@ -253,6 +263,9 @@ export function setOscStatus(next) {
   app.oscStatusState = next;
   if (next !== 'connected') {
     app.oscSnapshotReady = false;
+    // Re-arm the Audio Input auto-open for the next connection (a fresh
+    // instance with a broken bridge should surface the panel once again).
+    app.lastAutoOpenedInputError = null;
   }
   // Leaving 'connected' (a disconnect) ends any launch: clear the pending flag +
   // safety timer before re-rendering so the connection buttons come back.
@@ -459,10 +472,11 @@ if (initialOscConfigApplyBtnEl) {
   });
 }
 
-[getOscHostInputEl(), getOscRxPortInputEl(), getOscListenPortInputEl(), getOscMeteringToggleEl()]
+[getOscHostInputEl(), getOscRxPortInputEl(), getOscListenPortInputEl(), getOscMeteringToggleEl(),
+  getAutoStartRendererToggleEl(), getKeepRendererAliveToggleEl()]
   .filter(Boolean)
   .forEach((el) => {
-    el.addEventListener(el === getOscMeteringToggleEl() ? 'change' : 'input', () => {
+    el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', () => {
       renderOscConfigApplyButton();
     });
   });

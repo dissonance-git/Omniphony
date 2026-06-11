@@ -85,7 +85,9 @@ pub fn start_degraded_reporter(
     let target = SocketAddrV4::from_str(&format!("{}:{}", osc.host, osc.port_out))?;
     let mut sender = OscSender::new(target)?;
     sender.attach_renderer_control(control);
-    sender.start_listener(osc.port_in)?;
+    // Never request a yield here: the degraded reporter is only a banner and
+    // must not evict a healthy standby renderer holding the port.
+    sender.start_listener(osc.port_in, false)?;
 
     Ok(DegradedReporter {
         _osc: sender,

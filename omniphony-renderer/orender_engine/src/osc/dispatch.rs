@@ -504,6 +504,14 @@ pub(crate) fn handle_control_message(
                 log::info!("OSC quit requested");
                 sys::shutdown::request_shutdown();
             }
+            RuntimeCommand::YieldPort => {
+                if sys::shutdown::is_yieldable() {
+                    log::info!("OSC yield_port requested; shutting down to free the port");
+                    sys::shutdown::request_shutdown();
+                } else {
+                    log::info!("OSC yield_port ignored (instance not yieldable)");
+                }
+            }
             RuntimeCommand::SetLogLevel(requested) => {
                 sys::live_log::set_runtime_level(requested);
                 broadcast_string(
