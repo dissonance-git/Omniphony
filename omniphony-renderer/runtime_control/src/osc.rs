@@ -5,6 +5,23 @@ use rosc::{OscMessage, OscType};
 use serde::Deserialize;
 use std::hash::{Hash, Hasher};
 
+/// In-flight SOFA upload (single slot — Studio serialises uploads).
+struct HrtfUpload {
+    name: String,
+    total: usize,
+    data: Vec<u8>,
+    chunks: u32,
+}
+
+/// 1 GiB cap on an uploaded HRTF file.
+const HRTF_UPLOAD_MAX_BYTES: usize = 1 << 30;
+
+fn hrtf_upload_state() -> &'static std::sync::Mutex<Option<HrtfUpload>> {
+    static STATE: std::sync::OnceLock<std::sync::Mutex<Option<HrtfUpload>>> =
+        std::sync::OnceLock::new();
+    STATE.get_or_init(|| std::sync::Mutex::new(None))
+}
+
 #[derive(Debug, Clone)]
 pub enum BroadcastValue {
     Int(i32),
@@ -790,6 +807,108 @@ pub fn apply_simple_osc_control(
                 live.binaural.hrir_source = src.clone();
                 effects.mark_dirty = true;
                 effects.log_message = Some(format!("OSC: hrir_source -> {}", src.as_str()));
+            }
+        }
+        return Some(effects);
+    }
+
+    // ── SOFA upload (Studio → renderer, chunked OSC blobs) ──────────────────
+    // For setups where Studio does not share a filesystem with the renderer:
+    // begin [s name, i total_bytes] → chunk [i seq, b data]* → end [i chunks].
+    // The file lands in <config dir>/hrtf/ and is activated on completion.
+    if addr == "/omniphony/control/binaural/hrtf_upload/begin" {
+        let name = parse_string_arg(msg.args.first()).unwrap_or_default();
+        let total = match msg.args.get(1) {
+            Some(rosc::OscType::Int(i)) if *i > 0 => *i as usize,
+            _ => 0,
+        };
+        let base = std::path::Path::new(&name)
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let mut upload = hrtf_upload_state().lock().unwrap();
+        if base.is_empty() || !base.to_ascii_lowercase().ends_with(".sofa") {
+            *upload = None;
+            effects.log_message = Some(format!("hrtf upload rejected: bad name {name:?}"));
+        } else if total == 0 || total > HRTF_UPLOAD_MAX_BYTES {
+            *upload = None;
+            effects.log_message = Some(format!("hrtf upload rejected: bad size {total}"));
+        } else {
+            *upload = Some(HrtfUpload {
+                name: base.clone(),
+                total,
+                data: Vec::with_capacity(total),
+                chunks: 0,
+            });
+            effects.log_message = Some(format!("hrtf upload started: {base} ({total} bytes)"));
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/hrtf_upload/chunk" {
+        let seq = match msg.args.first() {
+            Some(rosc::OscType::Int(i)) if *i >= 0 => *i as u32,
+            _ => return Some(effects),
+        };
+        let mut upload = hrtf_upload_state().lock().unwrap();
+        let abort = match (upload.as_mut(), msg.args.get(1)) {
+            (Some(up), Some(rosc::OscType::Blob(data))) => {
+                if seq != up.chunks || up.data.len() + data.len() > up.total {
+                    true
+                } else {
+                    up.data.extend_from_slice(data);
+                    up.chunks += 1;
+                    false
+                }
+            }
+            _ => return Some(effects),
+        };
+        if abort {
+            *upload = None;
+            effects.log_message =
+                Some("hrtf upload aborted: chunk out of sequence or oversize".to_string());
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/hrtf_upload/end" {
+        let chunks = match msg.args.first() {
+            Some(rosc::OscType::Int(i)) if *i >= 0 => *i as u32,
+            _ => 0,
+        };
+        let done = hrtf_upload_state().lock().unwrap().take();
+        match done {
+            Some(up) if up.chunks == chunks && up.data.len() == up.total => {
+                let dir = renderer::config::default_config_path()
+                    .and_then(|p| p.parent().map(|d| d.join("hrtf")))
+                    .unwrap_or_else(|| std::path::PathBuf::from("hrtf"));
+                let write = std::fs::create_dir_all(&dir)
+                    .and_then(|_| std::fs::write(dir.join(&up.name), &up.data));
+                match write {
+                    Ok(()) => {
+                        let path = dir.join(&up.name).to_string_lossy().into_owned();
+                        ctx.renderer.live.write().binaural.hrir_source =
+                            renderer::binaural::HrirSource::Sofa(path.clone());
+                        effects.mark_dirty = true;
+                        effects.log_message =
+                            Some(format!("hrtf upload complete, activated: {path}"));
+                    }
+                    Err(e) => {
+                        effects.log_message = Some(format!("hrtf upload write failed: {e}"));
+                    }
+                }
+            }
+            Some(up) => {
+                effects.log_message = Some(format!(
+                    "hrtf upload incomplete: {}/{} bytes, {}/{} chunks",
+                    up.data.len(),
+                    up.total,
+                    up.chunks,
+                    chunks
+                ));
+            }
+            None => {
+                effects.log_message = Some("hrtf upload end without begin".to_string());
             }
         }
         return Some(effects);

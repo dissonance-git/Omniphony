@@ -11,6 +11,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::{Emitter, Manager};
 
+use crate::osc_listener::OscControlMsg;
+
 /// Fixed browse root. `path` arguments are relative to this and sanitised —
 /// the browser can never escape it.
 const ROOT: &str = "https://sofacoustics.org/data/";
@@ -233,6 +235,124 @@ fn sofa_list_local_blocking(dir: &std::path::Path) -> Result<Vec<LocalSofa>, Str
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
+}
+
+fn hrtf_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("no app data dir: {e}"))?
+        .join("hrtf"))
+}
+
+/// Delete cached .sofa files (and their metadata sidecars). Paths must live
+/// inside the hrtf cache dir — anything else is rejected.
+#[tauri::command]
+pub fn sofa_delete_local(app: tauri::AppHandle, paths: Vec<String>) -> Result<(), String> {
+    let dir = hrtf_dir(&app)?;
+    for p in paths {
+        let path = PathBuf::from(&p);
+        if path.parent() != Some(dir.as_path()) {
+            return Err(format!("refusing to delete outside the cache: {p}"));
+        }
+        if !p.to_ascii_lowercase().ends_with(".sofa") {
+            return Err(format!("not a .sofa file: {p}"));
+        }
+        std::fs::remove_file(&path).map_err(|e| format!("delete {p}: {e}"))?;
+        let _ = std::fs::remove_file(path.with_extension("sofa.meta.json"));
+    }
+    Ok(())
+}
+
+/// Copy a user-picked .sofa file from anywhere on this machine into the
+/// cache dir (metadata sidecar is built on the next listing).
+#[tauri::command]
+pub async fn sofa_import_local(app: tauri::AppHandle, src: String) -> Result<String, String> {
+    let dir = hrtf_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let srcp = PathBuf::from(&src);
+        let name = srcp
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if !name.to_ascii_lowercase().ends_with(".sofa") {
+            return Err(format!("not a .sofa file: {src}"));
+        }
+        std::fs::create_dir_all(&dir).map_err(|e| format!("create {dir:?}: {e}"))?;
+        let dest = dir.join(&name);
+        std::fs::copy(&srcp, &dest).map_err(|e| format!("copy {src}: {e}"))?;
+        let _ = std::fs::remove_file(dest.with_extension("sofa.meta.json"));
+        Ok(dest.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| format!("task failed: {e}"))?
+}
+
+/// Push a cached .sofa to the RENDERER over OSC (chunked blobs) — for setups
+/// where Studio does not share a filesystem with the renderer. The renderer
+/// stores it under its own config dir and activates it on completion.
+#[tauri::command]
+pub async fn sofa_upload_to_renderer(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::SharedState>,
+    path: String,
+) -> Result<u32, String> {
+    let dir = hrtf_dir(&app)?;
+    let p = PathBuf::from(&path);
+    if p.parent() != Some(dir.as_path()) {
+        return Err("upload source must be a cached file".into());
+    }
+    let name = p
+        .file_name()
+        .map(|f| f.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let data = std::fs::read(&p).map_err(|e| format!("read {path}: {e}"))?;
+    let total = data.len();
+    if total == 0 || total > (1 << 30) {
+        return Err(format!("bad file size: {total}"));
+    }
+    const CHUNK: usize = 32 * 1024;
+    let tx = state.osc_tx.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::send_control(
+            &tx,
+            OscControlMsg::SendArgs {
+                address: "/omniphony/control/binaural/hrtf_upload/begin".to_string(),
+                args: vec![
+                    rosc::OscType::String(name),
+                    rosc::OscType::Int(total as i32),
+                ],
+            },
+        );
+        let mut seq: i32 = 0;
+        for chunk in data.chunks(CHUNK) {
+            crate::send_control(
+                &tx,
+                OscControlMsg::SendArgs {
+                    address: "/omniphony/control/binaural/hrtf_upload/chunk".to_string(),
+                    args: vec![
+                        rosc::OscType::Int(seq),
+                        rosc::OscType::Blob(chunk.to_vec()),
+                    ],
+                },
+            );
+            seq += 1;
+            // UDP politeness: don't burst hundreds of datagrams back-to-back.
+            if seq % 16 == 0 {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+        }
+        crate::send_control(
+            &tx,
+            OscControlMsg::SendArgs {
+                address: "/omniphony/control/binaural/hrtf_upload/end".to_string(),
+                args: vec![rosc::OscType::Int(seq)],
+            },
+        );
+        Ok(seq as u32)
+    })
+    .await
+    .map_err(|e| format!("task failed: {e}"))?
 }
 
 /// Abort the in-flight download (the `.part` file is removed).

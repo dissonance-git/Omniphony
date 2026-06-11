@@ -8,6 +8,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
 
 const el = (id) => document.getElementById(id);
 
@@ -220,9 +221,32 @@ async function showLocal() {
     return;
   }
   list.textContent = '';
+
+  // Action header: import from this machine, wipe the cache.
+  const actions = document.createElement('div');
+  actions.style.cssText =
+    'display:flex;gap:0.4rem;justify-content:flex-end;padding:0.15rem 0.3rem 0.3rem;' +
+    'border-bottom:1px solid rgba(255,255,255,0.06);margin-bottom:0.2rem;';
+  const importBtn = document.createElement('button');
+  importBtn.type = 'button';
+  importBtn.className = 'toggle-btn';
+  importBtn.textContent = '＋ Import…';
+  importBtn.title = 'Copy .sofa files from this machine into the cache';
+  importBtn.addEventListener('click', () => importFromDisk());
+  actions.appendChild(importBtn);
+  if (files.length) {
+    const delAll = document.createElement('button');
+    delAll.type = 'button';
+    delAll.className = 'toggle-btn';
+    delAll.textContent = '🗑 Delete all';
+    delAll.addEventListener('click', () => confirmDeleteAll(files));
+    actions.appendChild(delAll);
+  }
+  list.appendChild(actions);
+
   if (!files.length) {
     const empty = document.createElement('div');
-    empty.textContent = 'No downloaded SOFA files yet — use “Online database…” to fetch some.';
+    empty.textContent = 'No downloaded SOFA files yet — use “Online database…” or “＋ Import…”.';
     empty.style.cssText = 'padding:0.3rem;color:#8fa6bd;';
     list.appendChild(empty);
     return;
@@ -246,10 +270,51 @@ async function showLocal() {
     name.style.wordBreak = 'break-all';
     if (isActive) name.style.color = '#9cc4ff';
     left.append(name, licenseLine(f.meta));
+    const right = document.createElement('div');
+    right.style.cssText = 'display:flex;align-items:center;gap:0.35rem;white-space:nowrap;';
     const size = document.createElement('span');
     size.textContent = f.size;
-    size.style.cssText = 'color:#8fa6bd;white-space:nowrap;';
-    row.append(left, size);
+    size.style.cssText = 'color:#8fa6bd;';
+    const upload = document.createElement('button');
+    upload.type = 'button';
+    upload.className = 'toggle-btn';
+    upload.textContent = '⇪';
+    upload.title = 'Send to the renderer over OSC and activate there (for a renderer on another machine)';
+    upload.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (busy) return;
+      busy = true;
+      setStatus(`Uploading ${f.name} to the renderer…`);
+      try {
+        const chunks = await invoke('sofa_upload_to_renderer', { path: f.path });
+        setStatus(`✓ Sent ${f.name} (${chunks} chunks) — the renderer stores and activates it (see the HRTF file line).`);
+      } catch (err) {
+        setStatus(String(err), true);
+      } finally {
+        busy = false;
+      }
+    });
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'toggle-btn';
+    del.textContent = '🗑';
+    del.title = 'Delete this cached file';
+    del.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (busy) return;
+      busy = true;
+      try {
+        await invoke('sofa_delete_local', { paths: [f.path] });
+        setStatus(`Deleted ${f.name}.`);
+      } catch (err) {
+        setStatus(String(err), true);
+      } finally {
+        busy = false;
+      }
+      showLocal();
+    });
+    right.append(size, upload, del);
+    row.append(left, right);
     row.addEventListener('click', async () => {
       if (busy) return;
       busy = true;
@@ -270,6 +335,73 @@ async function showLocal() {
     list.appendChild(row);
   }
   if (activeRow) activeRow.scrollIntoView({ block: 'nearest' });
+}
+
+async function importFromDisk() {
+  if (busy) return;
+  let picked;
+  try {
+    picked = await openFileDialog({
+      multiple: true,
+      filters: [{ name: 'SOFA', extensions: ['sofa'] }],
+      title: 'Import SOFA files',
+    });
+  } catch (e) {
+    setStatus(String(e), true);
+    return;
+  }
+  if (!picked) return;
+  const paths = Array.isArray(picked) ? picked : [picked];
+  busy = true;
+  let done = 0;
+  try {
+    for (const src of paths) {
+      setStatus(`Importing ${src.split('/').pop()}…`);
+      await invoke('sofa_import_local', { src });
+      done += 1;
+    }
+    setStatus(`✓ Imported ${done} file${done > 1 ? 's' : ''}.`);
+  } catch (e) {
+    setStatus(String(e), true);
+  } finally {
+    busy = false;
+  }
+  showLocal();
+}
+
+function confirmDeleteAll(files) {
+  const list = el('sofaBrowserList');
+  if (!list) return;
+  list.textContent = '';
+  const pane = document.createElement('div');
+  pane.style.cssText = 'display:grid;gap:0.5rem;padding:0.5rem;';
+  const msg = document.createElement('div');
+  msg.style.cssText = 'font-size:0.78rem;color:#c9d6e2;';
+  msg.textContent = `Delete all ${files.length} cached SOFA files? The currently active HRTF stays loaded in the renderer until you switch.`;
+  const actions = document.createElement('div');
+  actions.style.cssText = 'display:flex;gap:0.5rem;justify-content:flex-end;';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'ui-btn';
+  cancel.textContent = 'Cancel';
+  cancel.addEventListener('click', () => showLocal());
+  const go = document.createElement('button');
+  go.type = 'button';
+  go.className = 'ui-btn';
+  go.style.cssText = 'border-color:rgba(255,120,120,0.6);color:#ff9a9a;';
+  go.textContent = 'Delete all';
+  go.addEventListener('click', async () => {
+    try {
+      await invoke('sofa_delete_local', { paths: files.map((f) => f.path) });
+      setStatus(`Deleted ${files.length} files.`);
+    } catch (e) {
+      setStatus(String(e), true);
+    }
+    showLocal();
+  });
+  actions.append(cancel, go);
+  pane.append(msg, actions);
+  list.appendChild(pane);
 }
 
 function showOnlineConfirm() {

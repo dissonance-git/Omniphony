@@ -92,6 +92,7 @@ pub(crate) fn send_distance_metric(state: &State<SharedState>, address: &str, va
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 let decoded = image::load_from_memory(include_bytes!("../icons/icon.png"))
@@ -282,6 +283,9 @@ fn main() {
             sofa_download,
             sofa_list_local,
             sofa_file_meta,
+            sofa_delete_local,
+            sofa_import_local,
+            sofa_upload_to_renderer,
             sofa_download_cancel,
             control_head_recenter,
             control_head_tracking_address,
