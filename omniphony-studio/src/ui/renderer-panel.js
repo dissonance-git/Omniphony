@@ -101,7 +101,7 @@ export function rendererPanelMarkup() {
               <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff">Listening room</div>
             </div>
             <div class="renderer-subpanel-body" style="margin-top:0.25rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.3rem">
-              <div style="font-size:0.7rem;color:#8fa6bd;display:flex;justify-content:space-between;align-items:center;">
+              <div class="switch-row" style="margin-top:0;font-size:0.7rem;color:#8fa6bd;">
                 <span>Early reflections</span>
                 <input id="binauralReflEnabled" type="checkbox" checked />
               </div>
@@ -121,7 +121,7 @@ export function rendererPanelMarkup() {
                 <input id="binauralReflRoomD" type="range" min="1" max="20" step="0.1" value="5" style="width:100%;" />
                 <input id="binauralReflRoomH" type="range" min="1" max="20" step="0.1" value="2.7" style="width:100%;" />
               </div>
-              <div style="font-size:0.7rem;color:#8fa6bd;display:flex;justify-content:space-between;align-items:center;margin-top:0.2rem;border-top:1px solid rgba(255,255,255,0.05);padding-top:0.3rem;">
+              <div class="switch-row" style="font-size:0.7rem;color:#8fa6bd;margin-top:0.2rem;border-top:1px solid rgba(255,255,255,0.05);padding-top:0.3rem;">
                 <span>Late reverb</span>
                 <input id="binauralRevEnabled" type="checkbox" checked />
               </div>
