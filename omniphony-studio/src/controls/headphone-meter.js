@@ -38,7 +38,8 @@ function createChannelRow(side, id) {
   content.className = 'speaker-content';
 
   const level = document.createElement('div');
-  level.className = 'meter-row speaker-meter-row';
+  // hp variant: same grid minus the crossover-glyph column (4 columns).
+  level.className = 'meter-row speaker-meter-row hp-meter-row';
 
   const positionIcon = document.createElement('span');
   positionIcon.className = 'speaker-position-icon';

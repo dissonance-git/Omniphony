@@ -2082,6 +2082,11 @@
         grid-template-columns: auto auto 8ch 1fr auto;
       }
 
+      /* Headphone L/R rows: same layout minus the crossover-glyph column. */
+      .speaker-meter-row.hp-meter-row {
+        grid-template-columns: auto 8ch 1fr auto;
+      }
+
       .speaker-position-icon {
         display: inline-flex;
         align-items: center;
