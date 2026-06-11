@@ -328,6 +328,10 @@ export const app = {
   telemetryGaugesOpen: false,
   audioOutputSectionOpen: false,
   inputSectionOpen: false,
+  // Last bridge-class input error that auto-opened the Audio Input section;
+  // reset on disconnect so the auto-open fires once per connection, not on
+  // every state snapshot while the error persists.
+  lastAutoOpenedInputError: null,
   rendererSectionOpen: false,
   displaySectionOpen: false,
   drcSectionOpen: false,

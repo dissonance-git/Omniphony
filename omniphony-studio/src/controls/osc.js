@@ -263,6 +263,9 @@ export function setOscStatus(next) {
   app.oscStatusState = next;
   if (next !== 'connected') {
     app.oscSnapshotReady = false;
+    // Re-arm the Audio Input auto-open for the next connection (a fresh
+    // instance with a broken bridge should surface the panel once again).
+    app.lastAutoOpenedInputError = null;
   }
   // Leaving 'connected' (a disconnect) ends any launch: clear the pending flag +
   // safety timer before re-rendering so the connection buttons come back.

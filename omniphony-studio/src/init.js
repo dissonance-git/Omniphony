@@ -651,11 +651,20 @@ export function applyInitState(payload) {
   updateAudioFormatDisplay();
   updateInputControlUI();
   renderDrcUI();
+  // Auto-surface the Audio Input section on a bridge-class error, but only on
+  // the error's rising edge: this runs on EVERY state snapshot, and while the
+  // error persists it would otherwise reopen the panel each time the user
+  // closes it (re-armed per connection in setOscStatus).
   if (
     app.inputError
     && /bridge path missing|no bridge plugin found|render\.bridge_path/i.test(app.inputError)
   ) {
-    setInputSectionOpen(true);
+    if (app.lastAutoOpenedInputError !== app.inputError) {
+      app.lastAutoOpenedInputError = app.inputError;
+      setInputSectionOpen(true);
+    }
+  } else {
+    app.lastAutoOpenedInputError = null;
   }
   updateMasterMeterUI();
   renderLogLevelControl();
