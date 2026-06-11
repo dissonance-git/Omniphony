@@ -135,6 +135,106 @@ pub async fn sofa_browse(path: String) -> Result<Vec<SofaEntry>, String> {
     .map_err(|e| format!("task failed: {e}"))?
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
+pub struct SofaMeta {
+    pub license: String,
+    pub author: String,
+    pub organization: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct LocalSofa {
+    pub name: String,
+    pub path: String,
+    pub size: String,
+    pub meta: SofaMeta,
+}
+
+/// Read the SOFA global attributes that matter for licensing/attribution.
+/// Parsing a big file is not free, so the result is cached in a JSON sidecar
+/// (`<file>.meta.json`) written next to the .sofa.
+fn sofa_meta(path: &std::path::Path) -> SofaMeta {
+    let sidecar = path.with_extension("sofa.meta.json");
+    if let Ok(bytes) = std::fs::read(&sidecar) {
+        if let Ok(meta) = serde_json::from_slice::<SofaMeta>(&bytes) {
+            return meta;
+        }
+    }
+    let meta = match sofar::reader::Sofar::open(path) {
+        Ok(sofa) => {
+            let attrs = &sofa.hrtf().attributes;
+            let get = |k: &str| attrs.get(k).cloned().unwrap_or_default();
+            SofaMeta {
+                license: get("License"),
+                author: get("AuthorContact"),
+                organization: get("Organization"),
+            }
+        }
+        Err(_) => SofaMeta::default(),
+    };
+    if let Ok(bytes) = serde_json::to_vec(&meta) {
+        let _ = std::fs::write(&sidecar, bytes);
+    }
+    meta
+}
+
+/// Fetch (and cache) the license metadata of one local .sofa file.
+#[tauri::command]
+pub async fn sofa_file_meta(path: String) -> Result<SofaMeta, String> {
+    tauri::async_runtime::spawn_blocking(move || Ok(sofa_meta(std::path::Path::new(&path))))
+        .await
+        .map_err(|e| format!("task failed: {e}"))?
+}
+
+/// List the already-downloaded `.sofa` files in `<app data dir>/hrtf/`.
+/// This is the default browser view — no network involved.
+#[tauri::command]
+pub async fn sofa_list_local(app: tauri::AppHandle) -> Result<Vec<LocalSofa>, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("no app data dir: {e}"))?
+        .join("hrtf");
+    tauri::async_runtime::spawn_blocking(move || sofa_list_local_blocking(&dir))
+        .await
+        .map_err(|e| format!("task failed: {e}"))?
+}
+
+fn sofa_list_local_blocking(dir: &std::path::Path) -> Result<Vec<LocalSofa>, String> {
+    let mut out = Vec::new();
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return Ok(out), // dir not created yet → empty list
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.to_ascii_lowercase().ends_with(".sofa") {
+            continue;
+        }
+        let size = entry
+            .metadata()
+            .map(|m| {
+                let mb = m.len() as f64 / (1024.0 * 1024.0);
+                if mb >= 1.0 {
+                    format!("{mb:.1} MB")
+                } else {
+                    format!("{:.0} kB", m.len() as f64 / 1024.0)
+                }
+            })
+            .unwrap_or_default();
+        let meta = sofa_meta(&path);
+        out.push(LocalSofa {
+            name,
+            path: path.to_string_lossy().into_owned(),
+            size,
+            meta,
+        });
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
 /// Abort the in-flight download (the `.part` file is removed).
 #[tauri::command]
 pub fn sofa_download_cancel() {

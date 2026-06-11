@@ -31,6 +31,39 @@ export function setActiveSofaPath(path) {
 
 const fmtMB = (b) => `${(b / (1024 * 1024)).toFixed(1)} MB`;
 
+// Compact label + severity for a GLOBAL:License attribute value. SOFA files
+// embed anything from a short identifier to the full license paragraph; we
+// classify the common cases and truncate the rest (full text in tooltip).
+function licenseLabel(raw) {
+  const t = (raw || '').trim();
+  if (!t) return { label: 'no license — ask the author', warn: true, full: '' };
+  const l = t.toLowerCase();
+  const has = (...xs) => xs.every((x) => l.includes(x));
+  if (has('cc0') || has('public domain')) return { label: 'CC0 / public domain', warn: false, full: t };
+  if (has('by-nc-sa') || has('nc-sa')) return { label: 'CC BY-NC-SA (non-commercial)', warn: true, full: t };
+  if (has('by-nc') || has('non-commercial')) return { label: 'CC BY-NC (non-commercial)', warn: true, full: t };
+  if (has('by-sa')) return { label: 'CC BY-SA', warn: false, full: t };
+  if (has('creativecommons') && has('/by/')) return { label: 'CC BY', warn: false, full: t };
+  if (l.startsWith('cc by') || l === 'cc-by') return { label: t.length > 30 ? 'CC BY' : t, warn: false, full: t };
+  if (has('mit license') || l === 'mit') return { label: 'MIT', warn: false, full: t };
+  if (has('no license')) return { label: 'no license — ask the author', warn: true, full: t };
+  const short = t.length > 60 ? `${t.slice(0, 57)}…` : t;
+  return { label: short, warn: false, full: t };
+}
+
+function licenseLine(meta) {
+  const lic = licenseLabel(meta && meta.license);
+  const div = document.createElement('div');
+  div.style.cssText = `font-size:0.62rem;${lic.warn ? 'color:#e8c46a;' : 'color:#7d92a6;'}word-break:break-word;`;
+  const parts = [`⚖ ${lic.label}`];
+  if (meta && meta.organization) parts.push(meta.organization);
+  div.textContent = parts.join(' — ');
+  const tip = [lic.full, meta && meta.author ? `Contact: ${meta.author}` : '']
+    .filter(Boolean).join('\n');
+  if (tip) div.title = tip;
+  return div;
+}
+
 function setDownloadUiVisible(visible) {
   const row = el('sofaDlRow');
   if (row) row.style.display = visible ? 'flex' : 'none';
@@ -168,6 +201,8 @@ function setChrome() {
     if (title) title.textContent = 'SOFA HRTF database — sofacoustics.org';
     if (toggle) { toggle.textContent = '← Local files'; toggle.style.display = ''; }
   }
+  const note = el('sofaLicenseNote');
+  if (note) note.style.display = mode === 'remote' ? '' : 'none';
 }
 
 async function showLocal() {
@@ -204,14 +239,17 @@ async function showLocal() {
       row.style.boxShadow = 'inset 2px 0 0 #569cff';
       activeRow = row;
     }
+    const left = document.createElement('div');
+    left.style.cssText = 'display:grid;gap:0.05rem;min-width:0;';
     const name = document.createElement('span');
     name.textContent = `🎧 ${f.name}${isActive ? '  ✓ active' : ''}`;
     name.style.wordBreak = 'break-all';
     if (isActive) name.style.color = '#9cc4ff';
+    left.append(name, licenseLine(f.meta));
     const size = document.createElement('span');
     size.textContent = f.size;
     size.style.cssText = 'color:#8fa6bd;white-space:nowrap;';
-    row.append(name, size);
+    row.append(left, size);
     row.addEventListener('click', async () => {
       if (busy) return;
       busy = true;
@@ -303,7 +341,13 @@ async function downloadAndActivate(entry) {
     if (src) src.value = 'sofa';
     activeRemotePath = remotePath;
     activeSofaPath = localPath;
-    setStatus(`✓ Active: ${entry.name}`);
+    try {
+      const meta = await invoke('sofa_file_meta', { path: localPath });
+      const lic = licenseLabel(meta && meta.license);
+      setStatus(`✓ Active: ${entry.name} — ⚖ ${lic.label}`, lic.warn);
+    } catch {
+      setStatus(`✓ Active: ${entry.name}`);
+    }
     // Re-render so the previous highlight moves to the new file.
     const listEl = el('sofaBrowserList');
     if (listEl) {

@@ -280,6 +280,8 @@ fn main() {
             control_binaural_air_absorption,
             sofa_browse,
             sofa_download,
+            sofa_list_local,
+            sofa_file_meta,
             sofa_download_cancel,
             control_head_recenter,
             control_head_tracking_address,

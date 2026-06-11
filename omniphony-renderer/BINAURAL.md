@@ -134,6 +134,25 @@ with Game Rotation Vector you can usually lower it.
 - The output is plain stereo FL/FR — no special player-side configuration
   beyond a stereo sink.
 
+## HRTF data licensing
+
+The SOFA *format* is an open AES standard; the *data* is not uniformly
+licensed — sofacoustics.org aggregates databases that each keep their own
+terms (HUTUBS is CC BY 4.0; some Aachen/ITA sets are CC BY-NC-SA; some files
+carry no license at all). Accordingly:
+
+- Omniphony never redistributes SOFA data: the browser downloads straight
+  from sofacoustics.org to your machine, on demand, with a local cache (the
+  app is just a user agent, like a web browser).
+- Each file's embedded `GLOBAL:License` / `AuthorContact` / `Organization`
+  attributes are read after download and shown in the browser (local list and
+  post-download status); non-commercial or missing licenses are flagged in
+  amber. A missing license legally means all rights reserved — contact the
+  author before anything beyond private listening.
+- The only bundled HRTF data is the embedded SAF KEMAR set (ISC license).
+- If you redistribute downloaded files yourself, the file's own license
+  applies to you — prefer CC BY / CC0 databases (e.g. HUTUBS).
+
 ## OSC control surface
 
 | Address | Args | Meaning |
