@@ -17,7 +17,7 @@ const entries = new Map(); // '0' | '1' → row entry
 function headphoneSvg(side) {
   const fillL = side === 'L' ? '#8cd6ff' : 'none';
   const fillR = side === 'R' ? '#8cd6ff' : 'none';
-  return `<svg viewBox="0 0 20 20" width="100%" height="100%" aria-hidden="true">
+  return `<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
     <path d="M3 12 a7 7 0 0 1 14 0" fill="none" stroke="#9eb4c8" stroke-width="1.6"/>
     <rect x="2" y="11" width="4" height="6" rx="1.2" fill="${fillL}" stroke="#9eb4c8" stroke-width="1.2"/>
     <rect x="14" y="11" width="4" height="6" rx="1.2" fill="${fillR}" stroke="#9eb4c8" stroke-width="1.2"/>
