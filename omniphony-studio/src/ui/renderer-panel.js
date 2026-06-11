@@ -8,7 +8,7 @@ export function rendererPanelMarkup() {
           <div class="panel-header">
             <div class="panel-header-main">
             <div class="info-title panel-title" data-i18n="section.renderer">Renderer</div>
-            <div style="display:flex;gap:0.25rem;flex:0 0 auto">
+            <div style="display:flex;gap:0.25rem;flex:0 0 auto;margin-left:auto">
               <button id="outputModeHeadphonesBtn" type="button" class="toggle-btn output-mode-btn">🎧 Headphones</button>
               <button id="outputModeSpeakersBtn" type="button" class="toggle-btn output-mode-btn">🔊 Speakers</button>
             </div>
