@@ -72,6 +72,7 @@ import {
   refreshRoomGeometryInputState
 } from './controls/room-geometry.js';
 import { normalizeLogLevel, renderLogLevelControl, logState, pushLog } from './log.js';
+import { t } from './i18n.js';
 import { applyInitState } from './init.js';
 import { setHeadPoseQuat } from './scene/head-pose.js';
 import { setInputSectionOpen } from './modals.js';
@@ -343,6 +344,16 @@ export function setupTauriBridge() {
     const next = payload?.status;
     if (next === 'initializing' || next === 'connected' || next === 'reconnecting' || next === 'error') {
       setOscStatus(next);
+    }
+  });
+
+  listen('orender:autostart', ({ payload }) => {
+    const status = payload?.status;
+    if (status === 'launched') {
+      pushLog('info', t('log.orenderAutostartLaunched'));
+    } else if (status === 'failed') {
+      pushLog('error', t('log.orenderAutostartFailed'));
+      setOscStatus('error');
     }
   });
 

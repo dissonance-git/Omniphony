@@ -2,7 +2,7 @@ use rosc::{decoder, OscPacket, OscType};
 use std::net::UdpSocket;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::app_state::OutputDeviceOption;
@@ -19,6 +19,23 @@ use crate::osc_parser::{
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const HEARTBEAT_ACK_TIMEOUT: Duration = Duration::from_secs(10);
 const SNAPSHOT_REQUEST_INTERVAL: Duration = Duration::from_secs(1);
+
+// ── local-renderer auto-start watchdog ──────────────────────────────────────
+/// Cadence of the watchdog checks inside the OSC thread loop.
+const WATCHDOG_INTERVAL: Duration = Duration::from_secs(1);
+/// How long the connection must be down before auto-starting (a renderer
+/// restart or a brief packet loss must not trigger a spawn).
+const WATCHDOG_DISCONNECT_DEBOUNCE: Duration = Duration::from_secs(6);
+/// Grace after a goodbye broadcast, giving the exiting renderer time to
+/// actually release the OSC port before the probe.
+const WATCHDOG_GOODBYE_GRACE: Duration = Duration::from_millis(500);
+/// A child exiting within this window after spawn counts as a failure.
+const WATCHDOG_FAST_FAIL_WINDOW: Duration = Duration::from_secs(5);
+/// Backoff between failed spawn attempts.
+const WATCHDOG_COOLDOWN: Duration = Duration::from_secs(5);
+/// Failure streak after which the watchdog gives up until re-armed (settings
+/// change or manual launch).
+const WATCHDOG_MAX_ATTEMPTS: u8 = 3;
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -868,8 +885,21 @@ fn osc_thread(
 
     let mut buf = [0u8; 65536];
     let mut last_batch_flush = Instant::now();
+    let mut last_watchdog_check = Instant::now();
+    let mut disconnected_since: Option<Instant> = Some(Instant::now());
 
     loop {
+        if last_watchdog_check.elapsed() >= WATCHDOG_INTERVAL {
+            last_watchdog_check = Instant::now();
+            watchdog_tick(
+                &app,
+                &host,
+                osc_rx_port,
+                is_connected,
+                &mut disconnected_since,
+            );
+        }
+
         // Flush the coalesced high-frequency emits at ~60 Hz, independent of how
         // many OSC messages arrived since the last tick.
         if last_batch_flush.elapsed() >= BATCH_FLUSH_INTERVAL {
@@ -988,6 +1018,149 @@ fn osc_thread(
 // shim, so Studio no longer builds frames or mirrors the colour palette — the
 // renderer owns both. Overlay config (trails) is sent as OSC control.
 
+/// Auto-start watchdog: when nothing answers on a loopback target, launch a
+/// standby renderer (`orender render … --osc-yield`). It hands the OSC port
+/// to an mpv-embedded renderer on demand and this watchdog brings it back
+/// once mpv exits (goodbye broadcast or heartbeat timeout, then a port probe
+/// confirming nobody holds the port).
+fn watchdog_tick(
+    app: &AppHandle,
+    host: &str,
+    osc_rx_port: u16,
+    is_connected: bool,
+    disconnected_since: &mut Option<Instant>,
+) {
+    let shared = app.state::<crate::SharedState>();
+    let shared = shared.inner();
+
+    // Reap a tracked child that exited, whatever the connection state, and
+    // apply fast-fail backoff. Locks are taken sequentially (never nested) to
+    // keep a single lock order with the spawn path and the exit hook.
+    let exited = {
+        let mut child_guard = shared.renderer_child.lock().unwrap();
+        match child_guard.as_mut().map(|child| child.try_wait()) {
+            Some(Ok(Some(status))) => {
+                *child_guard = None;
+                Some(status)
+            }
+            _ => None,
+        }
+    };
+    if let Some(status) = exited {
+        let mut wd = shared.watchdog.lock().unwrap();
+        let fast_fail = wd
+            .last_spawn_at
+            .take()
+            .map(|at| at.elapsed() < WATCHDOG_FAST_FAIL_WINDOW)
+            .unwrap_or(false);
+        if fast_fail {
+            wd.attempts += 1;
+            wd.cooldown_until = Some(Instant::now() + WATCHDOG_COOLDOWN);
+            log::warn!(
+                "[watchdog] local renderer exited right after launch ({status}); attempt {}/{}",
+                wd.attempts,
+                WATCHDOG_MAX_ATTEMPTS
+            );
+            if wd.attempts >= WATCHDOG_MAX_ATTEMPTS {
+                log::error!(
+                    "[watchdog] giving up on auto-start until settings change or a manual launch"
+                );
+                let _ = app.emit(
+                    "orender:autostart",
+                    serde_json::json!({ "status": "failed" }),
+                );
+            }
+        } else {
+            // Normal lifecycle exit: yielded to mpv, or a manual/Studio quit.
+            log::info!("[watchdog] local renderer exited ({status})");
+            wd.attempts = 0;
+        }
+    }
+
+    if is_connected {
+        *disconnected_since = None;
+        shared.watchdog.lock().unwrap().check_requested_at = None;
+        return;
+    }
+    let since = *disconnected_since.get_or_insert_with(Instant::now);
+
+    let goodbye_ready = shared
+        .watchdog
+        .lock()
+        .unwrap()
+        .check_requested_at
+        .map(|at| at.elapsed() >= WATCHDOG_GOODBYE_GRACE)
+        .unwrap_or(false);
+    if !goodbye_ready && since.elapsed() < WATCHDOG_DISCONNECT_DEBOUNCE {
+        return;
+    }
+
+    // Re-read the settings at check time so panel edits apply immediately.
+    let cfg = crate::config::load_config(&shared.config_dir);
+    if !cfg.auto_start_renderer || !crate::commands::app::host_is_local(host) {
+        return;
+    }
+    {
+        let wd = shared.watchdog.lock().unwrap();
+        if wd.attempts >= WATCHDOG_MAX_ATTEMPTS {
+            return;
+        }
+        if wd
+            .cooldown_until
+            .is_some_and(|until| Instant::now() < until)
+        {
+            return;
+        }
+    }
+    // A live child we already spawned is still starting up — give it time.
+    if shared
+        .renderer_child
+        .lock()
+        .unwrap()
+        .as_mut()
+        .is_some_and(|child| matches!(child.try_wait(), Ok(None)))
+    {
+        return;
+    }
+    // A service-managed renderer is someone else's responsibility.
+    if crate::commands::orender::orender_service_running() {
+        return;
+    }
+    // Port probe (wildcard, matching how renderers bind): if anything holds
+    // the OSC RX port — e.g. an mpv-embedded renderer we temporarily lost
+    // contact with — do not spawn.
+    match UdpSocket::bind(("0.0.0.0", osc_rx_port)) {
+        Ok(probe) => drop(probe),
+        Err(_) => {
+            shared.watchdog.lock().unwrap().check_requested_at = None;
+            return;
+        }
+    }
+
+    log::info!("[watchdog] no renderer on local port {osc_rx_port}; launching a standby instance");
+    match crate::commands::orender::autostart_orender(app, shared) {
+        Ok(info) => {
+            log::info!("[watchdog] standby renderer launched: {}", info["command"]);
+            let _ = app.emit(
+                "orender:autostart",
+                serde_json::json!({ "status": "launched" }),
+            );
+        }
+        Err(e) => {
+            let mut wd = shared.watchdog.lock().unwrap();
+            wd.attempts += 1;
+            wd.cooldown_until = Some(Instant::now() + WATCHDOG_COOLDOWN);
+            log::error!("[watchdog] auto-start failed: {e}");
+            if wd.attempts >= WATCHDOG_MAX_ATTEMPTS {
+                let _ = app.emit(
+                    "orender:autostart",
+                    serde_json::json!({ "status": "failed", "error": e }),
+                );
+            }
+        }
+    }
+}
+
 fn handle_packet(
     packet: OscPacket,
     app: &AppHandle,
@@ -1002,6 +1175,19 @@ fn handle_packet(
 ) {
     match packet {
         OscPacket::Message(msg) => {
+            // Goodbye broadcast: the renderer is shutting down gracefully
+            // (quit, yield to mpv, or mpv exiting). Flip to reconnecting at
+            // once and ask the watchdog to check (after a short grace for the
+            // port to actually close) instead of waiting out the ack timeout.
+            if msg.addr == "/omniphony/state/shutdown" {
+                log::info!("[osc] renderer announced shutdown");
+                *is_connected = false;
+                emit_osc_status(app, state, "reconnecting");
+                let shared = app.state::<crate::SharedState>();
+                shared.watchdog.lock().unwrap().check_requested_at = Some(Instant::now());
+                return;
+            }
+
             match is_heartbeat_address(&msg.addr) {
                 HeartbeatResponse::Ack => {
                     *last_ack_at = Instant::now();
