@@ -69,6 +69,7 @@ export function rendererPanelMarkup() {
               </div>
             </div>
             <div class="renderer-subpanel-body" style="margin-top:0.25rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.3rem">
+              <div id="binauralSofaInfo" style="display:none;font-size:0.65rem;word-break:break-all;"></div>
               <div>
                 <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
                   <span>Head radius (cm)</span>

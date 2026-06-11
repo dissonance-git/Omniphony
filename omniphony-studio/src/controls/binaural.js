@@ -234,6 +234,28 @@ export function applyBinauralState(b) {
       setVal('binauralHrirSource', b.hrirSource);
       const btn = el('sofaBrowseBtn');
       if (btn) btn.style.display = b.hrirSource === 'sofa' ? '' : 'none';
+      // Info line under the source zone: chosen file name, or the
+      // KEMAR-fallback notice while no file is selected yet.
+      const info = el('binauralSofaInfo');
+      if (info) {
+        if (b.hrirSource !== 'sofa') {
+          info.style.display = 'none';
+        } else {
+          const path = typeof b.hrtfSofaPath === 'string' ? b.hrtfSofaPath : '';
+          info.style.display = '';
+          if (path) {
+            const name = path.split('/').pop();
+            info.textContent = `File: ${name}`;
+            info.title = path;
+            info.style.color = '#8fa6bd';
+          } else {
+            info.textContent =
+              'No SOFA file selected — using the embedded KEMAR until you pick one (Browse…).';
+            info.title = '';
+            info.style.color = '#e8c46a';
+          }
+        }
+      }
     }
 
     if (typeof b.unitScaleM === 'number') {

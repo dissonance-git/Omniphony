@@ -199,6 +199,10 @@ pub fn build_renderer_state_json(
             },
             "airAbsorption": live.binaural.air_absorption,
             "hrirSource": live.binaural.hrir_source.as_str(),
+            "hrtfSofaPath": match &live.binaural.hrir_source {
+                renderer::binaural::HrirSource::Sofa(p) => p.as_str(),
+                _ => "",
+            },
             "headPose": {
                 "w": live.binaural.head_pose.w,
                 "x": live.binaural.head_pose.x,
