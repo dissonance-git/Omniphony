@@ -2444,6 +2444,7 @@ body:not(.cap-embedded) .output-mode-mpv-note {
 /* Speakers section: full control rows in speaker mode, read-only bed-anchor
    directions in headphones mode (per-speaker gain/mute/delay are inert). */
 body.output-binaural #speakersList,
+body.output-binaural .speakers-layout-actions,
 body.output-binaural .speakers-title-speakers,
 body:not(.output-binaural) #hpChannelsList,
 body:not(.output-binaural) .speakers-title-binaural {
