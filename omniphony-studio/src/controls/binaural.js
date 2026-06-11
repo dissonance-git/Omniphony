@@ -7,7 +7,7 @@
 // guarded so a missing node never throws.
 
 import { invoke } from '@tauri-apps/api/core';
-import { initSofaBrowser } from './sofa-browser.js';
+import { initSofaBrowser, setActiveSofaPath } from './sofa-browser.js';
 
 const el = (id) => document.getElementById(id);
 
@@ -236,6 +236,7 @@ export function applyBinauralState(b) {
       if (btn) btn.style.display = b.hrirSource === 'sofa' ? '' : 'none';
       // Info line under the source zone: chosen file name, or the
       // KEMAR-fallback notice while no file is selected yet.
+      setActiveSofaPath(typeof b.hrtfSofaPath === 'string' ? b.hrtfSofaPath : '');
       const info = el('binauralSofaInfo');
       if (info) {
         if (b.hrirSource !== 'sofa') {

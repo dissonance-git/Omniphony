@@ -16,6 +16,18 @@ let busy = false;
 // Remote path (currentPath + href) of the currently active .sofa, so the
 // entry stays visibly marked while scrolling / navigating / reopening.
 let activeRemotePath = '';
+// Browser mode: 'local' (default — already-downloaded files, no network)
+// or 'remote' (sofacoustics.org). Going online asks for confirmation once
+// per session.
+let mode = 'local';
+let onlineConsent = false;
+// Active local .sofa path, fed from the renderer state broadcast
+// (binaural.hrtfSofaPath) so the highlight survives Studio restarts.
+let activeSofaPath = '';
+
+export function setActiveSofaPath(path) {
+  activeSofaPath = typeof path === 'string' ? path : '';
+}
 
 const fmtMB = (b) => `${(b / (1024 * 1024)).toFixed(1)} MB`;
 
@@ -144,6 +156,121 @@ function renderList(entries) {
   if (activeRow) activeRow.scrollIntoView({ block: 'nearest' });
 }
 
+function setChrome() {
+  const title = el('sofaBrowserTitle');
+  const toggle = el('sofaSourceToggleBtn');
+  const crumbs = el('sofaBrowserCrumbs');
+  if (mode === 'local') {
+    if (title) title.textContent = 'SOFA HRTF files — downloaded';
+    if (toggle) { toggle.textContent = 'Online database…'; toggle.style.display = ''; }
+    if (crumbs) crumbs.textContent = '';
+  } else {
+    if (title) title.textContent = 'SOFA HRTF database — sofacoustics.org';
+    if (toggle) { toggle.textContent = '← Local files'; toggle.style.display = ''; }
+  }
+}
+
+async function showLocal() {
+  mode = 'local';
+  setChrome();
+  setStatus('');
+  const list = el('sofaBrowserList');
+  if (!list) return;
+  list.textContent = 'Loading…';
+  let files = [];
+  try {
+    files = await invoke('sofa_list_local', {});
+  } catch (e) {
+    setStatus(String(e), true);
+    return;
+  }
+  list.textContent = '';
+  if (!files.length) {
+    const empty = document.createElement('div');
+    empty.textContent = 'No downloaded SOFA files yet — use “Online database…” to fetch some.';
+    empty.style.cssText = 'padding:0.3rem;color:#8fa6bd;';
+    list.appendChild(empty);
+    return;
+  }
+  let activeRow = null;
+  for (const f of files) {
+    const row = document.createElement('div');
+    const isActive = f.path === activeSofaPath;
+    row.style.cssText =
+      'display:flex;justify-content:space-between;gap:0.5rem;cursor:pointer;' +
+      'padding:0.15rem 0.3rem;border-radius:4px;';
+    if (isActive) {
+      row.style.background = 'rgba(86,156,255,0.22)';
+      row.style.boxShadow = 'inset 2px 0 0 #569cff';
+      activeRow = row;
+    }
+    const name = document.createElement('span');
+    name.textContent = `🎧 ${f.name}${isActive ? '  ✓ active' : ''}`;
+    name.style.wordBreak = 'break-all';
+    if (isActive) name.style.color = '#9cc4ff';
+    const size = document.createElement('span');
+    size.textContent = f.size;
+    size.style.cssText = 'color:#8fa6bd;white-space:nowrap;';
+    row.append(name, size);
+    row.addEventListener('click', async () => {
+      if (busy) return;
+      busy = true;
+      setStatus('Activating…');
+      try {
+        await invoke('control_hrir_source', { value: `sofa:${f.path}` });
+        const src = el('binauralHrirSource');
+        if (src) src.value = 'sofa';
+        activeSofaPath = f.path;
+        setStatus(`✓ Active: ${f.name}`);
+        await showLocal(); // re-render to move the highlight
+      } catch (e) {
+        setStatus(String(e), true);
+      } finally {
+        busy = false;
+      }
+    });
+    list.appendChild(row);
+  }
+  if (activeRow) activeRow.scrollIntoView({ block: 'nearest' });
+}
+
+function showOnlineConfirm() {
+  setChrome();
+  const toggle = el('sofaSourceToggleBtn');
+  if (toggle) toggle.style.display = 'none';
+  const list = el('sofaBrowserList');
+  if (!list) return;
+  list.textContent = '';
+  const pane = document.createElement('div');
+  pane.style.cssText = 'display:grid;gap:0.5rem;padding:0.5rem;';
+  const msg = document.createElement('div');
+  msg.style.cssText = 'font-size:0.78rem;color:#c9d6e2;line-height:1.4;';
+  msg.textContent =
+    'This will connect to sofacoustics.org (the public SOFA conventions '
+    + 'database) to browse and download HRTF files over the internet. '
+    + 'Nothing is sent besides the directory and file requests.';
+  const actions = document.createElement('div');
+  actions.style.cssText = 'display:flex;gap:0.5rem;justify-content:flex-end;';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'ui-btn';
+  cancel.textContent = 'Cancel';
+  cancel.addEventListener('click', () => showLocal());
+  const go = document.createElement('button');
+  go.type = 'button';
+  go.className = 'ui-btn ui-btn-primary';
+  go.textContent = 'Connect';
+  go.addEventListener('click', () => {
+    onlineConsent = true;
+    mode = 'remote';
+    setChrome();
+    navigate(currentPath);
+  });
+  actions.append(cancel, go);
+  pane.append(msg, actions);
+  list.appendChild(pane);
+}
+
 async function navigate(path) {
   if (busy) return;
   busy = true;
@@ -175,6 +302,7 @@ async function downloadAndActivate(entry) {
     const src = el('binauralHrirSource');
     if (src) src.value = 'sofa';
     activeRemotePath = remotePath;
+    activeSofaPath = localPath;
     setStatus(`✓ Active: ${entry.name}`);
     // Re-render so the previous highlight moves to the new file.
     const listEl = el('sofaBrowserList');
@@ -208,8 +336,23 @@ export function initSofaBrowser() {
   if (!btn || !modal) return;
   btn.addEventListener('click', () => {
     modal.classList.add('open');
-    navigate(currentPath);
+    showLocal();
   });
+  const sourceToggle = el('sofaSourceToggleBtn');
+  if (sourceToggle) {
+    sourceToggle.addEventListener('click', () => {
+      if (busy) return;
+      if (mode === 'remote') {
+        showLocal();
+      } else if (onlineConsent) {
+        mode = 'remote';
+        setChrome();
+        navigate(currentPath);
+      } else {
+        showOnlineConfirm();
+      }
+    });
+  }
   if (close) {
     close.addEventListener('click', () => modal.classList.remove('open'));
   }

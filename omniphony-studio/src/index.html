@@ -574,7 +574,10 @@
     <div id="rendererInfoModalsRoot">
     <div id="sofaBrowserModal" class="info-modal" aria-hidden="true">
       <div class="info-modal-card" style="max-width:560px;width:90vw;">
-        <div class="info-modal-title">SOFA HRTF database — sofacoustics.org</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;">
+          <div class="info-modal-title" id="sofaBrowserTitle" style="margin:0;">SOFA HRTF files</div>
+          <button id="sofaSourceToggleBtn" type="button" class="toggle-btn">Online database…</button>
+        </div>
         <div id="sofaBrowserCrumbs" style="font-size:0.72rem;color:#8fa6bd;margin:0.3rem 0;word-break:break-all;"></div>
         <div id="sofaBrowserStatus" style="font-size:0.72rem;color:#c9d6e2;min-height:1.1em;margin-bottom:0.25rem;"></div>
         <div id="sofaDlRow" style="display:none;align-items:center;gap:0.5rem;margin-bottom:0.3rem;">
