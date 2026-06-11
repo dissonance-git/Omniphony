@@ -17,6 +17,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 static RELOAD_REQUESTED: AtomicBool = AtomicBool::new(false);
 static RESTART_FROM_CONFIG_REQUESTED: AtomicBool = AtomicBool::new(false);
+static YIELDABLE: AtomicBool = AtomicBool::new(false);
+
+/// Mark this process as willing to shut down when another local instance
+/// requests the OSC port via `/omniphony/control/yield_port`. Set by the CLI
+/// `--osc-yield` flag; never set by embedded (FFI) hosts, so an mpv-hosted
+/// renderer can never be evicted by a later instance.
+pub fn set_yieldable(yieldable: bool) {
+    YIELDABLE.store(yieldable, Ordering::Relaxed);
+}
+
+/// Whether this instance honours `/omniphony/control/yield_port`.
+pub fn is_yieldable() -> bool {
+    YIELDABLE.load(Ordering::Relaxed)
+}
 
 // Windows: HANDLE of the manual-reset event used to wake process_chunks_with_shutdown.
 // Stored as isize so it can live in an AtomicIsize (HANDLE is isize under the hood).

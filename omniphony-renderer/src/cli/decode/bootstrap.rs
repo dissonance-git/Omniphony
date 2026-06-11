@@ -56,7 +56,7 @@ fn render_config_from_path(
 ) -> Option<renderer::config::RenderConfig> {
     let mut render = config_path
         .as_deref()
-        .map(renderer::config::Config::load_or_default)
+        .map(|p| renderer::config::Config::load_or_default_with_live(p).0)
         .and_then(|cfg| cfg.render)
         .unwrap_or_default();
     super::config_resolution::apply_render_cfg_overrides(&mut render, args);
@@ -370,6 +370,13 @@ fn init_osc_runtime(
         if persisted_bridge_path != args.bridge_path {
             ctrl.mark_dirty();
         }
+        // State restored from a live-handoff sidecar is by definition unsaved.
+        if config_path
+            .as_deref()
+            .is_some_and(renderer::config::live_overlay_active)
+        {
+            ctrl.mark_dirty();
+        }
 
         let drc_mode = render_cfg
             .as_ref()
@@ -508,7 +515,7 @@ fn init_osc_runtime(
     if let (Some(_renderer), Some(sender)) =
         (&handler.spatial_renderer, &mut handler.telemetry.osc_sender)
     {
-        sender.start_listener(args.osc_rx_port)?;
+        sender.start_listener(args.osc_rx_port, true)?;
     }
 
     Ok(())

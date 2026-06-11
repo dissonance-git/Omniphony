@@ -789,6 +789,7 @@ fn run_prepared_render(
 }
 
 pub fn cmd_render(args: &RenderArgs, cli: &Cli, arg_sources: &RenderArgSources<'_>) -> Result<()> {
+    sys::shutdown::set_yieldable(args.osc_yield);
     let mut restart_bridge_path_override: Option<Option<std::path::PathBuf>> = None;
     loop {
         let (config_path, mut effective_args, current_layout_from_config, evaluation_mode_explicit) =
@@ -800,6 +801,14 @@ pub fn cmd_render(args: &RenderArgs, cli: &Cli, arg_sources: &RenderArgSources<'
 
         if maybe_save_effective_config(cli, args, &config_path)? {
             return Ok(());
+        }
+
+        // Settle OSC port ownership before any config-driven seeding: a
+        // yielded holder writes its live-state sidecar while still holding the
+        // port, so negotiating first guarantees the sidecar is on disk before
+        // the render config is read below.
+        if args.osc {
+            let _ = orender_engine::osc::negotiate_rx_port(args.osc_rx_port);
         }
 
         let bridge_path_after_run = match prepare_render_run(args) {
@@ -826,6 +835,9 @@ pub fn cmd_render(args: &RenderArgs, cli: &Cli, arg_sources: &RenderArgSources<'
                 return Ok(());
             }
             restart_bridge_path_override = Some(bridge_path_after_run);
+            // reload_config discards live state: forget any consumed handoff
+            // overlay so the next iteration re-reads the config from disk.
+            renderer::config::clear_live_overlay_cache();
             log::info!("Restarting render pipeline from config");
             continue;
         }

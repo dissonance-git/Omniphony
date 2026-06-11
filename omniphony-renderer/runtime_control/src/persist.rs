@@ -15,10 +15,10 @@ fn round6(v: f32) -> f32 {
     (v * 1_000_000.0).round() / 1_000_000.0
 }
 
-/// Save the live config to disk. The audio-free core writes core fields
-/// (renderer/layout/speakers/loudness/DRC/monitoring); the optional host
-/// handler (e.g. `host_audio::HostAudio`) appends its own fields
-/// (output device, live input, adaptive resampling, latency target) via
+/// Save the live config to disk at the control's config path. The audio-free
+/// core writes core fields (renderer/layout/speakers/loudness/DRC/monitoring);
+/// the optional host handler (e.g. `host_audio::HostAudio`) appends its own
+/// fields (output device, live input, adaptive resampling, latency target) via
 /// [`HostControlHandler::amend_saved_config`] before the file is written.
 pub fn save_live_config(
     control: &Arc<RendererControl>,
@@ -32,8 +32,31 @@ pub fn save_live_config(
             .ok_or_else(|| anyhow!("no config path available"))?
     };
 
+    save_live_config_to_path(control, host, &path, &path)?;
+    control.mark_clean();
+    // A deliberate save supersedes any pending live-handoff overlay.
+    let _ = std::fs::remove_file(renderer::config::live_sidecar_path(&path));
+    renderer::config::clear_live_overlay_cache();
+
+    Ok(SaveLiveConfigResult {
+        path,
+        restart_required: false,
+    })
+}
+
+/// Serialize the current live state into a complete config file at `out_path`,
+/// amending a base config loaded from `base_path`. Does NOT mark the live
+/// state clean and does NOT notify clients — used by [`save_live_config`]
+/// (with `out_path == base_path`) and by the shutdown handoff, which writes
+/// the live-state sidecar next to the persistent config.
+pub fn save_live_config_to_path(
+    control: &Arc<RendererControl>,
+    host: Option<&dyn HostControlHandler>,
+    base_path: &std::path::Path,
+    out_path: &std::path::Path,
+) -> Result<()> {
     let live = control.live.read();
-    let mut config = renderer::config::Config::load_or_default(&path);
+    let mut config = renderer::config::Config::load_or_default(base_path);
     let render = config.render.get_or_insert_with(Default::default);
     let requested_bridge_path = control.bridge_path();
     render.bridge_path = requested_bridge_path;
@@ -263,11 +286,7 @@ pub fn save_live_config(
         h.amend_saved_config(render);
     }
 
-    config.save(&path)?;
-    control.mark_clean();
+    config.save(out_path)?;
 
-    Ok(SaveLiveConfigResult {
-        path,
-        restart_required: false,
-    })
+    Ok(())
 }

@@ -165,6 +165,13 @@ pub struct RenderArgs {
     #[arg(long, value_name = "PORT", default_value_t = renderer::config_fields::osc_rx_port::DEFAULT)]
     pub osc_rx_port: u16,
 
+    /// Run as a yieldable (standby) instance: shut down cleanly when another
+    /// local instance requests the OSC port via /omniphony/control/yield_port.
+    /// Used by Studio-launched standby renderers so an mpv-embedded renderer
+    /// can take over (and hand back) seamlessly.
+    #[arg(long)]
+    pub osc_yield: bool,
+
     /// Output device or target name.
     /// PipeWire: node target name (e.g. "omniphony_router")
     /// ASIO: device name as listed by `orender list-asio-devices`

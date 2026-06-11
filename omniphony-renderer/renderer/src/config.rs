@@ -1,4 +1,7 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_yaml_ng::Mapping;
@@ -545,6 +548,98 @@ impl Config {
         std::fs::write(path, yaml)?;
         Ok(())
     }
+
+    /// [`Config::load_or_default`] plus consume-once handling of the live
+    /// handoff sidecar (see [`live_sidecar_path`]). Returns the config and
+    /// whether it came from a sidecar — callers should then mark the live
+    /// state dirty, since a restored overlay is by definition unsaved.
+    ///
+    /// The first call that finds a fresh sidecar parses it, deletes the file
+    /// and caches the result for the rest of the process, so the several
+    /// config loads of a single boot (and an in-process destroy→create cycle
+    /// of the FFI host) all see the same state. Stale (older than
+    /// [`LIVE_SIDECAR_TTL`]) or unparsable sidecars are deleted without being
+    /// applied.
+    pub fn load_or_default_with_live(path: &Path) -> (Self, bool) {
+        Self::load_or_default_with_live_ttl(path, LIVE_SIDECAR_TTL)
+    }
+
+    fn load_or_default_with_live_ttl(path: &Path, ttl: Duration) -> (Self, bool) {
+        // Disk first, cache second: a sidecar written after an earlier consume
+        // (an instance that yielded the port to us, or an in-process
+        // destroy→create cycle) must win over the older cached overlay.
+        let sidecar = live_sidecar_path(path);
+        if sidecar.exists() {
+            let fresh = std::fs::metadata(&sidecar)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|mtime| mtime.elapsed().ok())
+                .map(|age| age < ttl)
+                // Unreadable or future mtime: assume fresh rather than drop
+                // a handoff over filesystem clock noise.
+                .unwrap_or(true);
+            let parsed = if fresh {
+                Self::load(&sidecar).ok()
+            } else {
+                None
+            };
+            // Consume-once: the file goes away whether applied, stale or corrupt.
+            let _ = std::fs::remove_file(&sidecar);
+            if let Some(cfg) = parsed {
+                log::info!(
+                    "restored live state from {} (unsaved until an explicit save)",
+                    sidecar.display()
+                );
+                LIVE_OVERLAY
+                    .lock()
+                    .unwrap()
+                    .insert(path.to_path_buf(), cfg.clone());
+                return (cfg, true);
+            }
+        }
+        if let Some(cfg) = LIVE_OVERLAY.lock().unwrap().get(path) {
+            return (cfg.clone(), true);
+        }
+        (Self::load_or_default(path), false)
+    }
+}
+
+// ── Live-state handoff sidecar ──────────────────────────────────────────────
+//
+// On graceful shutdown an instance writes its full live state as a complete
+// config file next to the persistent one. The next instance consumes it once
+// at boot and treats it as UNSAVED live state: the persistent config is never
+// touched, and an explicit save supersedes the overlay. This is how unsaved
+// tweaks survive the standby-renderer ↔ mpv-embedded-renderer handoff.
+
+/// Freshness window for the live sidecar: anything older is a leftover from an
+/// unrelated session and is deleted without being applied.
+pub const LIVE_SIDECAR_TTL: Duration = Duration::from_secs(600);
+
+/// Sidecar path for `config_path`: `config.yaml` → `config.live.yaml`.
+pub fn live_sidecar_path(config_path: &Path) -> PathBuf {
+    let stem = config_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("config");
+    config_path.with_file_name(format!("{stem}.live.yaml"))
+}
+
+/// Consumed sidecars for this process, keyed by the config path they overlay.
+static LIVE_OVERLAY: Mutex<BTreeMap<PathBuf, Config>> = Mutex::new(BTreeMap::new());
+
+/// Whether a consumed live overlay is active for `config_path` (cache only,
+/// no disk access). Hosts use this to mark the restored state as unsaved.
+pub fn live_overlay_active(config_path: &Path) -> bool {
+    LIVE_OVERLAY.lock().unwrap().contains_key(config_path)
+}
+
+/// Forget any consumed sidecar. Called after writing a *new* sidecar (so a
+/// later boot-in-the-same-process re-reads it), after an explicit save (a
+/// deliberate save supersedes the overlay) and on reload_config (whose
+/// contract is "discard live state").
+pub fn clear_live_overlay_cache() {
+    LIVE_OVERLAY.lock().unwrap().clear();
 }
 
 /// Returns the platform default config path without external dependencies.
@@ -708,5 +803,113 @@ render:
             !out.contains("backend_params"),
             "empty map should be skipped:\n{out}"
         );
+    }
+
+    // ── Live-handoff sidecar ────────────────────────────────────────────────
+    // Each test uses its own config path; the overlay cache is per-path so
+    // parallel tests don't interact.
+
+    fn sidecar_test_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "omniphony-sidecar-test-{}-{tag}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_config_with_bridge(path: &Path, bridge: &str) {
+        let cfg = Config {
+            render: Some(RenderConfig {
+                bridge_path: Some(PathBuf::from(bridge)),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        cfg.save(path).unwrap();
+    }
+
+    fn bridge_of(cfg: &Config) -> Option<String> {
+        cfg.render
+            .as_ref()
+            .and_then(|r| r.bridge_path.as_ref())
+            .map(|p| p.display().to_string())
+    }
+
+    #[test]
+    fn fresh_sidecar_is_consumed_once_and_cached() {
+        let dir = sidecar_test_dir("fresh");
+        let config = dir.join("config.yaml");
+        write_config_with_bridge(&config, "/tmp/base.so");
+        let sidecar = live_sidecar_path(&config);
+        assert_eq!(sidecar, dir.join("config.live.yaml"));
+        write_config_with_bridge(&sidecar, "/tmp/live.so");
+
+        let (cfg, restored) = Config::load_or_default_with_live(&config);
+        assert!(restored);
+        assert_eq!(bridge_of(&cfg).as_deref(), Some("/tmp/live.so"));
+        assert!(!sidecar.exists(), "sidecar must be consumed (deleted)");
+        assert!(live_overlay_active(&config));
+
+        // Subsequent loads in the same process see the same overlay.
+        let (cfg2, restored2) = Config::load_or_default_with_live(&config);
+        assert!(restored2);
+        assert_eq!(bridge_of(&cfg2).as_deref(), Some("/tmp/live.so"));
+
+        // The persistent config was never touched.
+        let base = Config::load(&config).unwrap();
+        assert_eq!(bridge_of(&base).as_deref(), Some("/tmp/base.so"));
+    }
+
+    #[test]
+    fn stale_sidecar_is_deleted_without_being_applied() {
+        let dir = sidecar_test_dir("stale");
+        let config = dir.join("config.yaml");
+        write_config_with_bridge(&config, "/tmp/base.so");
+        let sidecar = live_sidecar_path(&config);
+        write_config_with_bridge(&sidecar, "/tmp/live.so");
+
+        // TTL zero ⇒ any on-disk sidecar counts as stale.
+        let (cfg, restored) =
+            Config::load_or_default_with_live_ttl(&config, Duration::from_secs(0));
+        assert!(!restored);
+        assert_eq!(bridge_of(&cfg).as_deref(), Some("/tmp/base.so"));
+        assert!(!sidecar.exists(), "stale sidecar must still be deleted");
+        assert!(!live_overlay_active(&config));
+    }
+
+    #[test]
+    fn corrupt_sidecar_is_deleted_and_base_config_used() {
+        let dir = sidecar_test_dir("corrupt");
+        let config = dir.join("config.yaml");
+        write_config_with_bridge(&config, "/tmp/base.so");
+        let sidecar = live_sidecar_path(&config);
+        std::fs::write(&sidecar, "{ this is : [ not yaml").unwrap();
+
+        let (cfg, restored) = Config::load_or_default_with_live(&config);
+        assert!(!restored);
+        assert_eq!(bridge_of(&cfg).as_deref(), Some("/tmp/base.so"));
+        assert!(!sidecar.exists(), "corrupt sidecar must be deleted");
+    }
+
+    #[test]
+    fn rewritten_sidecar_wins_over_cached_overlay() {
+        let dir = sidecar_test_dir("rewrite");
+        let config = dir.join("config.yaml");
+        write_config_with_bridge(&config, "/tmp/base.so");
+        let sidecar = live_sidecar_path(&config);
+
+        write_config_with_bridge(&sidecar, "/tmp/live-a.so");
+        let (cfg_a, _) = Config::load_or_default_with_live(&config);
+        assert_eq!(bridge_of(&cfg_a).as_deref(), Some("/tmp/live-a.so"));
+
+        // A second handoff in the same process (FFI destroy→create cycle)
+        // re-writes the sidecar; disk must win over the cached overlay.
+        write_config_with_bridge(&sidecar, "/tmp/live-b.so");
+        let (cfg_b, restored) = Config::load_or_default_with_live(&config);
+        assert!(restored);
+        assert_eq!(bridge_of(&cfg_b).as_deref(), Some("/tmp/live-b.so"));
+        assert!(!sidecar.exists());
     }
 }

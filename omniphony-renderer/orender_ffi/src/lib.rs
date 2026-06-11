@@ -189,14 +189,43 @@ fn build_engine(cfg: &OrenderConfig) -> Result<Engine> {
     };
 
     // Load the shared config once: drives OSC settings (C override → config →
-    // defaults) and seeds the degraded reporter below.
+    // defaults) and seeds the degraded reporter below. The `_with_live`
+    // variant keeps this pre-load consistent with `Engine::from_paths` when a
+    // live-handoff sidecar was already consumed in this process (the OSC
+    // fields themselves are never live-modified, so either source is correct).
     let render_cfg = config_path
         .as_deref()
-        .map(orender_engine::Config::load_or_default)
+        .map(|p| orender_engine::Config::load_or_default_with_live(p).0)
         .and_then(|c| c.render);
     // Resolve OSC up front so we can also reach Studio with a degraded reporter
     // if the bridge fails. `None` when OSC is off.
     let osc_opts = resolve_osc_opts(cfg, render_cfg.as_ref());
+
+    // Settle OSC port ownership BEFORE `Engine::from_paths` reads the config:
+    // a yieldable standby renderer writes its live-state sidecar while still
+    // holding the port, so negotiating first guarantees `from_paths` sees the
+    // handed-over state. Gated on a successful bridge pre-resolution (same
+    // strict policy as `from_paths`): a host that is about to fall back to the
+    // degraded reporter must not evict a healthy standby.
+    let config_bridge = render_cfg.as_ref().and_then(|c| c.bridge_path.clone());
+    let bridge_resolvable = orender_engine::bridge_loader::resolve_bridge(
+        bridge_path.map(Path::new),
+        config_bridge.as_deref(),
+    )
+    .is_ok();
+    if bridge_resolvable {
+        // A same-process degraded reporter may itself hold the port.
+        stop_degraded_reporter_global();
+        if let Some(opts) = osc_opts.as_ref() {
+            if !orender_engine::osc::negotiate_rx_port(opts.port_in) {
+                log::warn!(
+                    "OSC RX port {} still busy after yield negotiation; \
+                     the engine will run without an OSC listener",
+                    opts.port_in
+                );
+            }
+        }
+    }
 
     let mut engine = match Engine::from_paths(
         config_path.as_deref(),

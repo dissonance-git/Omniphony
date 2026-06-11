@@ -228,7 +228,7 @@ impl Engine {
             .map_err(|e| anyhow!("invalid OSC target {}:{}: {e}", opts.host, opts.port_out))?;
         let mut sender = OscSender::new(target)?;
         sender.attach_renderer_control(self.renderer.renderer_control());
-        sender.start_listener(opts.port_in)?;
+        sender.start_listener(opts.port_in, true)?;
         // Meter cadence reads the RendererControl atomic each poll (source of
         // truth, OSC-adjustable, persisted).
         self.audio_meter = Some(AudioMeter::new_with_rate_atomic(
@@ -261,9 +261,14 @@ impl Engine {
         sample_rate: u32,
     ) -> Result<Self> {
         let t_total = std::time::Instant::now();
-        let render_cfg = config_yaml_path
-            .map(Config::load_or_default)
-            .and_then(|c| c.render);
+        let (loaded_cfg, live_restored) = match config_yaml_path {
+            Some(path) => {
+                let (cfg, restored) = Config::load_or_default_with_live(path);
+                (Some(cfg), restored)
+            }
+            None => (None, false),
+        };
+        let render_cfg = loaded_cfg.and_then(|c| c.render);
 
         let layout = if let Some(p) = speaker_layout_path {
             SpeakerLayout::from_file(p)?
@@ -335,6 +340,10 @@ impl Engine {
                 );
             }
             control.set_config_status(Some(status.as_str().to_string()));
+        }
+        // State restored from a live-handoff sidecar is by definition unsaved.
+        if live_restored {
+            control.mark_dirty();
         }
 
         // Overlay display prefs (enable / labels / trails) are owned and
