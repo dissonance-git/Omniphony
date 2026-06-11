@@ -93,7 +93,7 @@ import {
   sourceNeutralEmissive,
   sourceDefaultEmissive
 } from './scene/materials.js';
-import { updateHeadphoneMeter } from './controls/headphone-meter.js';
+import { updateHeadphoneMeter, updateHeadphoneControlsUI } from './controls/headphone-meter.js';
 
 import { createLabelSprite, setLabelSpriteText, updateSpeakerLabelsFromSelection } from './scene/labels.js';
 import { createSpeakerBandBar, updateSpeakerBandBar } from './scene/speaker-band-bars.js';
@@ -513,6 +513,7 @@ export function updateSpeakerControlsUI() {
     entry.root.classList.toggle('is-selected', selectedSpeakerIndex !== null && Number(id) === selectedSpeakerIndex);
     updateSpeakerContributionUI_src(entry, id);
   });
+  updateHeadphoneControlsUI();
   renderSpeakerEditor();
 }
 
@@ -1484,41 +1485,7 @@ export function renderSpeakersList() {
       speakerItems.delete(id);
     }
   });
-  renderBedAnchors(currentLayoutSpeakers);
   updateSectionProportions();
-}
-
-// Headphones-mode replacement for the speaker rows: a compact, read-only
-// list of the layout directions (bed channels anchor to these; per-speaker
-// gain/mute/delay are inert in binaural and therefore not shown).
-function renderBedAnchors(speakers) {
-  const root = document.getElementById('bedAnchorsList');
-  if (!root) return;
-  root.textContent = '';
-  const note = document.createElement('div');
-  note.style.cssText = 'font-size:0.65rem;color:#8fa6bd;padding:0.1rem 0.2rem 0.3rem;';
-  note.textContent =
-    'Headphones output: speakers are not rendered. Bed channels anchor to these layout directions; gain/mute/delay do not apply.';
-  root.appendChild(note);
-  speakers.forEach((speaker) => {
-    const x = Number(speaker.x) || 0;
-    const y = Number(speaker.y) || 0;
-    const z = Number(speaker.z) || 0;
-    const dist = Math.sqrt(x * x + y * y + z * z);
-    const az = dist > 0 ? (Math.atan2(x, y) * 180) / Math.PI : 0;
-    const el = dist > 0 ? (Math.asin(Math.max(-1, Math.min(1, z / dist))) * 180) / Math.PI : 0;
-    const row = document.createElement('div');
-    row.style.cssText =
-      'display:flex;justify-content:space-between;gap:0.5rem;padding:0.1rem 0.2rem;font-size:0.72rem;';
-    const name = document.createElement('span');
-    name.textContent = speaker.name || '?';
-    name.style.color = '#d9ecff';
-    const dir = document.createElement('span');
-    dir.textContent = `az ${az.toFixed(0)}\u00b0  el ${el.toFixed(0)}\u00b0`;
-    dir.style.cssText = 'color:#8fa6bd;font-variant-numeric:tabular-nums;';
-    row.append(name, dir);
-    root.appendChild(row);
-  });
 }
 
 export function renderObjectsList() {

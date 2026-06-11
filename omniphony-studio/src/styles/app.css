@@ -2436,15 +2436,11 @@ body:not(.output-binaural) .binaural-subpanel {
 body:not(.cap-embedded) .output-mode-mpv-note {
   display: none;
 }
-/* Headphone L/R meters only exist in binaural output. */
-body:not(.output-binaural) .headphone-meters {
-  display: none !important;
-}
 /* Speakers section: full control rows in speaker mode, read-only bed-anchor
    directions in headphones mode (per-speaker gain/mute/delay are inert). */
 body.output-binaural #speakersList,
 body.output-binaural .speakers-title-speakers,
-body:not(.output-binaural) #bedAnchorsList,
+body:not(.output-binaural) #hpChannelsList,
 body:not(.output-binaural) .speakers-title-binaural {
   display: none !important;
 }

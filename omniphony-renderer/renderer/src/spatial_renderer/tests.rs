@@ -741,5 +741,90 @@ fn binaural_output_follows_master_gain() {
     }
 }
 
+/// In binaural mode the first two speaker param slots act as the L/R ear
+/// channels (Studio's headphone rows drive them): muting slot 0 must silence
+/// the left ear and leave the right ear untouched.
+#[test]
+fn binaural_ear_mute_uses_first_speaker_slots() {
+    let layout = SpeakerLayout::preset("7.1.4").unwrap();
+    let mut r = SpatialRenderer::new(
+        layout,
+        48_000,
+        1,
+        1,
+        0.0,
+        2.0,
+        VbapTableMode::Cartesian {
+            x_size: 21,
+            y_size: 21,
+            z_size: 9,
+            z_neg_size: 9,
+        },
+        false,
+        true,
+        DistanceModel::Linear,
+        false,
+        1.0,
+        1.0,
+        0.0,
+        1.0,
+        false,
+        [1.0, 2.0, 0.5],
+        2.0,
+        0.5,
+        0.0,
+        0.0,
+        false,
+        false,
+        false,
+        1.0,
+        1.0,
+        PreferredEvaluationMode::PrecomputedCartesian,
+        LiveEvaluationMode::PrecomputedCartesian,
+        21,
+        21,
+        9,
+        9,
+    )
+    .unwrap();
+    {
+        let mut live = r.control.live.write();
+        live.binaural.output_mode = crate::live_params::OutputMode::Binaural;
+        live.speakers.insert(
+            0,
+            crate::live_params::SpeakerLiveParams {
+                muted: true,
+                ..Default::default()
+            },
+        );
+    }
+    r.control
+        .speaker_params_generation
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    let pcm: Vec<f32> = (0..40).map(|i| (i * 7 % 13) as f32 / 13.0 - 0.5).collect();
+    let event = vec![SpatialChannelEvent {
+        channel_idx: 0,
+        is_bed: false,
+        gain_db: Some(0),
+        ramp_length: Some(40),
+        size: Some([0.0, 0.0, 0.0]),
+        position: Some([0.0, 1.0, 0.0]),
+        sample_pos: Some(0),
+    }];
+    let mut out = Vec::new();
+    for i in 0..4 {
+        let ev: &[SpatialChannelEvent] = if i == 0 { &event } else { &[] };
+        out = r
+            .render_frame(&pcm, 1, ev, Vec::new(), false)
+            .unwrap()
+            .samples;
+    }
+    let e_l: f32 = out.iter().step_by(2).map(|x| x * x).sum();
+    let e_r: f32 = out.iter().skip(1).step_by(2).map(|x| x * x).sum();
+    assert!(e_l == 0.0, "left ear not silenced: {e_l}");
+    assert!(e_r > 1e-6, "right ear should still play: {e_r}");
+}
+
 // TODO: Add integration test with real spatial metadata
 // For now, testing is done via real spatial audio content decoding

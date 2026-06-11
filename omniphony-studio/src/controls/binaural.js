@@ -9,6 +9,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { initSofaBrowser, setActiveSofaPath } from './sofa-browser.js';
 import { setSpeakersGhosted } from '../speakers.js';
+import { initHeadphoneChannels } from './headphone-meter.js';
 
 const el = (id) => document.getElementById(id);
 
@@ -27,6 +28,7 @@ export function initBinauralPanel() {
   bound = true;
 
   initSofaBrowser();
+  initHeadphoneChannels();
 
   // Output mode: segmented buttons in the renderer panel's Output block.
   // The pressed state is NOT toggled optimistically — the renderer's state

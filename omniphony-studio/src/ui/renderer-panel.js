@@ -55,22 +55,6 @@ export function rendererPanelMarkup() {
               </div>
             </div>
             <div class="output-mode-mpv-note" style="font-size:0.65rem;color:#8fa6bd;margin-top:0.25rem;">mpv host: the output mode is applied at player start — restart playback after switching.</div>
-            <div class="headphone-meters" style="display:grid;gap:0.18rem;margin-top:0.3rem;">
-              <div style="display:grid;grid-template-columns:1rem 1fr;align-items:center;gap:0.35rem;">
-                <span style="font-size:0.65rem;color:#8fa6bd;">L</span>
-                <div style="position:relative;height:7px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;">
-                  <div id="hpMeterFillL" style="height:100%;width:0%;background:linear-gradient(90deg, rgba(104,170,255,0.9), rgba(140,214,255,0.95));"></div>
-                  <div id="hpMeterPeakL" style="position:absolute;top:0;left:0%;width:2px;height:100%;background:#ffd54a;"></div>
-                </div>
-              </div>
-              <div style="display:grid;grid-template-columns:1rem 1fr;align-items:center;gap:0.35rem;">
-                <span style="font-size:0.65rem;color:#8fa6bd;">R</span>
-                <div style="position:relative;height:7px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;">
-                  <div id="hpMeterFillR" style="height:100%;width:0%;background:linear-gradient(90deg, rgba(104,170,255,0.9), rgba(140,214,255,0.95));"></div>
-                  <div id="hpMeterPeakR" style="position:absolute;top:0;left:0%;width:2px;height:100%;background:#ffd54a;"></div>
-                </div>
-              </div>
-            </div>
           </div>
           <div class="info-section renderer-subpanel binaural-subpanel" id="binauralHrtfSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
             <div class="renderer-subpanel-bar" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">

@@ -666,9 +666,20 @@ impl SpatialRenderer {
                 1.0
             };
             let total_gain = live.master_gain * loudness;
-            if (total_gain - 1.0).abs() > f32::EPSILON {
-                for s in output.iter_mut() {
-                    *s *= total_gain;
+            // Ear-channel mute/gain: Studio's headphone L/R rows reuse the
+            // first two speaker param slots (the same slots the L/R meters
+            // ride), so M/S on them works in binaural mode too.
+            let ear = |idx: usize| -> f32 {
+                live.speaker_params
+                    .get(idx)
+                    .map_or(1.0, |p| if p.muted { 0.0 } else { p.gain })
+            };
+            let gain_l = total_gain * ear(0);
+            let gain_r = total_gain * ear(1);
+            if (gain_l - 1.0).abs() > f32::EPSILON || (gain_r - 1.0).abs() > f32::EPSILON {
+                for frame in output.chunks_exact_mut(2) {
+                    frame[0] *= gain_l;
+                    frame[1] *= gain_r;
                 }
             }
             return Ok(RenderedFrame {
