@@ -53,14 +53,32 @@ fn send_yield_request(rx_port: u16) {
     }
 }
 
+/// Reservation socket from [`negotiate_rx_port`]: keeps the RX port HELD
+/// between the pre-flight negotiation and the real listener bind. Without it
+/// the port would sit free during the whole engine build (bridge load, table
+/// generation — seconds), long enough for Studio's auto-start watchdog to
+/// probe it, spawn a fresh standby, and have that standby steal the
+/// live-state sidecar meant for this instance.
+static PORT_RESERVATION: Mutex<Option<(u16, UdpSocket)>> = Mutex::new(None);
+
 /// Bind the OSC RX socket. On `AddrInUse` with `request_yield`, ask the local
 /// holder to yield (honoured only by `--osc-yield` instances) and poll for the
 /// port to free up within `budget`. The non-conflict path is a single bind.
+/// Releases this process's own port reservation first.
 fn bind_rx_socket(
     rx_port: u16,
     request_yield: bool,
     budget: Duration,
 ) -> std::io::Result<UdpSocket> {
+    {
+        let mut reservation = PORT_RESERVATION.lock().unwrap();
+        if reservation
+            .as_ref()
+            .is_some_and(|(port, _)| *port == rx_port)
+        {
+            *reservation = None;
+        }
+    }
     let first_err = match UdpSocket::bind(("0.0.0.0", rx_port)) {
         Ok(socket) => return Ok(socket),
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && request_yield => e,
@@ -97,10 +115,18 @@ fn bind_rx_socket(
 
 /// Pre-flight port negotiation for hosts that must settle ownership of the RX
 /// port *before* loading config (the FFI host consumes the live-state sidecar
-/// a yielded instance writes on shutdown). Binds with a yield request, then
-/// releases the socket; returns whether the port ended up free.
+/// a yielded instance writes on shutdown). On success the bound socket is kept
+/// as a process-wide reservation, released when the real listener (or the
+/// degraded reporter) binds via [`bind_rx_socket`] — so the port is never
+/// observably free between negotiation and the listener coming up.
 pub fn negotiate_rx_port(rx_port: u16) -> bool {
-    bind_rx_socket(rx_port, true, YIELD_REBIND_BUDGET).is_ok()
+    match bind_rx_socket(rx_port, true, YIELD_REBIND_BUDGET) {
+        Ok(socket) => {
+            *PORT_RESERVATION.lock().unwrap() = Some((rx_port, socket));
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 /// Generic description of a single spatial audio object for OSC broadcast.
@@ -661,6 +687,21 @@ mod yield_tests {
             }
             other => panic!("expected a message, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn negotiation_reservation_holds_the_port_until_the_listener_binds() {
+        let port = free_port();
+        assert!(negotiate_rx_port(port), "free port must negotiate");
+        // The reservation keeps the port held: an external bind must fail …
+        assert_eq!(
+            UdpSocket::bind(("0.0.0.0", port)).unwrap_err().kind(),
+            std::io::ErrorKind::AddrInUse
+        );
+        // … but this process's own listener bind releases it and succeeds.
+        let socket = bind_rx_socket(port, false, Duration::from_millis(100))
+            .expect("listener bind must reuse the reserved port");
+        assert_eq!(socket.local_addr().unwrap().port(), port);
     }
 
     #[test]

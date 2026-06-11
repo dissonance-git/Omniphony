@@ -110,9 +110,13 @@ fn resolve_effective_decode_args(
         .config
         .clone()
         .or_else(renderer::config::default_config_path);
+    // Sidecar-aware load: when a yielded predecessor handed over unsaved live
+    // state, the args fold below must see it (apply_render_cfg_overrides later
+    // writes folded values like master_gain back over the render config, so a
+    // base-config fold would silently undo the handoff).
     let cfg = config_path
         .as_deref()
-        .map(renderer::config::Config::load_or_default)
+        .map(|p| renderer::config::Config::load_or_default_with_live(p).0)
         .unwrap_or_default();
 
     let mut effective = args.clone();
@@ -788,10 +792,49 @@ fn run_prepared_render(
     Ok(current_bridge_path)
 }
 
+/// Pre-flight OSC port negotiation, run BEFORE any config load of a render
+/// iteration: a yielded holder writes its live-state sidecar while still
+/// holding the port, and everything downstream (args fold, render-config
+/// seeding) must see that sidecar. OSC enablement and the RX port are never
+/// live-modified, so peeking them from the base config is exact.
+fn negotiate_osc_port_if_enabled(args: &RenderArgs, cli: &Cli, arg_sources: &RenderArgSources<'_>) {
+    let config_path = cli
+        .config
+        .clone()
+        .or_else(renderer::config::default_config_path);
+    let render_cfg = config_path
+        .as_deref()
+        .map(renderer::config::Config::load_or_default)
+        .unwrap_or_default()
+        .render;
+    // Mirror merge_render_config's osc / osc_rx_port resolution.
+    let osc_on = if arg_sources.is_explicit("osc") || arg_sources.is_explicit("no_osc") {
+        args.osc && !args.no_osc
+    } else {
+        render_cfg
+            .as_ref()
+            .and_then(|rc| rc.osc)
+            .unwrap_or(renderer::config_fields::osc::DEFAULT)
+    };
+    if !osc_on {
+        return;
+    }
+    let rx_port = if arg_sources.is_explicit("osc_rx_port") {
+        args.osc_rx_port
+    } else {
+        render_cfg
+            .as_ref()
+            .and_then(|rc| rc.osc_rx_port)
+            .unwrap_or(args.osc_rx_port)
+    };
+    let _ = orender_engine::osc::negotiate_rx_port(rx_port);
+}
+
 pub fn cmd_render(args: &RenderArgs, cli: &Cli, arg_sources: &RenderArgSources<'_>) -> Result<()> {
     sys::shutdown::set_yieldable(args.osc_yield);
     let mut restart_bridge_path_override: Option<Option<std::path::PathBuf>> = None;
     loop {
+        negotiate_osc_port_if_enabled(args, cli, arg_sources);
         let (config_path, mut effective_args, current_layout_from_config, evaluation_mode_explicit) =
             resolve_effective_decode_args(args, cli, arg_sources);
         if let Some(bridge_path) = restart_bridge_path_override.take() {
@@ -801,14 +844,6 @@ pub fn cmd_render(args: &RenderArgs, cli: &Cli, arg_sources: &RenderArgSources<'
 
         if maybe_save_effective_config(cli, args, &config_path)? {
             return Ok(());
-        }
-
-        // Settle OSC port ownership before any config-driven seeding: a
-        // yielded holder writes its live-state sidecar while still holding the
-        // port, so negotiating first guarantees the sidecar is on disk before
-        // the render config is read below.
-        if args.osc {
-            let _ = orender_engine::osc::negotiate_rx_port(args.osc_rx_port);
         }
 
         let bridge_path_after_run = match prepare_render_run(args) {
