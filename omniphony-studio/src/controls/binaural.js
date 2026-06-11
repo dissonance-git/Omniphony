@@ -27,17 +27,6 @@ export function initBinauralPanel() {
 
   initSofaBrowser();
 
-  // Collapsible section: the content carries `conditional-params` (collapsed by
-  // default) and is revealed by toggling the `open` class, like the other panels.
-  const toggleBtn = el('binauralSectionToggleBtn');
-  const content = el('binauralSectionContent');
-  if (toggleBtn && content) {
-    toggleBtn.addEventListener('click', () => {
-      const open = content.classList.toggle('open');
-      toggleBtn.textContent = open ? '▾' : '▸';
-    });
-  }
-
   // Output mode: segmented buttons in the renderer panel's Output block.
   // The pressed state is NOT toggled optimistically — the renderer's state
   // broadcast is the source of truth (applyBinauralState flips it).

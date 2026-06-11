@@ -2418,8 +2418,8 @@ body.output-binaural #distanceDiffuseSection,
 body.output-binaural #distanceModelSection {
   display: none !important;
 }
-/* Speakers: the binaural blocks are inert — hide them. */
-body:not(.output-binaural) #binauralPanelRoot {
+/* Speakers: the binaural block is inert — hide it. */
+body:not(.output-binaural) #binauralSubpanel {
   display: none !important;
 }
 /* Segmented selector buttons. */
