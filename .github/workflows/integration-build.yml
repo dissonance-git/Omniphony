@@ -111,7 +111,7 @@ jobs:
 
       - name: Install npm dependencies
         working-directory: omniphony-studio
-        run: npm install
+        run: npm ci
 
       # The cargo cache restores src-tauri/target, which still holds bundle
       # artifacts from earlier runs (older versions). The staging step below

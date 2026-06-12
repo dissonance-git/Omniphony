@@ -133,7 +133,7 @@ jobs:
 
       - name: Install npm dependencies
         working-directory: omniphony-studio
-        run: npm install
+        run: npm ci
 
       # tauri-action runs tauri.conf.json's beforeBuildCommand automatically:
       #   "npm run build && npm run prepare-sidecar"
