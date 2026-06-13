@@ -197,6 +197,7 @@ fn main() {
             select_layout,
             import_layout_from_path,
             pick_import_layout_path,
+            pick_preset_layout_path,
             pick_export_layout_path,
             pick_import_evaluation_artifact_path,
             pick_export_evaluation_artifact_path,

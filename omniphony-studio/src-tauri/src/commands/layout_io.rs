@@ -88,6 +88,27 @@ pub fn pick_import_layout_path(app: AppHandle, state: State<SharedState>) -> Opt
     Some(picked.to_string_lossy().to_string())
 }
 
+/// Picker for the dedicated "Presets" button: always opens in the bundled
+/// presets dir. Unlike the generic import picker it ignores — and doesn't
+/// update — the remembered import dir, since the presets live at a fixed
+/// location the user shouldn't have to navigate back to.
+#[tauri::command]
+pub fn pick_preset_layout_path(app: AppHandle) -> Option<String> {
+    let mut dialog = FileDialog::new().add_filter("Layout", &["json", "yaml", "yml"]);
+    if let Some(dir) = app
+        .path()
+        .resource_dir()
+        .ok()
+        .map(|d| d.join("layouts"))
+        .filter(|p| p.is_dir())
+    {
+        dialog = dialog.set_directory(dir);
+    }
+    dialog
+        .pick_file()
+        .map(|path| path.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 pub fn pick_export_layout_path(suggested_name: Option<String>) -> Option<String> {
     let file_name = suggested_name
