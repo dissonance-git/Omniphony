@@ -15,6 +15,11 @@ pub struct OscConfig {
     /// Leave the Studio-launched standby renderer running when Studio quits.
     #[serde(default)]
     pub keep_renderer_alive_on_quit: bool,
+    /// Directory the layout-import picker last opened in. Server-only (never
+    /// sent by the JS config form); seeded with the bundled layouts dir on the
+    /// first import so users can find the presets, then tracks their last pick.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_layout_import_dir: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -30,6 +35,7 @@ impl Default for OscConfig {
             osc_metering_enabled: false,
             auto_start_renderer: true,
             keep_renderer_alive_on_quit: false,
+            last_layout_import_dir: None,
         }
     }
 }

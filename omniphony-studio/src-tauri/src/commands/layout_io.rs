@@ -6,11 +6,12 @@
 //!
 //! [`AppState`]: crate::app_state::AppState
 
+use crate::config::{load_config, save_config};
 use crate::layouts::{self, Layout};
 use crate::SharedState;
 use rfd::FileDialog;
 use std::path::Path;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 #[tauri::command]
 pub fn select_layout(state: State<SharedState>, key: String) -> bool {
@@ -52,12 +53,39 @@ pub fn import_layout_from_path(
     }))
 }
 
+/// Directory the import picker should open in: the user's last import dir if
+/// known, otherwise the bundled layouts dir (so a first-time user lands right
+/// on the shipped presets).
+fn import_start_dir(app: &AppHandle, state: &State<SharedState>) -> Option<std::path::PathBuf> {
+    if let Some(dir) = load_config(&state.config_dir).last_layout_import_dir {
+        let p = std::path::PathBuf::from(dir);
+        if p.is_dir() {
+            return Some(p);
+        }
+    }
+    app.path()
+        .resource_dir()
+        .ok()
+        .map(|d| d.join("layouts"))
+        .filter(|p| p.is_dir())
+}
+
 #[tauri::command]
-pub fn pick_import_layout_path() -> Option<String> {
-    FileDialog::new()
-        .add_filter("Layout", &["json", "yaml", "yml"])
-        .pick_file()
-        .map(|path| path.to_string_lossy().to_string())
+pub fn pick_import_layout_path(app: AppHandle, state: State<SharedState>) -> Option<String> {
+    let mut dialog = FileDialog::new().add_filter("Layout", &["json", "yaml", "yml"]);
+    if let Some(dir) = import_start_dir(&app, &state) {
+        dialog = dialog.set_directory(dir);
+    }
+    let picked = dialog.pick_file()?;
+
+    // Remember where the user imported from for next time.
+    if let Some(parent) = picked.parent() {
+        let mut cfg = load_config(&state.config_dir);
+        cfg.last_layout_import_dir = Some(parent.to_string_lossy().to_string());
+        let _ = save_config(&state.config_dir, &cfg);
+    }
+
+    Some(picked.to_string_lossy().to_string())
 }
 
 #[tauri::command]
