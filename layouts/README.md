@@ -12,49 +12,67 @@ The current convention for the checked-in layouts is:
 
 ## Available Layouts
 
-### 2.0.yaml
-Standard stereo layout aligned with ITU-R BS.775, stored in normalized Cartesian coordinates.
-- Speakers: 2
+### Immersive (with height) — presets
 
-### 2.1.yaml
-Stereo plus LFE draft layout for PCM bridge work, stored in normalized Cartesian coordinates.
-- Speakers: 3 including LFE
+These ship as the Studio presets (the only ones loaded into the layout list and
+shown by the **Presets** button).
 
-### 4.0.yaml
-Quadraphonic draft layout for PCM bridge work, stored in normalized Cartesian coordinates.
-- Speakers: 4
-
-### 4.1.yaml
-Quadraphonic plus LFE draft layout for PCM bridge work, stored in normalized Cartesian coordinates.
-- Speakers: 5 including LFE
-
-### 5.0.yaml
-Standard 5.0 surround layout aligned with ITU-R BS.775, stored in normalized Cartesian coordinates.
-- Speakers: 5
-
-### 5.1.yaml
-Standard 5.1 surround layout aligned with ITU-R BS.775, stored in normalized Cartesian coordinates.
-- Speakers: 6 including LFE
-
-### 6.1.yaml
-Rear-center 6.1 surround layout stored in normalized Cartesian coordinates.
-- Speakers: 7 including LFE
-
-### 7.1.yaml
-Standard 7.1 surround layout in the same naming family as common ITU-R speaker sets, stored in normalized Cartesian coordinates.
+#### 5.1.2.yaml
+5.1 bed plus 2 height channels, stored in normalized Cartesian coordinates. Its
+8 channels fit a standard 7.1 sound card — wire the height pair (TFL/TFR) to the
+side-surround outputs — so users without a dedicated immersive interface can try
+height rendering.
 - Speakers: 8 including LFE
 
-### 7.1.2.yaml
+#### 7.1.2.yaml
 7.1 bed plus 2 height channels, stored in normalized Cartesian coordinates.
 - Speakers: 10 including LFE
 
-### 7.1.4.yaml
+#### 7.1.4.yaml
 7.1 bed plus 4 height channels, aligned with ITU-R BS.2051 style immersive layouts and stored in normalized Cartesian coordinates.
 - Speakers: 12 including LFE
 
-### 9.1.6.yaml
+#### 9.1.6.yaml
 9.1 bed plus 6 height channels, aligned with ITU-R BS.2051 style immersive layouts and stored in normalized Cartesian coordinates.
 - Speakers: 16 including LFE
+
+### Legacy (no height) — `legacy/`
+
+The older surround layouts without height channels live in `legacy/`. They are
+still shipped and can be imported via *Import layout*, but they are not loaded as
+presets.
+
+#### legacy/2.0.yaml
+Standard stereo layout aligned with ITU-R BS.775, stored in normalized Cartesian coordinates.
+- Speakers: 2
+
+#### legacy/2.1.yaml
+Stereo plus LFE draft layout for PCM bridge work, stored in normalized Cartesian coordinates.
+- Speakers: 3 including LFE
+
+#### legacy/4.0.yaml
+Quadraphonic draft layout for PCM bridge work, stored in normalized Cartesian coordinates.
+- Speakers: 4
+
+#### legacy/4.1.yaml
+Quadraphonic plus LFE draft layout for PCM bridge work, stored in normalized Cartesian coordinates.
+- Speakers: 5 including LFE
+
+#### legacy/5.0.yaml
+Standard 5.0 surround layout aligned with ITU-R BS.775, stored in normalized Cartesian coordinates.
+- Speakers: 5
+
+#### legacy/5.1.yaml
+Standard 5.1 surround layout aligned with ITU-R BS.775, stored in normalized Cartesian coordinates.
+- Speakers: 6 including LFE
+
+#### legacy/6.1.yaml
+Rear-center 6.1 surround layout stored in normalized Cartesian coordinates.
+- Speakers: 7 including LFE
+
+#### legacy/7.1.yaml
+Standard 7.1 surround layout in the same naming family as common ITU-R speaker sets, stored in normalized Cartesian coordinates.
+- Speakers: 8 including LFE
 
 ## Usage
 

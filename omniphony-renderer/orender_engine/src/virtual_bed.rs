@@ -116,18 +116,24 @@ fn virtual_bed_layouts() -> &'static VirtualBedLayouts {
 }
 
 fn load_virtual_bed_layout(file_name: &str) -> Option<SpeakerLayout> {
-    let mut candidates: Vec<PathBuf> = vec![
+    // The 5.1 / 7.1 virtual-bed layouts are height-less, so they now live in
+    // the layouts/legacy/ subfolder. Try that first, then the historical
+    // top-level path (older installs / packaging that still ships them flat).
+    let bases: [PathBuf; 5] = [
         // cwd-relative first — matches the CLI run from the workspace root.
-        PathBuf::from("layouts").join(file_name),
-        PathBuf::from("omniphony").join("layouts").join(file_name),
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("layouts")
-            .join(file_name),
+        PathBuf::from("layouts"),
+        PathBuf::from("omniphony").join("layouts"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("layouts"),
         // Fixed install dirs for the embedded host (mpv has no workspace cwd);
         // reached only when the cwd-relative lookups miss, so CLI parity holds.
-        PathBuf::from("/usr/lib/orender/layouts").join(file_name),
-        PathBuf::from("/usr/share/orender/layouts").join(file_name),
+        PathBuf::from("/usr/lib/orender/layouts"),
+        PathBuf::from("/usr/share/orender/layouts"),
     ];
+    let mut candidates: Vec<PathBuf> = Vec::with_capacity(bases.len() * 2);
+    for base in &bases {
+        candidates.push(base.join("legacy").join(file_name));
+        candidates.push(base.join(file_name));
+    }
     candidates.dedup();
 
     for path in candidates {

@@ -49,12 +49,17 @@ pub(crate) struct WatchdogControl {
     /// Set on a renderer goodbye broadcast: run the watchdog checks as soon
     /// as this is ~500 ms old instead of waiting out the heartbeat timeout.
     pub(crate) check_requested_at: Option<std::time::Instant>,
+    /// Set by a manual "Stop orender": keep the auto-start watchdog from
+    /// immediately respawning the renderer the user just stopped. Cleared by
+    /// any re-arm (a manual launch or a settings save).
+    pub(crate) suppressed: bool,
 }
 
 impl WatchdogControl {
     pub(crate) fn rearm(&mut self) {
         self.attempts = 0;
         self.cooldown_until = None;
+        self.suppressed = false;
     }
 }
 
@@ -197,6 +202,7 @@ fn main() {
             select_layout,
             import_layout_from_path,
             pick_import_layout_path,
+            pick_preset_layout_path,
             pick_export_layout_path,
             pick_import_evaluation_artifact_path,
             pick_export_evaluation_artifact_path,

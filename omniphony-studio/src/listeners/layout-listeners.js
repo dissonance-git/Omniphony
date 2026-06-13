@@ -6,13 +6,43 @@ import { updateConfigSavedUI } from '../controls/config.js';
 import {
   renderSpeakerEditor,
   sanitizeLayoutExportName, defaultLayoutExportNameFromSpeakers, serializeCurrentLayoutForExport,
-  refreshOverlayLists, hydrateLayoutSelect, renderLayout, applyLayoutToRenderer
+  refreshOverlayLists, hydrateLayoutSelect, applyLayoutToRenderer
 } from '../speakers.js';
+
+// Shared import flow for the "Import layout" and "Presets" buttons. They differ
+// only in which picker command they call: the generic one (remembers the last
+// dir) vs. the presets one (always opens the bundled presets folder).
+function runLayoutImport(pickCommand) {
+  if (isSpeakerLayoutFrozen()) return;
+  invoke(pickCommand)
+    .then((path) => {
+      const trimmed = typeof path === 'string' ? path.trim() : '';
+      if (!trimmed) return;
+      pushLog('info', tf('log.layoutImportRequested', { path: trimmed }));
+      return invoke('import_layout_from_path', { path: trimmed })
+        .then((payload) => {
+          hydrateLayoutSelect(payload.layouts || [], payload.selectedLayoutKey);
+          // Push the imported layout to the renderer so it actually takes
+          // effect (and gets persisted on the next save). hydrateLayoutSelect
+          // has already made it the current layout.
+          applyLayoutToRenderer(payload.selectedLayoutKey);
+          app.configSaved = false;
+          updateConfigSavedUI();
+          refreshOverlayLists();
+          renderSpeakerEditor();
+          pushLog('info', tf('log.layoutImported', { path: trimmed }));
+        });
+    })
+    .catch((e) => {
+      console.error('[layout import]', e);
+      pushLog('error', tf('log.layoutImportFailed', { error: normalizeLogError(e) }));
+    });
+}
 
 export function setupLayoutListeners() {
   const exportLayoutBtnEl = document.getElementById('exportLayoutBtn');
   const importLayoutBtnEl = document.getElementById('importLayoutBtn');
-  const layoutSelectEl = document.getElementById('layoutSelect');
+  const presetsBtnEl = document.getElementById('presetsBtn');
 
   if (exportLayoutBtnEl) {
     exportLayoutBtnEl.addEventListener('click', () => {
@@ -37,43 +67,10 @@ export function setupLayoutListeners() {
   }
 
   if (importLayoutBtnEl) {
-    importLayoutBtnEl.addEventListener('click', () => {
-      if (isSpeakerLayoutFrozen()) return;
-      invoke('pick_import_layout_path')
-        .then((path) => {
-          const trimmed = typeof path === 'string' ? path.trim() : '';
-          if (!trimmed) return;
-          pushLog('info', tf('log.layoutImportRequested', { path: trimmed }));
-          return invoke('import_layout_from_path', { path: trimmed })
-            .then((payload) => {
-              hydrateLayoutSelect(payload.layouts || [], payload.selectedLayoutKey);
-              // Push the imported layout to the renderer so it actually takes
-              // effect (and gets persisted on the next save). hydrateLayoutSelect
-              // has already made it the current layout.
-              applyLayoutToRenderer(payload.selectedLayoutKey);
-              app.configSaved = false;
-              updateConfigSavedUI();
-              refreshOverlayLists();
-              renderSpeakerEditor();
-              pushLog('info', tf('log.layoutImported', { path: trimmed }));
-            });
-        })
-        .catch((e) => {
-          console.error('[layout import]', e);
-          pushLog('error', tf('log.layoutImportFailed', { error: normalizeLogError(e) }));
-        });
-    });
+    importLayoutBtnEl.addEventListener('click', () => runLayoutImport('pick_import_layout_path'));
   }
 
-  if (layoutSelectEl) {
-    layoutSelectEl.addEventListener('change', () => {
-      if (isSpeakerLayoutFrozen()) return;
-      const key = layoutSelectEl.value;
-      invoke('select_layout', { key });
-      // Show the picked layout, then push it to the renderer (no-op for the
-      // live mirror) so a preset selection actually applies and persists.
-      renderLayout(key);
-      applyLayoutToRenderer(key);
-    });
+  if (presetsBtnEl) {
+    presetsBtnEl.addEventListener('click', () => runLayoutImport('pick_preset_layout_path'));
   }
 }

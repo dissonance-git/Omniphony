@@ -829,10 +829,11 @@ mod integration_tests {
 
     #[test]
     fn test_load_5_1_yaml() {
-        let layout = SpeakerLayout::from_file(layout_path("5.1.yaml"));
+        // The height-less layouts now live under layouts/legacy/.
+        let layout = SpeakerLayout::from_file(layout_path("legacy/5.1.yaml"));
         assert!(
             layout.is_ok(),
-            "Failed to load 5.1.yaml: {:?}",
+            "Failed to load legacy/5.1.yaml: {:?}",
             layout.err()
         );
 

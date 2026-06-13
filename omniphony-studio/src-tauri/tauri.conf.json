@@ -12,7 +12,10 @@
     "active": true,
     "icon": ["icons/icon.ico", "icons/icon.png"],
     "externalBin": ["binaries/orender"],
-    "resources": { "../../layouts/*": "layouts/" },
+    "resources": {
+      "../../layouts/*.yaml": "layouts/",
+      "../../layouts/legacy/*.yaml": "layouts/legacy/"
+    },
     "windows": {
       "nsis": {
         "installMode": "both"

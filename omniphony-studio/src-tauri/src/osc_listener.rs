@@ -1102,6 +1102,11 @@ fn watchdog_tick(
     }
     {
         let wd = shared.watchdog.lock().unwrap();
+        // A manual Stop keeps the renderer stopped until the user explicitly
+        // acts again (a manual launch or a settings save, both of which re-arm).
+        if wd.suppressed {
+            return;
+        }
         if wd.attempts >= WATCHDOG_MAX_ATTEMPTS {
             return;
         }

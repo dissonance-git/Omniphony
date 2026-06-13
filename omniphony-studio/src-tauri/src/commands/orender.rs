@@ -171,13 +171,17 @@ fn resolve_orender_launch_spec(
 
     if let Some(selected_layout) = state.inner.lock().unwrap().selected_layout_key.clone() {
         let layout_file = format!("{selected_layout}.yaml");
+        // The presets dir holds the immersive (with-height) layouts; the older
+        // no-height layouts now live in a `legacy/` subfolder. Look in both,
+        // bundle first then the repo (dev) fallback.
         let layout_path = bundled_layouts_dir(app)
-            .map(|dir| dir.join(&layout_file))
-            .filter(|path| path.exists())
-            .or_else(|| {
-                let path = repo_root.join("layouts").join(&layout_file);
-                path.exists().then_some(path)
-            });
+            .into_iter()
+            .flat_map(|dir| [dir.join(&layout_file), dir.join("legacy").join(&layout_file)])
+            .chain([
+                repo_root.join("layouts").join(&layout_file),
+                repo_root.join("layouts").join("legacy").join(&layout_file),
+            ])
+            .find(|path| path.exists());
         if let Some(layout_path) = layout_path {
             args.push("--speaker-layout".to_string());
             args.push(layout_path.display().to_string());
@@ -728,6 +732,10 @@ pub fn launch_orender(
 
 #[tauri::command]
 pub fn stop_orender(state: State<SharedState>) {
+    // A manual stop is deliberate: suppress the auto-start watchdog so it does
+    // not immediately respawn the renderer the user just asked to stop. Cleared
+    // on the next manual launch or settings save (both re-arm the watchdog).
+    state.watchdog.lock().unwrap().suppressed = true;
     send_control(
         &state.osc_tx,
         OscControlMsg::SendNoArgs {
