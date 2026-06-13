@@ -59,10 +59,18 @@ export function renderOscStatus() {
   applyProducerCapabilityVisibility();
   if (statusEl) {
     let statusText = t(`status.${app.oscStatusState}`);
-    // Label the connected renderer flavour (e.g. "connected · mpv" for the
-    // embedded variant vs "connected · cli" for the standalone service).
+    // Label the connected renderer flavour so the user can tell what they are
+    // talking to: "mpv" for the embedded player, "service" for the OS-managed
+    // instance, or "cli" for a standalone/Studio-launched one.
     if (app.oscStatusState === 'connected' && app.producerCapabilities) {
-      const flavour = producerHost() || producerVariant();
+      let flavour;
+      if (isEmbeddedProducer()) {
+        flavour = producerHost() || producerVariant(); // "mpv"
+      } else if (app.orenderServiceRunning) {
+        flavour = 'service';
+      } else {
+        flavour = producerHost() || producerVariant(); // "cli"
+      }
       if (flavour) statusText += ` · ${flavour}`;
     }
     statusEl.textContent = statusText;
@@ -381,6 +389,9 @@ export function installOrenderServiceFromPanel() {
       } else {
         pushLog('info', 'orender service installed.');
       }
+      // Installing the service disables auto-start backend-side; reload the
+      // panel so the toggle reflects it.
+      loadOscConfigIntoPanel();
       return refreshOrenderServiceStatus();
     })
     .finally(() => {
