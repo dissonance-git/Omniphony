@@ -645,13 +645,17 @@ pub fn clear_live_overlay_cache() {
 /// Returns the platform default config path without external dependencies.
 ///
 /// - Linux:   `$XDG_CONFIG_HOME/omniphony/config.yaml`  (fallback: `~/.config/omniphony/config.yaml`)
-/// - Windows: `%APPDATA%\omniphony\config.yaml`
+/// - Windows: `%ProgramData%\omniphony\config.yaml`  (fallback: `C:\ProgramData\omniphony\config.yaml`)
+///
+/// On Windows the config is machine-wide so that the user-mode renderer and a
+/// LocalSystem service resolve the *same* file — `%ProgramData%` is account
+/// independent, unlike `%APPDATA%` which differs between the logged-in user and
+/// the service's system profile.
 pub fn default_config_path() -> Option<PathBuf> {
     #[cfg(windows)]
     {
-        return std::env::var("APPDATA")
-            .ok()
-            .map(|p| PathBuf::from(p).join("omniphony").join("config.yaml"));
+        let dir = windows_program_data_dir().join("omniphony");
+        return Some(dir.join("config.yaml"));
     }
 
     // Unix / Linux
@@ -668,6 +672,61 @@ pub fn default_config_path() -> Option<PathBuf> {
         Some(base.join("omniphony").join("config.yaml"))
     }
 }
+
+/// Machine-wide `%ProgramData%` directory (same for every account), with the
+/// canonical `C:\ProgramData` fallback when the env var is somehow unset.
+#[cfg(windows)]
+fn windows_program_data_dir() -> PathBuf {
+    std::env::var("ProgramData")
+        .ok()
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"))
+}
+
+/// One-shot migration of the pre-machine-wide config: older builds stored it in
+/// the per-user `%APPDATA%\omniphony\`. If the new `%ProgramData%` location has
+/// no `config.yaml` yet but the legacy one exists, copy it (and its live
+/// sidecar) over so upgrades keep the user's settings. Best-effort and guarded
+/// by a process `Once`; never panics. Runs in whatever account the renderer
+/// starts as — for a user-context launch this seeds ProgramData from the user's
+/// config; the service (SYSTEM) at worst migrates its own old system-profile
+/// config, which is harmless.
+#[cfg(windows)]
+pub fn migrate_legacy_windows_config() {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let Some(appdata) = std::env::var("APPDATA").ok().filter(|p| !p.is_empty()) else {
+            return;
+        };
+        let legacy_dir = PathBuf::from(appdata).join("omniphony");
+        let legacy = legacy_dir.join("config.yaml");
+        if !legacy.is_file() {
+            return;
+        }
+        let dest_dir = windows_program_data_dir().join("omniphony");
+        let dest = dest_dir.join("config.yaml");
+        if dest.exists() {
+            return; // already migrated / machine config present
+        }
+        if std::fs::create_dir_all(&dest_dir).is_err() {
+            return;
+        }
+        if std::fs::copy(&legacy, &dest).is_err() {
+            return;
+        }
+        // Carry the unsaved-live sidecar across too, if present.
+        let legacy_live = live_sidecar_path(&legacy);
+        if legacy_live.is_file() {
+            let _ = std::fs::copy(&legacy_live, live_sidecar_path(&dest));
+        }
+    });
+}
+
+/// No-op on non-Windows: the Linux/macOS config path never moved.
+#[cfg(not(windows))]
+pub fn migrate_legacy_windows_config() {}
 
 #[cfg(test)]
 mod tests {

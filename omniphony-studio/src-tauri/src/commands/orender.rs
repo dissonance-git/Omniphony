@@ -466,6 +466,9 @@ pub fn install_orender_service(
         };
         let script = format!(
             "try {{\r\n\
+             $cfgDir = Join-Path $env:ProgramData 'omniphony'\r\n\
+             New-Item -ItemType Directory -Force -Path $cfgDir | Out-Null\r\n\
+             icacls $cfgDir /grant '*S-1-5-32-545:(OI)(CI)M' /T | Out-Null\r\n\
              New-Service -Name {name} -BinaryPathName {bin} \
              -DisplayName {display} -StartupType Manual -ErrorAction Stop\r\n\
              & sc.exe description {name} {desc}\r\n\

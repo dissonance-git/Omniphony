@@ -173,10 +173,14 @@ fn host_launch_diagnostics() -> String {
 }
 
 fn build_engine(cfg: &OrenderConfig) -> Result<Engine> {
+    // Seed the machine-wide Windows config from the legacy per-user location
+    // once (no-op on Linux/macOS), before resolving the default path.
+    orender_engine::migrate_legacy_windows_config();
+
     // Optional override; NULL → taken from the config YAML's render.bridge_path.
     let bridge_path = unsafe { opt_str(cfg.bridge_path) };
-    // NULL config → the shared omniphony config (same as the CLI + studio:
-    // ~/.config/omniphony/config.yaml), so one config drives all hosts.
+    // NULL config → the shared omniphony config (same as the CLI + studio),
+    // so one config drives all hosts.
     let config_path = unsafe { opt_str(cfg.config_yaml_path) }
         .map(PathBuf::from)
         .or_else(orender_engine::default_config_path);

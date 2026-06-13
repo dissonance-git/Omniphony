@@ -23,7 +23,8 @@ pub const VERSION_INFO: &str = concat!(
     after_help = "If no command is given, orender runs the default render flow.",
 )]
 pub struct Cli {
-    /// Path to config file (default: ~/.config/omniphony/config.yaml)
+    /// Path to config file (default: ~/.config/omniphony/config.yaml on Linux,
+    /// %ProgramData%\omniphony\config.yaml on Windows)
     #[arg(long, global = true, value_name = "FILE")]
     pub config: Option<PathBuf>,
 

@@ -29,7 +29,9 @@ pub use osc::{ObjectMeta, OscSender};
 /// The shared omniphony config (`~/.config/omniphony/config.yaml`) + its path,
 /// re-exported so hosts default to the SAME config as the `orender` CLI + studio
 /// (bridge path, layout, OSC settings, render params).
-pub use renderer::config::{Config, RenderConfig, default_config_path};
+pub use renderer::config::{
+    Config, RenderConfig, default_config_path, migrate_legacy_windows_config,
+};
 pub use virtual_bed::{build_virtual_bed_events, build_virtual_bed_objects};
 
 /// Install the shared live-log logger used by the engine.

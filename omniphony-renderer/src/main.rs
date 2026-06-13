@@ -83,6 +83,11 @@ fn run_as_service() -> anyhow::Result<()> {
 }
 
 fn main() -> Result<()> {
+    // Seed the machine-wide Windows config from the legacy per-user location
+    // once, before any path resolution and before the service dispatch loop so
+    // both the console and service flows are covered. No-op on Linux/macOS.
+    renderer::config::migrate_legacy_windows_config();
+
     // When started by the Windows Service Control Manager, enter the SCM
     // dispatch loop and run to completion; otherwise fall through to the
     // normal console CLI flow.
