@@ -9,6 +9,9 @@ pub enum RuntimeCommand {
     /// Another local instance wants the OSC RX port; only honoured by
     /// instances started with `--osc-yield` (see `sys::shutdown::is_yieldable`).
     YieldPort,
+    /// Sent to a standing-by instance (on its advertised dynamic resume port) to
+    /// re-acquire the OSC port + audio and resume rendering.
+    Resume,
     SetLogLevel(LevelFilter),
 }
 
@@ -30,6 +33,7 @@ pub fn parse_process_command(msg: &OscMessage) -> Option<RuntimeCommand> {
         "/omniphony/control/reload_config" => Some(RuntimeCommand::ReloadConfig),
         "/omniphony/control/quit" => Some(RuntimeCommand::Quit),
         "/omniphony/control/yield_port" => Some(RuntimeCommand::YieldPort),
+        "/omniphony/control/resume" => Some(RuntimeCommand::Resume),
         "/omniphony/control/log_level" => msg.args.first().and_then(|arg| match arg {
             OscType::String(s) => parse_runtime_log_level(s).map(RuntimeCommand::SetLogLevel),
             _ => None,

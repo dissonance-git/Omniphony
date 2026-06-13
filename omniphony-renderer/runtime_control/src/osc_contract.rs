@@ -155,6 +155,9 @@ pub const CONTROL_SPREAD_MIN: &str = "/omniphony/control/spread/min";
 pub const CONTROL_SPREAD_SIZE_TO_SPREAD_MODE: &str =
     "/omniphony/control/spread/size_to_spread_mode";
 pub const CONTROL_YIELD_PORT: &str = "/omniphony/control/yield_port";
+/// Sent to a standing-by instance (on the dynamic resume port it advertised in
+/// reply to a yield) to ask it to re-acquire the OSC port + audio and resume.
+pub const CONTROL_RESUME: &str = "/omniphony/control/resume";
 
 /// Prefix for the per-object mute address. Append `"{id}/mute"`.
 pub const CONTROL_OBJECT_PREFIX: &str = "/omniphony/control/object/";
@@ -324,6 +327,7 @@ pub const ALL_CONTROL: &[&str] = &[
     CONTROL_RENDER_EVALUATION_MODE_FROM_FILE,
     CONTROL_RENDER_EVALUATION_POSITION_INTERPOLATION,
     CONTROL_RENDER_INPUT_PIPE,
+    CONTROL_RESUME,
     CONTROL_ROOM_RATIO,
     CONTROL_ROOM_RATIO_CENTER_BLEND,
     CONTROL_ROOM_RATIO_LOWER,

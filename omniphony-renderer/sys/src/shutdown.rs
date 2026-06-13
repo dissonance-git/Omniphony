@@ -18,6 +18,13 @@ static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 static RELOAD_REQUESTED: AtomicBool = AtomicBool::new(false);
 static RESTART_FROM_CONFIG_REQUESTED: AtomicBool = AtomicBool::new(false);
 static YIELDABLE: AtomicBool = AtomicBool::new(false);
+/// Set by the yield handler on a `--osc-yield` instance: the render loop should
+/// drop its OSC port + audio output and idle in **standby** (without exiting),
+/// so an mpv-embedded renderer can take the port over. See `request_standby`.
+static STANDBY_REQUESTED: AtomicBool = AtomicBool::new(false);
+/// Set when a standing-by instance is asked to come back (mpv released the
+/// port): the standby wait loop re-acquires the OSC port + audio output.
+static RESUME_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 /// Mark this process as willing to shut down when another local instance
 /// requests the OSC port via `/omniphony/control/yield_port`. Set by the CLI
@@ -30,6 +37,29 @@ pub fn set_yieldable(yieldable: bool) {
 /// Whether this instance honours `/omniphony/control/yield_port`.
 pub fn is_yieldable() -> bool {
     YIELDABLE.load(Ordering::Relaxed)
+}
+
+/// Take (and clear) a pending standby request. The render loop checks this and,
+/// when set, releases its OSC port + audio writer and idles until resumed.
+pub fn take_standby_request() -> bool {
+    STANDBY_REQUESTED.swap(false, Ordering::Relaxed)
+}
+
+/// Whether a standby is pending (peek, without clearing).
+pub fn is_standby_requested() -> bool {
+    STANDBY_REQUESTED.load(Ordering::Relaxed)
+}
+
+/// Ask a standing-by render loop to resume (re-acquire the OSC port + audio).
+/// Set from the dynamic resume-port listener; the standby wait loop polls it, so
+/// no wake of the (idle, non-blocking) loop is needed.
+pub fn request_resume() {
+    RESUME_REQUESTED.store(true, Ordering::Relaxed);
+}
+
+/// Take (and clear) a pending resume request.
+pub fn take_resume_request() -> bool {
+    RESUME_REQUESTED.swap(false, Ordering::Relaxed)
 }
 
 // Windows: HANDLE of the manual-reset event used to wake process_chunks_with_shutdown.
@@ -342,6 +372,18 @@ pub fn request_shutdown() {
     }
 }
 
+/// Request that the render loop enter standby (release OSC port + audio, stay
+/// alive). Wakes the loop out of a blocking input read via the self-pipe, like
+/// `request_shutdown`, so it notices promptly even when its input is idle.
+#[cfg(unix)]
+pub fn request_standby() {
+    STANDBY_REQUESTED.store(true, Ordering::Relaxed);
+    let fd = SIGNAL_WRITE_FD.load(Ordering::Relaxed);
+    if fd >= 0 {
+        unsafe { libc::write(fd, b"\x03".as_ptr() as *const libc::c_void, 1) };
+    }
+}
+
 /// Programmatically trigger a clean shutdown — equivalent of SIGTERM on Unix.
 ///
 /// Sets `SHUTDOWN_REQUESTED` and signals the overlapped-I/O event so that
@@ -350,6 +392,15 @@ pub fn request_shutdown() {
 #[cfg(windows)]
 pub fn request_shutdown() {
     SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
+    signal_shutdown_event();
+}
+
+/// Request that the render loop enter standby (release OSC port + audio, stay
+/// alive). Signals the overlapped-I/O event so the loop wakes out of a blocking
+/// input read, like `request_shutdown`.
+#[cfg(windows)]
+pub fn request_standby() {
+    STANDBY_REQUESTED.store(true, Ordering::Relaxed);
     signal_shutdown_event();
 }
 
