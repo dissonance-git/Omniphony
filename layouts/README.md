@@ -17,6 +17,13 @@ The current convention for the checked-in layouts is:
 These ship as the Studio presets (the only ones loaded into the layout list and
 shown by the **Presets** button).
 
+#### 5.1.2.yaml
+5.1 bed plus 2 height channels, stored in normalized Cartesian coordinates. Its
+8 channels fit a standard 7.1 sound card — wire the height pair (TFL/TFR) to the
+side-surround outputs — so users without a dedicated immersive interface can try
+height rendering.
+- Speakers: 8 including LFE
+
 #### 7.1.2.yaml
 7.1 bed plus 2 height channels, stored in normalized Cartesian coordinates.
 - Speakers: 10 including LFE
