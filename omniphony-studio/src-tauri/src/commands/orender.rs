@@ -397,6 +397,18 @@ pub fn get_orender_service_status() -> Result<OrenderServiceStatus, String> {
     Err("service management is not supported on this platform".to_string())
 }
 
+/// Installing the service makes it the owner of the renderer, so turn off the
+/// auto-start watchdog — otherwise it would spawn a competing CLI standby — and
+/// suppress any in-flight check. The user can re-enable auto-start afterwards.
+fn disable_autostart_for_service(state: &SharedState) {
+    let mut cfg = load_config(&state.config_dir);
+    if cfg.auto_start_renderer {
+        cfg.auto_start_renderer = false;
+        let _ = save_config(&state.config_dir, &cfg);
+    }
+    state.watchdog.lock().unwrap().suppressed = true;
+}
+
 #[tauri::command]
 pub fn install_orender_service(
     app: tauri::AppHandle,
@@ -444,6 +456,7 @@ pub fn install_orender_service(
         })?;
         run_user_systemctl(&["daemon-reload"], "install service")?;
         run_user_systemctl(&["enable", &service_name], "install service")?;
+        disable_autostart_for_service(&state);
         return Ok(serde_json::json!({
             "command": format!("systemctl --user enable {service_name}")
         }));
@@ -499,6 +512,7 @@ pub fn install_orender_service(
         let _ = std::fs::remove_file(&script_path);
         result?;
 
+        disable_autostart_for_service(&state);
         return Ok(serde_json::json!({
             "command": format!("sc create {} binPath= {}", ORENDER_SERVICE_NAME, bin_path)
         }));
