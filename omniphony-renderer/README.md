@@ -142,7 +142,7 @@ Global and render settings are loaded from a YAML config file.
 Default path:
 
 - Linux: `~/.config/omniphony/config.yaml`
-- Windows: `%APPDATA%\\omniphony\\config.yaml`
+- Windows: `%ProgramData%\\omniphony\\config.yaml` (machine-wide, so the user-mode renderer and a service share one file)
 
 You can point to another file with `--config`, and persist the current effective settings with `--save-config`.
 

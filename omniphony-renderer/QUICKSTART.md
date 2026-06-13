@@ -136,7 +136,7 @@ Windows / ASIO:
 Default config path:
 
 - Linux: `~/.config/omniphony/config.yaml`
-- Windows: `%APPDATA%\omniphony\config.yaml`
+- Windows: `%ProgramData%\omniphony\config.yaml` (machine-wide; shared by user-mode and the service)
 
 Save the current effective configuration:
 
