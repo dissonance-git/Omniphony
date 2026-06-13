@@ -506,11 +506,40 @@ pub(crate) fn handle_control_message(
             }
             RuntimeCommand::YieldPort => {
                 if sys::shutdown::is_yieldable() {
-                    log::info!("OSC yield_port requested; shutting down to free the port");
-                    sys::shutdown::request_shutdown();
+                    // Instead of shutting down, allocate a dynamic resume port,
+                    // tell the requester (mpv) about it, and enter standby: the
+                    // render loop releases the RX port + audio output and idles
+                    // until a `resume` arrives on that port (mpv exit).
+                    match crate::osc::prepare_standby_resume_port() {
+                        Some(resume_port) => {
+                            let reply = OscMessage {
+                                addr: crate::osc::STANDBY_RESUME_REPLY.to_string(),
+                                args: vec![OscType::Int(resume_port as i32)],
+                            };
+                            if let Ok(bytes) =
+                                rosc::encoder::encode(&rosc::OscPacket::Message(reply))
+                            {
+                                let _ = socket.send_to(&bytes, src);
+                            }
+                            log::info!(
+                                "OSC yield_port: entering standby; resume port {resume_port}"
+                            );
+                            sys::shutdown::request_standby();
+                        }
+                        None => {
+                            log::warn!(
+                                "OSC yield_port: could not allocate a resume port; shutting down"
+                            );
+                            sys::shutdown::request_shutdown();
+                        }
+                    }
                 } else {
                     log::info!("OSC yield_port ignored (instance not yieldable)");
                 }
+            }
+            RuntimeCommand::Resume => {
+                log::info!("OSC resume requested");
+                sys::shutdown::request_resume();
             }
             RuntimeCommand::SetLogLevel(requested) => {
                 sys::live_log::set_runtime_level(requested);

@@ -39,7 +39,18 @@ const YIELD_REBIND_BUDGET: Duration = Duration::from_secs(5);
 /// Poll interval while waiting for the RX port to free up after a yield request.
 const YIELD_REBIND_POLL: Duration = Duration::from_millis(50);
 
-/// Fire-and-forget `/omniphony/control/yield_port` to the local holder of `rx_port`.
+/// Dynamic resume port advertised by a standby instance we displaced. When this
+/// (port-taking) instance later releases the RX port — at `OscSender::Drop`,
+/// e.g. mpv quitting — we send `/omniphony/control/resume` here so the standby
+/// comes back. `None` until a `yield_port` reply carries it.
+static RESUME_TARGET: Mutex<Option<u16>> = Mutex::new(None);
+
+/// Send `/omniphony/control/yield_port` to the local holder of `rx_port` and,
+/// briefly, listen for its reply advertising a dynamic resume port. A
+/// standby-capable holder replies with [`STANDBY_RESUME_REPLY`] carrying the
+/// port on which it will accept a later `resume`; we stash it in
+/// [`RESUME_TARGET`]. A holder that just shuts down (older, or non-standby)
+/// sends no reply — harmless.
 fn send_yield_request(rx_port: u16) {
     let Ok(socket) = UdpSocket::bind("127.0.0.1:0") else {
         return;
@@ -51,6 +62,61 @@ fn send_yield_request(rx_port: u16) {
     if let Ok(bytes) = rosc::encoder::encode(&OscPacket::Message(msg)) {
         let _ = socket.send_to(&bytes, ("127.0.0.1", rx_port));
     }
+    // Wait briefly for the standby's resume-port reply (point-to-point).
+    let _ = socket.set_read_timeout(Some(Duration::from_millis(500)));
+    let mut buf = [0u8; 256];
+    if let Ok((len, _)) = socket.recv_from(&mut buf) {
+        if let Ok((_, OscPacket::Message(reply))) = rosc::decoder::decode_udp(&buf[..len]) {
+            if reply.addr == STANDBY_RESUME_REPLY {
+                if let Some(rosc::OscType::Int(port)) = reply.args.first() {
+                    if let Ok(port) = u16::try_from(*port) {
+                        *RESUME_TARGET.lock().unwrap() = Some(port);
+                        log::info!("standby holder will resume on port {port}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Send `/omniphony/control/resume` to the standby port we recorded when we took
+/// the RX port over, so the displaced standby re-acquires it. Called as this
+/// instance releases the port (mpv quit / `orender_destroy`).
+fn send_resume_to_standby() {
+    let target = RESUME_TARGET.lock().unwrap().take();
+    let Some(port) = target else { return };
+    let Ok(socket) = UdpSocket::bind("127.0.0.1:0") else {
+        return;
+    };
+    let msg = OscMessage {
+        addr: runtime_control::osc_contract::CONTROL_RESUME.to_string(),
+        args: vec![],
+    };
+    if let Ok(bytes) = rosc::encoder::encode(&OscPacket::Message(msg)) {
+        let _ = socket.send_to(&bytes, ("127.0.0.1", port));
+        log::info!("resume sent to standby on port {port}");
+    }
+}
+
+/// Point-to-point reply address: a standby-capable instance answers a
+/// `yield_port` with this, carrying the dynamic UDP port (Int) on which it will
+/// listen for `/omniphony/control/resume`. Both sides live in this crate.
+pub(crate) const STANDBY_RESUME_REPLY: &str = "/omniphony/yield/resume_port";
+
+/// Dynamic resume socket allocated by the yield handler when this instance is
+/// asked to stand by. The render loop's standby path takes it to listen for
+/// `CONTROL_RESUME` (and it is what frees once we re-acquire the RX port).
+static RESUME_SOCKET: Mutex<Option<UdpSocket>> = Mutex::new(None);
+
+/// Allocate the dynamic resume port for a standby handoff and stash its socket.
+/// Returns the chosen port so the yield handler can advertise it to the
+/// requester (mpv). The socket is non-blocking so the standby listener can poll.
+pub(crate) fn prepare_standby_resume_port() -> Option<u16> {
+    let sock = UdpSocket::bind("127.0.0.1:0").ok()?;
+    sock.set_nonblocking(true).ok()?;
+    let port = sock.local_addr().ok()?.port();
+    *RESUME_SOCKET.lock().unwrap() = Some(sock);
+    Some(port)
 }
 
 /// Reservation socket from [`negotiate_rx_port`]: keeps the RX port HELD
@@ -222,6 +288,12 @@ pub struct OscSender {
     listener_stop: Arc<AtomicBool>,
     /// Join handle for the background OSC listener thread.
     listener_thread: Mutex<Option<JoinHandle<()>>>,
+    /// RX port the listener last bound, so `resume` re-acquires the same one.
+    rx_port: u16,
+    /// Stop flag + handle for the standby resume-listener thread (active only
+    /// while this instance is standing by, waiting for `resume`).
+    standby_stop: Arc<AtomicBool>,
+    standby_thread: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl OscSender {
@@ -239,6 +311,9 @@ impl OscSender {
             content_generation: 0,
             listener_stop: Arc::new(AtomicBool::new(false)),
             listener_thread: Mutex::new(None),
+            rx_port: 0,
+            standby_stop: Arc::new(AtomicBool::new(false)),
+            standby_thread: Mutex::new(None),
         })
     }
 
@@ -268,6 +343,7 @@ impl OscSender {
     /// (loud error, no audio regression) — a port squatter must never cost the
     /// listener spatial audio.
     pub fn start_listener(&mut self, rx_port: u16, request_yield: bool) -> Result<()> {
+        self.rx_port = rx_port;
         let socket = Arc::clone(&self.socket);
         let clients = Arc::clone(&self.clients);
         let control = self.control.clone();
@@ -460,6 +536,77 @@ impl OscSender {
         Ok(())
     }
 
+    /// Enter standby: stop the OSC RX listener (freeing `rx_port` for an
+    /// mpv-embedded renderer) and start a tiny resume-watch thread on the
+    /// dynamic socket the yield handler advertised. It resumes this instance
+    /// when `/omniphony/control/resume` arrives there, or — as a crash safety
+    /// net — when `rx_port` becomes bindable again. The process stays alive; the
+    /// render loop releases its audio output in parallel.
+    pub fn enter_standby(&mut self) {
+        // Release the RX port: stop + join the listener thread.
+        self.listener_stop.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.listener_thread.lock().unwrap().take() {
+            let _ = handle.join();
+        }
+        self.listener_stop.store(false, Ordering::Relaxed);
+
+        let resume_socket = RESUME_SOCKET.lock().unwrap().take();
+        let rx_port = self.rx_port;
+        let stop = Arc::clone(&self.standby_stop);
+        stop.store(false, Ordering::Relaxed);
+        let handle = std::thread::Builder::new()
+            .name("osc-standby".into())
+            .spawn(move || {
+                let mut buf = [0u8; 1024];
+                let mut last_probe = std::time::Instant::now();
+                loop {
+                    if stop.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    // Primary path: a `resume` on the advertised dynamic port.
+                    if let Some(ref sock) = resume_socket {
+                        if let Ok((len, _)) = sock.recv_from(&mut buf) {
+                            if let Ok((_, OscPacket::Message(msg))) =
+                                rosc::decoder::decode_udp(&buf[..len])
+                            {
+                                if msg.addr == runtime_control::osc_contract::CONTROL_RESUME {
+                                    sys::shutdown::request_resume();
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                    // Safety net: if mpv crashed without sending `resume`, the RX
+                    // port simply frees up. Probe it occasionally (test-bind,
+                    // release immediately so `resume` can re-bind cleanly).
+                    if last_probe.elapsed() >= Duration::from_secs(2) {
+                        last_probe = std::time::Instant::now();
+                        if let Ok(probe) = UdpSocket::bind(("0.0.0.0", rx_port)) {
+                            drop(probe);
+                            sys::shutdown::request_resume();
+                            return;
+                        }
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            })
+            .ok();
+        *self.standby_thread.lock().unwrap() = handle;
+    }
+
+    /// Resume from standby: stop the resume-watch thread and re-acquire the RX
+    /// port (re-binding `rx_port`, asking any lingering holder to yield).
+    pub fn resume(&mut self) -> Result<()> {
+        self.standby_stop.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.standby_thread.lock().unwrap().take() {
+            let _ = handle.join();
+        }
+        self.standby_stop.store(false, Ordering::Relaxed);
+        *RESUME_SOCKET.lock().unwrap() = None;
+        let rx_port = self.rx_port;
+        self.start_listener(rx_port, true)
+    }
+
     /// Send bytes to every live client.
     ///
     /// Clients with a timed entry (`Some(t)`) are dropped if `t.elapsed() >= CLIENT_TIMEOUT`.
@@ -502,6 +649,11 @@ impl OscSender {
 
 impl Drop for OscSender {
     fn drop(&mut self) {
+        // If we took the RX port over from a standby instance, wake it back up
+        // as we release the port (e.g. mpv quitting). Done first, while the port
+        // is still ours, so the standby's re-bind races nothing.
+        send_resume_to_standby();
+
         // Graceful-shutdown handoff, done while the RX port is still held so a
         // successor polling for the port is guaranteed to see the sidecar by
         // the time the port frees up. Skipped on reload_config, whose contract
@@ -656,6 +808,54 @@ mod yield_tests {
     fn free_port() -> u16 {
         let s = UdpSocket::bind("127.0.0.1:0").unwrap();
         s.local_addr().unwrap().port()
+    }
+
+    /// A standby holder that replies to a `yield_port` with a dynamic resume
+    /// port must have that port captured by the taker, which then delivers
+    /// `resume` there as it releases the port.
+    #[test]
+    fn standby_resume_port_is_captured_and_resume_delivered() {
+        let holder = UdpSocket::bind("127.0.0.1:0").unwrap();
+        holder
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let rx_port = holder.local_addr().unwrap().port();
+        let resume = UdpSocket::bind("127.0.0.1:0").unwrap();
+        resume
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let resume_port = resume.local_addr().unwrap().port();
+
+        // Holder side: on yield, advertise the resume port to the sender.
+        let h = std::thread::spawn(move || {
+            let mut buf = [0u8; 256];
+            if let Ok((_, src)) = holder.recv_from(&mut buf) {
+                let reply = OscMessage {
+                    addr: STANDBY_RESUME_REPLY.to_string(),
+                    args: vec![rosc::OscType::Int(resume_port as i32)],
+                };
+                let bytes = rosc::encoder::encode(&OscPacket::Message(reply)).unwrap();
+                let _ = holder.send_to(&bytes, src);
+            }
+        });
+
+        *RESUME_TARGET.lock().unwrap() = None;
+        send_yield_request(rx_port);
+        assert_eq!(*RESUME_TARGET.lock().unwrap(), Some(resume_port));
+
+        send_resume_to_standby();
+        let mut buf = [0u8; 256];
+        let (len, _) = resume.recv_from(&mut buf).expect("resume delivered");
+        let (_, pkt) = rosc::decoder::decode_udp(&buf[..len]).unwrap();
+        match pkt {
+            OscPacket::Message(m) => {
+                assert_eq!(m.addr, runtime_control::osc_contract::CONTROL_RESUME)
+            }
+            _ => panic!("expected a resume message"),
+        }
+        // Taking it cleared the target.
+        assert!(RESUME_TARGET.lock().unwrap().is_none());
+        h.join().unwrap();
     }
 
     #[test]

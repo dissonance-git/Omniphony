@@ -457,12 +457,53 @@ fn handle_audio_message(
     handler.handle_decoded_frame(decoded.source, frame, &ctx)
 }
 
+/// Standby handoff: an mpv-embedded renderer asked for the OSC port. Release the
+/// audio output (so an exclusive backend like ASIO frees the device for mpv) and
+/// the OSC RX port, then idle — keeping the engine + VBAP table warm — until a
+/// `resume` arrives (mpv exited) or the process is asked to quit. The audio
+/// writer rebuilds itself lazily on the first decoded frame after resume.
+fn run_standby_until_resume(
+    rx: &mpsc::Receiver<Result<DecoderMessage>>,
+    handler: &mut DecodeHandler,
+) {
+    sys::shutdown::take_standby_request();
+    log::info!("Entering standby: releasing audio output + OSC port for mpv");
+    handler.output.audio_writer = None;
+    if let Some(osc) = handler.telemetry.osc_sender.as_mut() {
+        osc.enter_standby();
+    }
+    loop {
+        if sys::ShutdownHandle::is_requested()
+            || sys::ShutdownHandle::is_restart_from_config_requested()
+        {
+            return;
+        }
+        if sys::shutdown::take_resume_request() {
+            break;
+        }
+        // Discard any frames the decoder rendered while standing by so the
+        // decoder thread never blocks on a full channel and no stale audio is
+        // played on resume.
+        while rx.try_recv().is_ok() {}
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    log::info!("Resuming from standby: re-acquiring OSC port + audio output");
+    if let Some(osc) = handler.telemetry.osc_sender.as_mut() {
+        if let Err(e) = osc.resume() {
+            log::error!("standby resume: failed to re-bind the OSC port: {e}");
+        }
+    }
+}
+
 fn process_decoder_messages(
     rx: &mpsc::Receiver<Result<DecoderMessage>>,
     handler: &mut DecodeHandler,
     ctx: &DecodeRunContext<'_>,
 ) -> Result<()> {
     loop {
+        if sys::shutdown::is_standby_requested() {
+            run_standby_until_resume(rx, handler);
+        }
         let result = match rx.recv_timeout(std::time::Duration::from_millis(50)) {
             Ok(result) => result,
             Err(mpsc::RecvTimeoutError::Timeout) => {
