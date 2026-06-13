@@ -1,5 +1,5 @@
 //! Binaural (headphone) output controls: output-mode toggle, HRIR source, and
-//! the SensorsOSC head-tracking settings (address, format, smoothing, invert,
+//! the Sensors2OSC head-tracking settings (address, format, smoothing, invert,
 //! recenter).
 //!
 //! Each command forwards a value to the renderer over OSC.

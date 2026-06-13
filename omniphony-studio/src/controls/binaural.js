@@ -1,5 +1,5 @@
 // Binaural (headphone) output panel: output-mode toggle, HRIR source selection,
-// and SensorsOSC head-tracking controls (address, format, smoothing, invert,
+// and Sensors2OSC head-tracking controls (address, format, smoothing, invert,
 // recenter) plus a live head-pose readout.
 //
 // Self-contained: caches its own DOM elements and applies incoming renderer
