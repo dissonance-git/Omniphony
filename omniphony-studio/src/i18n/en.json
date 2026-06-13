@@ -257,6 +257,7 @@
   "edit.cartesian": "Cartesian",
   "config.save": "Save",
   "config.reload": "Reload",
+  "config.presets": "Presets — bundled speaker layouts",
   "config.import": "Import layout",
   "config.export": "Export layout",
   "evaluation.title": "Evaluation",
