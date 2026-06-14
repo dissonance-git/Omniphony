@@ -559,6 +559,7 @@ impl<'a> SampleWriteCoordinator<'a> {
                             build_virtual_bed_objects(
                                 &labels,
                                 virtual_bed_layout.as_ref(),
+                                Some(&renderer.speaker_layout()),
                                 room_ratio,
                                 room_ratio_rear,
                                 room_ratio_lower,

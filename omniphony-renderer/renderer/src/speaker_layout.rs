@@ -389,6 +389,16 @@ impl SpeakerLayout {
         Ok(layout)
     }
 
+    /// Parse a speaker layout from a YAML string (same schema as
+    /// [`from_file`](Self::from_file)). Used to apply a layout received over OSC
+    /// (e.g. the virtual bed) without touching the filesystem.
+    pub fn from_yaml_str(yaml: &str) -> Result<Self> {
+        let layout: SpeakerLayout =
+            serde_yaml_ng::from_str(yaml).context("Failed to parse speaker layout YAML")?;
+        layout.validate()?;
+        Ok(layout)
+    }
+
     /// Create a speaker layout from a vector of speakers
     pub fn from_speakers(speakers: Vec<Speaker>) -> Result<Self> {
         let layout = Self {

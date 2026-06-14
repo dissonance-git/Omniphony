@@ -351,7 +351,8 @@ pub fn build_virtual_bed_events(
 
 pub fn build_virtual_bed_objects(
     channel_labels: &[RChannelLabel],
-    input_layout: Option<&SpeakerLayout>,
+    virtual_bed: Option<&SpeakerLayout>,
+    output_layout: Option<&SpeakerLayout>,
     room_ratio: [f32; 3],
     room_ratio_rear: f32,
     room_ratio_lower: f32,
@@ -362,15 +363,18 @@ pub fn build_virtual_bed_objects(
         .any(|l| matches!(l, RChannelLabel::Lb | RChannelLabel::Rb | RChannelLabel::Cb));
     let use_7_1 = has_back;
 
+    // Used to anchor a direct channel onto its output speaker so Studio shows it
+    // snapped to that speaker (its `directSpeakerIndex` decoration).
+    let bed_to_speaker = output_layout.map(|layout| layout.bed_to_speaker_mapping());
+
     let mut objects: Vec<ObjectMeta> = Vec::with_capacity(channel_labels.len());
     for label in channel_labels {
-        // Only the virtualized channels are objects; direct channels (e.g. LFE)
-        // route to a real speaker and are not shown/sent as movable objects.
-        if !channel_is_spatialized(input_layout, *label, use_7_1) {
-            continue;
-        }
+        // Emit every channel so the editor/overlay can show them all: virtualized
+        // channels carry a free position, direct channels (e.g. LFE) carry a
+        // `direct_speaker_index` so Studio anchors them onto their speaker.
+        let spatialize = channel_is_spatialized(virtual_bed, *label, use_7_1);
         let (name, az_deg, el_deg, dist_m) =
-            match resolve_virtual_bed_pose(*label, use_7_1, input_layout) {
+            match resolve_virtual_bed_pose(*label, use_7_1, virtual_bed) {
                 Some(v) => v,
                 None => continue,
             };
@@ -384,13 +388,22 @@ pub fn build_virtual_bed_objects(
             room_ratio_lower,
             room_ratio_center_blend,
         );
+        let direct_speaker_index = if spatialize {
+            None
+        } else {
+            bed_id_for_label(*label).and_then(|bed_id| {
+                bed_to_speaker
+                    .as_ref()
+                    .and_then(|m| m.get(&bed_id).map(|&spk| spk as u32))
+            })
+        };
         objects.push(ObjectMeta {
             name,
             x,
             y,
             z,
             coord_mode: "cartesian".to_string(),
-            direct_speaker_index: None,
+            direct_speaker_index,
             gain: 0,
             priority: 0.0,
             size: [0.0, 0.0, 0.0],
@@ -641,13 +654,50 @@ mod tests {
     fn objects_match_events_for_the_same_bed() {
         let labels = [RChannelLabel::L, RChannelLabel::R, RChannelLabel::C];
         let events = build_virtual_bed_events(&labels, None, UNIT_ROOM, 1.0, 1.0, 0.0).unwrap();
-        let objects = build_virtual_bed_objects(&labels, None, UNIT_ROOM, 1.0, 1.0, 0.0).unwrap();
+        let objects =
+            build_virtual_bed_objects(&labels, None, None, UNIT_ROOM, 1.0, 1.0, 0.0).unwrap();
         assert_eq!(events.len(), objects.len());
         for (ev, obj) in events.iter().zip(objects.iter()) {
             let pos = ev.position.unwrap();
             assert!((pos[0] - obj.x as f64).abs() < 1e-6);
             assert!((pos[1] - obj.y as f64).abs() < 1e-6);
             assert!((pos[2] - obj.z as f64).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn objects_anchor_direct_channels_to_their_speaker() {
+        // Default 5.1: LFE is direct, the rest virtualized. With an output
+        // layout, the LFE object must carry its speaker's index so Studio shows
+        // it snapped there; the virtualized channels carry no direct index.
+        let labels = [
+            RChannelLabel::L,
+            RChannelLabel::R,
+            RChannelLabel::C,
+            RChannelLabel::LFE,
+            RChannelLabel::Ls,
+            RChannelLabel::Rs,
+        ];
+        let output = SpeakerLayout::preset("5.1").expect("5.1 preset");
+        // LFE is speaker index 3 in the 5.1 preset (FL,FR,C,LFE,BL,BR).
+        let objects =
+            build_virtual_bed_objects(&labels, None, Some(&output), UNIT_ROOM, 1.0, 1.0, 0.0)
+                .expect("all channels emitted");
+        assert_eq!(objects.len(), labels.len(), "every channel is shown");
+        let lfe = objects
+            .iter()
+            .find(|o| o.name.eq_ignore_ascii_case("LFE"))
+            .expect("LFE object present");
+        assert_eq!(lfe.direct_speaker_index, Some(3), "LFE anchored to its sub");
+        for obj in objects
+            .iter()
+            .filter(|o| !o.name.eq_ignore_ascii_case("LFE"))
+        {
+            assert!(
+                obj.direct_speaker_index.is_none(),
+                "{} is virtualized, no direct anchor",
+                obj.name
+            );
         }
     }
 

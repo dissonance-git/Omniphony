@@ -776,9 +776,11 @@ impl Engine {
             // Outgoing: broadcast the virtual-bed channel poses as OSC objects
             // and/or feed the in-process mpv overlay.
             if want_objects {
+                let output_layout = self.renderer.speaker_layout();
                 if let Some(objects) = virtual_bed::build_virtual_bed_objects(
                     &labels,
                     virtual_bed_layout.as_ref(),
+                    Some(&output_layout),
                     room_ratio,
                     room_ratio_rear,
                     room_ratio_lower,

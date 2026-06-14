@@ -83,6 +83,34 @@ pub(crate) fn handle_control_message(
         return;
     }
 
+    // Parametrable virtual bed for channel content. Argument is a YAML
+    // `SpeakerLayout`; an empty string resets to the built-in canonical poses.
+    // Live-tunable from Studio's editor; persists to config on save.
+    if addr == osc_contract::CONTROL_VIRTUAL_BED {
+        if let Some(OscType::String(s)) = msg.args.first() {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                control.live.write().virtual_bed = None;
+                control.mark_dirty();
+                broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
+                control.bump_live_state();
+                log::info!("OSC virtual bed reset to defaults");
+            } else {
+                match renderer::speaker_layout::SpeakerLayout::from_yaml_str(trimmed) {
+                    Ok(layout) => {
+                        control.live.write().virtual_bed = Some(layout);
+                        control.mark_dirty();
+                        broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
+                        control.bump_live_state();
+                        log::info!("OSC virtual bed updated");
+                    }
+                    Err(e) => log::warn!("OSC virtual bed: failed to parse layout: {}", e),
+                }
+            }
+        }
+        return;
+    }
+
     // mpv overlay configuration. The overlay itself is generated in-process by
     // the `overlay` module and pulled over FFI; Studio only configures it here
     // (it no longer transports overlay frames). These are transient view
