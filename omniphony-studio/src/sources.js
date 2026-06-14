@@ -953,6 +953,12 @@ export function getSourceMesh(id) {
 }
 
 export function updateSource(id, position) {
+  // While the user is dragging this channel marker in the virtual-bed editor,
+  // ignore the live OSC position so the drag isn't fought by the stream. The
+  // new position is committed (and the stream resumes) on release.
+  if (app.isDraggingVirtualBed && app.draggingVirtualBedSourceId === String(id)) {
+    return;
+  }
   if (position && typeof position.sourceTag === 'string' && position.sourceTag.trim()) {
     sourceTags.set(String(id), position.sourceTag.trim().toUpperCase());
   } else {

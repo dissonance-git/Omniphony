@@ -366,6 +366,13 @@ export const app = {
   pointerDownPosition: null,
   draggingPointerId: null,
 
+  // Virtual-bed channel drag (a 2D-source marker repositioned in the scene).
+  // While set, updateSource skips repositioning this id so the live OSC stream
+  // doesn't fight the drag; the new direction is sent on release.
+  isDraggingVirtualBed: false,
+  draggingVirtualBedSourceId: null,
+  draggingVirtualBedChannel: null,
+
   // Trail
   trailsEnabled: true,
   trailRenderMode: 'diffuse',

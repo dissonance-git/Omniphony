@@ -26,6 +26,29 @@ const CANONICAL_BED = [
   { name: 'Rb', azimuth: 142.5, elevation: 0, distance: 1.0, spatialize: true }
 ];
 
+// Name aliases per canonical channel (mirrors the renderer's label_aliases) so
+// the editor matches a bed/object entry however it is named (L/FL, Ls/SL, …).
+const CHANNEL_ALIASES = {
+  L: ['l', 'fl', 'frontleft', 'leftfront'],
+  R: ['r', 'fr', 'frontright', 'rightfront'],
+  C: ['c', 'fc', 'center', 'centre'],
+  LFE: ['lfe', 'lfe1', 'sub', 'subwoofer', 'sw'],
+  Ls: ['ls', 'sl', 'leftsurround', 'surroundleft'],
+  Rs: ['rs', 'sr', 'rightsurround', 'surroundright'],
+  Lb: ['lb', 'bl', 'lrs', 'backleft', 'leftback', 'rearleft', 'leftrear'],
+  Rb: ['rb', 'br', 'rrs', 'backright', 'rightback', 'rearright', 'rightrear']
+};
+
+// Canonical channel key (L/R/C/LFE/Ls/Rs/Lb/Rb) for any alias, or null.
+export function canonicalChannelName(name) {
+  if (typeof name !== 'string') return null;
+  const lower = name.trim().toLowerCase();
+  for (const [key, aliases] of Object.entries(CHANNEL_ALIASES)) {
+    if (aliases.includes(lower)) return key;
+  }
+  return null;
+}
+
 function getEditorEl() { return document.getElementById('virtualBedEditor'); }
 
 // Match the renderer's cartesian→spherical convention (x=right, y=front, z=up).
@@ -56,9 +79,7 @@ function entryToPolar(entry) {
 function effectiveChannels() {
   const configured = Array.isArray(app.virtualBed?.speakers) ? app.virtualBed.speakers : [];
   return CANONICAL_BED.map((base) => {
-    const match = configured.find(
-      (s) => typeof s?.name === 'string' && s.name.toLowerCase() === base.name.toLowerCase()
-    );
+    const match = configured.find((s) => canonicalChannelName(s?.name) === base.name);
     if (!match) return { ...base };
     const polar = entryToPolar(match) || base;
     return {
@@ -99,6 +120,32 @@ function collectAndSend() {
   }));
   app.virtualBed = buildLayoutPayload(channels);
   invoke('control_virtual_bed', { value: JSON.stringify(app.virtualBed) });
+}
+
+// Placement of a channel by name (case-insensitive): 'virtual' (draggable
+// object), 'direct' (anchored to its speaker), or null (not a bed channel).
+export function channelPlacement(name) {
+  const key = canonicalChannelName(name);
+  if (!key) return null;
+  const ch = effectiveChannels().find((c) => c.name === key);
+  if (!ch) return null;
+  return ch.spatialize ? 'virtual' : 'direct';
+}
+
+// Apply a new direction (azimuth/elevation in degrees) to one channel from a 3D
+// drag, keeping its distance, and push the whole bed to the renderer.
+export function applyChannelDirection(name, azimuth, elevation) {
+  const key = canonicalChannelName(name);
+  if (!key) return;
+  const channels = effectiveChannels();
+  const target = channels.find((c) => c.name === key);
+  if (!target) return;
+  target.azimuth = azimuth;
+  target.elevation = elevation;
+  target.spatialize = true;
+  app.virtualBed = buildLayoutPayload(channels);
+  invoke('control_virtual_bed', { value: JSON.stringify(app.virtualBed) });
+  renderVirtualBedEditor(true);
 }
 
 export function resetVirtualBed() {

@@ -1,24 +1,32 @@
 import * as THREE from 'three';
-import { app, speakerMeshes, sourceMeshes, sourceLabels, sourceOutlines, speakerLabels, speakerBandBars } from './state.js';
+import { app, speakerMeshes, sourceMeshes, sourceLabels, sourceOutlines, sourceNames, speakerLabels, speakerBandBars } from './state.js';
 import { scene, camera, renderer, controls } from './scene/setup.js';
 import { raycaster, pointer } from './scene/materials.js';
 import { speakerGizmo, distanceGizmo, cartesianGizmo } from './scene/gizmos.js';
-import { normalizeAngleDeg, snapAngleDeg, sphericalToCartesianDeg, normalizedOmniphonyToScenePosition } from './coordinates.js';
+import { normalizeAngleDeg, snapAngleDeg, sphericalToCartesianDeg, normalizedOmniphonyToScenePosition, sceneToOmniphonyCartesian } from './coordinates.js';
 import { applySpeakerPolarEdit, applySpeakerCartesianEdit, applySpeakerSceneCartesianEdit, setSelectedSpeaker, renderSpeakerEditor } from './speakers.js';
 import { setSelectedSource } from './sources.js';
+import { channelPlacement, applyChannelDirection } from './controls/virtual-bed.js';
 import { projectRayOntoAxis } from './input.js';
 import { getCanvasClientRect, pointerEventToNdc as projectPointerEventToNdc } from './core/render/projection-service.js';
 
 let boundCanvas = null;
+// Marker scene position when a virtual-bed drag began, to distinguish a real
+// drag (commit + send) from a plain click-select (no-op).
+const virtualBedDragStart = new THREE.Vector3();
 
 function onPointerDown(event) {
   app.pointerDownPosition = { x: event.clientX, y: event.clientY };
-  if (beginSpeakerDrag(event)) {
+  // A virtual-bed channel marker takes priority over speaker-gizmo drags.
+  if (beginVirtualBedDrag(event) || beginSpeakerDrag(event)) {
     app.pointerDownPosition = null;
   }
 }
 
 function onPointerUp(event) {
+  if (app.isDraggingVirtualBed && event.pointerId === app.draggingPointerId) {
+    endVirtualBedDrag();
+  }
   if (app.isDraggingSpeaker && event.pointerId === app.draggingPointerId) {
     endSpeakerDrag();
   }
@@ -42,16 +50,22 @@ function onPointerUp(event) {
 }
 
 function onPointerMove(event) {
+  if (app.isDraggingVirtualBed && event.pointerId === app.draggingPointerId) {
+    updateVirtualBedDrag(event);
+    return;
+  }
   if (app.isDraggingSpeaker && event.pointerId === app.draggingPointerId) {
     updateSpeakerDrag(event);
   }
 }
 
 function onPointerCancel() {
+  endVirtualBedDrag();
   endSpeakerDrag();
 }
 
 function onPointerLeave() {
+  endVirtualBedDrag();
   endSpeakerDrag();
 }
 
@@ -346,6 +360,105 @@ export function endSpeakerDrag() {
       applySpeakerSceneCartesianEdit(idx, scenePosition.x, scenePosition.y, scenePosition.z, true);
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Virtual-bed channel drag
+//
+// 2D-source markers are shown at their pure angle (the renderer pre-warps the
+// object so the room warp cancels on display), so we read azimuth/elevation
+// straight from the dragged marker's scene direction — no room-warp inversion.
+// Distance is preserved; only `spatialize:true` channels are draggable (direct
+// channels are anchored to their speaker). The new direction is committed on
+// release; `updateSource` ignores the live stream for the dragged marker.
+// ---------------------------------------------------------------------------
+
+function beginVirtualBedDrag(event) {
+  if (app.channelRenderMode === 'host') {
+    return false;
+  }
+  pointerEventToNdc(event);
+  raycaster.setFromCamera(pointer, camera);
+  const markers = [...sourceMeshes.values()].filter((m) => m && m.visible !== false);
+  const hits = raycaster.intersectObjects(markers, false);
+  for (const hit of hits) {
+    const id = hit.object?.userData?.sourceId;
+    if (id === undefined || id === null) {
+      continue;
+    }
+    const name = sourceNames.get(String(id));
+    if (channelPlacement(name) !== 'virtual') {
+      // Only virtualized channels can be repositioned; direct ones are pinned
+      // to their speaker, and non-bed objects fall through to normal handling.
+      continue;
+    }
+    app.isDraggingVirtualBed = true;
+    app.draggingVirtualBedSourceId = String(id);
+    app.draggingVirtualBedChannel = name;
+    app.draggingPointerId = event.pointerId;
+    virtualBedDragStart.copy(sourceMeshes.get(String(id)).position);
+    setSelectedSpeaker(null);
+    setSelectedSource(id);
+    controls.enabled = false;
+    return true;
+  }
+  return false;
+}
+
+function updateVirtualBedDrag(event) {
+  if (!app.isDraggingVirtualBed) {
+    return;
+  }
+  const mesh = sourceMeshes.get(app.draggingVirtualBedSourceId);
+  if (!mesh) {
+    return;
+  }
+  pointerEventToNdc(event);
+  raycaster.setFromCamera(pointer, camera);
+  // Project the cursor onto the sphere of the marker's current radius (its
+  // closest approach to the origin), keeping distance fixed and giving an
+  // intuitive "aim the channel" gesture.
+  const radius = mesh.position.length() || 1;
+  const o = raycaster.ray.origin;
+  const d = raycaster.ray.direction;
+  const t = -o.dot(d);
+  const dir = new THREE.Vector3().copy(d).multiplyScalar(t).add(o);
+  if (dir.lengthSq() < 1e-9) {
+    dir.copy(mesh.position);
+  }
+  dir.normalize().multiplyScalar(radius);
+  mesh.position.copy(dir);
+  const label = sourceLabels.get(app.draggingVirtualBedSourceId);
+  if (label) {
+    label.position.set(dir.x, dir.y + 0.12, dir.z);
+  }
+}
+
+function endVirtualBedDrag() {
+  if (!app.isDraggingVirtualBed) {
+    return;
+  }
+  const mesh = sourceMeshes.get(app.draggingVirtualBedSourceId);
+  const name = app.draggingVirtualBedChannel;
+  app.isDraggingVirtualBed = false;
+  app.draggingVirtualBedSourceId = null;
+  app.draggingVirtualBedChannel = null;
+  app.draggingPointerId = null;
+  controls.enabled = true;
+  if (!mesh || !name) {
+    return;
+  }
+  // A plain click (no real movement) selects the marker without re-sending.
+  if (mesh.position.distanceTo(virtualBedDragStart) < 1e-4) {
+    return;
+  }
+  // Scene direction → Omniphony angle (x=right, y=front, z=up). Distance is kept
+  // by applyChannelDirection (only the angle changes).
+  const omni = sceneToOmniphonyCartesian(mesh.position);
+  const horizontal = Math.hypot(omni.x, omni.y);
+  const azimuth = (Math.atan2(omni.x, omni.y) * 180) / Math.PI;
+  const elevation = horizontal > 1e-6 ? (Math.atan2(omni.z, horizontal) * 180) / Math.PI : 0;
+  applyChannelDirection(name, azimuth, elevation);
 }
 
 export function setupPointerListeners() {
