@@ -6,7 +6,9 @@ use audio_input::InputControl;
 use bridge_api::RChannelLabel;
 use bridge_api::RDecodedFrame;
 use orender_engine::render::fill_pcm_f32_drc;
-use orender_engine::virtual_bed::{build_virtual_bed_events, build_virtual_bed_objects};
+use orender_engine::virtual_bed::{
+    ChannelRenderPlan, build_virtual_bed_objects, plan_channel_render,
+};
 use std::time::Instant;
 
 pub struct SampleWriteCoordinator<'a> {
@@ -363,10 +365,17 @@ impl<'a> SampleWriteCoordinator<'a> {
                     return Ok(());
                 } else {
                     let labels: Vec<RChannelLabel> = frame.channel_labels.iter().copied().collect();
-                    let (room_ratio, room_ratio_rear, room_ratio_lower, room_ratio_center_blend) = {
+                    let (
+                        mode,
+                        room_ratio,
+                        room_ratio_rear,
+                        room_ratio_lower,
+                        room_ratio_center_blend,
+                    ) = {
                         let control = renderer.renderer_control();
                         let live = control.live.read();
                         (
+                            live.channel_render_mode,
                             live.room_ratio,
                             live.room_ratio_rear,
                             live.room_ratio_lower,
@@ -376,7 +385,8 @@ impl<'a> SampleWriteCoordinator<'a> {
                     let input_layout = self
                         .input_control
                         .and_then(|control| control.requested_snapshot().current_layout);
-                    let virtual_events = match build_virtual_bed_events(
+                    let virtual_events = match plan_channel_render(
+                        mode,
                         &labels,
                         input_layout.as_ref(),
                         room_ratio,
@@ -384,10 +394,44 @@ impl<'a> SampleWriteCoordinator<'a> {
                         room_ratio_lower,
                         room_ratio_center_blend,
                     ) {
-                        Some(v) => v,
-                        None => {
+                        ChannelRenderPlan::Events {
+                            events,
+                            bed_indices,
+                        } => {
+                            // Direct routes every channel as a bed; virtual keeps
+                            // beds empty so all channels go through VBAP.
+                            // Reconfigure only on change to avoid per-frame churn.
+                            let desired: Vec<usize> = bed_indices.unwrap_or_default();
+                            if self.spatial.bed_indices.as_deref().unwrap_or(&[])
+                                != desired.as_slice()
+                            {
+                                renderer.configure_beds(&desired);
+                                self.spatial.bed_indices = if desired.is_empty() {
+                                    None
+                                } else {
+                                    Some(desired)
+                                };
+                            }
+                            events
+                        }
+                        ChannelRenderPlan::HostPassthrough => {
+                            // No spatialization: write the decoded channels
+                            // straight to the sink (let the host/sink handle
+                            // them), mirroring mpv falling back to ad_lavc.
+                            self.output
+                                .audio_writer
+                                .as_mut()
+                                .expect("audio_writer present")
+                                .write_pcm_samples(
+                                    &AudioSamples::I32(frame.pcm.to_vec()),
+                                    channel_count,
+                                )?;
+                            self.output.pcm_f32_buf = pcm_f32_scratch;
+                            return Ok(());
+                        }
+                        ChannelRenderPlan::Silence => {
                             log::warn!(
-                                "No virtual bed VBAP map for channel labels {:?} - outputting silence",
+                                "No channel render mapping for labels {:?} - outputting silence",
                                 labels
                             );
                             let num_speakers = renderer.num_speakers();

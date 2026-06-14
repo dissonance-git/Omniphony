@@ -300,6 +300,7 @@ fn main() {
             control_reload_config,
             control_log_level,
             control_ramp_mode,
+            control_channel_render_mode,
             control_output_mode,
             control_hrir_source,
             control_binaural_unit_scale,

@@ -150,6 +150,12 @@ pub struct RenderConfig {
     pub auto_gain_ceiling_db: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bed_conform: Option<bool>,
+    /// How channel-based (non-object) content is rendered: `host` (let mpv/the
+    /// sink handle it), `direct` (route channels to matching speakers), or
+    /// `virtual` (virtualize each channel as an object at its speaker angle —
+    /// the default). Absent = `virtual`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel_render_mode: Option<crate::live_params::ChannelRenderMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spread_from_distance: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]

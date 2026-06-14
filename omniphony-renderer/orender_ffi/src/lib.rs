@@ -353,6 +353,35 @@ pub unsafe extern "C" fn orender_is_spatial(r: *const OrenderRenderer) -> c_int 
     .unwrap_or(-1)
 }
 
+/// Configured render mode for channel-based (non-object) content:
+/// 0 = host, 1 = direct, 2 = virtual; <0 on error. When this is `host` (0) and
+/// [`orender_is_spatial`] reports 0, the host should decline this track and fall
+/// back to its native decoder. Meaningful once the renderer is created (the mode
+/// comes from config / live params, not from the stream).
+#[no_mangle]
+pub unsafe extern "C" fn orender_channel_mode(r: *const OrenderRenderer) -> c_int {
+    catch_unwind(AssertUnwindSafe(|| {
+        if r.is_null() {
+            return -1;
+        }
+        (*(r as *const Engine)).channel_render_mode_code() as c_int
+    }))
+    .unwrap_or(-1)
+}
+
+/// Override the channel render mode for non-object content at runtime (a
+/// per-host override of the config value): 0 = host, 1 = direct, 2 = virtual.
+/// No-op on a NULL handle.
+#[no_mangle]
+pub unsafe extern "C" fn orender_set_channel_mode(r: *mut OrenderRenderer, mode: c_int) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if r.is_null() {
+            return;
+        }
+        (*(r as *mut Engine)).set_channel_render_mode_code(mode as i32);
+    }));
+}
+
 /// Number of output channels (speakers) the renderer produces, 0 on error.
 #[no_mangle]
 pub unsafe extern "C" fn orender_channel_count(r: *const OrenderRenderer) -> u32 {

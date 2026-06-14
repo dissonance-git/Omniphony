@@ -163,6 +163,11 @@ pub(super) fn merge_render_config(
             }
         }
     }
+    if !arg_sources.is_explicit("channel_render_mode") {
+        if let Some(mode) = renderer::config_fields::channel_render_mode::get(cfg) {
+            args.channel_render_mode = mode.into();
+        }
+    }
     if args.bridge_path.is_none() {
         args.bridge_path = cfg.bridge_path.clone();
     }
@@ -560,6 +565,10 @@ pub(super) fn effective_to_config(
             RampModeArg::Sample => "sample",
             RampModeArg::Interp => "interp",
         },
+    );
+    renderer::config_fields::channel_render_mode::store(
+        &mut render,
+        args.channel_render_mode.into(),
     );
     renderer::config_fields::distance_diffuse::store(&mut render, args.distance_diffuse);
     renderer::config_fields::distance_diffuse_threshold::store(

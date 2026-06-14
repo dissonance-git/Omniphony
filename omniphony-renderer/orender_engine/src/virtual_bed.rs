@@ -119,7 +119,9 @@ fn load_virtual_bed_layout(file_name: &str) -> Option<SpeakerLayout> {
     // The 5.1 / 7.1 virtual-bed layouts are height-less, so they now live in
     // the layouts/legacy/ subfolder. Try that first, then the historical
     // top-level path (older installs / packaging that still ships them flat).
-    let bases: [PathBuf; 5] = [
+    // `mut` is used only on Windows (the %ProgramData% push below).
+    #[cfg_attr(not(windows), allow(unused_mut))]
+    let mut bases: Vec<PathBuf> = vec![
         // cwd-relative first — matches the CLI run from the workspace root.
         PathBuf::from("layouts"),
         PathBuf::from("omniphony").join("layouts"),
@@ -129,6 +131,16 @@ fn load_virtual_bed_layout(file_name: &str) -> Option<SpeakerLayout> {
         PathBuf::from("/usr/lib/orender/layouts"),
         PathBuf::from("/usr/share/orender/layouts"),
     ];
+    // Windows: the embedded host (mpv) has no workspace cwd, and the shared
+    // install lives under %ProgramData%\omniphony (machine-wide, same as the
+    // config + service). Search its layouts dir so layouts ship/resolve there.
+    #[cfg(windows)]
+    if let Ok(program_data) = std::env::var("ProgramData") {
+        let mut p = PathBuf::from(program_data);
+        p.push("omniphony");
+        p.push("layouts");
+        bases.push(p);
+    }
     let mut candidates: Vec<PathBuf> = Vec::with_capacity(bases.len() * 2);
     for base in &bases {
         candidates.push(base.join("legacy").join(file_name));
@@ -386,6 +398,116 @@ pub fn build_virtual_bed_objects(
     }
 }
 
+/// Bed id (0–9, the scheme used by [`SpeakerLayout::bed_to_speaker_mapping`])
+/// for a channel label, or `None` when the label has no direct-speaker slot in
+/// that scheme (e.g. back-centre / top-side channels). Used by `Direct` mode.
+fn bed_id_for_label(label: RChannelLabel) -> Option<usize> {
+    match label {
+        RChannelLabel::L => Some(0),
+        RChannelLabel::R => Some(1),
+        RChannelLabel::C => Some(2),
+        RChannelLabel::LFE | RChannelLabel::LFE2 => Some(3),
+        RChannelLabel::Ls => Some(4),
+        RChannelLabel::Rs => Some(5),
+        RChannelLabel::Lb => Some(6),
+        RChannelLabel::Rb => Some(7),
+        RChannelLabel::Tfl => Some(8),
+        RChannelLabel::Tfr => Some(9),
+        _ => None,
+    }
+}
+
+/// What the renderer should do with a channel-based (non-object) frame, decided
+/// once and applied identically by the CLI/spdif decode path and the embedded
+/// mpv host. See [`ChannelRenderMode`].
+pub enum ChannelRenderPlan {
+    /// Let the host / sink handle the channels (no spatialization). The CLI
+    /// writes the decoded channels straight out; the embedded mpv decoder
+    /// declines so mpv falls back to its native decoder.
+    HostPassthrough,
+    /// Render the events. `bed_indices` is `Some(..)` for direct speaker routing
+    /// (the renderer must `configure_beds` to it so every channel routes as a
+    /// bed) and `None` for the virtual-object path (beds must be empty so every
+    /// channel goes through VBAP).
+    Events {
+        events: Vec<renderer::spatial_renderer::SpatialChannelEvent>,
+        bed_indices: Option<Vec<usize>>,
+    },
+    /// No renderable mapping for these labels → emit silence (advance the host
+    /// by the frame's sample count without producing sound).
+    Silence,
+}
+
+/// Decide how to render a channel-based frame for the given `mode`. Pure: no
+/// renderer interaction, so both decode paths can call it and apply the result
+/// the same way.
+#[allow(clippy::too_many_arguments)]
+pub fn plan_channel_render(
+    mode: renderer::live_params::ChannelRenderMode,
+    channel_labels: &[RChannelLabel],
+    input_layout: Option<&SpeakerLayout>,
+    room_ratio: [f32; 3],
+    room_ratio_rear: f32,
+    room_ratio_lower: f32,
+    room_ratio_center_blend: f32,
+) -> ChannelRenderPlan {
+    use renderer::live_params::ChannelRenderMode;
+    match mode {
+        ChannelRenderMode::Host => ChannelRenderPlan::HostPassthrough,
+        ChannelRenderMode::Direct => build_direct_bed_plan(channel_labels),
+        ChannelRenderMode::Virtual => match build_virtual_bed_events(
+            channel_labels,
+            input_layout,
+            room_ratio,
+            room_ratio_rear,
+            room_ratio_lower,
+            room_ratio_center_blend,
+        ) {
+            Some(events) => ChannelRenderPlan::Events {
+                events,
+                bed_indices: None,
+            },
+            None => ChannelRenderPlan::Silence,
+        },
+    }
+}
+
+/// Direct mode: route each channel straight to its layout speaker. Builds the
+/// per-channel `bed_indices` (one entry per channel; `usize::MAX` for channels
+/// with no direct slot, which the renderer skips) plus a bed event per routed
+/// channel so its gain is unity instead of the silent default.
+fn build_direct_bed_plan(channel_labels: &[RChannelLabel]) -> ChannelRenderPlan {
+    let mut bed_indices: Vec<usize> = Vec::with_capacity(channel_labels.len());
+    let mut events: Vec<renderer::spatial_renderer::SpatialChannelEvent> =
+        Vec::with_capacity(channel_labels.len());
+    for (channel_idx, label) in channel_labels.iter().enumerate() {
+        match bed_id_for_label(*label) {
+            Some(bed_id) => {
+                bed_indices.push(bed_id);
+                events.push(renderer::spatial_renderer::SpatialChannelEvent {
+                    channel_idx,
+                    is_bed: true,
+                    gain_db: Some(0),
+                    ramp_length: Some(0),
+                    size: None,
+                    position: None,
+                    sample_pos: Some(0),
+                });
+            }
+            // No direct slot: keep index alignment but route nowhere (silent).
+            None => bed_indices.push(usize::MAX),
+        }
+    }
+    if events.is_empty() {
+        ChannelRenderPlan::Silence
+    } else {
+        ChannelRenderPlan::Events {
+            events,
+            bed_indices: Some(bed_indices),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -440,6 +562,131 @@ mod tests {
             assert!((pos[0] - obj.x as f64).abs() < 1e-6);
             assert!((pos[1] - obj.y as f64).abs() < 1e-6);
             assert!((pos[2] - obj.z as f64).abs() < 1e-6);
+        }
+    }
+
+    const BED_5_1: [RChannelLabel; 6] = [
+        RChannelLabel::L,
+        RChannelLabel::R,
+        RChannelLabel::C,
+        RChannelLabel::LFE,
+        RChannelLabel::Ls,
+        RChannelLabel::Rs,
+    ];
+
+    #[test]
+    fn plan_host_is_passthrough() {
+        let plan = plan_channel_render(
+            renderer::live_params::ChannelRenderMode::Host,
+            &BED_5_1,
+            None,
+            UNIT_ROOM,
+            1.0,
+            1.0,
+            0.0,
+        );
+        assert!(matches!(plan, ChannelRenderPlan::HostPassthrough));
+    }
+
+    #[test]
+    fn plan_virtual_renders_objects_without_bed_routing() {
+        let plan = plan_channel_render(
+            renderer::live_params::ChannelRenderMode::Virtual,
+            &BED_5_1,
+            None,
+            UNIT_ROOM,
+            1.0,
+            1.0,
+            0.0,
+        );
+        match plan {
+            ChannelRenderPlan::Events {
+                events,
+                bed_indices,
+            } => {
+                assert_eq!(events.len(), BED_5_1.len());
+                // Virtual: every channel is a VBAP object, no bed routing.
+                assert!(bed_indices.is_none());
+                assert!(events.iter().all(|e| !e.is_bed));
+            }
+            other => panic!("expected Events, got {:?}", PlanKind::from(&other)),
+        }
+    }
+
+    #[test]
+    fn plan_direct_routes_each_channel_to_its_speaker() {
+        let plan = plan_channel_render(
+            renderer::live_params::ChannelRenderMode::Direct,
+            &BED_5_1,
+            None,
+            UNIT_ROOM,
+            1.0,
+            1.0,
+            0.0,
+        );
+        match plan {
+            ChannelRenderPlan::Events {
+                events,
+                bed_indices,
+            } => {
+                // Direct: bed routing with one bed id per channel (full length).
+                let bi = bed_indices.expect("direct mode configures bed_indices");
+                assert_eq!(bi.len(), BED_5_1.len());
+                // 5.1 maps to bed ids 0..=5 in order (L,R,C,LFE,Ls,Rs).
+                assert_eq!(bi, vec![0, 1, 2, 3, 4, 5]);
+                assert!(events.iter().all(|e| e.is_bed && e.gain_db == Some(0)));
+            }
+            other => panic!("expected Events, got {:?}", PlanKind::from(&other)),
+        }
+    }
+
+    #[test]
+    fn plan_direct_keeps_alignment_for_unroutable_channels() {
+        // Back-centre (Cb) has no bed slot: it must keep index alignment with a
+        // sentinel and emit no event (silent), not shift the other channels.
+        let labels = [RChannelLabel::L, RChannelLabel::Cb, RChannelLabel::R];
+        let plan = plan_channel_render(
+            renderer::live_params::ChannelRenderMode::Direct,
+            &labels,
+            None,
+            UNIT_ROOM,
+            1.0,
+            1.0,
+            0.0,
+        );
+        match plan {
+            ChannelRenderPlan::Events {
+                events,
+                bed_indices,
+            } => {
+                let bi = bed_indices.unwrap();
+                assert_eq!(bi.len(), 3);
+                assert_eq!(bi[0], 0);
+                assert_eq!(bi[1], usize::MAX, "Cb has no slot → sentinel");
+                assert_eq!(bi[2], 1);
+                // Only L and R produce events.
+                assert_eq!(events.len(), 2);
+                assert_eq!(events[0].channel_idx, 0);
+                assert_eq!(events[1].channel_idx, 2);
+            }
+            other => panic!("expected Events, got {:?}", PlanKind::from(&other)),
+        }
+    }
+
+    // Small helper so panics in the matches above print something readable.
+    #[derive(Debug)]
+    enum PlanKind {
+        Host,
+        Events,
+        Silence,
+    }
+    impl From<&ChannelRenderPlan> for PlanKind {
+        fn from(p: &ChannelRenderPlan) -> Self {
+            match p {
+                ChannelRenderPlan::HostPassthrough => PlanKind::Host,
+                ChannelRenderPlan::Events { .. } => PlanKind::Events,
+                ChannelRenderPlan::Silence => PlanKind::Silence,
+            }
         }
     }
 }

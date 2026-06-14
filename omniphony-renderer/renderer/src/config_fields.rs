@@ -314,6 +314,15 @@ render_field! {
 }
 
 render_field! {
+    /// Render mode for channel-based / non-object content
+    /// (`render.channel_render_mode`). Default `Virtual`.
+    pub channel_render_mode: crate::live_params::ChannelRenderMode =
+        crate::live_params::ChannelRenderMode::Virtual,
+    field = channel_render_mode,
+    eq = crate::live_params::ChannelRenderMode::eq
+}
+
+render_field! {
     /// Derive spread from object distance (`render.spread_from_distance`).
     pub spread_from_distance: bool = false,
     field = spread_from_distance,

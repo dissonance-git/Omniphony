@@ -67,6 +67,22 @@ pub(crate) fn handle_control_message(
         return;
     }
 
+    // Channel render mode for non-object content (host / direct / virtual).
+    // Live-tunable from Studio; persists to config so it survives a restart.
+    if addr == osc_contract::CONTROL_CHANNEL_RENDER_MODE {
+        if let Some(OscType::String(s)) = msg.args.first() {
+            if let Some(mode) = renderer::live_params::ChannelRenderMode::from_str(s) {
+                control.live.write().channel_render_mode = mode;
+                control.mark_dirty();
+                broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
+                log::info!("OSC channel render mode set to {}", mode.as_str());
+            } else {
+                log::warn!("OSC channel render mode: unknown value '{}'", s);
+            }
+        }
+        return;
+    }
+
     // mpv overlay configuration. The overlay itself is generated in-process by
     // the `overlay` module and pulled over FFI; Studio only configures it here
     // (it no longer transports overlay frames). These are transient view

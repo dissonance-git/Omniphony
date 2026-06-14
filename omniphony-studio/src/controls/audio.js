@@ -18,6 +18,7 @@ import { inAudioPanel, inRendererPanel } from '../ui/panel-roots.js';
 function getAudioFormatInfoEl() { return inAudioPanel('audioFormatInfo'); }
 function getAudioOutputDeviceSelectEl() { return inAudioPanel('audioOutputDeviceSelect'); }
 function getRampModeSelectEl() { return inRendererPanel('rampModeSelect'); }
+function getChannelRenderModeSelectEl() { return document.getElementById('channelRenderModeSelect'); }
 function getAudioSampleRateInputEl() { return inAudioPanel('audioSampleRateInput'); }
 function getAudioSampleRateMenuEl() { return inAudioPanel('audioSampleRateMenu'); }
 function getAudioOutputSummaryEl() { return inAudioPanel('audioOutputSummary'); }
@@ -99,6 +100,11 @@ export function renderAudioFormatDisplay() {
   }
   if (rampModeSelectEl) {
     rampModeSelectEl.value = ['off', 'frame', 'sample', 'interp'].includes(app.rampMode) ? app.rampMode : 'frame';
+  }
+  const channelRenderModeSelectEl = getChannelRenderModeSelectEl();
+  if (channelRenderModeSelectEl) {
+    channelRenderModeSelectEl.value =
+      ['host', 'direct', 'virtual'].includes(app.channelRenderMode) ? app.channelRenderMode : 'virtual';
   }
   if (audioSampleRateInputEl && !app.audioSampleRateEditing) {
     audioSampleRateInputEl.value = String(app.audioSampleRate || 0);
@@ -190,4 +196,14 @@ export function applyRampModeNow() {
   app.rampMode = requested;
   updateAudioFormatDisplay();
   invoke('control_ramp_mode', { value: requested });
+}
+
+export function applyChannelRenderModeNow() {
+  const el = getChannelRenderModeSelectEl();
+  const requested = String(el?.value || 'virtual').trim().toLowerCase();
+  if (!['host', 'direct', 'virtual'].includes(requested)) {
+    return;
+  }
+  app.channelRenderMode = requested;
+  invoke('control_channel_render_mode', { value: requested });
 }

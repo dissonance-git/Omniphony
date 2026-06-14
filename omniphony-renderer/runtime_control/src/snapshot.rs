@@ -138,6 +138,7 @@ pub fn build_renderer_state_json(
         "autoGain": live.auto_gain,
         "autoGainCeilingDb": live.auto_gain_ceiling_db,
         "rampMode": live.ramp_mode.as_str(),
+        "channelRenderMode": live.channel_render_mode.as_str(),
         "distanceModel": live.distance_model.to_string(),
         "distanceModelMetric": live.distance_model_metric.to_string(),
         "roomRatio": {

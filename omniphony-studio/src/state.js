@@ -227,6 +227,7 @@ export const app = {
   // Audio
   audioSampleRate: null,
   rampMode: 'sample',
+  channelRenderMode: 'virtual',
   audioOutputDevice: null,
   audioOutputDeviceEffective: null,
   audioOutputDevices: [],

@@ -103,6 +103,45 @@ impl RampMode {
     }
 }
 
+/// How channel-based (non-object) content is rendered. Applies only to streams
+/// that carry no spatial objects (plain EAC3 / TrueHD beds, AC3, multichannel
+/// PCM); object streams are unaffected. Shared by the CLI/spdif decode path and
+/// the embedded mpv host so both behave identically.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelRenderMode {
+    /// Let the host deal with it: the embedded mpv decoder declines so mpv falls
+    /// back to its native decoder (`ad_lavc`); the CLI outputs the decoded
+    /// channels straight to the sink (no spatialization).
+    Host,
+    /// Route each bed channel directly to the matching speaker of the configured
+    /// layout (no VBAP virtualization).
+    Direct,
+    /// Virtualize each channel as an object at its theoretical speaker angle and
+    /// VBAP-render it across the full array. The default (current behavior).
+    #[default]
+    Virtual,
+}
+
+impl ChannelRenderMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Host => "host",
+            Self::Direct => "direct",
+            Self::Virtual => "virtual",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "host" | "native" | "passthrough" => Some(Self::Host),
+            "direct" | "direct_speakers" => Some(Self::Direct),
+            "virtual" | "virtual_objects" | "objects" => Some(Self::Virtual),
+            _ => None,
+        }
+    }
+}
+
 /// Output rendering path: a multichannel speaker array (VBAP) or an independent
 /// 2-channel headphone (binaural) stage. See [`crate::binaural`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
@@ -489,6 +528,12 @@ pub struct LiveParams {
     /// `binaural.output_mode == OutputMode::Binaural`, the renderer bypasses the
     /// speaker/VBAP path and emits a 2-channel frame instead.
     pub binaural: BinauralLiveParams,
+
+    /// How channel-based (non-object) content is rendered. Only consulted for
+    /// streams that carry no spatial objects; object streams ignore it. Read
+    /// identically by the CLI/spdif decode path and the embedded mpv host.
+    /// Live-tunable via `/omniphony/control/channel_render_mode`.
+    pub channel_render_mode: ChannelRenderMode,
 }
 
 impl LiveParams {

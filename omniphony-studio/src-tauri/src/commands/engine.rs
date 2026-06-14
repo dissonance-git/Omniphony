@@ -61,6 +61,21 @@ pub fn control_ramp_mode(state: State<SharedState>, value: String) {
 }
 
 #[tauri::command]
+pub fn control_channel_render_mode(state: State<SharedState>, value: String) {
+    let trimmed = value.trim().to_ascii_lowercase();
+    if !matches!(trimmed.as_str(), "host" | "direct" | "virtual") {
+        return;
+    }
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/channel_render_mode".to_string(),
+            value: trimmed,
+        },
+    );
+}
+
+#[tauri::command]
 pub fn control_drc_mode(state: State<SharedState>, value: String) {
     send_control(
         &state.osc_tx,

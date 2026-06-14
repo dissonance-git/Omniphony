@@ -417,6 +417,10 @@ impl SpatialRenderer {
             drc_weight: 1.0,
             hybrid: crate::live_params::HybridLiveParams::default(),
             binaural: crate::live_params::BinauralLiveParams::default(),
+            // Seeded to the default (Virtual); the CLI bootstrap and the
+            // embedded mpv host (`Engine::from_paths`) override it from
+            // `render.channel_render_mode`, mirroring `ramp_mode`.
+            channel_render_mode: crate::live_params::ChannelRenderMode::default(),
         }
     }
 

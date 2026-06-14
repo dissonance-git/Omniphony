@@ -145,6 +145,7 @@ and heatmap configuration.
 | `/control/debug/speaker_gaintable/nack` | … | Request missing chunks / version. |
 | `/control/log_level` | s | `off`\|`error`\|`warn`\|`info`\|`debug`\|`trace`. |
 | `/control/ramp_mode` | s | `off` \| `frame` \| `sample`. |
+| `/control/channel_render_mode` | s | `host` \| `direct` \| `virtual`. Render mode for non-object content. |
 | `/control/save_config` | — | Persist the current config. |
 | `/control/reload_config` | — | Reload config from disk. |
 | `/control/quit` | — | Shut the engine down. |

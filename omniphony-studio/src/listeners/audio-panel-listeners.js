@@ -5,7 +5,8 @@ import { updateMasterGainUI, updateLoudnessDisplay, updateAutoGainUI, updateAuto
 import { updateAdaptiveResamplingUI, resetAdaptiveResamplingAdvancedDirtyState } from '../controls/adaptive.js';
 import {
   closeAudioSampleRateMenu, openAudioSampleRateMenu, updateAudioFormatDisplay,
-  applyAudioSampleRateNow, applyAudioOutputDeviceNow, applyRampModeNow, sendAudioConfig
+  applyAudioSampleRateNow, applyAudioOutputDeviceNow, applyRampModeNow,
+  applyChannelRenderModeNow, sendAudioConfig
 } from '../controls/audio.js';
 import { applyLatencyTargetNow, updateLatencyDisplay } from '../controls/latency.js';
 import { openAutoTuneWizard } from '../auto-tune/wizard-ui.js';
@@ -54,6 +55,7 @@ export function setupAudioPanelListeners() {
   const audioOutputDeviceSelectEl = document.getElementById('audioOutputDeviceSelect');
   const refreshOutputDevicesBtnEl = document.getElementById('refreshOutputDevicesBtn');
   const rampModeSelectEl = document.getElementById('rampModeSelect');
+  const channelRenderModeSelectEl = document.getElementById('channelRenderModeSelect');
 
   if (masterGainSliderEl) {
     masterGainSliderEl.addEventListener('input', () => {
@@ -523,6 +525,12 @@ export function setupAudioPanelListeners() {
   if (rampModeSelectEl) {
     rampModeSelectEl.addEventListener('change', () => {
       applyRampModeNow();
+    });
+  }
+
+  if (channelRenderModeSelectEl) {
+    channelRenderModeSelectEl.addEventListener('change', () => {
+      applyChannelRenderModeNow();
     });
   }
 

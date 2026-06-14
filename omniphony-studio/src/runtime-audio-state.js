@@ -91,6 +91,12 @@ export function applyRuntimeAudioStateSnapshot(payload) {
       app.rampMode = next;
     }
   }
+  if (typeof payload.channelRenderMode === 'string') {
+    const next = payload.channelRenderMode.trim().toLowerCase();
+    if (next === 'host' || next === 'direct' || next === 'virtual') {
+      app.channelRenderMode = next;
+    }
+  }
   if (typeof payload.audioOutputDevice === 'string') {
     app.audioOutputDevice = payload.audioOutputDevice.trim() || null;
   }

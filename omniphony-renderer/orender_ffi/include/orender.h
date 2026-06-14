@@ -90,6 +90,22 @@ void orender_destroy(struct OrenderRenderer *r);
 int orender_is_spatial(const struct OrenderRenderer *r);
 
 /**
+ * Configured render mode for channel-based (non-object) content:
+ * 0 = host, 1 = direct, 2 = virtual; <0 on error. When this is `host` (0) and
+ * [`orender_is_spatial`] reports 0, the host should decline this track and fall
+ * back to its native decoder. Meaningful once the renderer is created (the mode
+ * comes from config / live params, not from the stream).
+ */
+int orender_channel_mode(const struct OrenderRenderer *r);
+
+/**
+ * Override the channel render mode for non-object content at runtime (a
+ * per-host override of the config value): 0 = host, 1 = direct, 2 = virtual.
+ * No-op on a NULL handle.
+ */
+void orender_set_channel_mode(struct OrenderRenderer *r, int mode);
+
+/**
  * Number of output channels (speakers) the renderer produces, 0 on error.
  */
 uint32_t orender_channel_count(const struct OrenderRenderer *r);

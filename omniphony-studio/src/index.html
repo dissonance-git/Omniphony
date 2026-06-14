@@ -102,6 +102,25 @@
       </div>
       </div>
       <div id="audioInputPanelMount"></div>
+      <div id="twoDSourcesPanelRoot" class="info-section">
+        <div class="panel-header">
+          <div class="panel-header-main">
+            <div class="panel-title-wrap">
+              <div class="info-title panel-title" data-i18n="section.twoDSources">2D sources</div>
+            </div>
+          </div>
+        </div>
+        <div style="display:grid;gap:0.35rem;padding:0.1rem 0.1rem 0.2rem">
+          <div class="control-row" style="grid-template-columns:auto 1fr;align-items:center;gap:0.5rem;margin-top:0">
+            <label for="channelRenderModeSelect" style="font-size:12px;font-weight:600;white-space:nowrap;color:#ffffff" data-i18n="twoDSources.renderAs" data-help-i18n="help.twoDSources">Render as</label>
+            <select id="channelRenderModeSelect" class="delay-input" style="min-width:9rem">
+              <option value="virtual" data-i18n="twoDSources.virtual" selected>Virtualize (3D)</option>
+              <option value="direct" data-i18n="twoDSources.direct">Direct to speakers</option>
+              <option value="host" data-i18n="twoDSources.host">Let player handle</option>
+            </select>
+          </div>
+        </div>
+      </div>
       <div id="roomGeometryPanelRoot" class="info-section section-collapsed">
       <div class="panel-header">
         <div class="panel-header-main">

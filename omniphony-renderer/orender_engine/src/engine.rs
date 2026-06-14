@@ -389,6 +389,15 @@ impl Engine {
         control.set_requested_ramp_mode(ramp_mode);
         control.live.write().ramp_mode = ramp_mode;
 
+        // Channel render mode for non-object content (host / direct / virtual).
+        // Mirror `ramp_mode`: the live snapshot is seeded from config here so the
+        // embedded host matches the CLI bootstrap. Default = Virtual.
+        let channel_render_mode = render_cfg
+            .as_ref()
+            .and_then(renderer::config_fields::channel_render_mode::get)
+            .unwrap_or(renderer::config_fields::channel_render_mode::DEFAULT);
+        control.live.write().channel_render_mode = channel_render_mode;
+
         // DRC: seed the live params from config and publish the bridge's
         // supported modes (so studio shows the DRC control). The decode-side
         // mode itself is pushed to the bridge lazily in `process` (see
@@ -454,6 +463,40 @@ impl Engine {
     /// fallback decision.
     pub fn is_spatial(&self) -> bool {
         self.bridge.bridge.is_spatial()
+    }
+
+    /// Configured render mode for channel-based (non-object) content, as a small
+    /// code for the C FFI: 0 = host (the host should fall back to its native
+    /// decoder for plain multichannel streams), 1 = direct, 2 = virtual.
+    pub fn channel_render_mode_code(&self) -> i32 {
+        use renderer::live_params::ChannelRenderMode;
+        match self
+            .renderer
+            .renderer_control()
+            .live
+            .read()
+            .channel_render_mode
+        {
+            ChannelRenderMode::Host => 0,
+            ChannelRenderMode::Direct => 1,
+            ChannelRenderMode::Virtual => 2,
+        }
+    }
+
+    /// Override the channel render mode at runtime (per-host override of the
+    /// config value). Codes: 0 = host, 1 = direct, anything else = virtual.
+    pub fn set_channel_render_mode_code(&self, code: i32) {
+        use renderer::live_params::ChannelRenderMode;
+        let mode = match code {
+            0 => ChannelRenderMode::Host,
+            1 => ChannelRenderMode::Direct,
+            _ => ChannelRenderMode::Virtual,
+        };
+        self.renderer
+            .renderer_control()
+            .live
+            .write()
+            .channel_render_mode = mode;
     }
 
     /// Input sample rate the session was created for.
@@ -645,17 +688,18 @@ impl Engine {
 
         self.decoded_samples += sample_count as u64;
 
-        // Bed-only / pre-metadata frames carry no OAMD objects: fall back to the
-        // virtual-bed path so each input channel renders through VBAP at its
-        // speaker pose (matches the CLI's file-decode behaviour). The embedded
-        // host has no live input device, so there is no input layout to bias the
+        // Bed-only / pre-metadata frames carry no OAMD objects: render them
+        // according to the configured channel mode (host / direct / virtual),
+        // identically to the CLI's file-decode path. The embedded host has no
+        // live input device, so there is no input layout to bias the virtual
         // poses (`None`), exactly as in the CLI's file-decode path.
         if !self.has_objects {
             let labels: Vec<RChannelLabel> = frame.channel_labels.iter().copied().collect();
-            let (room_ratio, room_ratio_rear, room_ratio_lower, room_ratio_center_blend) = {
+            let (mode, room_ratio, room_ratio_rear, room_ratio_lower, room_ratio_center_blend) = {
                 let control = self.renderer.renderer_control();
                 let live = control.live.read();
                 (
+                    live.channel_render_mode,
                     live.room_ratio,
                     live.room_ratio_rear,
                     live.room_ratio_lower,
@@ -663,7 +707,8 @@ impl Engine {
                 )
             };
 
-            match virtual_bed::build_virtual_bed_events(
+            match virtual_bed::plan_channel_render(
+                mode,
                 &labels,
                 None,
                 room_ratio,
@@ -671,10 +716,30 @@ impl Engine {
                 room_ratio_lower,
                 room_ratio_center_blend,
             ) {
-                Some(events) => self.frame_events = events,
-                None => {
-                    // No virtual-bed VBAP map for these labels → emit silence so
-                    // the host still advances by the frame's sample count.
+                virtual_bed::ChannelRenderPlan::Events {
+                    events,
+                    bed_indices,
+                } => {
+                    // Direct mode routes every channel as a bed; virtual leaves
+                    // beds empty so all channels go through VBAP. Reconfigure
+                    // only on change to avoid per-frame churn.
+                    let desired: Vec<usize> = bed_indices.unwrap_or_default();
+                    if self.bed_indices.as_deref().unwrap_or(&[]) != desired.as_slice() {
+                        self.renderer.configure_beds(&desired);
+                        self.bed_indices = if desired.is_empty() {
+                            None
+                        } else {
+                            Some(desired)
+                        };
+                    }
+                    self.frame_events = events;
+                }
+                // Host: the mpv decoder declines at the spatial probe and falls
+                // back to ad_lavc, so this only runs for the discarded probe
+                // frame. Silence: no mapping for these labels. Either way emit
+                // silence so the host still advances by the frame's sample count.
+                virtual_bed::ChannelRenderPlan::HostPassthrough
+                | virtual_bed::ChannelRenderPlan::Silence => {
                     self.frame_events.clear();
                     let n_channels = self.renderer.output_channel_count() as u32;
                     return Ok(Some(RenderedAudio {

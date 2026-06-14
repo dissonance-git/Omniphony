@@ -5,7 +5,7 @@ use clap::{
     parser::ValueSource,
 };
 
-use renderer::live_params::RampMode;
+use renderer::live_params::{ChannelRenderMode, RampMode};
 
 pub const VERSION_INFO: &str = concat!(
     env!("VERGEN_GIT_DESCRIBE"),
@@ -426,6 +426,13 @@ pub struct RenderArgs {
     /// - `off`: jump immediately to the new value
     #[arg(long, value_enum, default_value_t = RampModeArg::Frame)]
     pub ramp_mode: RampModeArg,
+
+    /// How to render channel-based (non-object) content: `host` (let the sink
+    /// handle the channels, no spatialization), `direct` (route each channel to
+    /// its matching speaker), or `virtual` (virtualize each channel as an object
+    /// at its speaker angle — the default).
+    #[arg(long, value_enum, default_value_t = ChannelRenderModeArg::Virtual)]
+    pub channel_render_mode: ChannelRenderModeArg,
 
     /// Disable automatic draining of buffered data from named pipes at startup
     /// (By default, orender drains FIFOs to minimize latency for real-time streams)
@@ -933,6 +940,35 @@ impl From<RampModeArg> for RampMode {
             RampModeArg::Frame => RampMode::Frame,
             RampModeArg::Sample => RampMode::Sample,
             RampModeArg::Interp => RampMode::Interp,
+        }
+    }
+}
+
+/// How channel-based (non-object) content is rendered. See
+/// [`ChannelRenderMode`].
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum ChannelRenderModeArg {
+    Host,
+    Direct,
+    Virtual,
+}
+
+impl From<ChannelRenderModeArg> for ChannelRenderMode {
+    fn from(value: ChannelRenderModeArg) -> Self {
+        match value {
+            ChannelRenderModeArg::Host => ChannelRenderMode::Host,
+            ChannelRenderModeArg::Direct => ChannelRenderMode::Direct,
+            ChannelRenderModeArg::Virtual => ChannelRenderMode::Virtual,
+        }
+    }
+}
+
+impl From<ChannelRenderMode> for ChannelRenderModeArg {
+    fn from(value: ChannelRenderMode) -> Self {
+        match value {
+            ChannelRenderMode::Host => ChannelRenderModeArg::Host,
+            ChannelRenderMode::Direct => ChannelRenderModeArg::Direct,
+            ChannelRenderMode::Virtual => ChannelRenderModeArg::Virtual,
         }
     }
 }
