@@ -151,11 +151,20 @@ pub struct RenderConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bed_conform: Option<bool>,
     /// How channel-based (non-object) content is rendered: `host` (let mpv/the
-    /// sink handle it), `direct` (route channels to matching speakers), or
-    /// `virtual` (virtualize each channel as an object at its speaker angle —
-    /// the default). Absent = `virtual`.
+    /// sink handle it) or `spatial` (render through the parametrable virtual bed
+    /// — the default). The legacy `direct`/`virtual` values load as `spatial`.
+    /// Absent = `spatial`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel_render_mode: Option<crate::live_params::ChannelRenderMode>,
+    /// Parametrable virtual bed for channel-based (non-object) content. One
+    /// entry per input-channel label (`L`, `R`, `C`, `LFE`, `Ls`, `Rs`, …):
+    /// `spatialize:true` virtualizes the channel as an object at the entry's
+    /// position; `spatialize:false` routes it direct to the matching output
+    /// speaker (e.g. LFE → sub). Absent = built-in canonical poses (LFE direct,
+    /// the rest virtualized). Reuses the speaker-layout schema so the Studio 3D
+    /// editor can edit it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub virtual_bed: Option<crate::speaker_layout::SpeakerLayout>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spread_from_distance: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]

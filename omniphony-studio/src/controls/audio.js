@@ -18,7 +18,7 @@ import { inAudioPanel, inRendererPanel } from '../ui/panel-roots.js';
 function getAudioFormatInfoEl() { return inAudioPanel('audioFormatInfo'); }
 function getAudioOutputDeviceSelectEl() { return inAudioPanel('audioOutputDeviceSelect'); }
 function getRampModeSelectEl() { return inRendererPanel('rampModeSelect'); }
-function getChannelRenderModeSelectEl() { return document.getElementById('channelRenderModeSelect'); }
+function getChannelSpatializeToggleEl() { return document.getElementById('channelSpatializeToggle'); }
 function getAudioSampleRateInputEl() { return inAudioPanel('audioSampleRateInput'); }
 function getAudioSampleRateMenuEl() { return inAudioPanel('audioSampleRateMenu'); }
 function getAudioOutputSummaryEl() { return inAudioPanel('audioOutputSummary'); }
@@ -101,10 +101,14 @@ export function renderAudioFormatDisplay() {
   if (rampModeSelectEl) {
     rampModeSelectEl.value = ['off', 'frame', 'sample', 'interp'].includes(app.rampMode) ? app.rampMode : 'frame';
   }
-  const channelRenderModeSelectEl = getChannelRenderModeSelectEl();
-  if (channelRenderModeSelectEl) {
-    channelRenderModeSelectEl.value =
-      ['host', 'direct', 'virtual'].includes(app.channelRenderMode) ? app.channelRenderMode : 'virtual';
+  const channelSpatializeToggleEl = getChannelSpatializeToggleEl();
+  if (channelSpatializeToggleEl) {
+    // Off = host (let the player decode), on = spatial (render through the
+    // virtual bed). Legacy `direct`/`virtual` snapshots count as spatial.
+    const spatial = app.channelRenderMode !== 'host';
+    channelSpatializeToggleEl.checked = spatial;
+    const virtualBedRow = document.getElementById('virtualBedRow');
+    if (virtualBedRow) virtualBedRow.style.display = spatial ? '' : 'none';
   }
   if (audioSampleRateInputEl && !app.audioSampleRateEditing) {
     audioSampleRateInputEl.value = String(app.audioSampleRate || 0);
@@ -199,11 +203,11 @@ export function applyRampModeNow() {
 }
 
 export function applyChannelRenderModeNow() {
-  const el = getChannelRenderModeSelectEl();
-  const requested = String(el?.value || 'virtual').trim().toLowerCase();
-  if (!['host', 'direct', 'virtual'].includes(requested)) {
-    return;
-  }
+  const el = getChannelSpatializeToggleEl();
+  if (!el) return;
+  const requested = el.checked ? 'spatial' : 'host';
   app.channelRenderMode = requested;
+  const virtualBedRow = document.getElementById('virtualBedRow');
+  if (virtualBedRow) virtualBedRow.style.display = el.checked ? '' : 'none';
   invoke('control_channel_render_mode', { value: requested });
 }

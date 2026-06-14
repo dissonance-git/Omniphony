@@ -431,7 +431,7 @@ pub struct RenderArgs {
     /// handle the channels, no spatialization), `direct` (route each channel to
     /// its matching speaker), or `virtual` (virtualize each channel as an object
     /// at its speaker angle — the default).
-    #[arg(long, value_enum, default_value_t = ChannelRenderModeArg::Virtual)]
+    #[arg(long, value_enum, default_value_t = ChannelRenderModeArg::Spatial)]
     pub channel_render_mode: ChannelRenderModeArg,
 
     /// Disable automatic draining of buffered data from named pipes at startup
@@ -945,20 +945,20 @@ impl From<RampModeArg> for RampMode {
 }
 
 /// How channel-based (non-object) content is rendered. See
-/// [`ChannelRenderMode`].
+/// [`ChannelRenderMode`]. The legacy `direct`/`virtual` values are accepted as
+/// aliases of `spatial` (placement is now per-channel in the virtual bed).
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
 pub enum ChannelRenderModeArg {
     Host,
-    Direct,
-    Virtual,
+    #[value(alias = "virtual", alias = "direct")]
+    Spatial,
 }
 
 impl From<ChannelRenderModeArg> for ChannelRenderMode {
     fn from(value: ChannelRenderModeArg) -> Self {
         match value {
             ChannelRenderModeArg::Host => ChannelRenderMode::Host,
-            ChannelRenderModeArg::Direct => ChannelRenderMode::Direct,
-            ChannelRenderModeArg::Virtual => ChannelRenderMode::Virtual,
+            ChannelRenderModeArg::Spatial => ChannelRenderMode::Spatial,
         }
     }
 }
@@ -967,8 +967,7 @@ impl From<ChannelRenderMode> for ChannelRenderModeArg {
     fn from(value: ChannelRenderMode) -> Self {
         match value {
             ChannelRenderMode::Host => ChannelRenderModeArg::Host,
-            ChannelRenderMode::Direct => ChannelRenderModeArg::Direct,
-            ChannelRenderMode::Virtual => ChannelRenderModeArg::Virtual,
+            ChannelRenderMode::Spatial => ChannelRenderModeArg::Spatial,
         }
     }
 }

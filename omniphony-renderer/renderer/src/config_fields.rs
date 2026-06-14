@@ -315,9 +315,9 @@ render_field! {
 
 render_field! {
     /// Render mode for channel-based / non-object content
-    /// (`render.channel_render_mode`). Default `Virtual`.
+    /// (`render.channel_render_mode`). Default `Spatial`.
     pub channel_render_mode: crate::live_params::ChannelRenderMode =
-        crate::live_params::ChannelRenderMode::Virtual,
+        crate::live_params::ChannelRenderMode::Spatial,
     field = channel_render_mode,
     eq = crate::live_params::ChannelRenderMode::eq
 }

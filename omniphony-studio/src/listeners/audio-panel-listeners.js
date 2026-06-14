@@ -55,7 +55,7 @@ export function setupAudioPanelListeners() {
   const audioOutputDeviceSelectEl = document.getElementById('audioOutputDeviceSelect');
   const refreshOutputDevicesBtnEl = document.getElementById('refreshOutputDevicesBtn');
   const rampModeSelectEl = document.getElementById('rampModeSelect');
-  const channelRenderModeSelectEl = document.getElementById('channelRenderModeSelect');
+  const channelSpatializeToggleEl = document.getElementById('channelSpatializeToggle');
 
   if (masterGainSliderEl) {
     masterGainSliderEl.addEventListener('input', () => {
@@ -528,8 +528,8 @@ export function setupAudioPanelListeners() {
     });
   }
 
-  if (channelRenderModeSelectEl) {
-    channelRenderModeSelectEl.addEventListener('change', () => {
+  if (channelSpatializeToggleEl) {
+    channelSpatializeToggleEl.addEventListener('change', () => {
       applyChannelRenderModeNow();
     });
   }

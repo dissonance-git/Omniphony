@@ -107,6 +107,12 @@ impl RampMode {
 /// that carry no spatial objects (plain EAC3 / TrueHD beds, AC3, multichannel
 /// PCM); object streams are unaffected. Shared by the CLI/spdif decode path and
 /// the embedded mpv host so both behave identically.
+///
+/// The placement of each input channel (direct to a speaker, or virtualized as
+/// an object at a position) is decided per channel by the parametrable virtual
+/// bed (`LiveParams::virtual_bed`); this enum only selects the global policy:
+/// let the host decode it (`Host`), or render it through the virtual bed
+/// (`Spatial`). The legacy `direct`/`virtual` values deserialise to `Spatial`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelRenderMode {
@@ -114,29 +120,31 @@ pub enum ChannelRenderMode {
     /// back to its native decoder (`ad_lavc`); the CLI outputs the decoded
     /// channels straight to the sink (no spatialization).
     Host,
-    /// Route each bed channel directly to the matching speaker of the configured
-    /// layout (no VBAP virtualization).
-    Direct,
-    /// Virtualize each channel as an object at its theoretical speaker angle and
-    /// VBAP-render it across the full array. The default (current behavior).
+    /// Render through the virtual bed: each channel is either routed direct to
+    /// its matching speaker (`spatialize:false` in the virtual bed, e.g. LFE) or
+    /// virtualized as an object at the bed's configured position and VBAP-panned
+    /// (`spatialize:true`). The default. Accepts the old `direct`/`virtual`
+    /// config values as aliases.
     #[default]
-    Virtual,
+    #[serde(alias = "virtual", alias = "direct")]
+    Spatial,
 }
 
 impl ChannelRenderMode {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Host => "host",
-            Self::Direct => "direct",
-            Self::Virtual => "virtual",
+            Self::Spatial => "spatial",
         }
     }
 
     pub fn from_str(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "host" | "native" | "passthrough" => Some(Self::Host),
-            "direct" | "direct_speakers" => Some(Self::Direct),
-            "virtual" | "virtual_objects" | "objects" => Some(Self::Virtual),
+            // `direct`/`virtual` are legacy aliases: placement is now per-channel
+            // in the virtual bed, so both collapse to the single `Spatial` mode.
+            "spatial" | "virtual" | "virtual_objects" | "objects" | "direct"
+            | "direct_speakers" => Some(Self::Spatial),
             _ => None,
         }
     }
@@ -534,6 +542,15 @@ pub struct LiveParams {
     /// identically by the CLI/spdif decode path and the embedded mpv host.
     /// Live-tunable via `/omniphony/control/channel_render_mode`.
     pub channel_render_mode: ChannelRenderMode,
+
+    /// Parametrable virtual bed for channel-based content (consulted only when
+    /// `channel_render_mode == Spatial`). One entry per input-channel label
+    /// (`L`, `R`, `C`, `LFE`, `Ls`, `Rs`, `Lb`, `Rb`, …): `spatialize:true`
+    /// virtualizes the channel as an object at the entry's position, `false`
+    /// routes it direct to the matching output speaker (e.g. LFE → sub). `None`
+    /// falls back to the built-in canonical poses (LFE direct, the rest
+    /// virtualized). Live-tunable via the `virtual_bed` layout OSC controls.
+    pub virtual_bed: Option<SpeakerLayout>,
 }
 
 impl LiveParams {

@@ -93,8 +93,11 @@ export function applyRuntimeAudioStateSnapshot(payload) {
   }
   if (typeof payload.channelRenderMode === 'string') {
     const next = payload.channelRenderMode.trim().toLowerCase();
-    if (next === 'host' || next === 'direct' || next === 'virtual') {
-      app.channelRenderMode = next;
+    // `direct`/`virtual` are legacy values that now collapse to `spatial`.
+    if (next === 'host') {
+      app.channelRenderMode = 'host';
+    } else if (next === 'spatial' || next === 'direct' || next === 'virtual') {
+      app.channelRenderMode = 'spatial';
     }
   }
   if (typeof payload.audioOutputDevice === 'string') {

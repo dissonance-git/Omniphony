@@ -367,6 +367,7 @@ impl<'a> SampleWriteCoordinator<'a> {
                     let labels: Vec<RChannelLabel> = frame.channel_labels.iter().copied().collect();
                     let (
                         mode,
+                        virtual_bed_layout,
                         room_ratio,
                         room_ratio_rear,
                         room_ratio_lower,
@@ -376,19 +377,17 @@ impl<'a> SampleWriteCoordinator<'a> {
                         let live = control.live.read();
                         (
                             live.channel_render_mode,
+                            live.virtual_bed.clone(),
                             live.room_ratio,
                             live.room_ratio_rear,
                             live.room_ratio_lower,
                             live.room_ratio_center_blend,
                         )
                     };
-                    let input_layout = self
-                        .input_control
-                        .and_then(|control| control.requested_snapshot().current_layout);
                     let virtual_events = match plan_channel_render(
                         mode,
                         &labels,
-                        input_layout.as_ref(),
+                        virtual_bed_layout.as_ref(),
                         room_ratio,
                         room_ratio_rear,
                         room_ratio_lower,
@@ -398,9 +397,9 @@ impl<'a> SampleWriteCoordinator<'a> {
                             events,
                             bed_indices,
                         } => {
-                            // Direct routes every channel as a bed; virtual keeps
-                            // beds empty so all channels go through VBAP.
-                            // Reconfigure only on change to avoid per-frame churn.
+                            // Spatial mode mixes per channel: direct channels
+                            // carry a bed id, virtual channels carry `usize::MAX`
+                            // (VBAP objects). Reconfigure only on change.
                             let desired: Vec<usize> = bed_indices.unwrap_or_default();
                             if self.spatial.bed_indices.as_deref().unwrap_or(&[])
                                 != desired.as_slice()
@@ -559,7 +558,7 @@ impl<'a> SampleWriteCoordinator<'a> {
                             self.telemetry.osc_sender.as_mut(),
                             build_virtual_bed_objects(
                                 &labels,
-                                input_layout.as_ref(),
+                                virtual_bed_layout.as_ref(),
                                 room_ratio,
                                 room_ratio_rear,
                                 room_ratio_lower,

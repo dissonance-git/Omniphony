@@ -389,14 +389,20 @@ impl Engine {
         control.set_requested_ramp_mode(ramp_mode);
         control.live.write().ramp_mode = ramp_mode;
 
-        // Channel render mode for non-object content (host / direct / virtual).
-        // Mirror `ramp_mode`: the live snapshot is seeded from config here so the
-        // embedded host matches the CLI bootstrap. Default = Virtual.
+        // Channel render mode for non-object content (host / spatial). Mirror
+        // `ramp_mode`: the live snapshot is seeded from config here so the
+        // embedded host matches the CLI bootstrap. Default = Spatial.
         let channel_render_mode = render_cfg
             .as_ref()
             .and_then(renderer::config_fields::channel_render_mode::get)
             .unwrap_or(renderer::config_fields::channel_render_mode::DEFAULT);
         control.live.write().channel_render_mode = channel_render_mode;
+
+        // Parametrable virtual bed (per-channel direct/virtual placement). Seed
+        // from config so the embedded host matches the CLI bootstrap; `None`
+        // leaves the built-in canonical poses in effect (LFE direct).
+        let virtual_bed = render_cfg.as_ref().and_then(|c| c.virtual_bed.clone());
+        control.live.write().virtual_bed = virtual_bed;
 
         // DRC: seed the live params from config and publish the bridge's
         // supported modes (so studio shows the DRC control). The decode-side
@@ -467,7 +473,9 @@ impl Engine {
 
     /// Configured render mode for channel-based (non-object) content, as a small
     /// code for the C FFI: 0 = host (the host should fall back to its native
-    /// decoder for plain multichannel streams), 1 = direct, 2 = virtual.
+    /// decoder for plain multichannel streams), non-zero = spatial (render
+    /// through the virtual bed). Per-channel direct/virtual placement lives in
+    /// the virtual bed, not in this code.
     pub fn channel_render_mode_code(&self) -> i32 {
         use renderer::live_params::ChannelRenderMode;
         match self
@@ -478,19 +486,18 @@ impl Engine {
             .channel_render_mode
         {
             ChannelRenderMode::Host => 0,
-            ChannelRenderMode::Direct => 1,
-            ChannelRenderMode::Virtual => 2,
+            ChannelRenderMode::Spatial => 1,
         }
     }
 
     /// Override the channel render mode at runtime (per-host override of the
-    /// config value). Codes: 0 = host, 1 = direct, anything else = virtual.
+    /// config value). Codes: 0 = host, anything else = spatial. The legacy
+    /// `direct`(1)/`virtual`(2) codes both map to spatial.
     pub fn set_channel_render_mode_code(&self, code: i32) {
         use renderer::live_params::ChannelRenderMode;
         let mode = match code {
             0 => ChannelRenderMode::Host,
-            1 => ChannelRenderMode::Direct,
-            _ => ChannelRenderMode::Virtual,
+            _ => ChannelRenderMode::Spatial,
         };
         self.renderer
             .renderer_control()
@@ -701,11 +708,19 @@ impl Engine {
         // poses (`None`), exactly as in the CLI's file-decode path.
         if !self.has_objects {
             let labels: Vec<RChannelLabel> = frame.channel_labels.iter().copied().collect();
-            let (mode, room_ratio, room_ratio_rear, room_ratio_lower, room_ratio_center_blend) = {
+            let (
+                mode,
+                virtual_bed_layout,
+                room_ratio,
+                room_ratio_rear,
+                room_ratio_lower,
+                room_ratio_center_blend,
+            ) = {
                 let control = self.renderer.renderer_control();
                 let live = control.live.read();
                 (
                     live.channel_render_mode,
+                    live.virtual_bed.clone(),
                     live.room_ratio,
                     live.room_ratio_rear,
                     live.room_ratio_lower,
@@ -716,7 +731,7 @@ impl Engine {
             match virtual_bed::plan_channel_render(
                 mode,
                 &labels,
-                None,
+                virtual_bed_layout.as_ref(),
                 room_ratio,
                 room_ratio_rear,
                 room_ratio_lower,
@@ -726,9 +741,10 @@ impl Engine {
                     events,
                     bed_indices,
                 } => {
-                    // Direct mode routes every channel as a bed; virtual leaves
-                    // beds empty so all channels go through VBAP. Reconfigure
-                    // only on change to avoid per-frame churn.
+                    // Spatial mode mixes per channel: direct channels carry a
+                    // bed id, virtual channels carry the `usize::MAX` sentinel
+                    // (rendered as VBAP objects). Reconfigure only on change to
+                    // avoid per-frame churn.
                     let desired: Vec<usize> = bed_indices.unwrap_or_default();
                     if self.bed_indices.as_deref().unwrap_or(&[]) != desired.as_slice() {
                         self.renderer.configure_beds(&desired);
@@ -762,7 +778,7 @@ impl Engine {
             if want_objects {
                 if let Some(objects) = virtual_bed::build_virtual_bed_objects(
                     &labels,
-                    None,
+                    virtual_bed_layout.as_ref(),
                     room_ratio,
                     room_ratio_rear,
                     room_ratio_lower,

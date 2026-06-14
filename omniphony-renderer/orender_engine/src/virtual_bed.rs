@@ -364,6 +364,11 @@ pub fn build_virtual_bed_objects(
 
     let mut objects: Vec<ObjectMeta> = Vec::with_capacity(channel_labels.len());
     for label in channel_labels {
+        // Only the virtualized channels are objects; direct channels (e.g. LFE)
+        // route to a real speaker and are not shown/sent as movable objects.
+        if !channel_is_spatialized(input_layout, *label, use_7_1) {
+            continue;
+        }
         let (name, az_deg, el_deg, dist_m) =
             match resolve_virtual_bed_pose(*label, use_7_1, input_layout) {
                 Some(v) => v,
@@ -400,7 +405,8 @@ pub fn build_virtual_bed_objects(
 
 /// Bed id (0–9, the scheme used by [`SpeakerLayout::bed_to_speaker_mapping`])
 /// for a channel label, or `None` when the label has no direct-speaker slot in
-/// that scheme (e.g. back-centre / top-side channels). Used by `Direct` mode.
+/// that scheme (e.g. back-centre / top-side channels). Used to route a channel
+/// the virtual bed marks `spatialize:false` direct to its output speaker.
 fn bed_id_for_label(label: RChannelLabel) -> Option<usize> {
     match label {
         RChannelLabel::L => Some(0),
@@ -417,18 +423,55 @@ fn bed_id_for_label(label: RChannelLabel) -> Option<usize> {
     }
 }
 
+/// Default placement for a channel label when the virtual bed has no entry for
+/// it (or no virtual bed is configured): every channel is virtualized except the
+/// LFE, which cannot be VBAP-panned and routes direct to the sub.
+fn default_channel_spatialize(label: RChannelLabel) -> bool {
+    !matches!(label, RChannelLabel::LFE | RChannelLabel::LFE2)
+}
+
+/// Find the virtual-bed entry (a [`renderer::speaker_layout::Speaker`]) for a
+/// channel label, matching by the same name aliases used to resolve poses.
+fn find_virtual_bed_entry(
+    layout: Option<&SpeakerLayout>,
+    label: RChannelLabel,
+    use_7_1: bool,
+) -> Option<&renderer::speaker_layout::Speaker> {
+    let layout = layout?;
+    let aliases = label_aliases(label, use_7_1)?;
+    layout.speakers.iter().find(|speaker| {
+        aliases
+            .iter()
+            .any(|alias| speaker.name.eq_ignore_ascii_case(alias))
+    })
+}
+
+/// Whether a channel should be virtualized (`true`) or routed direct to its
+/// speaker (`false`): the virtual bed's per-entry `spatialize` flag, falling
+/// back to [`default_channel_spatialize`] when the bed has no entry for it.
+fn channel_is_spatialized(
+    layout: Option<&SpeakerLayout>,
+    label: RChannelLabel,
+    use_7_1: bool,
+) -> bool {
+    find_virtual_bed_entry(layout, label, use_7_1)
+        .map(|entry| entry.spatialize)
+        .unwrap_or_else(|| default_channel_spatialize(label))
+}
+
 /// What the renderer should do with a channel-based (non-object) frame, decided
 /// once and applied identically by the CLI/spdif decode path and the embedded
-/// mpv host. See [`ChannelRenderMode`].
+/// mpv host. See [`renderer::live_params::ChannelRenderMode`].
 pub enum ChannelRenderPlan {
     /// Let the host / sink handle the channels (no spatialization). The CLI
     /// writes the decoded channels straight out; the embedded mpv decoder
     /// declines so mpv falls back to its native decoder.
     HostPassthrough,
-    /// Render the events. `bed_indices` is `Some(..)` for direct speaker routing
-    /// (the renderer must `configure_beds` to it so every channel routes as a
-    /// bed) and `None` for the virtual-object path (beds must be empty so every
-    /// channel goes through VBAP).
+    /// Render the events through the virtual bed. `bed_indices` is always
+    /// `Some(..)` with one entry per input channel: a bed id (0–9) for a channel
+    /// routed direct to its speaker, or `usize::MAX` for a channel virtualized as
+    /// a VBAP object (its position is carried by the matching event). The
+    /// renderer must `configure_beds` to it.
     Events {
         events: Vec<renderer::spatial_renderer::SpatialChannelEvent>,
         bed_indices: Option<Vec<usize>>,
@@ -440,12 +483,14 @@ pub enum ChannelRenderPlan {
 
 /// Decide how to render a channel-based frame for the given `mode`. Pure: no
 /// renderer interaction, so both decode paths can call it and apply the result
-/// the same way.
+/// the same way. In `Spatial` mode the placement of each channel — direct to a
+/// speaker or virtualized at a position — is decided per channel by the
+/// `virtual_bed` layout (falling back to canonical poses).
 #[allow(clippy::too_many_arguments)]
 pub fn plan_channel_render(
     mode: renderer::live_params::ChannelRenderMode,
     channel_labels: &[RChannelLabel],
-    input_layout: Option<&SpeakerLayout>,
+    virtual_bed: Option<&SpeakerLayout>,
     room_ratio: [f32; 3],
     room_ratio_rear: f32,
     room_ratio_lower: f32,
@@ -454,50 +499,91 @@ pub fn plan_channel_render(
     use renderer::live_params::ChannelRenderMode;
     match mode {
         ChannelRenderMode::Host => ChannelRenderPlan::HostPassthrough,
-        ChannelRenderMode::Direct => build_direct_bed_plan(channel_labels),
-        ChannelRenderMode::Virtual => match build_virtual_bed_events(
+        ChannelRenderMode::Spatial => build_virtual_bed_plan(
             channel_labels,
-            input_layout,
+            virtual_bed,
             room_ratio,
             room_ratio_rear,
             room_ratio_lower,
             room_ratio_center_blend,
-        ) {
-            Some(events) => ChannelRenderPlan::Events {
-                events,
-                bed_indices: None,
-            },
-            None => ChannelRenderPlan::Silence,
-        },
+        ),
     }
 }
 
-/// Direct mode: route each channel straight to its layout speaker. Builds the
-/// per-channel `bed_indices` (one entry per channel; `usize::MAX` for channels
-/// with no direct slot, which the renderer skips) plus a bed event per routed
-/// channel so its gain is unity instead of the silent default.
-fn build_direct_bed_plan(channel_labels: &[RChannelLabel]) -> ChannelRenderPlan {
+/// Spatial mode: decide each channel's placement against the virtual bed. A
+/// channel marked `spatialize:false` (e.g. LFE) routes direct to its speaker
+/// (a bed id in `bed_indices` + a bed event); a `spatialize:true` channel is
+/// virtualized at the bed's position (the `usize::MAX` sentinel in `bed_indices`
+/// + an object event carrying the position). A frame may freely mix the two.
+fn build_virtual_bed_plan(
+    channel_labels: &[RChannelLabel],
+    virtual_bed: Option<&SpeakerLayout>,
+    room_ratio: [f32; 3],
+    room_ratio_rear: f32,
+    room_ratio_lower: f32,
+    room_ratio_center_blend: f32,
+) -> ChannelRenderPlan {
+    let has_back = channel_labels
+        .iter()
+        .any(|l| matches!(l, RChannelLabel::Lb | RChannelLabel::Rb | RChannelLabel::Cb));
+    let use_7_1 = has_back;
+
     let mut bed_indices: Vec<usize> = Vec::with_capacity(channel_labels.len());
     let mut events: Vec<renderer::spatial_renderer::SpatialChannelEvent> =
         Vec::with_capacity(channel_labels.len());
+
     for (channel_idx, label) in channel_labels.iter().enumerate() {
-        match bed_id_for_label(*label) {
-            Some(bed_id) => {
-                bed_indices.push(bed_id);
-                events.push(renderer::spatial_renderer::SpatialChannelEvent {
-                    channel_idx,
-                    is_bed: true,
-                    gain_db: Some(0),
-                    ramp_length: Some(0),
-                    size: None,
-                    position: None,
-                    sample_pos: Some(0),
-                });
+        let spatialize = channel_is_spatialized(virtual_bed, *label, use_7_1);
+        if spatialize {
+            // Virtualize: place an object at the bed's (or fallback) pose.
+            match resolve_virtual_bed_pose(*label, use_7_1, virtual_bed) {
+                Some((_name, az_deg, el_deg, dist_m)) => {
+                    let (sx, sy, sz) =
+                        renderer::spatial_vbap::spherical_to_adm(az_deg, el_deg, dist_m);
+                    let (x, y, z) = inverse_room_ratio_map_for_virtual_object(
+                        sx,
+                        sy,
+                        sz,
+                        room_ratio,
+                        room_ratio_rear,
+                        room_ratio_lower,
+                        room_ratio_center_blend,
+                    );
+                    bed_indices.push(usize::MAX);
+                    events.push(renderer::spatial_renderer::SpatialChannelEvent {
+                        channel_idx,
+                        is_bed: false,
+                        gain_db: Some(0),
+                        ramp_length: Some(0),
+                        size: None,
+                        position: Some([x as f64, y as f64, z as f64]),
+                        sample_pos: Some(0),
+                    });
+                }
+                // No resolvable pose: keep index alignment, route nowhere.
+                None => bed_indices.push(usize::MAX),
             }
-            // No direct slot: keep index alignment but route nowhere (silent).
-            None => bed_indices.push(usize::MAX),
+        } else {
+            // Direct: route to the matching output speaker (by bed id / name).
+            match bed_id_for_label(*label) {
+                Some(bed_id) => {
+                    bed_indices.push(bed_id);
+                    events.push(renderer::spatial_renderer::SpatialChannelEvent {
+                        channel_idx,
+                        is_bed: true,
+                        gain_db: Some(0),
+                        ramp_length: Some(0),
+                        size: None,
+                        position: None,
+                        sample_pos: Some(0),
+                    });
+                }
+                // No direct slot for a channel asked to route direct: silent.
+                None => bed_indices.push(usize::MAX),
+            }
         }
     }
+
     if events.is_empty() {
         ChannelRenderPlan::Silence
     } else {
@@ -588,10 +674,16 @@ mod tests {
         assert!(matches!(plan, ChannelRenderPlan::HostPassthrough));
     }
 
+    fn vbed(speakers: Vec<renderer::speaker_layout::Speaker>) -> SpeakerLayout {
+        SpeakerLayout::from_speakers(speakers).expect("valid virtual bed")
+    }
+
     #[test]
-    fn plan_virtual_renders_objects_without_bed_routing() {
+    fn plan_spatial_default_virtualizes_all_but_lfe() {
+        // No virtual bed configured → built-in defaults: every channel is a VBAP
+        // object except LFE, which routes direct to its sub (bed id 3).
         let plan = plan_channel_render(
-            renderer::live_params::ChannelRenderMode::Virtual,
+            renderer::live_params::ChannelRenderMode::Spatial,
             &BED_5_1,
             None,
             UNIT_ROOM,
@@ -604,51 +696,80 @@ mod tests {
                 events,
                 bed_indices,
             } => {
+                let bi = bed_indices.expect("spatial mode configures bed_indices");
+                // One entry per channel: LFE (idx 3) is direct, the rest virtual.
+                assert_eq!(
+                    bi,
+                    vec![
+                        usize::MAX,
+                        usize::MAX,
+                        usize::MAX,
+                        3,
+                        usize::MAX,
+                        usize::MAX
+                    ]
+                );
+                // Six events: five virtual objects + the LFE bed.
                 assert_eq!(events.len(), BED_5_1.len());
-                // Virtual: every channel is a VBAP object, no bed routing.
-                assert!(bed_indices.is_none());
-                assert!(events.iter().all(|e| !e.is_bed));
+                let lfe = events.iter().find(|e| e.channel_idx == 3).unwrap();
+                assert!(lfe.is_bed, "LFE must be a bed event");
+                assert!(lfe.position.is_none());
+                for ev in events.iter().filter(|e| e.channel_idx != 3) {
+                    assert!(!ev.is_bed, "non-LFE channels are virtual objects");
+                    assert!(ev.position.is_some());
+                }
             }
             other => panic!("expected Events, got {:?}", PlanKind::from(&other)),
         }
     }
 
     #[test]
-    fn plan_direct_routes_each_channel_to_its_speaker() {
+    fn plan_spatial_respects_explicit_per_channel_spatialize() {
+        use renderer::speaker_layout::Speaker;
+        // Flip the defaults: C routed direct, LFE virtualized. Other channels
+        // keep their defaults (virtual).
+        let bed = vbed(vec![
+            Speaker::new_with_spatialize("C", 0.0, 0.0, false),
+            Speaker::new_with_spatialize("LFE", 0.0, 0.0, true),
+            Speaker::new_with_spatialize("FL", -30.0, 0.0, true),
+        ]);
         let plan = plan_channel_render(
-            renderer::live_params::ChannelRenderMode::Direct,
+            renderer::live_params::ChannelRenderMode::Spatial,
             &BED_5_1,
-            None,
+            Some(&bed),
             UNIT_ROOM,
             1.0,
             1.0,
             0.0,
         );
         match plan {
-            ChannelRenderPlan::Events {
-                events,
-                bed_indices,
-            } => {
-                // Direct: bed routing with one bed id per channel (full length).
-                let bi = bed_indices.expect("direct mode configures bed_indices");
-                assert_eq!(bi.len(), BED_5_1.len());
-                // 5.1 maps to bed ids 0..=5 in order (L,R,C,LFE,Ls,Rs).
-                assert_eq!(bi, vec![0, 1, 2, 3, 4, 5]);
-                assert!(events.iter().all(|e| e.is_bed && e.gain_db == Some(0)));
+            ChannelRenderPlan::Events { bed_indices, .. } => {
+                let bi = bed_indices.unwrap();
+                // C (idx 2) is now direct → bed id 2; LFE (idx 3) is virtual → MAX.
+                assert_eq!(bi[2], 2, "C explicitly direct");
+                assert_eq!(bi[3], usize::MAX, "LFE explicitly virtualized");
+                assert_eq!(bi[0], usize::MAX, "L keeps the virtual default");
             }
             other => panic!("expected Events, got {:?}", PlanKind::from(&other)),
         }
     }
 
     #[test]
-    fn plan_direct_keeps_alignment_for_unroutable_channels() {
-        // Back-centre (Cb) has no bed slot: it must keep index alignment with a
-        // sentinel and emit no event (silent), not shift the other channels.
+    fn plan_spatial_keeps_alignment_for_unroutable_direct_channel() {
+        use renderer::speaker_layout::Speaker;
+        // Back-centre (Cb) has no direct-speaker slot. Even if asked to route
+        // direct, it must keep index alignment with a sentinel and emit no event
+        // (silent), not shift the other channels.
+        let bed = vbed(vec![
+            Speaker::new_with_spatialize("BC", 180.0, 0.0, false),
+            Speaker::new_with_spatialize("FL", -30.0, 0.0, true),
+            Speaker::new_with_spatialize("FR", 30.0, 0.0, true),
+        ]);
         let labels = [RChannelLabel::L, RChannelLabel::Cb, RChannelLabel::R];
         let plan = plan_channel_render(
-            renderer::live_params::ChannelRenderMode::Direct,
+            renderer::live_params::ChannelRenderMode::Spatial,
             &labels,
-            None,
+            Some(&bed),
             UNIT_ROOM,
             1.0,
             1.0,
@@ -661,13 +782,10 @@ mod tests {
             } => {
                 let bi = bed_indices.unwrap();
                 assert_eq!(bi.len(), 3);
-                assert_eq!(bi[0], 0);
-                assert_eq!(bi[1], usize::MAX, "Cb has no slot → sentinel");
-                assert_eq!(bi[2], 1);
-                // Only L and R produce events.
+                assert_eq!(bi[1], usize::MAX, "Cb direct but no slot → sentinel");
+                // L and R virtualize (objects); Cb produces no event.
+                assert!(events.iter().all(|e| e.channel_idx != 1));
                 assert_eq!(events.len(), 2);
-                assert_eq!(events[0].channel_idx, 0);
-                assert_eq!(events[1].channel_idx, 2);
             }
             other => panic!("expected Events, got {:?}", PlanKind::from(&other)),
         }
