@@ -264,7 +264,7 @@
   "rampMode.infoBody": "Ramping smooths abrupt position or gain changes so object motion and level updates stay more natural and produce fewer clicks or spatial jumps.<br /><br /><strong>Off</strong>: disable interpolation and jump immediately to the new target.<br /><br /><strong>Per frame</strong>: apply one interpolation step per decoded audio frame. This is lighter and more stepped.<br /><br /><strong>Per sample (interpolated)</strong>: evaluate the spatial gains once per frame and linearly interpolate them across each sample. Nearly as smooth as Per sample at roughly the cost of Per frame — the recommended smooth mode.<br /><br /><strong>Per sample</strong>: re-evaluate the full spatial panning for every rendered sample. The most accurate but the most expensive.",
   "section.twoDSources": "2D sources",
   "twoDSources.spatializeLabel": "Spatialize 2D sources",
-  "twoDSources.virtualBedHint": "Each input channel is either placed at a position (virtualized) or routed direct to its speaker. Edit per-channel placement in the virtual bed.",
+  "twoDSources.virtualBedHint": "Each input channel is either placed at a position (Virtual) or routed direct to its speaker (Direct, e.g. LFE → sub). Edit each channel below, or — while channel audio is playing — drag its marker in the 3D view to aim it.",
   "virtualBed.virtual": "Virtual",
   "virtualBed.direct": "Direct",
   "virtualBed.reset": "Reset to defaults",
