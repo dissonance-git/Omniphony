@@ -149,7 +149,9 @@ pub struct BinauralReflections {
 impl Default for BinauralReflections {
     fn default() -> Self {
         Self {
-            enabled: true,
+            // Off by default (dry headphone output); opt-in like the late
+            // reverb. Room size / level below apply once enabled.
+            enabled: false,
             room_size_m: [4.0, 5.0, 2.7],
             level: 0.5,
         }
@@ -177,7 +179,10 @@ pub struct BinauralReverb {
 impl Default for BinauralReverb {
     fn default() -> Self {
         Self {
-            enabled: true,
+            // Off by default: the late-reverb tail isn't convincing enough yet,
+            // so headphone output is dry unless the user opts in. The level/
+            // rt60/predelay below are the values used once it's enabled.
+            enabled: false,
             level: 0.25,
             rt60_s: 0.35,
             predelay_ms: 20.0,

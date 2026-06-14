@@ -325,7 +325,7 @@ pub struct BinauralConfig {
 /// Models the (small, dry) listening room, not the scene's acoustics.
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
 pub struct ReverbConfig {
-    /// Master enable. Default true.
+    /// Master enable. Default false (dry headphone output unless opted in).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
     /// Return level (0..1).
@@ -346,7 +346,7 @@ pub struct ReverbConfig {
 /// stage (six first-order images, listener at the room centre).
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
 pub struct ReflectionsConfig {
-    /// Master enable. Default true.
+    /// Master enable. Default false (dry headphone output unless opted in).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
     /// Room width (x), metres.
