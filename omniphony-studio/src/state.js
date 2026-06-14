@@ -351,6 +351,10 @@ export const app = {
   polarEditArmed: false,
   cartesianEditArmed: false,
   activeEditMode: 'polar',
+  // Display-only coord mode for the channel editor (which table the radios
+  // highlight). The virtual bed is always stored/sent as polar — see
+  // controls/virtual-bed.js — so this never changes what reaches the renderer.
+  channelEditCoordMode: 'cartesian',
   isDraggingSpeaker: false,
   dragMode: null,
   dragAxis: null,
@@ -366,12 +370,26 @@ export const app = {
   pointerDownPosition: null,
   draggingPointerId: null,
 
-  // Virtual-bed channel drag (a 2D-source marker repositioned in the scene).
+  // The current gizmo edit target (speaker or virtual-bed channel object),
+  // resolved at drag start so update/end commit to the right model.
+  dragEditTarget: null,
+
+  // Virtual-bed channel edit (a 2D-source marker edited via the 3D gizmo).
   // While set, updateSource skips repositioning this id so the live OSC stream
-  // doesn't fight the drag; the new direction is sent on release.
+  // doesn't fight the gizmo drag; the new position is sent on release.
   isDraggingVirtualBed: false,
   draggingVirtualBedSourceId: null,
   draggingVirtualBedChannel: null,
+
+  // Editor-authoritative pin for a channel object: while its id is pinned,
+  // updateSource holds the mesh at `channelEditPinPos` and ignores the live OSC
+  // stream — during the drag (channelEditPinUntil = 0, no expiry) and through a
+  // short settle window after release (a future timestamp) so in-flight stream
+  // packets carrying the pre-edit position can't flash the object back before the
+  // renderer applies the new bed.
+  channelEditPinId: null,
+  channelEditPinPos: null,
+  channelEditPinUntil: 0,
 
   // Trail
   trailsEnabled: true,

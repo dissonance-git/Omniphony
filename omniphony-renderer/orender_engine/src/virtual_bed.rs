@@ -397,6 +397,10 @@ pub fn build_virtual_bed_objects(
                     .and_then(|m| m.get(&bed_id).map(|&spk| spk as u32))
             })
         };
+        // Per-channel gain from the virtual bed (dB); 0 = unity when unset.
+        let gain = find_virtual_bed_entry(virtual_bed, *label, use_7_1)
+            .map(|entry| entry.gain_db)
+            .unwrap_or(0);
         objects.push(ObjectMeta {
             name,
             x,
@@ -404,7 +408,7 @@ pub fn build_virtual_bed_objects(
             z,
             coord_mode: "cartesian".to_string(),
             direct_speaker_index,
-            gain: 0,
+            gain,
             priority: 0.0,
             size: [0.0, 0.0, 0.0],
         });
@@ -698,6 +702,31 @@ mod tests {
                 "{} is virtualized, no direct anchor",
                 obj.name
             );
+        }
+    }
+
+    #[test]
+    fn objects_carry_per_channel_gain_from_virtual_bed() {
+        use renderer::speaker_layout::Speaker;
+        // A virtual bed sets C to -6 dB; channels with no explicit gain stay at 0.
+        let mut center = Speaker::new("C", 0.0, 0.0);
+        center.gain_db = -6;
+        let bed = vbed(vec![
+            Speaker::new("L", -30.0, 0.0),
+            center,
+            Speaker::new("R", 30.0, 0.0),
+        ]);
+        let labels = [RChannelLabel::L, RChannelLabel::C, RChannelLabel::LFE];
+        let objects =
+            build_virtual_bed_objects(&labels, Some(&bed), None, UNIT_ROOM, 1.0, 1.0, 0.0)
+                .expect("all channels emitted");
+        let c = objects
+            .iter()
+            .find(|o| o.name.eq_ignore_ascii_case("C"))
+            .expect("C object present");
+        assert_eq!(c.gain, -6, "C gain comes from the virtual bed");
+        for obj in objects.iter().filter(|o| !o.name.eq_ignore_ascii_case("C")) {
+            assert_eq!(obj.gain, 0, "{} has no configured gain", obj.name);
         }
     }
 

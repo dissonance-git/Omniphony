@@ -20,6 +20,7 @@ import {
   sourceLevels,
   sourceLevelLastSeen,
   sourceMeshes,
+  sourceLabels,
   sourceGains,
   sourceBandGains,
   sourceNames,
@@ -111,6 +112,7 @@ import {
   arcLabelAngles
 } from './scene/gizmos.js';
 
+import { renderChannelEditor, canonicalChannelName, channelPlacement } from './controls/virtual-bed.js';
 import { t, tf } from './i18n.js';
 import { pushLog } from './log.js';
 import { scheduleUIFlush } from './flush.js';
@@ -536,6 +538,7 @@ export function updateObjectControlsUI() {
     updateSpeakerContributionUI_src(entry, id);
     updateSpeakerBandBars(entry, Number(id));
   });
+  renderChannelEditor();
 }
 
 export function updateObjectDominantSpeakerUI(id) {
@@ -1340,6 +1343,14 @@ export function createObjectItem(id) {
   const level = document.createElement('div');
   level.className = 'meter-row';
 
+  // Top-view position thumbnail (same marker as speakers): on the always-visible
+  // meter row, between the name chip and the dB value. Normalized X left/right,
+  // Y rear/front with front up; marker colour encodes height (Z). Updated live by
+  // applyObjectPositionIcon as the object moves.
+  const positionIcon = document.createElement('span');
+  positionIcon.className = 'object-position-icon';
+  level.appendChild(positionIcon);
+
   const levelText = document.createElement('div');
   levelText.className = 'fixed-metric';
   level.appendChild(levelText);
@@ -1401,6 +1412,7 @@ export function createObjectItem(id) {
     root,
     idStrip,
     label: idText,
+    positionIcon,
     axisElems,
     topRight,
     sizeFills,
@@ -1415,6 +1427,24 @@ export function createObjectItem(id) {
   };
 }
 
+// Refresh an object row's position thumbnail from a normalized position
+// (`{ x, y, z }` in [-1, 1]). Reuses the speaker marker so objects and speakers
+// read identically. Cheap enough to call on every position flush.
+export function applyObjectPositionIcon(entry, position) {
+  if (!entry?.positionIcon || !position) return;
+  // spatialize:1 → currentColor room frame (objects are always virtualized).
+  entry.positionIcon.innerHTML = positionIconMarkup({
+    x: position.x,
+    y: position.y,
+    z: position.z,
+    spatialize: 1
+  });
+  const x = (Number(position.x) || 0).toFixed(2);
+  const y = (Number(position.y) || 0).toFixed(2);
+  const z = (Number(position.z) || 0).toFixed(2);
+  entry.positionIcon.title = `X ${x}  Y ${y}  Z ${z}`;
+}
+
 export function updateObjectItem(entry, id, position, name) {
   const selectedSourceId = get_selectedSourceId();
   const soloTarget = getSoloTarget('object');
@@ -1427,6 +1457,7 @@ export function updateObjectItem(entry, id, position, name) {
   Object.keys(entry.axisElems).forEach(axis => {
     entry.axisElems[axis].textContent = `${axis}:${coords[axis]}`;
   });
+  applyObjectPositionIcon(entry, position);
   entry.topRight.textContent = getObjectDominantSpeakerText(id);
   entry.root.classList.toggle('has-active-trail', objectHasActiveTrail(id));
   entry.muteBtn.classList.toggle('active', objectMuted.has(id));
@@ -1559,10 +1590,34 @@ export function getObjectIds() {
 // Gizmo / selection
 // ---------------------------------------------------------------------------
 
+/**
+ * The current 3D-edit target for the shared gizmo: a selected speaker, or — when
+ * no speaker is selected — a selected virtual-bed channel object (only the
+ * virtualized ones; direct channels are pinned to their speaker). Returns
+ * `{ kind, mesh, label, index?, id?, name? }` or null.
+ */
+export function resolveEditTarget() {
+  const speakerIndex = get_selectedSpeakerIndex();
+  if (speakerIndex !== null) {
+    const mesh = speakerMeshes[speakerIndex];
+    if (!mesh) return null;
+    return { kind: 'speaker', index: speakerIndex, mesh, label: speakerLabels[speakerIndex] };
+  }
+  if (app.channelRenderMode !== 'host' && app.selectedSourceId !== null && app.selectedSourceId !== undefined) {
+    const id = String(app.selectedSourceId);
+    const mesh = sourceMeshes.get(id);
+    if (!mesh) return null;
+    const name = sourceNames.get(id);
+    if (!canonicalChannelName(name) || channelPlacement(name) !== 'virtual') return null;
+    return { kind: 'channel', id, name, mesh, label: sourceLabels.get(id) };
+  }
+  return null;
+}
+
 export function updateSpeakerGizmo() {
-  const selectedSpeakerIndex = get_selectedSpeakerIndex();
-  const polarActive = app.activeEditMode === 'polar' && selectedSpeakerIndex !== null && app.polarEditArmed;
-  const cartesianActive = app.activeEditMode === 'cartesian' && selectedSpeakerIndex !== null && app.cartesianEditArmed;
+  const target = resolveEditTarget();
+  const polarActive = app.activeEditMode === 'polar' && target !== null && app.polarEditArmed;
+  const cartesianActive = app.activeEditMode === 'cartesian' && target !== null && app.cartesianEditArmed;
 
   cartesianGizmo.group.visible = false;
 
@@ -1579,7 +1634,7 @@ export function updateSpeakerGizmo() {
     speakerGizmo.arcCurrent.visible = false;
     distanceGizmo.group.visible = false;
   } else {
-    const mesh = speakerMeshes[selectedSpeakerIndex];
+    const mesh = target ? target.mesh : null;
     if (!mesh) {
       speakerGizmo.ring.visible = false;
       speakerGizmo.ringTicks.visible = false;
@@ -1685,7 +1740,7 @@ export function updateSpeakerGizmo() {
   }
 
   if (cartesianActive) {
-    const mesh = speakerMeshes[selectedSpeakerIndex];
+    const mesh = target ? target.mesh : null;
     if (!mesh) {
       cartesianGizmo.group.visible = false;
     } else {
@@ -1708,6 +1763,14 @@ export function setSelectedSpeaker(index) {
   updateSpeakerGizmo();
   updateSpeakerControlsUI();
   updateControlsForEditMode();
+  // Keep the selected row visible: the editor panel that just opened at the
+  // bottom shrinks the scroll area, which can hide the row. Scroll after layout.
+  if (index !== null) {
+    const entry = speakerItems.get(String(index));
+    if (entry?.root) {
+      requestAnimationFrame(() => entry.root.scrollIntoView({ block: 'nearest' }));
+    }
+  }
 }
 
 export function updateControlsForEditMode() {

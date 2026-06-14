@@ -106,17 +106,18 @@
         <div class="panel-header">
           <div class="panel-header-main">
             <div class="panel-title-wrap">
-              <div class="info-title panel-title" data-i18n="section.twoDSources">2D sources</div>
+              <div class="info-title panel-title" data-i18n="section.twoDSources" data-help-i18n="help.twoDSources">2D sources</div>
             </div>
           </div>
+          <div style="display:flex;align-items:center;gap:0.35rem">
+            <button id="twoDSourcesToggleBtn" type="button" class="panel-toggle-btn" data-i18n-title="section.twoDSources" title="2D sources">▾</button>
+          </div>
         </div>
-        <div style="display:grid;gap:0.35rem;padding:0.1rem 0.1rem 0.2rem">
+        <div id="twoDSourcesBody" style="display:grid;gap:0.35rem;padding:0.1rem 0.1rem 0.2rem">
           <label class="switch-row" style="font-size:13px;cursor:pointer">
             <span data-i18n="twoDSources.spatializeLabel" data-help-i18n="help.twoDSources" data-help-anchor=".switch-row">Spatialize 2D sources</span>
             <input id="channelSpatializeToggle" type="checkbox" />
           </label>
-          <div id="virtualBedRow" style="font-size:12px;color:#cfd8e3;line-height:1.4" data-i18n="twoDSources.virtualBedHint">Each input channel is either placed at a position (virtualized) or routed direct to its speaker. Edit per-channel placement in the virtual bed.</div>
-          <div id="virtualBedEditor" style="display:none;margin-top:0.25rem"></div>
           <div id="virtualBedActions" style="display:flex;justify-content:flex-end;margin-top:0.25rem">
             <button id="virtualBedResetBtn" type="button" class="delay-input" style="cursor:pointer" data-i18n="virtualBed.reset">Reset to defaults</button>
           </div>
@@ -475,6 +476,70 @@
         <div id="objectsList" class="info-list">No objects.</div>
       </div>
       </div>
+      </div>
+      <!-- Channel editor pinned below the left-overlay scroll, like the speaker
+           editor: the panels above keep scrolling while this stays visible. -->
+      <div class="info-section" id="channelEditSection" style="display:none">
+        <div class="info-title" id="channelEditTitle" data-i18n="channelEdit.title">Channel Editor</div>
+        <div id="channelEditBody" class="editor-body">
+          <label class="switch-row" style="cursor:pointer;margin-bottom:0.35rem">
+            <span id="channelEditSpatializeText" data-i18n="virtualBed.virtual">Virtual</span>
+            <input id="channelEditSpatializeToggle" type="checkbox" />
+          </label>
+          <div class="editor-meta">
+            <div class="coord-mode-row">
+              <label class="coord-mode-label" for="channelEditCartesianMode">
+                <input id="channelEditCartesianMode" type="radio" name="channelCoordMode" value="cartesian" />
+                <strong data-i18n="common.cartesian">Cartesian:</strong>
+              </label>
+            </div>
+            <div class="coord-table-row">
+              <div class="cart-coord-table">
+                <span class="cart-coord-corner" aria-hidden="true"></span>
+                <span class="cart-coord-head" title="Omniphony X (left/right)">X</span>
+                <span class="cart-coord-head" title="Omniphony Y (rear/front)">Y</span>
+                <span class="cart-coord-head" title="Omniphony Z (down/up)">Z</span>
+                <span class="cart-coord-rowlabel" data-i18n="speaker.normalizedCoords">Norm.</span>
+                <input id="channelEditXInput" type="number" step="0.001" title="Omniphony X (left/right)" />
+                <input id="channelEditYInput" type="number" step="0.001" title="Omniphony Y (rear/front)" />
+                <input id="channelEditZInput" type="number" step="0.001" title="Omniphony Z (down/up)" />
+                <span class="cart-coord-rowlabel" data-i18n="speaker.metersCoords">Real (m)</span>
+                <input id="channelEditXMetersInput" type="number" step="0.01" title="Omniphony X in meters (left/right)" />
+                <input id="channelEditYMetersInput" type="number" step="0.01" title="Omniphony Y in meters (rear/front)" />
+                <input id="channelEditZMetersInput" type="number" step="0.01" title="Omniphony Z in meters (down/up)" />
+              </div>
+              <button id="channelEditCartesianGizmoBtn" type="button" class="toggle-btn" data-i18n="speaker.edit3d">3D Edit</button>
+            </div>
+            <div class="coord-mode-row">
+              <label class="coord-mode-label" for="channelEditPolarMode">
+                <input id="channelEditPolarMode" type="radio" name="channelCoordMode" value="polar" />
+                <strong data-i18n="common.polar">Polar:</strong>
+              </label>
+            </div>
+            <div class="coord-table-row">
+              <div class="cart-coord-table">
+                <span class="cart-coord-corner" aria-hidden="true"></span>
+                <span class="cart-coord-head" title="Azimuth (degrees)">Az°</span>
+                <span class="cart-coord-head" title="Elevation (degrees)">El°</span>
+                <span class="cart-coord-head" title="Distance">Dist</span>
+                <span class="cart-coord-rowlabel" data-i18n="speaker.normalizedCoords">Norm.</span>
+                <input id="channelEditAzInput" type="number" step="0.1" title="Azimuth (degrees)" />
+                <input id="channelEditElInput" type="number" step="0.1" title="Elevation (degrees)" />
+                <input id="channelEditRInput" type="number" step="0.001" min="0.01" title="Distance" />
+                <span class="cart-coord-rowlabel" data-i18n="speaker.metersCoords">Real (m)</span>
+                <span aria-hidden="true"></span>
+                <span aria-hidden="true"></span>
+                <input id="channelEditRMetersInput" type="number" step="0.01" min="0.01" title="Distance in meters" />
+              </div>
+              <button id="channelEditPolarGizmoBtn" type="button" class="toggle-btn" data-i18n="speaker.edit3d">3D Edit</button>
+            </div>
+          </div>
+          <div class="editor-row gain-row">
+            <label for="channelEditGainSlider" data-i18n="channelEdit.gain">Gain</label>
+            <input id="channelEditGainSlider" class="gain-slider" type="range" min="-24" max="12" step="1" value="0" />
+            <div id="channelEditGainBox" class="gain-box">0 dB</div>
+          </div>
+        </div>
       </div>
     </div>
     <div id="speakersOverlay">

@@ -23,6 +23,7 @@ import {
 } from './state.js';
 
 import { updateSource, updateSourceLevel, updateSourceGains, updateSourceBandGains, updateSourceSize, updateSourceTag, removeSource } from './sources.js';
+import { syncVirtualBedObjects } from './controls/virtual-bed.js';
 import {
   updateSpeakerLevel,
   updateMasterLevel,
@@ -156,6 +157,8 @@ export function setupTauriBridge() {
 
   listen('source:update', ({ payload }) => {
     updateSource(payload.id, payload.position);
+    // A live stream object arrived → drop the synthetic at-rest bed markers.
+    syncVirtualBedObjects();
   });
 
   listen('source:size', ({ payload }) => {
@@ -164,6 +167,8 @@ export function setupTauriBridge() {
 
   listen('source:remove', ({ payload }) => {
     removeSource(payload.id);
+    // The stream may have gone idle → restore the synthetic at-rest bed markers.
+    syncVirtualBedObjects();
   });
 
   listen('source:meter', ({ payload }) => {

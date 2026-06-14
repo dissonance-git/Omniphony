@@ -193,6 +193,21 @@
         overflow-y: auto;
       }
 
+      /* Channel editor pinned below the left-overlay scroll — same treatment as
+         the speaker editor: the 2D sources / objects list above keep scrolling
+         while this temporary editing panel stays visible at the bottom. */
+      #overlay > #channelEditSection {
+        flex: 0 0 auto;
+        width: 100%;
+        min-height: auto;
+        box-sizing: border-box;
+        scrollbar-gutter: stable both-edges;
+        scrollbar-width: thin;
+        padding-right: 1.15rem;
+        max-height: 45vh;
+        overflow-y: auto;
+      }
+
       .app-brand {
         display: flex;
         align-items: center;
@@ -1568,7 +1583,7 @@
       }
 
       .object-item .meter-row {
-        grid-template-columns: 8ch 1fr 32px auto;
+        grid-template-columns: auto 8ch 1fr 32px auto;
       }
 
       .object-meter-actions {
@@ -1862,6 +1877,27 @@
         grid-template-columns: 18px 1fr;
         gap: 0.45rem;
         align-items: stretch;
+        /* The row is a click target (select the object); its labels (coords, dB)
+           are readouts, not selectable text — without this a click-drag on a value
+           starts a text selection and shows the I-beam instead of the arrow.
+           Mirrors .speaker-item. */
+        -webkit-user-select: none;
+        user-select: none;
+      }
+
+      /* Readouts (coords, level/meters, dominant-speaker, size gauges, id chip)
+         are rewritten continuously by the meter/position loops. Make them
+         click-through so a click selects the row instead of being dropped when the
+         text node churns mid-click — same fix as the speaker rows. The M/S buttons
+         keep their own pointer events. */
+      .object-item .object-head,
+      .object-item .meter-row,
+      .object-item .object-contrib-row,
+      .object-item .id-strip {
+        pointer-events: none;
+      }
+      .object-item .object-meter-actions {
+        pointer-events: auto;
       }
 
       .speaker-item {
@@ -2087,14 +2123,16 @@
         grid-template-columns: auto 8ch 1fr auto;
       }
 
-      .speaker-position-icon {
+      .speaker-position-icon,
+      .object-position-icon {
         display: inline-flex;
         align-items: center;
         justify-content: center;
         color: #5d6b7d;
       }
 
-      .speaker-position-icon svg {
+      .speaker-position-icon svg,
+      .object-position-icon svg {
         display: block;
       }
 

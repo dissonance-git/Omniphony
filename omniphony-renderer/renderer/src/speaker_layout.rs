@@ -94,6 +94,10 @@ pub struct Speaker {
     /// Set to false for LFE/subwoofers (default: true)
     pub spatialize: bool,
 
+    /// Per-entry gain in dB (default: 0 = unity). Used by the virtual bed to set
+    /// `ObjectMeta.gain` per input channel; ignored for output-layout speakers.
+    pub gain_db: i32,
+
     /// Per-speaker output delay in milliseconds (default: 0.0).
     pub delay_ms: f32,
 
@@ -165,6 +169,8 @@ struct RawSpeaker {
     z: Option<f32>,
     #[serde(default = "default_spatialize")]
     spatialize: bool,
+    #[serde(default)]
+    gain_db: i32,
     #[serde(default = "default_delay_ms")]
     delay_ms: f32,
     #[serde(default)]
@@ -215,6 +221,7 @@ impl<'de> Deserialize<'de> for Speaker {
             y,
             z,
             spatialize: raw.spatialize,
+            gain_db: raw.gain_db,
             delay_ms: raw.delay_ms,
             freq_low: raw.freq_low.filter(|value| *value > 0.0),
             freq_high: raw.freq_high.filter(|value| *value > 0.0),
@@ -242,6 +249,9 @@ impl Serialize for Speaker {
             state.serialize_field("distance", &self.distance)?;
         }
         state.serialize_field("spatialize", &self.spatialize)?;
+        if self.gain_db != 0 {
+            state.serialize_field("gain_db", &self.gain_db)?;
+        }
         state.serialize_field("delay_ms", &self.delay_ms)?;
         if self.freq_low.is_some() {
             state.serialize_field("freq_low", &self.freq_low)?;
@@ -274,6 +284,7 @@ impl Speaker {
             y,
             z,
             spatialize,
+            gain_db: 0,
             delay_ms: delay_ms.max(0.0),
             freq_low: None,
             freq_high: None,
@@ -305,6 +316,7 @@ impl Speaker {
             y,
             z,
             spatialize,
+            gain_db: 0,
             delay_ms: delay_ms.max(0.0),
             freq_low: None,
             freq_high: None,

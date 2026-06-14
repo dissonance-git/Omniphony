@@ -270,6 +270,18 @@ export function setupModalAndToggleListeners() {
     });
   }
 
+  // 2D sources: a small self-contained collapse (no persisted state needed).
+  const twoDSourcesToggleBtnEl = document.getElementById('twoDSourcesToggleBtn');
+  if (twoDSourcesToggleBtnEl) {
+    twoDSourcesToggleBtnEl.addEventListener('click', () => {
+      const root = document.getElementById('twoDSourcesPanelRoot');
+      const body = document.getElementById('twoDSourcesBody');
+      const collapsed = root?.classList.toggle('section-collapsed');
+      if (body) body.style.display = collapsed ? 'none' : 'grid';
+      twoDSourcesToggleBtnEl.textContent = collapsed ? '▸' : '▾';
+    });
+  }
+
   if (displaySectionToggleBtnEl) {
     displaySectionToggleBtnEl.addEventListener('click', () => {
       setDisplaySectionOpen(!app.displaySectionOpen);
