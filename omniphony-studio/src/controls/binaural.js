@@ -23,6 +23,18 @@ function send(cmd, args) {
   invoke(cmd, args).catch((e) => console.error('[binaural]', cmd, e));
 }
 
+// Show the reflections / reverb parameter blocks only when their master switch
+// is on, so a dry (default) headphone setup isn't cluttered with inactive
+// controls. Driven from the switch change handlers and applyBinauralState.
+function syncBinauralParamVisibility() {
+  const refl = el('binauralReflEnabled');
+  const reflParams = el('binauralReflParams');
+  if (reflParams) reflParams.style.display = refl && refl.checked ? 'grid' : 'none';
+  const rev = el('binauralRevEnabled');
+  const revParams = el('binauralRevParams');
+  if (revParams) revParams.style.display = rev && rev.checked ? 'grid' : 'none';
+}
+
 export function initBinauralPanel() {
   if (bound) return;
   bound = true;
@@ -89,6 +101,7 @@ export function initBinauralPanel() {
   const reflEnabled = el('binauralReflEnabled');
   if (reflEnabled) {
     reflEnabled.addEventListener('change', (e) => {
+      syncBinauralParamVisibility();
       if (applying) return;
       send('control_binaural_reflections_enabled', { enable: e.target.checked ? 1 : 0 });
     });
@@ -130,6 +143,7 @@ export function initBinauralPanel() {
   const revEnabled = el('binauralRevEnabled');
   if (revEnabled) {
     revEnabled.addEventListener('change', (e) => {
+      syncBinauralParamVisibility();
       if (applying) return;
       send('control_binaural_reverb_enabled', { enable: e.target.checked ? 1 : 0 });
     });
@@ -205,6 +219,9 @@ export function initBinauralPanel() {
       send('control_head_tracking_invert', { enable: e.target.checked ? 1 : 0 });
     });
   }
+
+  // Reflect the initial (default-off) switch state.
+  syncBinauralParamVisibility();
 }
 
 // Apply the `binaural` object from the renderer state bundle to the controls.
@@ -311,6 +328,9 @@ export function applyBinauralState(b) {
     }
     const air = el('binauralAirAbsorption');
     if (air && typeof b.airAbsorption === 'boolean') air.checked = b.airAbsorption;
+
+    // The renderer's enabled state drives the param blocks' visibility.
+    syncBinauralParamVisibility();
 
     const t = b.tracking || {};
     if (typeof t.address === 'string') setVal('binauralTrackAddress', t.address);

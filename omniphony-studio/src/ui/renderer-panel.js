@@ -99,8 +99,9 @@ export function rendererPanelMarkup() {
             <div class="renderer-subpanel-body" style="margin-top:0.25rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.3rem">
               <div class="switch-row" style="margin-top:0;font-size:0.7rem;color:#8fa6bd;">
                 <span data-help-i18n="help.binaural.earlyReflections">Early reflections</span>
-                <input id="binauralReflEnabled" type="checkbox" checked />
+                <input id="binauralReflEnabled" type="checkbox" />
               </div>
+              <div id="binauralReflParams" style="display:none;gap:0.3rem">
               <div class="binaural-help-row">
                 <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
                   <span data-help-i18n="help.binaural.reflectionLevel" data-help-anchor=".binaural-help-row">Reflection level</span>
@@ -117,10 +118,12 @@ export function rendererPanelMarkup() {
                 <input id="binauralReflRoomD" type="range" min="1" max="20" step="0.1" value="5" style="width:100%;" />
                 <input id="binauralReflRoomH" type="range" min="1" max="20" step="0.1" value="2.7" style="width:100%;" />
               </div>
+              </div>
               <div class="switch-row" style="font-size:0.7rem;color:#8fa6bd;margin-top:0.2rem;border-top:1px solid rgba(255,255,255,0.05);padding-top:0.3rem;">
                 <span data-help-i18n="help.binaural.lateReverb">Late reverb</span>
-                <input id="binauralRevEnabled" type="checkbox" checked />
+                <input id="binauralRevEnabled" type="checkbox" />
               </div>
+              <div id="binauralRevParams" style="display:none;gap:0.3rem">
               <div class="binaural-help-row">
                 <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
                   <span data-help-i18n="help.binaural.reverbLevel" data-help-anchor=".binaural-help-row">Reverb level</span>
@@ -134,6 +137,7 @@ export function rendererPanelMarkup() {
                   <span id="binauralRevRt60Val">0.35</span>
                 </div>
                 <input id="binauralRevRt60" type="range" min="0.1" max="1.5" step="0.05" value="0.35" style="width:100%;" />
+              </div>
               </div>
             </div>
           </div>

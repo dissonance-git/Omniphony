@@ -54,12 +54,12 @@ in Studio and over OSC (addresses listed at the end).
 | `hrtf_sofa_path` | — | SOFA file used when `hrir_source: sofa` |
 | `head_tracking.osc_address` | — | OSC address carrying the orientation (empty disables tracking) |
 | `head_tracking.format` | `auto` | `auto` / `quat` / `rotvec` / `euler` |
-| `reflections.enabled` | `true` | shoebox early reflections (externalization) |
+| `reflections.enabled` | `false` | shoebox early reflections (externalization) |
 | `reflections.room_width_m` | `4.0` | room extent, x (clamped 1–20 m) |
 | `reflections.room_depth_m` | `5.0` | room extent, y |
 | `reflections.room_height_m` | `2.7` | room extent, z |
 | `reflections.level` | `0.5` | per-reflection wall gain (0–1) |
-| `reverb.enabled` | `true` | late-reverb tail (stereo FDN) |
+| `reverb.enabled` | `false` | late-reverb tail (stereo FDN) |
 | `reverb.level` | `0.25` | reverb return level (0–1) |
 | `reverb.rt60_s` | `0.35` | broadband decay time (s) — living-room-ish, not a hall |
 | `reverb.predelay_ms` | `20` | gap between direct sound and tail start |
