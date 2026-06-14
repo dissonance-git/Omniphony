@@ -212,6 +212,10 @@ export function setupTauriBridge() {
   listen('spatial:frame', ({ payload }) => {
     const isReset = Boolean(payload?.reset);
     const objectCount = Math.max(0, Number(payload?.objectCount ?? 0) | 0);
+    // Mark the stream as active so the at-rest synthetic bed objects aren't
+    // spawned during playback — including the brief gap right after a seek, where
+    // live objects momentarily disappear but frames are still flowing.
+    app.lastSpatialFrameAt = performance.now();
 
     if (isReset) {
       for (const trail of sourceTrails.values()) {

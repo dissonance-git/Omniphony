@@ -583,10 +583,18 @@ impl Engine {
             bail!("bridge decode error: {}", result.error_message);
         }
         if result.did_reset {
-            // Sync-loss recovery inside the bridge: drop stale spatial state but
-            // keep live params and the absolute sample clock.
+            // Sync-loss recovery / seek inside the bridge: drop stale spatial
+            // state but keep live params and the absolute sample clock. Also bump
+            // the content generation, force a full object re-emit and clear the
+            // overlay so OSC clients and the overlay purge the pre-seek objects
+            // instead of leaving them behind as stale duplicates.
             self.renderer.reset_runtime_state();
             self.reset_segment_state();
+            if let Some(osc) = self.osc.as_mut() {
+                osc.bump_content_generation();
+                osc.request_full_object_resend();
+            }
+            overlay::clear();
         }
 
         // The bridge decodes one packet into N frames synchronously; attribute the
@@ -630,6 +638,25 @@ impl Engine {
         // pays nothing here.
         let overlay_active = overlay::is_active();
         let want_objects = want_osc || overlay_active;
+
+        // A mid-stream format change (the initial TrueHD layout settling, or a
+        // 7.1<->5.1 boundary) invalidates the per-segment spatial state. Mirror
+        // the CLI's `is_new_segment` handling: drop has_objects / bed / object
+        // state so a channel-based segment is never stuck on a previous
+        // object-based (or differently-sized) layout — the cause of a 5.1 track
+        // not spatializing until a track swap. Bump the content generation and
+        // force a full re-emit so OSC clients and the overlay purge the previous
+        // layout's objects (otherwise a smaller new layout leaves stale,
+        // inactive objects behind after the boundary).
+        if frame.is_new_segment {
+            self.renderer.reset_runtime_state();
+            self.reset_segment_state();
+            if let Some(osc) = self.osc.as_mut() {
+                osc.bump_content_generation();
+                osc.request_full_object_resend();
+            }
+            overlay::clear();
+        }
 
         // Dialogue normalisation (from major-sync frames), applied once.
         if !self.loudness_applied {

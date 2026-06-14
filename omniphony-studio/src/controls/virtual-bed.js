@@ -278,6 +278,15 @@ export function resetVirtualBed() {
 const syntheticIds = new Set();
 let lastSyntheticSignature = null;
 
+// How long after the last spatial:frame the session still counts as "streaming".
+// Covers the brief post-seek gap where live objects vanish but frames still flow,
+// so synthetic objects don't momentarily double the live ones.
+const STREAM_IDLE_MS = 800;
+
+function streamActive() {
+  return performance.now() - (app.lastSpatialFrameAt || 0) < STREAM_IDLE_MS;
+}
+
 function liveObjectsPresent() {
   for (const key of sourceMeshes.keys()) {
     if (!syntheticIds.has(String(key))) return true;
@@ -328,7 +337,10 @@ function removeSyntheticObjects() {
  */
 export function syncVirtualBedObjects(force = false) {
   const spatial = app.channelRenderMode !== 'host';
-  if (!spatial || liveObjectsPresent()) {
+  // Only show the synthetic at-rest objects when spatial mode is on and nothing
+  // is streaming: a live object is present, or a spatial:frame arrived recently
+  // (covers the post-seek gap). Otherwise they'd double the live objects.
+  if (!spatial || liveObjectsPresent() || streamActive()) {
     removeSyntheticObjects();
     return;
   }

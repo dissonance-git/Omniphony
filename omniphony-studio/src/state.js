@@ -355,6 +355,10 @@ export const app = {
   // highlight). The virtual bed is always stored/sent as polar — see
   // controls/virtual-bed.js — so this never changes what reaches the renderer.
   channelEditCoordMode: 'cartesian',
+  // Timestamp (performance.now) of the last spatial:frame. Used to tell an
+  // actively-streaming/seeking session from a truly idle one, so the synthetic
+  // at-rest bed objects don't double the live objects during playback.
+  lastSpatialFrameAt: 0,
   isDraggingSpeaker: false,
   dragMode: null,
   dragAxis: null,
