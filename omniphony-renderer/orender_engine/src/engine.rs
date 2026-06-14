@@ -512,6 +512,12 @@ impl Engine {
         self.bridge.bridge.reset();
         self.renderer.reset_runtime_state();
         self.reset_segment_state();
+        // Object frames are delta-encoded; after a seek the (static) virtual-bed
+        // poses would never be re-sent, so force a full re-emit of object
+        // positions + names on the next frame.
+        if let Some(osc) = self.osc.as_mut() {
+            osc.request_full_object_resend();
+        }
         self.decoded_samples = 0;
         self.drc_gain = 1.0;
         self.drc_target_gain = 1.0;

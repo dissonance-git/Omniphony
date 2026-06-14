@@ -161,4 +161,15 @@ impl OscSender {
         self.prev_objects = None;
         self.force_full_next.store(true, Ordering::Relaxed);
     }
+
+    /// Force the next object frame to re-emit every object's full state
+    /// (positions + names), without changing the content generation. Used after
+    /// a seek/reset: object frames are delta-encoded, and the virtual-bed poses
+    /// are static, so without this the names/positions are never re-sent and a
+    /// client that cleared its object slots on the discontinuity is left showing
+    /// defaults (unnamed objects at the origin) even though rendering is correct.
+    pub fn request_full_object_resend(&mut self) {
+        self.prev_objects = None;
+        self.force_full_next.store(true, Ordering::Relaxed);
+    }
 }
