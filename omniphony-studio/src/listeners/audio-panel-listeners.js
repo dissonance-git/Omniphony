@@ -8,6 +8,7 @@ import {
   applyAudioSampleRateNow, applyAudioOutputDeviceNow, applyRampModeNow,
   applyChannelRenderModeNow, sendAudioConfig
 } from '../controls/audio.js';
+import { resetVirtualBed } from '../controls/virtual-bed.js';
 import { applyLatencyTargetNow, updateLatencyDisplay } from '../controls/latency.js';
 import { openAutoTuneWizard } from '../auto-tune/wizard-ui.js';
 import { toggleResamplePlot } from '../controls/resample-plot.js';
@@ -531,6 +532,13 @@ export function setupAudioPanelListeners() {
   if (channelSpatializeToggleEl) {
     channelSpatializeToggleEl.addEventListener('change', () => {
       applyChannelRenderModeNow();
+    });
+  }
+
+  const virtualBedResetBtnEl = document.getElementById('virtualBedResetBtn');
+  if (virtualBedResetBtnEl) {
+    virtualBedResetBtnEl.addEventListener('click', () => {
+      resetVirtualBed();
     });
   }
 

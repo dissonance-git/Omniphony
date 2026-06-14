@@ -14,6 +14,7 @@ import {
 import { t, tf } from '../i18n.js';
 import { scheduleUIFlush } from '../flush.js';
 import { inAudioPanel, inRendererPanel } from '../ui/panel-roots.js';
+import { renderVirtualBedEditor } from './virtual-bed.js';
 
 function getAudioFormatInfoEl() { return inAudioPanel('audioFormatInfo'); }
 function getAudioOutputDeviceSelectEl() { return inAudioPanel('audioOutputDeviceSelect'); }
@@ -109,6 +110,9 @@ export function renderAudioFormatDisplay() {
     channelSpatializeToggleEl.checked = spatial;
     const virtualBedRow = document.getElementById('virtualBedRow');
     if (virtualBedRow) virtualBedRow.style.display = spatial ? '' : 'none';
+    const virtualBedActions = document.getElementById('virtualBedActions');
+    if (virtualBedActions) virtualBedActions.style.display = spatial ? 'flex' : 'none';
+    renderVirtualBedEditor();
   }
   if (audioSampleRateInputEl && !app.audioSampleRateEditing) {
     audioSampleRateInputEl.value = String(app.audioSampleRate || 0);
@@ -209,5 +213,8 @@ export function applyChannelRenderModeNow() {
   app.channelRenderMode = requested;
   const virtualBedRow = document.getElementById('virtualBedRow');
   if (virtualBedRow) virtualBedRow.style.display = el.checked ? '' : 'none';
+  const virtualBedActions = document.getElementById('virtualBedActions');
+  if (virtualBedActions) virtualBedActions.style.display = el.checked ? 'flex' : 'none';
+  renderVirtualBedEditor();
   invoke('control_channel_render_mode', { value: requested });
 }

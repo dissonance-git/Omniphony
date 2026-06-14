@@ -228,6 +228,9 @@ export const app = {
   audioSampleRate: null,
   rampMode: 'sample',
   channelRenderMode: 'spatial',
+  // Parametrable virtual bed for 2D sources (a SpeakerLayout-shaped object, or
+  // null = built-in canonical poses). Edited by the virtual-bed editor.
+  virtualBed: null,
   audioOutputDevice: null,
   audioOutputDeviceEffective: null,
   audioOutputDevices: [],
