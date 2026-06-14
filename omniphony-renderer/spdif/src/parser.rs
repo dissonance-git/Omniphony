@@ -2,7 +2,6 @@
 // Syncwords in little-endian byte order.
 const SYNCWORD_PA: u16 = 0xF872;
 const SYNCWORD_PB: u16 = 0x4E1F;
-const IEC61937_DATA_TYPE_EAC3: u8 = 0x15;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Iec61937Packet {
@@ -118,10 +117,11 @@ impl SpdifParser {
 }
 
 fn payload_size_from_pd(data_type: u8, pd_raw: u16) -> (usize, &'static str) {
-    if data_type == IEC61937_DATA_TYPE_EAC3 {
-        (usize::from(pd_raw), "bytes")
-    } else {
-        (usize::from(pd_raw), "bytes")
+    match data_type {
+        // DTS type I/II/III (IEC 61937-5): the length code (Pd) is a bit count.
+        0x0B | 0x0C | 0x0D => (usize::from(pd_raw) / 8, "bits"),
+        // E-AC3 (0x15), TrueHD/MAT (0x16) and DTS-HD type IV (0x11): byte count.
+        _ => (usize::from(pd_raw), "bytes"),
     }
 }
 
