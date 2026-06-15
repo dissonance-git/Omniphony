@@ -339,6 +339,14 @@ fn run_idle_runtime(
     while !sys::ShutdownHandle::is_requested()
         && !sys::ShutdownHandle::is_restart_from_config_requested()
     {
+        // An idle holder of the OSC port must still yield to an mpv-embedded
+        // renderer: release the port, idle, and re-acquire it on resume — exactly
+        // like the decode loop. Without this the port-9000 handoff never happens
+        // when the standby has no bridge configured.
+        if sys::shutdown::is_standby_requested() {
+            sys::shutdown::take_standby_request();
+            standby_idle_until_resume(&mut handler, || {});
+        }
         handler.poll_runtime_state()?;
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -467,8 +475,24 @@ fn run_standby_until_resume(
     handler: &mut DecodeHandler,
 ) {
     sys::shutdown::take_standby_request();
-    log::info!("Entering standby: releasing audio output + OSC port for mpv");
     handler.output.audio_writer = None;
+    // Discard any frames the decoder rendered while standing by so the decoder
+    // thread never blocks on a full channel and no stale audio is played on
+    // resume.
+    standby_idle_until_resume(handler, || while rx.try_recv().is_ok() {});
+}
+
+/// Shared standby core: release the OSC RX port (and let the caller release the
+/// audio output beforehand), then idle until a `resume` arrives on the dynamic
+/// port (mpv exited) or the process is asked to quit/restart. `drain` runs each
+/// tick to discard buffered work (a no-op for the idle runtime, which has no
+/// decoder channel). On resume the OSC port is re-acquired.
+///
+/// Used by both the decode loop ([`run_standby_until_resume`]) and the
+/// bridge-unavailable idle runtime, so an idle holder of the OSC port yields to
+/// mpv exactly like an actively-decoding one.
+fn standby_idle_until_resume(handler: &mut DecodeHandler, mut drain: impl FnMut()) {
+    log::info!("Entering standby: releasing OSC port (and audio output) for mpv");
     if let Some(osc) = handler.telemetry.osc_sender.as_mut() {
         osc.enter_standby();
     }
@@ -481,13 +505,10 @@ fn run_standby_until_resume(
         if sys::shutdown::take_resume_request() {
             break;
         }
-        // Discard any frames the decoder rendered while standing by so the
-        // decoder thread never blocks on a full channel and no stale audio is
-        // played on resume.
-        while rx.try_recv().is_ok() {}
+        drain();
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    log::info!("Resuming from standby: re-acquiring OSC port + audio output");
+    log::info!("Resuming from standby: re-acquiring OSC port (and audio output)");
     if let Some(osc) = handler.telemetry.osc_sender.as_mut() {
         if let Err(e) = osc.resume() {
             log::error!("standby resume: failed to re-bind the OSC port: {e}");
