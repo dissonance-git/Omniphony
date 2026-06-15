@@ -354,7 +354,7 @@ pub unsafe extern "C" fn orender_is_spatial(r: *const OrenderRenderer) -> c_int 
 }
 
 /// Configured render mode for channel-based (non-object) content:
-/// 0 = host, 1 = direct, 2 = virtual; <0 on error. When this is `host` (0) and
+/// 0 = host, 1 = spatial; <0 on error. When this is `host` (0) and
 /// [`orender_is_spatial`] reports 0, the host should decline this track and fall
 /// back to its native decoder. Meaningful once the renderer is created (the mode
 /// comes from config / live params, not from the stream).
@@ -370,8 +370,8 @@ pub unsafe extern "C" fn orender_channel_mode(r: *const OrenderRenderer) -> c_in
 }
 
 /// Override the channel render mode for non-object content at runtime (a
-/// per-host override of the config value): 0 = host, 1 = direct, 2 = virtual.
-/// No-op on a NULL handle.
+/// per-host override of the config value): 0 = host, 1 = spatial. No-op on a
+/// NULL handle.
 #[no_mangle]
 pub unsafe extern "C" fn orender_set_channel_mode(r: *mut OrenderRenderer, mode: c_int) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
