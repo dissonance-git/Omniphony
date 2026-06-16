@@ -1,4 +1,5 @@
 import { getWindowViewport, subscribeWindowViewport } from '../viewport/window-viewport.js';
+import { reapplyViewOffset } from '../../scene/setup.js';
 
 let getRendererRef = null;
 let getCameraRef = null;
@@ -22,6 +23,9 @@ function applyViewport(viewport) {
   camera.updateProjectionMatrix();
   renderer.setPixelRatio(viewport.dpr);
   renderer.setSize(viewport.width, viewport.height);
+  // Re-apply the head-pivot pan lens shift for the new surface size (the view
+  // offset is relative to the full size, so it must follow a resize).
+  reapplyViewOffset(viewport.width, viewport.height);
 }
 
 export function syncRenderSurface() {

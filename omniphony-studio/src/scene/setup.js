@@ -18,8 +18,12 @@ export const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0b10);
 
 export const camera = new THREE.PerspectiveCamera(65, initialViewport.width / initialViewport.height, 0.1, 100);
+// Rotation pivot / listener centre. The orbit controls always rotate and zoom
+// around this point; panning is applied as a separate parallel camera offset
+// (see updateOrbitControls / setupHeadPivotPan) so it never moves the pivot.
+export const HEAD_PIVOT = new THREE.Vector3(0, 0.25, 0);
 camera.position.set(-3.8, 1.1, 0.0);
-camera.lookAt(0, 0.25, 0);
+camera.lookAt(HEAD_PIVOT);
 
 function configureRenderer(nextRenderer) {
   const viewport = getWindowViewport();
@@ -80,7 +84,18 @@ export let renderer = configureRenderer(new THREE.WebGLRenderer({ antialias: tru
 
 function createControls(domElement) {
   const nextControls = new OrbitControls(camera, domElement);
-  nextControls.target.set(0, 0.25, 0);
+  nextControls.target.copy(HEAD_PIVOT);
+  // Rotation + zoom always orbit the head. OrbitControls' own pan would move the
+  // target (and thus the rotation pivot) to the view centre, so it stays off;
+  // panning is handled separately (setupHeadPivotPan) as a parallel camera
+  // offset that leaves the pivot on the head. The right mouse button is freed
+  // for that custom pan.
+  nextControls.enablePan = false;
+  nextControls.mouseButtons = {
+    LEFT: THREE.MOUSE.ROTATE,
+    MIDDLE: THREE.MOUSE.DOLLY,
+    RIGHT: null,
+  };
   nextControls.enableDamping = true;
   nextControls.dampingFactor = 0.06;
   nextControls.update();
@@ -88,6 +103,98 @@ function createControls(domElement) {
 }
 
 export let controls = createControls(renderer.domElement);
+
+// ── Head-pivot panning ─────────────────────────────────────────────────────
+// OrbitControls always orbits AND lookAt-centres its target (the head), so it
+// alone can only rotate around the screen centre. To rotate around a panned
+// (off-centre) head, panning is done as a lens shift: an off-centre principal
+// point via camera.setViewOffset(). OrbitControls still centres the head in the
+// frustum; the view offset moves where that frustum centre lands on screen.
+// The head therefore stays pinned at its panned screen position through
+// rotation, and the scene turns around it. Tracked in CSS pixels (1:1 drag).
+let panX = 0;
+let panY = 0;
+
+/** Apply the current pan as the camera's view offset for the given surface
+ *  size. Exposed so the resize path can re-apply it (the offset is relative to
+ *  the full surface size). */
+export function reapplyViewOffset(width, height) {
+  if (panX === 0 && panY === 0) {
+    camera.clearViewOffset();
+  } else {
+    camera.setViewOffset(width, height, panX, panY, width, height);
+  }
+}
+
+function applyViewOffsetNow() {
+  const viewport = getWindowViewport();
+  reapplyViewOffset(viewport.width, viewport.height);
+}
+
+function addPan(dx, dy) {
+  // Negative frustum offset shifts the image so the scene follows the cursor.
+  panX -= dx;
+  panY -= dy;
+  applyViewOffsetNow();
+}
+
+/** Reset the pan so the head returns to the centre of the view. */
+export function resetPan() {
+  panX = 0;
+  panY = 0;
+  applyViewOffsetNow();
+}
+
+/** Wire right-drag panning on the renderer mount. The mount persists across
+ *  canvas rebuilds, so this is called once. Move/up are on `window` so a drag
+ *  that leaves the canvas still tracks. */
+export function setupHeadPivotPan() {
+  const mount = getRendererMount();
+  let panning = false;
+  let lastX = 0;
+  let lastY = 0;
+  // Capture phase + stopPropagation so OrbitControls (which listens on the
+  // canvas child and would otherwise grab the right-button pointer) never sees
+  // the drag; we own the pointer for its whole lifetime via setPointerCapture.
+  mount.addEventListener(
+    'pointerdown',
+    (event) => {
+      if (event.button !== 2 || !controls.enabled) return;
+      event.stopPropagation();
+      event.preventDefault();
+      panning = true;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      mount.setPointerCapture?.(event.pointerId);
+    },
+    true,
+  );
+  mount.addEventListener(
+    'pointermove',
+    (event) => {
+      if (!panning) return;
+      addPan(event.clientX - lastX, event.clientY - lastY);
+      lastX = event.clientX;
+      lastY = event.clientY;
+    },
+    true,
+  );
+  const endPan = (event) => {
+    if (!panning) return;
+    panning = false;
+    try {
+      mount.releasePointerCapture?.(event.pointerId);
+    } catch (_error) {
+      // pointer already released
+    }
+  };
+  mount.addEventListener('pointerup', endPan, true);
+  mount.addEventListener('pointercancel', endPan, true);
+  // Suppress the context menu so right-drag panning doesn't pop it up.
+  mount.addEventListener('contextmenu', (event) => event.preventDefault());
+}
+
+setupHeadPivotPan();
 
 export function rebuildRendererOnExistingCanvas() {
   const canvas = renderer.domElement;
@@ -106,6 +213,9 @@ export function rebuildRendererOnFreshCanvas() {
   disposeRendererInstance(previousRenderer);
   renderer = nextRenderer;
   controls = createControls(renderer.domElement);
+  // The camera (and its view offset) persist across the rebuild; re-apply the
+  // pan view offset in case the surface size changed.
+  applyViewOffsetNow();
   return renderer;
 }
 
