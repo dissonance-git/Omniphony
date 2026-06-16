@@ -175,24 +175,60 @@ fn load_virtual_bed_layout(file_name: &str) -> Option<SpeakerLayout> {
     None
 }
 
-fn find_speaker_in_layout(
-    layout: &SpeakerLayout,
+fn find_speaker_in_layout<'a>(
+    layout: &'a SpeakerLayout,
     aliases: &[&str],
-) -> Option<(String, f32, f32, f32)> {
-    for speaker in &layout.speakers {
-        if aliases
+) -> Option<&'a renderer::speaker_layout::Speaker> {
+    layout.speakers.iter().find(|speaker| {
+        aliases
             .iter()
             .any(|alias| speaker.name.eq_ignore_ascii_case(alias))
-        {
-            return Some((
-                speaker.name.clone(),
-                speaker.azimuth,
-                speaker.elevation,
-                speaker.distance,
-            ));
-        }
+    })
+}
+
+/// Convert a resolved bed speaker to a normalized ADM position in [-1, 1],
+/// honouring its `coord_mode` exactly like the output speakers do
+/// ([`SpeakerLayout::spatializable_positions_for_room`]):
+///   - **cartesian**: the stored normalized x/y/z *are* the position; the
+///     renderer applies the room warp forward, so no conversion is needed here.
+///   - **polar**: spherical → real ADM → inverse room warp → normalized.
+///
+/// This is what keeps cartesian bed channels from landing at a fraction of their
+/// depth: a cartesian entry's polar `distance` is derived from a *normalized*
+/// cartesian vector (a unit-cube magnitude, not scene units), so running it back
+/// through `spherical_to_adm` + the inverse room warp double-counted the room
+/// ratio. Using x/y/z directly matches how the output speakers are placed.
+fn speaker_pose_to_normalized(
+    speaker: &renderer::speaker_layout::Speaker,
+    room_ratio: [f32; 3],
+    room_ratio_rear: f32,
+    room_ratio_lower: f32,
+    room_ratio_center_blend: f32,
+) -> (String, f32, f32, f32) {
+    if speaker.coord_mode.eq_ignore_ascii_case("cartesian") {
+        (
+            speaker.name.clone(),
+            speaker.x.clamp(-1.0, 1.0),
+            speaker.y.clamp(-1.0, 1.0),
+            speaker.z.clamp(-1.0, 1.0),
+        )
+    } else {
+        let (sx, sy, sz) = renderer::spatial_vbap::spherical_to_adm(
+            speaker.azimuth,
+            speaker.elevation,
+            speaker.distance,
+        );
+        let (x, y, z) = inverse_room_ratio_map_for_virtual_object(
+            sx,
+            sy,
+            sz,
+            room_ratio,
+            room_ratio_rear,
+            room_ratio_lower,
+            room_ratio_center_blend,
+        );
+        (speaker.name.clone(), x, y, z)
     }
-    None
 }
 
 fn label_aliases(label: RChannelLabel, use_7_1: bool) -> Option<&'static [&'static str]> {
@@ -271,14 +307,29 @@ fn fallback_virtual_bed_pose(
     Some((name.to_string(), az, el, dist))
 }
 
+/// Resolve a channel's bed pose as a **normalized ADM position** in [-1, 1],
+/// trying the user's virtual bed, then the bundled 5.1/7.1 layout, then the
+/// built-in fallback. Each source is converted per its `coord_mode`
+/// ([`speaker_pose_to_normalized`]); the fallback is always polar.
+#[allow(clippy::too_many_arguments)]
 fn resolve_virtual_bed_pose(
     label: RChannelLabel,
     use_7_1: bool,
     input_layout: Option<&SpeakerLayout>,
+    room_ratio: [f32; 3],
+    room_ratio_rear: f32,
+    room_ratio_lower: f32,
+    room_ratio_center_blend: f32,
 ) -> Option<(String, f32, f32, f32)> {
     if let (Some(layout), Some(aliases)) = (input_layout, label_aliases(label, use_7_1)) {
         if let Some(found) = find_speaker_in_layout(layout, aliases) {
-            return Some(found);
+            return Some(speaker_pose_to_normalized(
+                found,
+                room_ratio,
+                room_ratio_rear,
+                room_ratio_lower,
+                room_ratio_center_blend,
+            ));
         }
     }
 
@@ -291,11 +342,29 @@ fn resolve_virtual_bed_pose(
 
     if let (Some(layout), Some(aliases)) = (layout_opt, label_aliases(label, use_7_1)) {
         if let Some(found) = find_speaker_in_layout(layout, aliases) {
-            return Some(found);
+            return Some(speaker_pose_to_normalized(
+                found,
+                room_ratio,
+                room_ratio_rear,
+                room_ratio_lower,
+                room_ratio_center_blend,
+            ));
         }
     }
 
-    fallback_virtual_bed_pose(label, use_7_1)
+    fallback_virtual_bed_pose(label, use_7_1).map(|(name, az_deg, el_deg, dist_m)| {
+        let (sx, sy, sz) = renderer::spatial_vbap::spherical_to_adm(az_deg, el_deg, dist_m);
+        let (x, y, z) = inverse_room_ratio_map_for_virtual_object(
+            sx,
+            sy,
+            sz,
+            room_ratio,
+            room_ratio_rear,
+            room_ratio_lower,
+            room_ratio_center_blend,
+        );
+        (name, x, y, z)
+    })
 }
 
 pub fn build_virtual_bed_events(
@@ -315,22 +384,18 @@ pub fn build_virtual_bed_events(
         Vec::with_capacity(channel_labels.len());
 
     for (channel_idx, label) in channel_labels.iter().enumerate() {
-        let (_name, az_deg, el_deg, dist_m) =
-            match resolve_virtual_bed_pose(*label, use_7_1, input_layout) {
-                Some(v) => v,
-                None => continue,
-            };
-
-        let (sx, sy, sz) = renderer::spatial_vbap::spherical_to_adm(az_deg, el_deg, dist_m);
-        let (x, y, z) = inverse_room_ratio_map_for_virtual_object(
-            sx,
-            sy,
-            sz,
+        let (_name, x, y, z) = match resolve_virtual_bed_pose(
+            *label,
+            use_7_1,
+            input_layout,
             room_ratio,
             room_ratio_rear,
             room_ratio_lower,
             room_ratio_center_blend,
-        );
+        ) {
+            Some(v) => v,
+            None => continue,
+        };
         events.push(renderer::spatial_renderer::SpatialChannelEvent {
             channel_idx,
             is_bed: false,
@@ -373,21 +438,18 @@ pub fn build_virtual_bed_objects(
         // channels carry a free position, direct channels (e.g. LFE) carry a
         // `direct_speaker_index` so Studio anchors them onto their speaker.
         let spatialize = channel_is_spatialized(virtual_bed, *label, use_7_1);
-        let (name, az_deg, el_deg, dist_m) =
-            match resolve_virtual_bed_pose(*label, use_7_1, virtual_bed) {
-                Some(v) => v,
-                None => continue,
-            };
-        let (sx, sy, sz) = renderer::spatial_vbap::spherical_to_adm(az_deg, el_deg, dist_m);
-        let (x, y, z) = inverse_room_ratio_map_for_virtual_object(
-            sx,
-            sy,
-            sz,
+        let (name, x, y, z) = match resolve_virtual_bed_pose(
+            *label,
+            use_7_1,
+            virtual_bed,
             room_ratio,
             room_ratio_rear,
             room_ratio_lower,
             room_ratio_center_blend,
-        );
+        ) {
+            Some(v) => v,
+            None => continue,
+        };
         let direct_speaker_index = if spatialize {
             None
         } else {
@@ -553,19 +615,16 @@ fn build_virtual_bed_plan(
         let spatialize = channel_is_spatialized(virtual_bed, *label, use_7_1);
         if spatialize {
             // Virtualize: place an object at the bed's (or fallback) pose.
-            match resolve_virtual_bed_pose(*label, use_7_1, virtual_bed) {
-                Some((_name, az_deg, el_deg, dist_m)) => {
-                    let (sx, sy, sz) =
-                        renderer::spatial_vbap::spherical_to_adm(az_deg, el_deg, dist_m);
-                    let (x, y, z) = inverse_room_ratio_map_for_virtual_object(
-                        sx,
-                        sy,
-                        sz,
-                        room_ratio,
-                        room_ratio_rear,
-                        room_ratio_lower,
-                        room_ratio_center_blend,
-                    );
+            match resolve_virtual_bed_pose(
+                *label,
+                use_7_1,
+                virtual_bed,
+                room_ratio,
+                room_ratio_rear,
+                room_ratio_lower,
+                room_ratio_center_blend,
+            ) {
+                Some((_name, x, y, z)) => {
                     bed_indices.push(usize::MAX);
                     events.push(renderer::spatial_renderer::SpatialChannelEvent {
                         channel_idx,
@@ -727,6 +786,55 @@ mod tests {
         assert_eq!(c.gain, -6, "C gain comes from the virtual bed");
         for obj in objects.iter().filter(|o| !o.name.eq_ignore_ascii_case("C")) {
             assert_eq!(obj.gain, 0, "{} has no configured gain", obj.name);
+        }
+    }
+
+    #[test]
+    fn cartesian_bed_channel_keeps_its_normalized_depth() {
+        use renderer::speaker_layout::Speaker;
+        // A cartesian bed entry stores normalized x/y/z directly, like the output
+        // speakers. Its object position must be those coords verbatim, independent
+        // of the room ratio — not run back through the polar pipeline + inverse
+        // warp (the old path), which derived a normalized magnitude as a
+        // scene-unit distance and so halved a front-placed channel's depth.
+        let bed = vbed(vec![
+            Speaker::from_cartesian("L", -1.0, 1.0, 0.0, true, 0.0),
+            Speaker::from_cartesian("C", 0.0, 1.0, 0.0, true, 0.0),
+            Speaker::from_cartesian("R", 1.0, 1.0, 0.0, true, 0.0),
+        ]);
+        let labels = [RChannelLabel::L, RChannelLabel::C, RChannelLabel::R];
+        // Non-unit front ratio: the buggy path collapsed y=1.0 to ~0.5 here.
+        let room = [1.0, 2.0, 1.0];
+        let objects = build_virtual_bed_objects(&labels, Some(&bed), None, room, 1.0, 1.0, 0.5)
+            .expect("objects emitted");
+        let c = objects
+            .iter()
+            .find(|o| o.name.eq_ignore_ascii_case("C"))
+            .expect("C object present");
+        assert_eq!(c.coord_mode, "cartesian");
+        assert!(c.x.abs() < 1e-6, "x={}", c.x);
+        assert!((c.y - 1.0).abs() < 1e-6, "cartesian y must stay 1.0, got {}", c.y);
+        assert!(c.z.abs() < 1e-6, "z={}", c.z);
+        // The plan path (audio rendering) must agree with the object path (Studio).
+        let plan = plan_channel_render(
+            renderer::live_params::ChannelRenderMode::Spatial,
+            &labels,
+            Some(&bed),
+            room,
+            1.0,
+            1.0,
+            0.5,
+        );
+        match plan {
+            ChannelRenderPlan::Events { events, .. } => {
+                let c_event = events
+                    .iter()
+                    .find(|e| e.channel_idx == 1)
+                    .expect("C virtualized");
+                let pos = c_event.position.expect("C carries a position");
+                assert!((pos[1] - 1.0).abs() < 1e-6, "plan y must match object y");
+            }
+            other => panic!("expected Events, got {:?}", PlanKind::from(&other)),
         }
     }
 
