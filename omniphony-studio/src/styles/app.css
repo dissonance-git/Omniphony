@@ -1079,6 +1079,12 @@
         gap: 0.35rem;
       }
 
+      .save-footer-actions {
+        display: flex;
+        flex-direction: row;
+        gap: 0.5rem;
+      }
+
       .save-footer-button {
         min-width: 8.5rem;
         background: rgba(255, 255, 255, 0.12);
@@ -2487,4 +2493,59 @@ body.output-binaural .speakers-title-speakers,
 body:not(.output-binaural) #hpChannelsList,
 body:not(.output-binaural) .speakers-title-binaural {
   display: none !important;
+}
+
+/* Quick visual-effect toggles: a pill sitting at the top of the bottom-center
+   Save/Reload cluster (`.save-footer`, a fixed centered column). It is a flex
+   child of that footer, so it never resizes or reflows the renderer canvas and
+   stacks cleanly above the Save/Reload buttons. */
+#sceneEffectBar {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  margin-bottom: 0.2rem;
+  background: rgba(18, 22, 28, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.scene-fx-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: rgba(223, 232, 243, 0.55);
+  cursor: pointer;
+  transition: background 0.13s ease, color 0.13s ease, border-color 0.13s ease,
+    box-shadow 0.13s ease;
+}
+
+.scene-fx-btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(223, 232, 243, 0.92);
+}
+
+.scene-fx-btn:focus-visible {
+  outline: none;
+  border-color: rgba(82, 226, 162, 0.5);
+}
+
+.scene-fx-btn.active {
+  background: rgba(82, 226, 162, 0.16);
+  border-color: rgba(82, 226, 162, 0.55);
+  color: #7af0c0;
+  box-shadow: inset 0 0 0 1px rgba(82, 226, 162, 0.18);
+}
+
+.scene-fx-btn.active:hover {
+  background: rgba(82, 226, 162, 0.24);
+  color: #aef5d8;
 }

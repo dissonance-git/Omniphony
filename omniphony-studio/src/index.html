@@ -670,8 +670,36 @@
     </div>
 
     <div id="saveFooterRoot" class="save-footer">
-      <button id="saveConfigBtn" data-i18n="config.save" class="save-footer-button">Save</button>
-      <button id="reloadConfigBtn" data-i18n="config.reload" class="save-footer-button">Reload</button>
+      <!-- Quick visual-effect toggles, sharing the bottom-center cluster with
+           Save/Reload. Each button mirrors a checkbox in the renderer/display
+           panel (wired in controls/scene-effects-bar.js). -->
+      <div id="sceneEffectBar" role="toolbar" aria-label="Scene effects">
+        <button id="fxGridBtn" type="button" class="scene-fx-btn" aria-pressed="false" data-i18n-title="sceneFx.grid" title="Grid">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+        </button>
+        <button id="fxObjectsBtn" type="button" class="scene-fx-btn" aria-pressed="false" data-i18n-title="sceneFx.objects" title="Objects">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button id="fxLabelsBtn" type="button" class="scene-fx-btn" aria-pressed="false" data-i18n-title="sceneFx.labels" title="Labels">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button id="fxTrailsBtn" type="button" class="scene-fx-btn" aria-pressed="false" data-i18n-title="sceneFx.trails" title="Trails">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg>
+        </button>
+        <button id="fxFieldBtn" type="button" class="scene-fx-btn" aria-pressed="false" data-i18n-title="sceneFx.energyField" title="Object energy field">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/></svg>
+        </button>
+        <button id="fxHeatmapBtn" type="button" class="scene-fx-btn" aria-pressed="false" data-i18n-title="sceneFx.heatmap" title="Speaker heatmap">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="1.2" fill="currentColor" opacity="0.95"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.2" fill="currentColor" opacity="0.4"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.2" fill="currentColor" opacity="0.55"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.2" fill="currentColor" opacity="0.85"/></svg>
+        </button>
+        <button id="fxMpvBtn" type="button" class="scene-fx-btn" aria-pressed="false" data-i18n-title="sceneFx.mpvOverlay" title="mpv overlay">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M10 8.4v4l3.6-2z" fill="currentColor" stroke="none"/></svg>
+        </button>
+      </div>
+      <div class="save-footer-actions">
+        <button id="saveConfigBtn" data-i18n="config.save" class="save-footer-button">Save</button>
+        <button id="reloadConfigBtn" data-i18n="config.reload" class="save-footer-button">Reload</button>
+      </div>
     </div>
 
     <div id="rendererInfoModalsRoot">
