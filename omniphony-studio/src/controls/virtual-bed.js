@@ -151,20 +151,31 @@ function channelByName(name) {
 
 function buildLayoutPayload(channels) {
   const radius = Number(app.virtualBed?.radius_m) > 0 ? Number(app.virtualBed.radius_m) : 1.0;
-  // Always polar: the renderer builds each bed pose from azimuth/elevation/
-  // distance, and the angles/distance here are scene-space (what the gizmo and
-  // the cartesian inputs both resolve to), so the channel lands where shown.
+  // Ship the block matching each channel's coord_mode, exactly like the speaker
+  // editor. A cartesian channel sends its ADM-normalized x/y/z and the RENDERER
+  // derives the pose (the same code path the output speakers use); a polar
+  // channel sends azimuth/elevation/distance. Forcing polar here used to replace
+  // the user's cartesian edit with a Studio-side conversion that didn't match the
+  // renderer, so the channel landed at the polar-derived spot instead.
+  const clamp = (v) => Math.max(-1, Math.min(1, Number(v) || 0));
   return {
     radius_m: radius,
     speakers: channels.map((c) => {
+      const cartesian = c.coordMode === 'cartesian';
       const entry = {
         name: c.name,
-        coord_mode: 'polar',
-        spatialize: Boolean(c.spatialize),
-        azimuth: Number(c.azimuth) || 0,
-        elevation: Number(c.elevation) || 0,
-        distance: Number(c.distance) > 0 ? Number(c.distance) : 0.01
+        coord_mode: cartesian ? 'cartesian' : 'polar',
+        spatialize: Boolean(c.spatialize)
       };
+      if (cartesian) {
+        entry.x = clamp(c.x);
+        entry.y = clamp(c.y);
+        entry.z = clamp(c.z);
+      } else {
+        entry.azimuth = Number(c.azimuth) || 0;
+        entry.elevation = Number(c.elevation) || 0;
+        entry.distance = Number(c.distance) > 0 ? Number(c.distance) : 0.01;
+      }
       if (Math.round(c.gainDb || 0) !== 0) entry.gain_db = Math.round(c.gainDb);
       return entry;
     })
@@ -192,7 +203,10 @@ function commitChannel(name, mutate) {
 export function getChannelPosition(name) {
   const ch = channelByName(name);
   if (!ch) return null;
-  const norm = polarToAdm(ch.azimuth, ch.elevation, ch.distance);
+  // Read the stored axes untouched (both representations are kept in sync on
+  // every edit), so changing one cartesian axis doesn't drift the others through
+  // a polar round-trip — mirrors how the speaker editor pulls untouched axes.
+  const norm = { x: ch.x, y: ch.y, z: ch.z };
   const meters = normalizedToMeters(norm);
   return {
     azimuth: ch.azimuth,
@@ -220,35 +234,57 @@ export function channelPlacement(name) {
 // Commit helpers (used by the panel inputs and the 3D drag)
 // ---------------------------------------------------------------------------
 
+// Commit a polar placement: coord_mode = polar, store az/el/dist and derive the
+// normalized cartesian for display. Both representations are kept in sync (like
+// the speaker editor); the wire payload then ships the polar block.
 export function applyChannelPolar(name, azimuth, elevation, distance) {
+  const az = Number(azimuth) || 0;
+  const el = Number(elevation) || 0;
+  const dist = Number(distance) > 0 ? Number(distance) : 0.01;
+  const norm = polarToAdm(az, el, dist);
   commitChannel(name, (c) => {
     c.coordMode = 'polar';
-    c.azimuth = azimuth;
-    c.elevation = elevation;
-    c.distance = Number(distance) > 0 ? Number(distance) : 0.01;
+    c.azimuth = az;
+    c.elevation = el;
+    c.distance = dist;
+    c.x = norm.x;
+    c.y = norm.y;
+    c.z = norm.z;
   });
 }
 
-// Commit from a scene-space cartesian position (mirrors
-// applySpeakerSceneCartesianEdit). The bed is always stored/sent as POLAR using
-// the SCENE-space spherical — the same representation the 3D gizmo produces —
-// because the renderer derives each bed pose from azimuth/elevation/distance. A
-// cartesian wire entry would make the renderer read a de-warped distance and
-// place the channel at the wrong radius (the manual-edit-vs-gizmo mismatch).
-export function applyChannelSceneCartesian(name, sx, sy, sz) {
-  const sph = cartesianToSpherical({ x: sx, y: sy, z: sz });
-  applyChannelPolar(name, sph.az, sph.el, Math.max(0.01, sph.dist));
-}
-
-// Commit from ADM normalized cartesian [-1, 1] (the "Norm" fields): convert to
-// scene space first (exactly like applySpeakerCartesianEdit), then store as polar.
+// Commit a cartesian placement from ADM normalized [-1, 1] (the "Norm" fields):
+// coord_mode = cartesian, store x/y/z and derive the polar form for display. The
+// wire payload ships the cartesian block and the renderer derives the pose — the
+// same path the output speakers use — so the channel lands exactly where set.
 export function applyChannelCartesian(name, x, y, z) {
-  const scene = normalizedOmniphonyToScenePosition({
-    x: Math.max(-1, Math.min(1, Number(x) || 0)),
-    y: Math.max(-1, Math.min(1, Number(y) || 0)),
-    z: Math.max(-1, Math.min(1, Number(z) || 0))
+  const nx = Math.max(-1, Math.min(1, Number(x) || 0));
+  const ny = Math.max(-1, Math.min(1, Number(y) || 0));
+  const nz = Math.max(-1, Math.min(1, Number(z) || 0));
+  const polar = admToPolar(nx, ny, nz);
+  commitChannel(name, (c) => {
+    c.coordMode = 'cartesian';
+    c.x = nx;
+    c.y = ny;
+    c.z = nz;
+    c.azimuth = polar.azimuth;
+    c.elevation = polar.elevation;
+    c.distance = polar.distance;
   });
-  applyChannelSceneCartesian(name, scene.x, scene.y, scene.z);
+}
+
+// Commit from a scene-space cartesian position (the 3D gizmo drag): keep the
+// channel's active coord_mode, mirroring applySpeakerSceneCartesianEdit (which
+// stores both forms and sends the block matching the mode).
+export function applyChannelSceneCartesian(name, sx, sy, sz) {
+  const ch = channelByName(name);
+  if (ch && ch.coordMode === 'cartesian') {
+    const norm = scenePositionToNormalizedOmniphony({ x: sx, y: sy, z: sz });
+    applyChannelCartesian(name, norm.x, norm.y, norm.z);
+  } else {
+    const sph = cartesianToSpherical({ x: sx, y: sy, z: sz });
+    applyChannelPolar(name, sph.az, sph.el, Math.max(0.01, sph.dist));
+  }
 }
 
 export function applyChannelGain(name, gainDb) {
@@ -303,14 +339,17 @@ function removeLiveObjects() {
 
 function syntheticPosition(ch) {
   const directSpeakerIndex = ch.spatialize ? undefined : directSpeakerFor(ch.name);
+  // Position per the channel's coord_mode so the at-rest marker uses the same
+  // representation that is sent to the renderer (cartesian via x/y/z, polar via
+  // az/el/dist). Both blocks are passed; updateSource picks per coordMode.
   return {
-    coordMode: 'polar',
+    coordMode: ch.coordMode === 'cartesian' ? 'cartesian' : 'polar',
+    x: Number(ch.x) || 0,
+    y: Number(ch.y) || 0,
+    z: Number(ch.z) || 0,
     azimuthDeg: ch.azimuth,
     elevationDeg: ch.elevation,
     distanceM: Number(ch.distance) > 0 ? Number(ch.distance) : 1.0,
-    x: 0,
-    y: 0,
-    z: 0,
     name: ch.name,
     gainDb: ch.gainDb,
     directSpeakerIndex,
