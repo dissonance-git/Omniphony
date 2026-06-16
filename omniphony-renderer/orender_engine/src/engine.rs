@@ -470,15 +470,10 @@ impl Engine {
     /// map. Speakers whose layout name is unrecognised map to
     /// [`RChannelLabel::Unknown`].
     pub fn channel_layout(&self) -> Vec<RChannelLabel> {
-        // Binaural output is a plain stereo pair; the layout MUST match
-        // `channel_count()` (2) or the host builds an inconsistent chmap and the
-        // frame is malformed (silence).
-        if self.renderer.output_channel_count() == 2 {
-            return vec![
-                crate::channel_layout::label_for_speaker_name("FL"),
-                crate::channel_layout::label_for_speaker_name("FR"),
-            ];
-        }
+        // Always the speaker-array layout: binaural (headphone) output is now
+        // emitted as a full speaker frame with the ears in FL/FR, not a bare
+        // stereo pair, so the channel count and chmap stay constant across a
+        // binaural ↔ speaker toggle (no host audio-output reinit).
         self.renderer
             .speaker_layout()
             .speakers

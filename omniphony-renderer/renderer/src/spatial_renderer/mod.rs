@@ -184,6 +184,11 @@ pub struct SpatialRenderer {
     /// Scratch per-channel gains for the binaural path (reused).
     binaural_gain_buf: Vec<f32>,
 
+    /// Reusable interleaved-stereo scratch the binaural stage renders into
+    /// before its L/R ears are scattered into the FL/FR slots of the full
+    /// speaker-count output frame.
+    binaural_stereo_buf: Vec<f32>,
+
     /// Per-band VBAP engines.  Always has at least one entry (the "all speakers" band when
     /// no crossover is configured).  Each engine returns full-size `Gains` (`num_speakers`).
     render_bands: Vec<BandRenderer>,
@@ -439,7 +444,8 @@ impl SpatialRenderer {
     ) -> Result<RenderedFrame> {
         // ── 0. Independent binaural (headphone) path ─────────────────────────
         // When headphone output is selected, bypass the entire VBAP / crossover /
-        // speaker chain and emit a 2-channel frame. The branch is taken below,
+        // speaker chain and emit a full speaker-count frame with the two binaural
+        // ears in the FL/FR slots (see the branch below). The branch is taken
         // after `update_metadata` has applied the pending events (new ramp
         // targets); the branch itself advances each object's position ramp for
         // the block. Flag it here.
@@ -647,9 +653,9 @@ impl SpatialRenderer {
                 )
             };
             self.binaural.ensure_source(&hrir_source);
-            let mut output = samples_buf;
-            output.clear();
-            output.resize(sample_length * 2, 0.0);
+            // Render the two binaural ears into a reusable stereo scratch.
+            self.binaural_stereo_buf.clear();
+            self.binaural_stereo_buf.resize(sample_length * 2, 0.0);
             self.binaural.render_frame(
                 input_pcm,
                 input_channel_count,
@@ -657,7 +663,7 @@ impl SpatialRenderer {
                 &binaural_params,
                 &self.binaural_pos_buf,
                 &self.binaural_gain_buf,
-                &mut output,
+                &mut self.binaural_stereo_buf,
             );
             // Output gain parity with the speaker path: master gain × dialnorm
             // (auto-gain reductions are already folded into master_gain).
@@ -680,11 +686,20 @@ impl SpatialRenderer {
             };
             let gain_l = total_gain * ear(0);
             let gain_r = total_gain * ear(1);
-            if (gain_l - 1.0).abs() > f32::EPSILON || (gain_r - 1.0).abs() > f32::EPSILON {
-                for frame in output.chunks_exact_mut(2) {
-                    frame[0] *= gain_l;
-                    frame[1] *= gain_r;
-                }
+            // Emit a FULL speaker-count frame with the two ears scattered into
+            // the FL/FR slots (every other channel silent). Keeping the output
+            // channel count identical to the speaker path means the host never
+            // sees a format change on a binaural↔speaker toggle, so it does not
+            // tear down and recreate its audio output — that reinit pops on the
+            // multichannel chain. The headphone feed taps FL/FR downstream.
+            let (fl_idx, fr_idx) = binaural_ear_speakers(active_layout, self.num_speakers);
+            let mut output = samples_buf;
+            output.clear();
+            output.resize(sample_length * self.num_speakers, 0.0);
+            for i in 0..sample_length {
+                let base = i * self.num_speakers;
+                output[base + fl_idx] = self.binaural_stereo_buf[i * 2] * gain_l;
+                output[base + fr_idx] = self.binaural_stereo_buf[i * 2 + 1] * gain_r;
             }
             return Ok(RenderedFrame {
                 samples: output,
@@ -1363,14 +1378,15 @@ impl SpatialRenderer {
         self.num_speakers
     }
 
-    /// Number of channels the renderer actually emits this frame: 2 in binaural
-    /// (headphone) mode, otherwise the speaker count. Hosts must size their sink
-    /// and `RenderedAudio` from this, not from [`num_speakers`](Self::num_speakers).
+    /// Number of channels the renderer emits — always the speaker-array count,
+    /// in both speaker and binaural mode. Binaural (headphone) output is
+    /// rendered into the FL/FR slots of the full speaker frame (see the binaural
+    /// branch in [`Self::render_frame`]) rather than as a bare stereo pair, so
+    /// the host's output format never changes when toggling binaural ↔ speaker.
+    /// A channel-count change would force the host to tear down and recreate its
+    /// audio output, which pops audibly on a multichannel chain.
     pub fn output_channel_count(&self) -> usize {
-        match self.control.live.read().binaural.output_mode {
-            crate::live_params::OutputMode::Binaural => 2,
-            crate::live_params::OutputMode::SpeakerArray => self.num_speakers,
-        }
+        self.num_speakers
     }
 
     pub fn speaker_layout(&self) -> crate::speaker_layout::SpeakerLayout {
@@ -1393,6 +1409,28 @@ impl SpatialRenderer {
     pub fn spread_resolution(&self) -> f32 {
         self.spread_resolution
     }
+}
+
+/// Output channel indices the two binaural ears are written to: the layout's
+/// `FL`/`FR` speakers (matched by name, case-insensitive). The headphone feed
+/// taps those channels downstream, so the ears must land there. Falls back to
+/// the first two channels when a name is absent, and clamps to the channel
+/// count so a degenerate (1-speaker) layout cannot index out of bounds.
+fn binaural_ear_speakers(
+    layout: &crate::speaker_layout::SpeakerLayout,
+    num_speakers: usize,
+) -> (usize, usize) {
+    let last = num_speakers.saturating_sub(1);
+    let mut fl = 0usize;
+    let mut fr = last.min(1);
+    for (i, s) in layout.speakers.iter().enumerate() {
+        match s.name.to_ascii_uppercase().as_str() {
+            "FL" => fl = i,
+            "FR" => fr = i,
+            _ => {}
+        }
+    }
+    (fl.min(last), fr.min(last))
 }
 
 #[cfg(test)]
