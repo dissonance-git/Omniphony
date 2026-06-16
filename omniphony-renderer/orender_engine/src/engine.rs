@@ -56,6 +56,18 @@ pub struct Engine {
     has_objects: bool,
     loudness_applied: bool,
     decoded_samples: u64,
+    /// Dynamic object count of the last rendered frame (`channel_count − beds`),
+    /// `0` for plain multichannel content. Surfaced over FFI for the host's track
+    /// info display. Reset per segment.
+    last_object_count: u32,
+    /// Dialogue normalisation level (dBFS, ≤ 0) once a major-sync frame has
+    /// declared it. Surfaced over FFI for the host's track info display. Reset
+    /// per segment.
+    last_dialnorm: Option<i8>,
+    /// Channel labels of the bed of the last object-based frame (empty for plain
+    /// multichannel / no bed). Surfaced over FFI so the host can show the bed
+    /// composition (e.g. "LFE+11 objects"). Reused buffer; reset per segment.
+    last_bed_labels: Vec<RChannelLabel>,
 
     // ── DRC gain ramp state (continues across frames) ──
     drc_gain: f32,
@@ -197,6 +209,9 @@ impl Engine {
             has_objects: false,
             loudness_applied: false,
             decoded_samples: 0,
+            last_object_count: 0,
+            last_dialnorm: None,
+            last_bed_labels: Vec::new(),
             drc_gain: 1.0,
             drc_target_gain: 1.0,
             drc_ramp_samples_remaining: 0,
@@ -479,6 +494,25 @@ impl Engine {
         self.bridge.bridge.is_spatial()
     }
 
+    /// Dynamic object count of the last rendered frame (decoded `channel_count`
+    /// minus the bed channels), or `0` for plain multichannel content. For the
+    /// host's track info display.
+    pub fn object_count(&self) -> u32 {
+        self.last_object_count
+    }
+
+    /// Dialogue normalisation level in dBFS (≤ 0) once the stream has declared
+    /// it, else `None`. For the host's track info display.
+    pub fn dialnorm_db(&self) -> Option<i8> {
+        self.last_dialnorm
+    }
+
+    /// Channel labels of the bed of the last object-based frame (empty for plain
+    /// multichannel / no bed). For the host's track info display.
+    pub fn bed_labels(&self) -> &[RChannelLabel] {
+        &self.last_bed_labels
+    }
+
     /// Configured render mode for channel-based (non-object) content, as a small
     /// code for the C FFI: 0 = host (the host should fall back to its native
     /// decoder for plain multichannel streams), non-zero = spatial (render
@@ -547,6 +581,10 @@ impl Engine {
         self.frame_events.clear();
         self.loudness_applied = false;
         self.object_names.clear();
+        // A new segment may re-declare a different object count / dialnorm / bed.
+        self.last_object_count = 0;
+        self.last_dialnorm = None;
+        self.last_bed_labels.clear();
     }
 
     /// Push the live DRC mode to the bridge when it changes (selects which DRC
@@ -670,6 +708,7 @@ impl Engine {
         if !self.loudness_applied {
             if let Some(dialogue_level) = frame.dialogue_level.into_option() {
                 self.renderer.set_loudness(dialogue_level);
+                self.last_dialnorm = Some(dialogue_level);
                 self.loudness_applied = true;
                 if want_osc {
                     if let Some(osc) = self.osc.as_ref() {
@@ -897,9 +936,28 @@ impl Engine {
         )?;
         let render_time_ms = render_started.elapsed().as_secs_f32() * 1000.0;
 
+        // Dynamic object count = decoded channels minus the bed channels. Only
+        // meaningful for object-based content; plain multichannel reports 0.
+        let num_beds = self.bed_indices.as_ref().map_or(0, |b| b.len());
+        let n_objects = (channel_count as u32).saturating_sub(num_beds as u32);
+        self.last_object_count = if self.has_objects { n_objects } else { 0 };
+
+        // Bed composition for the host's track-info display, e.g. "LFE+11
+        // objects". The renderer lays bed channels out first in PCM order (see
+        // `build_spatial_channel_events`: beds at channels 0..num_beds, objects
+        // after), so the bed labels are the first `num_beds` channel labels —
+        // NOT `channel_labels[bed_id]` (`bed_indices` are OAMD bed ids, a
+        // different space). Reuse the buffer.
+        self.last_bed_labels.clear();
+        if self.has_objects {
+            for ch in 0..num_beds {
+                if let Some(&lbl) = frame.channel_labels.get(ch) {
+                    self.last_bed_labels.push(lbl);
+                }
+            }
+        }
+
         if let Some(perf) = self.perf.as_mut() {
-            let num_beds = self.bed_indices.as_ref().map_or(0, |b| b.len());
-            let n_objects = (channel_count as u32).saturating_sub(num_beds as u32);
             perf.record(
                 frame.sample_count,
                 n_objects,

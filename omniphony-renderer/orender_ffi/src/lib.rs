@@ -353,6 +353,69 @@ pub unsafe extern "C" fn orender_is_spatial(r: *const OrenderRenderer) -> c_int 
     .unwrap_or(-1)
 }
 
+/// Dynamic object count of the last rendered frame (decoded channels minus the
+/// bed channels) for object-based content, `0` for plain multichannel, `-1` on
+/// a NULL handle / error. For the host's track info display. Meaningful after at
+/// least one [`orender_process`] call.
+#[no_mangle]
+pub unsafe extern "C" fn orender_object_count(r: *const OrenderRenderer) -> c_int {
+    catch_unwind(AssertUnwindSafe(|| {
+        if r.is_null() {
+            return -1;
+        }
+        (*(r as *const Engine)).object_count() as c_int
+    }))
+    .unwrap_or(-1)
+}
+
+/// Dialogue normalisation level in dBFS (always ≤ 0) once the stream has
+/// declared it, or [`i32::MIN`] when unknown / not yet seen (also on a NULL
+/// handle / error). For the host's track info display.
+#[no_mangle]
+pub unsafe extern "C" fn orender_dialnorm_db(r: *const OrenderRenderer) -> c_int {
+    catch_unwind(AssertUnwindSafe(|| {
+        if r.is_null() {
+            return c_int::MIN;
+        }
+        match (*(r as *const Engine)).dialnorm_db() {
+            Some(db) => db as c_int,
+            None => c_int::MIN,
+        }
+    }))
+    .unwrap_or(c_int::MIN)
+}
+
+/// Write the bed channel labels of the last object-based frame (one
+/// [`RChannelLabel`] byte per bed channel) so the host can show the bed
+/// composition (e.g. "LFE+11 objects").
+///
+/// Same query/fill convention as [`orender_channel_layout`]: returns the bed
+/// channel count `N`; if `out_labels` is non-NULL and `cap >= N`, the first `N`
+/// bytes are filled (else nothing is written — call with `out_labels = NULL` to
+/// query `N`). `0` for plain multichannel / no bed / NULL handle / error.
+#[no_mangle]
+pub unsafe extern "C" fn orender_bed_layout(
+    r: *const OrenderRenderer,
+    out_labels: *mut u8,
+    cap: u32,
+) -> u32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if r.is_null() {
+            return 0;
+        }
+        let labels = (*(r as *const Engine)).bed_labels();
+        let n = labels.len() as u32;
+        if !out_labels.is_null() && cap >= n {
+            let out = std::slice::from_raw_parts_mut(out_labels, labels.len());
+            for (dst, lbl) in out.iter_mut().zip(labels.iter()) {
+                *dst = *lbl as u8;
+            }
+        }
+        n
+    }))
+    .unwrap_or(0)
+}
+
 /// Configured render mode for channel-based (non-object) content:
 /// 0 = host, 1 = spatial; <0 on error. When this is `host` (0) and
 /// [`orender_is_spatial`] reports 0, the host should decline this track and fall
