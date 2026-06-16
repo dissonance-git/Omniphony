@@ -100,6 +100,20 @@ fn renders_real_truehd_atmos_stream() {
         "expected at least one rendered object frame"
     );
 
+    // Presentation info surfaced for the host's track-info display (FFI:
+    // orender_object_count / orender_dialnorm_db). An Atmos stream that rendered
+    // object frames must report a positive object count; DialNorm is logged
+    // rather than asserted (its presence depends on the fixture's major sync).
+    eprintln!(
+        "parity harness: object_count={} dialnorm_db={:?}",
+        engine.object_count(),
+        engine.dialnorm_db()
+    );
+    assert!(
+        engine.object_count() > 0,
+        "Atmos stream must report a positive object count"
+    );
+
     // NOTE: this fixture (`truehd_atmos_prefix_32k.mlp`) is a metadata prefix
     // whose audio decodes to silence (verified: valid OAMD/bed metadata, zero
     // PCM), so `peak` is expected to be 0.0 here. We therefore don't assert on

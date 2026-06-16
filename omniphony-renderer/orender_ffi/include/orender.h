@@ -90,6 +90,33 @@ void orender_destroy(struct OrenderRenderer *r);
 int orender_is_spatial(const struct OrenderRenderer *r);
 
 /**
+ * Dynamic object count of the last rendered frame (decoded channels minus the
+ * bed channels) for object-based content, `0` for plain multichannel, `-1` on
+ * a NULL handle / error. For the host's track info display. Meaningful after at
+ * least one [`orender_process`] call.
+ */
+int orender_object_count(const struct OrenderRenderer *r);
+
+/**
+ * Dialogue normalisation level in dBFS (always ≤ 0) once the stream has
+ * declared it, or [`i32::MIN`] when unknown / not yet seen (also on a NULL
+ * handle / error). For the host's track info display.
+ */
+int orender_dialnorm_db(const struct OrenderRenderer *r);
+
+/**
+ * Write the bed channel labels of the last object-based frame (one
+ * [`RChannelLabel`] byte per bed channel) so the host can show the bed
+ * composition (e.g. "LFE+11 objects").
+ *
+ * Same query/fill convention as [`orender_channel_layout`]: returns the bed
+ * channel count `N`; if `out_labels` is non-NULL and `cap >= N`, the first `N`
+ * bytes are filled (else nothing is written — call with `out_labels = NULL` to
+ * query `N`). `0` for plain multichannel / no bed / NULL handle / error.
+ */
+uint32_t orender_bed_layout(const struct OrenderRenderer *r, uint8_t *out_labels, uint32_t cap);
+
+/**
  * Configured render mode for channel-based (non-object) content:
  * 0 = host, 1 = spatial; <0 on error. When this is `host` (0) and
  * [`orender_is_spatial`] reports 0, the host should decline this track and fall
