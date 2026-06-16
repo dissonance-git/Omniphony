@@ -6,7 +6,7 @@ import { updateAdaptiveResamplingUI, resetAdaptiveResamplingAdvancedDirtyState }
 import {
   closeAudioSampleRateMenu, openAudioSampleRateMenu, updateAudioFormatDisplay,
   applyAudioSampleRateNow, applyAudioOutputDeviceNow, applyRampModeNow,
-  applyChannelRenderModeNow, sendAudioConfig
+  applyChannelRenderModeNow, applySurroundPlacementNow, sendAudioConfig
 } from '../controls/audio.js';
 import { resetVirtualBed } from '../controls/virtual-bed.js';
 import { applyLatencyTargetNow, updateLatencyDisplay } from '../controls/latency.js';
@@ -532,6 +532,19 @@ export function setupAudioPanelListeners() {
   if (channelSpatializeToggleEl) {
     channelSpatializeToggleEl.addEventListener('change', () => {
       applyChannelRenderModeNow();
+    });
+  }
+
+  const surroundPlacementSideEl = document.getElementById('surroundPlacementSide');
+  if (surroundPlacementSideEl) {
+    surroundPlacementSideEl.addEventListener('click', () => {
+      applySurroundPlacementNow('side');
+    });
+  }
+  const surroundPlacementBackEl = document.getElementById('surroundPlacementBack');
+  if (surroundPlacementBackEl) {
+    surroundPlacementBackEl.addEventListener('click', () => {
+      applySurroundPlacementNow('back');
     });
   }
 

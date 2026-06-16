@@ -228,6 +228,9 @@ export const app = {
   audioSampleRate: null,
   rampMode: 'sample',
   channelRenderMode: 'spatial',
+  // Where the 4.x/5.x surround pair (Ls/Rs) of a 2D source is placed: 'side' or
+  // 'back'. Only affects sources without dedicated back channels.
+  surroundPlacement: 'side',
   // Parametrable virtual bed for 2D sources (a SpeakerLayout-shaped object, or
   // null = built-in canonical poses). Edited by the virtual-bed editor.
   virtualBed: null,

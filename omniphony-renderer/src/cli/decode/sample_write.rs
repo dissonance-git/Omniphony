@@ -368,6 +368,7 @@ impl<'a> SampleWriteCoordinator<'a> {
                     let (
                         mode,
                         virtual_bed_layout,
+                        surround_placement,
                         room_ratio,
                         room_ratio_rear,
                         room_ratio_lower,
@@ -378,20 +379,24 @@ impl<'a> SampleWriteCoordinator<'a> {
                         (
                             live.channel_render_mode,
                             live.virtual_bed.clone(),
+                            live.surround_placement,
                             live.room_ratio,
                             live.room_ratio_rear,
                             live.room_ratio_lower,
                             live.room_ratio_center_blend,
                         )
                     };
+                    let output_layout = renderer.speaker_layout();
                     let virtual_events = match plan_channel_render(
                         mode,
                         &labels,
                         virtual_bed_layout.as_ref(),
+                        Some(&output_layout),
                         room_ratio,
                         room_ratio_rear,
                         room_ratio_lower,
                         room_ratio_center_blend,
+                        surround_placement,
                     ) {
                         ChannelRenderPlan::Events {
                             events,
@@ -564,6 +569,7 @@ impl<'a> SampleWriteCoordinator<'a> {
                                 room_ratio_rear,
                                 room_ratio_lower,
                                 room_ratio_center_blend,
+                                surround_placement,
                             ),
                         ) {
                             let sample_pos = self

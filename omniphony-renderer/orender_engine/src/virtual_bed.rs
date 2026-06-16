@@ -9,7 +9,9 @@
 
 use crate::osc::ObjectMeta;
 use bridge_api::RChannelLabel;
+use renderer::live_params::SurroundPlacement;
 use renderer::speaker_layout::SpeakerLayout;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -307,12 +309,92 @@ fn fallback_virtual_bed_pose(
     Some((name.to_string(), az, el, dist))
 }
 
+/// For a 4.x/5.x source (no back channels) the surround pair (`Ls`/`Rs`) has no
+/// canonical placement, so `surround_placement` decides it: `Side` → the side
+/// corner `(∓1, 0, 0)`, `Back` → the back corner `(∓1, −1, 0)` (sign by L/R).
+/// Returns the normalized override position for `Ls`/`Rs`, or `None` (no
+/// override) for any other label or when the source already has back channels.
+fn surround_placement_override(
+    label: RChannelLabel,
+    use_7_1: bool,
+    placement: SurroundPlacement,
+) -> Option<(f32, f32, f32)> {
+    if use_7_1 {
+        return None;
+    }
+    let sign = match label {
+        RChannelLabel::Ls => -1.0,
+        RChannelLabel::Rs => 1.0,
+        _ => return None,
+    };
+    let y = match placement {
+        SurroundPlacement::Side => 0.0,
+        SurroundPlacement::Back => -1.0,
+    };
+    Some((sign, y, 0.0))
+}
+
+/// Bed id a *direct* (non-spatialized) surround channel routes to, honouring
+/// `surround_placement`. `Back` sends `Ls`/`Rs` to the back speaker (bed 6/7)
+/// when the output layout actually has one, otherwise it falls back to the side
+/// bed (4/5). All other labels keep [`bed_id_for_label`].
+fn direct_bed_id_for_label(
+    label: RChannelLabel,
+    use_7_1: bool,
+    placement: SurroundPlacement,
+    output_bed_to_speaker: Option<&HashMap<usize, usize>>,
+) -> Option<usize> {
+    let base = bed_id_for_label(label)?;
+    if use_7_1 || placement != SurroundPlacement::Back {
+        return Some(base);
+    }
+    let back = match label {
+        RChannelLabel::Ls => 6, // Lb
+        RChannelLabel::Rs => 7, // Rb
+        _ => return Some(base),
+    };
+    match output_bed_to_speaker {
+        Some(map) if map.contains_key(&back) => Some(back),
+        _ => Some(base),
+    }
+}
+
+/// Resolve a channel's bed pose as a **normalized ADM position** in [-1, 1],
+/// then apply the [`surround_placement_override`] for a 4.x/5.x surround pair.
+#[allow(clippy::too_many_arguments)]
+fn resolve_virtual_bed_pose(
+    label: RChannelLabel,
+    use_7_1: bool,
+    input_layout: Option<&SpeakerLayout>,
+    room_ratio: [f32; 3],
+    room_ratio_rear: f32,
+    room_ratio_lower: f32,
+    room_ratio_center_blend: f32,
+    surround_placement: SurroundPlacement,
+) -> Option<(String, f32, f32, f32)> {
+    resolve_virtual_bed_pose_raw(
+        label,
+        use_7_1,
+        input_layout,
+        room_ratio,
+        room_ratio_rear,
+        room_ratio_lower,
+        room_ratio_center_blend,
+    )
+    .map(|(name, x, y, z)| {
+        match surround_placement_override(label, use_7_1, surround_placement) {
+            Some((ox, oy, oz)) => (name, ox, oy, oz),
+            None => (name, x, y, z),
+        }
+    })
+}
+
 /// Resolve a channel's bed pose as a **normalized ADM position** in [-1, 1],
 /// trying the user's virtual bed, then the bundled 5.1/7.1 layout, then the
 /// built-in fallback. Each source is converted per its `coord_mode`
 /// ([`speaker_pose_to_normalized`]); the fallback is always polar.
 #[allow(clippy::too_many_arguments)]
-fn resolve_virtual_bed_pose(
+fn resolve_virtual_bed_pose_raw(
     label: RChannelLabel,
     use_7_1: bool,
     input_layout: Option<&SpeakerLayout>,
@@ -367,6 +449,7 @@ fn resolve_virtual_bed_pose(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_virtual_bed_events(
     channel_labels: &[RChannelLabel],
     input_layout: Option<&SpeakerLayout>,
@@ -374,6 +457,7 @@ pub fn build_virtual_bed_events(
     room_ratio_rear: f32,
     room_ratio_lower: f32,
     room_ratio_center_blend: f32,
+    surround_placement: SurroundPlacement,
 ) -> Option<Vec<renderer::spatial_renderer::SpatialChannelEvent>> {
     let has_back = channel_labels
         .iter()
@@ -392,6 +476,7 @@ pub fn build_virtual_bed_events(
             room_ratio_rear,
             room_ratio_lower,
             room_ratio_center_blend,
+            surround_placement,
         ) {
             Some(v) => v,
             None => continue,
@@ -414,6 +499,7 @@ pub fn build_virtual_bed_events(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_virtual_bed_objects(
     channel_labels: &[RChannelLabel],
     virtual_bed: Option<&SpeakerLayout>,
@@ -422,6 +508,7 @@ pub fn build_virtual_bed_objects(
     room_ratio_rear: f32,
     room_ratio_lower: f32,
     room_ratio_center_blend: f32,
+    surround_placement: SurroundPlacement,
 ) -> Option<Vec<ObjectMeta>> {
     let has_back = channel_labels
         .iter()
@@ -446,6 +533,7 @@ pub fn build_virtual_bed_objects(
             room_ratio_rear,
             room_ratio_lower,
             room_ratio_center_blend,
+            surround_placement,
         ) {
             Some(v) => v,
             None => continue,
@@ -453,11 +541,12 @@ pub fn build_virtual_bed_objects(
         let direct_speaker_index = if spatialize {
             None
         } else {
-            bed_id_for_label(*label).and_then(|bed_id| {
-                bed_to_speaker
-                    .as_ref()
-                    .and_then(|m| m.get(&bed_id).map(|&spk| spk as u32))
-            })
+            direct_bed_id_for_label(*label, use_7_1, surround_placement, bed_to_speaker.as_ref())
+                .and_then(|bed_id| {
+                    bed_to_speaker
+                        .as_ref()
+                        .and_then(|m| m.get(&bed_id).map(|&spk| spk as u32))
+                })
         };
         // Per-channel gain from the virtual bed (dB); 0 = unity when unset.
         let gain = find_virtual_bed_entry(virtual_bed, *label, use_7_1)
@@ -570,10 +659,12 @@ pub fn plan_channel_render(
     mode: renderer::live_params::ChannelRenderMode,
     channel_labels: &[RChannelLabel],
     virtual_bed: Option<&SpeakerLayout>,
+    output_layout: Option<&SpeakerLayout>,
     room_ratio: [f32; 3],
     room_ratio_rear: f32,
     room_ratio_lower: f32,
     room_ratio_center_blend: f32,
+    surround_placement: SurroundPlacement,
 ) -> ChannelRenderPlan {
     use renderer::live_params::ChannelRenderMode;
     match mode {
@@ -581,10 +672,12 @@ pub fn plan_channel_render(
         ChannelRenderMode::Spatial => build_virtual_bed_plan(
             channel_labels,
             virtual_bed,
+            output_layout,
             room_ratio,
             room_ratio_rear,
             room_ratio_lower,
             room_ratio_center_blend,
+            surround_placement,
         ),
     }
 }
@@ -594,18 +687,25 @@ pub fn plan_channel_render(
 /// (a bed id in `bed_indices` + a bed event); a `spatialize:true` channel is
 /// virtualized at the bed's position (the `usize::MAX` sentinel in `bed_indices`
 /// + an object event carrying the position). A frame may freely mix the two.
+#[allow(clippy::too_many_arguments)]
 fn build_virtual_bed_plan(
     channel_labels: &[RChannelLabel],
     virtual_bed: Option<&SpeakerLayout>,
+    output_layout: Option<&SpeakerLayout>,
     room_ratio: [f32; 3],
     room_ratio_rear: f32,
     room_ratio_lower: f32,
     room_ratio_center_blend: f32,
+    surround_placement: SurroundPlacement,
 ) -> ChannelRenderPlan {
     let has_back = channel_labels
         .iter()
         .any(|l| matches!(l, RChannelLabel::Lb | RChannelLabel::Rb | RChannelLabel::Cb));
     let use_7_1 = has_back;
+
+    // Bed-id → output-speaker map, so a direct surround can be rerouted to a
+    // back speaker (Back placement) only when the layout actually has one.
+    let bed_to_speaker = output_layout.map(|layout| layout.bed_to_speaker_mapping());
 
     let mut bed_indices: Vec<usize> = Vec::with_capacity(channel_labels.len());
     let mut events: Vec<renderer::spatial_renderer::SpatialChannelEvent> =
@@ -623,6 +723,7 @@ fn build_virtual_bed_plan(
                 room_ratio_rear,
                 room_ratio_lower,
                 room_ratio_center_blend,
+                surround_placement,
             ) {
                 Some((_name, x, y, z)) => {
                     bed_indices.push(usize::MAX);
@@ -640,8 +741,15 @@ fn build_virtual_bed_plan(
                 None => bed_indices.push(usize::MAX),
             }
         } else {
-            // Direct: route to the matching output speaker (by bed id / name).
-            match bed_id_for_label(*label) {
+            // Direct: route to the matching output speaker (by bed id / name),
+            // honouring Back placement for a 4.x/5.x surround when a back speaker
+            // exists.
+            match direct_bed_id_for_label(
+                *label,
+                use_7_1,
+                surround_placement,
+                bed_to_speaker.as_ref(),
+            ) {
                 Some(bed_id) => {
                     bed_indices.push(bed_id);
                     events.push(renderer::spatial_renderer::SpatialChannelEvent {
@@ -687,8 +795,16 @@ mod tests {
             RChannelLabel::Ls,
             RChannelLabel::Rs,
         ];
-        let events = build_virtual_bed_events(&labels, None, UNIT_ROOM, 1.0, 1.0, 0.0)
-            .expect("5.1 bed must map to virtual events");
+        let events = build_virtual_bed_events(
+            &labels,
+            None,
+            UNIT_ROOM,
+            1.0,
+            1.0,
+            0.0,
+            SurroundPlacement::Side,
+        )
+        .expect("5.1 bed must map to virtual events");
         assert_eq!(events.len(), labels.len());
         for (i, ev) in events.iter().enumerate() {
             assert_eq!(ev.channel_idx, i);
@@ -705,7 +821,16 @@ mod tests {
     #[test]
     fn left_and_right_beds_are_mirrored() {
         let labels = [RChannelLabel::L, RChannelLabel::R];
-        let events = build_virtual_bed_events(&labels, None, UNIT_ROOM, 1.0, 1.0, 0.0).unwrap();
+        let events = build_virtual_bed_events(
+            &labels,
+            None,
+            UNIT_ROOM,
+            1.0,
+            1.0,
+            0.0,
+            SurroundPlacement::Side,
+        )
+        .unwrap();
         let l = events[0].position.unwrap();
         let r = events[1].position.unwrap();
         // L sits on the negative-x side, R on the positive-x side.
@@ -716,9 +841,27 @@ mod tests {
     #[test]
     fn objects_match_events_for_the_same_bed() {
         let labels = [RChannelLabel::L, RChannelLabel::R, RChannelLabel::C];
-        let events = build_virtual_bed_events(&labels, None, UNIT_ROOM, 1.0, 1.0, 0.0).unwrap();
-        let objects =
-            build_virtual_bed_objects(&labels, None, None, UNIT_ROOM, 1.0, 1.0, 0.0).unwrap();
+        let events = build_virtual_bed_events(
+            &labels,
+            None,
+            UNIT_ROOM,
+            1.0,
+            1.0,
+            0.0,
+            SurroundPlacement::Side,
+        )
+        .unwrap();
+        let objects = build_virtual_bed_objects(
+            &labels,
+            None,
+            None,
+            UNIT_ROOM,
+            1.0,
+            1.0,
+            0.0,
+            SurroundPlacement::Side,
+        )
+        .unwrap();
         assert_eq!(events.len(), objects.len());
         for (ev, obj) in events.iter().zip(objects.iter()) {
             let pos = ev.position.unwrap();
@@ -743,9 +886,17 @@ mod tests {
         ];
         let output = SpeakerLayout::preset("5.1").expect("5.1 preset");
         // LFE is speaker index 3 in the 5.1 preset (FL,FR,C,LFE,BL,BR).
-        let objects =
-            build_virtual_bed_objects(&labels, None, Some(&output), UNIT_ROOM, 1.0, 1.0, 0.0)
-                .expect("all channels emitted");
+        let objects = build_virtual_bed_objects(
+            &labels,
+            None,
+            Some(&output),
+            UNIT_ROOM,
+            1.0,
+            1.0,
+            0.0,
+            SurroundPlacement::Side,
+        )
+        .expect("all channels emitted");
         assert_eq!(objects.len(), labels.len(), "every channel is shown");
         let lfe = objects
             .iter()
@@ -776,9 +927,17 @@ mod tests {
             Speaker::new("R", 30.0, 0.0),
         ]);
         let labels = [RChannelLabel::L, RChannelLabel::C, RChannelLabel::LFE];
-        let objects =
-            build_virtual_bed_objects(&labels, Some(&bed), None, UNIT_ROOM, 1.0, 1.0, 0.0)
-                .expect("all channels emitted");
+        let objects = build_virtual_bed_objects(
+            &labels,
+            Some(&bed),
+            None,
+            UNIT_ROOM,
+            1.0,
+            1.0,
+            0.0,
+            SurroundPlacement::Side,
+        )
+        .expect("all channels emitted");
         let c = objects
             .iter()
             .find(|o| o.name.eq_ignore_ascii_case("C"))
@@ -805,25 +964,40 @@ mod tests {
         let labels = [RChannelLabel::L, RChannelLabel::C, RChannelLabel::R];
         // Non-unit front ratio: the buggy path collapsed y=1.0 to ~0.5 here.
         let room = [1.0, 2.0, 1.0];
-        let objects = build_virtual_bed_objects(&labels, Some(&bed), None, room, 1.0, 1.0, 0.5)
-            .expect("objects emitted");
+        let objects = build_virtual_bed_objects(
+            &labels,
+            Some(&bed),
+            None,
+            room,
+            1.0,
+            1.0,
+            0.5,
+            SurroundPlacement::Side,
+        )
+        .expect("objects emitted");
         let c = objects
             .iter()
             .find(|o| o.name.eq_ignore_ascii_case("C"))
             .expect("C object present");
         assert_eq!(c.coord_mode, "cartesian");
         assert!(c.x.abs() < 1e-6, "x={}", c.x);
-        assert!((c.y - 1.0).abs() < 1e-6, "cartesian y must stay 1.0, got {}", c.y);
+        assert!(
+            (c.y - 1.0).abs() < 1e-6,
+            "cartesian y must stay 1.0, got {}",
+            c.y
+        );
         assert!(c.z.abs() < 1e-6, "z={}", c.z);
         // The plan path (audio rendering) must agree with the object path (Studio).
         let plan = plan_channel_render(
             renderer::live_params::ChannelRenderMode::Spatial,
             &labels,
             Some(&bed),
+            None,
             room,
             1.0,
             1.0,
             0.5,
+            SurroundPlacement::Side,
         );
         match plan {
             ChannelRenderPlan::Events { events, .. } => {
@@ -836,6 +1010,180 @@ mod tests {
             }
             other => panic!("expected Events, got {:?}", PlanKind::from(&other)),
         }
+    }
+
+    #[test]
+    fn surround_placement_moves_5_1_surrounds_side_vs_back() {
+        // 5.1 (no back channels): Side puts Ls/Rs at the side corner (y=0), Back
+        // at the back corner (y=-1). Objects are emitted in label order, so Ls is
+        // index 4 and Rs index 5. Front/centre channels are untouched.
+        let labels = [
+            RChannelLabel::L,
+            RChannelLabel::R,
+            RChannelLabel::C,
+            RChannelLabel::LFE,
+            RChannelLabel::Ls,
+            RChannelLabel::Rs,
+        ];
+        let side = build_virtual_bed_objects(
+            &labels,
+            None,
+            None,
+            UNIT_ROOM,
+            1.0,
+            1.0,
+            0.0,
+            SurroundPlacement::Side,
+        )
+        .unwrap();
+        let back = build_virtual_bed_objects(
+            &labels,
+            None,
+            None,
+            UNIT_ROOM,
+            1.0,
+            1.0,
+            0.0,
+            SurroundPlacement::Back,
+        )
+        .unwrap();
+        assert!(
+            (side[4].x + 1.0).abs() < 1e-6 && side[4].y.abs() < 1e-6,
+            "Ls side = (-1,0), got ({},{})",
+            side[4].x,
+            side[4].y
+        );
+        assert!(
+            (side[5].x - 1.0).abs() < 1e-6 && side[5].y.abs() < 1e-6,
+            "Rs side = (1,0)"
+        );
+        assert!(
+            (back[4].x + 1.0).abs() < 1e-6 && (back[4].y + 1.0).abs() < 1e-6,
+            "Ls back = (-1,-1), got ({},{})",
+            back[4].x,
+            back[4].y
+        );
+        assert!(
+            (back[5].x - 1.0).abs() < 1e-6 && (back[5].y + 1.0).abs() < 1e-6,
+            "Rs back = (1,-1)"
+        );
+        // The centre channel is unaffected by the surround placement.
+        assert!((side[2].x - back[2].x).abs() < 1e-6 && (side[2].y - back[2].y).abs() < 1e-6);
+    }
+
+    #[test]
+    fn surround_placement_ignored_for_7_x() {
+        // 7.1 carries Lb/Rb, so Ls/Rs are unambiguous side surrounds: the setting
+        // must not move any channel.
+        let labels = [
+            RChannelLabel::L,
+            RChannelLabel::R,
+            RChannelLabel::C,
+            RChannelLabel::LFE,
+            RChannelLabel::Ls,
+            RChannelLabel::Rs,
+            RChannelLabel::Lb,
+            RChannelLabel::Rb,
+        ];
+        let side = build_virtual_bed_objects(
+            &labels,
+            None,
+            None,
+            UNIT_ROOM,
+            1.0,
+            1.0,
+            0.0,
+            SurroundPlacement::Side,
+        )
+        .unwrap();
+        let back = build_virtual_bed_objects(
+            &labels,
+            None,
+            None,
+            UNIT_ROOM,
+            1.0,
+            1.0,
+            0.0,
+            SurroundPlacement::Back,
+        )
+        .unwrap();
+        for (s, b) in side.iter().zip(back.iter()) {
+            assert!(
+                (s.x - b.x).abs() < 1e-6 && (s.y - b.y).abs() < 1e-6 && (s.z - b.z).abs() < 1e-6,
+                "7.x channel {} must ignore surround placement",
+                s.name
+            );
+        }
+    }
+
+    #[test]
+    fn direct_surround_routes_to_back_speaker_only_when_present() {
+        // Back placement sends a direct (non-spatialized) surround to the back
+        // bed (6/7) only when the output layout has that speaker; else the side
+        // bed (4/5). Side never remaps, and 7.x is unaffected.
+        let mut with_back: HashMap<usize, usize> = HashMap::new();
+        with_back.insert(6, 10);
+        with_back.insert(7, 11);
+        let without_back: HashMap<usize, usize> = HashMap::new();
+
+        assert_eq!(
+            direct_bed_id_for_label(
+                RChannelLabel::Ls,
+                false,
+                SurroundPlacement::Back,
+                Some(&with_back)
+            ),
+            Some(6)
+        );
+        assert_eq!(
+            direct_bed_id_for_label(
+                RChannelLabel::Rs,
+                false,
+                SurroundPlacement::Back,
+                Some(&with_back)
+            ),
+            Some(7)
+        );
+        assert_eq!(
+            direct_bed_id_for_label(
+                RChannelLabel::Ls,
+                false,
+                SurroundPlacement::Back,
+                Some(&without_back)
+            ),
+            Some(4),
+            "no back speaker → side bed"
+        );
+        assert_eq!(
+            direct_bed_id_for_label(
+                RChannelLabel::Ls,
+                false,
+                SurroundPlacement::Side,
+                Some(&with_back)
+            ),
+            Some(4),
+            "Side never remaps"
+        );
+        assert_eq!(
+            direct_bed_id_for_label(
+                RChannelLabel::Ls,
+                true,
+                SurroundPlacement::Back,
+                Some(&with_back)
+            ),
+            Some(4),
+            "7.x ignores the setting"
+        );
+        // LFE and front channels are never remapped.
+        assert_eq!(
+            direct_bed_id_for_label(
+                RChannelLabel::LFE,
+                false,
+                SurroundPlacement::Back,
+                Some(&with_back)
+            ),
+            Some(3)
+        );
     }
 
     const BED_5_1: [RChannelLabel; 6] = [
@@ -853,10 +1201,12 @@ mod tests {
             renderer::live_params::ChannelRenderMode::Host,
             &BED_5_1,
             None,
+            None,
             UNIT_ROOM,
             1.0,
             1.0,
             0.0,
+            SurroundPlacement::Side,
         );
         assert!(matches!(plan, ChannelRenderPlan::HostPassthrough));
     }
@@ -873,10 +1223,12 @@ mod tests {
             renderer::live_params::ChannelRenderMode::Spatial,
             &BED_5_1,
             None,
+            None,
             UNIT_ROOM,
             1.0,
             1.0,
             0.0,
+            SurroundPlacement::Side,
         );
         match plan {
             ChannelRenderPlan::Events {
@@ -924,10 +1276,12 @@ mod tests {
             renderer::live_params::ChannelRenderMode::Spatial,
             &BED_5_1,
             Some(&bed),
+            None,
             UNIT_ROOM,
             1.0,
             1.0,
             0.0,
+            SurroundPlacement::Side,
         );
         match plan {
             ChannelRenderPlan::Events { bed_indices, .. } => {
@@ -957,10 +1311,12 @@ mod tests {
             renderer::live_params::ChannelRenderMode::Spatial,
             &labels,
             Some(&bed),
+            None,
             UNIT_ROOM,
             1.0,
             1.0,
             0.0,
+            SurroundPlacement::Side,
         );
         match plan {
             ChannelRenderPlan::Events {

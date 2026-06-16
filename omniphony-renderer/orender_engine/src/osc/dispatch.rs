@@ -90,6 +90,25 @@ pub(crate) fn handle_control_message(
         return;
     }
 
+    // Surround placement (side/back) for 4.x/5.x channel content. Live-tunable
+    // from Studio; persists to config right away (same rationale as
+    // channel_render_mode: a host fallback can route the next toggle to a
+    // different orender instance, so commit it to config.yaml here).
+    if addr == osc_contract::CONTROL_SURROUND_PLACEMENT {
+        if let Some(OscType::String(s)) = msg.args.first() {
+            if let Some(placement) = renderer::live_params::SurroundPlacement::from_str(s) {
+                control.live.write().surround_placement = placement;
+                control.mark_dirty();
+                persist_surround_placement(control, placement);
+                broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
+                log::info!("OSC surround placement set to {}", placement.as_str());
+            } else {
+                log::warn!("OSC surround placement: unknown value '{}'", s);
+            }
+        }
+        return;
+    }
+
     // Parametrable virtual bed for channel content. Argument is a YAML
     // `SpeakerLayout`; an empty string resets to the built-in canonical poses.
     // Live-tunable from Studio's editor; persists to config on save.
@@ -696,6 +715,36 @@ fn persist_channel_render_mode_to_path(
     renderer::config::clear_live_overlay_cache();
 }
 
+/// Persist `surround_placement` to the on-disk config so it survives a restart.
+/// Same targeted, sidecar-clearing write as [`persist_channel_render_mode`].
+fn persist_surround_placement(
+    control: &Arc<RendererControl>,
+    placement: renderer::live_params::SurroundPlacement,
+) {
+    let Some(path) = control.config_path() else {
+        return;
+    };
+    persist_surround_placement_to_path(&path, placement);
+}
+
+fn persist_surround_placement_to_path(
+    path: &Path,
+    placement: renderer::live_params::SurroundPlacement,
+) {
+    let mut config = renderer::config::Config::load_or_default(path);
+    let render = config.render.get_or_insert_with(Default::default);
+    renderer::config_fields::surround_placement::store(render, placement);
+    if let Err(e) = config.save(path) {
+        log::warn!(
+            "failed to persist surround_placement to {}: {e}",
+            path.display()
+        );
+        return;
+    }
+    let _ = std::fs::remove_file(renderer::config::live_sidecar_path(path));
+    renderer::config::clear_live_overlay_cache();
+}
+
 fn apply_control_effects(
     effects: ControlEffects,
     control: &Arc<RendererControl>,
@@ -1072,6 +1121,75 @@ mod tests {
             .and_then(renderer::config_fields::channel_render_mode::get)
             .unwrap_or(ChannelRenderMode::Spatial);
         assert_eq!(mode, ChannelRenderMode::Spatial);
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn persist_surround_placement_writes_back_and_clears_sidecar() {
+        use renderer::live_params::SurroundPlacement;
+        let path = temp_config_path("surround-back");
+        std::fs::write(
+            &path,
+            "render:\n  bridge_path: /tmp/libbridge.so\n  some_future_key: 42\n",
+        )
+        .unwrap();
+        let sidecar = renderer::config::live_sidecar_path(&path);
+        std::fs::write(&sidecar, "render:\n  surround_placement: back\n").unwrap();
+
+        persist_surround_placement_to_path(&path, SurroundPlacement::Back);
+
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            written.contains("surround_placement: back"),
+            "back not written: {written}"
+        );
+        assert!(
+            written.contains("bridge_path: /tmp/libbridge.so"),
+            "known key lost: {written}"
+        );
+        assert!(
+            written.contains("some_future_key: 42"),
+            "unknown key lost: {written}"
+        );
+        assert!(!sidecar.exists(), "live sidecar not removed");
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn persist_surround_placement_side_omits_key_and_clears_sidecar() {
+        use renderer::live_params::SurroundPlacement;
+        let path = temp_config_path("surround-side");
+        std::fs::write(
+            &path,
+            "render:\n  bridge_path: /tmp/libbridge.so\n  surround_placement: back\n",
+        )
+        .unwrap();
+        let sidecar = renderer::config::live_sidecar_path(&path);
+        std::fs::write(&sidecar, "render:\n  surround_placement: back\n").unwrap();
+
+        persist_surround_placement_to_path(&path, SurroundPlacement::Side);
+
+        let written = std::fs::read_to_string(&path).unwrap();
+        // Side is the default → skip-if-default omits the key entirely.
+        assert!(
+            !written.contains("surround_placement"),
+            "default side should omit the key: {written}"
+        );
+        assert!(
+            written.contains("bridge_path: /tmp/libbridge.so"),
+            "known key lost: {written}"
+        );
+        assert!(!sidecar.exists(), "live sidecar not removed");
+
+        let cfg = renderer::config::Config::load_or_default(&path);
+        let placement = cfg
+            .render
+            .as_ref()
+            .and_then(renderer::config_fields::surround_placement::get)
+            .unwrap_or(SurroundPlacement::Side);
+        assert_eq!(placement, SurroundPlacement::Side);
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }

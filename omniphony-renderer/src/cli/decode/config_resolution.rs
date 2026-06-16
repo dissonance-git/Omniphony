@@ -168,6 +168,11 @@ pub(super) fn merge_render_config(
             args.channel_render_mode = mode.into();
         }
     }
+    if !arg_sources.is_explicit("surround_placement") {
+        if let Some(placement) = renderer::config_fields::surround_placement::get(cfg) {
+            args.surround_placement = placement.into();
+        }
+    }
     if args.bridge_path.is_none() {
         args.bridge_path = cfg.bridge_path.clone();
     }
@@ -570,6 +575,7 @@ pub(super) fn effective_to_config(
         &mut render,
         args.channel_render_mode.into(),
     );
+    renderer::config_fields::surround_placement::store(&mut render, args.surround_placement.into());
     renderer::config_fields::distance_diffuse::store(&mut render, args.distance_diffuse);
     renderer::config_fields::distance_diffuse_threshold::store(
         &mut render,

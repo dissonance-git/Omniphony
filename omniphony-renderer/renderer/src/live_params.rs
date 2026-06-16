@@ -150,6 +150,41 @@ impl ChannelRenderMode {
     }
 }
 
+/// Where the surround pair (`Ls`/`Rs`) of a channel-based source WITHOUT
+/// dedicated back channels (4.x / 5.x) is placed when rendered through the
+/// virtual bed. Sources that already carry back channels (7.x: `Lb`/`Rb`/`Cb`)
+/// ignore this — their surrounds are unambiguous. Live-tunable via
+/// `/omniphony/control/surround_placement`, persisted to config.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SurroundPlacement {
+    /// Side surrounds (the historical placement): `Ls`/`Rs` at the side corner
+    /// (≈±90°).
+    #[default]
+    Side,
+    /// Rear/back surrounds: `Ls`/`Rs` at the back corner (≈±135°); a surround
+    /// routed direct (not spatialized) goes to a back output speaker when the
+    /// layout has one.
+    Back,
+}
+
+impl SurroundPlacement {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Side => "side",
+            Self::Back => "back",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "side" | "sides" | "side_surround" => Some(Self::Side),
+            "back" | "rear" | "back_surround" | "rear_surround" => Some(Self::Back),
+            _ => None,
+        }
+    }
+}
+
 /// Output rendering path: a multichannel speaker array (VBAP) or an independent
 /// 2-channel headphone (binaural) stage. See [`crate::binaural`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
@@ -542,6 +577,12 @@ pub struct LiveParams {
     /// identically by the CLI/spdif decode path and the embedded mpv host.
     /// Live-tunable via `/omniphony/control/channel_render_mode`.
     pub channel_render_mode: ChannelRenderMode,
+
+    /// Where the 4.x/5.x surround pair (`Ls`/`Rs`) is placed: side vs back.
+    /// Consulted only for channel content without dedicated back channels;
+    /// 7.x sources ignore it. Live-tunable via
+    /// `/omniphony/control/surround_placement`.
+    pub surround_placement: SurroundPlacement,
 
     /// Parametrable virtual bed for channel-based content (consulted only when
     /// `channel_render_mode == Spatial`). One entry per input-channel label

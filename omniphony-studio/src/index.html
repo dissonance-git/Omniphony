@@ -118,6 +118,13 @@
             <span data-i18n="twoDSources.spatializeLabel" data-help-i18n="help.twoDSources" data-help-anchor=".switch-row">Spatialize 2D sources</span>
             <input id="channelSpatializeToggle" type="checkbox" />
           </label>
+          <div id="surroundPlacementRow" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
+            <span style="font-size:12px" data-i18n="twoDSources.surroundLabel">Rear channels (4.x/5.x)</span>
+            <span style="display:flex;gap:0.25rem">
+              <button id="surroundPlacementSide" type="button" class="toggle-btn" data-i18n="twoDSources.surroundSide">Side</button>
+              <button id="surroundPlacementBack" type="button" class="toggle-btn" data-i18n="twoDSources.surroundBack">Back</button>
+            </span>
+          </div>
           <div id="virtualBedActions" style="display:flex;justify-content:flex-end;margin-top:0.25rem">
             <button id="virtualBedResetBtn" type="button" class="ui-btn ui-btn-compact" style="white-space:nowrap" data-i18n="virtualBed.reset">Reset channel layout</button>
           </div>

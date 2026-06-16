@@ -5,7 +5,7 @@ use clap::{
     parser::ValueSource,
 };
 
-use renderer::live_params::{ChannelRenderMode, RampMode};
+use renderer::live_params::{ChannelRenderMode, RampMode, SurroundPlacement};
 
 pub const VERSION_INFO: &str = concat!(
     env!("VERGEN_GIT_DESCRIBE"),
@@ -433,6 +433,12 @@ pub struct RenderArgs {
     /// at its speaker angle — the default).
     #[arg(long, value_enum, default_value_t = ChannelRenderModeArg::Spatial)]
     pub channel_render_mode: ChannelRenderModeArg,
+
+    /// Where to place the surround pair (`Ls`/`Rs`) of a 4.x/5.x source rendered
+    /// through the virtual bed: `side` (the default) or `back`. Sources that
+    /// already carry back channels (7.x) ignore this.
+    #[arg(long, value_enum, default_value_t = SurroundPlacementArg::Side)]
+    pub surround_placement: SurroundPlacementArg,
 
     /// Disable automatic draining of buffered data from named pipes at startup
     /// (By default, orender drains FIFOs to minimize latency for real-time streams)
@@ -968,6 +974,33 @@ impl From<ChannelRenderMode> for ChannelRenderModeArg {
         match value {
             ChannelRenderMode::Host => ChannelRenderModeArg::Host,
             ChannelRenderMode::Spatial => ChannelRenderModeArg::Spatial,
+        }
+    }
+}
+
+/// Where the 4.x/5.x surround pair is placed. See [`SurroundPlacement`].
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum SurroundPlacementArg {
+    #[value(alias = "sides")]
+    Side,
+    #[value(alias = "rear")]
+    Back,
+}
+
+impl From<SurroundPlacementArg> for SurroundPlacement {
+    fn from(value: SurroundPlacementArg) -> Self {
+        match value {
+            SurroundPlacementArg::Side => SurroundPlacement::Side,
+            SurroundPlacementArg::Back => SurroundPlacement::Back,
+        }
+    }
+}
+
+impl From<SurroundPlacement> for SurroundPlacementArg {
+    fn from(value: SurroundPlacement) -> Self {
+        match value {
+            SurroundPlacement::Side => SurroundPlacementArg::Side,
+            SurroundPlacement::Back => SurroundPlacementArg::Back,
         }
     }
 }

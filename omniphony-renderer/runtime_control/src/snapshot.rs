@@ -139,6 +139,7 @@ pub fn build_renderer_state_json(
         "autoGainCeilingDb": live.auto_gain_ceiling_db,
         "rampMode": live.ramp_mode.as_str(),
         "channelRenderMode": live.channel_render_mode.as_str(),
+        "surroundPlacement": live.surround_placement.as_str(),
         // Parametrable virtual bed for channel content (null = built-in
         // canonical poses, LFE direct). Reuses the speaker-layout schema so the
         // Studio 3D editor can target it.

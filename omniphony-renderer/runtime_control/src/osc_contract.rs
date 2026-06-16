@@ -124,6 +124,9 @@ pub const CONTROL_OVERLAY_HEATMAP_CUSTOM_STOPS: &str =
     "/omniphony/control/overlay/heatmap_custom_stops";
 pub const CONTROL_OVERLAY_HEATMAP_ENABLED: &str = "/omniphony/control/overlay/heatmap_enabled";
 pub const CONTROL_CHANNEL_RENDER_MODE: &str = "/omniphony/control/channel_render_mode";
+/// Where the 4.x/5.x surround pair is placed: `side` or `back`. Only affects
+/// channel sources without dedicated back channels. Persisted to config.
+pub const CONTROL_SURROUND_PLACEMENT: &str = "/omniphony/control/surround_placement";
 /// Set the parametrable virtual bed for channel content. Argument is a YAML
 /// `SpeakerLayout` (one entry per channel label, `spatialize` = virtual/direct);
 /// an empty string resets to the built-in canonical poses (LFE direct).

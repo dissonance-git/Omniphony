@@ -156,6 +156,12 @@ pub struct RenderConfig {
     /// Absent = `spatial`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel_render_mode: Option<crate::live_params::ChannelRenderMode>,
+    /// Where the 4.x/5.x surround pair (`Ls`/`Rs`) is placed when rendered
+    /// through the virtual bed: `side` (the default) or `back`. Only affects
+    /// channel sources without dedicated back channels; 7.x ignores it.
+    /// Absent = `side`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub surround_placement: Option<crate::live_params::SurroundPlacement>,
     /// Parametrable virtual bed for channel-based (non-object) content. One
     /// entry per input-channel label (`L`, `R`, `C`, `LFE`, `Ls`, `Rs`, …):
     /// `spatialize:true` virtualizes the channel as an object at the entry's

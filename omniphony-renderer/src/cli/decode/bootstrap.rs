@@ -409,6 +409,7 @@ fn init_osc_runtime(
         ctrl.set_requested_ramp_mode(args.ramp_mode.into());
         ctrl.live.write().ramp_mode = args.ramp_mode.into();
         ctrl.live.write().channel_render_mode = args.channel_render_mode.into();
+        ctrl.live.write().surround_placement = args.surround_placement.into();
 
         let requested_latency_target_ms = {
             #[cfg(target_os = "linux")]

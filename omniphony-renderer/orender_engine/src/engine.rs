@@ -398,6 +398,14 @@ impl Engine {
             .unwrap_or(renderer::config_fields::channel_render_mode::DEFAULT);
         control.live.write().channel_render_mode = channel_render_mode;
 
+        // Surround placement (side/back) for 4.x/5.x content; seeded from config
+        // like `channel_render_mode`. Default = Side.
+        let surround_placement = render_cfg
+            .as_ref()
+            .and_then(renderer::config_fields::surround_placement::get)
+            .unwrap_or(renderer::config_fields::surround_placement::DEFAULT);
+        control.live.write().surround_placement = surround_placement;
+
         // Parametrable virtual bed (per-channel direct/virtual placement). Seed
         // from config so the embedded host matches the CLI bootstrap; `None`
         // leaves the built-in canonical poses in effect (LFE direct).
@@ -738,6 +746,7 @@ impl Engine {
             let (
                 mode,
                 virtual_bed_layout,
+                surround_placement,
                 room_ratio,
                 room_ratio_rear,
                 room_ratio_lower,
@@ -748,21 +757,25 @@ impl Engine {
                 (
                     live.channel_render_mode,
                     live.virtual_bed.clone(),
+                    live.surround_placement,
                     live.room_ratio,
                     live.room_ratio_rear,
                     live.room_ratio_lower,
                     live.room_ratio_center_blend,
                 )
             };
+            let output_layout = self.renderer.speaker_layout();
 
             match virtual_bed::plan_channel_render(
                 mode,
                 &labels,
                 virtual_bed_layout.as_ref(),
+                Some(&output_layout),
                 room_ratio,
                 room_ratio_rear,
                 room_ratio_lower,
                 room_ratio_center_blend,
+                surround_placement,
             ) {
                 virtual_bed::ChannelRenderPlan::Events {
                     events,
@@ -803,7 +816,6 @@ impl Engine {
             // Outgoing: broadcast the virtual-bed channel poses as OSC objects
             // and/or feed the in-process mpv overlay.
             if want_objects {
-                let output_layout = self.renderer.speaker_layout();
                 if let Some(objects) = virtual_bed::build_virtual_bed_objects(
                     &labels,
                     virtual_bed_layout.as_ref(),
@@ -812,6 +824,7 @@ impl Engine {
                     room_ratio_rear,
                     room_ratio_lower,
                     room_ratio_center_blend,
+                    surround_placement,
                 ) {
                     if want_osc {
                         if let Some(osc) = self.osc.as_mut() {
