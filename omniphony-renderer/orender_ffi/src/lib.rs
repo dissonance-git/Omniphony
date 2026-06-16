@@ -563,6 +563,19 @@ pub extern "C" fn orender_overlay_set_enabled(enabled: c_int) {
     }));
 }
 
+/// Drop all overlay scene state (object positions, levels, trails, labels)
+/// without touching the master enable. Used by a host that stops feeding the
+/// overlay — e.g. mpv routing channel audio to its native decoder in host mode —
+/// so the spatial overlay clears immediately instead of lingering on the last
+/// frame until the trails decay. The next pull after feeding resumes shows the
+/// live scene again; the user's overlay on/off preference is preserved.
+#[no_mangle]
+pub extern "C" fn orender_overlay_clear() {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        orender_engine::overlay::clear();
+    }));
+}
+
 // ── overlay toggles (host keybinds) ──────────────────────────────────────────
 //
 // Each flips the matching control inside the renderer and returns the *new*

@@ -74,6 +74,13 @@ pub(crate) fn handle_control_message(
             if let Some(mode) = renderer::live_params::ChannelRenderMode::from_str(s) {
                 control.live.write().channel_render_mode = mode;
                 control.mark_dirty();
+                // Persist to config.yaml right away (not only mark_dirty). `host`
+                // makes the embedded mpv decoder decline and tear the engine down,
+                // so the OSC re-enable after a fallback is received by a *different*
+                // orender instance (the standby renderer that resumes on the port).
+                // Committing it to config.yaml here — by whichever instance gets the
+                // toggle — is what lets the next mpv launch read the right mode.
+                persist_channel_render_mode(control, mode);
                 broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
                 log::info!("OSC channel render mode set to {}", mode.as_str());
             } else {
@@ -652,6 +659,43 @@ fn set_dirty(control: &Arc<RendererControl>, socket: &UdpSocket, clients: &OscCl
     broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
 }
 
+/// Persist `channel_render_mode` to the on-disk config so it survives a restart.
+///
+/// Targeted, side-effect-free write: load the existing config, set *only* this
+/// field (preserving every other key, including unknown ones via the config's
+/// flattened `extra`), save, then drop the live-handoff sidecar + overlay cache
+/// so a stale `host` sidecar — written when a previous instance fell back and
+/// tore down — cannot override `config.yaml` on the next boot. `Spatial` (the
+/// default) omits the key; `Host` writes it. Best-effort; logs on error.
+fn persist_channel_render_mode(
+    control: &Arc<RendererControl>,
+    mode: renderer::live_params::ChannelRenderMode,
+) {
+    let Some(path) = control.config_path() else {
+        return;
+    };
+    persist_channel_render_mode_to_path(&path, mode);
+}
+
+fn persist_channel_render_mode_to_path(
+    path: &Path,
+    mode: renderer::live_params::ChannelRenderMode,
+) {
+    let mut config = renderer::config::Config::load_or_default(path);
+    let render = config.render.get_or_insert_with(Default::default);
+    renderer::config_fields::channel_render_mode::store(render, mode);
+    if let Err(e) = config.save(path) {
+        log::warn!(
+            "failed to persist channel_render_mode to {}: {e}",
+            path.display()
+        );
+        return;
+    }
+    // A persisted change supersedes any pending live-handoff overlay.
+    let _ = std::fs::remove_file(renderer::config::live_sidecar_path(path));
+    renderer::config::clear_live_overlay_cache();
+}
+
 fn apply_control_effects(
     effects: ControlEffects,
     control: &Arc<RendererControl>,
@@ -944,5 +988,91 @@ fn push_gaintable_subscribe(
                 ),
             },
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use renderer::live_params::ChannelRenderMode;
+
+    fn temp_config_path(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "orender-crm-persist-{}-{}",
+            std::process::id(),
+            tag
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("config.yaml")
+    }
+
+    #[test]
+    fn persist_channel_render_mode_writes_host_and_clears_sidecar() {
+        let path = temp_config_path("host");
+        // A config with an unknown render key and a known one, both must survive.
+        std::fs::write(
+            &path,
+            "render:\n  bridge_path: /tmp/libbridge.so\n  some_future_key: 42\n",
+        )
+        .unwrap();
+        // A stale host/live sidecar that must be removed by the persist.
+        let sidecar = renderer::config::live_sidecar_path(&path);
+        std::fs::write(&sidecar, "render:\n  channel_render_mode: host\n").unwrap();
+
+        persist_channel_render_mode_to_path(&path, ChannelRenderMode::Host);
+
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            written.contains("channel_render_mode: host"),
+            "host not written: {written}"
+        );
+        assert!(
+            written.contains("bridge_path: /tmp/libbridge.so"),
+            "known key lost: {written}"
+        );
+        assert!(
+            written.contains("some_future_key: 42"),
+            "unknown key lost: {written}"
+        );
+        assert!(!sidecar.exists(), "live sidecar not removed");
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn persist_channel_render_mode_spatial_omits_key_and_clears_sidecar() {
+        let path = temp_config_path("spatial");
+        std::fs::write(
+            &path,
+            "render:\n  bridge_path: /tmp/libbridge.so\n  channel_render_mode: host\n",
+        )
+        .unwrap();
+        let sidecar = renderer::config::live_sidecar_path(&path);
+        std::fs::write(&sidecar, "render:\n  channel_render_mode: host\n").unwrap();
+
+        persist_channel_render_mode_to_path(&path, ChannelRenderMode::Spatial);
+
+        let written = std::fs::read_to_string(&path).unwrap();
+        // Spatial is the default → skip-if-default omits the key entirely.
+        assert!(
+            !written.contains("channel_render_mode"),
+            "default spatial should omit the key: {written}"
+        );
+        assert!(
+            written.contains("bridge_path: /tmp/libbridge.so"),
+            "known key lost: {written}"
+        );
+        assert!(!sidecar.exists(), "live sidecar not removed");
+
+        // Reloading yields the default (Spatial).
+        let cfg = renderer::config::Config::load_or_default(&path);
+        let mode = cfg
+            .render
+            .as_ref()
+            .and_then(renderer::config_fields::channel_render_mode::get)
+            .unwrap_or(ChannelRenderMode::Spatial);
+        assert_eq!(mode, ChannelRenderMode::Spatial);
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 }

@@ -176,6 +176,16 @@ uintptr_t orender_overlay_ass(uint32_t res_x, uint32_t res_y, uint8_t *out, uint
 void orender_overlay_set_enabled(int enabled);
 
 /**
+ * Drop all overlay scene state (object positions, levels, trails, labels)
+ * without touching the master enable. Used by a host that stops feeding the
+ * overlay — e.g. mpv routing channel audio to its native decoder in host mode —
+ * so the spatial overlay clears immediately instead of lingering on the last
+ * frame until the trails decay. The next pull after feeding resumes shows the
+ * live scene again; the user's overlay on/off preference is preserved.
+ */
+void orender_overlay_clear(void);
+
+/**
  * Flip the master enable and return the new state (1 = on, 0 = off).
  */
 int orender_overlay_toggle(void);
