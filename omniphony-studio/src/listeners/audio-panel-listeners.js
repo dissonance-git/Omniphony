@@ -538,6 +538,7 @@ export function setupAudioPanelListeners() {
   const virtualBedResetBtnEl = document.getElementById('virtualBedResetBtn');
   if (virtualBedResetBtnEl) {
     virtualBedResetBtnEl.addEventListener('click', () => {
+      if (!window.confirm(t('confirm.resetVirtualBed'))) return;
       resetVirtualBed();
     });
   }

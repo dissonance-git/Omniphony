@@ -299,9 +299,17 @@ export function applyChannelPlacement(name, spatialize) {
   });
 }
 
+// Reset the bed to the canonical defaults: every channel at its cube-corner
+// position in CARTESIAN mode (the CANONICAL_BED corners), not the renderer's
+// polar fallback angles. Sending an empty string used to hand the renderer its
+// built-in polar poses, which the editor then displayed as cartesian corners —
+// so the polar form changed while the cartesian fields stayed stale even though
+// the coord-mode read "cartesian". Pushing the explicit cartesian bed keeps the
+// editor, the 3D view and the audio render in agreement.
 export function resetVirtualBed() {
-  app.virtualBed = null;
-  invoke('control_virtual_bed', { value: '' });
+  const channels = CANONICAL_BED.map((base) => defaultEntry(base));
+  app.virtualBed = buildLayoutPayload(channels);
+  invoke('control_virtual_bed', { value: JSON.stringify(app.virtualBed) });
   syncVirtualBedObjects(true);
   renderChannelEditor(true);
 }
