@@ -744,26 +744,40 @@ fn binaural_object_ramp_advances_and_lateralizes() {
         sample_pos: Some(0),
     }];
 
+    // Binaural now emits a full speaker-count frame with the ears scattered
+    // into the FL/FR slots (channels 0/1 for this layout), not a bare stereo
+    // pair — so the host's output format never changes on a binaural↔speaker
+    // toggle.
+    let ns = r.num_speakers();
     let first = r.render_frame(&pcm, 1, &event, Vec::new(), false).unwrap();
     assert_eq!(
         first.samples.len(),
-        40 * 2,
-        "binaural output must be stereo"
+        40 * ns,
+        "binaural output must be a full speaker frame"
     );
 
     // Let the ramp finish and the ITD delay lines / HRIR tails settle, then
-    // measure ear energies over a few blocks.
-    let (mut e_l, mut e_r) = (0.0f32, 0.0f32);
+    // measure FL/FR ear energies over a few blocks. Also accumulate the energy
+    // in every other channel: the ears go to FL/FR only, so the rest must stay
+    // silent (otherwise the headphone FL/FR tap would be wrong).
+    let (mut e_l, mut e_r, mut e_other) = (0.0f32, 0.0f32, 0.0f32);
     for i in 0..8 {
         let pcm = noise_block();
         let out = r.render_frame(&pcm, 1, &[], Vec::new(), false).unwrap();
         if i >= 4 {
-            for s in out.samples.chunks_exact(2) {
+            for s in out.samples.chunks_exact(ns) {
                 e_l += s[0] * s[0];
                 e_r += s[1] * s[1];
+                for &v in &s[2..] {
+                    e_other += v * v;
+                }
             }
         }
     }
+    assert_eq!(
+        e_other, 0.0,
+        "binaural energy leaked outside the FL/FR slots: E_other={e_other}"
+    );
 
     let pos = r
         .channel_states
