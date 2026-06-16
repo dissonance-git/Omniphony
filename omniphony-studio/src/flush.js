@@ -107,6 +107,8 @@ export function flushUI() {
     } else if (entry.position) {
       entry.position.textContent = formatPosition(pos);
     }
+    // Live-refresh the row's position thumbnail as the object moves.
+    flushCallbacks.updateObjectPositionIcon?.(entry, pos);
   });
   dirtyObjectPositions.clear();
 

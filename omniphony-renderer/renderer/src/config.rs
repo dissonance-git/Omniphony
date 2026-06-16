@@ -150,6 +150,27 @@ pub struct RenderConfig {
     pub auto_gain_ceiling_db: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bed_conform: Option<bool>,
+    /// How channel-based (non-object) content is rendered: `host` (let mpv/the
+    /// sink handle it) or `spatial` (render through the parametrable virtual bed
+    /// — the default). The legacy `direct`/`virtual` values load as `spatial`.
+    /// Absent = `spatial`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel_render_mode: Option<crate::live_params::ChannelRenderMode>,
+    /// Where the 4.x/5.x surround pair (`Ls`/`Rs`) is placed when rendered
+    /// through the virtual bed: `side` (the default) or `back`. Only affects
+    /// channel sources without dedicated back channels; 7.x ignores it.
+    /// Absent = `side`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub surround_placement: Option<crate::live_params::SurroundPlacement>,
+    /// Parametrable virtual bed for channel-based (non-object) content. One
+    /// entry per input-channel label (`L`, `R`, `C`, `LFE`, `Ls`, `Rs`, …):
+    /// `spatialize:true` virtualizes the channel as an object at the entry's
+    /// position; `spatialize:false` routes it direct to the matching output
+    /// speaker (e.g. LFE → sub). Absent = built-in canonical poses (LFE direct,
+    /// the rest virtualized). Reuses the speaker-layout schema so the Studio 3D
+    /// editor can edit it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub virtual_bed: Option<crate::speaker_layout::SpeakerLayout>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spread_from_distance: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]

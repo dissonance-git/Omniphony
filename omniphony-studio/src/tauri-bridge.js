@@ -23,6 +23,7 @@ import {
 } from './state.js';
 
 import { updateSource, updateSourceLevel, updateSourceGains, updateSourceBandGains, updateSourceSize, updateSourceTag, removeSource } from './sources.js';
+import { syncVirtualBedObjects } from './controls/virtual-bed.js';
 import {
   updateSpeakerLevel,
   updateMasterLevel,
@@ -156,6 +157,12 @@ export function setupTauriBridge() {
 
   listen('source:update', ({ payload }) => {
     updateSource(payload.id, payload.position);
+    // A live object arrived → the spatial stream is active. Mark it (a
+    // source:update may precede the spatial:frame header in the OSC burst) so the
+    // reconcile keeps the live objects and drops the synthetic at-rest markers,
+    // rather than treating the just-added object as stale.
+    app.lastSpatialFrameAt = performance.now();
+    syncVirtualBedObjects();
   });
 
   listen('source:size', ({ payload }) => {
@@ -164,6 +171,8 @@ export function setupTauriBridge() {
 
   listen('source:remove', ({ payload }) => {
     removeSource(payload.id);
+    // The stream may have gone idle → restore the synthetic at-rest bed markers.
+    syncVirtualBedObjects();
   });
 
   listen('source:meter', ({ payload }) => {
@@ -207,6 +216,10 @@ export function setupTauriBridge() {
   listen('spatial:frame', ({ payload }) => {
     const isReset = Boolean(payload?.reset);
     const objectCount = Math.max(0, Number(payload?.objectCount ?? 0) | 0);
+    // Mark the stream as active so the at-rest synthetic bed objects aren't
+    // spawned during playback — including the brief gap right after a seek, where
+    // live objects momentarily disappear but frames are still flowing.
+    app.lastSpatialFrameAt = performance.now();
 
     if (isReset) {
       for (const trail of sourceTrails.values()) {
@@ -233,6 +246,10 @@ export function setupTauriBridge() {
         }
       }
     }
+
+    // The stream is now active again → drop any synthetic at-rest bed markers so
+    // they don't coexist with the live objects.
+    syncVirtualBedObjects();
   });
 
   // -----------------------------------------------------------------------

@@ -91,6 +91,27 @@ export function applyRuntimeAudioStateSnapshot(payload) {
       app.rampMode = next;
     }
   }
+  if (typeof payload.channelRenderMode === 'string') {
+    const next = payload.channelRenderMode.trim().toLowerCase();
+    // `direct`/`virtual` are legacy values that now collapse to `spatial`.
+    if (next === 'host') {
+      app.channelRenderMode = 'host';
+    } else if (next === 'spatial' || next === 'direct' || next === 'virtual') {
+      app.channelRenderMode = 'spatial';
+    }
+  }
+  if (typeof payload.surroundPlacement === 'string') {
+    const next = payload.surroundPlacement.trim().toLowerCase();
+    if (next === 'side' || next === 'back') {
+      app.surroundPlacement = next;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'virtualBed')) {
+    // null = renderer is on the built-in canonical poses; an object is the
+    // configured/live bed. The editor seeds defaults when this is null.
+    app.virtualBed =
+      payload.virtualBed && typeof payload.virtualBed === 'object' ? payload.virtualBed : null;
+  }
   if (typeof payload.audioOutputDevice === 'string') {
     app.audioOutputDevice = payload.audioOutputDevice.trim() || null;
   }

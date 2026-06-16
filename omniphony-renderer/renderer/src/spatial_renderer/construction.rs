@@ -417,6 +417,16 @@ impl SpatialRenderer {
             drc_weight: 1.0,
             hybrid: crate::live_params::HybridLiveParams::default(),
             binaural: crate::live_params::BinauralLiveParams::default(),
+            // Seeded to the default (Spatial); the CLI bootstrap and the
+            // embedded mpv host (`Engine::from_paths`) override it from
+            // `render.channel_render_mode`, mirroring `ramp_mode`.
+            channel_render_mode: crate::live_params::ChannelRenderMode::default(),
+            // Seeded to the default (Side); the CLI bootstrap and the embedded
+            // mpv host override it from `render.surround_placement`.
+            surround_placement: crate::live_params::SurroundPlacement::default(),
+            // Seeded from `render.virtual_bed` by the same bootstrap; `None`
+            // uses the built-in canonical poses (LFE direct, rest virtualized).
+            virtual_bed: None,
         }
     }
 

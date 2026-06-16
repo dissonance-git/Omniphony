@@ -5,7 +5,7 @@ use clap::{
     parser::ValueSource,
 };
 
-use renderer::live_params::RampMode;
+use renderer::live_params::{ChannelRenderMode, RampMode, SurroundPlacement};
 
 pub const VERSION_INFO: &str = concat!(
     env!("VERGEN_GIT_DESCRIBE"),
@@ -426,6 +426,19 @@ pub struct RenderArgs {
     /// - `off`: jump immediately to the new value
     #[arg(long, value_enum, default_value_t = RampModeArg::Frame)]
     pub ramp_mode: RampModeArg,
+
+    /// How to render channel-based (non-object) content: `host` (let the sink
+    /// handle the channels, no spatialization), `direct` (route each channel to
+    /// its matching speaker), or `virtual` (virtualize each channel as an object
+    /// at its speaker angle — the default).
+    #[arg(long, value_enum, default_value_t = ChannelRenderModeArg::Spatial)]
+    pub channel_render_mode: ChannelRenderModeArg,
+
+    /// Where to place the surround pair (`Ls`/`Rs`) of a 4.x/5.x source rendered
+    /// through the virtual bed: `side` (the default) or `back`. Sources that
+    /// already carry back channels (7.x) ignore this.
+    #[arg(long, value_enum, default_value_t = SurroundPlacementArg::Side)]
+    pub surround_placement: SurroundPlacementArg,
 
     /// Disable automatic draining of buffered data from named pipes at startup
     /// (By default, orender drains FIFOs to minimize latency for real-time streams)
@@ -933,6 +946,61 @@ impl From<RampModeArg> for RampMode {
             RampModeArg::Frame => RampMode::Frame,
             RampModeArg::Sample => RampMode::Sample,
             RampModeArg::Interp => RampMode::Interp,
+        }
+    }
+}
+
+/// How channel-based (non-object) content is rendered. See
+/// [`ChannelRenderMode`]. The legacy `direct`/`virtual` values are accepted as
+/// aliases of `spatial` (placement is now per-channel in the virtual bed).
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum ChannelRenderModeArg {
+    Host,
+    #[value(alias = "virtual", alias = "direct")]
+    Spatial,
+}
+
+impl From<ChannelRenderModeArg> for ChannelRenderMode {
+    fn from(value: ChannelRenderModeArg) -> Self {
+        match value {
+            ChannelRenderModeArg::Host => ChannelRenderMode::Host,
+            ChannelRenderModeArg::Spatial => ChannelRenderMode::Spatial,
+        }
+    }
+}
+
+impl From<ChannelRenderMode> for ChannelRenderModeArg {
+    fn from(value: ChannelRenderMode) -> Self {
+        match value {
+            ChannelRenderMode::Host => ChannelRenderModeArg::Host,
+            ChannelRenderMode::Spatial => ChannelRenderModeArg::Spatial,
+        }
+    }
+}
+
+/// Where the 4.x/5.x surround pair is placed. See [`SurroundPlacement`].
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum SurroundPlacementArg {
+    #[value(alias = "sides")]
+    Side,
+    #[value(alias = "rear")]
+    Back,
+}
+
+impl From<SurroundPlacementArg> for SurroundPlacement {
+    fn from(value: SurroundPlacementArg) -> Self {
+        match value {
+            SurroundPlacementArg::Side => SurroundPlacement::Side,
+            SurroundPlacementArg::Back => SurroundPlacement::Back,
+        }
+    }
+}
+
+impl From<SurroundPlacement> for SurroundPlacementArg {
+    fn from(value: SurroundPlacement) -> Self {
+        match value {
+            SurroundPlacement::Side => SurroundPlacementArg::Side,
+            SurroundPlacement::Back => SurroundPlacementArg::Back,
         }
     }
 }

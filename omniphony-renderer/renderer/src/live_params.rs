@@ -103,6 +103,88 @@ impl RampMode {
     }
 }
 
+/// How channel-based (non-object) content is rendered. Applies only to streams
+/// that carry no spatial objects (plain EAC3 / TrueHD beds, AC3, multichannel
+/// PCM); object streams are unaffected. Shared by the CLI/spdif decode path and
+/// the embedded mpv host so both behave identically.
+///
+/// The placement of each input channel (direct to a speaker, or virtualized as
+/// an object at a position) is decided per channel by the parametrable virtual
+/// bed (`LiveParams::virtual_bed`); this enum only selects the global policy:
+/// let the host decode it (`Host`), or render it through the virtual bed
+/// (`Spatial`). The legacy `direct`/`virtual` values deserialise to `Spatial`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelRenderMode {
+    /// Let the host deal with it: the embedded mpv decoder declines so mpv falls
+    /// back to its native decoder (`ad_lavc`); the CLI outputs the decoded
+    /// channels straight to the sink (no spatialization).
+    Host,
+    /// Render through the virtual bed: each channel is either routed direct to
+    /// its matching speaker (`spatialize:false` in the virtual bed, e.g. LFE) or
+    /// virtualized as an object at the bed's configured position and VBAP-panned
+    /// (`spatialize:true`). The default. Accepts the old `direct`/`virtual`
+    /// config values as aliases.
+    #[default]
+    #[serde(alias = "virtual", alias = "direct")]
+    Spatial,
+}
+
+impl ChannelRenderMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Host => "host",
+            Self::Spatial => "spatial",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "host" | "native" | "passthrough" => Some(Self::Host),
+            // `direct`/`virtual` are legacy aliases: placement is now per-channel
+            // in the virtual bed, so both collapse to the single `Spatial` mode.
+            "spatial" | "virtual" | "virtual_objects" | "objects" | "direct"
+            | "direct_speakers" => Some(Self::Spatial),
+            _ => None,
+        }
+    }
+}
+
+/// Where the surround pair (`Ls`/`Rs`) of a channel-based source WITHOUT
+/// dedicated back channels (4.x / 5.x) is placed when rendered through the
+/// virtual bed. Sources that already carry back channels (7.x: `Lb`/`Rb`/`Cb`)
+/// ignore this — their surrounds are unambiguous. Live-tunable via
+/// `/omniphony/control/surround_placement`, persisted to config.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SurroundPlacement {
+    /// Side surrounds (the historical placement): `Ls`/`Rs` at the side corner
+    /// (≈±90°).
+    #[default]
+    Side,
+    /// Rear/back surrounds: `Ls`/`Rs` at the back corner (≈±135°); a surround
+    /// routed direct (not spatialized) goes to a back output speaker when the
+    /// layout has one.
+    Back,
+}
+
+impl SurroundPlacement {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Side => "side",
+            Self::Back => "back",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "side" | "sides" | "side_surround" => Some(Self::Side),
+            "back" | "rear" | "back_surround" | "rear_surround" => Some(Self::Back),
+            _ => None,
+        }
+    }
+}
+
 /// Output rendering path: a multichannel speaker array (VBAP) or an independent
 /// 2-channel headphone (binaural) stage. See [`crate::binaural`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
@@ -489,6 +571,27 @@ pub struct LiveParams {
     /// `binaural.output_mode == OutputMode::Binaural`, the renderer bypasses the
     /// speaker/VBAP path and emits a 2-channel frame instead.
     pub binaural: BinauralLiveParams,
+
+    /// How channel-based (non-object) content is rendered. Only consulted for
+    /// streams that carry no spatial objects; object streams ignore it. Read
+    /// identically by the CLI/spdif decode path and the embedded mpv host.
+    /// Live-tunable via `/omniphony/control/channel_render_mode`.
+    pub channel_render_mode: ChannelRenderMode,
+
+    /// Where the 4.x/5.x surround pair (`Ls`/`Rs`) is placed: side vs back.
+    /// Consulted only for channel content without dedicated back channels;
+    /// 7.x sources ignore it. Live-tunable via
+    /// `/omniphony/control/surround_placement`.
+    pub surround_placement: SurroundPlacement,
+
+    /// Parametrable virtual bed for channel-based content (consulted only when
+    /// `channel_render_mode == Spatial`). One entry per input-channel label
+    /// (`L`, `R`, `C`, `LFE`, `Ls`, `Rs`, `Lb`, `Rb`, …): `spatialize:true`
+    /// virtualizes the channel as an object at the entry's position, `false`
+    /// routes it direct to the matching output speaker (e.g. LFE → sub). `None`
+    /// falls back to the built-in canonical poses (LFE direct, the rest
+    /// virtualized). Live-tunable via the `virtual_bed` layout OSC controls.
+    pub virtual_bed: Option<SpeakerLayout>,
 }
 
 impl LiveParams {

@@ -90,6 +90,22 @@ void orender_destroy(struct OrenderRenderer *r);
 int orender_is_spatial(const struct OrenderRenderer *r);
 
 /**
+ * Configured render mode for channel-based (non-object) content:
+ * 0 = host, 1 = spatial; <0 on error. When this is `host` (0) and
+ * [`orender_is_spatial`] reports 0, the host should decline this track and fall
+ * back to its native decoder. Meaningful once the renderer is created (the mode
+ * comes from config / live params, not from the stream).
+ */
+int orender_channel_mode(const struct OrenderRenderer *r);
+
+/**
+ * Override the channel render mode for non-object content at runtime (a
+ * per-host override of the config value): 0 = host, 1 = spatial. No-op on a
+ * NULL handle.
+ */
+void orender_set_channel_mode(struct OrenderRenderer *r, int mode);
+
+/**
  * Number of output channels (speakers) the renderer produces, 0 on error.
  */
 uint32_t orender_channel_count(const struct OrenderRenderer *r);
@@ -158,6 +174,25 @@ uintptr_t orender_overlay_ass(uint32_t res_x, uint32_t res_y, uint8_t *out, uint
  * makes the engine stop feeding it. `0` = off, non-zero = on.
  */
 void orender_overlay_set_enabled(int enabled);
+
+/**
+ * Drop all overlay scene state (object positions, levels, trails, labels)
+ * without touching the master enable. Used by a host that stops feeding the
+ * overlay — e.g. mpv routing channel audio to its native decoder in host mode —
+ * so the spatial overlay clears immediately instead of lingering on the last
+ * frame until the trails decay. The next pull after feeding resumes shows the
+ * live scene again; the user's overlay on/off preference is preserved.
+ */
+void orender_overlay_clear(void);
+
+/**
+ * Suppress or resume *all* overlay drawing — the wireframe cube included — for a
+ * live session, independent of the master enable. A host that keeps the engine
+ * alive but is not spatial-rendering (mpv in host mode, decoding channel audio
+ * natively) sets `0` so the whole overlay disappears, and `1` when it resumes
+ * spatial rendering. `0` = not rendering (blank), non-zero = rendering.
+ */
+void orender_overlay_set_rendering(int rendering);
 
 /**
  * Flip the master enable and return the new state (1 = on, 0 = off).

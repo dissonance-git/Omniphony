@@ -389,6 +389,29 @@ impl Engine {
         control.set_requested_ramp_mode(ramp_mode);
         control.live.write().ramp_mode = ramp_mode;
 
+        // Channel render mode for non-object content (host / spatial). Mirror
+        // `ramp_mode`: the live snapshot is seeded from config here so the
+        // embedded host matches the CLI bootstrap. Default = Spatial.
+        let channel_render_mode = render_cfg
+            .as_ref()
+            .and_then(renderer::config_fields::channel_render_mode::get)
+            .unwrap_or(renderer::config_fields::channel_render_mode::DEFAULT);
+        control.live.write().channel_render_mode = channel_render_mode;
+
+        // Surround placement (side/back) for 4.x/5.x content; seeded from config
+        // like `channel_render_mode`. Default = Side.
+        let surround_placement = render_cfg
+            .as_ref()
+            .and_then(renderer::config_fields::surround_placement::get)
+            .unwrap_or(renderer::config_fields::surround_placement::DEFAULT);
+        control.live.write().surround_placement = surround_placement;
+
+        // Parametrable virtual bed (per-channel direct/virtual placement). Seed
+        // from config so the embedded host matches the CLI bootstrap; `None`
+        // leaves the built-in canonical poses in effect (LFE direct).
+        let virtual_bed = render_cfg.as_ref().and_then(|c| c.virtual_bed.clone());
+        control.live.write().virtual_bed = virtual_bed;
+
         // DRC: seed the live params from config and publish the bridge's
         // supported modes (so studio shows the DRC control). The decode-side
         // mode itself is pushed to the bridge lazily in `process` (see
@@ -456,6 +479,41 @@ impl Engine {
         self.bridge.bridge.is_spatial()
     }
 
+    /// Configured render mode for channel-based (non-object) content, as a small
+    /// code for the C FFI: 0 = host (the host should fall back to its native
+    /// decoder for plain multichannel streams), non-zero = spatial (render
+    /// through the virtual bed). Per-channel direct/virtual placement lives in
+    /// the virtual bed, not in this code.
+    pub fn channel_render_mode_code(&self) -> i32 {
+        use renderer::live_params::ChannelRenderMode;
+        match self
+            .renderer
+            .renderer_control()
+            .live
+            .read()
+            .channel_render_mode
+        {
+            ChannelRenderMode::Host => 0,
+            ChannelRenderMode::Spatial => 1,
+        }
+    }
+
+    /// Override the channel render mode at runtime (per-host override of the
+    /// config value). Codes: 0 = host, anything else = spatial. The legacy
+    /// `direct`(1)/`virtual`(2) codes both map to spatial.
+    pub fn set_channel_render_mode_code(&self, code: i32) {
+        use renderer::live_params::ChannelRenderMode;
+        let mode = match code {
+            0 => ChannelRenderMode::Host,
+            _ => ChannelRenderMode::Spatial,
+        };
+        self.renderer
+            .renderer_control()
+            .live
+            .write()
+            .channel_render_mode = mode;
+    }
+
     /// Input sample rate the session was created for.
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
@@ -469,6 +527,12 @@ impl Engine {
         self.bridge.bridge.reset();
         self.renderer.reset_runtime_state();
         self.reset_segment_state();
+        // Object frames are delta-encoded; after a seek the (static) virtual-bed
+        // poses would never be re-sent, so force a full re-emit of object
+        // positions + names on the next frame.
+        if let Some(osc) = self.osc.as_mut() {
+            osc.request_full_object_resend();
+        }
         self.decoded_samples = 0;
         self.drc_gain = 1.0;
         self.drc_target_gain = 1.0;
@@ -527,10 +591,18 @@ impl Engine {
             bail!("bridge decode error: {}", result.error_message);
         }
         if result.did_reset {
-            // Sync-loss recovery inside the bridge: drop stale spatial state but
-            // keep live params and the absolute sample clock.
+            // Sync-loss recovery / seek inside the bridge: drop stale spatial
+            // state but keep live params and the absolute sample clock. Also bump
+            // the content generation, force a full object re-emit and clear the
+            // overlay so OSC clients and the overlay purge the pre-seek objects
+            // instead of leaving them behind as stale duplicates.
             self.renderer.reset_runtime_state();
             self.reset_segment_state();
+            if let Some(osc) = self.osc.as_mut() {
+                osc.bump_content_generation();
+                osc.request_full_object_resend();
+            }
+            overlay::clear();
         }
 
         // The bridge decodes one packet into N frames synchronously; attribute the
@@ -574,6 +646,25 @@ impl Engine {
         // pays nothing here.
         let overlay_active = overlay::is_active();
         let want_objects = want_osc || overlay_active;
+
+        // A mid-stream format change (the initial TrueHD layout settling, or a
+        // 7.1<->5.1 boundary) invalidates the per-segment spatial state. Mirror
+        // the CLI's `is_new_segment` handling: drop has_objects / bed / object
+        // state so a channel-based segment is never stuck on a previous
+        // object-based (or differently-sized) layout — the cause of a 5.1 track
+        // not spatializing until a track swap. Bump the content generation and
+        // force a full re-emit so OSC clients and the overlay purge the previous
+        // layout's objects (otherwise a smaller new layout leaves stale,
+        // inactive objects behind after the boundary).
+        if frame.is_new_segment {
+            self.renderer.reset_runtime_state();
+            self.reset_segment_state();
+            if let Some(osc) = self.osc.as_mut() {
+                osc.bump_content_generation();
+                osc.request_full_object_resend();
+            }
+            overlay::clear();
+        }
 
         // Dialogue normalisation (from major-sync frames), applied once.
         if !self.loudness_applied {
@@ -645,36 +736,72 @@ impl Engine {
 
         self.decoded_samples += sample_count as u64;
 
-        // Bed-only / pre-metadata frames carry no OAMD objects: fall back to the
-        // virtual-bed path so each input channel renders through VBAP at its
-        // speaker pose (matches the CLI's file-decode behaviour). The embedded
-        // host has no live input device, so there is no input layout to bias the
+        // Bed-only / pre-metadata frames carry no OAMD objects: render them
+        // according to the configured channel mode (host / direct / virtual),
+        // identically to the CLI's file-decode path. The embedded host has no
+        // live input device, so there is no input layout to bias the virtual
         // poses (`None`), exactly as in the CLI's file-decode path.
         if !self.has_objects {
             let labels: Vec<RChannelLabel> = frame.channel_labels.iter().copied().collect();
-            let (room_ratio, room_ratio_rear, room_ratio_lower, room_ratio_center_blend) = {
+            let (
+                mode,
+                virtual_bed_layout,
+                surround_placement,
+                room_ratio,
+                room_ratio_rear,
+                room_ratio_lower,
+                room_ratio_center_blend,
+            ) = {
                 let control = self.renderer.renderer_control();
                 let live = control.live.read();
                 (
+                    live.channel_render_mode,
+                    live.virtual_bed.clone(),
+                    live.surround_placement,
                     live.room_ratio,
                     live.room_ratio_rear,
                     live.room_ratio_lower,
                     live.room_ratio_center_blend,
                 )
             };
+            let output_layout = self.renderer.speaker_layout();
 
-            match virtual_bed::build_virtual_bed_events(
+            match virtual_bed::plan_channel_render(
+                mode,
                 &labels,
-                None,
+                virtual_bed_layout.as_ref(),
+                Some(&output_layout),
                 room_ratio,
                 room_ratio_rear,
                 room_ratio_lower,
                 room_ratio_center_blend,
+                surround_placement,
             ) {
-                Some(events) => self.frame_events = events,
-                None => {
-                    // No virtual-bed VBAP map for these labels → emit silence so
-                    // the host still advances by the frame's sample count.
+                virtual_bed::ChannelRenderPlan::Events {
+                    events,
+                    bed_indices,
+                } => {
+                    // Spatial mode mixes per channel: direct channels carry a
+                    // bed id, virtual channels carry the `usize::MAX` sentinel
+                    // (rendered as VBAP objects). Reconfigure only on change to
+                    // avoid per-frame churn.
+                    let desired: Vec<usize> = bed_indices.unwrap_or_default();
+                    if self.bed_indices.as_deref().unwrap_or(&[]) != desired.as_slice() {
+                        self.renderer.configure_beds(&desired);
+                        self.bed_indices = if desired.is_empty() {
+                            None
+                        } else {
+                            Some(desired)
+                        };
+                    }
+                    self.frame_events = events;
+                }
+                // Host: the mpv decoder declines at the spatial probe and falls
+                // back to ad_lavc, so this only runs for the discarded probe
+                // frame. Silence: no mapping for these labels. Either way emit
+                // silence so the host still advances by the frame's sample count.
+                virtual_bed::ChannelRenderPlan::HostPassthrough
+                | virtual_bed::ChannelRenderPlan::Silence => {
                     self.frame_events.clear();
                     let n_channels = self.renderer.output_channel_count() as u32;
                     return Ok(Some(RenderedAudio {
@@ -691,11 +818,13 @@ impl Engine {
             if want_objects {
                 if let Some(objects) = virtual_bed::build_virtual_bed_objects(
                     &labels,
-                    None,
+                    virtual_bed_layout.as_ref(),
+                    Some(&output_layout),
                     room_ratio,
                     room_ratio_rear,
                     room_ratio_lower,
                     room_ratio_center_blend,
+                    surround_placement,
                 ) {
                     if want_osc {
                         if let Some(osc) = self.osc.as_mut() {

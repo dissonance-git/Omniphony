@@ -145,6 +145,15 @@ pub fn save_live_config_to_path(
     render.spread_distance_curve = None;
     render.size_to_spread_mode = None;
     renderer::config_fields::use_loudness::store(render, live.use_loudness);
+    renderer::config_fields::channel_render_mode::store(render, live.channel_render_mode);
+    renderer::config_fields::surround_placement::store(render, live.surround_placement);
+    // Parametrable virtual bed for channel content. Persist the live layout
+    // verbatim (round6 the radius for stable diffs); `None` keeps the key out of
+    // the file so the built-in canonical poses (LFE direct) stay in effect.
+    render.virtual_bed = live.virtual_bed.clone().map(|mut bed| {
+        bed.radius_m = round6(bed.radius_m);
+        bed
+    });
     renderer::config_fields::auto_gain::store(render, live.auto_gain);
     renderer::config_fields::auto_gain_ceiling_db::store(render, live.auto_gain_ceiling_db);
     renderer::config_fields::vbap_distance_model::store(render, live.distance_model.to_string());

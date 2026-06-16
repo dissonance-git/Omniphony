@@ -314,6 +314,24 @@ render_field! {
 }
 
 render_field! {
+    /// Render mode for channel-based / non-object content
+    /// (`render.channel_render_mode`). Default `Spatial`.
+    pub channel_render_mode: crate::live_params::ChannelRenderMode =
+        crate::live_params::ChannelRenderMode::Spatial,
+    field = channel_render_mode,
+    eq = crate::live_params::ChannelRenderMode::eq
+}
+
+render_field! {
+    /// Where the 4.x/5.x surround pair (`Ls`/`Rs`) is placed: side vs back
+    /// (`render.surround_placement`). Default `Side`.
+    pub surround_placement: crate::live_params::SurroundPlacement =
+        crate::live_params::SurroundPlacement::Side,
+    field = surround_placement,
+    eq = crate::live_params::SurroundPlacement::eq
+}
+
+render_field! {
     /// Derive spread from object distance (`render.spread_from_distance`).
     pub spread_from_distance: bool = false,
     field = spread_from_distance,

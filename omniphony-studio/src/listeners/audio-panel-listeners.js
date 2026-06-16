@@ -5,8 +5,10 @@ import { updateMasterGainUI, updateLoudnessDisplay, updateAutoGainUI, updateAuto
 import { updateAdaptiveResamplingUI, resetAdaptiveResamplingAdvancedDirtyState } from '../controls/adaptive.js';
 import {
   closeAudioSampleRateMenu, openAudioSampleRateMenu, updateAudioFormatDisplay,
-  applyAudioSampleRateNow, applyAudioOutputDeviceNow, applyRampModeNow, sendAudioConfig
+  applyAudioSampleRateNow, applyAudioOutputDeviceNow, applyRampModeNow,
+  applyChannelRenderModeNow, applySurroundPlacementNow, sendAudioConfig
 } from '../controls/audio.js';
+import { resetVirtualBed } from '../controls/virtual-bed.js';
 import { applyLatencyTargetNow, updateLatencyDisplay } from '../controls/latency.js';
 import { openAutoTuneWizard } from '../auto-tune/wizard-ui.js';
 import { toggleResamplePlot } from '../controls/resample-plot.js';
@@ -54,6 +56,7 @@ export function setupAudioPanelListeners() {
   const audioOutputDeviceSelectEl = document.getElementById('audioOutputDeviceSelect');
   const refreshOutputDevicesBtnEl = document.getElementById('refreshOutputDevicesBtn');
   const rampModeSelectEl = document.getElementById('rampModeSelect');
+  const channelSpatializeToggleEl = document.getElementById('channelSpatializeToggle');
 
   if (masterGainSliderEl) {
     masterGainSliderEl.addEventListener('input', () => {
@@ -523,6 +526,33 @@ export function setupAudioPanelListeners() {
   if (rampModeSelectEl) {
     rampModeSelectEl.addEventListener('change', () => {
       applyRampModeNow();
+    });
+  }
+
+  if (channelSpatializeToggleEl) {
+    channelSpatializeToggleEl.addEventListener('change', () => {
+      applyChannelRenderModeNow();
+    });
+  }
+
+  const surroundPlacementSideEl = document.getElementById('surroundPlacementSide');
+  if (surroundPlacementSideEl) {
+    surroundPlacementSideEl.addEventListener('click', () => {
+      applySurroundPlacementNow('side');
+    });
+  }
+  const surroundPlacementBackEl = document.getElementById('surroundPlacementBack');
+  if (surroundPlacementBackEl) {
+    surroundPlacementBackEl.addEventListener('click', () => {
+      applySurroundPlacementNow('back');
+    });
+  }
+
+  const virtualBedResetBtnEl = document.getElementById('virtualBedResetBtn');
+  if (virtualBedResetBtnEl) {
+    virtualBedResetBtnEl.addEventListener('click', () => {
+      if (!window.confirm(t('confirm.resetVirtualBed'))) return;
+      resetVirtualBed();
     });
   }
 

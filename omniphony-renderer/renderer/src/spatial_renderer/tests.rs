@@ -415,6 +415,137 @@ fn test_renderer_creation() {
     assert_eq!(renderer.num_speakers(), 12);
 }
 
+/// The parametrable virtual bed mixes direct and virtualized channels in one
+/// frame: `bed_indices` is full-length and carries `usize::MAX` for a channel
+/// that must be VBAP-panned (object) even though its index is within
+/// `num_beds`. This guards the render-loop generalisation from positional
+/// (`idx < num_beds`) to sentinel-aware routing: channel 0 (sentinel) must
+/// spread via VBAP while channel 1 (bed id 3 = LFE, a non-prefix bed) routes
+/// one-hot to the LFE speaker.
+#[test]
+fn virtual_bed_mixes_direct_and_virtualized_channels() {
+    fn build() -> SpatialRenderer {
+        let layout = SpeakerLayout::preset("7.1.4").unwrap();
+        SpatialRenderer::new(
+            layout,
+            48_000,
+            1,
+            1,
+            0.0,
+            2.0,
+            VbapTableMode::Cartesian {
+                x_size: 21,
+                y_size: 21,
+                z_size: 9,
+                z_neg_size: 9,
+            },
+            false,
+            true,
+            DistanceModel::Linear,
+            false,
+            1.0,
+            1.0,
+            0.0,
+            1.0,
+            false,
+            [1.0, 2.0, 0.5],
+            2.0,
+            0.5,
+            0.0,
+            0.0,
+            false,
+            false,
+            false,
+            1.0,
+            1.0,
+            PreferredEvaluationMode::PrecomputedCartesian,
+            LiveEvaluationMode::PrecomputedCartesian,
+            21,
+            21,
+            9,
+            9,
+        )
+        .unwrap()
+    }
+
+    // LFE is speaker index 3 in the 7.1.4 preset (spatialize:false).
+    const LFE_SPK: usize = 3;
+    let num_speakers = 12;
+    let sample_length = 4;
+
+    // Per-speaker summed |energy| across the block.
+    let energy = |out: &[f32]| -> Vec<f32> {
+        let mut e = vec![0.0f32; num_speakers];
+        for s in 0..sample_length {
+            for (spk, slot) in e.iter_mut().enumerate() {
+                *slot += out[s * num_speakers + spk].abs();
+            }
+        }
+        e
+    };
+
+    // bed_indices: channel 0 = sentinel (object), channel 1 = bed id 3 (LFE).
+    let beds = [usize::MAX, 3usize];
+
+    // Pass A: only the object channel (0) carries signal.
+    let mut ra = build();
+    ra.configure_beds(&beds);
+    let pcm_a: Vec<f32> = (0..sample_length).flat_map(|_| [0.6f32, 0.0]).collect();
+    let events_a = vec![
+        SpatialChannelEvent {
+            channel_idx: 0,
+            is_bed: false,
+            gain_db: Some(0),
+            ramp_length: Some(0),
+            size: Some([0.0, 0.0, 0.0]),
+            position: Some([0.0, 1.0, 0.0]), // front-centre object
+            sample_pos: Some(0),
+        },
+        SpatialChannelEvent {
+            channel_idx: 1,
+            is_bed: true,
+            gain_db: Some(0),
+            ramp_length: Some(0),
+            size: None,
+            position: None,
+            sample_pos: Some(0),
+        },
+    ];
+    let ea = energy(
+        &ra.render_frame(&pcm_a, 2, &events_a, Vec::new(), false)
+            .unwrap()
+            .samples,
+    );
+    assert!(
+        ea.iter().sum::<f32>() > 0.0,
+        "object channel must produce output"
+    );
+    assert!(
+        ea[LFE_SPK] < 1e-6,
+        "front object must not leak into the non-spatialized LFE speaker (got {})",
+        ea[LFE_SPK]
+    );
+
+    // Pass B: only the bed channel (1) carries signal → one-hot at the LFE.
+    let mut rb = build();
+    rb.configure_beds(&beds);
+    let pcm_b: Vec<f32> = (0..sample_length).flat_map(|_| [0.0f32, 0.6]).collect();
+    let eb = energy(
+        &rb.render_frame(&pcm_b, 2, &events_a, Vec::new(), false)
+            .unwrap()
+            .samples,
+    );
+    assert!(eb[LFE_SPK] > 0.0, "bed channel must reach the LFE speaker");
+    for (spk, e) in eb.iter().enumerate() {
+        if spk != LFE_SPK {
+            assert!(
+                *e < 1e-6,
+                "bed routing must be one-hot; speaker {spk} got {e}"
+            );
+        }
+    }
+}
+
 /// Guard rail: the four ramp modes must stay wired and each keep its own
 /// behaviour. `Off` snaps to the target, `Frame` holds the block-start
 /// position, `Sample` interpolates the position per sample, and `Interp`

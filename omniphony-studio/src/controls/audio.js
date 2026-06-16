@@ -14,10 +14,12 @@ import {
 import { t, tf } from '../i18n.js';
 import { scheduleUIFlush } from '../flush.js';
 import { inAudioPanel, inRendererPanel } from '../ui/panel-roots.js';
+import { syncVirtualBedObjects, renderChannelEditor } from './virtual-bed.js';
 
 function getAudioFormatInfoEl() { return inAudioPanel('audioFormatInfo'); }
 function getAudioOutputDeviceSelectEl() { return inAudioPanel('audioOutputDeviceSelect'); }
 function getRampModeSelectEl() { return inRendererPanel('rampModeSelect'); }
+function getChannelSpatializeToggleEl() { return document.getElementById('channelSpatializeToggle'); }
 function getAudioSampleRateInputEl() { return inAudioPanel('audioSampleRateInput'); }
 function getAudioSampleRateMenuEl() { return inAudioPanel('audioSampleRateMenu'); }
 function getAudioOutputSummaryEl() { return inAudioPanel('audioOutputSummary'); }
@@ -99,6 +101,20 @@ export function renderAudioFormatDisplay() {
   }
   if (rampModeSelectEl) {
     rampModeSelectEl.value = ['off', 'frame', 'sample', 'interp'].includes(app.rampMode) ? app.rampMode : 'frame';
+  }
+  const channelSpatializeToggleEl = getChannelSpatializeToggleEl();
+  if (channelSpatializeToggleEl) {
+    // Off = host (let the player decode), on = spatial (render through the
+    // virtual bed). Legacy `direct`/`virtual` snapshots count as spatial.
+    const spatial = app.channelRenderMode !== 'host';
+    channelSpatializeToggleEl.checked = spatial;
+    const virtualBedActions = document.getElementById('virtualBedActions');
+    if (virtualBedActions) virtualBedActions.style.display = spatial ? 'flex' : 'none';
+    const surroundRow = document.getElementById('surroundPlacementRow');
+    if (surroundRow) surroundRow.style.display = spatial ? 'flex' : 'none';
+    updateSurroundPlacementUI();
+    syncVirtualBedObjects();
+    renderChannelEditor();
   }
   if (audioSampleRateInputEl && !app.audioSampleRateEditing) {
     audioSampleRateInputEl.value = String(app.audioSampleRate || 0);
@@ -190,4 +206,39 @@ export function applyRampModeNow() {
   app.rampMode = requested;
   updateAudioFormatDisplay();
   invoke('control_ramp_mode', { value: requested });
+}
+
+export function applyChannelRenderModeNow() {
+  const el = getChannelSpatializeToggleEl();
+  if (!el) return;
+  const requested = el.checked ? 'spatial' : 'host';
+  app.channelRenderMode = requested;
+  const virtualBedActions = document.getElementById('virtualBedActions');
+  if (virtualBedActions) virtualBedActions.style.display = el.checked ? 'flex' : 'none';
+  const surroundRow = document.getElementById('surroundPlacementRow');
+  if (surroundRow) surroundRow.style.display = el.checked ? 'flex' : 'none';
+  syncVirtualBedObjects(true);
+  renderChannelEditor(true);
+  invoke('control_channel_render_mode', { value: requested });
+}
+
+// Reflect the active Side/Back button from `app.surroundPlacement` (called both
+// on user action and on a state broadcast from the renderer).
+export function updateSurroundPlacementUI() {
+  const placement = app.surroundPlacement === 'back' ? 'back' : 'side';
+  const sideBtn = document.getElementById('surroundPlacementSide');
+  const backBtn = document.getElementById('surroundPlacementBack');
+  if (sideBtn) sideBtn.classList.toggle('active', placement === 'side');
+  if (backBtn) backBtn.classList.toggle('active', placement === 'back');
+}
+
+// Commit a Side/Back choice: update state + the active button and push it to the
+// engine, which renders it live and persists it to config. The visible effect is
+// at playback of a 4.x/5.x source (the engine streams Ls/Rs at the chosen
+// corner); the at-rest editor keeps showing the full canonical 7.1 set.
+export function applySurroundPlacementNow(value) {
+  const requested = value === 'back' ? 'back' : 'side';
+  app.surroundPlacement = requested;
+  updateSurroundPlacementUI();
+  invoke('control_surround_placement', { value: requested });
 }

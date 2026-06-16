@@ -227,6 +227,13 @@ export const app = {
   // Audio
   audioSampleRate: null,
   rampMode: 'sample',
+  channelRenderMode: 'spatial',
+  // Where the 4.x/5.x surround pair (Ls/Rs) of a 2D source is placed: 'side' or
+  // 'back'. Only affects sources without dedicated back channels.
+  surroundPlacement: 'side',
+  // Parametrable virtual bed for 2D sources (a SpeakerLayout-shaped object, or
+  // null = built-in canonical poses). Edited by the virtual-bed editor.
+  virtualBed: null,
   audioOutputDevice: null,
   audioOutputDeviceEffective: null,
   audioOutputDevices: [],
@@ -347,6 +354,14 @@ export const app = {
   polarEditArmed: false,
   cartesianEditArmed: false,
   activeEditMode: 'polar',
+  // Display-only coord mode for the channel editor (which table the radios
+  // highlight). The virtual bed is always stored/sent as polar — see
+  // controls/virtual-bed.js — so this never changes what reaches the renderer.
+  channelEditCoordMode: 'cartesian',
+  // Timestamp (performance.now) of the last spatial:frame. Used to tell an
+  // actively-streaming/seeking session from a truly idle one, so the synthetic
+  // at-rest bed objects don't double the live objects during playback.
+  lastSpatialFrameAt: 0,
   isDraggingSpeaker: false,
   dragMode: null,
   dragAxis: null,
@@ -361,6 +376,27 @@ export const app = {
   dragElevationDelta: 1,
   pointerDownPosition: null,
   draggingPointerId: null,
+
+  // The current gizmo edit target (speaker or virtual-bed channel object),
+  // resolved at drag start so update/end commit to the right model.
+  dragEditTarget: null,
+
+  // Virtual-bed channel edit (a 2D-source marker edited via the 3D gizmo).
+  // While set, updateSource skips repositioning this id so the live OSC stream
+  // doesn't fight the gizmo drag; the new position is sent on release.
+  isDraggingVirtualBed: false,
+  draggingVirtualBedSourceId: null,
+  draggingVirtualBedChannel: null,
+
+  // Editor-authoritative pin for a channel object: while its id is pinned,
+  // updateSource holds the mesh at `channelEditPinPos` and ignores the live OSC
+  // stream — during the drag (channelEditPinUntil = 0, no expiry) and through a
+  // short settle window after release (a future timestamp) so in-flight stream
+  // packets carrying the pre-edit position can't flash the object back before the
+  // renderer applies the new bed.
+  channelEditPinId: null,
+  channelEditPinPos: null,
+  channelEditPinUntil: 0,
 
   // Trail
   trailsEnabled: true,

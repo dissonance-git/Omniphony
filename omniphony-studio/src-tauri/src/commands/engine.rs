@@ -61,6 +61,54 @@ pub fn control_ramp_mode(state: State<SharedState>, value: String) {
 }
 
 #[tauri::command]
+pub fn control_channel_render_mode(state: State<SharedState>, value: String) {
+    let trimmed = value.trim().to_ascii_lowercase();
+    // `direct`/`virtual` are legacy aliases of `spatial`.
+    if !matches!(
+        trimmed.as_str(),
+        "host" | "spatial" | "direct" | "virtual"
+    ) {
+        return;
+    }
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/channel_render_mode".to_string(),
+            value: trimmed,
+        },
+    );
+}
+
+/// Set the surround placement for 4.x/5.x channel content: `side` or `back`.
+#[tauri::command]
+pub fn control_surround_placement(state: State<SharedState>, value: String) {
+    let trimmed = value.trim().to_ascii_lowercase();
+    if !matches!(trimmed.as_str(), "side" | "back") {
+        return;
+    }
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/surround_placement".to_string(),
+            value: trimmed,
+        },
+    );
+}
+
+/// Set the parametrable virtual bed (a YAML `SpeakerLayout`, one entry per
+/// channel label). An empty string resets to the built-in canonical poses.
+#[tauri::command]
+pub fn control_virtual_bed(state: State<SharedState>, value: String) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/virtual_bed".to_string(),
+            value,
+        },
+    );
+}
+
+#[tauri::command]
 pub fn control_drc_mode(state: State<SharedState>, value: String) {
     send_control(
         &state.osc_tx,

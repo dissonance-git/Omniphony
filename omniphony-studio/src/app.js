@@ -96,7 +96,8 @@ import { updateVbapCartesianFaceGrid, renderVbapCartesianGridToggle } from './sc
 import { updateObjectMeterUI, updateObjectPositionUI, updateObjectSizeUI, updateObjectLabelUI } from './flush.js';
 import {
   renderObjectsList, updateSpeakerControlsUI, updateObjectControlsUI, updateObjectDominantSpeakerUI,
-  objectHasActiveTrail, getObjectIds, updateSectionProportions, updateAllSpeakerBandBars
+  objectHasActiveTrail, getObjectIds, updateSectionProportions, updateAllSpeakerBandBars,
+  updateSpeakerGizmo, applyObjectPositionIcon
 } from './speakers.js';
 import { rebuildTrailGeometry, captureTrailPointColor } from './trails.js';
 import { muteSoloCallbacks } from './mute-solo.js';
@@ -123,6 +124,7 @@ flushCallbacks.renderAutoGainUI = renderAutoGainUI;
 flushCallbacks.renderAutoGainCeilingUI = renderAutoGainCeilingUI;
 flushCallbacks.updateMasterMeterUI = updateMasterMeterUI;
 flushCallbacks.updateObjectContributionUI = updateObjectContributionUI;
+flushCallbacks.updateObjectPositionIcon = applyObjectPositionIcon;
 flushCallbacks.updateSpeakerContributionUI = updateSpeakerContributionUI;
 flushCallbacks.getObjectDisplayName = getObjectDisplayName;
 flushCallbacks.applyAudioSampleRateNow = applyAudioSampleRateNow;
@@ -146,6 +148,7 @@ sourceCallbacks.captureTrailPointColor = captureTrailPointColor;
 sourceCallbacks.objectHasActiveTrail = objectHasActiveTrail;
 sourceCallbacks.getObjectIds = getObjectIds;
 sourceCallbacks.updateAllSpeakerBandBars = updateAllSpeakerBandBars;
+sourceCallbacks.refreshEditGizmo = updateSpeakerGizmo;
 
 // ── Mute/solo callbacks wiring ──────────────────────────────────────────────
 muteSoloCallbacks.updateSpeakerControlsUI = updateSpeakerControlsUI;

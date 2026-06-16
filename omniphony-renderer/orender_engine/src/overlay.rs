@@ -193,6 +193,13 @@ impl Default for OverlayState {
 
 struct Overlay {
     enabled: AtomicBool,
+    /// Whether a live session is actually spatial-rendering. A host can keep a
+    /// session alive while *not* rendering through it — mpv in "host" mode keeps
+    /// the engine (and this overlay's OSC link) alive but decodes channel audio
+    /// natively. While false the overlay draws nothing at all (the wireframe cube
+    /// included), so it disappears instead of lingering as an empty box. Default
+    /// true so hosts that never touch it (the CLI) are unaffected.
+    rendering: AtomicBool,
     /// Number of live orender render sessions (one per `orender_create` that has
     /// not yet been destroyed). The overlay only draws while at least one session
     /// is decoding: without `--ad=orender` no session is ever created, so the Lua
@@ -212,6 +219,7 @@ fn overlay() -> &'static Overlay {
     static OVERLAY: OnceLock<Overlay> = OnceLock::new();
     OVERLAY.get_or_init(|| Overlay {
         enabled: AtomicBool::new(true),
+        rendering: AtomicBool::new(true),
         sessions: AtomicUsize::new(0),
         last_pull_ms: AtomicU64::new(0),
         start: Instant::now(),
@@ -223,6 +231,16 @@ fn overlay() -> &'static Overlay {
 /// True while at least one orender render session is live (see [`Overlay::sessions`]).
 fn session_active() -> bool {
     overlay().sessions.load(Ordering::Relaxed) > 0
+}
+
+/// Suppress or resume *all* overlay drawing (wireframe cube included) for a live
+/// session, independent of the master [`set_enabled`] preference. A host with a
+/// live engine that is not spatial-rendering — mpv decoding channel audio
+/// natively in "host" mode — sets this `false` so the overlay disappears, then
+/// `true` to bring it back. Distinct from [`clear`], which flushes scene data but
+/// keeps the cube (e.g. on seek).
+pub fn set_rendering(on: bool) {
+    overlay().rendering.store(on, Ordering::Relaxed);
 }
 
 /// Register the start of an orender render session. Called by the host when a
@@ -573,7 +591,12 @@ pub fn build_ass(res_x: u32, res_y: u32) -> String {
     let o = overlay();
     o.last_pull_ms
         .store(o.start.elapsed().as_millis() as u64, Ordering::Relaxed);
-    if !o.enabled.load(Ordering::Relaxed) || !session_active() || res_x == 0 || res_y == 0 {
+    if !o.enabled.load(Ordering::Relaxed)
+        || !o.rendering.load(Ordering::Relaxed)
+        || !session_active()
+        || res_x == 0
+        || res_y == 0
+    {
         return String::new();
     }
     let now = now_secs();
@@ -1364,6 +1387,7 @@ mod tests {
         *overlay().prefs_path.lock().unwrap() = None;
         clear();
         set_enabled(true);
+        set_rendering(true);
         set_labels_enabled(true);
         set_objects_visible(true);
         set_heatmap_enabled(true);
@@ -1388,6 +1412,21 @@ mod tests {
         set_enabled(false);
         let ass = build_ass(1920, 1080);
         assert!(ass.is_empty());
+    }
+
+    // A live session that is not spatial-rendering (mpv in host mode) must draw
+    // nothing at all — not even the wireframe cube — until rendering resumes.
+    #[test]
+    fn not_rendering_returns_empty() {
+        let _g = guard();
+        update_positions(vec![(0, 0.0, 0.0, 0.5, String::new())]);
+        set_rendering(false);
+        assert!(build_ass(1920, 1080).is_empty(), "host mode draws no cube");
+        set_rendering(true);
+        assert!(
+            !build_ass(1920, 1080).is_empty(),
+            "spatial mode draws again"
+        );
     }
 
     #[test]

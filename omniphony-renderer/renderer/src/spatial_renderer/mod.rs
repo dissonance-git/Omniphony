@@ -602,7 +602,11 @@ impl SpatialRenderer {
                         10.0_f32.powf(gain_db as f32 / 20.0)
                     };
                     self.binaural_gain_buf[c] = obj_gain * gain_linear;
-                    if c < num_beds {
+                    // Same bed/object split as the VBAP path: a `usize::MAX`
+                    // sentinel in the bed map means "virtualize" (object), so it
+                    // takes the ramp branch even though it is within `num_beds`.
+                    let routed_as_bed = c < num_beds && bed_indices[c] != usize::MAX;
+                    if routed_as_bed {
                         // Bed channel: place it at its mapped speaker's direction.
                         if let Some(&spk) = active_bed_to_speaker_mapping.get(&bed_indices[c]) {
                             if let Some(s) = active_layout.speakers.get(spk) {
@@ -759,7 +763,16 @@ impl SpatialRenderer {
                 10.0_f32.powf(gain_db as f32 / 20.0)
             };
 
-            if input_channel_idx < num_beds {
+            // A channel is a bed when it has a bed-id entry that is not the
+            // `usize::MAX` "virtualize me" sentinel. Object-content beds list
+            // their ids as a prefix (so `idx < num_beds` ⇒ bed, the rest are
+            // objects); the parametrable virtual bed instead emits a full-length
+            // map that mixes real bed ids (direct, e.g. LFE) with `usize::MAX`
+            // (virtualized → VBAP object). The sentinel check unifies both: a
+            // prefix bed map has no sentinels, so its behaviour is unchanged.
+            let routed_as_bed =
+                input_channel_idx < num_beds && bed_indices[input_channel_idx] != usize::MAX;
+            if routed_as_bed {
                 // BED CHANNEL: Route to speaker based on bed_to_speaker_mapping (by name)
                 let bed_id = bed_indices[input_channel_idx];
 

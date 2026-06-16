@@ -127,6 +127,19 @@ pub(crate) fn prepare_standby_resume_port() -> Option<u16> {
 /// live-state sidecar meant for this instance.
 static PORT_RESERVATION: Mutex<Option<(u16, UdpSocket)>> = Mutex::new(None);
 
+/// Stop-flag of the OSC listener currently bound in THIS process. A successor
+/// engine built while the old one is still alive — mpv switching audio tracks
+/// creates the new track's engine before tearing the old one down — signals it
+/// to drop the port directly, instead of the multi-second UDP yield wait that a
+/// same-process, non-`--osc-yield` holder would just ignore (the cause of the
+/// seconds-long stall on track change). External standby holders live in another
+/// process and are handled by the UDP yield dance below, untouched.
+static LOCAL_RX_RELEASE: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
+
+/// How long to wait for the local listener to notice its stop-flag, exit, and
+/// drop its socket (its read timeout is 200 ms). Far below [`YIELD_REBIND_BUDGET`].
+const LOCAL_RELEASE_GRACE: Duration = Duration::from_millis(800);
+
 /// Bind the OSC RX socket. On `AddrInUse` with `request_yield`, ask the local
 /// holder to yield (honoured only by `--osc-yield` instances) and poll for the
 /// port to free up within `budget`. The non-conflict path is a single bind.
@@ -150,6 +163,33 @@ fn bind_rx_socket(
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && request_yield => e,
         Err(e) => return Err(e),
     };
+
+    // Fast path for a same-process holder (mpv switching tracks: the old track's
+    // engine still holds the port). It won't honour the UDP yield (not a
+    // `--osc-yield` standby), so signal its listener to drop the port directly —
+    // it exits within a poll and frees the port in ~250 ms instead of stalling
+    // the new engine (and playback) for the full yield budget.
+    let local_release = LOCAL_RX_RELEASE.lock().unwrap().clone();
+    if let Some(stop) = local_release {
+        stop.store(true, Ordering::Relaxed);
+        let deadline = std::time::Instant::now() + LOCAL_RELEASE_GRACE;
+        loop {
+            std::thread::sleep(YIELD_REBIND_POLL);
+            match UdpSocket::bind(("0.0.0.0", rx_port)) {
+                Ok(socket) => {
+                    log::info!("OSC RX port {} reclaimed from the local listener", rx_port);
+                    return Ok(socket);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                    if std::time::Instant::now() >= deadline {
+                        break; // fall through to the external-holder yield dance
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
     log::info!(
         "OSC RX port {} is busy; asking the holder to yield",
         rx_port
@@ -369,6 +409,9 @@ impl OscSender {
             }
         };
         let _ = rx_socket.set_read_timeout(Some(Duration::from_millis(200)));
+        // Register this listener so a same-process successor (mpv track switch)
+        // can reclaim the port instantly instead of timing out the UDP yield.
+        *LOCAL_RX_RELEASE.lock().unwrap() = Some(Arc::clone(&stop));
         log::info!("OSC listener ready on port {}", rx_port);
 
         let handle = std::thread::Builder::new()
@@ -702,6 +745,15 @@ impl Drop for OscSender {
         if let Some(handle) = self.listener_thread.lock().unwrap().take() {
             let _ = handle.join();
         }
+        // Deregister from the same-process release registry if we are still the
+        // entry there (a successor may have already overwritten it).
+        let mut registry = LOCAL_RX_RELEASE.lock().unwrap();
+        if registry
+            .as_ref()
+            .is_some_and(|s| Arc::ptr_eq(s, &self.listener_stop))
+        {
+            *registry = None;
+        }
     }
 }
 
@@ -804,10 +856,43 @@ fn maybe_broadcast_head_pose(
 mod yield_tests {
     use super::*;
 
+    /// Serialises the tests that exercise a port-contention path, since they
+    /// share the process-global [`LOCAL_RX_RELEASE`] registry.
+    static SERIAL: Mutex<()> = Mutex::new(());
+
     /// Grab a free UDP port by binding port 0, then release it.
     fn free_port() -> u16 {
         let s = UdpSocket::bind("127.0.0.1:0").unwrap();
         s.local_addr().unwrap().port()
+    }
+
+    /// A same-process holder (the previous track's listener) is reclaimed via the
+    /// direct release registry, not the multi-second external yield dance.
+    #[test]
+    fn local_listener_releases_port_without_yield() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let port = free_port();
+        let holder = UdpSocket::bind(("0.0.0.0", port)).unwrap();
+        // Simulate the osc-listener thread: drop its socket once the stop-flag is
+        // set, freeing the port — like its read-timeout tick does on shutdown.
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_thread = Arc::clone(&stop);
+        let h = std::thread::spawn(move || {
+            while !stop_thread.load(Ordering::Relaxed) {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            drop(holder);
+        });
+        *LOCAL_RX_RELEASE.lock().unwrap() = Some(Arc::clone(&stop));
+
+        let socket = bind_rx_socket(port, true, YIELD_REBIND_BUDGET)
+            .expect("reclaims the port from the local listener");
+        assert_eq!(socket.local_addr().unwrap().port(), port);
+        // The local listener was signalled (the fast path ran, not a yield).
+        assert!(stop.load(Ordering::Relaxed));
+
+        *LOCAL_RX_RELEASE.lock().unwrap() = None;
+        h.join().unwrap();
     }
 
     /// A standby holder that replies to a `yield_port` with a dynamic resume
@@ -867,6 +952,7 @@ mod yield_tests {
 
     #[test]
     fn bind_fails_after_budget_when_holder_keeps_port_and_yield_was_sent() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let port = free_port();
         let holder = UdpSocket::bind(("0.0.0.0", port)).unwrap();
         holder
@@ -906,6 +992,7 @@ mod yield_tests {
 
     #[test]
     fn bind_recovers_when_holder_yields() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let port = free_port();
         let holder = UdpSocket::bind(("0.0.0.0", port)).unwrap();
         holder

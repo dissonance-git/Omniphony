@@ -100,7 +100,8 @@ export const sourceCallbacks = {
   captureTrailPointColor: null,
   objectHasActiveTrail: null,
   getObjectIds: null,
-  updateAllSpeakerBandBars: null
+  updateAllSpeakerBandBars: null,
+  refreshEditGizmo: null
 };
 
 // ---------------------------------------------------------------------------
@@ -894,6 +895,16 @@ export function setSelectedSource(id) {
   updateSourceSelectionStyles();
   updateSpeakerColorsFromSelection();
   sourceCallbacks.updateObjectControlsUI?.();
+  // Re-point the shared 3D gizmo at the (possibly new) channel target.
+  sourceCallbacks.refreshEditGizmo?.();
+  // Keep the selected row visible: the channel editor that just opened at the
+  // bottom shrinks the scroll area, which can hide the row. Scroll after layout.
+  if (nextId !== null) {
+    const entry = objectItems.get(nextId);
+    if (entry?.root) {
+      requestAnimationFrame(() => entry.root.scrollIntoView({ block: 'nearest' }));
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -953,6 +964,26 @@ export function getSourceMesh(id) {
 }
 
 export function updateSource(id, position) {
+  // While a channel object is editor-pinned (being dragged via the gizmo, or in
+  // the brief settle window after release), hold it at the pinned position and
+  // ignore the live OSC stream so it can't fight the drag or flash the object
+  // back to its pre-edit position before the renderer applies the new bed.
+  const pinKey = String(id);
+  if (app.channelEditPinId === pinKey) {
+    if (app.channelEditPinUntil && performance.now() > app.channelEditPinUntil) {
+      app.channelEditPinId = null;
+      app.channelEditPinPos = null;
+    } else {
+      const pin = app.channelEditPinPos;
+      if (pin) {
+        const mesh = getSourceMesh(id);
+        mesh.position.set(pin.x, pin.y, pin.z);
+        const pinnedLabel = sourceLabels.get(pinKey);
+        if (pinnedLabel) pinnedLabel.position.set(pin.x, pin.y + 0.12, pin.z);
+      }
+      return;
+    }
+  }
   if (position && typeof position.sourceTag === 'string' && position.sourceTag.trim()) {
     sourceTags.set(String(id), position.sourceTag.trim().toUpperCase());
   } else {
