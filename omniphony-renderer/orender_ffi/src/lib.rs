@@ -576,6 +576,18 @@ pub extern "C" fn orender_overlay_clear() {
     }));
 }
 
+/// Suppress or resume *all* overlay drawing — the wireframe cube included — for a
+/// live session, independent of the master enable. A host that keeps the engine
+/// alive but is not spatial-rendering (mpv in host mode, decoding channel audio
+/// natively) sets `0` so the whole overlay disappears, and `1` when it resumes
+/// spatial rendering. `0` = not rendering (blank), non-zero = rendering.
+#[no_mangle]
+pub extern "C" fn orender_overlay_set_rendering(rendering: c_int) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        orender_engine::overlay::set_rendering(rendering != 0);
+    }));
+}
+
 // ── overlay toggles (host keybinds) ──────────────────────────────────────────
 //
 // Each flips the matching control inside the renderer and returns the *new*

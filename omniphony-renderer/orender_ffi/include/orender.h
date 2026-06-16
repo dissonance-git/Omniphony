@@ -186,6 +186,15 @@ void orender_overlay_set_enabled(int enabled);
 void orender_overlay_clear(void);
 
 /**
+ * Suppress or resume *all* overlay drawing — the wireframe cube included — for a
+ * live session, independent of the master enable. A host that keeps the engine
+ * alive but is not spatial-rendering (mpv in host mode, decoding channel audio
+ * natively) sets `0` so the whole overlay disappears, and `1` when it resumes
+ * spatial rendering. `0` = not rendering (blank), non-zero = rendering.
+ */
+void orender_overlay_set_rendering(int rendering);
+
+/**
  * Flip the master enable and return the new state (1 = on, 0 = off).
  */
 int orender_overlay_toggle(void);
