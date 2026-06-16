@@ -157,7 +157,11 @@ export function setupTauriBridge() {
 
   listen('source:update', ({ payload }) => {
     updateSource(payload.id, payload.position);
-    // A live stream object arrived → drop the synthetic at-rest bed markers.
+    // A live object arrived → the spatial stream is active. Mark it (a
+    // source:update may precede the spatial:frame header in the OSC burst) so the
+    // reconcile keeps the live objects and drops the synthetic at-rest markers,
+    // rather than treating the just-added object as stale.
+    app.lastSpatialFrameAt = performance.now();
     syncVirtualBedObjects();
   });
 
@@ -242,6 +246,10 @@ export function setupTauriBridge() {
         }
       }
     }
+
+    // The stream is now active again → drop any synthetic at-rest bed markers so
+    // they don't coexist with the live objects.
+    syncVirtualBedObjects();
   });
 
   // -----------------------------------------------------------------------

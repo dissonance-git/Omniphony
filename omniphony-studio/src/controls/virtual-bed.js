@@ -287,11 +287,18 @@ function streamActive() {
   return performance.now() - (app.lastSpatialFrameAt || 0) < STREAM_IDLE_MS;
 }
 
-function liveObjectsPresent() {
-  for (const key of sourceMeshes.keys()) {
-    if (!syntheticIds.has(String(key))) return true;
+// Drop every live (non-synthetic) object mesh. Live objects come from the OSC
+// stream and get NO remove event when the engine simply stops emitting them —
+// e.g. switching to host mode, where ad_orender stops feeding the engine. Left
+// in place they linger as stale meshes and double the next stream's objects (or
+// the synthetic bed) on resume. They are dropped whenever the stream is not
+// active; the engine re-sends them when spatial rendering resumes.
+function removeLiveObjects() {
+  for (const id of [...sourceMeshes.keys()]) {
+    if (!syntheticIds.has(String(id))) {
+      removeSource(id);
+    }
   }
-  return false;
 }
 
 function syntheticPosition(ch) {
@@ -337,10 +344,21 @@ function removeSyntheticObjects() {
  */
 export function syncVirtualBedObjects(force = false) {
   const spatial = app.channelRenderMode !== 'host';
-  // Only show the synthetic at-rest objects when spatial mode is on and nothing
-  // is streaming: a live object is present, or a spatial:frame arrived recently
-  // (covers the post-seek gap). Otherwise they'd double the live objects.
-  if (!spatial || liveObjectsPresent() || streamActive()) {
+  // The live OSC stream owns the scene only while it is actively streaming
+  // spatial frames (recent spatial:frame, which also covers the post-seek gap).
+  // Host mode is never streaming. While streaming, the live objects are the
+  // truth — drop the synthetic bed and keep them.
+  const streaming = spatial && streamActive();
+  if (streaming) {
+    removeSyntheticObjects();
+    return;
+  }
+  // Not streaming (host mode, or spatial at rest): any live objects are stale
+  // leftovers with no remove event, so drop them — this is what stops them
+  // doubling on the next resume. In host mode the scene is then empty; in
+  // spatial-at-rest we show the synthetic bed below.
+  removeLiveObjects();
+  if (!spatial) {
     removeSyntheticObjects();
     return;
   }
