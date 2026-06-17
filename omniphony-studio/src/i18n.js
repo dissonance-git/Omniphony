@@ -15,7 +15,7 @@ const LOCALE_STORAGE_KEY = 'spatialviz.locale';
 
 const TRANSLATIONS = {
   en: enTranslations,
-  fr: frTranslations,
+  fr: { ...enTranslations, ...frTranslations },
   de: { ...enTranslations, ...deTranslations },
   ja: { ...enTranslations, ...jaTranslations },
   es: { ...enTranslations, ...esTranslations },
