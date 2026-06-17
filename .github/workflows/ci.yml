@@ -113,3 +113,33 @@ jobs:
       - name: Build Studio frontend
         working-directory: omniphony-studio
         run: npm run build
+
+  build-macos:
+    # macOS arm64 compile gate. The renderer workspace pulls the CoreAudio
+    # output backend (cpal) and the `sys` signal/IO layer, both of which carry
+    # macOS-specific code paths. Build-only (no PipeWire/Tauri) — this catches
+    # macOS portability regressions on PRs, before the tag-triggered release
+    # builds (liborender / Studio / mpv) ever run on macOS.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v5
+        continue-on-error: true
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            omniphony-renderer/target
+          key: macos-ci-cargo-${{ hashFiles('omniphony-renderer/**/Cargo.toml') }}
+          restore-keys: macos-ci-cargo-
+
+      - name: Build renderer workspace (macOS arm64)
+        working-directory: omniphony-renderer
+        run: cargo build --workspace
