@@ -15,6 +15,15 @@ pub struct RequestedAudioOutputConfig {
     pub latency_target_ms: Option<u32>,
     pub adaptive_enabled: bool,
     pub adaptive: AdaptiveResamplingConfig,
+    /// Live-requested output backend id ("pipewire" / "asio" / "file"), or
+    /// `None` to keep the active one. Parsed by the CLI's runtime sync layer
+    /// (this crate stays decoupled from the CLI's `OutputBackend` enum).
+    pub output_backend: Option<String>,
+    /// Live-requested destination for the `file` backend (`-` = stdout, or a
+    /// file/FIFO path).
+    pub output_file: Option<String>,
+    /// Live-requested `file` backend encoding ("raw_f32" / "caf").
+    pub output_file_format: Option<String>,
 }
 
 impl Default for RequestedAudioOutputConfig {
@@ -25,6 +34,9 @@ impl Default for RequestedAudioOutputConfig {
             latency_target_ms: None,
             adaptive_enabled: false,
             adaptive: AdaptiveResamplingConfig::default(),
+            output_backend: None,
+            output_file: None,
+            output_file_format: None,
         }
     }
 }
@@ -86,6 +98,30 @@ impl AudioControl {
 
     pub fn requested_output_device(&self) -> Option<String> {
         self.requested_snapshot().output_device
+    }
+
+    pub fn set_requested_output_backend(&self, backend: Option<String>) {
+        self.update_requested(|requested| requested.output_backend = backend);
+    }
+
+    pub fn requested_output_backend(&self) -> Option<String> {
+        self.requested_snapshot().output_backend
+    }
+
+    pub fn set_requested_output_file(&self, output_file: Option<String>) {
+        self.update_requested(|requested| requested.output_file = output_file);
+    }
+
+    pub fn requested_output_file(&self) -> Option<String> {
+        self.requested_snapshot().output_file
+    }
+
+    pub fn set_requested_output_file_format(&self, format: Option<String>) {
+        self.update_requested(|requested| requested.output_file_format = format);
+    }
+
+    pub fn requested_output_file_format(&self) -> Option<String> {
+        self.requested_snapshot().output_file_format
     }
 
     pub fn set_requested_output_sample_rate(&self, rate_hz: Option<u32>) {

@@ -271,6 +271,12 @@ pub struct RuntimeAudioState {
     pub audio_output_device_effective: Option<String>,
     #[serde(rename = "audioOutputDevices")]
     pub audio_output_devices: Vec<OutputDeviceOption>,
+    #[serde(rename = "audioOutputBackend")]
+    pub audio_output_backend: Option<String>,
+    #[serde(rename = "audioOutputFile")]
+    pub audio_output_file: Option<String>,
+    #[serde(rename = "audioOutputFileFormat")]
+    pub audio_output_file_format: Option<String>,
     #[serde(rename = "audioSampleFormat")]
     pub audio_sample_format: Option<String>,
     #[serde(rename = "audioError")]
@@ -609,6 +615,18 @@ impl AppState {
 
     pub fn set_audio_output_devices(&mut self, devices: Vec<OutputDeviceOption>) {
         self.audio.audio_output_devices = devices;
+    }
+
+    pub fn set_audio_output_backend(&mut self, value: Option<String>) {
+        self.audio.audio_output_backend = value.filter(|v| !v.trim().is_empty());
+    }
+
+    pub fn set_audio_output_file(&mut self, value: Option<String>) {
+        self.audio.audio_output_file = value.filter(|v| !v.trim().is_empty());
+    }
+
+    pub fn set_audio_output_file_format(&mut self, value: Option<String>) {
+        self.audio.audio_output_file_format = value.filter(|v| !v.trim().is_empty());
     }
 
     pub fn set_audio_sample_format(&mut self, value: String) {

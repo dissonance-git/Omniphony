@@ -63,6 +63,9 @@ pub struct RuntimeOutputState {
     pub latency_target_ms: u32,
     pub output_sample_rate: Option<u32>,
     pub enable_adaptive_resampling: bool,
+    /// Currently active output backend. Seeded at launch from the resolved
+    /// backend and mutated live when Studio requests a switch (e.g. to `file`).
+    pub active_output_backend: OutputBackend,
     /// Destination for the `file` backend: `-` (stdout) or a file/FIFO path.
     pub output_file: String,
     /// Encoding for the `file` backend.
@@ -81,6 +84,8 @@ impl Default for RuntimeOutputState {
             latency_target_ms: 220,
             output_sample_rate: None,
             enable_adaptive_resampling: false,
+            active_output_backend: OutputBackend::platform_default()
+                .unwrap_or(OutputBackend::Unsupported),
             output_file: "-".to_string(),
             output_file_format: OutputFileFormatArg::RawF32,
         }
@@ -232,7 +237,6 @@ impl Default for DecodeSessionState {
 }
 
 pub struct FrameHandlerContext {
-    pub output_backend: OutputBackend,
     pub bed_conform: bool,
     pub use_loudness: bool,
     pub decode_time_ms: f32,

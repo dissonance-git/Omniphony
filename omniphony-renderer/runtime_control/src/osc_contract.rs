@@ -60,9 +60,12 @@ pub const CONTROL_ADAPTIVE_RESAMPLING_RESET_RATIO: &str =
     "/omniphony/control/adaptive_resampling/reset_ratio";
 pub const CONTROL_ADAPTIVE_RESAMPLING_UPDATE_INTERVAL_CALLBACKS: &str =
     "/omniphony/control/adaptive_resampling/update_interval_callbacks";
+pub const CONTROL_AUDIO_OUTPUT_BACKEND: &str = "/omniphony/control/audio/output_backend";
 pub const CONTROL_AUDIO_OUTPUT_DEVICE: &str = "/omniphony/control/audio/output_device";
 pub const CONTROL_AUDIO_OUTPUT_DEVICES_REFRESH: &str =
     "/omniphony/control/audio/output_devices/refresh";
+pub const CONTROL_AUDIO_OUTPUT_FILE: &str = "/omniphony/control/audio/output_file";
+pub const CONTROL_AUDIO_OUTPUT_FILE_FORMAT: &str = "/omniphony/control/audio/output_file_format";
 pub const CONTROL_AUDIO_SAMPLE_RATE: &str = "/omniphony/control/audio/sample_rate";
 pub const CONTROL_AUTO_GAIN: &str = "/omniphony/control/auto_gain";
 pub const CONTROL_AUTO_GAIN_CEILING: &str = "/omniphony/control/auto_gain_ceiling";
@@ -267,8 +270,11 @@ pub const ALL_CONTROL: &[&str] = &[
     CONTROL_ADAPTIVE_RESAMPLING_PAUSE,
     CONTROL_ADAPTIVE_RESAMPLING_RESET_RATIO,
     CONTROL_ADAPTIVE_RESAMPLING_UPDATE_INTERVAL_CALLBACKS,
+    CONTROL_AUDIO_OUTPUT_BACKEND,
     CONTROL_AUDIO_OUTPUT_DEVICE,
     CONTROL_AUDIO_OUTPUT_DEVICES_REFRESH,
+    CONTROL_AUDIO_OUTPUT_FILE,
+    CONTROL_AUDIO_OUTPUT_FILE_FORMAT,
     CONTROL_AUDIO_SAMPLE_RATE,
     CONTROL_AUTO_GAIN,
     CONTROL_AUTO_GAIN_CEILING,

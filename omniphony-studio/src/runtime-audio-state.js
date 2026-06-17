@@ -121,6 +121,15 @@ export function applyRuntimeAudioStateSnapshot(payload) {
   if (Array.isArray(payload.audioOutputDevices)) {
     app.audioOutputDevices = normalizeAudioOutputDevices(payload.audioOutputDevices);
   }
+  if (typeof payload.audioOutputBackend === 'string' && payload.audioOutputBackend.trim()) {
+    app.audioOutputBackend = payload.audioOutputBackend.trim() === 'file' ? 'file' : 'device';
+  }
+  if (typeof payload.audioOutputFile === 'string' && !app.audioOutputFileEditing) {
+    app.audioOutputFile = payload.audioOutputFile.trim() || '-';
+  }
+  if (typeof payload.audioOutputFileFormat === 'string' && payload.audioOutputFileFormat.trim()) {
+    app.audioOutputFileFormat = payload.audioOutputFileFormat.trim();
+  }
   if (typeof payload.audioSampleFormat === 'string') {
     applyAudioFormatValue('audioSampleFormat', payload.audioSampleFormat);
   }

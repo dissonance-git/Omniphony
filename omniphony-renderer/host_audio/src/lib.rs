@@ -66,6 +66,9 @@ struct AdaptiveResamplingPatch {
 #[serde(rename_all = "camelCase")]
 struct AudioConfigPatch {
     output_device: Option<Option<String>>,
+    output_backend: Option<Option<String>>,
+    output_file: Option<Option<String>>,
+    output_file_format: Option<Option<String>>,
     sample_rate: Option<Option<u32>>,
     latency_target_ms: Option<Option<u32>>,
     adaptive_resampling: Option<AdaptiveResamplingPatch>,
@@ -139,6 +142,18 @@ fn input_clock_mode_name(mode: InputClockMode) -> &'static str {
     }
 }
 
+/// Trim a patched string value, mapping empty to `None` (= "leave unset").
+fn trim_to_opt(value: Option<String>) -> Option<String> {
+    value.and_then(|v| {
+        let trimmed = v.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
 // ─── JSON / broadcast helpers (raw-enum format used by the live-edit broadcasts)
 
 fn build_audio_state_json(audio: &AudioControl) -> String {
@@ -148,6 +163,9 @@ fn build_audio_state_json(audio: &AudioControl) -> String {
         "outputDevices": audio.available_output_devices(),
         "outputDevice": requested.output_device,
         "outputDeviceEffective": audio.effective_output_device(),
+        "outputBackend": requested.output_backend,
+        "outputFile": requested.output_file,
+        "outputFileFormat": requested.output_file_format,
         "sampleRate": requested.output_sample_rate_hz,
         "sampleFormat": sample_format,
         "error": audio.audio_error(),
@@ -282,6 +300,15 @@ impl HostControlHandler for HostAudio {
                             Some(trimmed.to_string())
                         }
                     }));
+                }
+                if let Some(output_backend) = patch.output_backend {
+                    audio.set_requested_output_backend(trim_to_opt(output_backend));
+                }
+                if let Some(output_file) = patch.output_file {
+                    audio.set_requested_output_file(trim_to_opt(output_file));
+                }
+                if let Some(output_file_format) = patch.output_file_format {
+                    audio.set_requested_output_file_format(trim_to_opt(output_file_format));
                 }
                 if let Some(sample_rate) = patch.sample_rate {
                     audio.set_requested_output_sample_rate(sample_rate.filter(|value| *value > 0));
@@ -510,6 +537,24 @@ impl HostControlHandler for HostAudio {
                 _ => None,
             });
             audio.set_requested_output_device(requested);
+            effects.mark_dirty = true;
+            return Some(effects);
+        }
+
+        if addr == "/omniphony/control/audio/output_backend" {
+            audio.set_requested_output_backend(trim_to_opt(parse_string_arg(msg.args.first())));
+            effects.mark_dirty = true;
+            return Some(effects);
+        }
+
+        if addr == "/omniphony/control/audio/output_file" {
+            audio.set_requested_output_file(trim_to_opt(parse_string_arg(msg.args.first())));
+            effects.mark_dirty = true;
+            return Some(effects);
+        }
+
+        if addr == "/omniphony/control/audio/output_file_format" {
+            audio.set_requested_output_file_format(trim_to_opt(parse_string_arg(msg.args.first())));
             effects.mark_dirty = true;
             return Some(effects);
         }
@@ -818,6 +863,9 @@ impl HostControlHandler for HostAudio {
                     "outputDevices": audio.available_output_devices(),
                     "outputDevice": requested.output_device.clone(),
                     "outputDeviceEffective": audio.effective_output_device(),
+                    "outputBackend": requested.output_backend.clone(),
+                    "outputFile": requested.output_file.clone(),
+                    "outputFileFormat": requested.output_file_format.clone(),
                     "sampleRate": requested.output_sample_rate_hz,
                     "sampleFormat": audio.audio_state().1,
                     "error": audio.audio_error(),

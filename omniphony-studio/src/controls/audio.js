@@ -99,6 +99,31 @@ export function renderAudioFormatDisplay() {
       : '';
     audioOutputDeviceSelectEl.disabled = !app.oscSnapshotReady || !hasAudioDomain;
   }
+  // Output backend selector + device/file rows.
+  const isFileBackend = app.audioOutputBackend === 'file';
+  const audioOutputBackendSelectEl = inAudioPanel('audioOutputBackendSelect');
+  const audioOutputDeviceRowEl = inAudioPanel('audioOutputDeviceRow');
+  const audioOutputFileRowEl = inAudioPanel('audioOutputFileRow');
+  const audioOutputFileFormatRowEl = inAudioPanel('audioOutputFileFormatRow');
+  const audioOutputFileInputEl = inAudioPanel('audioOutputFileInput');
+  const audioOutputFileFormatSelectEl = inAudioPanel('audioOutputFileFormatSelect');
+  if (audioOutputBackendSelectEl) {
+    audioOutputBackendSelectEl.value = isFileBackend ? 'file' : 'device';
+    audioOutputBackendSelectEl.disabled = !app.oscSnapshotReady || !hasAudioDomain;
+  }
+  if (audioOutputDeviceRowEl) audioOutputDeviceRowEl.style.display = isFileBackend ? 'none' : '';
+  if (audioOutputFileRowEl) audioOutputFileRowEl.style.display = isFileBackend ? '' : 'none';
+  if (audioOutputFileFormatRowEl) audioOutputFileFormatRowEl.style.display = isFileBackend ? '' : 'none';
+  if (audioOutputFileInputEl && !app.audioOutputFileEditing) {
+    audioOutputFileInputEl.value = app.audioOutputFile || '-';
+    audioOutputFileInputEl.disabled = !app.oscSnapshotReady || !hasAudioDomain;
+  }
+  if (audioOutputFileFormatSelectEl) {
+    audioOutputFileFormatSelectEl.value = ['raw_f32', 'caf'].includes(app.audioOutputFileFormat)
+      ? app.audioOutputFileFormat
+      : 'raw_f32';
+    audioOutputFileFormatSelectEl.disabled = !app.oscSnapshotReady || !hasAudioDomain;
+  }
   if (rampModeSelectEl) {
     rampModeSelectEl.value = ['off', 'frame', 'sample', 'interp'].includes(app.rampMode) ? app.rampMode : 'frame';
   }
@@ -195,6 +220,33 @@ export function applyAudioOutputDeviceNow() {
   updateAudioFormatDisplay();
   sendAudioConfig();
   app.audioOutputDeviceEditing = false;
+}
+
+export function applyAudioOutputBackendNow() {
+  const el = inAudioPanel('audioOutputBackendSelect');
+  const requested = String(el?.value || 'device').trim() === 'file' ? 'file' : 'device';
+  app.audioOutputBackend = requested;
+  // Explicit backend switch goes through its own control (not the batch audio
+  // config), so unrelated config applies never flip the backend.
+  invoke('control_audio_output_backend', { backend: requested });
+  updateAudioFormatDisplay();
+}
+
+export function applyAudioOutputFileNow() {
+  const el = inAudioPanel('audioOutputFileInput');
+  const requested = String(el?.value ?? '').trim() || '-';
+  app.audioOutputFile = requested;
+  invoke('control_audio_output_file', { path: requested });
+  app.audioOutputFileEditing = false;
+  updateAudioFormatDisplay();
+}
+
+export function applyAudioOutputFileFormatNow() {
+  const el = inAudioPanel('audioOutputFileFormatSelect');
+  const requested = String(el?.value || 'raw_f32').trim();
+  app.audioOutputFileFormat = requested;
+  invoke('control_audio_output_file_format', { format: requested });
+  updateAudioFormatDisplay();
 }
 
 export function applyRampModeNow() {

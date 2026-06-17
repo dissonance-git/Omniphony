@@ -1,7 +1,17 @@
 use super::state::{OutputState, RuntimeOutputState};
-use crate::cli::command::OutputBackend;
+use crate::cli::command::{OutputBackend, OutputFileFormatArg};
 use anyhow::Result;
 use audio_output::{AdaptiveResamplingConfig, AudioControl};
+use std::str::FromStr;
+
+/// Parse a live-requested `output_file_format` string into the CLI enum.
+fn parse_output_file_format(s: &str) -> Option<OutputFileFormatArg> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "caf" => Some(OutputFileFormatArg::Caf),
+        "raw_f32" | "rawf32" | "raw" | "f32" => Some(OutputFileFormatArg::RawF32),
+        _ => None,
+    }
+}
 
 pub struct OutputRuntimeCoordinator<'a> {
     output: &'a mut OutputState,
@@ -22,13 +32,62 @@ impl<'a> OutputRuntimeCoordinator<'a> {
         }
     }
 
-    pub fn sync_all(&mut self, output_backend: OutputBackend) -> Result<()> {
+    pub fn sync_all(&mut self) -> Result<()> {
+        // Backend switch first: it may change `runtime.active_output_backend`,
+        // which the device/rate/adaptive syncs below must then observe.
+        self.sync_requested_output_backend()?;
+        let output_backend = self.runtime.active_output_backend;
         self.sync_requested_output_device(output_backend)?;
         self.sync_requested_output_sample_rate(output_backend)?;
         self.sync_requested_adaptive_resampling(output_backend)?;
         self.sync_requested_latency_target(output_backend)?;
         self.sync_requested_adaptive_tuning(output_backend)?;
         self.sync_ratio_reset();
+        Ok(())
+    }
+
+    /// Apply a live-requested output backend switch (e.g. device ↔ `file`) and
+    /// any `file` destination/format change. A backend change always rebuilds
+    /// the writer; a destination/format change rebuilds only while `file` is
+    /// the active backend.
+    fn sync_requested_output_backend(&mut self) -> Result<()> {
+        let requested_backend = self
+            .audio_control
+            .and_then(|control| control.requested_output_backend())
+            .and_then(|s| OutputBackend::from_str(&s).ok())
+            .unwrap_or(self.runtime.active_output_backend);
+        let requested_file = self
+            .audio_control
+            .and_then(|control| control.requested_output_file())
+            .unwrap_or_else(|| self.runtime.output_file.clone());
+        let requested_format = self
+            .audio_control
+            .and_then(|control| control.requested_output_file_format())
+            .and_then(|s| parse_output_file_format(&s))
+            .unwrap_or(self.runtime.output_file_format);
+
+        let backend_changed = requested_backend != self.runtime.active_output_backend;
+        let file_changed = requested_file != self.runtime.output_file
+            || requested_format != self.runtime.output_file_format;
+
+        if !backend_changed && !file_changed {
+            return Ok(());
+        }
+
+        self.runtime.active_output_backend = requested_backend;
+        self.runtime.output_file = requested_file;
+        self.runtime.output_file_format = requested_format;
+        log::info!(
+            "Applying requested output backend: {:?} (file='{}', format={:?})",
+            self.runtime.active_output_backend,
+            self.runtime.output_file,
+            self.runtime.output_file_format
+        );
+
+        if backend_changed || requested_backend == OutputBackend::File {
+            self.flush_and_invalidate_writer();
+        }
+
         Ok(())
     }
 
@@ -399,6 +458,9 @@ fn should_reset_writer(output_backend: OutputBackend) -> bool {
         OutputBackend::Pipewire => true,
         #[cfg(target_os = "windows")]
         OutputBackend::Asio => true,
+        // The file/FIFO/stdout sink is rebuilt live when its destination,
+        // format or a relevant parameter changes.
+        OutputBackend::File => true,
         _ => false,
     }
 }

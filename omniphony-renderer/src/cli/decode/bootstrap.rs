@@ -436,6 +436,9 @@ fn init_osc_runtime(
             latency_target_ms: requested_latency_target_ms,
             adaptive_enabled: args.enable_adaptive_resampling,
             adaptive: handler.runtime.adaptive_resampling_config.clone(),
+            // Live output-backend/file requests start unset; `runtime` holds the
+            // launch-resolved values and Studio populates these on demand.
+            ..Default::default()
         }));
         let input_control = Arc::new(InputControl::new(build_requested_input_config(
             render_cfg.as_ref(),

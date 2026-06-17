@@ -1115,6 +1115,12 @@ impl std::str::FromStr for OutputBackend {
             #[cfg(target_os = "windows")]
             "asio" => Ok(Self::Asio),
             "file" => Ok(Self::File),
+            // Platform-agnostic alias for the realtime device backend, so a
+            // host (e.g. Studio) can request "device" without knowing whether
+            // that means PipeWire or ASIO.
+            "device" => {
+                Self::platform_default().ok_or_else(|| "No device output backend".to_string())
+            }
             _ => Err(format!("Unknown output backend: {s}")),
         }
     }

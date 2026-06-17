@@ -6,7 +6,8 @@ import { updateAdaptiveResamplingUI, resetAdaptiveResamplingAdvancedDirtyState }
 import {
   closeAudioSampleRateMenu, openAudioSampleRateMenu, updateAudioFormatDisplay,
   applyAudioSampleRateNow, applyAudioOutputDeviceNow, applyRampModeNow,
-  applyChannelRenderModeNow, applySurroundPlacementNow, sendAudioConfig
+  applyChannelRenderModeNow, applySurroundPlacementNow, sendAudioConfig,
+  applyAudioOutputBackendNow, applyAudioOutputFileNow, applyAudioOutputFileFormatNow
 } from '../controls/audio.js';
 import { resetVirtualBed } from '../controls/virtual-bed.js';
 import { applyLatencyTargetNow, updateLatencyDisplay } from '../controls/latency.js';
@@ -523,6 +524,34 @@ export function setupAudioPanelListeners() {
     });
   }
 
+  const audioOutputBackendSelectEl = document.getElementById('audioOutputBackendSelect');
+  if (audioOutputBackendSelectEl) {
+    audioOutputBackendSelectEl.addEventListener('change', () => {
+      applyAudioOutputBackendNow();
+    });
+  }
+
+  const audioOutputFileInputEl = document.getElementById('audioOutputFileInput');
+  if (audioOutputFileInputEl) {
+    audioOutputFileInputEl.addEventListener('focus', () => {
+      app.audioOutputFileEditing = true;
+      audioOutputFileInputEl.select();
+    });
+    audioOutputFileInputEl.addEventListener('change', () => {
+      applyAudioOutputFileNow();
+    });
+    audioOutputFileInputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') applyAudioOutputFileNow();
+    });
+  }
+
+  const audioOutputFileFormatSelectEl = document.getElementById('audioOutputFileFormatSelect');
+  if (audioOutputFileFormatSelectEl) {
+    audioOutputFileFormatSelectEl.addEventListener('change', () => {
+      applyAudioOutputFileFormatNow();
+    });
+  }
+
   if (rampModeSelectEl) {
     rampModeSelectEl.addEventListener('change', () => {
       applyRampModeNow();
@@ -588,6 +617,15 @@ export function setupAudioPanelListeners() {
     if (!(target instanceof Node)) return;
     if (target !== latencyTargetInputEl) {
       app.latencyTargetEditing = false;
+    }
+  });
+
+  document.addEventListener('pointerdown', (event) => {
+    if (!audioOutputFileInputEl) return;
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    if (target !== audioOutputFileInputEl) {
+      app.audioOutputFileEditing = false;
     }
   });
 }
