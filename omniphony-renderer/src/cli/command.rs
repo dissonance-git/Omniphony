@@ -180,7 +180,7 @@ pub struct RenderArgs {
     /// Output device or target name.
     /// PipeWire: node target name (e.g. "omniphony_router")
     /// ASIO: device name as listed by `orender list-asio-devices`
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     #[arg(
         long,
         value_name = "NAME",
@@ -193,7 +193,7 @@ pub struct RenderArgs {
     /// Playback starts once the ring buffer has reached this level, and the PI
     /// controller (--enable-adaptive-resampling) maintains it at this level.
     /// Default: 500 (Linux/PipeWire), 220 (Windows/ASIO).
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     #[arg(long, value_name = "MS")]
     pub latency_target_ms: Option<u32>,
 
@@ -712,7 +712,7 @@ pub struct InputLiveArgs {
     pub output_backend: Option<OutputBackend>,
 
     /// Output device or target name.
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     #[arg(
         long,
         value_name = "NAME",
@@ -722,7 +722,7 @@ pub struct InputLiveArgs {
     pub output_device: Option<String>,
 
     /// Target buffer latency in milliseconds.
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     #[arg(long, value_name = "MS")]
     pub latency_target_ms: Option<u32>,
 

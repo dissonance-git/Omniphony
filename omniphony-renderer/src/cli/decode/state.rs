@@ -54,12 +54,12 @@ impl DiagPublishCadence {
 
 #[derive(Clone)]
 pub struct RuntimeOutputState {
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     pub output_device: Option<String>,
     #[cfg(target_os = "linux")]
     pub pw_buffer_config: PipewireBufferConfig,
     pub adaptive_resampling_config: AdaptiveResamplingConfig,
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     pub latency_target_ms: u32,
     pub output_sample_rate: Option<u32>,
     pub enable_adaptive_resampling: bool,
@@ -68,12 +68,12 @@ pub struct RuntimeOutputState {
 impl Default for RuntimeOutputState {
     fn default() -> Self {
         Self {
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             output_device: None,
             #[cfg(target_os = "linux")]
             pw_buffer_config: PipewireBufferConfig::default(),
             adaptive_resampling_config: AdaptiveResamplingConfig::default(),
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             latency_target_ms: 220,
             output_sample_rate: None,
             enable_adaptive_resampling: false,
