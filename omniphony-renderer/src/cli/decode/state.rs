@@ -1,5 +1,5 @@
 use super::output::AudioWriter;
-use crate::cli::command::OutputBackend;
+use crate::cli::command::{OutputBackend, OutputFileFormatArg};
 use audio_output::AdaptiveResamplingConfig;
 #[cfg(target_os = "linux")]
 use audio_output::pipewire::PipewireBufferConfig;
@@ -63,6 +63,10 @@ pub struct RuntimeOutputState {
     pub latency_target_ms: u32,
     pub output_sample_rate: Option<u32>,
     pub enable_adaptive_resampling: bool,
+    /// Destination for the `file` backend: `-` (stdout) or a file/FIFO path.
+    pub output_file: String,
+    /// Encoding for the `file` backend.
+    pub output_file_format: OutputFileFormatArg,
 }
 
 impl Default for RuntimeOutputState {
@@ -77,6 +81,8 @@ impl Default for RuntimeOutputState {
             latency_target_ms: 220,
             output_sample_rate: None,
             enable_adaptive_resampling: false,
+            output_file: "-".to_string(),
+            output_file_format: OutputFileFormatArg::RawF32,
         }
     }
 }

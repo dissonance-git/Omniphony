@@ -115,8 +115,18 @@ pub struct RenderArgs {
 
     /// Realtime audio output backend.
     /// Defaults to PipeWire on Linux and ASIO on Windows when available.
+    /// Pass `file` to write rendered audio to stdout / a file / a FIFO instead.
     #[arg(long = "output-backend", value_enum)]
     pub output_backend: Option<OutputBackend>,
+
+    /// Destination for `--output-backend file`: `-` (stdout, default), or a
+    /// path to a regular file or a named pipe (FIFO).
+    #[arg(long = "output-file", value_name = "PATH", default_value = "-")]
+    pub output_file: String,
+
+    /// Container/format for `--output-backend file`.
+    #[arg(long = "output-file-format", value_enum, default_value_t = OutputFileFormatArg::RawF32)]
+    pub output_file_format: OutputFileFormatArg,
 
     /// Presentation or substream selector passed to the bridge plugin.
     /// "best" selects the richest available presentation (default).
@@ -876,9 +886,23 @@ pub enum OutputBackend {
     /// ASIO audio output (Windows only, requires 'asio' feature).
     #[cfg(target_os = "windows")]
     Asio,
+    /// Write rendered interleaved f32 to stdout / a file / a named pipe (FIFO).
+    /// Non-realtime: no device clock, no adaptive resampling. See
+    /// `--output-file` and `--output-file-format`.
+    File,
     /// Placeholder used when no realtime output backend is compiled in.
     #[value(skip)]
     Unsupported,
+}
+
+/// Container/format for the `file` output backend.
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum OutputFileFormatArg {
+    /// Headerless interleaved 32-bit float, little-endian
+    /// (consumable by `ffmpeg -f f32le -ar <sr> -ac <n>`).
+    RawF32,
+    /// Streaming Core Audio Format (LPCM 32-bit float, data size = -1).
+    Caf,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
@@ -1090,6 +1114,7 @@ impl std::str::FromStr for OutputBackend {
             "pipewire" => Ok(Self::Pipewire),
             #[cfg(target_os = "windows")]
             "asio" => Ok(Self::Asio),
+            "file" => Ok(Self::File),
             _ => Err(format!("Unknown output backend: {s}")),
         }
     }

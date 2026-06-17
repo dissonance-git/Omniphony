@@ -542,6 +542,8 @@ pub fn init_render_handler(
 
     handler.runtime.output_sample_rate = args.output_sample_rate;
     handler.runtime.enable_adaptive_resampling = args.enable_adaptive_resampling;
+    handler.runtime.output_file = args.output_file.clone();
+    handler.runtime.output_file_format = args.output_file_format;
 
     init_spatial_renderer(
         handler,

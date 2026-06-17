@@ -73,6 +73,9 @@ pub enum AudioWriter {
     Pipewire(PipewireWriter),
     #[cfg(target_os = "windows")]
     Asio(AsioWriter),
+    /// File / FIFO / stdout sink (raw f32 or CAF). Cross-platform,
+    /// non-realtime: all latency/adaptive accessors below report `None`.
+    File(audio_output::FileAudioWriter),
     Unsupported,
 }
 
@@ -149,6 +152,27 @@ impl AudioWriter {
         Ok(AudioWriter::Asio(asio_writer))
     }
 
+    /// Create a file/FIFO/stdout sink. `destination` is `"-"` for stdout or a
+    /// file/FIFO path. `channel_descs` carries the speaker geometry embedded in
+    /// the CAF `chan` chunk; ignored for the raw-f32 format.
+    pub fn create_file(
+        destination: &str,
+        format: audio_output::FileSinkFormat,
+        sample_rate: u32,
+        channel_count: u32,
+        channel_descs: Option<Vec<audio_output::CafChannelDesc>>,
+    ) -> Result<Self> {
+        let writer = audio_output::FileAudioWriter::new(
+            destination,
+            format,
+            sample_rate,
+            channel_count,
+            channel_descs,
+        )
+        .map_err(|e| anyhow!("failed to open audio output destination '{destination}': {e}"))?;
+        Ok(AudioWriter::File(writer))
+    }
+
     pub fn write_pcm_samples(
         &mut self,
         samples: &AudioSamples,
@@ -172,6 +196,15 @@ impl AudioWriter {
             AudioWriter::Asio(asio_writer) => {
                 let samples_f32 = samples.to_f32();
                 asio_writer.write_samples(&samples_f32)?;
+                Ok(())
+            }
+            AudioWriter::File(file_writer) => {
+                if let Some(f32_slice) = samples.as_f32() {
+                    file_writer.write_samples(f32_slice)?;
+                } else {
+                    let samples_f32 = samples.to_f32();
+                    file_writer.write_samples(&samples_f32)?;
+                }
                 Ok(())
             }
             AudioWriter::Unsupported => Err(anyhow!("No supported realtime output backend")),
@@ -209,6 +242,11 @@ impl AudioWriter {
                 drop(w);
                 Ok(())
             }
+            AudioWriter::File(mut w) => {
+                w.flush()?;
+                drop(w);
+                Ok(())
+            }
             AudioWriter::Unsupported => Err(anyhow!("No supported realtime output backend")),
         }
     }
@@ -223,6 +261,10 @@ impl AudioWriter {
             #[cfg(target_os = "windows")]
             AudioWriter::Asio(asio_writer) => {
                 asio_writer.flush()?;
+                Ok(())
+            }
+            AudioWriter::File(file_writer) => {
+                file_writer.flush()?;
                 Ok(())
             }
             AudioWriter::Unsupported => Err(anyhow!("No supported realtime output backend")),
@@ -240,6 +282,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => Some(pw.latency_ms()),
             #[cfg(target_os = "windows")]
             AudioWriter::Asio(asio) => Some(asio.latency_ms()),
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -252,6 +295,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => pw.rate_adjust(),
             #[cfg(target_os = "windows")]
             AudioWriter::Asio(asio) => asio.rate_adjust(),
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -262,6 +306,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => pw.adaptive_band(),
             #[cfg(target_os = "windows")]
             AudioWriter::Asio(asio) => asio.adaptive_band(),
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -272,6 +317,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => pw.adaptive_runtime_state(),
             #[cfg(target_os = "windows")]
             AudioWriter::Asio(asio) => asio.adaptive_runtime_state(),
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -312,6 +358,7 @@ impl AudioWriter {
                 let v = asio.target_control_latency_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -329,6 +376,7 @@ impl AudioWriter {
                 let v = asio.total_audio_delay_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -351,6 +399,7 @@ impl AudioWriter {
                 let v = asio.measured_audio_delay_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -367,6 +416,7 @@ impl AudioWriter {
                 let v = asio.control_audio_delay_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -383,6 +433,7 @@ impl AudioWriter {
                 let v = asio.smoothed_control_audio_delay_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -398,6 +449,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => Some(pw.avail_input_audio_delay_ms().max(0.0)),
             #[cfg(target_os = "windows")]
             AudioWriter::Asio(asio) => Some(asio.avail_input_audio_delay_ms().max(0.0)),
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -408,6 +460,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => Some(pw.output_fifo_audio_delay_ms().max(0.0)),
             #[cfg(target_os = "windows")]
             AudioWriter::Asio(asio) => Some(asio.output_fifo_audio_delay_ms().max(0.0)),
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -418,6 +471,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => Some(pw.resampler_pending_audio_delay_ms().max(0.0)),
             #[cfg(target_os = "windows")]
             AudioWriter::Asio(asio) => Some(asio.resampler_pending_audio_delay_ms().max(0.0)),
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -431,6 +485,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => pw.diag_atomic_handles(),
             #[cfg(target_os = "windows")]
             AudioWriter::Asio(_) => Vec::new(),
+            AudioWriter::File(_) => Vec::new(),
             AudioWriter::Unsupported => Vec::new(),
         }
     }
@@ -442,6 +497,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => pw.request_ratio_reset(),
             #[cfg(target_os = "windows")]
             AudioWriter::Asio(asio) => asio.request_ratio_reset(),
+            AudioWriter::File(_) => {}
             AudioWriter::Unsupported => {}
         }
     }
@@ -453,6 +509,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => pw.update_adaptive_config(config),
             #[cfg(target_os = "windows")]
             AudioWriter::Asio(asio) => asio.update_adaptive_config(config),
+            AudioWriter::File(_) => {}
             AudioWriter::Unsupported => {}
         }
     }
