@@ -244,7 +244,10 @@ pub fn compute_adaptive_step(
     }
 }
 
-pub mod asio;
+// cpal-backed realtime output, shared by the Windows (ASIO) and macOS
+// (CoreAudio) backends. Not built on Linux (PipeWire handles output there).
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+pub mod cpal_output;
 #[cfg(target_os = "linux")]
 pub mod pipewire;
 
@@ -254,5 +257,16 @@ pub use pipewire::{PipewireBufferConfig, PipewireWriter, list_pipewire_output_de
 #[cfg(target_os = "linux")]
 pub type PipewireAdaptiveResamplingConfig = AdaptiveResamplingConfig;
 
+// On Windows the cpal writer is the ASIO backend; on macOS it is CoreAudio.
+// Both share `cpal_output::CpalWriter`; expose them under platform-specific
+// aliases so the CLI keeps stable, descriptive names.
 #[cfg(target_os = "windows")]
-pub use asio::{AsioWriter, list_asio_devices};
+pub use cpal_output::{CpalWriter as AsioWriter, list_output_devices as list_asio_devices};
+
+#[cfg(target_os = "macos")]
+pub use cpal_output::{
+    CpalWriter as CoreAudioWriter, list_output_devices as list_coreaudio_devices,
+};
+
+#[cfg(target_os = "macos")]
+pub type CoreAudioAdaptiveResamplingConfig = AdaptiveResamplingConfig;

@@ -70,13 +70,13 @@ impl<'a> OutputRuntimeCoordinator<'a> {
     }
 
     fn sync_requested_output_device(&mut self, output_backend: OutputBackend) -> Result<()> {
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
         {
             let _ = output_backend;
             return Ok(());
         }
 
-        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
         {
             let requested = self
                 .audio_control
@@ -154,7 +154,7 @@ impl<'a> OutputRuntimeCoordinator<'a> {
             }
         }
 
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
             let requested = self
                 .audio_control
@@ -164,24 +164,24 @@ impl<'a> OutputRuntimeCoordinator<'a> {
             if requested != self.runtime.latency_target_ms {
                 self.runtime.latency_target_ms = requested.max(1);
                 log::info!(
-                    "Applying requested ASIO latency target: {} ms",
+                    "Applying requested output latency target: {} ms",
                     self.runtime.latency_target_ms
                 );
 
-                if matches!(output_backend, OutputBackend::Asio) {
+                if output_backend.is_local_cpal() {
                     self.flush_and_invalidate_writer();
                 }
             }
         }
 
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
         let _ = output_backend;
 
         Ok(())
     }
 
     fn sync_requested_adaptive_tuning(&mut self, _output_backend: OutputBackend) -> Result<()> {
-        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
         {
             let requested = self
                 .audio_control
@@ -377,14 +377,14 @@ impl<'a> OutputRuntimeCoordinator<'a> {
                 .update_adaptive_config(self.runtime.adaptive_resampling_config.clone());
         }
 
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
         let _ = output_backend;
 
         Ok(())
     }
 
     fn sync_ratio_reset(&mut self) {
-        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
         if let Some(audio) = self.audio_control {
             if audio.take_ratio_reset() {
                 self.output.request_ratio_reset();
@@ -399,16 +399,18 @@ fn should_reset_writer(output_backend: OutputBackend) -> bool {
         OutputBackend::Pipewire => true,
         #[cfg(target_os = "windows")]
         OutputBackend::Asio => true,
+        #[cfg(target_os = "macos")]
+        OutputBackend::Coreaudio => true,
         _ => false,
     }
 }
 
 fn output_backend_supported_for_runtime_reset() -> bool {
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     {
         true
     }
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
         false
     }

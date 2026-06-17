@@ -27,6 +27,18 @@ fn list_available_output_devices(_backend: OutputBackend) -> Vec<OutputDeviceOpt
         .collect()
 }
 
+#[cfg(target_os = "macos")]
+fn list_available_output_devices(_backend: OutputBackend) -> Vec<OutputDeviceOption> {
+    audio_output::list_coreaudio_devices()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|name| OutputDeviceOption {
+            value: name.clone(),
+            label: name,
+        })
+        .collect()
+}
+
 #[cfg(target_os = "linux")]
 fn list_available_output_devices(backend: OutputBackend) -> Vec<OutputDeviceOption> {
     match backend {
@@ -40,7 +52,7 @@ fn list_available_output_devices(backend: OutputBackend) -> Vec<OutputDeviceOpti
     }
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 fn list_available_output_devices(_backend: OutputBackend) -> Vec<OutputDeviceOption> {
     Vec::new()
 }

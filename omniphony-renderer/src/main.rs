@@ -6,6 +6,8 @@ use cli::decode::cmd_render;
 use cli::generate_vbap::cmd_generate_vbap;
 #[cfg(target_os = "windows")]
 use cli::list_asio_devices::cmd_list_asio_devices;
+#[cfg(target_os = "macos")]
+use cli::list_coreaudio_devices::cmd_list_coreaudio_devices;
 use log::{error, info};
 use std::ffi::OsString;
 
@@ -28,6 +30,8 @@ where
         OsString::from("generate-vbap"),
         #[cfg(target_os = "windows")]
         OsString::from("list-asio-devices"),
+        #[cfg(target_os = "macos")]
+        OsString::from("list-coreaudio-devices"),
         OsString::from("help"),
     ];
     let top_level_passthrough = [
@@ -166,6 +170,8 @@ fn main() -> Result<()> {
         Commands::GenerateVbap(ref args) => cmd_generate_vbap(args),
         #[cfg(target_os = "windows")]
         Commands::ListAsioDevices => cmd_list_asio_devices(),
+        #[cfg(target_os = "macos")]
+        Commands::ListCoreaudioDevices => cmd_list_coreaudio_devices(),
     })();
 
     if let Err(ref err) = result {
