@@ -20,6 +20,15 @@ fn main() {
     if target_os == "linux" && profile == "release" {
         println!("cargo:rustc-cdylib-link-arg=-Wl,-soname,liborender.so.0");
     }
+    // On macOS, stamp the release dylib with an `@rpath` install name so a
+    // bundled consumer (mpv, Studio) resolves `liborender.dylib` via its own
+    // rpath / `@loader_path` rather than the absolute build-tree path that the
+    // linker would otherwise record. Debug builds keep the default install
+    // name so the C smoke test links against `target/debug/liborender.dylib`
+    // directly, mirroring the Linux soname handling above.
+    if target_os == "macos" && profile == "release" {
+        println!("cargo:rustc-cdylib-link-arg=-Wl,-install_name,@rpath/liborender.dylib");
+    }
 
     match cbindgen::Builder::new()
         .with_crate(&crate_dir)

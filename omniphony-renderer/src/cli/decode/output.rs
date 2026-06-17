@@ -1,8 +1,8 @@
 use anyhow::{Result, anyhow};
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use audio_output::AdaptiveResamplingConfig;
-#[cfg(target_os = "windows")]
-use audio_output::asio::AsioWriter;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use audio_output::cpal_output::CpalWriter;
 #[cfg(target_os = "linux")]
 use audio_output::pipewire::{
     PipewireAdaptiveResamplingConfig, PipewireBufferConfig, PipewireWriter,
@@ -71,8 +71,10 @@ impl AudioSamples {
 pub enum AudioWriter {
     #[cfg(target_os = "linux")]
     Pipewire(PipewireWriter),
-    #[cfg(target_os = "windows")]
-    Asio(AsioWriter),
+    /// cpal-backed local output: ASIO on Windows, CoreAudio on macOS. Both
+    /// share `CpalWriter`, so a single variant serves both platforms.
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    Cpal(CpalWriter),
     Unsupported,
 }
 
@@ -127,8 +129,10 @@ impl AudioWriter {
         Ok(AudioWriter::Pipewire(pipewire_writer))
     }
 
-    #[cfg(target_os = "windows")]
-    pub fn create_asio(
+    /// Create the platform's cpal-backed realtime output writer: ASIO on
+    /// Windows, CoreAudio on macOS. Both go through `CpalWriter`.
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    pub fn create_cpal(
         input_sample_rate: u32,
         sample_rate: u32,
         channel_count: u32,
@@ -137,7 +141,7 @@ impl AudioWriter {
         enable_adaptive_resampling: bool,
         adaptive_config: AdaptiveResamplingConfig,
     ) -> Result<Self> {
-        let asio_writer = AsioWriter::new(
+        let cpal_writer = CpalWriter::new(
             input_sample_rate,
             sample_rate,
             channel_count,
@@ -146,7 +150,7 @@ impl AudioWriter {
             enable_adaptive_resampling,
             adaptive_config,
         )?;
-        Ok(AudioWriter::Asio(asio_writer))
+        Ok(AudioWriter::Cpal(cpal_writer))
     }
 
     pub fn write_pcm_samples(
@@ -154,7 +158,7 @@ impl AudioWriter {
         samples: &AudioSamples,
         _channel_count: usize,
     ) -> Result<()> {
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
         let _ = samples;
 
         match self {
@@ -168,10 +172,10 @@ impl AudioWriter {
                 }
                 Ok(())
             }
-            #[cfg(target_os = "windows")]
-            AudioWriter::Asio(asio_writer) => {
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            AudioWriter::Cpal(w) => {
                 let samples_f32 = samples.to_f32();
-                asio_writer.write_samples(&samples_f32)?;
+                w.write_samples(&samples_f32)?;
                 Ok(())
             }
             AudioWriter::Unsupported => Err(anyhow!("No supported realtime output backend")),
@@ -203,8 +207,8 @@ impl AudioWriter {
                 drop(w);
                 Ok(())
             }
-            #[cfg(target_os = "windows")]
-            AudioWriter::Asio(mut w) => {
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            AudioWriter::Cpal(mut w) => {
                 w.flush()?;
                 drop(w);
                 Ok(())
@@ -220,9 +224,9 @@ impl AudioWriter {
                 pipewire_writer.flush()?;
                 Ok(())
             }
-            #[cfg(target_os = "windows")]
-            AudioWriter::Asio(asio_writer) => {
-                asio_writer.flush()?;
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            AudioWriter::Cpal(w) => {
+                w.flush()?;
                 Ok(())
             }
             AudioWriter::Unsupported => Err(anyhow!("No supported realtime output backend")),
@@ -238,8 +242,8 @@ impl AudioWriter {
         match self {
             #[cfg(target_os = "linux")]
             AudioWriter::Pipewire(pw) => Some(pw.latency_ms()),
-            #[cfg(target_os = "windows")]
-            AudioWriter::Asio(asio) => Some(asio.latency_ms()),
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            AudioWriter::Cpal(w) => Some(w.latency_ms()),
             AudioWriter::Unsupported => None,
         }
     }
@@ -250,8 +254,8 @@ impl AudioWriter {
         match self {
             #[cfg(target_os = "linux")]
             AudioWriter::Pipewire(pw) => pw.rate_adjust(),
-            #[cfg(target_os = "windows")]
-            AudioWriter::Asio(asio) => asio.rate_adjust(),
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            AudioWriter::Cpal(w) => w.rate_adjust(),
             AudioWriter::Unsupported => None,
         }
     }
@@ -260,8 +264,8 @@ impl AudioWriter {
         match self {
             #[cfg(target_os = "linux")]
             AudioWriter::Pipewire(pw) => pw.adaptive_band(),
-            #[cfg(target_os = "windows")]
-            AudioWriter::Asio(asio) => asio.adaptive_band(),
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            AudioWriter::Cpal(w) => w.adaptive_band(),
             AudioWriter::Unsupported => None,
         }
     }
@@ -270,8 +274,8 @@ impl AudioWriter {
         match self {
             #[cfg(target_os = "linux")]
             AudioWriter::Pipewire(pw) => pw.adaptive_runtime_state(),
-            #[cfg(target_os = "windows")]
-            AudioWriter::Asio(asio) => asio.adaptive_runtime_state(),
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            AudioWriter::Cpal(w) => w.adaptive_runtime_state(),
             AudioWriter::Unsupported => None,
         }
     }
@@ -307,9 +311,9 @@ impl AudioWriter {
                 let v = pw.target_control_latency_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
-            #[cfg(target_os = "windows")]
-            AudioWriter::Asio(asio) => {
-                let v = asio.target_control_latency_ms();
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            AudioWriter::Cpal(w) => {
+                let v = w.target_control_latency_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
             AudioWriter::Unsupported => None,
@@ -324,9 +328,9 @@ impl AudioWriter {
                 let v = pw.total_audio_delay_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
-            #[cfg(target_os = "windows")]
-            AudioWriter::Asio(asio) => {
-                let v = asio.total_audio_delay_ms();
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            AudioWriter::Cpal(w) => {
+                let v = w.total_audio_delay_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
             AudioWriter::Unsupported => None,
@@ -346,9 +350,9 @@ impl AudioWriter {
                 let v = pw.measured_audio_delay_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
-            #[cfg(target_os = "windows")]
-            AudioWriter::Asio(asio) => {
-                let v = asio.measured_audio_delay_ms();
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            AudioWriter::Cpal(w) => {
+                let v = w.measured_audio_delay_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
             AudioWriter::Unsupported => None,
@@ -362,9 +366,9 @@ impl AudioWriter {
                 let v = pw.control_audio_delay_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
-            #[cfg(target_os = "windows")]
-            AudioWriter::Asio(asio) => {
-                let v = asio.control_audio_delay_ms();
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            AudioWriter::Cpal(w) => {
+                let v = w.control_audio_delay_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
             AudioWriter::Unsupported => None,
@@ -378,9 +382,9 @@ impl AudioWriter {
                 let v = pw.smoothed_control_audio_delay_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
-            #[cfg(target_os = "windows")]
-            AudioWriter::Asio(asio) => {
-                let v = asio.smoothed_control_audio_delay_ms();
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            AudioWriter::Cpal(w) => {
+                let v = w.smoothed_control_audio_delay_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
             AudioWriter::Unsupported => None,
@@ -396,8 +400,8 @@ impl AudioWriter {
         match self {
             #[cfg(target_os = "linux")]
             AudioWriter::Pipewire(pw) => Some(pw.avail_input_audio_delay_ms().max(0.0)),
-            #[cfg(target_os = "windows")]
-            AudioWriter::Asio(asio) => Some(asio.avail_input_audio_delay_ms().max(0.0)),
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            AudioWriter::Cpal(w) => Some(w.avail_input_audio_delay_ms().max(0.0)),
             AudioWriter::Unsupported => None,
         }
     }
@@ -406,8 +410,8 @@ impl AudioWriter {
         match self {
             #[cfg(target_os = "linux")]
             AudioWriter::Pipewire(pw) => Some(pw.output_fifo_audio_delay_ms().max(0.0)),
-            #[cfg(target_os = "windows")]
-            AudioWriter::Asio(asio) => Some(asio.output_fifo_audio_delay_ms().max(0.0)),
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            AudioWriter::Cpal(w) => Some(w.output_fifo_audio_delay_ms().max(0.0)),
             AudioWriter::Unsupported => None,
         }
     }
@@ -416,8 +420,8 @@ impl AudioWriter {
         match self {
             #[cfg(target_os = "linux")]
             AudioWriter::Pipewire(pw) => Some(pw.resampler_pending_audio_delay_ms().max(0.0)),
-            #[cfg(target_os = "windows")]
-            AudioWriter::Asio(asio) => Some(asio.resampler_pending_audio_delay_ms().max(0.0)),
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            AudioWriter::Cpal(w) => Some(w.resampler_pending_audio_delay_ms().max(0.0)),
             AudioWriter::Unsupported => None,
         }
     }
@@ -429,8 +433,8 @@ impl AudioWriter {
         match self {
             #[cfg(target_os = "linux")]
             AudioWriter::Pipewire(pw) => pw.diag_atomic_handles(),
-            #[cfg(target_os = "windows")]
-            AudioWriter::Asio(_) => Vec::new(),
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            AudioWriter::Cpal(_) => Vec::new(),
             AudioWriter::Unsupported => Vec::new(),
         }
     }
@@ -440,8 +444,8 @@ impl AudioWriter {
         match self {
             #[cfg(target_os = "linux")]
             AudioWriter::Pipewire(pw) => pw.request_ratio_reset(),
-            #[cfg(target_os = "windows")]
-            AudioWriter::Asio(asio) => asio.request_ratio_reset(),
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            AudioWriter::Cpal(w) => w.request_ratio_reset(),
             AudioWriter::Unsupported => {}
         }
     }
@@ -451,8 +455,8 @@ impl AudioWriter {
         match self {
             #[cfg(target_os = "linux")]
             AudioWriter::Pipewire(pw) => pw.update_adaptive_config(config),
-            #[cfg(target_os = "windows")]
-            AudioWriter::Asio(asio) => asio.update_adaptive_config(config),
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            AudioWriter::Cpal(w) => w.update_adaptive_config(config),
             AudioWriter::Unsupported => {}
         }
     }
