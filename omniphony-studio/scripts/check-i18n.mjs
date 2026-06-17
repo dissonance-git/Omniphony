@@ -39,7 +39,8 @@ const LEFTOVER_ALLOW_KEYS = new Set([
   'autoTune.openButton',
   'vbap.cart',
   'vbap.polar',
-  'audio.rampModeFrame'
+  'audio.rampModeFrame',
+  'adaptive.controlSmoothingOrder.opt2'
 ]);
 const LEFTOVER_ALLOW_PREFIXES = ['renderer.perf.'];
 

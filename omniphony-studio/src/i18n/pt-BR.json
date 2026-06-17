@@ -679,5 +679,8 @@
   "eval.cartesianGrid": "Grade cartesiana",
   "eval.polarGrid": "Grade polar",
   "renderer.rampTitle": "Rampa",
-  "backend.restore": "Restaurar backend"
+  "backend.restore": "Restaurar backend",
+  "adaptive.controlSmoothingOrder.opt1": "1 (polo único, 6 dB/oit)",
+  "adaptive.controlSmoothingOrder.opt2": "2 (Butterworth, 12 dB/oit)",
+  "input.map.sevenOneFixed": "7.1 fixo"
 }
