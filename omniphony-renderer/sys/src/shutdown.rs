@@ -98,6 +98,40 @@ extern "C" fn reload_handler(_sig: libc::c_int) {
     }
 }
 
+/// Build a `sigaction` portably. The struct's fields differ across Unix targets
+/// (Linux carries the obsolete `sa_restorer`, macOS/BSD do not), so we zero the
+/// struct and set only the fields common to all of them — never naming
+/// `sa_restorer`, which would not compile on macOS.
+#[cfg(unix)]
+unsafe fn make_sigaction(handler: libc::sighandler_t, flags: libc::c_int) -> libc::sigaction {
+    let mut sa: libc::sigaction = unsafe { std::mem::zeroed() };
+    sa.sa_sigaction = handler;
+    sa.sa_flags = flags;
+    sa
+}
+
+/// Create a pipe with both ends non-blocking + close-on-exec on platforms that
+/// lack Linux's atomic `pipe2(2)` (e.g. macOS). Returns 0 on success, -1 on
+/// failure (errno set by the failing call).
+#[cfg(all(unix, not(target_os = "linux")))]
+unsafe fn make_nonblock_cloexec_pipe(fds: *mut libc::c_int) -> libc::c_int {
+    if unsafe { libc::pipe(fds) } != 0 {
+        return -1;
+    }
+    for i in 0..2 {
+        let fd = unsafe { *fds.add(i) };
+        let fl = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if fl >= 0 {
+            unsafe { libc::fcntl(fd, libc::F_SETFL, fl | libc::O_NONBLOCK) };
+        }
+        let fdfl = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        if fdfl >= 0 {
+            unsafe { libc::fcntl(fd, libc::F_SETFD, fdfl | libc::FD_CLOEXEC) };
+        }
+    }
+    0
+}
+
 // ─── Windows: SetConsoleCtrlHandler ──────────────────────────────────────────
 
 /// Ctrl event handler — Ctrl+C, Ctrl+Break, console close, system shutdown.
@@ -163,7 +197,10 @@ impl ShutdownHandle {
         #[cfg(unix)]
         {
             let mut fds = [0i32; 2];
+            #[cfg(target_os = "linux")]
             let rc = unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_NONBLOCK | libc::O_CLOEXEC) };
+            #[cfg(not(target_os = "linux"))]
+            let rc = unsafe { make_nonblock_cloexec_pipe(fds.as_mut_ptr()) };
             if rc != 0 {
                 return Err(anyhow::anyhow!(
                     "Failed to create shutdown pipe: {}",
@@ -177,17 +214,17 @@ impl ShutdownHandle {
             // SA_RESTART: slow syscalls (read/write) are restarted automatically.
             // poll(2) is NOT restarted on Linux and returns EINTR instead —
             // handled explicitly in the poll loop.
-            let sa_shutdown = libc::sigaction {
-                sa_sigaction: shutdown_handler as *const () as libc::sighandler_t,
-                sa_mask: unsafe { std::mem::zeroed() },
-                sa_flags: libc::SA_RESTART,
-                sa_restorer: None,
+            let sa_shutdown = unsafe {
+                make_sigaction(
+                    shutdown_handler as *const () as libc::sighandler_t,
+                    libc::SA_RESTART,
+                )
             };
-            let sa_reload = libc::sigaction {
-                sa_sigaction: reload_handler as *const () as libc::sighandler_t,
-                sa_mask: unsafe { std::mem::zeroed() },
-                sa_flags: libc::SA_RESTART,
-                sa_restorer: None,
+            let sa_reload = unsafe {
+                make_sigaction(
+                    reload_handler as *const () as libc::sighandler_t,
+                    libc::SA_RESTART,
+                )
             };
 
             let registrations: &[(libc::c_int, &libc::sigaction)] = &[
@@ -321,12 +358,7 @@ impl Drop for ShutdownHandle {
             // Restore default signal dispositions so the process behaves normally
             // if it continues running after this handle is dropped.
             for &sig in &[libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
-                let sa_dfl = libc::sigaction {
-                    sa_sigaction: libc::SIG_DFL,
-                    sa_mask: unsafe { std::mem::zeroed() },
-                    sa_flags: 0,
-                    sa_restorer: None,
-                };
+                let sa_dfl = unsafe { make_sigaction(libc::SIG_DFL, 0) };
                 unsafe { libc::sigaction(sig, &sa_dfl, std::ptr::null_mut()) };
             }
 
@@ -465,7 +497,21 @@ pub fn sd_notify(msg: &str) {
     };
 
     unsafe {
+        // SOCK_CLOEXEC is Linux-only as a socket-type flag; on macOS create the
+        // socket then set FD_CLOEXEC via fcntl.
+        #[cfg(target_os = "linux")]
         let sock = libc::socket(libc::AF_UNIX, libc::SOCK_DGRAM | libc::SOCK_CLOEXEC, 0);
+        #[cfg(not(target_os = "linux"))]
+        let sock = {
+            let s = libc::socket(libc::AF_UNIX, libc::SOCK_DGRAM, 0);
+            if s >= 0 {
+                let fl = libc::fcntl(s, libc::F_GETFD);
+                if fl >= 0 {
+                    libc::fcntl(s, libc::F_SETFD, fl | libc::FD_CLOEXEC);
+                }
+            }
+            s
+        };
         if sock < 0 {
             return;
         }
@@ -496,11 +542,18 @@ pub fn sd_notify(msg: &str) {
             + path_bytes.len()
             + if is_abstract { 0 } else { 1 }) as libc::socklen_t;
 
+        // MSG_NOSIGNAL suppresses SIGPIPE on Linux; macOS has no such flag (it
+        // uses the SO_NOSIGPIPE sockopt). For this best-effort sd_notify on a
+        // DGRAM socket, sending with no flag is fine.
+        #[cfg(target_os = "linux")]
+        let send_flags: libc::c_int = libc::MSG_NOSIGNAL;
+        #[cfg(not(target_os = "linux"))]
+        let send_flags: libc::c_int = 0;
         libc::sendto(
             sock,
             msg.as_ptr() as *const libc::c_void,
             msg.len(),
-            libc::MSG_NOSIGNAL,
+            send_flags,
             &addr as *const libc::sockaddr_un as *const libc::sockaddr,
             addr_len,
         );
