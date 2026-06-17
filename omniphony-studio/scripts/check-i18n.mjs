@@ -31,7 +31,14 @@ const LEFTOVER_ALLOW_KEYS = new Set([
   'app.title',
   'audio.summary',
   'status.audioFormat',
-  'status.latencyFallback'
+  'status.latencyFallback',
+  // Feature/proper names and literal tokens kept verbatim in every locale.
+  'distance.title',
+  'distance.infoTitle',
+  'spread.mode.objectSize',
+  'autoTune.openButton',
+  'vbap.cart',
+  'vbap.polar'
 ]);
 const LEFTOVER_ALLOW_PREFIXES = ['renderer.perf.'];
 
