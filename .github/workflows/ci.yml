@@ -113,3 +113,11 @@ jobs:
       - name: Build Studio frontend
         working-directory: omniphony-studio
         run: npm run build
+
+      # Translation parity is reported but never blocks a merge: incomplete
+      # locales fall back to English at runtime, so this is a heads-up, not a
+      # gate. Emits ::warning:: annotations on the PR.
+      - name: Check i18n parity (warn-only)
+        working-directory: omniphony-studio
+        continue-on-error: true
+        run: npm run i18n:check
