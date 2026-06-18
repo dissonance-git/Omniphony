@@ -286,6 +286,46 @@ fn label_aliases(label: RChannelLabel, use_7_1: bool) -> Option<&'static [&'stat
             "RightRear",
         ]),
         RChannelLabel::Cb => Some(&["BC", "Cb", "BackCenter", "RearCenter"]),
+        // Height layer. Aliases cover the common naming schemes (TFL/TBL,
+        // Dolby Ltf/Ltr, ADM Tp* / U* upper-layer) so a configured 7.1.4 layout
+        // resolves these to its named top speakers.
+        RChannelLabel::Tfl => Some(&[
+            "TFL",
+            "Tfl",
+            "Ltf",
+            "TpFL",
+            "TopFrontLeft",
+            "UpperFrontLeft",
+        ]),
+        RChannelLabel::Tfr => Some(&[
+            "TFR",
+            "Tfr",
+            "Rtf",
+            "TpFR",
+            "TopFrontRight",
+            "UpperFrontRight",
+        ]),
+        RChannelLabel::Tbl => Some(&[
+            "TBL",
+            "Tbl",
+            "Ltr",
+            "TpBL",
+            "TopBackLeft",
+            "TopRearLeft",
+            "UpperBackLeft",
+        ]),
+        RChannelLabel::Tbr => Some(&[
+            "TBR",
+            "Tbr",
+            "Rtr",
+            "TpBR",
+            "TopBackRight",
+            "TopRearRight",
+            "UpperBackRight",
+        ]),
+        RChannelLabel::Tsl => Some(&["TSL", "Tsl", "TpSL", "TopSideLeft", "UpperSideLeft"]),
+        RChannelLabel::Tsr => Some(&["TSR", "Tsr", "TpSR", "TopSideRight", "UpperSideRight"]),
+        RChannelLabel::Tfc => Some(&["TFC", "Tfc", "TpFC", "TopFrontCenter"]),
         _ => None,
     }
 }
@@ -304,6 +344,15 @@ fn fallback_virtual_bed_pose(
         RChannelLabel::Lb => ("BL", -142.5, 0.0, 1.0),
         RChannelLabel::Rb => ("BR", 142.5, 0.0, 1.0),
         RChannelLabel::Cb => ("BC", 180.0, 0.0, 1.0),
+        // Height layer (≈45° elevation), e.g. a 7.1.4 input bed. Azimuths mirror
+        // the matching floor pair; the top-side pair sits overhead to the side.
+        RChannelLabel::Tfl => ("TFL", -45.0, 45.0, 1.0),
+        RChannelLabel::Tfr => ("TFR", 45.0, 45.0, 1.0),
+        RChannelLabel::Tbl => ("TBL", -135.0, 45.0, 1.0),
+        RChannelLabel::Tbr => ("TBR", 135.0, 45.0, 1.0),
+        RChannelLabel::Tsl => ("TSL", -90.0, 45.0, 1.0),
+        RChannelLabel::Tsr => ("TSR", 90.0, 45.0, 1.0),
+        RChannelLabel::Tfc => ("TFC", 0.0, 45.0, 1.0),
         _ => return None,
     };
     Some((name.to_string(), az, el, dist))
@@ -814,6 +863,52 @@ mod tests {
                 pos.iter()
                     .all(|c| c.is_finite() && (-1.0..=1.0).contains(c)),
                 "position {pos:?} must be finite and within the unit room"
+            );
+        }
+    }
+
+    #[test]
+    fn maps_a_7_1_4_bed_including_height_channels() {
+        // A full 7.1.4 input bed (e.g. a bed-only Atmos presentation). The height
+        // layer must resolve to elevated poses rather than being dropped (which
+        // used to leave the top channels silent).
+        let labels = [
+            RChannelLabel::L,
+            RChannelLabel::R,
+            RChannelLabel::C,
+            RChannelLabel::LFE,
+            RChannelLabel::Ls,
+            RChannelLabel::Rs,
+            RChannelLabel::Lb,
+            RChannelLabel::Rb,
+            RChannelLabel::Tfl,
+            RChannelLabel::Tfr,
+            RChannelLabel::Tbl,
+            RChannelLabel::Tbr,
+        ];
+        let events = build_virtual_bed_events(
+            &labels,
+            None,
+            UNIT_ROOM,
+            1.0,
+            1.0,
+            0.0,
+            SurroundPlacement::Side,
+        )
+        .expect("7.1.4 bed must map to virtual events");
+        // Every channel resolves a pose — none are dropped.
+        assert_eq!(events.len(), labels.len());
+        // The four height channels (idx 8..12) sit above ear level (z > 0).
+        for ev in &events[8..12] {
+            let pos = ev.position.expect("height event carries a position");
+            assert!(pos[2] > 0.1, "height channel must be elevated, got {pos:?}");
+        }
+        // The floor channels stay near ear level.
+        for ev in &events[0..8] {
+            let pos = ev.position.expect("floor event carries a position");
+            assert!(
+                pos[2].abs() < 0.2,
+                "floor channel should be ~level, got {pos:?}"
             );
         }
     }
