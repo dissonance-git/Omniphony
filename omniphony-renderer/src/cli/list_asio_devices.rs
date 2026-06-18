@@ -10,7 +10,7 @@ pub fn cmd_list_asio_devices() -> Result<()> {
     println!("Available ASIO devices:");
     println!();
 
-    let devices = audio_output::asio::list_asio_devices()?;
+    let devices = audio_output::list_asio_devices()?;
 
     if devices.is_empty() {
         println!("  No ASIO devices found.");

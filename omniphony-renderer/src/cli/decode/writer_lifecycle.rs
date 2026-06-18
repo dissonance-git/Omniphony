@@ -50,7 +50,7 @@ impl<'a> WriterLifecycleCoordinator<'a> {
         sample_rate: u32,
         channel_count: usize,
     ) -> Result<()> {
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
         let _ = (output_backend, sample_rate, channel_count);
 
         if self.output.audio_writer.is_none() && !self.output.output_init_failed {
@@ -168,18 +168,18 @@ impl<'a> WriterLifecycleCoordinator<'a> {
                 return Ok(());
             }
 
-            #[cfg(target_os = "windows")]
-            if output_backend == OutputBackend::Asio {
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            if output_backend.is_local_cpal() {
                 if let Some(output_rate) = self.runtime.output_sample_rate {
                     log::info!(
-                        "Creating ASIO audio stream with upsampling: {} Hz -> {} Hz, {} channels",
+                        "Creating realtime audio stream with upsampling: {} Hz -> {} Hz, {} channels",
                         sample_rate,
                         output_rate,
                         channel_count
                     );
                 } else {
                     log::info!(
-                        "Creating ASIO audio stream: {} Hz, {} channels",
+                        "Creating realtime audio stream: {} Hz, {} channels",
                         sample_rate,
                         channel_count
                     );
@@ -265,7 +265,7 @@ impl<'a> WriterLifecycleCoordinator<'a> {
         #[cfg(target_os = "linux")] pipewire_channel_names: Option<Vec<String>>,
         #[cfg(not(target_os = "linux"))] _pipewire_channel_names: Option<Vec<String>>,
     ) -> Result<AudioWriter> {
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
         let _ = (output_backend, sample_rate, channel_count);
 
         match output_backend {
@@ -307,18 +307,9 @@ impl<'a> WriterLifecycleCoordinator<'a> {
                 }
             }
             #[cfg(target_os = "windows")]
-            OutputBackend::Asio => {
-                let effective_sample_rate = self.runtime.output_sample_rate.unwrap_or(sample_rate);
-                Ok(AudioWriter::create_asio(
-                    sample_rate,
-                    effective_sample_rate,
-                    channel_count as u32,
-                    self.runtime.output_device.clone(),
-                    self.runtime.latency_target_ms,
-                    self.runtime.enable_adaptive_resampling,
-                    self.runtime.adaptive_resampling_config.clone(),
-                )?)
-            }
+            OutputBackend::Asio => self.build_cpal_audio_writer(sample_rate, channel_count),
+            #[cfg(target_os = "macos")]
+            OutputBackend::Coreaudio => self.build_cpal_audio_writer(sample_rate, channel_count),
             OutputBackend::File => {
                 let format = match self.runtime.output_file_format {
                     OutputFileFormatArg::RawF32 => audio_output::FileSinkFormat::RawF32,
@@ -351,6 +342,26 @@ impl<'a> WriterLifecycleCoordinator<'a> {
             OutputBackend::Unsupported => Err(anyhow!("No supported realtime output backend")),
         }
     }
+
+    /// Build the cpal-backed realtime writer — ASIO on Windows, CoreAudio on
+    /// macOS. Both platforms feed the same `CpalWriter` via `create_cpal`.
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    fn build_cpal_audio_writer(
+        &self,
+        sample_rate: u32,
+        channel_count: usize,
+    ) -> Result<AudioWriter> {
+        let effective_sample_rate = self.runtime.output_sample_rate.unwrap_or(sample_rate);
+        AudioWriter::create_cpal(
+            sample_rate,
+            effective_sample_rate,
+            channel_count as u32,
+            self.runtime.output_device.clone(),
+            self.runtime.latency_target_ms,
+            self.runtime.enable_adaptive_resampling,
+            self.runtime.adaptive_resampling_config.clone(),
+        )
+    }
 }
 
 fn effective_audio_state(
@@ -363,6 +374,8 @@ fn effective_audio_state(
         OutputBackend::Pipewire => (output_rate.unwrap_or(input_sample_rate), "f32le"),
         #[cfg(target_os = "windows")]
         OutputBackend::Asio => (output_rate.unwrap_or(input_sample_rate), "f32le"),
+        #[cfg(target_os = "macos")]
+        OutputBackend::Coreaudio => (output_rate.unwrap_or(input_sample_rate), "f32le"),
         OutputBackend::File => (output_rate.unwrap_or(input_sample_rate), "f32le"),
         _ => (input_sample_rate, "s24le"),
     }

@@ -351,11 +351,11 @@ pub(super) fn merge_render_config(
     }
 
     // Platform-specific Option fields
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     if args.latency_target_ms.is_none() {
         args.latency_target_ms = cfg.latency_target;
     }
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     if args.output_device.is_none() {
         if let Some(ref s) = cfg.output_device {
             args.output_device = Some(s.clone());
@@ -585,7 +585,7 @@ pub(super) fn effective_to_config(
     renderer::config_fields::osc_rx_port::store(&mut render, args.osc_rx_port);
     renderer::config_fields::osc_host::store(&mut render, &args.osc_host);
     renderer::config_fields::osc_port::store(&mut render, args.osc_port);
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     {
         render.output_device = args.output_device.clone();
         render.latency_target = args.latency_target_ms;

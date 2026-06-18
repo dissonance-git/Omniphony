@@ -1,4 +1,7 @@
-#![cfg(target_os = "windows")]
+#![cfg(any(target_os = "windows", target_os = "macos"))]
+//! cpal-backed realtime output writer shared by the Windows (ASIO) and macOS
+//! (CoreAudio) backends. The two platforms differ only in which cpal host they
+//! open; the ring-buffer, local resampler and adaptive-rate servo are identical.
 
 use anyhow::{Result, anyhow};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -36,12 +39,34 @@ const BUFFER_SIZE: usize = 48000 * 16 * 4;
 const MIN_BUFFER_MS: u32 = 25;
 const DEFAULT_TARGET_BUFFER_MS: u32 = 220;
 const MAX_BUFFER_MS: u32 = 250;
-pub struct AsioWriter {
+
+/// Human-readable label for the active cpal output backend, used in logs and
+/// error messages (referenced via inline `{BACKEND}` format args throughout).
+#[cfg(target_os = "windows")]
+const BACKEND: &str = "ASIO";
+#[cfg(target_os = "macos")]
+const BACKEND: &str = "CoreAudio";
+
+/// Open the cpal host that backs realtime output on this platform: the ASIO
+/// host on Windows, the default (CoreAudio) host on macOS.
+fn output_host() -> Result<cpal::Host> {
+    #[cfg(target_os = "windows")]
+    {
+        cpal::host_from_id(cpal::HostId::Asio)
+            .map_err(|e| anyhow!("{BACKEND} host not available: {:?}", e))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Ok(cpal::default_host())
+    }
+}
+
+pub struct CpalWriter {
     sample_buffer: Arc<ArrayQueue<f32>>,
     input_sample_rate: u32,
     _output_sample_rate: u32,
     channel_count: u32,         // Number of audio channels we're producing
-    _device_channel_count: u32, // Number of channels the ASIO device expects
+    _device_channel_count: u32, // Number of channels the {BACKEND} device expects
     _stream_ready: Arc<AtomicBool>,
     enable_adaptive_resampling: bool, // Enable PI controller for buffer stability
     max_buffer_fill: usize,
@@ -61,10 +86,9 @@ pub struct AsioWriter {
     _stream: Option<cpal::Stream>,
 }
 
-/// Get a list of available ASIO device names
-pub fn list_asio_devices() -> Result<Vec<String>> {
-    let host = cpal::host_from_id(cpal::HostId::Asio)
-        .map_err(|e| anyhow!("ASIO Host not available: {:?}", e))?;
+/// Get a list of available output device names for this platform's backend.
+pub fn list_output_devices() -> Result<Vec<String>> {
+    let host = output_host()?;
 
     let devices: Vec<String> = host
         .output_devices()?
@@ -74,10 +98,10 @@ pub fn list_asio_devices() -> Result<Vec<String>> {
     Ok(devices)
 }
 
-impl AsioWriter {
-    pub fn list_asio_devices() -> Result<()> {
-        println!("Available ASIO Devices:");
-        let devices = list_asio_devices()?;
+impl CpalWriter {
+    pub fn list_output_devices() -> Result<()> {
+        println!("Available {BACKEND} Devices:");
+        let devices = list_output_devices()?;
 
         for (i, device_name) in devices.iter().enumerate() {
             println!("  {}: {}", i, device_name);
@@ -157,11 +181,10 @@ impl AsioWriter {
         let max_buffer_fill = (samples_per_ms * max_buffer_ms as usize)
             .max(target_buffer_fill + channel_count as usize);
 
-        // Initialize CPAL ASIO host
-        let host = cpal::host_from_id(cpal::HostId::Asio)
-            .map_err(|e| anyhow!("ASIO Host not available: {:?}", e))?;
+        // Open the platform's cpal output host (ASIO on Windows, CoreAudio on macOS).
+        let host = output_host()?;
 
-        log::info!("ASIO Host initialized");
+        log::info!("{BACKEND} host initialized");
 
         // Find device by name if specified, otherwise use default
         let device = if let Some(ref target_name) = output_device {
@@ -178,22 +201,24 @@ impl AsioWriter {
 
             found_device.ok_or_else(|| {
                 anyhow!(
-                    "ASIO device '{}' not found. Use 'orender list-asio-devices' to see available devices.",
-                    target_name
+                    "{BACKEND} output device '{target_name}' not found; run the platform list-output-devices command to see available devices.",
                 )
             })?
         } else {
             host.default_output_device()
-                .ok_or_else(|| anyhow!("No default ASIO output device found"))?
+                .ok_or_else(|| anyhow!("No default {BACKEND} output device found"))?
         };
 
-        log::info!("Using ASIO device: {}", device.name().unwrap_or_default());
+        log::info!(
+            "Using {BACKEND} device: {}",
+            device.name().unwrap_or_default()
+        );
 
         // Find a supported configuration that has at least the required channels
         let supported_configs: Vec<_> = device.supported_output_configs()?.collect();
 
         log::info!(
-            "Looking for ASIO config supporting {} channels at {} Hz",
+            "Looking for {BACKEND} config supporting {} channels at {} Hz",
             channel_count,
             output_sample_rate
         );
@@ -219,7 +244,7 @@ impl AsioWriter {
             .min_by_key(|c| c.channels())
             .ok_or_else(|| {
                 anyhow!(
-                    "ASIO device does not support {} channels at {} Hz. Available configs: {:?}",
+                    "{BACKEND} device does not support {} channels at {} Hz. Available configs: {:?}",
                     channel_count,
                     output_sample_rate,
                     supported_configs
@@ -245,7 +270,7 @@ impl AsioWriter {
 
         if resample_ratio != 1.0 {
             log::info!(
-                "ASIO Config: {} Hz (resampling from {} Hz, ratio {:.3}x), {} device channels (using {} for output)",
+                "{BACKEND} Config: {} Hz (resampling from {} Hz, ratio {:.3}x), {} device channels (using {} for output)",
                 output_sample_rate,
                 input_sample_rate,
                 resample_ratio,
@@ -254,7 +279,7 @@ impl AsioWriter {
             );
         } else {
             log::info!(
-                "ASIO Config: {} Hz, {} device channels (using {} for output)",
+                "{BACKEND} Config: {} Hz, {} device channels (using {} for output)",
                 output_sample_rate,
                 device_channel_count,
                 channel_count
@@ -275,7 +300,7 @@ impl AsioWriter {
             log::info!("Adaptive resampling disabled (fixed resampling ratio)");
         }
         log::info!(
-            "ASIO buffer thresholds ({}ch @ {}Hz input): min={} target={} max={} samples",
+            "{BACKEND} buffer thresholds ({}ch @ {}Hz input): min={} target={} max={} samples",
             channel_count,
             input_sample_rate,
             min_buffer_fill,
@@ -378,7 +403,7 @@ impl AsioWriter {
                 let callback_frames = data.len() / device_channel_count_for_callback as usize;
                 let callback_audio_samples = callback_frames * channel_count as usize;
                 // Ring-buffer occupancy is tracked in input-domain samples, while the
-                // ASIO callback consumes output-domain samples after local resampling.
+                // {BACKEND} callback consumes output-domain samples after local resampling.
                 // Convert the callback midpoint estimate back to input-domain samples
                 // before comparing against the input-domain fill level.
                 let callback_input_domain_samples = if effective_resample_ratio > 0.0 {
@@ -397,7 +422,7 @@ impl AsioWriter {
                 pipeline_latency_ms_bits_clone
                     .store(callback_midpoint_ms.to_bits(), Ordering::Relaxed);
                 let current_asio_cfg = live_config_for_callback.lock().clone();
-                // ASIO callback dt comes from the nominal frame size of
+                // {BACKEND} callback dt comes from the nominal frame size of
                 // the active buffer. We don't have an atomic-published dt
                 // here as on the PipeWire path; the configured value is
                 // accurate enough for the cutoff math.
@@ -411,7 +436,7 @@ impl AsioWriter {
                     available_samples,
                     output_fifo_input_domain_samples,
                     pending_resampler_input_samples,
-                    0, // ASIO backend has no output pacer stage
+                    0, // {BACKEND} backend has no output pacer stage
                     callback_input_domain_samples,
                     channel_count as usize,
                     input_sample_rate,
@@ -501,7 +526,7 @@ impl AsioWriter {
 
                         if callback_count % 100 == 0 {
                             log::trace!(
-                                "ASIO Adaptive: buf={}/{} drift={} ratio={:.6} (base={:.2} P={:.6} I={:.6} kp={:.6} ki={:.6} max_adjust={:.6})",
+                                "{BACKEND} Adaptive: buf={}/{} drift={} ratio={:.6} (base={:.2} P={:.6} I={:.6} kp={:.6} ki={:.6} max_adjust={:.6})",
                                 metrics.control_available,
                                 target_buffer_fill,
                                 decision.step.drift,
@@ -661,7 +686,7 @@ impl AsioWriter {
                     }
                 }
 
-                // 3. Fill ASIO callback buffer from FIFO
+                // 3. Fill {BACKEND} callback buffer from FIFO
                 if far_decision.hard_recover_high {
                     let plan = compute_hard_recover_high_plan(
                         callback_input_domain_samples,
@@ -710,8 +735,8 @@ impl AsioWriter {
                     // Underrun
                     note_refill_or_underrun(
                         &mut runtime_state,
-                        "ASIO underrun",
-                        "ASIO underrun",
+                        "output underrun",
+                        "output underrun",
                         resampler_fifo.output_len(),
                         audio_samples_needed,
                     );
@@ -823,7 +848,7 @@ impl AsioWriter {
         f32::from_bits(self.control_latency_ms_bits.load(Ordering::Relaxed))
     }
 
-    /// EMA-smoothed control latency. The ASIO backend does not yet maintain a
+    /// EMA-smoothed control latency. The {BACKEND} backend does not yet maintain a
     /// separate smoothed metric, so it falls back to the raw control latency.
     pub fn smoothed_control_audio_delay_ms(&self) -> f32 {
         self.control_audio_delay_ms()

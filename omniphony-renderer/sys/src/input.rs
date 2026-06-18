@@ -341,7 +341,7 @@ fn drain_fd(file: &File) -> Result<usize> {
             );
 
             if result < 0 {
-                let errno = *libc::__errno_location();
+                let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
                 if errno == libc::EAGAIN || errno == libc::EWOULDBLOCK {
                     // No more data available
                     break;
