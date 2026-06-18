@@ -44,6 +44,13 @@ pub struct RenderConfig {
     pub live_input: Option<LiveInputConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_backend: Option<String>,
+    /// Destination for the `file` output backend: `-` (stdout) or a path to a
+    /// regular file or named pipe (FIFO).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_file: Option<String>,
+    /// Format for the `file` output backend: `raw_f32` or `caf`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_file_format: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presentation: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]

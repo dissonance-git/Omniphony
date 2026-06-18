@@ -508,7 +508,10 @@ impl DecodeHandler {
             &mut self.runtime,
             self.audio_control.as_deref(),
         )
-        .sync_all(ctx.output_backend)?;
+        .sync_all()?;
+        // `sync_all` may have switched the active backend live (e.g. Studio
+        // requested `file`); read the post-sync value for the writer build.
+        let active_output_backend = self.runtime.active_output_backend;
         if self.output.audio_writer.is_none() {
             self.reset_direct_trigger_wiring();
         }
@@ -523,7 +526,7 @@ impl DecodeHandler {
             self.input_control.as_ref(),
         )
         .create_audio_writer_if_needed(
-            ctx.output_backend,
+            active_output_backend,
             sample_rate,
             effective_channel_count,
         )?;
@@ -537,7 +540,7 @@ impl DecodeHandler {
             self.audio_control.as_ref(),
             self.input_control.as_ref(),
         )
-        .publish_audio_state_if_changed(ctx.output_backend, sample_rate);
+        .publish_audio_state_if_changed(active_output_backend, sample_rate);
 
         let mut sample_write = SampleWriteCoordinator::new(
             &mut self.output,

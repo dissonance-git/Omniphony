@@ -450,6 +450,9 @@ fn init_osc_runtime(
             latency_target_ms: requested_latency_target_ms,
             adaptive_enabled: args.enable_adaptive_resampling,
             adaptive: handler.runtime.adaptive_resampling_config.clone(),
+            // Live output-backend/file requests start unset; `runtime` holds the
+            // launch-resolved values and Studio populates these on demand.
+            ..Default::default()
         }));
         let input_control = Arc::new(InputControl::new(build_requested_input_config(
             render_cfg.as_ref(),
@@ -556,6 +559,8 @@ pub fn init_render_handler(
 
     handler.runtime.output_sample_rate = args.output_sample_rate;
     handler.runtime.enable_adaptive_resampling = args.enable_adaptive_resampling;
+    handler.runtime.output_file = args.output_file.clone();
+    handler.runtime.output_file_format = args.output_file_format;
 
     init_spatial_renderer(
         handler,

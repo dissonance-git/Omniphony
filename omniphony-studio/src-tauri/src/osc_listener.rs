@@ -43,6 +43,9 @@ struct AudioDomainState {
     output_devices: Option<Vec<OutputDeviceOption>>,
     output_device: Option<String>,
     output_device_effective: Option<String>,
+    output_backend: Option<String>,
+    output_file: Option<String>,
+    output_file_format: Option<String>,
     sample_rate: Option<u32>,
     sample_format: Option<String>,
     error: Option<String>,
@@ -437,6 +440,15 @@ fn apply_audio_domain_state(s: &mut AppState, value: &str) -> bool {
     }
     if let Some(output_device_effective) = parsed.output_device_effective {
         s.set_audio_effective_output_device(&output_device_effective);
+    }
+    if let Some(output_backend) = parsed.output_backend {
+        s.set_audio_output_backend(Some(output_backend));
+    }
+    if let Some(output_file) = parsed.output_file {
+        s.set_audio_output_file(Some(output_file));
+    }
+    if let Some(output_file_format) = parsed.output_file_format {
+        s.set_audio_output_file_format(Some(output_file_format));
     }
     if let Some(sample_rate) = parsed.sample_rate {
         s.set_audio_sample_rate_value(sample_rate);

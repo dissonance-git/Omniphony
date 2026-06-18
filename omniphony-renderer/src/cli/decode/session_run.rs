@@ -432,7 +432,6 @@ fn handle_stream_end(handler: &mut DecodeHandler, args: &RenderArgs) -> Result<(
 
 struct DecodeRunContext<'a> {
     args: &'a RenderArgs,
-    effective_output_backend: OutputBackend,
 }
 
 fn handle_audio_message(
@@ -446,8 +445,10 @@ fn handle_audio_message(
     let frame = decoded.frame;
     if frame.is_new_segment {
         handler.spatial.segment_start_samples = handler.session.decoded_samples;
+        // Use the live-active backend (not the launch one) so a segment
+        // restart preserves a Studio-requested switch (e.g. to `file`).
         handler.handle_stream_restart(
-            ctx.effective_output_backend,
+            handler.runtime.active_output_backend,
             frame.sampling_frequency,
             frame.channel_count as usize,
             ctx.args.bed_conform,
@@ -456,7 +457,6 @@ fn handle_audio_message(
     }
 
     let ctx = FrameHandlerContext {
-        output_backend: ctx.effective_output_backend,
         bed_conform: ctx.args.bed_conform,
         use_loudness: ctx.args.use_loudness,
         decode_time_ms: decoded.decode_time_ms,
@@ -609,12 +609,11 @@ fn run_render_message_phase(
     handler: &mut DecodeHandler,
     args: &RenderArgs,
 ) -> Result<()> {
-    let effective_output_backend =
+    // Seed the live-mutable active backend so a Studio switch (e.g. to `file`)
+    // has a defined starting point.
+    handler.runtime.active_output_backend =
         effective_output_backend(args, prepared.is_spatial_presentation)?;
-    let run_ctx = DecodeRunContext {
-        args,
-        effective_output_backend,
-    };
+    let run_ctx = DecodeRunContext { args };
 
     sys::notify_ready();
     process_decoder_messages(&prepared.rx, handler, &run_ctx)

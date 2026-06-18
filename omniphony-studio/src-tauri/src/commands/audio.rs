@@ -55,6 +55,39 @@ pub fn control_audio_output_device(state: State<SharedState>, output_device: Str
 }
 
 #[tauri::command]
+pub fn control_audio_output_backend(state: State<SharedState>, backend: String) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/audio/output_backend".to_string(),
+            value: backend.trim().to_string(),
+        },
+    );
+}
+
+#[tauri::command]
+pub fn control_audio_output_file(state: State<SharedState>, path: String) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/audio/output_file".to_string(),
+            value: path.trim().to_string(),
+        },
+    );
+}
+
+#[tauri::command]
+pub fn control_audio_output_file_format(state: State<SharedState>, format: String) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/audio/output_file_format".to_string(),
+            value: format.trim().to_string(),
+        },
+    );
+}
+
+#[tauri::command]
 pub fn refresh_output_devices(state: State<SharedState>) {
     send_control(
         &state.osc_tx,

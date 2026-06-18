@@ -14,12 +14,40 @@ export function audioPanelMarkup() {
         <div id="audioOutputSectionContent" class="conditional-params">
           <div id="audioFormatInfo">audio: — / —</div>
           <div class="control-row" style="margin-top:0.3rem;grid-template-columns:auto minmax(0, 1fr)">
+            <label for="audioOutputBackendSelect" style="font-size:12px;white-space:nowrap" data-i18n="audio.outputBackend" data-help-i18n="help.audio.outputBackend">Output</label>
+            <div style="display:flex;align-items:center;gap:0.3rem;min-width:0">
+              <select id="audioOutputBackendSelect" class="delay-input" style="flex:1 1 auto;min-width:0">
+                <option value="device" data-i18n="audio.backendDevice">Device</option>
+                <option value="file" data-i18n="audio.backendFile">File / Stream</option>
+              </select>
+            </div>
+          </div>
+          <div id="audioOutputDeviceRow" class="control-row" style="margin-top:0.3rem;grid-template-columns:auto minmax(0, 1fr)">
             <label for="audioOutputDeviceSelect" style="font-size:12px;white-space:nowrap" data-i18n="audio.outputDevice" data-help-i18n="help.audio.outputDevice">Output device</label>
             <div style="display:flex;align-items:center;gap:0.3rem;min-width:0">
               <select id="audioOutputDeviceSelect" class="delay-input" style="flex:1 1 auto;min-width:0">
                 <option value="">Default</option>
               </select>
               ${secondaryButton({ id: 'refreshOutputDevicesBtn', text: '↺', title: 'Refresh device list', titleKey: 'audio.refreshDevices', compact: true, extraClass: 'audio-device-refresh-btn' })}
+            </div>
+          </div>
+          <div id="audioOutputPipeRow" class="switch-row" style="display:none;margin-top:0.3rem">
+            <span style="font-size:12px;color:#ffffff" data-i18n="audio.namedPipe" data-help-i18n="help.audio.namedPipe" data-help-anchor=".switch-row">Named pipe</span>
+            <input id="audioOutputPipeToggle" type="checkbox" />
+          </div>
+          <div id="audioOutputFileRow" class="control-row" style="display:none;margin-top:0.3rem;grid-template-columns:auto minmax(0, 1fr)">
+            <label for="audioOutputFileInput" style="font-size:12px;white-space:nowrap" data-i18n="audio.outputFile" data-help-i18n="help.audio.outputFile">Destination</label>
+            <div style="display:flex;align-items:center;gap:0.3rem;min-width:0">
+              <input id="audioOutputFileInput" class="delay-input" type="text" placeholder="/path/to/fifo" style="flex:1 1 auto;min-width:0" />
+            </div>
+          </div>
+          <div id="audioOutputFileFormatRow" class="control-row" style="display:none;margin-top:0.3rem;grid-template-columns:auto minmax(0, 1fr)">
+            <label for="audioOutputFileFormatSelect" style="font-size:12px;white-space:nowrap" data-i18n="audio.outputFileFormat" data-help-i18n="help.audio.outputFileFormat">Format</label>
+            <div style="display:flex;align-items:center;gap:0.3rem;min-width:0">
+              <select id="audioOutputFileFormatSelect" class="delay-input" style="flex:1 1 auto;min-width:0">
+                <option value="raw_f32" data-i18n="audio.formatRawF32">Raw f32 (LE)</option>
+                <option value="caf" data-i18n="audio.formatCaf">CAF (float)</option>
+              </select>
             </div>
           </div>
           <div class="control-row" style="margin-top:0.3rem;grid-template-columns:auto 1fr">

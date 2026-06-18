@@ -237,6 +237,14 @@ export const app = {
   audioOutputDevice: null,
   audioOutputDeviceEffective: null,
   audioOutputDevices: [],
+  // Output backend selection: 'device' (PipeWire/ASIO) or 'file' (FIFO/stdout
+  // capture/stream). Drives the device-vs-file rows in the audio panel.
+  audioOutputBackend: 'device',
+  audioOutputFile: '-',
+  // Remembered named-pipe/file path, so toggling stdout↔pipe restores it.
+  audioOutputPipePath: '',
+  audioOutputFileFormat: 'raw_f32',
+  audioOutputFileEditing: false,
   orenderInputPipe: null,
   audioSampleFormat: null,
   audioError: null,

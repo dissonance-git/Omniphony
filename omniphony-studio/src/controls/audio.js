@@ -99,6 +99,41 @@ export function renderAudioFormatDisplay() {
       : '';
     audioOutputDeviceSelectEl.disabled = !app.oscSnapshotReady || !hasAudioDomain;
   }
+  // Output backend selector + device/file rows. When the file backend is
+  // active, a "Named pipe" switch chooses stdout (off) vs a FIFO/file path
+  // (on) — the path field only shows in pipe mode, so there's no magic "-".
+  const isFileBackend = app.audioOutputBackend === 'file';
+  const useNamedPipe = isFileBackend && app.audioOutputFile !== '-';
+  const audioOutputBackendSelectEl = inAudioPanel('audioOutputBackendSelect');
+  const audioOutputDeviceRowEl = inAudioPanel('audioOutputDeviceRow');
+  const audioOutputPipeRowEl = inAudioPanel('audioOutputPipeRow');
+  const audioOutputPipeToggleEl = inAudioPanel('audioOutputPipeToggle');
+  const audioOutputFileRowEl = inAudioPanel('audioOutputFileRow');
+  const audioOutputFileFormatRowEl = inAudioPanel('audioOutputFileFormatRow');
+  const audioOutputFileInputEl = inAudioPanel('audioOutputFileInput');
+  const audioOutputFileFormatSelectEl = inAudioPanel('audioOutputFileFormatSelect');
+  if (audioOutputBackendSelectEl) {
+    audioOutputBackendSelectEl.value = isFileBackend ? 'file' : 'device';
+    audioOutputBackendSelectEl.disabled = !app.oscSnapshotReady || !hasAudioDomain;
+  }
+  if (audioOutputDeviceRowEl) audioOutputDeviceRowEl.style.display = isFileBackend ? 'none' : '';
+  if (audioOutputPipeRowEl) audioOutputPipeRowEl.style.display = isFileBackend ? '' : 'none';
+  if (audioOutputPipeToggleEl) {
+    audioOutputPipeToggleEl.checked = useNamedPipe;
+    audioOutputPipeToggleEl.disabled = !app.oscSnapshotReady || !hasAudioDomain;
+  }
+  if (audioOutputFileRowEl) audioOutputFileRowEl.style.display = useNamedPipe ? '' : 'none';
+  if (audioOutputFileFormatRowEl) audioOutputFileFormatRowEl.style.display = isFileBackend ? '' : 'none';
+  if (audioOutputFileInputEl && !app.audioOutputFileEditing) {
+    audioOutputFileInputEl.value = app.audioOutputFile === '-' ? '' : app.audioOutputFile || '';
+    audioOutputFileInputEl.disabled = !app.oscSnapshotReady || !hasAudioDomain;
+  }
+  if (audioOutputFileFormatSelectEl) {
+    audioOutputFileFormatSelectEl.value = ['raw_f32', 'caf'].includes(app.audioOutputFileFormat)
+      ? app.audioOutputFileFormat
+      : 'raw_f32';
+    audioOutputFileFormatSelectEl.disabled = !app.oscSnapshotReady || !hasAudioDomain;
+  }
   if (rampModeSelectEl) {
     rampModeSelectEl.value = ['off', 'frame', 'sample', 'interp'].includes(app.rampMode) ? app.rampMode : 'frame';
   }
@@ -195,6 +230,61 @@ export function applyAudioOutputDeviceNow() {
   updateAudioFormatDisplay();
   sendAudioConfig();
   app.audioOutputDeviceEditing = false;
+}
+
+export function applyAudioOutputBackendNow() {
+  const el = inAudioPanel('audioOutputBackendSelect');
+  const requested = String(el?.value || 'device').trim() === 'file' ? 'file' : 'device';
+  app.audioOutputBackend = requested;
+  // Explicit backend switch goes through its own control (not the batch audio
+  // config), so unrelated config applies never flip the backend.
+  invoke('control_audio_output_backend', { backend: requested });
+  updateAudioFormatDisplay();
+}
+
+// Stdout ↔ named-pipe switch. Off = stdout (destination "-"); on = a FIFO/file
+// path entered below (restored from the remembered path when toggling back).
+export function applyAudioOutputNamedPipeNow() {
+  const el = inAudioPanel('audioOutputPipeToggle');
+  const usePipe = !!el?.checked;
+  if (usePipe) {
+    const path = (app.audioOutputPipePath || '').trim();
+    app.audioOutputFile = path; // empty until the user types a path
+    if (path) {
+      invoke('control_audio_output_file', { path });
+    }
+  } else {
+    if (app.audioOutputFile && app.audioOutputFile !== '-') {
+      app.audioOutputPipePath = app.audioOutputFile;
+    }
+    app.audioOutputFile = '-';
+    invoke('control_audio_output_file', { path: '-' });
+  }
+  updateAudioFormatDisplay();
+}
+
+export function applyAudioOutputFileNow() {
+  const el = inAudioPanel('audioOutputFileInput');
+  const requested = String(el?.value ?? '').trim();
+  app.audioOutputFileEditing = false;
+  if (!requested) {
+    // Empty path: nothing valid to send yet; keep the field open.
+    app.audioOutputFile = '';
+    updateAudioFormatDisplay();
+    return;
+  }
+  app.audioOutputFile = requested;
+  app.audioOutputPipePath = requested;
+  invoke('control_audio_output_file', { path: requested });
+  updateAudioFormatDisplay();
+}
+
+export function applyAudioOutputFileFormatNow() {
+  const el = inAudioPanel('audioOutputFileFormatSelect');
+  const requested = String(el?.value || 'raw_f32').trim();
+  app.audioOutputFileFormat = requested;
+  invoke('control_audio_output_file_format', { format: requested });
+  updateAudioFormatDisplay();
 }
 
 export function applyRampModeNow() {

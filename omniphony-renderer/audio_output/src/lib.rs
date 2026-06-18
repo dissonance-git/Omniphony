@@ -1,5 +1,6 @@
 pub mod adaptive_runtime;
 pub mod control;
+pub mod file_sink;
 pub mod iir;
 pub mod pacer;
 pub mod resampler_fifo;
@@ -8,6 +9,7 @@ pub mod ring_buffer_io;
 pub use control::{
     AppliedAudioOutputState, AudioControl, OutputDeviceOption, RequestedAudioOutputConfig,
 };
+pub use file_sink::{CafChannelDesc, FileAudioWriter, FileSinkFormat};
 pub use pacer::PacerHandle;
 
 #[derive(Debug, Clone)]
