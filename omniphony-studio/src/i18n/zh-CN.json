@@ -164,6 +164,7 @@
   "audio.backendFile": "文件 / 流",
   "audio.outputFile": "目标",
   "audio.outputFileFormat": "格式",
+  "audio.namedPipe": "命名管道",
   "audio.formatRawF32": "Raw f32 (LE)",
   "audio.formatCaf": "CAF (float)",
   "audio.refreshDevices": "刷新设备列表",

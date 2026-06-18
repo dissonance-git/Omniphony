@@ -164,6 +164,7 @@
   "audio.backendFile": "Arquivo / Stream",
   "audio.outputFile": "Destino",
   "audio.outputFileFormat": "Formato",
+  "audio.namedPipe": "Pipe nomeado",
   "audio.formatRawF32": "Raw f32 (LE)",
   "audio.formatCaf": "CAF (float)",
   "audio.refreshDevices": "Atualizar lista de dispositivos",

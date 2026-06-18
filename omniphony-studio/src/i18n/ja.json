@@ -159,6 +159,7 @@
   "audio.backendFile": "ファイル / ストリーム",
   "audio.outputFile": "出力先",
   "audio.outputFileFormat": "フォーマット",
+  "audio.namedPipe": "名前付きパイプ",
   "audio.formatRawF32": "Raw f32 (LE)",
   "audio.formatCaf": "CAF (float)",
   "audio.refreshDevices": "デバイス一覧を更新",

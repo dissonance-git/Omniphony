@@ -7,7 +7,8 @@ import {
   closeAudioSampleRateMenu, openAudioSampleRateMenu, updateAudioFormatDisplay,
   applyAudioSampleRateNow, applyAudioOutputDeviceNow, applyRampModeNow,
   applyChannelRenderModeNow, applySurroundPlacementNow, sendAudioConfig,
-  applyAudioOutputBackendNow, applyAudioOutputFileNow, applyAudioOutputFileFormatNow
+  applyAudioOutputBackendNow, applyAudioOutputFileNow, applyAudioOutputFileFormatNow,
+  applyAudioOutputNamedPipeNow
 } from '../controls/audio.js';
 import { resetVirtualBed } from '../controls/virtual-bed.js';
 import { applyLatencyTargetNow, updateLatencyDisplay } from '../controls/latency.js';
@@ -528,6 +529,13 @@ export function setupAudioPanelListeners() {
   if (audioOutputBackendSelectEl) {
     audioOutputBackendSelectEl.addEventListener('change', () => {
       applyAudioOutputBackendNow();
+    });
+  }
+
+  const audioOutputPipeToggleEl = document.getElementById('audioOutputPipeToggle');
+  if (audioOutputPipeToggleEl) {
+    audioOutputPipeToggleEl.addEventListener('change', () => {
+      applyAudioOutputNamedPipeNow();
     });
   }
 

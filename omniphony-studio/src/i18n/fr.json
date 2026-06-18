@@ -186,6 +186,7 @@
   "audio.backendFile": "Fichier / Flux",
   "audio.outputFile": "Destination",
   "audio.outputFileFormat": "Format",
+  "audio.namedPipe": "Tube nommé",
   "audio.formatRawF32": "Raw f32 (LE)",
   "audio.formatCaf": "CAF (float)",
   "audio.refreshDevices": "Rafraîchir la liste des périphériques",

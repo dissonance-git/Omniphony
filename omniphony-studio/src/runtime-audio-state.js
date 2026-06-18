@@ -126,6 +126,9 @@ export function applyRuntimeAudioStateSnapshot(payload) {
   }
   if (typeof payload.audioOutputFile === 'string' && !app.audioOutputFileEditing) {
     app.audioOutputFile = payload.audioOutputFile.trim() || '-';
+    if (app.audioOutputFile !== '-') {
+      app.audioOutputPipePath = app.audioOutputFile;
+    }
   }
   if (typeof payload.audioOutputFileFormat === 'string' && payload.audioOutputFileFormat.trim()) {
     app.audioOutputFileFormat = payload.audioOutputFileFormat.trim();
