@@ -187,10 +187,10 @@ export function rendererPanelMarkup() {
               </div>
               <div class="renderer-subpanel-actions" style="display:flex;align-items:center;gap:0.35rem">
                 <select id="renderEvaluationModeSelect" class="delay-input" style="width:auto;min-width:13rem;text-align:left">
-                  <option value="auto">Auto</option>
-                  <option value="realtime">Realtime</option>
-                  <option value="precomputed_polar">Precomputed polar</option>
-                  <option value="precomputed_cartesian">Precomputed cartesian</option>
+                  <option value="auto" data-i18n="common.auto">Auto</option>
+                  <option value="realtime" data-i18n="eval.mode.realtime">Realtime</option>
+                  <option value="precomputed_polar" data-i18n="eval.mode.precomputedPolar">Precomputed polar</option>
+                  <option value="precomputed_cartesian" data-i18n="eval.mode.precomputedCartesian">Precomputed cartesian</option>
                 </select>
                 <div id="renderEvaluationModeEffective" class="vbap-step" style="min-width:8rem;text-align:right">—</div>
               </div>

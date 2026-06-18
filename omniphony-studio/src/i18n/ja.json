@@ -682,5 +682,9 @@
   "backend.restore": "バックエンドを復元",
   "adaptive.controlSmoothingOrder.opt1": "1（単極、6 dB/oct）",
   "adaptive.controlSmoothingOrder.opt2": "2（バターワース、12 dB/oct）",
-  "input.map.sevenOneFixed": "7.1 固定"
+  "input.map.sevenOneFixed": "7.1 固定",
+  "eval.mode.realtime": "リアルタイム",
+  "eval.mode.precomputedPolar": "事前計算（極）",
+  "eval.mode.precomputedCartesian": "事前計算（直交）",
+  "speaker.add": "追加"
 }

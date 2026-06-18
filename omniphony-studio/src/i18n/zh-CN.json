@@ -682,5 +682,9 @@
   "backend.restore": "恢复后端",
   "adaptive.controlSmoothingOrder.opt1": "1（单极点，6 dB/倍频程）",
   "adaptive.controlSmoothingOrder.opt2": "2（巴特沃斯，12 dB/倍频程）",
-  "input.map.sevenOneFixed": "7.1 固定"
+  "input.map.sevenOneFixed": "7.1 固定",
+  "eval.mode.realtime": "实时",
+  "eval.mode.precomputedPolar": "预计算（极坐标）",
+  "eval.mode.precomputedCartesian": "预计算（笛卡尔）",
+  "speaker.add": "添加"
 }

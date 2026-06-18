@@ -206,10 +206,10 @@ function applyEvaluationModeVisibility(mode) {
 
 function formatEvaluationModeLabel(mode) {
   switch (mode) {
-    case 'auto': return 'Auto';
-    case 'realtime': return 'Realtime';
-    case 'precomputed_polar': return 'Polar';
-    case 'precomputed_cartesian': return 'Cartesian';
+    case 'auto': return t('common.auto');
+    case 'realtime': return t('eval.mode.realtime');
+    case 'precomputed_polar': return t('common.polarShort');
+    case 'precomputed_cartesian': return t('common.cartesianShort');
     default: return '—';
   }
 }

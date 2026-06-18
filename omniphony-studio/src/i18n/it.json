@@ -682,5 +682,9 @@
   "backend.restore": "Ripristina backend",
   "adaptive.controlSmoothingOrder.opt1": "1 (polo singolo, 6 dB/ott)",
   "adaptive.controlSmoothingOrder.opt2": "2 (Butterworth, 12 dB/ott)",
-  "input.map.sevenOneFixed": "7.1 fisso"
+  "input.map.sevenOneFixed": "7.1 fisso",
+  "eval.mode.realtime": "Tempo reale",
+  "eval.mode.precomputedPolar": "Precalcolato polare",
+  "eval.mode.precomputedCartesian": "Precalcolato cartesiano",
+  "speaker.add": "Aggiungi"
 }
