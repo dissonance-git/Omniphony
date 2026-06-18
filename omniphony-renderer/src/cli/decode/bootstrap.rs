@@ -27,6 +27,18 @@ fn list_available_output_devices(_backend: OutputBackend) -> Vec<OutputDeviceOpt
         .collect()
 }
 
+#[cfg(target_os = "macos")]
+fn list_available_output_devices(_backend: OutputBackend) -> Vec<OutputDeviceOption> {
+    audio_output::list_coreaudio_devices()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|name| OutputDeviceOption {
+            value: name.clone(),
+            label: name,
+        })
+        .collect()
+}
+
 #[cfg(target_os = "linux")]
 fn list_available_output_devices(backend: OutputBackend) -> Vec<OutputDeviceOption> {
     match backend {
@@ -40,7 +52,7 @@ fn list_available_output_devices(backend: OutputBackend) -> Vec<OutputDeviceOpti
     }
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 fn list_available_output_devices(_backend: OutputBackend) -> Vec<OutputDeviceOption> {
     Vec::new()
 }
@@ -215,8 +227,10 @@ fn configure_linux_runtime_output(
     handler.runtime.adaptive_resampling_config = build_adaptive_resampling_config(args, render_cfg);
 }
 
-#[cfg(target_os = "windows")]
-fn configure_windows_runtime_output(
+// ASIO (Windows) and CoreAudio (macOS) share the same runtime-output setup:
+// just the device name + adaptive resampling config (no PipeWire buffer tuning).
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn configure_cpal_runtime_output(
     handler: &mut DecodeHandler,
     args: &RenderArgs,
     render_cfg: Option<&renderer::config::RenderConfig>,
@@ -417,14 +431,14 @@ fn init_osc_runtime(
                 let defaults = PipewireBufferConfig::default();
                 Some(args.latency_target_ms.unwrap_or(defaults.latency_ms))
             }
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             {
                 Some(
                     args.latency_target_ms
                         .unwrap_or(handler.runtime.latency_target_ms),
                 )
             }
-            #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+            #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
             {
                 None
             }
@@ -537,8 +551,8 @@ pub fn init_render_handler(
 
     #[cfg(target_os = "linux")]
     configure_linux_runtime_output(handler, args, render_cfg.as_ref());
-    #[cfg(target_os = "windows")]
-    configure_windows_runtime_output(handler, args, render_cfg.as_ref());
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    configure_cpal_runtime_output(handler, args, render_cfg.as_ref());
 
     handler.runtime.output_sample_rate = args.output_sample_rate;
     handler.runtime.enable_adaptive_resampling = args.enable_adaptive_resampling;

@@ -105,6 +105,10 @@ pub enum Commands {
     /// List available ASIO output devices (Windows only)
     #[cfg(target_os = "windows")]
     ListAsioDevices,
+
+    /// List available CoreAudio output devices (macOS only)
+    #[cfg(target_os = "macos")]
+    ListCoreaudioDevices,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -176,7 +180,7 @@ pub struct RenderArgs {
     /// Output device or target name.
     /// PipeWire: node target name (e.g. "omniphony_router")
     /// ASIO: device name as listed by `orender list-asio-devices`
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     #[arg(
         long,
         value_name = "NAME",
@@ -189,7 +193,7 @@ pub struct RenderArgs {
     /// Playback starts once the ring buffer has reached this level, and the PI
     /// controller (--enable-adaptive-resampling) maintains it at this level.
     /// Default: 500 (Linux/PipeWire), 220 (Windows/ASIO).
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     #[arg(long, value_name = "MS")]
     pub latency_target_ms: Option<u32>,
 
@@ -708,7 +712,7 @@ pub struct InputLiveArgs {
     pub output_backend: Option<OutputBackend>,
 
     /// Output device or target name.
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     #[arg(
         long,
         value_name = "NAME",
@@ -718,7 +722,7 @@ pub struct InputLiveArgs {
     pub output_device: Option<String>,
 
     /// Target buffer latency in milliseconds.
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     #[arg(long, value_name = "MS")]
     pub latency_target_ms: Option<u32>,
 
@@ -876,6 +880,9 @@ pub enum OutputBackend {
     /// ASIO audio output (Windows only, requires 'asio' feature).
     #[cfg(target_os = "windows")]
     Asio,
+    /// CoreAudio audio output (macOS only).
+    #[cfg(target_os = "macos")]
+    Coreaudio,
     /// Placeholder used when no realtime output backend is compiled in.
     #[value(skip)]
     Unsupported,
@@ -920,8 +927,28 @@ impl OutputBackend {
         {
             return Some(Self::Asio);
         }
+        #[cfg(target_os = "macos")]
+        {
+            return Some(Self::Coreaudio);
+        }
         #[allow(unreachable_code)]
         None
+    }
+
+    /// True when this backend is the cpal-based local output for the current
+    /// platform (ASIO on Windows, CoreAudio on macOS). Lets the shared
+    /// latency-target re-init and runtime-reset logic stay platform-agnostic.
+    pub fn is_local_cpal(self) -> bool {
+        #[cfg(target_os = "windows")]
+        let local = matches!(self, Self::Asio);
+        #[cfg(target_os = "macos")]
+        let local = matches!(self, Self::Coreaudio);
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        let local = {
+            let _ = self;
+            false
+        };
+        local
     }
 }
 
@@ -1090,6 +1117,8 @@ impl std::str::FromStr for OutputBackend {
             "pipewire" => Ok(Self::Pipewire),
             #[cfg(target_os = "windows")]
             "asio" => Ok(Self::Asio),
+            #[cfg(target_os = "macos")]
+            "coreaudio" | "core-audio" => Ok(Self::Coreaudio),
             _ => Err(format!("Unknown output backend: {s}")),
         }
     }

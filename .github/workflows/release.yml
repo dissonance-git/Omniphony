@@ -1,7 +1,8 @@
 name: Release
 
 # Triggered by a version tag (v*) or manually.
-# Creates a draft GitHub release with Linux (.deb, .AppImage) and Windows (.msi, .exe) bundles.
+# Creates a draft GitHub release with Linux (.deb, .AppImage), Windows (.msi,
+# .exe) and macOS arm64 (.dmg/.app) bundles.
 on:
   push:
     tags: ['v*']
@@ -38,6 +39,10 @@ jobs:
         include:
           - platform: ubuntu-22.04
           - platform: windows-latest
+          # macOS Apple Silicon: CoreAudio output backend, no extra system deps.
+          # tauri-action emits a .dmg/.app; the build is unsigned (ad-hoc) until
+          # signing secrets are configured.
+          - platform: macos-14
 
     runs-on: ${{ matrix.platform }}
 
