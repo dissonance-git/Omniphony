@@ -119,6 +119,24 @@ latency. See `PI_TUNING_PROCEDURE.md` and `docs/latency-regulation.md`.
 | `/control/render/bridge_path` | s | Path to the format bridge library. |
 | `/control/render/input_pipe` | s | Named-pipe input path. |
 
+### Head tracking (binaural)
+
+Live head-pose control for the binaural (headphone) path. The orientation
+*feed* itself arrives on a **user-configured** address
+(`head_tracking.osc_address`, e.g. `/gamerotationvector` for Sensors2OSC /
+`nxosc`) parsed per `head_tracking.format` — that is config, not a fixed
+contract address. See `omniphony-renderer/BINAURAL.md`.
+
+| Address | Args | Meaning |
+|---|---|---|
+| `/control/head/orientation` | f×3 (euler °) | Set head pose directly (yaw, pitch, roll). |
+| `/control/head/quat` | f×4 | Set head pose directly (quaternion). |
+| `/control/head/recenter` | — | Capture the current orientation as "front". |
+| `/control/head/tracking/address` | s | Feed address the engine listens on (`""` disables tracking). |
+| `/control/head/tracking/format` | s | `auto` \| `quat` \| `rotvec` \| `euler`. |
+| `/control/head/tracking/smoothing` | f `[0,0.99]` | Pose smoothing (higher = smoother/laggier). |
+| `/control/head/tracking/invert` | int bool | Mirror the applied rotation. |
+
 ### Layout
 
 | Address | Args | Meaning |
@@ -168,6 +186,8 @@ exhaustive machine-readable list.
   `render/bridge_path`, `render/bridge_error`, `vbap/allow_negative_z`,
   `render_evaluation/*` (mirrors of the control resolutions), `speakers`,
   `speakers/recomputing`, `speakers/recompute_error`, `layout`.
+- **Head tracking** — `head_pose` (4-float quaternion `w,x,y,z`, broadcast at
+  ~30 Hz while a tracking feed is active, for low-latency client display).
 - **Metering / timing** — `clip`, `decode_time_ms`, `render_time_ms`,
   `write_time_ms`, `crossover_time_ms`, `frame_duration_ms`, `monitoring`,
   `loudness`, `realtime/{master_gain,object_gain,speaker_gain}`.
