@@ -40,7 +40,11 @@ const LEFTOVER_ALLOW_KEYS = new Set([
   'vbap.cart',
   'vbap.polar',
   'audio.rampModeFrame',
-  'adaptive.controlSmoothingOrder.opt2'
+  'adaptive.controlSmoothingOrder.opt2',
+  // "Spread" is kept as a loanword in the Latin-script locales, so "Spread
+  // min"/"Spread max" are legitimately identical to English there.
+  'backendParam.spread_min',
+  'backendParam.spread_max'
 ]);
 const LEFTOVER_ALLOW_PREFIXES = ['renderer.perf.'];
 
