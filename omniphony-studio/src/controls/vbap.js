@@ -6,7 +6,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { app, dirty } from '../state.js';
-import { t, tf } from '../i18n.js';
+import { t, tf, i18nState } from '../i18n.js';
 import { formatNumber } from '../coordinates.js';
 import { scheduleUIFlush } from '../flush.js';
 import { inRendererPanel } from '../ui/panel-roots.js';
@@ -206,10 +206,10 @@ function applyEvaluationModeVisibility(mode) {
 
 function formatEvaluationModeLabel(mode) {
   switch (mode) {
-    case 'auto': return 'Auto';
-    case 'realtime': return 'Realtime';
-    case 'precomputed_polar': return 'Polar';
-    case 'precomputed_cartesian': return 'Cartesian';
+    case 'auto': return t('common.auto');
+    case 'realtime': return t('eval.mode.realtime');
+    case 'precomputed_polar': return t('common.polarShort');
+    case 'precomputed_cartesian': return t('common.cartesianShort');
     default: return '—';
   }
 }
@@ -365,6 +365,25 @@ function sendBackendParam(key, value, backend) {
   invoke('control_backend_param', backend ? { key, value, backend } : { key, value });
 }
 
+// The renderer publishes its param schema (labels, help, enum option labels) in
+// English over OSC. Localize it client-side by stable key, falling back to the
+// renderer-provided string so contributor backends and unknown params still
+// render. These re-resolve on locale change because app.js re-runs
+// renderRenderBackend() from its onLocaleChange handler.
+function trFallback(key, fallback) {
+  const v = t(key);
+  return (!v || v === key) ? fallback : v;
+}
+function localizeParamLabel(spec) {
+  return trFallback(`backendParam.${spec.key}`, spec.label || spec.key);
+}
+function localizeParamHelp(spec) {
+  return spec.help ? trFallback(`backendParamHelp.${spec.key}`, spec.help) : spec.help;
+}
+function localizeParamOption(paramKey, value, fallback) {
+  return trFallback(`backendParamOption.${paramKey}.${value}`, fallback);
+}
+
 // Build one control field for a param spec, seeded with `current`. Returns a
 // wrapper holding the control row (with a `_setValue` hook used to refresh it
 // without a rebuild) and, when the spec has help, a collapsible help panel below
@@ -375,11 +394,11 @@ function buildParamControl(spec, current, backend) {
   const row = document.createElement('div');
   row.className = 'control-row generated-param-row';
   const label = document.createElement('label');
-  label.textContent = spec.label || spec.key;
+  label.textContent = localizeParamLabel(spec);
   let help = null;
   if (spec.help) {
     // The param name itself is the toggle for a help panel shown below the row.
-    help = makeHelpPanel(spec.help);
+    help = makeHelpPanel(localizeParamHelp(spec));
     attachInlineHelp(label, help);
   }
   row.appendChild(label);
@@ -396,7 +415,7 @@ function buildParamControl(spec, current, backend) {
     for (const opt of (kind.options || [])) {
       const o = document.createElement('option');
       o.value = String(opt.value);
-      o.textContent = String(opt.label || opt.value);
+      o.textContent = localizeParamOption(spec.key, opt.value, String(opt.label || opt.value));
       select.appendChild(o);
     }
     select.value = String(current);
@@ -545,11 +564,15 @@ function renderGenericBackendParams(targetBackend) {
 
   // Rebuild controls only when the target backend changed; otherwise refresh
   // values so an external change (OSC) is reflected without dropping focus.
-  if (container.dataset.backend !== String(targetBackend)) {
+  // Rebuild on a backend change or a locale change (param labels/help are
+  // localized at build time); otherwise just refresh values so an external
+  // change (OSC) is reflected without dropping focus.
+  if (container.dataset.backend !== String(targetBackend) || container.dataset.locale !== i18nState.locale) {
     // Rebuilding detaches any open help panel; drop the stale reference.
     closeInlineHelp();
     container.replaceChildren();
     container.dataset.backend = String(targetBackend);
+    container.dataset.locale = i18nState.locale;
     for (const spec of schema) {
       container.appendChild(buildParamControl(spec, valueFor(spec), targetBackend));
     }
