@@ -89,6 +89,22 @@ the phone strapped to the headband:
 `smoothing` (0–0.99, default 0.2) trades a little latency for pose stability;
 with Game Rotation Vector you can usually lower it.
 
+### Other sources
+
+The setup above uses a phone, but any OSC orientation source works. For the
+**Waves Nx Head Tracker** (Bluetooth LE, Linux/BlueZ) there is a small Rust
+CLI — **[`nxosc`](https://github.com/mgth/nx-tracker-osc)** — that decodes the
+tracker and emits the same `/gamerotationvector` feed, so it drops straight
+into the steps above in place of Sensors2OSC:
+
+```sh
+nxosc run --profile omniphony --osc-address /gamerotationvector --osc-target 127.0.0.1:9000
+```
+
+Keep `head_tracking.osc_address: /gamerotationvector` and `format: auto`.
+`nxosc` also has a `--profile scenerotator` mode to drive an IEM SceneRotator
+directly instead.
+
 ## Usage tips
 
 - **The room is YOUR room, not the scene's.** The reflections and the reverb
