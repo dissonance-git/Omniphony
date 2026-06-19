@@ -133,6 +133,20 @@ int orender_channel_mode(const struct OrenderRenderer *r);
 void orender_set_channel_mode(struct OrenderRenderer *r, int mode);
 
 /**
+ * Output channel mapping: 0 = by_index (positionless — output port N carries
+ * layout speaker N), 1 = by_name (positional — each channel tagged with its
+ * speaker position). <0 on error. The host uses this to choose between a
+ * positionless and a positional channel map.
+ */
+int orender_channel_mapping(const struct OrenderRenderer *r);
+
+/**
+ * Override the output channel mapping at runtime: 0 = by_index, 1 = by_name.
+ * No-op on a NULL handle or an unknown code.
+ */
+void orender_set_channel_mapping(struct OrenderRenderer *r, int mode);
+
+/**
  * Number of output channels (speakers) the renderer produces, 0 on error.
  */
 uint32_t orender_channel_count(const struct OrenderRenderer *r);

@@ -424,6 +424,9 @@ impl SpatialRenderer {
             // Seeded to the default (Side); the CLI bootstrap and the embedded
             // mpv host override it from `render.surround_placement`.
             surround_placement: crate::live_params::SurroundPlacement::default(),
+            // Seeded to the default (ByIndex); the CLI bootstrap and the embedded
+            // mpv host override it from `render.output_channel_mapping`.
+            output_channel_mapping: crate::live_params::OutputChannelMapping::default(),
             // Seeded from `render.virtual_bed` by the same bootstrap; `None`
             // uses the built-in canonical poses (LFE direct, rest virtualized).
             virtual_bed: None,

@@ -130,6 +130,9 @@ pub const CONTROL_CHANNEL_RENDER_MODE: &str = "/omniphony/control/channel_render
 /// Where the 4.x/5.x surround pair is placed: `side` or `back`. Only affects
 /// channel sources without dedicated back channels. Persisted to config.
 pub const CONTROL_SURROUND_PLACEMENT: &str = "/omniphony/control/surround_placement";
+/// How output channels map to device ports: `by_index` (positionless — port N =
+/// layout speaker N) or `by_name` (positional). Persisted to config.
+pub const CONTROL_OUTPUT_CHANNEL_MAPPING: &str = "/omniphony/control/output_channel_mapping";
 /// Set the parametrable virtual bed for channel content. Argument is a YAML
 /// `SpeakerLayout` (one entry per channel label, `spatialize` = virtual/direct);
 /// an empty string resets to the built-in canonical poses (LFE direct).
@@ -283,6 +286,7 @@ pub const ALL_CONTROL: &[&str] = &[
     CONTROL_BACKEND_FILE_PUT,
     CONTROL_BACKEND_PARAM,
     CONTROL_CHANNEL_RENDER_MODE,
+    CONTROL_OUTPUT_CHANNEL_MAPPING,
     CONTROL_VIRTUAL_BED,
     CONTROL_CONFIG_AUDIO,
     CONTROL_CONFIG_AUDIO_APPLY,

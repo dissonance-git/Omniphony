@@ -332,6 +332,15 @@ render_field! {
 }
 
 render_field! {
+    /// How output channels map to device ports: by_index vs by_name
+    /// (`render.output_channel_mapping`). Default `ByIndex`.
+    pub output_channel_mapping: crate::live_params::OutputChannelMapping =
+        crate::live_params::OutputChannelMapping::ByIndex,
+    field = output_channel_mapping,
+    eq = crate::live_params::OutputChannelMapping::eq
+}
+
+render_field! {
     /// Derive spread from object distance (`render.spread_from_distance`).
     pub spread_from_distance: bool = false,
     field = spread_from_distance,

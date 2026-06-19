@@ -421,6 +421,14 @@ impl Engine {
             .unwrap_or(renderer::config_fields::surround_placement::DEFAULT);
         control.live.write().surround_placement = surround_placement;
 
+        // Output channel mapping (by_index/by_name); seeded from config like
+        // `surround_placement`. Default = ByIndex.
+        let output_channel_mapping = render_cfg
+            .as_ref()
+            .and_then(renderer::config_fields::output_channel_mapping::get)
+            .unwrap_or(renderer::config_fields::output_channel_mapping::DEFAULT);
+        control.live.write().output_channel_mapping = output_channel_mapping;
+
         // Parametrable virtual bed (per-channel direct/virtual placement). Seed
         // from config so the embedded host matches the CLI bootstrap; `None`
         // leaves the built-in canonical poses in effect (LFE direct).
@@ -546,6 +554,31 @@ impl Engine {
             .live
             .write()
             .channel_render_mode = mode;
+    }
+
+    /// Output channel mapping as a small code for the C FFI: 0 = by_index
+    /// (positionless, port N = layout speaker N), 1 = by_name (positional). The
+    /// host (mpv) uses this to decide between a positionless and a positional
+    /// `mp_chmap`.
+    pub fn output_channel_mapping_code(&self) -> i32 {
+        self.renderer
+            .renderer_control()
+            .live
+            .read()
+            .output_channel_mapping
+            .code()
+    }
+
+    /// Override the output channel mapping at runtime. Codes: 0 = by_index,
+    /// 1 = by_name. Unknown codes are ignored.
+    pub fn set_output_channel_mapping_code(&self, code: i32) {
+        if let Some(mapping) = renderer::live_params::OutputChannelMapping::from_code(code) {
+            self.renderer
+                .renderer_control()
+                .live
+                .write()
+                .output_channel_mapping = mapping;
+        }
     }
 
     /// Input sample rate the session was created for.

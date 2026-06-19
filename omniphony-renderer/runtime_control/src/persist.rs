@@ -147,6 +147,7 @@ pub fn save_live_config_to_path(
     renderer::config_fields::use_loudness::store(render, live.use_loudness);
     renderer::config_fields::channel_render_mode::store(render, live.channel_render_mode);
     renderer::config_fields::surround_placement::store(render, live.surround_placement);
+    renderer::config_fields::output_channel_mapping::store(render, live.output_channel_mapping);
     // Parametrable virtual bed for channel content. Persist the live layout
     // verbatim (round6 the radius for stable diffs); `None` keeps the key out of
     // the file so the built-in canonical poses (LFE direct) stay in effect.
