@@ -156,21 +156,31 @@ export function renderAudioFormatDisplay() {
     audioSampleRateInputEl.disabled = !app.oscSnapshotReady || !hasAudioDomain;
   }
   if (audioOutputSummaryEl) {
-    const requestedValue = (app.audioOutputDevice || '').trim();
-    const effectiveValue = (app.audioOutputDeviceEffective || requestedValue).trim();
-    const deviceEntry = app.audioOutputDevices.find((entry) => entry.value === effectiveValue);
-    const deviceText = effectiveValue
-      ? (deviceEntry?.label || effectiveValue)
-      : (app.oscSnapshotReady ? t('status.defaultOutputDevice') : '—');
-    const rateText = app.audioSampleRate ? `${app.audioSampleRate} Hz` : '—';
-    const fmtText = app.audioSampleFormat || '—';
-    const summary = tf('audio.summary', {
-      device: deviceText,
-      rate: rateText,
-      format: fmtText
-    });
-    audioOutputSummaryEl.textContent = app.audioError ? `${summary} • Error: ${app.audioError}` : summary;
+    if (!hasAudioDomain) {
+      // Host/mpv mode: the renderer doesn't own the output device, so this panel
+      // shows only the channel mapping — summarise that, not a (stale) device.
+      const mKey = app.outputChannelMapping === 'by_name'
+        ? 'audio.channelMapping.byName'
+        : 'audio.channelMapping.byIndex';
+      audioOutputSummaryEl.textContent = `${t('audio.channelMapping')}: ${t(mKey)}`;
+    } else {
+      const requestedValue = (app.audioOutputDevice || '').trim();
+      const effectiveValue = (app.audioOutputDeviceEffective || requestedValue).trim();
+      const deviceEntry = app.audioOutputDevices.find((entry) => entry.value === effectiveValue);
+      const deviceText = effectiveValue
+        ? (deviceEntry?.label || effectiveValue)
+        : (app.oscSnapshotReady ? t('status.defaultOutputDevice') : '—');
+      const rateText = app.audioSampleRate ? `${app.audioSampleRate} Hz` : '—';
+      const fmtText = app.audioSampleFormat || '—';
+      const summary = tf('audio.summary', {
+        device: deviceText,
+        rate: rateText,
+        format: fmtText
+      });
+      audioOutputSummaryEl.textContent = app.audioError ? `${summary} • Error: ${app.audioError}` : summary;
+    }
   }
+  updateOutputChannelMappingUI();
 }
 
 export function closeAudioSampleRateMenu() {
@@ -331,4 +341,37 @@ export function applySurroundPlacementNow(value) {
   app.surroundPlacement = requested;
   updateSurroundPlacementUI();
   invoke('control_surround_placement', { value: requested });
+}
+
+// Reflect the active by-index/by-name buttons from `app.outputChannelMapping`,
+// and show a warning when by-name can't route some speakers (non-standard names
+// for the active backend, reported by the renderer).
+export function updateOutputChannelMappingUI() {
+  const mapping = app.outputChannelMapping === 'by_name' ? 'by_name' : 'by_index';
+  const idxBtn = document.getElementById('outputChannelMappingByIndex');
+  const nameBtn = document.getElementById('outputChannelMappingByName');
+  if (idxBtn) idxBtn.classList.toggle('active', mapping === 'by_index');
+  if (nameBtn) nameBtn.classList.toggle('active', mapping === 'by_name');
+  const warnEl = document.getElementById('outputChannelMappingWarning');
+  if (warnEl) {
+    const names = Array.isArray(app.outputChannelMappingUnroutable)
+      ? app.outputChannelMappingUnroutable
+      : [];
+    if (mapping === 'by_name' && names.length > 0) {
+      warnEl.textContent = `${t('audio.channelMapping.warning')} ${names.join(', ')}`;
+      warnEl.style.display = 'block';
+    } else {
+      warnEl.style.display = 'none';
+    }
+  }
+}
+
+// Commit a by-index/by-name choice: update state + buttons and push it to the
+// engine (applied live and persisted to config). By-index = positionless
+// passthrough (port N = layout speaker N); by-name = positional routing.
+export function applyOutputChannelMappingNow(value) {
+  const requested = value === 'by_name' ? 'by_name' : 'by_index';
+  app.outputChannelMapping = requested;
+  updateOutputChannelMappingUI();
+  invoke('control_output_channel_mapping', { value: requested });
 }

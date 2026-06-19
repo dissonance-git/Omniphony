@@ -2440,7 +2440,14 @@
  * (see applyProducerCapabilityVisibility) to HIDE the inapplicable panels.
  * !important so it wins over the panels' own open/close display toggles.
  * --------------------------------------------------------------------------- */
-body.cap-no-audio #audioOutputSection {
+/* In host/mpv mode the renderer doesn't own the output device, so hide the
+ * device/backend/file/sample-rate rows — but KEEP the Audio Output panel and its
+ * channel-mapping control, which still applies (mpv builds its chmap from it).
+ * The :not() exemptions keep the mapping row (and its JS-controlled warning)
+ * visible; any other current/future row in the panel is hidden wholesale. */
+body.cap-no-audio
+  #audioOutputSectionContent
+  > :not(#outputChannelMappingRow):not(#outputChannelMappingWarning) {
   display: none !important;
 }
 /* The whole Latency section (latency meter + resample meter + adaptive

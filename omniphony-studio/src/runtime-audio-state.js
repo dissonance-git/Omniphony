@@ -106,6 +106,17 @@ export function applyRuntimeAudioStateSnapshot(payload) {
       app.surroundPlacement = next;
     }
   }
+  if (typeof payload.outputChannelMapping === 'string') {
+    const next = payload.outputChannelMapping.trim().toLowerCase();
+    if (next === 'by_index' || next === 'by_name') {
+      app.outputChannelMapping = next;
+    }
+  }
+  if (Array.isArray(payload.outputChannelMappingUnroutable)) {
+    app.outputChannelMappingUnroutable = payload.outputChannelMappingUnroutable.filter(
+      (n) => typeof n === 'string'
+    );
+  }
   if (Object.prototype.hasOwnProperty.call(payload, 'virtualBed')) {
     // null = renderer is on the built-in canonical poses; an object is the
     // configured/live bed. The editor seeds defaults when this is null.

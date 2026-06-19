@@ -95,6 +95,23 @@ pub fn control_surround_placement(state: State<SharedState>, value: String) {
     );
 }
 
+/// Set the output channel mapping: `by_index` (positionless — port N = layout
+/// speaker N) or `by_name` (positional).
+#[tauri::command]
+pub fn control_output_channel_mapping(state: State<SharedState>, value: String) {
+    let trimmed = value.trim().to_ascii_lowercase();
+    if !matches!(trimmed.as_str(), "by_index" | "by_name") {
+        return;
+    }
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/output_channel_mapping".to_string(),
+            value: trimmed,
+        },
+    );
+}
+
 /// Set the parametrable virtual bed (a YAML `SpeakerLayout`, one entry per
 /// channel label). An empty string resets to the built-in canonical poses.
 #[tauri::command]
