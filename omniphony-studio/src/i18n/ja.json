@@ -275,6 +275,8 @@
   "twoDSources.surroundLabel": "リアチャンネル（4.x/5.x）",
   "twoDSources.surroundSide": "サイド",
   "twoDSources.surroundBack": "バック",
+  "twoDSources.summary.spatialized": "空間化",
+  "twoDSources.summary.passthrough": "プレーヤー直通",
   "virtualBed.virtual": "仮想",
   "virtualBed.direct": "ダイレクト",
   "virtualBed.reset": "チャンネル配置をリセット",
