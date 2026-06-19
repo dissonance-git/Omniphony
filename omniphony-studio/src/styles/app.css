@@ -2245,12 +2245,10 @@
         position: absolute;
         inset: 0;
         clip-path: inset(0 calc(100% - var(--level, 0%)) 0 0);
+        /* Colour set per band in JS (bandColor): red = lowest band → blue =
+           highest, computed for any number of crossover bands. */
+        background: var(--band-color, #8ec8ff);
       }
-
-      .band-bar[data-band="0"]::after { background: #4dd7ff; }
-      .band-bar[data-band="1"]::after { background: #7bff6a; }
-      .band-bar[data-band="2"]::after { background: #ffd13a; }
-      .band-bar[data-band="3"]::after { background: #ff5d5d; }
 
       .band-db {
         font-size: 9px;
