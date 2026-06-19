@@ -142,9 +142,11 @@ impl<'a> WriterLifecycleCoordinator<'a> {
                                 .collect::<Vec<_>>()
                         })
                     }
-                    renderer::live_params::OutputChannelMapping::ByIndex => {
-                        Some((0..channel_count).map(|i| format!("AUX{i}")).collect::<Vec<_>>())
-                    }
+                    renderer::live_params::OutputChannelMapping::ByIndex => Some(
+                        (0..channel_count)
+                            .map(|i| format!("AUX{i}"))
+                            .collect::<Vec<_>>(),
+                    ),
                 };
                 match self.build_audio_writer(
                     output_backend,
