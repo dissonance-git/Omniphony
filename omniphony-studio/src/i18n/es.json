@@ -280,6 +280,8 @@
   "twoDSources.surroundLabel": "Canales traseros (4.x/5.x)",
   "twoDSources.surroundSide": "Lateral",
   "twoDSources.surroundBack": "Trasero",
+  "twoDSources.summary.spatialized": "Espacializado",
+  "twoDSources.summary.passthrough": "Paso directo del reproductor",
   "virtualBed.virtual": "Virtual",
   "virtualBed.direct": "Directo",
   "virtualBed.reset": "Restablecer disposición de canales",

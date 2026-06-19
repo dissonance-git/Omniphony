@@ -280,6 +280,8 @@
   "twoDSources.surroundLabel": "Rear channels (4.x/5.x)",
   "twoDSources.surroundSide": "Side",
   "twoDSources.surroundBack": "Back",
+  "twoDSources.summary.spatialized": "Spatialized",
+  "twoDSources.summary.passthrough": "Player passthrough",
   "virtualBed.virtual": "Virtual",
   "virtualBed.direct": "Direct",
   "virtualBed.reset": "Reset channel layout",

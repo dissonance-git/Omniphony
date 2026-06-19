@@ -35,6 +35,10 @@ function getDrcSectionContentEl() { return document.getElementById('drcSectionCo
 function getDrcSummaryEl() { return document.getElementById('drcSummary'); }
 function getDrcSectionToggleBtnEl() { return document.getElementById('drcSectionToggleBtn'); }
 function getDrcSectionEl() { return document.getElementById('drcSection'); }
+function getTwoDSourcesPanelRootEl() { return document.getElementById('twoDSourcesPanelRoot'); }
+function getTwoDSourcesBodyEl() { return document.getElementById('twoDSourcesBody'); }
+function getTwoDSourcesSummaryEl() { return document.getElementById('twoDSourcesSummary'); }
+function getTwoDSourcesToggleBtnEl() { return document.getElementById('twoDSourcesToggleBtn'); }
 function getAudioOutputSectionContentEl() { return document.getElementById('audioOutputSectionContent'); }
 function getAudioOutputSummaryEl() { return document.getElementById('audioOutputSummary'); }
 function getAudioOutputSectionToggleBtnEl() { return document.getElementById('audioOutputSectionToggleBtn'); }
@@ -236,6 +240,27 @@ export function setDrcSectionOpen(open) {
     drcSectionEl.classList.toggle('section-collapsed', !app.drcSectionOpen);
   }
   emitOverlayLayoutChanged('drc-section-toggle');
+}
+
+export function setTwoDSourcesSectionOpen(open) {
+  const rootEl = getTwoDSourcesPanelRootEl();
+  const bodyEl = getTwoDSourcesBodyEl();
+  const summaryEl = getTwoDSourcesSummaryEl();
+  const toggleBtnEl = getTwoDSourcesToggleBtnEl();
+  app.twoDSourcesSectionOpen = Boolean(open);
+  if (rootEl) {
+    rootEl.classList.toggle('section-collapsed', !app.twoDSourcesSectionOpen);
+  }
+  if (bodyEl) {
+    bodyEl.style.display = app.twoDSourcesSectionOpen ? 'grid' : 'none';
+  }
+  if (summaryEl) {
+    summaryEl.style.display = app.twoDSourcesSectionOpen ? 'none' : 'block';
+  }
+  if (toggleBtnEl) {
+    toggleBtnEl.textContent = app.twoDSourcesSectionOpen ? '▾' : '▸';
+  }
+  emitOverlayLayoutChanged('twoD-sources-toggle');
 }
 
 export function setAudioOutputSectionOpen(open) {

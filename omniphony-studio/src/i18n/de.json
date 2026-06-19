@@ -280,6 +280,8 @@
   "twoDSources.surroundLabel": "Hintere Kanäle (4.x/5.x)",
   "twoDSources.surroundSide": "Seite",
   "twoDSources.surroundBack": "Hinten",
+  "twoDSources.summary.spatialized": "Räumlich",
+  "twoDSources.summary.passthrough": "Player-Passthrough",
   "virtualBed.virtual": "Virtuell",
   "virtualBed.direct": "Direkt",
   "virtualBed.reset": "Kanal-Layout zurücksetzen",

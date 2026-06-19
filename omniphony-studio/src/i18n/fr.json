@@ -280,6 +280,8 @@
   "twoDSources.surroundLabel": "Canaux arrière (4.x/5.x)",
   "twoDSources.surroundSide": "Côté",
   "twoDSources.surroundBack": "Arrière",
+  "twoDSources.summary.spatialized": "Spatialisé",
+  "twoDSources.summary.passthrough": "Passthrough lecteur",
   "virtualBed.virtual": "Virtuel",
   "virtualBed.direct": "Direct",
   "virtualBed.reset": "Réinitialiser la disposition",

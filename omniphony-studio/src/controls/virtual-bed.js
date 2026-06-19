@@ -64,6 +64,17 @@ export function canonicalChannelName(name) {
   return null;
 }
 
+// Canonical 5.1/7.1 channel order (L, R, C, LFE, Ls, Rs, Lb, Rb).
+const CANONICAL_CHANNEL_ORDER = CANONICAL_BED.map((c) => c.name);
+
+// Rank of a channel (by any alias) in the canonical order, or -1 if it is not a
+// bed channel. Used to order the objects list for bed sources by the classic
+// 5.1/7.1 channel order instead of alphabetically.
+export function canonicalChannelOrder(name) {
+  const key = canonicalChannelName(name);
+  return key ? CANONICAL_CHANNEL_ORDER.indexOf(key) : -1;
+}
+
 // ---------------------------------------------------------------------------
 // Model: the editable channel set
 // ---------------------------------------------------------------------------
