@@ -95,12 +95,25 @@ pub(crate) fn trigger_layout_recompute(
                         let live = control_clone.live.read();
                         let topology = control_clone.active_topology();
                         let scale_m = control_clone.editable_layout().radius_m;
+                        // Speaker names that don't resolve to a known channel
+                        // label — can't be routed by position in by_name mode.
+                        let unroutable: Vec<String> = topology
+                            .speaker_layout
+                            .speakers
+                            .iter()
+                            .filter(|s| {
+                                crate::channel_layout::label_for_speaker_name(&s.name)
+                                    == bridge_api::RChannelLabel::Unknown
+                            })
+                            .map(|s| s.name.clone())
+                            .collect();
                         build_renderer_state_json(
                             &live,
                             &topology,
                             scale_m,
                             control_clone.available_backends(),
                             control_clone.all_backend_params(),
+                            &unroutable,
                         )
                     };
                     let layout_json = {

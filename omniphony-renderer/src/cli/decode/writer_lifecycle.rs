@@ -124,18 +124,35 @@ impl<'a> WriterLifecycleCoordinator<'a> {
                         .unwrap_or(0.0)
                 );
 
-                let speaker_names = self.spatial_renderer.map(|renderer| {
-                    renderer
-                        .speaker_names()
-                        .iter()
-                        .map(|s| s.to_string())
-                        .collect::<Vec<_>>()
-                });
+                // PipeWire channel naming follows the output channel mapping:
+                // `by_name` tags each channel with its speaker position (FC, …) so
+                // PipeWire routes positionally; `by_index` uses positionless AUX
+                // names so the link is 1:1 by index (port N → layout speaker N).
+                let mapping = self
+                    .spatial_renderer
+                    .map(|r| r.renderer_control().live.read().output_channel_mapping)
+                    .unwrap_or_default();
+                let channel_names = match mapping {
+                    renderer::live_params::OutputChannelMapping::ByName => {
+                        self.spatial_renderer.map(|renderer| {
+                            renderer
+                                .speaker_names()
+                                .iter()
+                                .map(|s| s.to_string())
+                                .collect::<Vec<_>>()
+                        })
+                    }
+                    renderer::live_params::OutputChannelMapping::ByIndex => Some(
+                        (0..channel_count)
+                            .map(|i| format!("AUX{i}"))
+                            .collect::<Vec<_>>(),
+                    ),
+                };
                 match self.build_audio_writer(
                     output_backend,
                     sample_rate,
                     channel_count,
-                    speaker_names,
+                    channel_names,
                 ) {
                     Ok(writer) => {
                         // Wire the post-rendering pacer into the input

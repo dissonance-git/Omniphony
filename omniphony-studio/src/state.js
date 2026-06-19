@@ -231,6 +231,12 @@ export const app = {
   // Where the 4.x/5.x surround pair (Ls/Rs) of a 2D source is placed: 'side' or
   // 'back'. Only affects sources without dedicated back channels.
   surroundPlacement: 'side',
+  // How output channels map to device ports: 'by_index' (positionless — port N =
+  // layout speaker N) or 'by_name' (positional). Default 'by_index'.
+  outputChannelMapping: 'by_index',
+  // Speaker names that can't be routed by position in by_name mode (reported by
+  // the renderer for the active backend); shown as a warning. Empty when none.
+  outputChannelMappingUnroutable: [],
   // Parametrable virtual bed for 2D sources (a SpeakerLayout-shaped object, or
   // null = built-in canonical poses). Edited by the virtual-bed editor.
   virtualBed: null,

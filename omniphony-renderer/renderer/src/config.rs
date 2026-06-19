@@ -169,6 +169,12 @@ pub struct RenderConfig {
     /// Absent = `side`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub surround_placement: Option<crate::live_params::SurroundPlacement>,
+    /// How output channels map to device ports: `by_index` (default — port N =
+    /// layout speaker N, positionless) or `by_name` (positional: tag each channel
+    /// with its speaker position so a position-aware host/sink routes by position).
+    /// Absent = `by_index`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_channel_mapping: Option<crate::live_params::OutputChannelMapping>,
     /// Parametrable virtual bed for channel-based (non-object) content. One
     /// entry per input-channel label (`L`, `R`, `C`, `LFE`, `Ls`, `Rs`, …):
     /// `spatialize:true` virtualizes the channel as an object at the entry's

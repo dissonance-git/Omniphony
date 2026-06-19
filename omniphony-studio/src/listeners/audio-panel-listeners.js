@@ -6,7 +6,7 @@ import { updateAdaptiveResamplingUI, resetAdaptiveResamplingAdvancedDirtyState }
 import {
   closeAudioSampleRateMenu, openAudioSampleRateMenu, updateAudioFormatDisplay,
   applyAudioSampleRateNow, applyAudioOutputDeviceNow, applyRampModeNow,
-  applyChannelRenderModeNow, applySurroundPlacementNow, sendAudioConfig,
+  applyChannelRenderModeNow, applySurroundPlacementNow, applyOutputChannelMappingNow, sendAudioConfig,
   applyAudioOutputBackendNow, applyAudioOutputFileNow, applyAudioOutputFileFormatNow,
   applyAudioOutputNamedPipeNow
 } from '../controls/audio.js';
@@ -582,6 +582,19 @@ export function setupAudioPanelListeners() {
   if (surroundPlacementBackEl) {
     surroundPlacementBackEl.addEventListener('click', () => {
       applySurroundPlacementNow('back');
+    });
+  }
+
+  const outputChannelMappingByIndexEl = document.getElementById('outputChannelMappingByIndex');
+  if (outputChannelMappingByIndexEl) {
+    outputChannelMappingByIndexEl.addEventListener('click', () => {
+      applyOutputChannelMappingNow('by_index');
+    });
+  }
+  const outputChannelMappingByNameEl = document.getElementById('outputChannelMappingByName');
+  if (outputChannelMappingByNameEl) {
+    outputChannelMappingByNameEl.addEventListener('click', () => {
+      applyOutputChannelMappingNow('by_name');
     });
   }
 

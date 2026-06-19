@@ -109,6 +109,23 @@ pub(crate) fn handle_control_message(
         return;
     }
 
+    // Output channel mapping (by_index/by_name). Live-tunable from Studio;
+    // persists to config right away (same rationale as surround_placement).
+    if addr == osc_contract::CONTROL_OUTPUT_CHANNEL_MAPPING {
+        if let Some(OscType::String(s)) = msg.args.first() {
+            if let Some(mapping) = renderer::live_params::OutputChannelMapping::from_str(s) {
+                control.live.write().output_channel_mapping = mapping;
+                control.mark_dirty();
+                persist_output_channel_mapping(control, mapping);
+                broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
+                log::info!("OSC output channel mapping set to {}", mapping.as_str());
+            } else {
+                log::warn!("OSC output channel mapping: unknown value '{}'", s);
+            }
+        }
+        return;
+    }
+
     // Parametrable virtual bed for channel content. Argument is a YAML
     // `SpeakerLayout`; an empty string resets to the built-in canonical poses.
     // Live-tunable from Studio's editor; persists to config on save.
@@ -742,6 +759,29 @@ fn persist_surround_placement_to_path(
         return;
     }
     let _ = std::fs::remove_file(renderer::config::live_sidecar_path(path));
+    renderer::config::clear_live_overlay_cache();
+}
+
+/// Persist `output_channel_mapping` to the on-disk config so it survives a
+/// restart. Same targeted, sidecar-clearing write as [`persist_surround_placement`].
+fn persist_output_channel_mapping(
+    control: &Arc<RendererControl>,
+    mapping: renderer::live_params::OutputChannelMapping,
+) {
+    let Some(path) = control.config_path() else {
+        return;
+    };
+    let mut config = renderer::config::Config::load_or_default(&path);
+    let render = config.render.get_or_insert_with(Default::default);
+    renderer::config_fields::output_channel_mapping::store(render, mapping);
+    if let Err(e) = config.save(&path) {
+        log::warn!(
+            "failed to persist output_channel_mapping to {}: {e}",
+            path.display()
+        );
+        return;
+    }
+    let _ = std::fs::remove_file(renderer::config::live_sidecar_path(&path));
     renderer::config::clear_live_overlay_cache();
 }
 

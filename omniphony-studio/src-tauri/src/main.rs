@@ -302,6 +302,7 @@ fn main() {
             control_ramp_mode,
             control_channel_render_mode,
             control_surround_placement,
+            control_output_channel_mapping,
             control_virtual_bed,
             control_output_mode,
             control_hrir_source,
