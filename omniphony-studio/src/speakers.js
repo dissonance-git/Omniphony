@@ -97,7 +97,7 @@ import {
 import { updateHeadphoneMeter, updateHeadphoneControlsUI } from './controls/headphone-meter.js';
 
 import { createLabelSprite, setLabelSpriteText, updateSpeakerLabelsFromSelection } from './scene/labels.js';
-import { createSpeakerBandBar, updateSpeakerBandBar } from './scene/speaker-band-bars.js';
+import { createSpeakerBandBar, updateSpeakerBandBar, bandColor } from './scene/speaker-band-bars.js';
 import { syncSpeakerHeatmapBandSelect } from './scene/speaker-band-select.js';
 import { refreshGaintableSubscription } from './scene/speaker-gaintable.js';
 
@@ -973,7 +973,12 @@ export function updateSpeakerBandBars(entry, speakerIndex) {
     if (labelEl) {
       labelEl.textContent = labels?.[b] ?? (contributions.length === 1 ? 'Full band' : `Band ${b}`);
     }
-    if (bar) bar.style.setProperty('--level', `${Math.min(100, gain * 100).toFixed(1)}%`);
+    if (bar) {
+      bar.style.setProperty('--level', `${Math.min(100, gain * 100).toFixed(1)}%`);
+      // Red (lowest band) → blue (highest), computed dynamically for any number
+      // of crossover bands. Same palette as the object band bars and 3D gauges.
+      bar.style.setProperty('--band-color', bandColor(b, contributions.length));
+    }
     if (dbEl) dbEl.textContent = linearToDb(gain);
   });
 

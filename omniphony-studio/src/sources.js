@@ -70,7 +70,7 @@ import {
   setLabelSpriteText,
   updateSpeakerLabelsFromSelection
 } from './scene/labels.js';
-import { disposeSpeakerBandBar } from './scene/speaker-band-bars.js';
+import { disposeSpeakerBandBar, bandColor } from './scene/speaker-band-bars.js';
 import { createTrailRenderable } from './trails.js';
 import { shouldAppendTrailPoint, recordTrailPoint, shouldRebuildTrailGeometry } from './trails.js';
 import {
@@ -680,7 +680,12 @@ function updateObjectBandBars(entry, id) {
     if (labelEl) {
       labelEl.textContent = labels?.[b] ?? (contributions.length === 1 ? 'Full band' : `Band ${b}`);
     }
-    if (bar) bar.style.setProperty('--level', `${Math.min(100, gain * 100).toFixed(1)}%`);
+    if (bar) {
+      bar.style.setProperty('--level', `${Math.min(100, gain * 100).toFixed(1)}%`);
+      // Red (lowest band) → blue (highest), computed dynamically so any number
+      // of crossover bands gets a colour. Same palette as the 3D speaker gauges.
+      bar.style.setProperty('--band-color', bandColor(b, contributions.length));
+    }
     if (dbEl) dbEl.textContent = linearToDb(gain);
   });
 

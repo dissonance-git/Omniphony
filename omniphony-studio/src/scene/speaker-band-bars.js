@@ -33,9 +33,10 @@ function logPos(freq) {
   return (Math.log(f) - LOG_MIN) / LOG_SPAN; // 0 at FMIN (bottom), 1 at FMAX (top)
 }
 
-// One solid, well-separated colour per band index, ordered low→high (warm→cool).
-// Not proportional to frequency — just distinct so different bands pop.
-function bandColor(index, count) {
+// One solid, well-separated colour per band index, ordered low→high
+// (warm→cool: red for the lowest band, blue for the highest). Shared with the
+// per-object band bars in the objects list so both read the same palette.
+export function bandColor(index, count) {
   if (count <= 1) return FULL_BAND_COLOR;
   const hue = 8 + (248 * index) / (count - 1); // ~red (low) → ~blue (high)
   return `hsl(${hue.toFixed(0)}, 68%, 56%)`;
