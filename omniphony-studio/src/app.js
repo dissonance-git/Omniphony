@@ -51,6 +51,7 @@ import {
   setRendererSectionOpen,
   setDisplaySectionOpen,
   setDrcSectionOpen,
+  setTwoDSourcesSectionOpen,
   setAutoGainSectionOpen
 } from './modals.js';
 
@@ -238,6 +239,7 @@ setInputSectionOpen(false);
 setRendererSectionOpen(false);
 setDisplaySectionOpen(false);
 setDrcSectionOpen(false);
+setTwoDSourcesSectionOpen(false);
 setAutoGainSectionOpen(false);
 
 // Register UI event listeners

@@ -9,8 +9,8 @@ export function rendererPanelMarkup() {
             <div class="panel-header-main">
             <div class="info-title panel-title" data-i18n="section.renderer">Renderer</div>
             <div style="display:flex;gap:0.25rem;flex:0 0 auto;margin-left:auto">
-              <button id="outputModeHeadphonesBtn" type="button" class="toggle-btn output-mode-btn">🎧 Headphones</button>
-              <button id="outputModeSpeakersBtn" type="button" class="toggle-btn output-mode-btn">🔊 Speakers</button>
+              <button id="outputModeHeadphonesBtn" type="button" class="toggle-btn output-mode-btn">🎧 <span data-i18n="outputMode.headphones">Headphones</span></button>
+              <button id="outputModeSpeakersBtn" type="button" class="toggle-btn output-mode-btn">🔊 <span data-i18n="outputMode.speakers">Speakers</span></button>
             </div>
             <div id="rendererPerfWrap" style="display:none;min-width:180px;flex:0 0 auto">
               <div style="display:grid;gap:0.18rem;min-width:180px">
@@ -50,24 +50,24 @@ export function rendererPanelMarkup() {
         </div>
         <div id="rendererSectionContent" class="conditional-params">
           <div class="renderer-panel-stack" style="margin-top:0.25rem;display:grid;gap:0.35rem">
-          <div class="output-mode-mpv-note" style="font-size:0.65rem;color:#8fa6bd;padding:0 0.1rem;">mpv host: the output mode is applied at player start — restart playback after switching.</div>
+          <div class="output-mode-mpv-note" style="font-size:0.65rem;color:#8fa6bd;padding:0 0.1rem;" data-i18n="outputMode.mpvNote">mpv host: the output mode is applied at player start — restart playback after switching.</div>
           <div class="info-section renderer-subpanel binaural-subpanel" id="binauralHrtfSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
             <div class="renderer-subpanel-bar" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
               <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff" data-help-i18n="help.binaural.hrtf">HRTF</div>
               <div class="renderer-subpanel-actions" style="display:flex;align-items:center;gap:0.35rem">
                 <select id="binauralHrirSource" class="form-select" style="font-size:0.75rem;padding:0.1rem 0.2rem;width:auto;min-width:90px;">
-                  <option value="saf">KEMAR (measured)</option>
-                  <option value="synthetic">Synthetic</option>
-                  <option value="sofa">SOFA file</option>
+                  <option value="saf" data-i18n="binaural.hrtfSource.kemar">KEMAR (measured)</option>
+                  <option value="synthetic" data-i18n="binaural.hrtfSource.synthetic">Synthetic</option>
+                  <option value="sofa" data-i18n="binaural.hrtfSource.sofa">SOFA file</option>
                 </select>
-                <button id="sofaBrowseBtn" type="button" class="toggle-btn" style="display:none" title="Browse the sofacoustics.org HRTF database">Browse…</button>
+                <button id="sofaBrowseBtn" type="button" class="toggle-btn" style="display:none" data-i18n="backend.file.browse" data-i18n-title="binaural.sofaBrowseTitle" title="Browse the sofacoustics.org HRTF database">Browse…</button>
               </div>
             </div>
             <div class="renderer-subpanel-body" style="margin-top:0.25rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.3rem">
               <div id="binauralSofaInfo" style="display:none;font-size:0.65rem;word-break:break-all;"></div>
               <div class="binaural-help-row">
                 <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
-                  <span data-help-i18n="help.binaural.headRadius" data-help-anchor=".binaural-help-row">Head radius (cm)</span>
+                  <span data-i18n="binaural.headRadius" data-help-i18n="help.binaural.headRadius" data-help-anchor=".binaural-help-row">Head radius (cm)</span>
                   <span id="binauralHeadRadiusVal">8.8</span>
                 </div>
                 <input id="binauralHeadRadius" type="range" min="5" max="15" step="0.1" value="8.75" style="width:100%;" />
@@ -76,42 +76,42 @@ export function rendererPanelMarkup() {
           </div>
           <div class="info-section renderer-subpanel binaural-subpanel" id="binauralDistanceSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
             <div class="renderer-subpanel-bar" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
-              <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff">Distance</div>
+              <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff" data-i18n="binaural.distanceTitle">Distance</div>
             </div>
             <div class="renderer-subpanel-body" style="margin-top:0.25rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.3rem">
               <div class="binaural-help-row">
                 <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
-                  <span data-help-i18n="help.binaural.distanceScale" data-help-anchor=".binaural-help-row">Distance scale (m / unit)</span>
+                  <span data-i18n="binaural.distanceScale" data-help-i18n="help.binaural.distanceScale" data-help-anchor=".binaural-help-row">Distance scale (m / unit)</span>
                   <span id="binauralUnitScaleVal">1.0</span>
                 </div>
                 <input id="binauralUnitScale" type="range" min="0.1" max="10" step="0.1" value="1" style="width:100%;" />
               </div>
               <div class="inline-toggle" style="margin-top:0">
-                <div data-help-i18n="help.binaural.airAbsorption">Air absorption (distance HF roll-off)</div>
+                <div data-i18n="binaural.airAbsorption" data-help-i18n="help.binaural.airAbsorption">Air absorption (distance HF roll-off)</div>
                 <input id="binauralAirAbsorption" type="checkbox" checked />
               </div>
             </div>
           </div>
           <div class="info-section renderer-subpanel binaural-subpanel" id="binauralRoomSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
             <div class="renderer-subpanel-bar" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
-              <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff">Listening room</div>
+              <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff" data-i18n="binaural.roomTitle">Listening room</div>
             </div>
             <div class="renderer-subpanel-body" style="margin-top:0.25rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.3rem">
               <div class="switch-row" style="margin-top:0;font-size:0.7rem;color:#8fa6bd;">
-                <span data-help-i18n="help.binaural.earlyReflections">Early reflections</span>
+                <span data-i18n="binaural.earlyReflections" data-help-i18n="help.binaural.earlyReflections">Early reflections</span>
                 <input id="binauralReflEnabled" type="checkbox" />
               </div>
               <div id="binauralReflParams" style="display:none;gap:0.3rem">
               <div class="binaural-help-row">
                 <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
-                  <span data-help-i18n="help.binaural.reflectionLevel" data-help-anchor=".binaural-help-row">Reflection level</span>
+                  <span data-i18n="binaural.reflectionLevel" data-help-i18n="help.binaural.reflectionLevel" data-help-anchor=".binaural-help-row">Reflection level</span>
                   <span id="binauralReflLevelVal">0.50</span>
                 </div>
                 <input id="binauralReflLevel" type="range" min="0" max="1" step="0.01" value="0.5" style="width:100%;" />
               </div>
               <div class="binaural-help-row">
                 <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
-                  <span data-help-i18n="help.binaural.room" data-help-anchor=".binaural-help-row">Room W × D × H (m)</span>
+                  <span data-i18n="binaural.roomDims" data-help-i18n="help.binaural.room" data-help-anchor=".binaural-help-row">Room W × D × H (m)</span>
                   <span id="binauralReflRoomVal">4.0 × 5.0 × 2.7</span>
                 </div>
                 <input id="binauralReflRoomW" type="range" min="1" max="20" step="0.1" value="4" style="width:100%;" />
@@ -120,20 +120,20 @@ export function rendererPanelMarkup() {
               </div>
               </div>
               <div class="switch-row" style="font-size:0.7rem;color:#8fa6bd;margin-top:0.2rem;border-top:1px solid rgba(255,255,255,0.05);padding-top:0.3rem;">
-                <span data-help-i18n="help.binaural.lateReverb">Late reverb</span>
+                <span data-i18n="binaural.lateReverb" data-help-i18n="help.binaural.lateReverb">Late reverb</span>
                 <input id="binauralRevEnabled" type="checkbox" />
               </div>
               <div id="binauralRevParams" style="display:none;gap:0.3rem">
               <div class="binaural-help-row">
                 <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
-                  <span data-help-i18n="help.binaural.reverbLevel" data-help-anchor=".binaural-help-row">Reverb level</span>
+                  <span data-i18n="binaural.reverbLevel" data-help-i18n="help.binaural.reverbLevel" data-help-anchor=".binaural-help-row">Reverb level</span>
                   <span id="binauralRevLevelVal">0.25</span>
                 </div>
                 <input id="binauralRevLevel" type="range" min="0" max="1" step="0.01" value="0.25" style="width:100%;" />
               </div>
               <div class="binaural-help-row">
                 <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
-                  <span data-help-i18n="help.binaural.rt60" data-help-anchor=".binaural-help-row">RT60 (s)</span>
+                  <span data-i18n="binaural.rt60" data-help-i18n="help.binaural.rt60" data-help-anchor=".binaural-help-row">RT60 (s)</span>
                   <span id="binauralRevRt60Val">0.35</span>
                 </div>
                 <input id="binauralRevRt60" type="range" min="0.1" max="1.5" step="0.05" value="0.35" style="width:100%;" />
@@ -143,38 +143,38 @@ export function rendererPanelMarkup() {
           </div>
           <div class="info-section renderer-subpanel binaural-subpanel" id="binauralTrackingSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
             <div class="renderer-subpanel-bar" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
-              <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff" data-help-i18n="help.binaural.headTracking">Head tracking (Sensors2OSC)</div>
+              <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff" data-i18n="binaural.headTrackingTitle" data-help-i18n="help.binaural.headTracking">Head tracking (Sensors2OSC)</div>
               <div class="renderer-subpanel-actions" style="display:flex;align-items:center;gap:0.35rem">
-                <button id="binauralRecenter" type="button" class="form-button">Recenter</button>
+                <button id="binauralRecenter" type="button" class="form-button" data-i18n="binaural.recenter">Recenter</button>
               </div>
             </div>
             <div class="renderer-subpanel-body" style="margin-top:0.25rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.3rem">
               <div class="inline-toggle" style="margin-top:0">
-                <div data-help-i18n="help.binaural.oscAddress">OSC address</div>
+                <div data-i18n="binaural.oscAddressLabel" data-help-i18n="help.binaural.oscAddress">OSC address</div>
                 <input id="binauralTrackAddress" type="text" class="form-input" placeholder="/android/rotationvector" style="font-size:0.7rem;width:11rem;" />
               </div>
               <div class="inline-toggle" style="margin-top:0">
-                <div data-help-i18n="help.binaural.trackFormat">Format</div>
+                <div data-i18n="binaural.trackFormatLabel" data-help-i18n="help.binaural.trackFormat">Format</div>
                 <select id="binauralTrackFormat" class="form-select" style="font-size:0.75rem;padding:0.1rem 0.2rem;width:auto;min-width:90px;">
-                  <option value="auto">Auto</option>
-                  <option value="quat">Quaternion</option>
-                  <option value="rotvec">Rotation vector</option>
-                  <option value="euler">Euler</option>
+                  <option value="auto" data-i18n="common.auto">Auto</option>
+                  <option value="quat" data-i18n="binaural.trackFormat.quat">Quaternion</option>
+                  <option value="rotvec" data-i18n="binaural.trackFormat.rotvec">Rotation vector</option>
+                  <option value="euler" data-i18n="binaural.trackFormat.euler">Euler</option>
                 </select>
               </div>
               <div class="binaural-help-row">
                 <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
-                  <span data-help-i18n="help.binaural.trackSmoothing" data-help-anchor=".binaural-help-row">Smoothing</span>
+                  <span data-i18n="binaural.trackSmoothing" data-help-i18n="help.binaural.trackSmoothing" data-help-anchor=".binaural-help-row">Smoothing</span>
                   <span id="binauralTrackSmoothingVal">0.20</span>
                 </div>
                 <input id="binauralTrackSmoothing" type="range" min="0" max="0.99" step="0.01" value="0.2" style="width:100%;" />
               </div>
               <div class="inline-toggle" style="margin-top:0">
-                <div data-help-i18n="help.binaural.invertRotation">Invert rotation</div>
+                <div data-i18n="binaural.invertRotation" data-help-i18n="help.binaural.invertRotation">Invert rotation</div>
                 <input id="binauralTrackInvert" type="checkbox" />
               </div>
               <div style="display:flex;align-items:center;gap:0.5rem">
-                <span style="font-size:0.65rem;color:#888;">Pose</span>
+                <span style="font-size:0.65rem;color:#888;" data-i18n="binaural.pose">Pose</span>
                 <span id="binauralPoseReadout" style="font-size:10px;color:#8fa6bd;font-family:ui-monospace, monospace;">yaw 0°  pitch 0°  roll 0°</span>
               </div>
             </div>
@@ -187,10 +187,10 @@ export function rendererPanelMarkup() {
               </div>
               <div class="renderer-subpanel-actions" style="display:flex;align-items:center;gap:0.35rem">
                 <select id="renderEvaluationModeSelect" class="delay-input" style="width:auto;min-width:13rem;text-align:left">
-                  <option value="auto">Auto</option>
-                  <option value="realtime">Realtime</option>
-                  <option value="precomputed_polar">Precomputed polar</option>
-                  <option value="precomputed_cartesian">Precomputed cartesian</option>
+                  <option value="auto" data-i18n="common.auto">Auto</option>
+                  <option value="realtime" data-i18n="eval.mode.realtime">Realtime</option>
+                  <option value="precomputed_polar" data-i18n="eval.mode.precomputedPolar">Precomputed polar</option>
+                  <option value="precomputed_cartesian" data-i18n="eval.mode.precomputedCartesian">Precomputed cartesian</option>
                 </select>
                 <div id="renderEvaluationModeEffective" class="vbap-step" style="min-width:8rem;text-align:right">—</div>
               </div>
@@ -199,7 +199,7 @@ export function rendererPanelMarkup() {
             <div class="renderer-subpanel-body" style="margin-top:0.25rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
               <div id="renderEvaluationCartesianBlock">
               <div class="control-row" id="renderEvaluationCartesianRow" style="margin-top:0;grid-template-columns:1fr auto;align-items:start">
-                <label style="font-size:12px;white-space:nowrap;color:#ffffff" data-help-i18n="help.eval.cartesianGrid">Cartesian grid</label>
+                <label style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="eval.cartesianGrid" data-help-i18n="help.eval.cartesianGrid">Cartesian grid</label>
                 <div style="display:flex;flex-direction:column;gap:0.15rem;align-items:stretch">
                   <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0.15rem">
                     <input id="vbapCartXSizeInput" class="delay-input" type="number" min="1" step="1" placeholder="X" />
@@ -218,7 +218,7 @@ export function rendererPanelMarkup() {
               </div>
               <div id="renderEvaluationPolarBlock">
               <div class="control-row" id="renderEvaluationPolarRow" style="margin-top:0.1rem;grid-template-columns:1fr auto;align-items:start">
-                <label style="font-size:12px;white-space:nowrap;color:#ffffff" data-help-i18n="help.eval.polarGrid">Polar grid</label>
+                <label style="font-size:12px;white-space:nowrap;color:#ffffff" data-i18n="eval.polarGrid" data-help-i18n="help.eval.polarGrid">Polar grid</label>
                 <div style="display:flex;flex-direction:column;gap:0.15rem;align-items:stretch">
                   <div class="vbap-polar-grid">
                     <input id="vbapPolarAzimuthResolutionInput" class="delay-input" type="number" min="1" step="1" placeholder="az n" style="grid-column:1;grid-row:1" />
@@ -253,7 +253,7 @@ export function rendererPanelMarkup() {
           </div>
           <div class="info-section renderer-subpanel" id="rampSection" style="margin:0;padding:0.4rem 0.5rem;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(255,255,255,0.03)">
             <div class="renderer-subpanel-bar" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem">
-              <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff">Ramp</div>
+              <div style="margin:0;font-size:12px;font-weight:600;color:#ffffff" data-i18n="renderer.rampTitle">Ramp</div>
             </div>
             <div id="rampSectionContent" class="conditional-params open">
               <div class="renderer-subpanel-body" style="margin-top:0.25rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
@@ -288,7 +288,7 @@ export function rendererPanelMarkup() {
 	                <option value="experimental_distance">Distance</option>
 	                <option value="hybrid">Hybrid</option>
 	              </select>
-              <button id="restoreBackendBtn" type="button" class="secondary-btn" style="display:none;white-space:nowrap">Restore backend</button>
+              <button id="restoreBackendBtn" type="button" class="secondary-btn" style="display:none;white-space:nowrap" data-i18n="backend.restore">Restore backend</button>
               <div id="renderBackendEffective" class="vbap-step" style="min-width:5.4rem;text-align:right">—</div>
             </div>
           </div>
@@ -329,7 +329,7 @@ export function rendererPanelMarkup() {
                   </div>
                   <canvas id="hybridCurveCanvas" width="320" height="180" style="width:100%;height:180px;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.12);border-radius:6px;cursor:crosshair;touch-action:none"></canvas>
                   <div id="hybridPointEditor" style="display:none;align-items:center;gap:0.3rem;font-size:11px;color:#ffffff">
-                    <span data-i18n="hybrid.selectedPoint">Point</span>
+                    <span data-i18n="hybrid.selectedPoint" data-help-i18n="help.hybrid.selectedPoint">Point</span>
                     <label for="hybridPointXInput" data-i18n="hybrid.pointDistance">d</label>
                     <input id="hybridPointXInput" class="delay-input" type="number" step="0.01" style="width:4.5rem" disabled />
                     <label for="hybridPointYInput" data-i18n="hybrid.pointRatio">ratio</label>

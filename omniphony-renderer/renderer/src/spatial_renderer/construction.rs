@@ -424,6 +424,9 @@ impl SpatialRenderer {
             // Seeded to the default (Side); the CLI bootstrap and the embedded
             // mpv host override it from `render.surround_placement`.
             surround_placement: crate::live_params::SurroundPlacement::default(),
+            // Seeded to the default (ByIndex); the CLI bootstrap and the embedded
+            // mpv host override it from `render.output_channel_mapping`.
+            output_channel_mapping: crate::live_params::OutputChannelMapping::default(),
             // Seeded from `render.virtual_bed` by the same bootstrap; `None`
             // uses the built-in canonical poses (LFE direct, rest virtualized).
             virtual_bed: None,
@@ -591,7 +594,6 @@ impl SpatialRenderer {
             binaural: crate::binaural::BinauralRenderer::new(sample_rate),
             binaural_pos_buf: Vec::new(),
             binaural_gain_buf: Vec::new(),
-            binaural_stereo_buf: Vec::new(),
             render_bands,
             unified_table,
             render_bands_topology_identity: topology_identity,

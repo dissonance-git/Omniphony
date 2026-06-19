@@ -2,7 +2,7 @@ use super::output::AudioWriter;
 use super::state::{
     DecodeSessionState, OutputState, RuntimeOutputState, SpatialState, TelemetryState,
 };
-use crate::cli::command::OutputBackend;
+use crate::cli::command::{OutputBackend, OutputFileFormatArg};
 use anyhow::{Result, anyhow};
 use audio_input::InputControl;
 use audio_output::AudioControl;
@@ -54,6 +54,36 @@ impl<'a> WriterLifecycleCoordinator<'a> {
         let _ = (output_backend, sample_rate, channel_count);
 
         if self.output.audio_writer.is_none() && !self.output.output_init_failed {
+            // File/FIFO/stdout sink: cross-platform, no device clock, so no
+            // bootstrap-settling gate and no pacer — create it on the first
+            // frame. This block must exist or the writer is never created and
+            // the renderer silently produces no output.
+            if output_backend == OutputBackend::File {
+                match self.build_audio_writer(output_backend, sample_rate, channel_count, None) {
+                    Ok(writer) => {
+                        log::info!(
+                            "Writing rendered audio to '{}' ({} Hz, {} channels, format={:?})",
+                            self.runtime.output_file,
+                            self.runtime.output_sample_rate.unwrap_or(sample_rate),
+                            channel_count,
+                            self.runtime.output_file_format,
+                        );
+                        self.output.audio_writer = Some(writer);
+                        if let Some(control) = self.audio_control {
+                            control.set_audio_error(None);
+                        }
+                    }
+                    Err(e) => {
+                        if let Some(control) = self.audio_control {
+                            control.set_audio_error(Some(e.to_string()));
+                        }
+                        log::warn!("File output initialization failed: {}", e);
+                        self.output.output_init_failed = true;
+                    }
+                }
+                return Ok(());
+            }
+
             #[cfg(target_os = "linux")]
             if output_backend == OutputBackend::Pipewire {
                 if self.spatial_renderer.is_some() {
@@ -94,18 +124,35 @@ impl<'a> WriterLifecycleCoordinator<'a> {
                         .unwrap_or(0.0)
                 );
 
-                let speaker_names = self.spatial_renderer.map(|renderer| {
-                    renderer
-                        .speaker_names()
-                        .iter()
-                        .map(|s| s.to_string())
-                        .collect::<Vec<_>>()
-                });
+                // PipeWire channel naming follows the output channel mapping:
+                // `by_name` tags each channel with its speaker position (FC, …) so
+                // PipeWire routes positionally; `by_index` uses positionless AUX
+                // names so the link is 1:1 by index (port N → layout speaker N).
+                let mapping = self
+                    .spatial_renderer
+                    .map(|r| r.renderer_control().live.read().output_channel_mapping)
+                    .unwrap_or_default();
+                let channel_names = match mapping {
+                    renderer::live_params::OutputChannelMapping::ByName => {
+                        self.spatial_renderer.map(|renderer| {
+                            renderer
+                                .speaker_names()
+                                .iter()
+                                .map(|s| s.to_string())
+                                .collect::<Vec<_>>()
+                        })
+                    }
+                    renderer::live_params::OutputChannelMapping::ByIndex => Some(
+                        (0..channel_count)
+                            .map(|i| format!("AUX{i}"))
+                            .collect::<Vec<_>>(),
+                    ),
+                };
                 match self.build_audio_writer(
                     output_backend,
                     sample_rate,
                     channel_count,
-                    speaker_names,
+                    channel_names,
                 ) {
                     Ok(writer) => {
                         // Wire the post-rendering pacer into the input
@@ -280,6 +327,35 @@ impl<'a> WriterLifecycleCoordinator<'a> {
             OutputBackend::Asio => self.build_cpal_audio_writer(sample_rate, channel_count),
             #[cfg(target_os = "macos")]
             OutputBackend::Coreaudio => self.build_cpal_audio_writer(sample_rate, channel_count),
+            OutputBackend::File => {
+                let format = match self.runtime.output_file_format {
+                    OutputFileFormatArg::RawF32 => audio_output::FileSinkFormat::RawF32,
+                    OutputFileFormatArg::Caf => audio_output::FileSinkFormat::Caf,
+                };
+                // Embed the speaker geometry in the CAF `chan` chunk so the
+                // capture is self-describing for arbitrary spatial layouts.
+                let channel_descs = self.spatial_renderer.map(|renderer| {
+                    renderer
+                        .speaker_layout()
+                        .speakers
+                        .iter()
+                        .map(|s| {
+                            audio_output::CafChannelDesc::spherical(
+                                s.azimuth,
+                                s.elevation,
+                                s.distance,
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                });
+                AudioWriter::create_file(
+                    &self.runtime.output_file,
+                    format,
+                    self.runtime.output_sample_rate.unwrap_or(sample_rate),
+                    channel_count as u32,
+                    channel_descs,
+                )
+            }
             OutputBackend::Unsupported => Err(anyhow!("No supported realtime output backend")),
         }
     }
@@ -317,6 +393,7 @@ fn effective_audio_state(
         OutputBackend::Asio => (output_rate.unwrap_or(input_sample_rate), "f32le"),
         #[cfg(target_os = "macos")]
         OutputBackend::Coreaudio => (output_rate.unwrap_or(input_sample_rate), "f32le"),
+        OutputBackend::File => (output_rate.unwrap_or(input_sample_rate), "f32le"),
         _ => (input_sample_rate, "s24le"),
     }
 }

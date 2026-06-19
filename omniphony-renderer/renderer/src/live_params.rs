@@ -185,6 +185,59 @@ impl SurroundPlacement {
     }
 }
 
+/// How the renderer's output channels map to the physical device ports. The
+/// output is always the user's speaker layout in order; this selects whether each
+/// output channel is tagged with its spatial position (so a position-aware
+/// host/sink routes by position) or left positionless so port N carries layout
+/// speaker N. Live-tunable via `/omniphony/control/output_channel_mapping`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputChannelMapping {
+    /// Positionless: output port N = layout speaker N, in order, no position tags.
+    /// Matches a custom DAC wired to the layout order (and what ASIO/CoreAudio
+    /// already do). The default.
+    #[default]
+    ByIndex,
+    /// Positional: tag each output channel with its speaker position (FC, …) so a
+    /// position-aware host/sink routes by position. For standard layouts feeding a
+    /// standard sink/AVR.
+    ByName,
+}
+
+impl OutputChannelMapping {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ByIndex => "by_index",
+            Self::ByName => "by_name",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "by_index" | "index" | "raw" | "positionless" | "aux" => Some(Self::ByIndex),
+            "by_name" | "name" | "positional" | "position" => Some(Self::ByName),
+            _ => None,
+        }
+    }
+
+    /// Small code for the C FFI: 0 = by_index (default), 1 = by_name.
+    pub fn code(self) -> i32 {
+        match self {
+            Self::ByIndex => 0,
+            Self::ByName => 1,
+        }
+    }
+
+    /// Inverse of [`Self::code`]; any other value is ignored by the caller.
+    pub fn from_code(code: i32) -> Option<Self> {
+        match code {
+            0 => Some(Self::ByIndex),
+            1 => Some(Self::ByName),
+            _ => None,
+        }
+    }
+}
+
 /// Output rendering path: a multichannel speaker array (VBAP) or an independent
 /// 2-channel headphone (binaural) stage. See [`crate::binaural`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
@@ -583,6 +636,12 @@ pub struct LiveParams {
     /// 7.x sources ignore it. Live-tunable via
     /// `/omniphony/control/surround_placement`.
     pub surround_placement: SurroundPlacement,
+
+    /// How output channels map to device ports: positionless `ByIndex` (default,
+    /// port N = layout speaker N) or positional `ByName`. Consulted when the
+    /// output stream is (re)configured. Live-tunable via
+    /// `/omniphony/control/output_channel_mapping`.
+    pub output_channel_mapping: OutputChannelMapping,
 
     /// Parametrable virtual bed for channel-based content (consulted only when
     /// `channel_render_mode == Spatial`). One entry per input-channel label

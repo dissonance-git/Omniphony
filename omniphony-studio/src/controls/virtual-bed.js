@@ -64,6 +64,17 @@ export function canonicalChannelName(name) {
   return null;
 }
 
+// Canonical 5.1/7.1 channel order (L, R, C, LFE, Ls, Rs, Lb, Rb).
+const CANONICAL_CHANNEL_ORDER = CANONICAL_BED.map((c) => c.name);
+
+// Rank of a channel (by any alias) in the canonical order, or -1 if it is not a
+// bed channel. Used to order the objects list for bed sources by the classic
+// 5.1/7.1 channel order instead of alphabetically.
+export function canonicalChannelOrder(name) {
+  const key = canonicalChannelName(name);
+  return key ? CANONICAL_CHANNEL_ORDER.indexOf(key) : -1;
+}
+
 // ---------------------------------------------------------------------------
 // Model: the editable channel set
 // ---------------------------------------------------------------------------
@@ -312,6 +323,15 @@ export function resetVirtualBed() {
   invoke('control_virtual_bed', { value: JSON.stringify(app.virtualBed) });
   syncVirtualBedObjects(true);
   renderChannelEditor(true);
+}
+
+// Materialise the canonical bed into the renderer/config the first time we learn
+// the renderer has no saved bed, so the editor's values live in config.yaml (like
+// the speaker layout's `current_layout`) and are used in priority — rather than
+// the renderer falling back to a built-in default. Same explicit cartesian push
+// as the manual Reset; the one-shot guard lives in the caller.
+export function materializeDefaultVirtualBed() {
+  resetVirtualBed();
 }
 
 // ---------------------------------------------------------------------------

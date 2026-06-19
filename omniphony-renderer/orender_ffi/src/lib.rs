@@ -445,6 +445,33 @@ pub unsafe extern "C" fn orender_set_channel_mode(r: *mut OrenderRenderer, mode:
     }));
 }
 
+/// Output channel mapping: 0 = by_index (positionless — output port N carries
+/// layout speaker N), 1 = by_name (positional — each channel tagged with its
+/// speaker position). <0 on error. The host uses this to choose between a
+/// positionless and a positional channel map.
+#[no_mangle]
+pub unsafe extern "C" fn orender_channel_mapping(r: *const OrenderRenderer) -> c_int {
+    catch_unwind(AssertUnwindSafe(|| {
+        if r.is_null() {
+            return -1;
+        }
+        (*(r as *const Engine)).output_channel_mapping_code() as c_int
+    }))
+    .unwrap_or(-1)
+}
+
+/// Override the output channel mapping at runtime: 0 = by_index, 1 = by_name.
+/// No-op on a NULL handle or an unknown code.
+#[no_mangle]
+pub unsafe extern "C" fn orender_set_channel_mapping(r: *mut OrenderRenderer, mode: c_int) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if r.is_null() {
+            return;
+        }
+        (*(r as *mut Engine)).set_output_channel_mapping_code(mode as i32);
+    }));
+}
+
 /// Number of output channels (speakers) the renderer produces, 0 on error.
 #[no_mangle]
 pub unsafe extern "C" fn orender_channel_count(r: *const OrenderRenderer) -> u32 {

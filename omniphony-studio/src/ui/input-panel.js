@@ -98,7 +98,7 @@ export function inputPanelMarkup() {
               <div class="input-panel-field">
                 <label for="inputMapSelect" class="input-panel-inline-label" data-i18n="input.map" data-help-i18n="help.input.map" data-help-anchor=".input-panel-triple-grid">Map</label>
                 <select id="inputMapSelect" class="delay-input">
-                  <option value="7.1-fixed">7.1 fixed</option>
+                  <option value="7.1-fixed" data-i18n="input.map.sevenOneFixed">7.1 fixed</option>
                 </select>
               </div>
               <div class="input-panel-field">

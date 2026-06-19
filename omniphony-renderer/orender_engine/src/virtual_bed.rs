@@ -286,27 +286,83 @@ fn label_aliases(label: RChannelLabel, use_7_1: bool) -> Option<&'static [&'stat
             "RightRear",
         ]),
         RChannelLabel::Cb => Some(&["BC", "Cb", "BackCenter", "RearCenter"]),
+        // Height layer. Aliases cover the common naming schemes (TFL/TBL,
+        // Dolby Ltf/Ltr, ADM Tp* / U* upper-layer) so a configured 7.1.4 layout
+        // resolves these to its named top speakers.
+        RChannelLabel::Tfl => Some(&[
+            "TFL",
+            "Tfl",
+            "Ltf",
+            "TpFL",
+            "TopFrontLeft",
+            "UpperFrontLeft",
+        ]),
+        RChannelLabel::Tfr => Some(&[
+            "TFR",
+            "Tfr",
+            "Rtf",
+            "TpFR",
+            "TopFrontRight",
+            "UpperFrontRight",
+        ]),
+        RChannelLabel::Tbl => Some(&[
+            "TBL",
+            "Tbl",
+            "Ltr",
+            "TpBL",
+            "TopBackLeft",
+            "TopRearLeft",
+            "UpperBackLeft",
+        ]),
+        RChannelLabel::Tbr => Some(&[
+            "TBR",
+            "Tbr",
+            "Rtr",
+            "TpBR",
+            "TopBackRight",
+            "TopRearRight",
+            "UpperBackRight",
+        ]),
+        RChannelLabel::Tsl => Some(&["TSL", "Tsl", "TpSL", "TopSideLeft", "UpperSideLeft"]),
+        RChannelLabel::Tsr => Some(&["TSR", "Tsr", "TpSR", "TopSideRight", "UpperSideRight"]),
+        RChannelLabel::Tfc => Some(&["TFC", "Tfc", "TpFC", "TopFrontCenter"]),
         _ => None,
     }
 }
 
+/// Last-resort bed pose as a **normalized cartesian** corner position, used only
+/// when neither the live `virtual_bed` config nor an on-disk layout resolves the
+/// channel. These mirror the canonical `layouts/legacy/5.1.yaml`/`7.1.yaml` and
+/// Studio's `CANONICAL_BED`, so a corner channel lands exactly in its corner after
+/// the room warp — cartesian, not polar/distance, which used to pull the corners
+/// inward. Floor row at `z = 0`, height row at the ceiling `z = 1`. `use_7_1` no
+/// longer changes these (the corners are layout-independent); the surround pair is
+/// finalised by [`surround_placement_override`] for 4.x/5.x sources.
 fn fallback_virtual_bed_pose(
     label: RChannelLabel,
-    use_7_1: bool,
+    _use_7_1: bool,
 ) -> Option<(String, f32, f32, f32)> {
-    let (name, az, el, dist) = match label {
-        RChannelLabel::L => ("FL", if use_7_1 { -26.0 } else { -30.0 }, 0.0, 2.0),
-        RChannelLabel::R => ("FR", if use_7_1 { 26.0 } else { 30.0 }, 0.0, 2.0),
-        RChannelLabel::C => ("C", 0.0, 0.0, 2.0),
-        RChannelLabel::LFE | RChannelLabel::LFE2 => ("LFE", 0.0, 0.0, 1.0),
-        RChannelLabel::Ls => ("SL", if use_7_1 { -100.0 } else { -110.0 }, 0.0, 1.0),
-        RChannelLabel::Rs => ("SR", if use_7_1 { 100.0 } else { 110.0 }, 0.0, 1.0),
-        RChannelLabel::Lb => ("BL", -142.5, 0.0, 1.0),
-        RChannelLabel::Rb => ("BR", 142.5, 0.0, 1.0),
-        RChannelLabel::Cb => ("BC", 180.0, 0.0, 1.0),
+    let (name, x, y, z) = match label {
+        RChannelLabel::L => ("FL", -1.0, 1.0, 0.0),
+        RChannelLabel::R => ("FR", 1.0, 1.0, 0.0),
+        RChannelLabel::C => ("C", 0.0, 1.0, 0.0),
+        RChannelLabel::LFE | RChannelLabel::LFE2 => ("LFE", 0.0, 1.0, 0.0),
+        RChannelLabel::Ls => ("SL", -1.0, 0.0, 0.0),
+        RChannelLabel::Rs => ("SR", 1.0, 0.0, 0.0),
+        RChannelLabel::Lb => ("BL", -1.0, -1.0, 0.0),
+        RChannelLabel::Rb => ("BR", 1.0, -1.0, 0.0),
+        RChannelLabel::Cb => ("BC", 0.0, -1.0, 0.0),
+        // Height layer at the ceiling (z = 1), mirroring the floor corners.
+        RChannelLabel::Tfl => ("TFL", -1.0, 1.0, 1.0),
+        RChannelLabel::Tfr => ("TFR", 1.0, 1.0, 1.0),
+        RChannelLabel::Tbl => ("TBL", -1.0, -1.0, 1.0),
+        RChannelLabel::Tbr => ("TBR", 1.0, -1.0, 1.0),
+        RChannelLabel::Tsl => ("TSL", -1.0, 0.0, 1.0),
+        RChannelLabel::Tsr => ("TSR", 1.0, 0.0, 1.0),
+        RChannelLabel::Tfc => ("TFC", 0.0, 1.0, 1.0),
         _ => return None,
     };
-    Some((name.to_string(), az, el, dist))
+    Some((name.to_string(), x, y, z))
 }
 
 /// For a 4.x/5.x source (no back channels) the surround pair (`Ls`/`Rs`) has no
@@ -434,18 +490,17 @@ fn resolve_virtual_bed_pose_raw(
         }
     }
 
-    fallback_virtual_bed_pose(label, use_7_1).map(|(name, az_deg, el_deg, dist_m)| {
-        let (sx, sy, sz) = renderer::spatial_vbap::spherical_to_adm(az_deg, el_deg, dist_m);
-        let (x, y, z) = inverse_room_ratio_map_for_virtual_object(
-            sx,
-            sy,
-            sz,
-            room_ratio,
-            room_ratio_rear,
-            room_ratio_lower,
-            room_ratio_center_blend,
-        );
-        (name, x, y, z)
+    // Cartesian corner fallback: use x/y/z directly (clamped), exactly like the
+    // cartesian branch of `speaker_pose_to_normalized`. No `spherical_to_adm` +
+    // inverse-room-warp round-trip, which previously pulled corner channels off
+    // their corner (the FL/FR-not-in-the-corner bug under hosts with no layout).
+    fallback_virtual_bed_pose(label, use_7_1).map(|(name, x, y, z)| {
+        (
+            name,
+            x.clamp(-1.0, 1.0),
+            y.clamp(-1.0, 1.0),
+            z.clamp(-1.0, 1.0),
+        )
     })
 }
 
@@ -819,6 +874,52 @@ mod tests {
     }
 
     #[test]
+    fn maps_a_7_1_4_bed_including_height_channels() {
+        // A full 7.1.4 input bed (e.g. a bed-only Atmos presentation). The height
+        // layer must resolve to elevated poses rather than being dropped (which
+        // used to leave the top channels silent).
+        let labels = [
+            RChannelLabel::L,
+            RChannelLabel::R,
+            RChannelLabel::C,
+            RChannelLabel::LFE,
+            RChannelLabel::Ls,
+            RChannelLabel::Rs,
+            RChannelLabel::Lb,
+            RChannelLabel::Rb,
+            RChannelLabel::Tfl,
+            RChannelLabel::Tfr,
+            RChannelLabel::Tbl,
+            RChannelLabel::Tbr,
+        ];
+        let events = build_virtual_bed_events(
+            &labels,
+            None,
+            UNIT_ROOM,
+            1.0,
+            1.0,
+            0.0,
+            SurroundPlacement::Side,
+        )
+        .expect("7.1.4 bed must map to virtual events");
+        // Every channel resolves a pose — none are dropped.
+        assert_eq!(events.len(), labels.len());
+        // The four height channels (idx 8..12) sit above ear level (z > 0).
+        for ev in &events[8..12] {
+            let pos = ev.position.expect("height event carries a position");
+            assert!(pos[2] > 0.1, "height channel must be elevated, got {pos:?}");
+        }
+        // The floor channels stay near ear level.
+        for ev in &events[0..8] {
+            let pos = ev.position.expect("floor event carries a position");
+            assert!(
+                pos[2].abs() < 0.2,
+                "floor channel should be ~level, got {pos:?}"
+            );
+        }
+    }
+
+    #[test]
     fn left_and_right_beds_are_mirrored() {
         let labels = [RChannelLabel::L, RChannelLabel::R];
         let events = build_virtual_bed_events(
@@ -868,6 +969,31 @@ mod tests {
             assert!((pos[0] - obj.x as f64).abs() < 1e-6);
             assert!((pos[1] - obj.y as f64).abs() < 1e-6);
             assert!((pos[2] - obj.z as f64).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn fallback_pose_is_cartesian_corners() {
+        // The last-resort fallback (no live bed, no on-disk layout) must place the
+        // bed channels at the exact cartesian corners, not a polar/distance
+        // approximation that gets pulled inward by the room warp — so a host with
+        // no layout (e.g. mpv with a non-workspace cwd) still shows FL/FR in the
+        // corners and matches the editor.
+        for (label, expect) in [
+            (RChannelLabel::L, (-1.0_f32, 1.0_f32, 0.0_f32)),
+            (RChannelLabel::R, (1.0, 1.0, 0.0)),
+            (RChannelLabel::C, (0.0, 1.0, 0.0)),
+            (RChannelLabel::Ls, (-1.0, 0.0, 0.0)),
+            (RChannelLabel::Rs, (1.0, 0.0, 0.0)),
+            (RChannelLabel::Lb, (-1.0, -1.0, 0.0)),
+            (RChannelLabel::Rb, (1.0, -1.0, 0.0)),
+        ] {
+            // use_7_1 must not change the corner.
+            for use_7_1 in [false, true] {
+                let (_n, x, y, z) = fallback_virtual_bed_pose(label, use_7_1)
+                    .unwrap_or_else(|| panic!("fallback pose for {label:?}"));
+                assert_eq!((x, y, z), expect, "{label:?} (use_7_1={use_7_1})");
+            }
         }
     }
 

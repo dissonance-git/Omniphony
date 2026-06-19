@@ -6,7 +6,9 @@ import { updateAdaptiveResamplingUI, resetAdaptiveResamplingAdvancedDirtyState }
 import {
   closeAudioSampleRateMenu, openAudioSampleRateMenu, updateAudioFormatDisplay,
   applyAudioSampleRateNow, applyAudioOutputDeviceNow, applyRampModeNow,
-  applyChannelRenderModeNow, applySurroundPlacementNow, sendAudioConfig
+  applyChannelRenderModeNow, applySurroundPlacementNow, applyOutputChannelMappingNow, sendAudioConfig,
+  applyAudioOutputBackendNow, applyAudioOutputFileNow, applyAudioOutputFileFormatNow,
+  applyAudioOutputNamedPipeNow
 } from '../controls/audio.js';
 import { resetVirtualBed } from '../controls/virtual-bed.js';
 import { applyLatencyTargetNow, updateLatencyDisplay } from '../controls/latency.js';
@@ -523,6 +525,41 @@ export function setupAudioPanelListeners() {
     });
   }
 
+  const audioOutputBackendSelectEl = document.getElementById('audioOutputBackendSelect');
+  if (audioOutputBackendSelectEl) {
+    audioOutputBackendSelectEl.addEventListener('change', () => {
+      applyAudioOutputBackendNow();
+    });
+  }
+
+  const audioOutputPipeToggleEl = document.getElementById('audioOutputPipeToggle');
+  if (audioOutputPipeToggleEl) {
+    audioOutputPipeToggleEl.addEventListener('change', () => {
+      applyAudioOutputNamedPipeNow();
+    });
+  }
+
+  const audioOutputFileInputEl = document.getElementById('audioOutputFileInput');
+  if (audioOutputFileInputEl) {
+    audioOutputFileInputEl.addEventListener('focus', () => {
+      app.audioOutputFileEditing = true;
+      audioOutputFileInputEl.select();
+    });
+    audioOutputFileInputEl.addEventListener('change', () => {
+      applyAudioOutputFileNow();
+    });
+    audioOutputFileInputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') applyAudioOutputFileNow();
+    });
+  }
+
+  const audioOutputFileFormatSelectEl = document.getElementById('audioOutputFileFormatSelect');
+  if (audioOutputFileFormatSelectEl) {
+    audioOutputFileFormatSelectEl.addEventListener('change', () => {
+      applyAudioOutputFileFormatNow();
+    });
+  }
+
   if (rampModeSelectEl) {
     rampModeSelectEl.addEventListener('change', () => {
       applyRampModeNow();
@@ -545,6 +582,19 @@ export function setupAudioPanelListeners() {
   if (surroundPlacementBackEl) {
     surroundPlacementBackEl.addEventListener('click', () => {
       applySurroundPlacementNow('back');
+    });
+  }
+
+  const outputChannelMappingByIndexEl = document.getElementById('outputChannelMappingByIndex');
+  if (outputChannelMappingByIndexEl) {
+    outputChannelMappingByIndexEl.addEventListener('click', () => {
+      applyOutputChannelMappingNow('by_index');
+    });
+  }
+  const outputChannelMappingByNameEl = document.getElementById('outputChannelMappingByName');
+  if (outputChannelMappingByNameEl) {
+    outputChannelMappingByNameEl.addEventListener('click', () => {
+      applyOutputChannelMappingNow('by_name');
     });
   }
 
@@ -588,6 +638,15 @@ export function setupAudioPanelListeners() {
     if (!(target instanceof Node)) return;
     if (target !== latencyTargetInputEl) {
       app.latencyTargetEditing = false;
+    }
+  });
+
+  document.addEventListener('pointerdown', (event) => {
+    if (!audioOutputFileInputEl) return;
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    if (target !== audioOutputFileInputEl) {
+      app.audioOutputFileEditing = false;
     }
   });
 }

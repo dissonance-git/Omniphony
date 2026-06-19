@@ -271,6 +271,12 @@ pub struct RuntimeAudioState {
     pub audio_output_device_effective: Option<String>,
     #[serde(rename = "audioOutputDevices")]
     pub audio_output_devices: Vec<OutputDeviceOption>,
+    #[serde(rename = "audioOutputBackend")]
+    pub audio_output_backend: Option<String>,
+    #[serde(rename = "audioOutputFile")]
+    pub audio_output_file: Option<String>,
+    #[serde(rename = "audioOutputFileFormat")]
+    pub audio_output_file_format: Option<String>,
     #[serde(rename = "audioSampleFormat")]
     pub audio_sample_format: Option<String>,
     #[serde(rename = "audioError")]
@@ -474,6 +480,12 @@ pub struct AppState {
     pub producer_capabilities: Option<serde_json::Value>,
     #[serde(rename = "producerSession")]
     pub producer_session: Option<serde_json::Value>,
+    /// Instance epoch from the last `/omniphony/heartbeat/ack`. A change means a
+    /// different renderer instance now answers on the RX port (a CLI⇄mpv swap)
+    /// → force a re-handshake. Internal detection state, never sent to the UI,
+    /// and cleared by `reset_runtime_state` so it re-latches on each connection.
+    #[serde(skip)]
+    pub producer_epoch: Option<i32>,
     #[serde(rename = "oscMeteringEnabled")]
     pub osc_metering_enabled: Option<u8>,
     #[serde(rename = "logLevel")]
@@ -611,6 +623,18 @@ impl AppState {
         self.audio.audio_output_devices = devices;
     }
 
+    pub fn set_audio_output_backend(&mut self, value: Option<String>) {
+        self.audio.audio_output_backend = value.filter(|v| !v.trim().is_empty());
+    }
+
+    pub fn set_audio_output_file(&mut self, value: Option<String>) {
+        self.audio.audio_output_file = value.filter(|v| !v.trim().is_empty());
+    }
+
+    pub fn set_audio_output_file_format(&mut self, value: Option<String>) {
+        self.audio.audio_output_file_format = value.filter(|v| !v.trim().is_empty());
+    }
+
     pub fn set_audio_sample_format(&mut self, value: String) {
         self.audio.audio_sample_format = Some(value);
     }
@@ -719,6 +743,7 @@ impl Default for AppState {
             osc_status: Some("initializing".to_string()),
             producer_capabilities: None,
             producer_session: None,
+            producer_epoch: None,
             osc_metering_enabled: Some(0),
             log_level: Some("info".to_string()),
             last_spatial_sample_pos: None,

@@ -119,6 +119,9 @@ pub fn build_renderer_state_json(
         String,
         std::collections::HashMap<String, renderer::backend_params::ParamValue>,
     >,
+    // Speaker names that can't be routed by position in by_name mode (computed by
+    // the engine, which owns the name→label classifier). Shown as a warning.
+    unroutable_speaker_names: &[String],
 ) -> String {
     let effective_backend = active_topology.backend.backend_id();
     let effective_evaluation_mode = active_topology.backend.evaluation_mode().as_str();
@@ -140,6 +143,8 @@ pub fn build_renderer_state_json(
         "rampMode": live.ramp_mode.as_str(),
         "channelRenderMode": live.channel_render_mode.as_str(),
         "surroundPlacement": live.surround_placement.as_str(),
+        "outputChannelMapping": live.output_channel_mapping.as_str(),
+        "outputChannelMappingUnroutable": unroutable_speaker_names,
         // Parametrable virtual bed for channel content (null = built-in
         // canonical poses, LFE direct). Reuses the speaker-layout schema so the
         // Studio 3D editor can target it.
@@ -358,6 +363,10 @@ pub fn build_live_state_bundle(
         editable_layout.radius_m,
         control.available_backends(),
         control.all_backend_params(),
+        // The name→label classifier lives in orender_engine (bridge_api types),
+        // which runtime_control can't reach; the engine's recompute broadcast
+        // (fired on topology build and every layout edit) carries the real list.
+        &[],
     );
 
     let mut messages = vec![

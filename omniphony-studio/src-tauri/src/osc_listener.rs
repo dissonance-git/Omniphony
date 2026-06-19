@@ -43,6 +43,9 @@ struct AudioDomainState {
     output_devices: Option<Vec<OutputDeviceOption>>,
     output_device: Option<String>,
     output_device_effective: Option<String>,
+    output_backend: Option<String>,
+    output_file: Option<String>,
+    output_file_format: Option<String>,
     sample_rate: Option<u32>,
     sample_format: Option<String>,
     error: Option<String>,
@@ -438,6 +441,15 @@ fn apply_audio_domain_state(s: &mut AppState, value: &str) -> bool {
     if let Some(output_device_effective) = parsed.output_device_effective {
         s.set_audio_effective_output_device(&output_device_effective);
     }
+    if let Some(output_backend) = parsed.output_backend {
+        s.set_audio_output_backend(Some(output_backend));
+    }
+    if let Some(output_file) = parsed.output_file {
+        s.set_audio_output_file(Some(output_file));
+    }
+    if let Some(output_file_format) = parsed.output_file_format {
+        s.set_audio_output_file_format(Some(output_file_format));
+    }
     if let Some(sample_rate) = parsed.sample_rate {
         s.set_audio_sample_rate_value(sample_rate);
     }
@@ -812,6 +824,33 @@ fn emit_osc_status(app: &AppHandle, state: &Arc<Mutex<AppState>>, status: &str) 
         s.osc_status = Some(status.to_string());
     }
     let _ = app.emit("osc:status", serde_json::json!({ "status": status }));
+}
+
+/// Inspect a `/heartbeat/ack` payload for the renderer's instance epoch and
+/// update the latched value. Returns `true` only when it *changed* from a
+/// previously latched epoch — i.e. a different renderer instance now answers on
+/// the RX port (a CLI⇄mpv swap) behind an otherwise unbroken connection — so the
+/// caller can force a full re-handshake. A first observation (fresh connection)
+/// or an ack from an older renderer that carries no epoch is not a change.
+fn producer_epoch_changed(state: &Arc<Mutex<AppState>>, args: &[OscType]) -> bool {
+    let Some(epoch) = args.iter().find_map(|a| match a {
+        OscType::Int(i) => Some(*i),
+        _ => None,
+    }) else {
+        return false;
+    };
+    let mut s = state.lock().unwrap();
+    match s.producer_epoch {
+        None => {
+            s.producer_epoch = Some(epoch);
+            false
+        }
+        Some(prev) if prev == epoch => false,
+        Some(_) => {
+            s.producer_epoch = Some(epoch);
+            true
+        }
+    }
 }
 
 // ── public spawn function ─────────────────────────────────────────────────
@@ -1196,7 +1235,16 @@ fn handle_packet(
             match is_heartbeat_address(&msg.addr) {
                 HeartbeatResponse::Ack => {
                     *last_ack_at = Instant::now();
-                    if !*is_connected {
+                    if producer_epoch_changed(state, &msg.args) {
+                        // A different renderer instance now answers on this port
+                        // (a CLI⇄mpv swap behind an unbroken link). Re-handshake
+                        // so capabilities, the object snapshot (names) and the
+                        // metering subscription are refreshed for the new producer.
+                        send_register(socket, host, osc_rx_port, listen_port);
+                        send_metering_enabled(socket, host, osc_rx_port, metering_enabled);
+                        *is_connected = false;
+                        emit_osc_status(app, state, "reconnecting");
+                    } else if !*is_connected {
                         *is_connected = true;
                         emit_osc_status(app, state, "connected");
                     }
@@ -1240,7 +1288,15 @@ fn handle_packet(
                         match is_heartbeat_address(&msg.addr) {
                             HeartbeatResponse::Ack => {
                                 *last_ack_at = Instant::now();
-                                if !*is_connected {
+                                if producer_epoch_changed(state, &msg.args) {
+                                    // Producer swap behind an unbroken link → re-handshake.
+                                    send_register(socket, host, osc_rx_port, listen_port);
+                                    send_metering_enabled(
+                                        socket, host, osc_rx_port, metering_enabled,
+                                    );
+                                    *is_connected = false;
+                                    emit_osc_status(app, state, "reconnecting");
+                                } else if !*is_connected {
                                     *is_connected = true;
                                     emit_osc_status(app, state, "connected");
                                 }

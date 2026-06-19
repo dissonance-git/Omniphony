@@ -75,6 +75,9 @@ pub enum AudioWriter {
     /// share `CpalWriter`, so a single variant serves both platforms.
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     Cpal(CpalWriter),
+    /// File / FIFO / stdout sink (raw f32 or CAF). Cross-platform,
+    /// non-realtime: all latency/adaptive accessors below report `None`.
+    File(audio_output::FileAudioWriter),
     Unsupported,
 }
 
@@ -153,6 +156,27 @@ impl AudioWriter {
         Ok(AudioWriter::Cpal(cpal_writer))
     }
 
+    /// Create a file/FIFO/stdout sink. `destination` is `"-"` for stdout or a
+    /// file/FIFO path. `channel_descs` carries the speaker geometry embedded in
+    /// the CAF `chan` chunk; ignored for the raw-f32 format.
+    pub fn create_file(
+        destination: &str,
+        format: audio_output::FileSinkFormat,
+        sample_rate: u32,
+        channel_count: u32,
+        channel_descs: Option<Vec<audio_output::CafChannelDesc>>,
+    ) -> Result<Self> {
+        let writer = audio_output::FileAudioWriter::new(
+            destination,
+            format,
+            sample_rate,
+            channel_count,
+            channel_descs,
+        )
+        .map_err(|e| anyhow!("failed to open audio output destination '{destination}': {e}"))?;
+        Ok(AudioWriter::File(writer))
+    }
+
     pub fn write_pcm_samples(
         &mut self,
         samples: &AudioSamples,
@@ -176,6 +200,15 @@ impl AudioWriter {
             AudioWriter::Cpal(w) => {
                 let samples_f32 = samples.to_f32();
                 w.write_samples(&samples_f32)?;
+                Ok(())
+            }
+            AudioWriter::File(file_writer) => {
+                if let Some(f32_slice) = samples.as_f32() {
+                    file_writer.write_samples(f32_slice)?;
+                } else {
+                    let samples_f32 = samples.to_f32();
+                    file_writer.write_samples(&samples_f32)?;
+                }
                 Ok(())
             }
             AudioWriter::Unsupported => Err(anyhow!("No supported realtime output backend")),
@@ -213,6 +246,11 @@ impl AudioWriter {
                 drop(w);
                 Ok(())
             }
+            AudioWriter::File(mut w) => {
+                w.flush()?;
+                drop(w);
+                Ok(())
+            }
             AudioWriter::Unsupported => Err(anyhow!("No supported realtime output backend")),
         }
     }
@@ -227,6 +265,10 @@ impl AudioWriter {
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             AudioWriter::Cpal(w) => {
                 w.flush()?;
+                Ok(())
+            }
+            AudioWriter::File(file_writer) => {
+                file_writer.flush()?;
                 Ok(())
             }
             AudioWriter::Unsupported => Err(anyhow!("No supported realtime output backend")),
@@ -244,6 +286,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => Some(pw.latency_ms()),
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             AudioWriter::Cpal(w) => Some(w.latency_ms()),
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -256,6 +299,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => pw.rate_adjust(),
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             AudioWriter::Cpal(w) => w.rate_adjust(),
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -266,6 +310,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => pw.adaptive_band(),
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             AudioWriter::Cpal(w) => w.adaptive_band(),
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -276,6 +321,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => pw.adaptive_runtime_state(),
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             AudioWriter::Cpal(w) => w.adaptive_runtime_state(),
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -316,6 +362,7 @@ impl AudioWriter {
                 let v = w.target_control_latency_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -333,6 +380,7 @@ impl AudioWriter {
                 let v = w.total_audio_delay_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -355,6 +403,7 @@ impl AudioWriter {
                 let v = w.measured_audio_delay_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -371,6 +420,7 @@ impl AudioWriter {
                 let v = w.control_audio_delay_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -387,6 +437,7 @@ impl AudioWriter {
                 let v = w.smoothed_control_audio_delay_ms();
                 if v > 0.0 { Some(v) } else { None }
             }
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -402,6 +453,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => Some(pw.avail_input_audio_delay_ms().max(0.0)),
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             AudioWriter::Cpal(w) => Some(w.avail_input_audio_delay_ms().max(0.0)),
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -412,6 +464,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => Some(pw.output_fifo_audio_delay_ms().max(0.0)),
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             AudioWriter::Cpal(w) => Some(w.output_fifo_audio_delay_ms().max(0.0)),
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -422,6 +475,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => Some(pw.resampler_pending_audio_delay_ms().max(0.0)),
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             AudioWriter::Cpal(w) => Some(w.resampler_pending_audio_delay_ms().max(0.0)),
+            AudioWriter::File(_) => None,
             AudioWriter::Unsupported => None,
         }
     }
@@ -435,6 +489,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => pw.diag_atomic_handles(),
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             AudioWriter::Cpal(_) => Vec::new(),
+            AudioWriter::File(_) => Vec::new(),
             AudioWriter::Unsupported => Vec::new(),
         }
     }
@@ -446,6 +501,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => pw.request_ratio_reset(),
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             AudioWriter::Cpal(w) => w.request_ratio_reset(),
+            AudioWriter::File(_) => {}
             AudioWriter::Unsupported => {}
         }
     }
@@ -457,6 +513,7 @@ impl AudioWriter {
             AudioWriter::Pipewire(pw) => pw.update_adaptive_config(config),
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             AudioWriter::Cpal(w) => w.update_adaptive_config(config),
+            AudioWriter::File(_) => {}
             AudioWriter::Unsupported => {}
         }
     }

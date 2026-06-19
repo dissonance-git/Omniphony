@@ -432,7 +432,6 @@ fn handle_stream_end(handler: &mut DecodeHandler, args: &RenderArgs) -> Result<(
 
 struct DecodeRunContext<'a> {
     args: &'a RenderArgs,
-    effective_output_backend: OutputBackend,
 }
 
 fn handle_audio_message(
@@ -446,8 +445,10 @@ fn handle_audio_message(
     let frame = decoded.frame;
     if frame.is_new_segment {
         handler.spatial.segment_start_samples = handler.session.decoded_samples;
+        // Use the live-active backend (not the launch one) so a segment
+        // restart preserves a Studio-requested switch (e.g. to `file`).
         handler.handle_stream_restart(
-            ctx.effective_output_backend,
+            handler.runtime.active_output_backend,
             frame.sampling_frequency,
             frame.channel_count as usize,
             ctx.args.bed_conform,
@@ -456,7 +457,6 @@ fn handle_audio_message(
     }
 
     let ctx = FrameHandlerContext {
-        output_backend: ctx.effective_output_backend,
         bed_conform: ctx.args.bed_conform,
         use_loudness: ctx.args.use_loudness,
         decode_time_ms: decoded.decode_time_ms,
@@ -492,27 +492,46 @@ fn run_standby_until_resume(
 /// bridge-unavailable idle runtime, so an idle holder of the OSC port yields to
 /// mpv exactly like an actively-decoding one.
 fn standby_idle_until_resume(handler: &mut DecodeHandler, mut drain: impl FnMut()) {
-    log::info!("Entering standby: releasing OSC port (and audio output) for mpv");
-    if let Some(osc) = handler.telemetry.osc_sender.as_mut() {
-        osc.enter_standby();
-    }
     loop {
-        if sys::ShutdownHandle::is_requested()
-            || sys::ShutdownHandle::is_restart_from_config_requested()
-        {
+        log::info!("Entering standby: releasing OSC port (and audio output) for mpv");
+        if let Some(osc) = handler.telemetry.osc_sender.as_mut() {
+            osc.enter_standby();
+        }
+        loop {
+            if sys::ShutdownHandle::is_requested()
+                || sys::ShutdownHandle::is_restart_from_config_requested()
+            {
+                return;
+            }
+            if sys::shutdown::take_resume_request() {
+                break;
+            }
+            drain();
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        log::info!("Resuming from standby: re-acquiring OSC port (and audio output)");
+        let reacquired = match handler.telemetry.osc_sender.as_mut() {
+            Some(osc) => {
+                if let Err(e) = osc.resume() {
+                    log::error!("standby resume: failed to re-bind the OSC port: {e}");
+                }
+                osc.is_listening()
+            }
+            // No OSC sender → nothing to re-acquire; treat the resume as done.
+            None => true,
+        };
+        if reacquired {
             return;
         }
-        if sys::shutdown::take_resume_request() {
-            break;
-        }
-        drain();
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-    log::info!("Resuming from standby: re-acquiring OSC port (and audio output)");
-    if let Some(osc) = handler.telemetry.osc_sender.as_mut() {
-        if let Err(e) = osc.resume() {
-            log::error!("standby resume: failed to re-bind the OSC port: {e}");
-        }
+        // The resume could not re-bind the RX port: it is still held (a
+        // premature/lost resume, e.g. mpv still owns it after a track switch).
+        // Returning here would run the decoder with no OSC listener — a "zombie"
+        // that strands Studio on `reconnecting`. Re-arm standby instead; the
+        // watch thread's 2 s port-probe safety net resumes for real once the
+        // port frees (mpv quits).
+        log::warn!(
+            "standby resume could not re-acquire the OSC port (still held); re-arming standby"
+        );
     }
 }
 
@@ -609,12 +628,11 @@ fn run_render_message_phase(
     handler: &mut DecodeHandler,
     args: &RenderArgs,
 ) -> Result<()> {
-    let effective_output_backend =
+    // Seed the live-mutable active backend so a Studio switch (e.g. to `file`)
+    // has a defined starting point.
+    handler.runtime.active_output_backend =
         effective_output_backend(args, prepared.is_spatial_presentation)?;
-    let run_ctx = DecodeRunContext {
-        args,
-        effective_output_backend,
-    };
+    let run_ctx = DecodeRunContext { args };
 
     sys::notify_ready();
     process_decoder_messages(&prepared.rx, handler, &run_ctx)

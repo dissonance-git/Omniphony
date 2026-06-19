@@ -11,6 +11,7 @@ import {
   updateResampleRatioDisplay
 } from './controls/latency.js';
 import { updateAudioFormatDisplay } from './controls/audio.js';
+import { materializeDefaultVirtualBed } from './controls/virtual-bed.js';
 
 function normalizeAudioOutputDevices(values) {
   return Array.isArray(values)
@@ -106,11 +107,30 @@ export function applyRuntimeAudioStateSnapshot(payload) {
       app.surroundPlacement = next;
     }
   }
+  if (typeof payload.outputChannelMapping === 'string') {
+    const next = payload.outputChannelMapping.trim().toLowerCase();
+    if (next === 'by_index' || next === 'by_name') {
+      app.outputChannelMapping = next;
+    }
+  }
+  if (Array.isArray(payload.outputChannelMappingUnroutable)) {
+    app.outputChannelMappingUnroutable = payload.outputChannelMappingUnroutable.filter(
+      (n) => typeof n === 'string'
+    );
+  }
   if (Object.prototype.hasOwnProperty.call(payload, 'virtualBed')) {
     // null = renderer is on the built-in canonical poses; an object is the
     // configured/live bed. The editor seeds defaults when this is null.
     app.virtualBed =
       payload.virtualBed && typeof payload.virtualBed === 'object' ? payload.virtualBed : null;
+    // First authoritative snapshot reporting no saved bed (and not in host mode):
+    // materialise the canonical cartesian bed so the editor's values persist to
+    // config.yaml (like `current_layout`) and are used in priority, instead of
+    // relying on a built-in default. One-shot; once a bed exists this is skipped.
+    if (!app.virtualBed && !app.virtualBedMaterialized && app.channelRenderMode !== 'host') {
+      app.virtualBedMaterialized = true;
+      materializeDefaultVirtualBed();
+    }
   }
   if (typeof payload.audioOutputDevice === 'string') {
     app.audioOutputDevice = payload.audioOutputDevice.trim() || null;
@@ -120,6 +140,18 @@ export function applyRuntimeAudioStateSnapshot(payload) {
   }
   if (Array.isArray(payload.audioOutputDevices)) {
     app.audioOutputDevices = normalizeAudioOutputDevices(payload.audioOutputDevices);
+  }
+  if (typeof payload.audioOutputBackend === 'string' && payload.audioOutputBackend.trim()) {
+    app.audioOutputBackend = payload.audioOutputBackend.trim() === 'file' ? 'file' : 'device';
+  }
+  if (typeof payload.audioOutputFile === 'string' && !app.audioOutputFileEditing) {
+    app.audioOutputFile = payload.audioOutputFile.trim() || '-';
+    if (app.audioOutputFile !== '-') {
+      app.audioOutputPipePath = app.audioOutputFile;
+    }
+  }
+  if (typeof payload.audioOutputFileFormat === 'string' && payload.audioOutputFileFormat.trim()) {
+    app.audioOutputFileFormat = payload.audioOutputFileFormat.trim();
   }
   if (typeof payload.audioSampleFormat === 'string') {
     applyAudioFormatValue('audioSampleFormat', payload.audioSampleFormat);

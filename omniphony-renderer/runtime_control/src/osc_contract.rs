@@ -60,9 +60,12 @@ pub const CONTROL_ADAPTIVE_RESAMPLING_RESET_RATIO: &str =
     "/omniphony/control/adaptive_resampling/reset_ratio";
 pub const CONTROL_ADAPTIVE_RESAMPLING_UPDATE_INTERVAL_CALLBACKS: &str =
     "/omniphony/control/adaptive_resampling/update_interval_callbacks";
+pub const CONTROL_AUDIO_OUTPUT_BACKEND: &str = "/omniphony/control/audio/output_backend";
 pub const CONTROL_AUDIO_OUTPUT_DEVICE: &str = "/omniphony/control/audio/output_device";
 pub const CONTROL_AUDIO_OUTPUT_DEVICES_REFRESH: &str =
     "/omniphony/control/audio/output_devices/refresh";
+pub const CONTROL_AUDIO_OUTPUT_FILE: &str = "/omniphony/control/audio/output_file";
+pub const CONTROL_AUDIO_OUTPUT_FILE_FORMAT: &str = "/omniphony/control/audio/output_file_format";
 pub const CONTROL_AUDIO_SAMPLE_RATE: &str = "/omniphony/control/audio/sample_rate";
 pub const CONTROL_AUTO_GAIN: &str = "/omniphony/control/auto_gain";
 pub const CONTROL_AUTO_GAIN_CEILING: &str = "/omniphony/control/auto_gain_ceiling";
@@ -127,6 +130,9 @@ pub const CONTROL_CHANNEL_RENDER_MODE: &str = "/omniphony/control/channel_render
 /// Where the 4.x/5.x surround pair is placed: `side` or `back`. Only affects
 /// channel sources without dedicated back channels. Persisted to config.
 pub const CONTROL_SURROUND_PLACEMENT: &str = "/omniphony/control/surround_placement";
+/// How output channels map to device ports: `by_index` (positionless — port N =
+/// layout speaker N) or `by_name` (positional). Persisted to config.
+pub const CONTROL_OUTPUT_CHANNEL_MAPPING: &str = "/omniphony/control/output_channel_mapping";
 /// Set the parametrable virtual bed for channel content. Argument is a YAML
 /// `SpeakerLayout` (one entry per channel label, `spatialize` = virtual/direct);
 /// an empty string resets to the built-in canonical poses (LFE direct).
@@ -267,8 +273,11 @@ pub const ALL_CONTROL: &[&str] = &[
     CONTROL_ADAPTIVE_RESAMPLING_PAUSE,
     CONTROL_ADAPTIVE_RESAMPLING_RESET_RATIO,
     CONTROL_ADAPTIVE_RESAMPLING_UPDATE_INTERVAL_CALLBACKS,
+    CONTROL_AUDIO_OUTPUT_BACKEND,
     CONTROL_AUDIO_OUTPUT_DEVICE,
     CONTROL_AUDIO_OUTPUT_DEVICES_REFRESH,
+    CONTROL_AUDIO_OUTPUT_FILE,
+    CONTROL_AUDIO_OUTPUT_FILE_FORMAT,
     CONTROL_AUDIO_SAMPLE_RATE,
     CONTROL_AUTO_GAIN,
     CONTROL_AUTO_GAIN_CEILING,
@@ -277,6 +286,7 @@ pub const ALL_CONTROL: &[&str] = &[
     CONTROL_BACKEND_FILE_PUT,
     CONTROL_BACKEND_PARAM,
     CONTROL_CHANNEL_RENDER_MODE,
+    CONTROL_OUTPUT_CHANNEL_MAPPING,
     CONTROL_VIRTUAL_BED,
     CONTROL_CONFIG_AUDIO,
     CONTROL_CONFIG_AUDIO_APPLY,

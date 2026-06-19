@@ -70,7 +70,7 @@ import {
   setLabelSpriteText,
   updateSpeakerLabelsFromSelection
 } from './scene/labels.js';
-import { disposeSpeakerBandBar } from './scene/speaker-band-bars.js';
+import { disposeSpeakerBandBar, bandColor } from './scene/speaker-band-bars.js';
 import { createTrailRenderable } from './trails.js';
 import { shouldAppendTrailPoint, recordTrailPoint, shouldRebuildTrailGeometry } from './trails.js';
 import {
@@ -680,7 +680,12 @@ function updateObjectBandBars(entry, id) {
     if (labelEl) {
       labelEl.textContent = labels?.[b] ?? (contributions.length === 1 ? 'Full band' : `Band ${b}`);
     }
-    if (bar) bar.style.setProperty('--level', `${Math.min(100, gain * 100).toFixed(1)}%`);
+    if (bar) {
+      bar.style.setProperty('--level', `${Math.min(100, gain * 100).toFixed(1)}%`);
+      // Red (lowest band) → blue (highest), computed dynamically so any number
+      // of crossover bands gets a colour. Same palette as the 3D speaker gauges.
+      bar.style.setProperty('--band-color', bandColor(b, contributions.length));
+    }
     if (dbEl) dbEl.textContent = linearToDb(gain);
   });
 
@@ -1043,15 +1048,19 @@ export function updateSource(id, position) {
   }
 
   updateSourceDecorations(id);
+  const key = String(id);
+  const prevName = sourceNames.get(key);
   if (position && typeof position.name === 'string' && position.name.trim()) {
-    sourceNames.set(String(id), position.name.trim());
+    sourceNames.set(key, position.name.trim());
   }
   const label = sourceLabels.get(id);
   if (label) {
-    setLabelSpriteText(label, formatObjectLabel(String(id)));
+    setLabelSpriteText(label, formatObjectLabel(key));
   }
-  const key = String(id);
-  if (!objectItems.has(key)) {
+  // Re-sort the list on a new object OR when an existing id's name changes:
+  // switching tracks reuses object ids with different channels (DTS↔AC-3↔DTS:X),
+  // so an in-place relabel alone would leave the list stuck in the old order.
+  if (!objectItems.has(key) || sourceNames.get(key) !== prevName) {
     sourceCallbacks.renderObjectsList?.();
   } else {
     sourceCallbacks.updateObjectPositionUI?.(key, raw);

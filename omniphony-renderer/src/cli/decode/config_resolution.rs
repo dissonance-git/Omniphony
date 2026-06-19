@@ -1,8 +1,25 @@
 use crate::cli::command::{
-    Cli, EvaluationModeArg, LogFormat, LogLevel, OutputBackend, RampModeArg, RenderArgSources,
-    RenderArgs,
+    Cli, EvaluationModeArg, LogFormat, LogLevel, OutputBackend, OutputFileFormatArg, RampModeArg,
+    RenderArgSources, RenderArgs,
 };
 use anyhow::Result;
+
+/// Parse the persisted `output_file_format` string into the CLI enum.
+fn parse_output_file_format(s: &str) -> Option<OutputFileFormatArg> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "caf" => Some(OutputFileFormatArg::Caf),
+        "raw_f32" | "rawf32" | "raw" | "f32" => Some(OutputFileFormatArg::RawF32),
+        _ => None,
+    }
+}
+
+/// String form of [`OutputFileFormatArg`] for persistence.
+fn output_file_format_str(fmt: OutputFileFormatArg) -> &'static str {
+    match fmt {
+        OutputFileFormatArg::RawF32 => "raw_f32",
+        OutputFileFormatArg::Caf => "caf",
+    }
+}
 
 /// Apply the override-only render args onto a `RenderConfig`.
 ///
@@ -190,6 +207,18 @@ pub(super) fn merge_render_config(
         if let Some(ref s) = cfg.output_backend {
             if let Ok(f) = OutputBackend::from_str(s) {
                 args.output_backend = Some(f);
+            }
+        }
+    }
+    if !arg_sources.is_explicit("output_file") {
+        if let Some(ref s) = cfg.output_file {
+            args.output_file = s.clone();
+        }
+    }
+    if !arg_sources.is_explicit("output_file_format") {
+        if let Some(ref s) = cfg.output_file_format {
+            if let Some(fmt) = parse_output_file_format(s) {
+                args.output_file_format = fmt;
             }
         }
     }
@@ -399,6 +428,16 @@ pub(super) fn merge_render_config(
     } else if args.disable_adaptive_resampling {
         args.enable_adaptive_resampling = false;
     }
+    // The file/FIFO/stdout backend has no device clock to track, so adaptive
+    // resampling is meaningless there — force it off (warn if it was asked for).
+    if args.output_backend == Some(OutputBackend::File) && args.enable_adaptive_resampling {
+        if arg_sources.is_explicit("enable_adaptive_resampling") {
+            log::warn!(
+                "Adaptive resampling has no effect with --output-backend file; ignoring it."
+            );
+        }
+        args.enable_adaptive_resampling = false;
+    }
     // spread_from_distance
     if !arg_sources.is_explicit("spread_from_distance")
         && !arg_sources.is_explicit("no_spread_from_distance")
@@ -470,6 +509,11 @@ pub(super) fn effective_to_config(
         }
         _ => None,
     };
+    // Persist file-backend destination/format only when non-default, mirroring
+    // the skip-if-default policy used for `output_backend` above.
+    render.output_file = (args.output_file != "-").then(|| args.output_file.clone());
+    render.output_file_format = (args.output_file_format != OutputFileFormatArg::RawF32)
+        .then(|| output_file_format_str(args.output_file_format).to_string());
     renderer::config_fields::presentation::store(&mut render, &args.presentation);
     render.bridge_path = args.bridge_path.clone();
     renderer::config_fields::enable_vbap::store(&mut render, args.enable_vbap);
@@ -672,5 +716,47 @@ mod tests {
 
         let out = effective_to_config(&args, &cli, None).expect("build config");
         assert_eq!(out.render.unwrap().vbap_distance_res, Some(12));
+    }
+
+    /// The `file` output backend destination + format survive a save → load
+    /// round-trip: `effective_to_config` persists them, `merge_render_config`
+    /// reads them back into a fresh (un-overridden) arg set.
+    #[test]
+    fn file_backend_args_round_trip_through_config() {
+        use crate::cli::command::{OutputBackend, OutputFileFormatArg};
+
+        // Save direction.
+        let parsed = ParsedCli::parse_from([
+            "orender",
+            "render",
+            "--output-backend",
+            "file",
+            "--output-file",
+            "/tmp/out.caf",
+            "--output-file-format",
+            "caf",
+        ])
+        .expect("parse file-backend args");
+        let cli = parsed.cli.clone();
+        let args = match cli.command {
+            Commands::Render(ref a) => a.clone(),
+            _ => unreachable!("render subcommand"),
+        };
+        let out = effective_to_config(&args, &cli, None).expect("build config");
+        let render = out.render.expect("render section present");
+        assert_eq!(render.output_backend.as_deref(), Some("file"));
+        assert_eq!(render.output_file.as_deref(), Some("/tmp/out.caf"));
+        assert_eq!(render.output_file_format.as_deref(), Some("caf"));
+
+        // Load direction: merge into fresh defaults with no CLI overrides.
+        let defaults = ParsedCli::parse_from(["orender", "render"]).expect("parse defaults");
+        let mut merged = match defaults.cli.command {
+            Commands::Render(ref a) => a.clone(),
+            _ => unreachable!("render subcommand"),
+        };
+        super::merge_render_config(&render, &mut merged, &defaults.render_sources());
+        assert_eq!(merged.output_backend, Some(OutputBackend::File));
+        assert_eq!(merged.output_file, "/tmp/out.caf");
+        assert_eq!(merged.output_file_format, OutputFileFormatArg::Caf);
     }
 }
