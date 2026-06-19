@@ -1524,11 +1524,12 @@ export function renderObjectsList() {
   if (!objectsListEl) return;
 
   // Order bed channels (L, R, C, LFE, Ls, Rs, Lb, Rb) by the canonical channel
-  // order, keyed on the object's *name* so it holds both at rest (synthetic bed,
-  // id = channel name) and during playback of a 5.1/7.1 bed (e.g. a DTS track,
-  // where the live object has a numeric id but a channel name like "L"). Dynamic
-  // (non-bed) objects keep their numeric-id order, then anything else by locale.
-  const channelRank = (id) => canonicalChannelOrder(sourceNames.get(String(id)) ?? id);
+  // order, keyed on the object's *displayed label* (`formatObjectLabel` strips
+  // technical prefixes — the raw OSC name is e.g. "v_C"/"a_FL", which
+  // canonicalChannelName wouldn't match, leaving the bed in the decoder's native
+  // order: DTS C,L,R,…; AC-3 L,C,R,…). Holds at rest (synthetic bed, id = label)
+  // and during playback. Dynamic objects keep their numeric-id order, then locale.
+  const channelRank = (id) => canonicalChannelOrder(formatObjectLabel(id));
   const ids = [...sourceMeshes.keys()].sort((a, b) => {
     const aOrd = channelRank(a);
     const bOrd = channelRank(b);

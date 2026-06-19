@@ -1043,15 +1043,19 @@ export function updateSource(id, position) {
   }
 
   updateSourceDecorations(id);
+  const key = String(id);
+  const prevName = sourceNames.get(key);
   if (position && typeof position.name === 'string' && position.name.trim()) {
-    sourceNames.set(String(id), position.name.trim());
+    sourceNames.set(key, position.name.trim());
   }
   const label = sourceLabels.get(id);
   if (label) {
-    setLabelSpriteText(label, formatObjectLabel(String(id)));
+    setLabelSpriteText(label, formatObjectLabel(key));
   }
-  const key = String(id);
-  if (!objectItems.has(key)) {
+  // Re-sort the list on a new object OR when an existing id's name changes:
+  // switching tracks reuses object ids with different channels (DTS↔AC-3↔DTS:X),
+  // so an in-place relabel alone would leave the list stuck in the old order.
+  if (!objectItems.has(key) || sourceNames.get(key) !== prevName) {
     sourceCallbacks.renderObjectsList?.();
   } else {
     sourceCallbacks.updateObjectPositionUI?.(key, raw);
