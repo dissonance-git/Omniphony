@@ -11,6 +11,7 @@ import {
   updateResampleRatioDisplay
 } from './controls/latency.js';
 import { updateAudioFormatDisplay } from './controls/audio.js';
+import { materializeDefaultVirtualBed } from './controls/virtual-bed.js';
 
 function normalizeAudioOutputDevices(values) {
   return Array.isArray(values)
@@ -122,6 +123,14 @@ export function applyRuntimeAudioStateSnapshot(payload) {
     // configured/live bed. The editor seeds defaults when this is null.
     app.virtualBed =
       payload.virtualBed && typeof payload.virtualBed === 'object' ? payload.virtualBed : null;
+    // First authoritative snapshot reporting no saved bed (and not in host mode):
+    // materialise the canonical cartesian bed so the editor's values persist to
+    // config.yaml (like `current_layout`) and are used in priority, instead of
+    // relying on a built-in default. One-shot; once a bed exists this is skipped.
+    if (!app.virtualBed && !app.virtualBedMaterialized && app.channelRenderMode !== 'host') {
+      app.virtualBedMaterialized = true;
+      materializeDefaultVirtualBed();
+    }
   }
   if (typeof payload.audioOutputDevice === 'string') {
     app.audioOutputDevice = payload.audioOutputDevice.trim() || null;

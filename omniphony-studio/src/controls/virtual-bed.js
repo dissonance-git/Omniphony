@@ -325,6 +325,15 @@ export function resetVirtualBed() {
   renderChannelEditor(true);
 }
 
+// Materialise the canonical bed into the renderer/config the first time we learn
+// the renderer has no saved bed, so the editor's values live in config.yaml (like
+// the speaker layout's `current_layout`) and are used in priority — rather than
+// the renderer falling back to a built-in default. Same explicit cartesian push
+// as the manual Reset; the one-shot guard lives in the caller.
+export function materializeDefaultVirtualBed() {
+  resetVirtualBed();
+}
+
 // ---------------------------------------------------------------------------
 // Synthetic virtual objects (visible/editable at rest)
 // ---------------------------------------------------------------------------
