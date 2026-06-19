@@ -350,6 +350,7 @@ export const app = {
   rendererSectionOpen: false,
   displaySectionOpen: false,
   drcSectionOpen: false,
+  twoDSourcesSectionOpen: false,
   autoGainSectionOpen: false,
 
   // Selection & drag

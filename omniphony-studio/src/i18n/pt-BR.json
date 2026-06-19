@@ -275,6 +275,8 @@
   "twoDSources.surroundLabel": "Canais traseiros (4.x/5.x)",
   "twoDSources.surroundSide": "Lateral",
   "twoDSources.surroundBack": "Traseiro",
+  "twoDSources.summary.spatialized": "Espacializado",
+  "twoDSources.summary.passthrough": "Passthrough do player",
   "virtualBed.virtual": "Virtual",
   "virtualBed.direct": "Direto",
   "virtualBed.reset": "Redefinir disposição de canais",

@@ -275,6 +275,8 @@
   "twoDSources.surroundLabel": "后置声道（4.x/5.x）",
   "twoDSources.surroundSide": "侧面",
   "twoDSources.surroundBack": "后方",
+  "twoDSources.summary.spatialized": "空间化",
+  "twoDSources.summary.passthrough": "播放器直通",
   "virtualBed.virtual": "虚拟",
   "virtualBed.direct": "直接",
   "virtualBed.reset": "重置声道布局",

@@ -309,6 +309,7 @@ export function applyChannelRenderModeNow() {
   if (surroundRow) surroundRow.style.display = el.checked ? 'flex' : 'none';
   syncVirtualBedObjects(true);
   renderChannelEditor(true);
+  updateTwoDSourcesSummary();
   invoke('control_channel_render_mode', { value: requested });
 }
 
@@ -320,6 +321,23 @@ export function updateSurroundPlacementUI() {
   const backBtn = document.getElementById('surroundPlacementBack');
   if (sideBtn) sideBtn.classList.toggle('active', placement === 'side');
   if (backBtn) backBtn.classList.toggle('active', placement === 'back');
+  updateTwoDSourcesSummary();
+}
+
+// Header summary shown while the 2D-sources panel is collapsed: whether flat 2D
+// beds are spatialised (with the rear-channel placement) or passed through to the
+// player. Reads `channelRenderMode` and `surroundPlacement` from app state.
+export function updateTwoDSourcesSummary() {
+  const summaryEl = document.getElementById('twoDSourcesSummary');
+  if (!summaryEl) return;
+  if (app.channelRenderMode !== 'host') {
+    const placement = app.surroundPlacement === 'back'
+      ? t('twoDSources.surroundBack')
+      : t('twoDSources.surroundSide');
+    summaryEl.textContent = `${t('twoDSources.summary.spatialized')} · ${placement}`;
+  } else {
+    summaryEl.textContent = t('twoDSources.summary.passthrough');
+  }
 }
 
 // Commit a Side/Back choice: update state + the active button and push it to the

@@ -112,7 +112,7 @@ import {
   arcLabelAngles
 } from './scene/gizmos.js';
 
-import { renderChannelEditor, canonicalChannelName, channelPlacement } from './controls/virtual-bed.js';
+import { renderChannelEditor, canonicalChannelName, canonicalChannelOrder, channelPlacement } from './controls/virtual-bed.js';
 import { t, tf } from './i18n.js';
 import { pushLog } from './log.js';
 import { scheduleUIFlush } from './flush.js';
@@ -1523,7 +1523,18 @@ export function renderObjectsList() {
   const objectsListEl = getObjectsListEl();
   if (!objectsListEl) return;
 
+  // Order bed channels (L, R, C, LFE, Ls, Rs, Lb, Rb) by the canonical channel
+  // order, keyed on the object's *name* so it holds both at rest (synthetic bed,
+  // id = channel name) and during playback of a 5.1/7.1 bed (e.g. a DTS track,
+  // where the live object has a numeric id but a channel name like "L"). Dynamic
+  // (non-bed) objects keep their numeric-id order, then anything else by locale.
+  const channelRank = (id) => canonicalChannelOrder(sourceNames.get(String(id)) ?? id);
   const ids = [...sourceMeshes.keys()].sort((a, b) => {
+    const aOrd = channelRank(a);
+    const bOrd = channelRank(b);
+    if (aOrd !== -1 && bOrd !== -1) return aOrd - bOrd;
+    if (aOrd !== -1) return -1;
+    if (bOrd !== -1) return 1;
     const aNum = Number(a);
     const bNum = Number(b);
     const aIsNum = Number.isFinite(aNum);

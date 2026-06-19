@@ -275,6 +275,8 @@
   "twoDSources.surroundLabel": "Canali posteriori (4.x/5.x)",
   "twoDSources.surroundSide": "Laterale",
   "twoDSources.surroundBack": "Posteriore",
+  "twoDSources.summary.spatialized": "Spazializzato",
+  "twoDSources.summary.passthrough": "Passthrough del lettore",
   "virtualBed.virtual": "Virtuale",
   "virtualBed.direct": "Diretto",
   "virtualBed.reset": "Reimposta disposizione canali",

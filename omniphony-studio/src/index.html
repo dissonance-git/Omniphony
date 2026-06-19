@@ -102,18 +102,19 @@
       </div>
       </div>
       <div id="audioInputPanelMount"></div>
-      <div id="twoDSourcesPanelRoot" class="info-section">
+      <div id="twoDSourcesPanelRoot" class="info-section section-collapsed">
         <div class="panel-header">
           <div class="panel-header-main">
             <div class="panel-title-wrap">
               <div class="info-title panel-title" data-i18n="section.twoDSources" data-help-i18n="help.twoDSources">2D sources</div>
+              <div id="twoDSourcesSummary" class="panel-summary" style="display:block;flex:0 1 auto">—</div>
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:0.35rem">
-            <button id="twoDSourcesToggleBtn" type="button" class="panel-toggle-btn" data-i18n-title="section.twoDSources" title="2D sources">▾</button>
+            <button id="twoDSourcesToggleBtn" type="button" class="panel-toggle-btn" data-i18n-title="section.twoDSources" title="2D sources">▸</button>
           </div>
         </div>
-        <div id="twoDSourcesBody" style="display:grid;gap:0.35rem;padding:0.1rem 0.1rem 0.2rem">
+        <div id="twoDSourcesBody" style="display:none;gap:0.35rem;padding:0.1rem 0.1rem 0.2rem">
           <label class="switch-row" style="font-size:13px;cursor:pointer">
             <span data-i18n="twoDSources.spatializeLabel" data-help-i18n="help.twoDSources" data-help-anchor=".switch-row">Spatialize 2D sources</span>
             <input id="channelSpatializeToggle" type="checkbox" />

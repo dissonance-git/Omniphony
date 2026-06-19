@@ -10,7 +10,7 @@ import {
   setInputClockInfoModalOpen, setInputLfeInfoModalOpen,
   setDrcInfoModalOpen, setHeatmapInfoModalOpen,
   setTelemetryGaugesOpen,
-  setDisplaySectionOpen, setDrcSectionOpen, setAudioOutputSectionOpen, setInputSectionOpen, setRendererSectionOpen,
+  setDisplaySectionOpen, setDrcSectionOpen, setTwoDSourcesSectionOpen, setAudioOutputSectionOpen, setInputSectionOpen, setRendererSectionOpen,
   setAutoGainSectionOpen
 } from '../modals.js';
 import { closeAutoTuneWizardOnEscape } from '../auto-tune/wizard-ui.js';
@@ -270,15 +270,11 @@ export function setupModalAndToggleListeners() {
     });
   }
 
-  // 2D sources: a small self-contained collapse (no persisted state needed).
+  // 2D sources: collapsed by default, with a header summary while collapsed.
   const twoDSourcesToggleBtnEl = document.getElementById('twoDSourcesToggleBtn');
   if (twoDSourcesToggleBtnEl) {
     twoDSourcesToggleBtnEl.addEventListener('click', () => {
-      const root = document.getElementById('twoDSourcesPanelRoot');
-      const body = document.getElementById('twoDSourcesBody');
-      const collapsed = root?.classList.toggle('section-collapsed');
-      if (body) body.style.display = collapsed ? 'none' : 'grid';
-      twoDSourcesToggleBtnEl.textContent = collapsed ? '▸' : '▾';
+      setTwoDSourcesSectionOpen(!app.twoDSourcesSectionOpen);
     });
   }
 
