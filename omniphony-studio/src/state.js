@@ -240,6 +240,9 @@ export const app = {
   // Parametrable virtual bed for 2D sources (a SpeakerLayout-shaped object, or
   // null = built-in canonical poses). Edited by the virtual-bed editor.
   virtualBed: null,
+  // One-shot guard: once we've materialised the canonical bed into the
+  // renderer/config (when none was saved), don't push it again this session.
+  virtualBedMaterialized: false,
   audioOutputDevice: null,
   audioOutputDeviceEffective: null,
   audioOutputDevices: [],
