@@ -27,6 +27,31 @@ pub struct ObjectGenCapabilities {
     pub requires_height_layer: bool,
 }
 
+/// Live-tunable parameters, applied to the active generator without rebuilding
+/// it (so a slider drag does not reset DSP state). The union of the parameters
+/// the built-in generators expose; a generator ignores the ones it does not use.
+/// (A per-generator declared schema is a future extension.)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ObjectGenParams {
+    /// PAD: ambience strength — the NLMS step (0..1). Higher cancels the
+    /// correlated primary more aggressively (more lifts, more diffuse).
+    pub strength: f32,
+    /// PAD: high-pass cutoff for the height layer (Hz) — bass stays grounded.
+    pub hpf_hz: f32,
+    /// PAD: makeup gain for the lifted ambience (dB).
+    pub gain_db: f32,
+}
+
+impl Default for ObjectGenParams {
+    fn default() -> Self {
+        Self {
+            strength: PAD_NLMS_MU,
+            hpf_hz: PAD_HPF_HZ,
+            gain_db: 0.0,
+        }
+    }
+}
+
 /// One synthesized object the generator emits. Position/name are static for a
 /// given layout+input (planned in [`ObjectGenerator::prepare`]); only the audio
 /// content varies per frame.
@@ -76,6 +101,10 @@ pub trait ObjectGenerator: Send {
     /// planned object. `out.len()` equals the number of specs returned by the
     /// last `prepare`. Must not allocate or panic.
     fn process(&mut self, bed: &BedFrame, out: &mut [Vec<f32>]);
+
+    /// Apply live-tunable parameters in place (no DSP-state reset). Called when
+    /// the values change. Default: ignore (generators with no params).
+    fn set_params(&mut self, _params: &ObjectGenParams, _sample_rate: u32) {}
 }
 
 /// Factory for an [`ObjectGenerator`], keyed by a stable string id (mirrors the
@@ -274,19 +303,31 @@ struct Biquad {
 impl Biquad {
     /// RBJ high-pass at cutoff `fc` (Hz), quality `q`, sample rate `fs` (Hz).
     fn highpass(fs: f32, fc: f32, q: f32) -> Self {
+        let mut b = Self {
+            b0: 0.0,
+            b1: 0.0,
+            b2: 0.0,
+            a1: 0.0,
+            a2: 0.0,
+            z1: 0.0,
+            z2: 0.0,
+        };
+        b.set_highpass(fs, fc, q);
+        b
+    }
+
+    /// Recompute the high-pass coefficients in place, preserving the filter state
+    /// (`z1`/`z2`) so a live cutoff change does not click.
+    fn set_highpass(&mut self, fs: f32, fc: f32, q: f32) {
         let w0 = std::f32::consts::TAU * (fc / fs).clamp(1.0e-4, 0.49);
         let (sin, cos) = w0.sin_cos();
         let alpha = sin / (2.0 * q);
         let a0 = 1.0 + alpha;
-        Self {
-            b0: ((1.0 + cos) / 2.0) / a0,
-            b1: (-(1.0 + cos)) / a0,
-            b2: ((1.0 + cos) / 2.0) / a0,
-            a1: (-2.0 * cos) / a0,
-            a2: (1.0 - alpha) / a0,
-            z1: 0.0,
-            z2: 0.0,
-        }
+        self.b0 = ((1.0 + cos) / 2.0) / a0;
+        self.b1 = (-(1.0 + cos)) / a0;
+        self.b2 = ((1.0 + cos) / 2.0) / a0;
+        self.a1 = (-2.0 * cos) / a0;
+        self.a2 = (1.0 - alpha) / a0;
     }
 
     #[inline]
@@ -323,6 +364,8 @@ impl ObjectGeneratorFactory for PadFactory {
 
 /// High-pass cutoff for the height layer (Hz): keep bass grounded.
 const PAD_HPF_HZ: f32 = 300.0;
+/// High-pass quality (Butterworth).
+const PAD_HPF_Q: f32 = std::f32::consts::FRAC_1_SQRT_2;
 /// NLMS adaptation step (0..1): higher tracks faster, lower is smoother.
 const PAD_NLMS_MU: f32 = 0.3;
 /// One-pole smoothing for the per-channel power estimate (NLMS normalisation).
@@ -351,9 +394,22 @@ struct AmbientPair {
     hpf_r: Biquad,
 }
 
-#[derive(Default)]
 struct PadGenerator {
     pairs: Vec<AmbientPair>,
+    /// NLMS step (ambience strength); live-tunable via [`ObjectGenParams`].
+    mu: f32,
+    /// Linear makeup gain applied to the lifted ambience.
+    makeup: f32,
+}
+
+impl Default for PadGenerator {
+    fn default() -> Self {
+        Self {
+            pairs: Vec::new(),
+            mu: PAD_NLMS_MU,
+            makeup: 1.0,
+        }
+    }
 }
 
 impl ObjectGenerator for PadGenerator {
@@ -369,11 +425,7 @@ impl ObjectGenerator for PadGenerator {
             return Vec::new();
         }
         let labels = ctx.input_labels;
-        let hpf = Biquad::highpass(
-            ctx.sample_rate.max(1) as f32,
-            PAD_HPF_HZ,
-            std::f32::consts::FRAC_1_SQRT_2,
-        );
+        let hpf = Biquad::highpass(ctx.sample_rate.max(1) as f32, PAD_HPF_HZ, PAD_HPF_Q);
         const SIZE: [f32; 3] = [0.5, 0.5, 0.5];
 
         // Front pair = L/R; surround pair = (Ls|Lb)/(Rs|Rb).
@@ -427,6 +479,8 @@ impl ObjectGenerator for PadGenerator {
 
     fn process(&mut self, bed: &BedFrame, out: &mut [Vec<f32>]) {
         let c = bed.channel_count;
+        let mu = self.mu;
+        let makeup = self.makeup;
         for pair in self.pairs.iter_mut() {
             if pair.l_ch >= c || pair.r_ch >= c || pair.out_l >= out.len() || pair.out_r >= out.len()
             {
@@ -443,14 +497,24 @@ impl ObjectGenerator for PadGenerator {
                 // partner (the decorrelated residual of a 1-tap NLMS canceller).
                 let e_l = l - pair.w_lr * r;
                 let e_r = r - pair.w_rl * l;
-                pair.w_lr =
-                    (pair.w_lr + PAD_NLMS_MU * e_l * r / (pair.pow_r + PAD_EPS)).clamp(-PAD_W_CLAMP, PAD_W_CLAMP);
-                pair.w_rl =
-                    (pair.w_rl + PAD_NLMS_MU * e_r * l / (pair.pow_l + PAD_EPS)).clamp(-PAD_W_CLAMP, PAD_W_CLAMP);
+                pair.w_lr = (pair.w_lr + mu * e_l * r / (pair.pow_r + PAD_EPS))
+                    .clamp(-PAD_W_CLAMP, PAD_W_CLAMP);
+                pair.w_rl = (pair.w_rl + mu * e_r * l / (pair.pow_l + PAD_EPS))
+                    .clamp(-PAD_W_CLAMP, PAD_W_CLAMP);
 
-                out[pair.out_l][s] = pair.hpf_l.process(e_l);
-                out[pair.out_r][s] = pair.hpf_r.process(e_r);
+                out[pair.out_l][s] = pair.hpf_l.process(e_l) * makeup;
+                out[pair.out_r][s] = pair.hpf_r.process(e_r) * makeup;
             }
+        }
+    }
+
+    fn set_params(&mut self, params: &ObjectGenParams, sample_rate: u32) {
+        self.mu = params.strength.clamp(0.0, 1.0);
+        self.makeup = 10.0_f32.powf(params.gain_db / 20.0);
+        let fs = sample_rate.max(1) as f32;
+        for pair in self.pairs.iter_mut() {
+            pair.hpf_l.set_highpass(fs, params.hpf_hz, PAD_HPF_Q);
+            pair.hpf_r.set_highpass(fs, params.hpf_hz, PAD_HPF_Q);
         }
     }
 }
@@ -479,6 +543,10 @@ pub struct ObjectGenStage {
     /// Extended interleaved PCM (bed channels + synthesized object channels).
     pcm_ext: Vec<f32>,
     sig: PlanSig,
+    /// Last params pushed to the generator (skip redundant re-application).
+    /// `None` forces the next [`set_params`](Self::set_params) through (e.g. after
+    /// a rebuild).
+    last_params: Option<ObjectGenParams>,
 }
 
 impl ObjectGenStage {
@@ -490,6 +558,7 @@ impl ObjectGenStage {
             planar: Vec::new(),
             pcm_ext: Vec::new(),
             sig: PlanSig::default(),
+            last_params: None,
         }
     }
 
@@ -528,8 +597,21 @@ impl ObjectGenStage {
             };
             self.planar.truncate(self.specs.len());
             self.planar.resize_with(self.specs.len(), Vec::new);
+            // New generator instance: re-apply the live params to it.
+            self.last_params = None;
         }
         self.specs.len()
+    }
+
+    /// Push live-tunable params to the active generator (applied in place, no DSP
+    /// reset). Skips re-application when unchanged.
+    pub fn set_params(&mut self, params: &ObjectGenParams, sample_rate: u32) {
+        if self.last_params != Some(*params) {
+            if let Some(g) = self.generator.as_mut() {
+                g.set_params(params, sample_rate);
+            }
+            self.last_params = Some(*params);
+        }
     }
 
     /// Run the per-frame DSP and return the bed PCM extended with the

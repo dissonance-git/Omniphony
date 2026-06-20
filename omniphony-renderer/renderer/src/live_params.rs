@@ -659,6 +659,16 @@ pub struct LiveParams {
     /// object streams ignore it. Live-tunable via
     /// `/omniphony/control/object_generator`.
     pub object_generator_id: String,
+
+    /// PAD object generator — ambience strength (NLMS step, 0..1). Higher cancels
+    /// the correlated primary more, lifting more diffuse content. Live-tunable via
+    /// `/omniphony/control/object_generator/param`.
+    pub object_gen_pad_strength: f32,
+    /// PAD object generator — height-layer high-pass cutoff (Hz): bass stays
+    /// grounded. Live-tunable.
+    pub object_gen_pad_hpf_hz: f32,
+    /// PAD object generator — height makeup gain (dB). Live-tunable.
+    pub object_gen_pad_gain_db: f32,
 }
 
 impl LiveParams {

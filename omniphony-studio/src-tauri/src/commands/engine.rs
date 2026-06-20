@@ -110,6 +110,23 @@ pub fn control_object_generator(state: State<SharedState>, value: String) {
     );
 }
 
+/// Set a live object-generator parameter (PAD: `strength` / `hpf_hz` /
+/// `gain_db`). Sent as `[key, value]`; the renderer clamps and applies it live.
+#[tauri::command]
+pub fn control_object_generator_param(state: State<SharedState>, key: String, value: f32) {
+    let k = key.trim().to_ascii_lowercase();
+    if !matches!(k.as_str(), "strength" | "hpf_hz" | "gain_db") {
+        return;
+    }
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/object_generator/param".to_string(),
+            args: vec![rosc::OscType::String(k), rosc::OscType::Float(value)],
+        },
+    );
+}
+
 /// Set the output channel mapping: `by_index` (positionless — port N = layout
 /// speaker N) or `by_name` (positional).
 #[tauri::command]

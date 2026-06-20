@@ -6,7 +6,7 @@ import { updateAdaptiveResamplingUI, resetAdaptiveResamplingAdvancedDirtyState }
 import {
   closeAudioSampleRateMenu, openAudioSampleRateMenu, updateAudioFormatDisplay,
   applyAudioSampleRateNow, applyAudioOutputDeviceNow, applyRampModeNow,
-  applyChannelRenderModeNow, applySurroundPlacementNow, applyObjectGeneratorNow, applyOutputChannelMappingNow, sendAudioConfig,
+  applyChannelRenderModeNow, applySurroundPlacementNow, applyObjectGeneratorNow, applyObjectGeneratorParamNow, applyOutputChannelMappingNow, sendAudioConfig,
   applyAudioOutputBackendNow, applyAudioOutputFileNow, applyAudioOutputFileFormatNow,
   applyAudioOutputNamedPipeNow
 } from '../controls/audio.js';
@@ -590,6 +590,16 @@ export function setupAudioPanelListeners() {
     objectGeneratorSelectEl.addEventListener('change', () => {
       applyObjectGeneratorNow(objectGeneratorSelectEl.value);
     });
+  }
+  for (const [id, key] of [
+    ['padStrengthSlider', 'strength'],
+    ['padHpfSlider', 'hpf_hz'],
+    ['padGainSlider', 'gain_db'],
+  ]) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('input', () => applyObjectGeneratorParamNow(key, el.value));
+    }
   }
 
   const outputChannelMappingByIndexEl = document.getElementById('outputChannelMappingByIndex');

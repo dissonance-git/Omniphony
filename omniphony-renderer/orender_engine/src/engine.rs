@@ -835,6 +835,9 @@ impl Engine {
                 room_ratio_lower,
                 room_ratio_center_blend,
                 object_generator_id,
+                object_gen_pad_strength,
+                object_gen_pad_hpf_hz,
+                object_gen_pad_gain_db,
             ) = {
                 let control = self.renderer.renderer_control();
                 let live = control.live.read();
@@ -847,6 +850,9 @@ impl Engine {
                     live.room_ratio_lower,
                     live.room_ratio_center_blend,
                     live.object_generator_id.clone(),
+                    live.object_gen_pad_strength,
+                    live.object_gen_pad_hpf_hz,
+                    live.object_gen_pad_gain_db,
                 )
             };
             let output_layout = self.renderer.speaker_layout();
@@ -912,6 +918,16 @@ impl Engine {
                 };
                 self.object_gen.sync(&object_generator_id, &ctx)
             };
+            if synth_count > 0 {
+                self.object_gen.set_params(
+                    &object_gen::ObjectGenParams {
+                        strength: object_gen_pad_strength,
+                        hpf_hz: object_gen_pad_hpf_hz,
+                        gain_db: object_gen_pad_gain_db,
+                    },
+                    sample_rate,
+                );
+            }
             for (k, spec) in self.object_gen.specs().iter().enumerate() {
                 self.frame_events.push(SpatialChannelEvent {
                     channel_idx: channel_count + k,

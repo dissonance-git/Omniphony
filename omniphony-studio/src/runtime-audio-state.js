@@ -112,6 +112,9 @@ export function applyRuntimeAudioStateSnapshot(payload) {
     const next = payload.objectGeneratorId.trim().toLowerCase();
     app.objectGeneratorId = next === '' ? 'none' : next;
   }
+  if (typeof payload.objectGenPadStrength === 'number') app.objectGenPadStrength = payload.objectGenPadStrength;
+  if (typeof payload.objectGenPadHpfHz === 'number') app.objectGenPadHpfHz = payload.objectGenPadHpfHz;
+  if (typeof payload.objectGenPadGainDb === 'number') app.objectGenPadGainDb = payload.objectGenPadGainDb;
   if (typeof payload.outputChannelMapping === 'string') {
     const next = payload.outputChannelMapping.trim().toLowerCase();
     if (next === 'by_index' || next === 'by_name') {

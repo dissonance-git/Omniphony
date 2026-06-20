@@ -104,6 +104,34 @@ pub(crate) fn handle_control_message(
         return;
     }
 
+    // Live object-generator parameter (PAD: strength / hpf_hz / gain_db).
+    if addr == osc_contract::CONTROL_OBJECT_GENERATOR_PARAM {
+        let key = match msg.args.first() {
+            Some(OscType::String(s)) => s.trim().to_ascii_lowercase(),
+            _ => return,
+        };
+        let value = match msg.args.get(1) {
+            Some(OscType::Float(f)) => *f,
+            Some(OscType::Double(d)) => *d as f32,
+            Some(OscType::Int(i)) => *i as f32,
+            _ => return,
+        };
+        if !value.is_finite() {
+            return;
+        }
+        {
+            let mut live = control.live.write();
+            match key.as_str() {
+                "strength" => live.object_gen_pad_strength = value.clamp(0.0, 1.0),
+                "hpf_hz" => live.object_gen_pad_hpf_hz = value.clamp(20.0, 2000.0),
+                "gain_db" => live.object_gen_pad_gain_db = value.clamp(-24.0, 24.0),
+                _ => return,
+            }
+        }
+        control.mark_dirty();
+        return;
+    }
+
     // Surround placement (side/back) for 4.x/5.x channel content. Live-tunable
     // from Studio; persists to config right away (same rationale as
     // channel_render_mode: a host fallback can route the next toggle to a

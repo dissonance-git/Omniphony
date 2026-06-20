@@ -364,12 +364,33 @@ export function applySurroundPlacementNow(value) {
   invoke('control_surround_placement', { value: requested });
 }
 
+function fmtPadValue(key, v) {
+  const n = Number(v);
+  if (key === 'strength') return n.toFixed(2);
+  if (key === 'hpf_hz') return `${Math.round(n)} Hz`;
+  if (key === 'gain_db') return `${n.toFixed(1)} dB`;
+  return String(v);
+}
+
 // Reflect the active bed→height object generator in the selector from
-// `app.objectGeneratorId` (called on user action and on a state broadcast).
+// `app.objectGeneratorId`, and show + reflect the PAD parameter sliders when
+// 'pad' is selected. Called on user action and on a state broadcast.
 export function updateObjectGeneratorUI() {
   const sel = document.getElementById('objectGeneratorSelect');
-  if (!sel) return;
-  sel.value = app.objectGeneratorId || 'none';
+  if (sel) sel.value = app.objectGeneratorId || 'none';
+  const padRow = document.getElementById('padParamsRow');
+  const showPad = app.objectGeneratorId === 'pad' && app.channelRenderMode !== 'host';
+  if (padRow) padRow.style.display = showPad ? 'flex' : 'none';
+  const reflect = (sliderId, valId, key, val) => {
+    const s = document.getElementById(sliderId);
+    // Don't fight the user while they drag the slider.
+    if (s && document.activeElement !== s) s.value = String(val);
+    const lbl = document.getElementById(valId);
+    if (lbl) lbl.textContent = fmtPadValue(key, val);
+  };
+  reflect('padStrengthSlider', 'padStrengthValue', 'strength', app.objectGenPadStrength);
+  reflect('padHpfSlider', 'padHpfValue', 'hpf_hz', app.objectGenPadHpfHz);
+  reflect('padGainSlider', 'padGainValue', 'gain_db', app.objectGenPadGainDb);
 }
 
 // Commit a generator selection: update state + push it to the engine, which
@@ -380,6 +401,22 @@ export function applyObjectGeneratorNow(value) {
   app.objectGeneratorId = requested;
   updateObjectGeneratorUI();
   invoke('control_object_generator', { value: requested });
+}
+
+// Commit a PAD parameter change live (slider drag): update state + label and
+// push it to the engine, which clamps and applies it without resetting DSP
+// state. key ∈ { strength, hpf_hz, gain_db }.
+export function applyObjectGeneratorParamNow(key, value) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return;
+  if (key === 'strength') app.objectGenPadStrength = v;
+  else if (key === 'hpf_hz') app.objectGenPadHpfHz = v;
+  else if (key === 'gain_db') app.objectGenPadGainDb = v;
+  else return;
+  const valId = key === 'strength' ? 'padStrengthValue' : key === 'hpf_hz' ? 'padHpfValue' : 'padGainValue';
+  const lbl = document.getElementById(valId);
+  if (lbl) lbl.textContent = fmtPadValue(key, v);
+  invoke('control_object_generator_param', { key, value: v });
 }
 
 // Reflect the active by-index/by-name buttons from `app.outputChannelMapping`,

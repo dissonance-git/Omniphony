@@ -234,6 +234,10 @@ export const app = {
   // Bed→height object generator (2D upmix) id: 'none' (off), 'copy_up', 'pad'.
   // Synthesizes height objects from channel content on a height-capable layout.
   objectGeneratorId: 'none',
+  // PAD generator live params (sliders, shown when 'pad' is selected).
+  objectGenPadStrength: 0.3,
+  objectGenPadHpfHz: 300,
+  objectGenPadGainDb: 0,
   // How output channels map to device ports: 'by_index' (positionless — port N =
   // layout speaker N) or 'by_name' (positional). Default 'by_index'.
   outputChannelMapping: 'by_index',
