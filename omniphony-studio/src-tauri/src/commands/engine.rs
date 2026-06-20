@@ -115,7 +115,9 @@ pub fn control_object_generator(state: State<SharedState>, value: String) {
 #[tauri::command]
 pub fn control_object_generator_param(state: State<SharedState>, key: String, value: f32) {
     let k = key.trim().to_ascii_lowercase();
-    if !matches!(k.as_str(), "strength" | "hpf_hz" | "gain_db") {
+    // Any non-empty key is accepted; the renderer validates it against the active
+    // generator's declared schema and clamps the value.
+    if k.is_empty() || !value.is_finite() {
         return;
     }
     send_control(

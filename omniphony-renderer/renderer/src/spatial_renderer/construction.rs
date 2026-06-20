@@ -433,10 +433,8 @@ impl SpatialRenderer {
             // Off by default; selects the bed→height object generator (2D upmix)
             // for channel content. Empty / "none" = disabled.
             object_generator_id: String::new(),
-            // PAD generator defaults (mirror object_gen::ObjectGenParams::default).
-            object_gen_pad_strength: 0.3,
-            object_gen_pad_hpf_hz: 300.0,
-            object_gen_pad_gain_db: 0.0,
+            // Empty = each generator uses its declared param defaults.
+            object_generator_params: std::collections::HashMap::new(),
         }
     }
 

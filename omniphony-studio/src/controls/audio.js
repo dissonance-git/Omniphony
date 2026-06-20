@@ -364,33 +364,122 @@ export function applySurroundPlacementNow(value) {
   invoke('control_surround_placement', { value: requested });
 }
 
-function fmtPadValue(key, v) {
+// The generator id whose param sliders are currently built into the DOM.
+let builtParamGenId = null;
+
+// Format a parameter value for display: decimals derived from the schema step,
+// plus an optional unit suffix.
+function fmtParamValue(spec, v) {
   const n = Number(v);
-  if (key === 'strength') return n.toFixed(2);
-  if (key === 'hpf_hz') return `${Math.round(n)} Hz`;
-  if (key === 'gain_db') return `${n.toFixed(1)} dB`;
-  return String(v);
+  const step = Number(spec.step) || 0;
+  let s;
+  if (step >= 1) s = String(Math.round(n));
+  else if (step >= 0.1) s = n.toFixed(1);
+  else s = n.toFixed(2);
+  return spec.unit ? `${s} ${spec.unit}` : s;
 }
 
-// Reflect the active bed→height object generator in the selector from
-// `app.objectGeneratorId`, and show + reflect the PAD parameter sliders when
-// 'pad' is selected. Called on user action and on a state broadcast.
+// Localized label from an i18n key when it resolves, else the English label the
+// schema carries (so out-of-tree generators still get a readable label).
+function schemaLabel(i18nKey, fallback) {
+  if (i18nKey) {
+    const localized = t(i18nKey);
+    if (localized && localized !== i18nKey) return localized;
+  }
+  return fallback || '';
+}
+
+function activeGeneratorSchema() {
+  const id = app.objectGeneratorId || 'none';
+  return (app.objectGenerators || []).find((g) => g && g.id === id) || null;
+}
+
+// (Re)build the generator selector from the declared schema. The hardcoded HTML
+// options stay as a fallback until the schema arrives / for older renderers.
+export function rebuildObjectGeneratorControls() {
+  const sel = document.getElementById('objectGeneratorSelect');
+  const list = app.objectGenerators || [];
+  if (sel && list.length) {
+    const current = app.objectGeneratorId || 'none';
+    sel.innerHTML = '';
+    const off = document.createElement('option');
+    off.value = 'none';
+    off.textContent = t('twoDSources.objectGenNone') || 'Off';
+    sel.appendChild(off);
+    for (const gen of list) {
+      const opt = document.createElement('option');
+      opt.value = gen.id;
+      opt.textContent = schemaLabel(gen.i18nKey, gen.label);
+      sel.appendChild(opt);
+    }
+    sel.value = current;
+  }
+  builtParamGenId = null; // force the param sliders to rebuild
+  updateObjectGeneratorUI();
+}
+
+function buildParamSliders(schema) {
+  const row = document.getElementById('objectGenParamsRow');
+  if (!row) return;
+  row.innerHTML = '';
+  const params = (schema && schema.params) || [];
+  for (const spec of params) {
+    const label = document.createElement('label');
+    label.style.cssText = 'display:flex;align-items:center;gap:0.5rem;font-size:11px';
+    const name = document.createElement('span');
+    name.style.cssText = 'flex:0 0 auto;min-width:96px';
+    name.textContent = schemaLabel(spec.i18nKey, spec.label);
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = String(spec.min);
+    slider.max = String(spec.max);
+    slider.step = String(spec.step);
+    slider.style.cssText = 'flex:1;min-width:0';
+    slider.dataset.paramKey = spec.key;
+    const valEl = document.createElement('span');
+    valEl.style.cssText =
+      'flex:0 0 auto;width:48px;text-align:right;font-variant-numeric:tabular-nums';
+    const stored = app.objectGeneratorParams && app.objectGeneratorParams[spec.key];
+    const initial = stored != null ? stored : spec.default;
+    slider.value = String(initial);
+    valEl.textContent = fmtParamValue(spec, initial);
+    slider.addEventListener('input', () => {
+      valEl.textContent = fmtParamValue(spec, slider.value);
+      applyObjectGeneratorParamNow(spec.key, slider.value);
+    });
+    label.appendChild(name);
+    label.appendChild(slider);
+    label.appendChild(valEl);
+    row.appendChild(label);
+  }
+  builtParamGenId = schema ? schema.id : null;
+}
+
+// Reflect the active generator + its parameter sliders. Rebuilds the sliders
+// when the active generator (or its schema) changes; otherwise just refreshes
+// values without disturbing an in-progress drag.
 export function updateObjectGeneratorUI() {
   const sel = document.getElementById('objectGeneratorSelect');
   if (sel) sel.value = app.objectGeneratorId || 'none';
-  const padRow = document.getElementById('padParamsRow');
-  const showPad = app.objectGeneratorId === 'pad' && app.channelRenderMode !== 'host';
-  if (padRow) padRow.style.display = showPad ? 'flex' : 'none';
-  const reflect = (sliderId, valId, key, val) => {
-    const s = document.getElementById(sliderId);
-    // Don't fight the user while they drag the slider.
-    if (s && document.activeElement !== s) s.value = String(val);
-    const lbl = document.getElementById(valId);
-    if (lbl) lbl.textContent = fmtPadValue(key, val);
-  };
-  reflect('padStrengthSlider', 'padStrengthValue', 'strength', app.objectGenPadStrength);
-  reflect('padHpfSlider', 'padHpfValue', 'hpf_hz', app.objectGenPadHpfHz);
-  reflect('padGainSlider', 'padGainValue', 'gain_db', app.objectGenPadGainDb);
+  const schema = activeGeneratorSchema();
+  const row = document.getElementById('objectGenParamsRow');
+  const show = !!(schema && (schema.params || []).length) && app.channelRenderMode !== 'host';
+  if (row) row.style.display = show ? 'flex' : 'none';
+  const wantId = schema ? schema.id : null;
+  if (wantId !== builtParamGenId) {
+    buildParamSliders(schema);
+  } else if (row) {
+    for (const slider of row.querySelectorAll('input[type=range]')) {
+      const key = slider.dataset.paramKey;
+      const spec = (schema.params || []).find((p) => p.key === key);
+      if (!spec) continue;
+      const stored = app.objectGeneratorParams && app.objectGeneratorParams[key];
+      const v = stored != null ? stored : spec.default;
+      if (document.activeElement !== slider) slider.value = String(v);
+      const valEl = slider.nextElementSibling;
+      if (valEl) valEl.textContent = fmtParamValue(spec, v);
+    }
+  }
 }
 
 // Commit a generator selection: update state + push it to the engine, which
@@ -399,23 +488,23 @@ export function updateObjectGeneratorUI() {
 export function applyObjectGeneratorNow(value) {
   const requested = String(value || 'none').trim().toLowerCase();
   app.objectGeneratorId = requested;
+  // Switching generators drops the previous one's overrides (the renderer does
+  // the same) so the new generator shows its declared defaults.
+  app.objectGeneratorParams = {};
   updateObjectGeneratorUI();
   invoke('control_object_generator', { value: requested });
 }
 
-// Commit a PAD parameter change live (slider drag): update state + label and
-// push it to the engine, which clamps and applies it without resetting DSP
-// state. key ∈ { strength, hpf_hz, gain_db }.
+// Commit a generator parameter change live (slider drag): store the override and
+// push it to the engine, which validates/clamps and applies it by key without
+// resetting DSP state.
 export function applyObjectGeneratorParamNow(key, value) {
   const v = Number(value);
   if (!Number.isFinite(v)) return;
-  if (key === 'strength') app.objectGenPadStrength = v;
-  else if (key === 'hpf_hz') app.objectGenPadHpfHz = v;
-  else if (key === 'gain_db') app.objectGenPadGainDb = v;
-  else return;
-  const valId = key === 'strength' ? 'padStrengthValue' : key === 'hpf_hz' ? 'padHpfValue' : 'padGainValue';
-  const lbl = document.getElementById(valId);
-  if (lbl) lbl.textContent = fmtPadValue(key, v);
+  if (!app.objectGeneratorParams || typeof app.objectGeneratorParams !== 'object') {
+    app.objectGeneratorParams = {};
+  }
+  app.objectGeneratorParams[key] = v;
   invoke('control_object_generator_param', { key, value: v });
 }
 

@@ -2396,6 +2396,17 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     removed_ids,
                 )
             }
+            OscEvent::StateObjectGenerators { value } => {
+                // Declared bed→height generator schema (id/label/param specs). JS
+                // parses the JSON once on arrival to build the selector + sliders.
+                (
+                    Some((
+                        "objectGenerators:schema",
+                        serde_json::json!({ "value": value }),
+                    )),
+                    removed_ids,
+                )
+            }
             OscEvent::StateDecodeTimeMs { value } => {
                 s.decode_time_ms = Some(value);
                 (

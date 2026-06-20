@@ -144,10 +144,11 @@ pub fn build_renderer_state_json(
         "channelRenderMode": live.channel_render_mode.as_str(),
         // Active bed→height object generator (2D upmix) id; empty = off.
         "objectGeneratorId": live.object_generator_id.as_str(),
-        // PAD generator live params (for the Studio sliders).
-        "objectGenPadStrength": live.object_gen_pad_strength,
-        "objectGenPadHpfHz": live.object_gen_pad_hpf_hz,
-        "objectGenPadGainDb": live.object_gen_pad_gain_db,
+        // Live param overrides for the active generator (key → value), for the
+        // Studio sliders. The schema itself is published separately by the engine
+        // on `/omniphony/state/object_generators`.
+        "objectGeneratorParams":
+            serde_json::to_value(&live.object_generator_params).unwrap_or(serde_json::Value::Null),
         "surroundPlacement": live.surround_placement.as_str(),
         "outputChannelMapping": live.output_channel_mapping.as_str(),
         "outputChannelMappingUnroutable": unroutable_speaker_names,

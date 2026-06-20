@@ -234,10 +234,13 @@ export const app = {
   // Bed→height object generator (2D upmix) id: 'none' (off), 'copy_up', 'pad'.
   // Synthesizes height objects from channel content on a height-capable layout.
   objectGeneratorId: 'none',
-  // PAD generator live params (sliders, shown when 'pad' is selected).
-  objectGenPadStrength: 0.3,
-  objectGenPadHpfHz: 300,
-  objectGenPadGainDb: 0,
+  // Declared bed→height generator schema, published by the renderer on
+  // /omniphony/state/object_generators: [{id,label,i18nKey,requiresHeightLayer,
+  // params:[{key,label,i18nKey,min,max,step,default,unit}]}]. Studio builds the
+  // selector + parameter sliders from this.
+  objectGenerators: [],
+  // Live param overrides for the active generator (key → value).
+  objectGeneratorParams: {},
   // How output channels map to device ports: 'by_index' (positionless — port N =
   // layout speaker N) or 'by_name' (positional). Default 'by_index'.
   outputChannelMapping: 'by_index',

@@ -6,7 +6,7 @@ import { updateAdaptiveResamplingUI, resetAdaptiveResamplingAdvancedDirtyState }
 import {
   closeAudioSampleRateMenu, openAudioSampleRateMenu, updateAudioFormatDisplay,
   applyAudioSampleRateNow, applyAudioOutputDeviceNow, applyRampModeNow,
-  applyChannelRenderModeNow, applySurroundPlacementNow, applyObjectGeneratorNow, applyObjectGeneratorParamNow, applyOutputChannelMappingNow, sendAudioConfig,
+  applyChannelRenderModeNow, applySurroundPlacementNow, applyObjectGeneratorNow, applyOutputChannelMappingNow, sendAudioConfig,
   applyAudioOutputBackendNow, applyAudioOutputFileNow, applyAudioOutputFileFormatNow,
   applyAudioOutputNamedPipeNow
 } from '../controls/audio.js';
@@ -591,16 +591,9 @@ export function setupAudioPanelListeners() {
       applyObjectGeneratorNow(objectGeneratorSelectEl.value);
     });
   }
-  for (const [id, key] of [
-    ['padStrengthSlider', 'strength'],
-    ['padHpfSlider', 'hpf_hz'],
-    ['padGainSlider', 'gain_db'],
-  ]) {
-    const el = document.getElementById(id);
-    if (el) {
-      el.addEventListener('input', () => applyObjectGeneratorParamNow(key, el.value));
-    }
-  }
+  // Per-generator parameter sliders are built dynamically from the declared
+  // schema (see controls/audio.js buildParamSliders); their listeners are wired
+  // at creation, so there is nothing static to bind here.
 
   const outputChannelMappingByIndexEl = document.getElementById('outputChannelMappingByIndex');
   if (outputChannelMappingByIndexEl) {

@@ -27,29 +27,24 @@ pub struct ObjectGenCapabilities {
     pub requires_height_layer: bool,
 }
 
-/// Live-tunable parameters, applied to the active generator without rebuilding
-/// it (so a slider drag does not reset DSP state). The union of the parameters
-/// the built-in generators expose; a generator ignores the ones it does not use.
-/// (A per-generator declared schema is a future extension.)
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ObjectGenParams {
-    /// PAD: ambience strength — the NLMS step (0..1). Higher cancels the
-    /// correlated primary more aggressively (more lifts, more diffuse).
-    pub strength: f32,
-    /// PAD: high-pass cutoff for the height layer (Hz) — bass stays grounded.
-    pub hpf_hz: f32,
-    /// PAD: makeup gain for the lifted ambience (dB).
-    pub gain_db: f32,
-}
-
-impl Default for ObjectGenParams {
-    fn default() -> Self {
-        Self {
-            strength: PAD_NLMS_MU,
-            hpf_hz: PAD_HPF_HZ,
-            gain_db: 0.0,
-        }
-    }
+/// One live-tunable parameter a generator declares, so the host can build a
+/// control for it and the renderer can validate/apply it by key. Static per
+/// generator type — the schema, not a value.
+#[derive(Debug, Clone, Copy)]
+pub struct ObjectGenParamSpec {
+    /// Stable key used in the OSC param control and the value map.
+    pub key: &'static str,
+    /// English fallback label.
+    pub label: &'static str,
+    /// i18n key for a localized label in Studio (built-ins); empty for
+    /// out-of-tree generators (the host then shows `label`).
+    pub i18n_key: &'static str,
+    pub min: f32,
+    pub max: f32,
+    pub step: f32,
+    pub default: f32,
+    /// Display unit suffix (e.g. `"Hz"`, `"dB"`); empty for a bare number.
+    pub unit: &'static str,
 }
 
 /// One synthesized object the generator emits. Position/name are static for a
@@ -102,9 +97,15 @@ pub trait ObjectGenerator: Send {
     /// last `prepare`. Must not allocate or panic.
     fn process(&mut self, bed: &BedFrame, out: &mut [Vec<f32>]);
 
-    /// Apply live-tunable parameters in place (no DSP-state reset). Called when
-    /// the values change. Default: ignore (generators with no params).
-    fn set_params(&mut self, _params: &ObjectGenParams, _sample_rate: u32) {}
+    /// The live-tunable parameters this generator declares (default: none). The
+    /// host builds a control per entry and validates incoming values against it.
+    fn param_schema(&self) -> &'static [ObjectGenParamSpec] {
+        &[]
+    }
+
+    /// Apply one parameter by `key`, in place (no DSP-state reset). Unknown keys
+    /// are ignored. Default: no params.
+    fn set_param(&mut self, _key: &str, _value: f32, _sample_rate: u32) {}
 }
 
 /// Factory for an [`ObjectGenerator`], keyed by a stable string id (mirrors the
@@ -114,6 +115,15 @@ pub trait ObjectGeneratorFactory: Send + Sync {
     fn label(&self) -> &'static str;
     fn requires_height_layer(&self) -> bool;
     fn build(&self) -> Box<dyn ObjectGenerator>;
+    /// i18n key for a localized name in Studio (built-ins); empty otherwise.
+    fn i18n_key(&self) -> &'static str {
+        ""
+    }
+    /// The parameter schema this generator exposes (default: none). Available
+    /// without building an instance, so the host can publish it to the UI.
+    fn param_schema(&self) -> &'static [ObjectGenParamSpec] {
+        &[]
+    }
 }
 
 /// String-keyed registry of generator factories: the shipped built-ins plus any
@@ -156,6 +166,48 @@ impl ObjectGeneratorRegistry {
             .map(|f| (f.id(), f.label(), f.requires_height_layer()))
             .collect()
     }
+
+    /// JSON array of `{id,label,i18nKey,requiresHeightLayer,params:[…]}` for each
+    /// registered generator, for the Studio UI to build the selector + the
+    /// per-generator parameter sliders.
+    pub fn listings_json(&self) -> String {
+        let arr: Vec<serde_json::Value> = self
+            .factories
+            .iter()
+            .map(|f| {
+                let params: Vec<serde_json::Value> = f
+                    .param_schema()
+                    .iter()
+                    .map(|p| {
+                        serde_json::json!({
+                            "key": p.key,
+                            "label": p.label,
+                            "i18nKey": p.i18n_key,
+                            "min": p.min,
+                            "max": p.max,
+                            "step": p.step,
+                            "default": p.default,
+                            "unit": p.unit,
+                        })
+                    })
+                    .collect();
+                serde_json::json!({
+                    "id": f.id(),
+                    "label": f.label(),
+                    "i18nKey": f.i18n_key(),
+                    "requiresHeightLayer": f.requires_height_layer(),
+                    "params": params,
+                })
+            })
+            .collect();
+        serde_json::to_string(&arr).unwrap_or_else(|_| "[]".to_string())
+    }
+}
+
+/// JSON listing of the built-in generators (id/label/schema), for the host to
+/// publish to Studio over OSC without owning a registry instance.
+pub fn builtin_listings_json() -> String {
+    ObjectGeneratorRegistry::with_builtins().listings_json()
 }
 
 impl Default for ObjectGeneratorRegistry {
@@ -215,6 +267,9 @@ impl ObjectGeneratorFactory for CopyUpFactory {
     }
     fn build(&self) -> Box<dyn ObjectGenerator> {
         Box::<CopyUpGenerator>::default()
+    }
+    fn i18n_key(&self) -> &'static str {
+        "twoDSources.objectGenCopyUp"
     }
 }
 
@@ -360,6 +415,12 @@ impl ObjectGeneratorFactory for PadFactory {
     fn build(&self) -> Box<dyn ObjectGenerator> {
         Box::<PadGenerator>::default()
     }
+    fn i18n_key(&self) -> &'static str {
+        "twoDSources.objectGenPad"
+    }
+    fn param_schema(&self) -> &'static [ObjectGenParamSpec] {
+        &PAD_PARAM_SPECS
+    }
 }
 
 /// High-pass cutoff for the height layer (Hz): keep bass grounded.
@@ -377,6 +438,40 @@ const PAD_W_CLAMP: f32 = 4.0;
 /// Object gain for the lifted ambience (dB). The ambient component is already
 /// lower energy than the primary, so unity keeps it natural.
 const PAD_GAIN_DB: i8 = 0;
+
+/// Live-tunable parameters PAD declares (the schema the UI builds sliders from).
+const PAD_PARAM_SPECS: [ObjectGenParamSpec; 3] = [
+    ObjectGenParamSpec {
+        key: "strength",
+        label: "Ambience strength",
+        i18n_key: "twoDSources.padStrength",
+        min: 0.0,
+        max: 1.0,
+        step: 0.01,
+        default: PAD_NLMS_MU,
+        unit: "",
+    },
+    ObjectGenParamSpec {
+        key: "hpf_hz",
+        label: "Bass cutoff",
+        i18n_key: "twoDSources.padHpf",
+        min: 20.0,
+        max: 2000.0,
+        step: 10.0,
+        default: PAD_HPF_HZ,
+        unit: "Hz",
+    },
+    ObjectGenParamSpec {
+        key: "gain_db",
+        label: "Height level",
+        i18n_key: "twoDSources.padGain",
+        min: -24.0,
+        max: 24.0,
+        step: 0.5,
+        default: 0.0,
+        unit: "dB",
+    },
+];
 
 /// One floor pair (L, R) → two height objects (ambient of L, ambient of R), with
 /// the adaptive-canceller and high-pass state that must persist across frames.
@@ -508,13 +603,23 @@ impl ObjectGenerator for PadGenerator {
         }
     }
 
-    fn set_params(&mut self, params: &ObjectGenParams, sample_rate: u32) {
-        self.mu = params.strength.clamp(0.0, 1.0);
-        self.makeup = 10.0_f32.powf(params.gain_db / 20.0);
-        let fs = sample_rate.max(1) as f32;
-        for pair in self.pairs.iter_mut() {
-            pair.hpf_l.set_highpass(fs, params.hpf_hz, PAD_HPF_Q);
-            pair.hpf_r.set_highpass(fs, params.hpf_hz, PAD_HPF_Q);
+    fn param_schema(&self) -> &'static [ObjectGenParamSpec] {
+        &PAD_PARAM_SPECS
+    }
+
+    fn set_param(&mut self, key: &str, value: f32, sample_rate: u32) {
+        match key {
+            "strength" => self.mu = value.clamp(0.0, 1.0),
+            "gain_db" => self.makeup = 10.0_f32.powf(value.clamp(-24.0, 24.0) / 20.0),
+            "hpf_hz" => {
+                let fs = sample_rate.max(1) as f32;
+                let fc = value.clamp(20.0, 2000.0);
+                for pair in self.pairs.iter_mut() {
+                    pair.hpf_l.set_highpass(fs, fc, PAD_HPF_Q);
+                    pair.hpf_r.set_highpass(fs, fc, PAD_HPF_Q);
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -543,10 +648,6 @@ pub struct ObjectGenStage {
     /// Extended interleaved PCM (bed channels + synthesized object channels).
     pcm_ext: Vec<f32>,
     sig: PlanSig,
-    /// Last params pushed to the generator (skip redundant re-application).
-    /// `None` forces the next [`set_params`](Self::set_params) through (e.g. after
-    /// a rebuild).
-    last_params: Option<ObjectGenParams>,
 }
 
 impl ObjectGenStage {
@@ -558,7 +659,6 @@ impl ObjectGenStage {
             planar: Vec::new(),
             pcm_ext: Vec::new(),
             sig: PlanSig::default(),
-            last_params: None,
         }
     }
 
@@ -597,20 +697,16 @@ impl ObjectGenStage {
             };
             self.planar.truncate(self.specs.len());
             self.planar.resize_with(self.specs.len(), Vec::new);
-            // New generator instance: re-apply the live params to it.
-            self.last_params = None;
         }
         self.specs.len()
     }
 
-    /// Push live-tunable params to the active generator (applied in place, no DSP
-    /// reset). Skips re-application when unchanged.
-    pub fn set_params(&mut self, params: &ObjectGenParams, sample_rate: u32) {
-        if self.last_params != Some(*params) {
-            if let Some(g) = self.generator.as_mut() {
-                g.set_params(params, sample_rate);
-            }
-            self.last_params = Some(*params);
+    /// Apply one live-tunable parameter to the active generator (in place, no DSP
+    /// reset). Cheap and idempotent — the engine pushes the active generator's
+    /// params each frame, so a fresh generator (after a rebuild) re-receives them.
+    pub fn set_param(&mut self, key: &str, value: f32, sample_rate: u32) {
+        if let Some(g) = self.generator.as_mut() {
+            g.set_param(key, value, sample_rate);
         }
     }
 
@@ -861,6 +957,67 @@ mod tests {
         assert!(
             correlated < 0.25 * decorrelated,
             "correlated ambience {correlated} should be << decorrelated {decorrelated}"
+        );
+    }
+
+    #[test]
+    fn pad_declares_three_params() {
+        let g = PadGenerator::default();
+        let keys: Vec<&str> = g.param_schema().iter().map(|p| p.key).collect();
+        assert_eq!(g.param_schema().len(), 3);
+        assert!(
+            keys.contains(&"strength") && keys.contains(&"hpf_hz") && keys.contains(&"gain_db")
+        );
+    }
+
+    #[test]
+    fn builtin_listings_json_includes_declared_schema() {
+        let json = builtin_listings_json();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(v.is_array());
+        assert!(json.contains("copy_up") && json.contains("\"pad\""));
+        for key in ["strength", "hpf_hz", "gain_db"] {
+            assert!(json.contains(key), "schema should declare {key}");
+        }
+    }
+
+    #[test]
+    fn set_param_gain_scales_height_output() {
+        let out_layout = layout_7_1_4();
+        let n = 1500usize;
+        let c = 6usize;
+        let mut pcm = vec![0.0f32; c * n];
+        for s in 0..n {
+            pcm[s * c] = (s as f32 * 0.11).sin() * 0.5;
+            pcm[s * c + 1] = (s as f32 * 0.07).sin() * 0.5;
+        }
+        let run = |gain_db: Option<f32>| {
+            let mut g = PadGenerator::default();
+            let _ = g.prepare(&PrepareCtx {
+                input_labels: &LABELS_5_1,
+                output_layout: &out_layout,
+                sample_rate: 48_000,
+            });
+            if let Some(db) = gain_db {
+                g.set_param("gain_db", db, 48_000);
+            }
+            let mut out: Vec<Vec<f32>> = vec![vec![0.0; n]; 4];
+            g.process(
+                &BedFrame {
+                    pcm: &pcm,
+                    channel_count: c,
+                    sample_count: n,
+                    sample_rate: 48_000,
+                },
+                &mut out,
+            );
+            out[0][n / 2..].iter().map(|&x| x * x).sum::<f32>()
+        };
+        let unity = run(None);
+        let attenuated = run(Some(-24.0));
+        assert!(
+            attenuated < 0.05 * unity,
+            "gain_db=-24 should attenuate the height output ({attenuated} vs {unity})"
         );
     }
 }

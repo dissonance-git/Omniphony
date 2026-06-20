@@ -24,6 +24,14 @@ pub(crate) fn build_live_state_bundle(
     if let Some(h) = host {
         messages.extend(h.extend_snapshot());
     }
+    // Declared bed→height object-generator schema (id / label / param specs), so
+    // Studio builds the 2D-upmix selector + parameter sliders dynamically. Lives
+    // here (not in runtime_control's snapshot) because the registry is in this
+    // crate.
+    messages.push(OscPacket::Message(OscMessage {
+        addr: "/omniphony/state/object_generators".to_string(),
+        args: vec![OscType::String(crate::object_gen::builtin_listings_json())],
+    }));
     messages.push(OscPacket::Message(OscMessage {
         addr: "/omniphony/state/snapshot_complete".to_string(),
         args: vec![OscType::Int(1)],

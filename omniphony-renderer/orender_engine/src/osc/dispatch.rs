@@ -96,7 +96,15 @@ pub(crate) fn handle_control_message(
     // committed on the next dirty flush.)
     if addr == osc_contract::CONTROL_OBJECT_GENERATOR {
         if let Some(OscType::String(s)) = msg.args.first() {
-            control.live.write().object_generator_id = s.clone();
+            {
+                let mut live = control.live.write();
+                if live.object_generator_id != *s {
+                    // New generator: drop the previous one's param overrides so the
+                    // new generator starts at its declared defaults.
+                    live.object_generator_params.clear();
+                }
+                live.object_generator_id = s.clone();
+            }
             control.mark_dirty();
             broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
             log::info!("OSC object generator set to '{}'", s);
@@ -116,18 +124,16 @@ pub(crate) fn handle_control_message(
             Some(OscType::Int(i)) => *i as f32,
             _ => return,
         };
-        if !value.is_finite() {
+        if key.is_empty() || !value.is_finite() {
             return;
         }
-        {
-            let mut live = control.live.write();
-            match key.as_str() {
-                "strength" => live.object_gen_pad_strength = value.clamp(0.0, 1.0),
-                "hpf_hz" => live.object_gen_pad_hpf_hz = value.clamp(20.0, 2000.0),
-                "gain_db" => live.object_gen_pad_gain_db = value.clamp(-24.0, 24.0),
-                _ => return,
-            }
-        }
+        // Store the override generically; the generator validates and clamps it by
+        // key when the render thread applies it (declared-schema design).
+        control
+            .live
+            .write()
+            .object_generator_params
+            .insert(key, value);
         control.mark_dirty();
         return;
     }
