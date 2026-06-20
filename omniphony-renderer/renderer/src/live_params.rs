@@ -939,6 +939,13 @@ pub struct RendererControl {
     /// (see [`crate::backend_params`]). Generic so a backend's params need no
     /// typed field here. Read at topology-build time, never on the audio hot path.
     backend_params: RwLock<HashMap<String, HashMap<String, crate::backend_params::ParamValue>>>,
+
+    /// JSON schema (`[{id,label,i18nKey,params:[…]}]`) of the available bed→height
+    /// object generators, set by the engine from its registry (which lives in
+    /// `orender_engine` and so can't be held here as a typed registry). Published
+    /// to Studio so host-registered (out-of-tree) generators appear too. `"[]"`
+    /// until the engine sets it.
+    object_generators_schema: RwLock<String>,
 }
 
 impl RendererControl {
@@ -978,6 +985,7 @@ impl RendererControl {
             diag_rate_hz_bits: Arc::new(std::sync::atomic::AtomicU32::new(50.0_f32.to_bits())),
             backend_registry: RwLock::new(BackendRegistry::builtin()),
             backend_params: RwLock::new(HashMap::new()),
+            object_generators_schema: RwLock::new("[]".to_string()),
         })
     }
 
@@ -987,6 +995,17 @@ impl RendererControl {
     /// rebuild through it.
     pub fn register_backend(&self, factory: Box<dyn crate::backend_registry::BackendFactory>) {
         self.backend_registry.write().register(factory);
+    }
+
+    /// Set the published object-generator schema JSON (called by the engine from
+    /// its registry, so any host-registered out-of-tree generators are included).
+    pub fn set_object_generators_schema(&self, json: String) {
+        *self.object_generators_schema.write() = json;
+    }
+
+    /// The published object-generator schema JSON (`"[]"` until the engine sets it).
+    pub fn object_generators_schema(&self) -> String {
+        self.object_generators_schema.read().clone()
     }
 
     /// Whether a backend with this id is registered (built-in or host-registered).

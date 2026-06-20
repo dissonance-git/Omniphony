@@ -233,6 +233,19 @@ impl Engine {
         }
     }
 
+    /// Register a host-supplied (out-of-tree) bed→height object generator so it
+    /// can be selected by id and appears in Studio's selector + parameter sliders.
+    /// Call at startup (before `enable_osc`); a later call re-publishes the schema.
+    pub fn register_object_generator(
+        &mut self,
+        factory: Box<dyn object_gen::ObjectGeneratorFactory>,
+    ) {
+        self.object_gen.register(factory);
+        self.renderer
+            .renderer_control()
+            .set_object_generators_schema(self.object_gen.registry().listings_json());
+    }
+
     /// Start the OSC live-control server, attaching the renderer control so
     /// incoming `/omniphony/control/*` messages adjust live params (gains, room,
     /// spread, …) — picked up by the next `render_frame` — and registered
@@ -244,6 +257,13 @@ impl Engine {
     pub fn enable_osc(&mut self, opts: OscOptions) -> Result<()> {
         use std::net::SocketAddrV4;
         use std::str::FromStr;
+
+        // Publish the object-generator schema (built-ins + any host-registered
+        // out-of-tree generators) into RendererControl so the live-state bundle
+        // carries it to Studio.
+        self.renderer
+            .renderer_control()
+            .set_object_generators_schema(self.object_gen.registry().listings_json());
 
         let target = SocketAddrV4::from_str(&format!("{}:{}", opts.host, opts.port_out))
             .map_err(|e| anyhow!("invalid OSC target {}:{}: {e}", opts.host, opts.port_out))?;

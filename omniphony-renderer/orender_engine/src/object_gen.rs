@@ -666,6 +666,11 @@ impl ObjectGenStage {
         &self.registry
     }
 
+    /// Register a host-supplied (out-of-tree) generator factory.
+    pub fn register(&mut self, factory: Box<dyn ObjectGeneratorFactory>) {
+        self.registry.register(factory);
+    }
+
     pub fn specs(&self) -> &[SynthObjectSpec] {
         &self.specs
     }
@@ -1019,5 +1024,62 @@ mod tests {
             attenuated < 0.05 * unity,
             "gain_db=-24 should attenuate the height output ({attenuated} vs {unity})"
         );
+    }
+
+    // A minimal out-of-tree generator, to prove host registration surfaces it in
+    // both the published schema and `build`.
+    static DUMMY_PARAMS: [ObjectGenParamSpec; 1] = [ObjectGenParamSpec {
+        key: "amount",
+        label: "Amount",
+        i18n_key: "",
+        min: 0.0,
+        max: 1.0,
+        step: 0.1,
+        default: 0.5,
+        unit: "",
+    }];
+
+    struct DummyGenerator;
+    impl ObjectGenerator for DummyGenerator {
+        fn capabilities(&self) -> ObjectGenCapabilities {
+            ObjectGenCapabilities::default()
+        }
+        fn prepare(&mut self, _ctx: &PrepareCtx) -> Vec<SynthObjectSpec> {
+            Vec::new()
+        }
+        fn process(&mut self, _bed: &BedFrame, _out: &mut [Vec<f32>]) {}
+        fn param_schema(&self) -> &'static [ObjectGenParamSpec] {
+            &DUMMY_PARAMS
+        }
+    }
+
+    struct DummyFactory;
+    impl ObjectGeneratorFactory for DummyFactory {
+        fn id(&self) -> &'static str {
+            "dummy"
+        }
+        fn label(&self) -> &'static str {
+            "Dummy"
+        }
+        fn requires_height_layer(&self) -> bool {
+            false
+        }
+        fn build(&self) -> Box<dyn ObjectGenerator> {
+            Box::new(DummyGenerator)
+        }
+        fn param_schema(&self) -> &'static [ObjectGenParamSpec] {
+            &DUMMY_PARAMS
+        }
+    }
+
+    #[test]
+    fn registry_lists_and_builds_out_of_tree_generator() {
+        let mut reg = ObjectGeneratorRegistry::with_builtins();
+        reg.register(Box::new(DummyFactory));
+        let json = reg.listings_json();
+        assert!(json.contains("dummy") && json.contains("Amount"), "{json}");
+        assert!(reg.build("dummy").is_some());
+        // The built-ins are still listed alongside the registered generator.
+        assert!(json.contains("copy_up") && json.contains("\"pad\""));
     }
 }
