@@ -241,6 +241,10 @@ export const app = {
   objectGenerators: [],
   // Live param overrides for the active generator (key → value).
   objectGeneratorParams: {},
+  // Whether the active output layout has top speakers; when false the 2D-upmix
+  // generators are a no-op and the selector is greyed out. Assume yes until the
+  // renderer reports otherwise.
+  objectGeneratorLayoutHasHeight: true,
   // How output channels map to device ports: 'by_index' (positionless — port N =
   // layout speaker N) or 'by_name' (positional). Default 'by_index'.
   outputChannelMapping: 'by_index',

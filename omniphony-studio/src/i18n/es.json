@@ -284,6 +284,7 @@
   "twoDSources.summary.passthrough": "Paso directo del reproductor",
   "twoDSources.objectGeneratorLabel": "Objetos de altura desde 2D",
   "twoDSources.objectGenNone": "Desactivado",
+  "twoDSources.objectGenNoHeight": "Sin altavoces de techo",
   "twoDSources.objectGenCopyUp": "Copia directa",
   "twoDSources.objectGenPad": "Ambiente (PAD)",
   "twoDSources.padStrength": "Intensidad de ambiente",

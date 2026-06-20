@@ -284,6 +284,7 @@
   "twoDSources.summary.passthrough": "プレーヤー直通",
   "twoDSources.objectGeneratorLabel": "2Dからの高さオブジェクト",
   "twoDSources.objectGenNone": "オフ",
+  "twoDSources.objectGenNoHeight": "トップスピーカーなし",
   "twoDSources.objectGenCopyUp": "直接コピー",
   "twoDSources.objectGenPad": "アンビエンス (PAD)",
   "twoDSources.padStrength": "アンビエンスの強さ",

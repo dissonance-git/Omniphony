@@ -128,11 +128,14 @@
           </div>
           <div id="objectGeneratorRow" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
             <span style="font-size:12px" data-i18n="twoDSources.objectGeneratorLabel" data-help-i18n="help.objectGenerator" data-help-anchor="#objectGeneratorRow">Height objects from 2D</span>
-            <select id="objectGeneratorSelect" style="flex:0 1 auto;min-width:0">
-              <option value="none" data-i18n="twoDSources.objectGenNone">Off</option>
-              <option value="copy_up" data-i18n="twoDSources.objectGenCopyUp">Direct copy</option>
-              <option value="pad" data-i18n="twoDSources.objectGenPad">Ambience (PAD)</option>
-            </select>
+            <span style="display:flex;align-items:center;gap:0.4rem;min-width:0">
+              <span id="objectGeneratorNoHeightNote" style="display:none;font-size:10px;opacity:0.7;white-space:nowrap" data-i18n="twoDSources.objectGenNoHeight">No top speakers</span>
+              <select id="objectGeneratorSelect" style="flex:0 1 auto;min-width:0">
+                <option value="none" data-i18n="twoDSources.objectGenNone">Off</option>
+                <option value="copy_up" data-i18n="twoDSources.objectGenCopyUp">Direct copy</option>
+                <option value="pad" data-i18n="twoDSources.objectGenPad">Ambience (PAD)</option>
+              </select>
+            </span>
           </div>
           <!-- Per-generator parameter sliders, built dynamically from the
                generator's declared schema (/omniphony/state/object_generators). -->

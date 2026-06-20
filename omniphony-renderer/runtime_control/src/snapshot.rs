@@ -149,6 +149,14 @@ pub fn build_renderer_state_json(
         // on `/omniphony/state/object_generators`.
         "objectGeneratorParams":
             serde_json::to_value(&live.object_generator_params).unwrap_or(serde_json::Value::Null),
+        // Whether the active output layout has a top speaker. The 2D-upmix
+        // generators are a strict no-op without one, so Studio greys out the
+        // selector.
+        "objectGeneratorLayoutHasHeight": active_topology
+            .speaker_layout
+            .speakers
+            .iter()
+            .any(|s| s.spatialize && s.z > 1.0e-3),
         "surroundPlacement": live.surround_placement.as_str(),
         "outputChannelMapping": live.output_channel_mapping.as_str(),
         "outputChannelMappingUnroutable": unroutable_speaker_names,

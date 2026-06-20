@@ -284,6 +284,7 @@
   "twoDSources.summary.passthrough": "播放器直通",
   "twoDSources.objectGeneratorLabel": "从 2D 生成高度对象",
   "twoDSources.objectGenNone": "关闭",
+  "twoDSources.objectGenNoHeight": "无顶置音箱",
   "twoDSources.objectGenCopyUp": "直接复制",
   "twoDSources.objectGenPad": "环境声 (PAD)",
   "twoDSources.padStrength": "环境声强度",

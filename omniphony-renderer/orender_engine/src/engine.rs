@@ -435,6 +435,21 @@ impl Engine {
             .unwrap_or(renderer::config_fields::output_channel_mapping::DEFAULT);
         control.live.write().output_channel_mapping = output_channel_mapping;
 
+        // Bed→height object generator selection + its live param overrides; seeded
+        // from config so the choice survives a restart (FFI/CLI parity). Empty id
+        // = off; absent params = the generator's declared defaults.
+        let object_generator_id = render_cfg
+            .as_ref()
+            .and_then(renderer::config_fields::object_generator_id::get)
+            .unwrap_or_default();
+        control.live.write().object_generator_id = object_generator_id;
+        if let Some(params) = render_cfg
+            .as_ref()
+            .and_then(|c| c.object_generator_params.clone())
+        {
+            control.live.write().object_generator_params = params;
+        }
+
         // Parametrable virtual bed (per-channel direct/virtual placement). Seed
         // from config so the embedded host matches the CLI bootstrap; `None`
         // leaves the built-in canonical poses in effect (LFE direct).

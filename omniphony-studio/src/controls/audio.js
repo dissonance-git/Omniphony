@@ -461,9 +461,16 @@ function buildParamSliders(schema) {
 export function updateObjectGeneratorUI() {
   const sel = document.getElementById('objectGeneratorSelect');
   if (sel) sel.value = app.objectGeneratorId || 'none';
+  // Grey out the whole control when the output layout has no top speaker — the
+  // 2D-upmix generators are a strict no-op there.
+  const hasHeight = app.objectGeneratorLayoutHasHeight !== false;
+  if (sel) sel.disabled = !hasHeight;
+  const note = document.getElementById('objectGeneratorNoHeightNote');
+  if (note) note.style.display = hasHeight ? 'none' : 'inline';
   const schema = activeGeneratorSchema();
   const row = document.getElementById('objectGenParamsRow');
-  const show = !!(schema && (schema.params || []).length) && app.channelRenderMode !== 'host';
+  const show =
+    !!(schema && (schema.params || []).length) && app.channelRenderMode !== 'host' && hasHeight;
   if (row) row.style.display = show ? 'flex' : 'none';
   const wantId = schema ? schema.id : null;
   if (wantId !== builtParamGenId) {

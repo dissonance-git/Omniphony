@@ -284,6 +284,7 @@
   "twoDSources.summary.passthrough": "Passthrough lecteur",
   "twoDSources.objectGeneratorLabel": "Objets de hauteur depuis le 2D",
   "twoDSources.objectGenNone": "Désactivé",
+  "twoDSources.objectGenNoHeight": "Pas d'enceintes hautes",
   "twoDSources.objectGenCopyUp": "Copie directe",
   "twoDSources.objectGenPad": "Ambiance (PAD)",
   "twoDSources.padStrength": "Force d'ambiance",

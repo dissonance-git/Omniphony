@@ -284,6 +284,7 @@
   "twoDSources.summary.passthrough": "Passthrough do player",
   "twoDSources.objectGeneratorLabel": "Objetos de altura a partir do 2D",
   "twoDSources.objectGenNone": "Desligado",
+  "twoDSources.objectGenNoHeight": "Sem alto-falantes de teto",
   "twoDSources.objectGenCopyUp": "Cópia direta",
   "twoDSources.objectGenPad": "Ambiência (PAD)",
   "twoDSources.padStrength": "Intensidade de ambiência",
