@@ -90,6 +90,20 @@ pub(crate) fn handle_control_message(
         return;
     }
 
+    // Bed→height object generator (2D upmix) selection for channel content.
+    // Live-tunable from Studio; an empty / "none" id disables it. (Persistence
+    // to config is added with the Studio UI; for now it is a live-only toggle
+    // committed on the next dirty flush.)
+    if addr == osc_contract::CONTROL_OBJECT_GENERATOR {
+        if let Some(OscType::String(s)) = msg.args.first() {
+            control.live.write().object_generator_id = s.clone();
+            control.mark_dirty();
+            broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
+            log::info!("OSC object generator set to '{}'", s);
+        }
+        return;
+    }
+
     // Surround placement (side/back) for 4.x/5.x channel content. Live-tunable
     // from Studio; persists to config right away (same rationale as
     // channel_render_mode: a host fallback can route the next toggle to a

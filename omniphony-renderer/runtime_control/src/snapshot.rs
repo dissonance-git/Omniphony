@@ -142,6 +142,8 @@ pub fn build_renderer_state_json(
         "autoGainCeilingDb": live.auto_gain_ceiling_db,
         "rampMode": live.ramp_mode.as_str(),
         "channelRenderMode": live.channel_render_mode.as_str(),
+        // Active bed→height object generator (2D upmix) id; empty = off.
+        "objectGeneratorId": live.object_generator_id.as_str(),
         "surroundPlacement": live.surround_placement.as_str(),
         "outputChannelMapping": live.output_channel_mapping.as_str(),
         "outputChannelMappingUnroutable": unroutable_speaker_names,

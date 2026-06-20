@@ -107,6 +107,11 @@ export function applyRuntimeAudioStateSnapshot(payload) {
       app.surroundPlacement = next;
     }
   }
+  if (typeof payload.objectGeneratorId === 'string') {
+    // Empty string from the renderer means "off"; normalise to 'none'.
+    const next = payload.objectGeneratorId.trim().toLowerCase();
+    app.objectGeneratorId = next === '' ? 'none' : next;
+  }
   if (typeof payload.outputChannelMapping === 'string') {
     const next = payload.outputChannelMapping.trim().toLowerCase();
     if (next === 'by_index' || next === 'by_name') {

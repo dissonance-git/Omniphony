@@ -651,6 +651,14 @@ pub struct LiveParams {
     /// falls back to the built-in canonical poses (LFE direct, the rest
     /// virtualized). Live-tunable via the `virtual_bed` layout OSC controls.
     pub virtual_bed: Option<SpeakerLayout>,
+
+    /// Selects the bed→height object generator (2D upmix): synthesizes height
+    /// objects from channel-based content so a height-capable layout (7.1.4, …)
+    /// is exercised when the source has no height. Empty / `"none"` = disabled
+    /// (the default). Consulted only for channel content without spatial objects;
+    /// object streams ignore it. Live-tunable via
+    /// `/omniphony/control/object_generator`.
+    pub object_generator_id: String,
 }
 
 impl LiveParams {

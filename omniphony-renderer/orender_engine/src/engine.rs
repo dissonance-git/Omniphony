@@ -10,7 +10,7 @@ use crate::events::Configuration;
 use crate::osc::{ObjectMeta, OscSender};
 use crate::overlay;
 use crate::renderer_build::{SpatialRendererParams, build_spatial_renderer};
-use crate::{render, spatial, virtual_bed};
+use crate::{object_gen, render, spatial, virtual_bed};
 use anyhow::{Result, anyhow, bail};
 use bridge_api::{RChannelLabel, RCoordinateFormat, RDecodedFrame, RInputTransport};
 use renderer::config::Config;
@@ -93,6 +93,11 @@ pub struct Engine {
     /// Opt-in per-frame perf accumulator (env `ORENDER_PERF_LOG`). `None` = off
     /// (zero overhead). Diagnostic only; safe to remove once perf work lands.
     perf: Option<PerfLog>,
+
+    /// Pluggable bed→height object generator stage (2D upmix). Off by default;
+    /// active only for channel content on a height-capable layout. Selected by
+    /// the live param `object_generator_id`. See [`crate::object_gen`].
+    object_gen: object_gen::ObjectGenStage,
 }
 
 /// Throttled (~1 Hz) aggregate of per-frame render/decode cost, correlated with
@@ -224,6 +229,7 @@ impl Engine {
             perf: std::env::var_os("ORENDER_PERF_LOG")
                 .is_some()
                 .then(PerfLog::new),
+            object_gen: object_gen::ObjectGenStage::new(),
         }
     }
 
@@ -808,6 +814,11 @@ impl Engine {
 
         self.decoded_samples += sample_count as u64;
 
+        // Number of synthesized height objects planned this frame by the
+        // object-generator stage (stays 0 unless activated in the bed-only
+        // branch below).
+        let mut synth_count = 0usize;
+
         // Bed-only / pre-metadata frames carry no OAMD objects: render them
         // according to the configured channel mode (host / direct / virtual),
         // identically to the CLI's file-decode path. The embedded host has no
@@ -823,6 +834,7 @@ impl Engine {
                 room_ratio_rear,
                 room_ratio_lower,
                 room_ratio_center_blend,
+                object_generator_id,
             ) = {
                 let control = self.renderer.renderer_control();
                 let live = control.live.read();
@@ -834,6 +846,7 @@ impl Engine {
                     live.room_ratio_rear,
                     live.room_ratio_lower,
                     live.room_ratio_center_blend,
+                    live.object_generator_id.clone(),
                 )
             };
             let output_layout = self.renderer.speaker_layout();
@@ -885,10 +898,37 @@ impl Engine {
                 }
             }
 
-            // Outgoing: broadcast the virtual-bed channel poses as OSC objects
-            // and/or feed the in-process mpv overlay.
+            // Bed→height object generator (2D upmix): plan synthesized height
+            // objects for channel content on a height-capable layout. No-op
+            // unless a generator is selected and the gating passes. The static
+            // positions/names are planned here (before the OSC object emit); the
+            // audio for the new object channels is filled after the bed PCM is
+            // built, below — they then ride the existing object/VBAP path.
+            synth_count = {
+                let ctx = object_gen::PrepareCtx {
+                    input_labels: &labels,
+                    output_layout: &output_layout,
+                    sample_rate,
+                };
+                self.object_gen.sync(&object_generator_id, &ctx)
+            };
+            for (k, spec) in self.object_gen.specs().iter().enumerate() {
+                self.frame_events.push(SpatialChannelEvent {
+                    channel_idx: channel_count + k,
+                    is_bed: false,
+                    gain_db: Some(spec.gain_db),
+                    ramp_length: Some(0),
+                    size: Some(spec.size),
+                    position: Some(spec.position),
+                    sample_pos: Some(0),
+                });
+            }
+
+            // Outgoing: broadcast the virtual-bed channel poses + any synthesized
+            // height objects as OSC objects and/or feed the in-process mpv
+            // overlay, so they appear in Studio's 3D view and object list.
             if want_objects {
-                if let Some(objects) = virtual_bed::build_virtual_bed_objects(
+                let mut objects = virtual_bed::build_virtual_bed_objects(
                     &labels,
                     virtual_bed_layout.as_ref(),
                     Some(&output_layout),
@@ -897,7 +937,22 @@ impl Engine {
                     room_ratio_lower,
                     room_ratio_center_blend,
                     surround_placement,
-                ) {
+                )
+                .unwrap_or_default();
+                for spec in self.object_gen.specs() {
+                    objects.push(ObjectMeta {
+                        name: spec.name.clone(),
+                        x: spec.position[0] as f32,
+                        y: spec.position[1] as f32,
+                        z: spec.position[2] as f32,
+                        coord_mode: "cartesian".to_string(),
+                        direct_speaker_index: None,
+                        gain: spec.gain_db as i32,
+                        priority: 0.0,
+                        size: spec.size,
+                    });
+                }
+                if !objects.is_empty() {
                     if want_osc {
                         if let Some(osc) = self.osc.as_mut() {
                             let _ = osc.send_object_frame(sample_pos_at_start, 0, 0, &objects);
@@ -937,6 +992,17 @@ impl Engine {
             &mut self.drc_ramp_samples_remaining,
         );
 
+        // Fill the synthesized height-object channels (their audio) now that the
+        // bed PCM exists, and present the renderer an extended interleaved buffer
+        // (bed channels + synthesized object channels). Zero-cost when the
+        // object-generator stage is inactive (`synth_count == 0`).
+        let (render_pcm, render_channels): (&[f32], usize) = if synth_count > 0 {
+            self.object_gen
+                .fill_and_extend(&pcm_f32, channel_count, sample_count, sample_rate)
+        } else {
+            (pcm_f32.as_slice(), channel_count)
+        };
+
         // VU metering (outgoing): feed object PCM pre-render; speakers post-render.
         // Needed for OSC metering clients and/or the in-process overlay (object
         // circle radius tracks RMS).
@@ -952,17 +1018,17 @@ impl Engine {
         }
         if want_metering {
             if let Some(meter) = self.audio_meter.as_mut() {
-                meter.update_channel_count(channel_count);
-                for chunk in pcm_f32.chunks_exact(channel_count) {
-                    meter.process_objects(chunk, channel_count);
+                meter.update_channel_count(render_channels);
+                for chunk in render_pcm.chunks_exact(render_channels) {
+                    meter.process_objects(chunk, render_channels);
                 }
             }
         }
 
         let render_started = std::time::Instant::now();
         let rendered = self.renderer.render_frame(
-            &pcm_f32,
-            channel_count,
+            render_pcm,
+            render_channels,
             &self.frame_events,
             Vec::new(),
             want_metering,

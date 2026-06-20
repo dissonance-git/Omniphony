@@ -95,6 +95,21 @@ pub fn control_surround_placement(state: State<SharedState>, value: String) {
     );
 }
 
+/// Select the bed→height object generator (2D upmix): `none`, `copy_up`, `pad`,
+/// or any contributor id. The renderer resolves the id and falls back to off for
+/// an unknown one, so the id set is not restricted here (out-of-tree generators).
+#[tauri::command]
+pub fn control_object_generator(state: State<SharedState>, value: String) {
+    let trimmed = value.trim().to_ascii_lowercase();
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/object_generator".to_string(),
+            value: trimmed,
+        },
+    );
+}
+
 /// Set the output channel mapping: `by_index` (positionless — port N = layout
 /// speaker N) or `by_name` (positional).
 #[tauri::command]

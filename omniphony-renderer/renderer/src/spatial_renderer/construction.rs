@@ -430,6 +430,9 @@ impl SpatialRenderer {
             // Seeded from `render.virtual_bed` by the same bootstrap; `None`
             // uses the built-in canonical poses (LFE direct, rest virtualized).
             virtual_bed: None,
+            // Off by default; selects the bed→height object generator (2D upmix)
+            // for channel content. Empty / "none" = disabled.
+            object_generator_id: String::new(),
         }
     }
 

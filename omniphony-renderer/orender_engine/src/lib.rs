@@ -15,6 +15,7 @@ pub mod channel_layout;
 pub mod degraded;
 pub mod engine;
 pub mod events;
+pub mod object_gen;
 pub mod osc;
 pub mod overlay;
 pub mod render;

@@ -148,6 +148,9 @@ export function renderAudioFormatDisplay() {
     const surroundRow = document.getElementById('surroundPlacementRow');
     if (surroundRow) surroundRow.style.display = spatial ? 'flex' : 'none';
     updateSurroundPlacementUI();
+    const objectGeneratorRow = document.getElementById('objectGeneratorRow');
+    if (objectGeneratorRow) objectGeneratorRow.style.display = spatial ? 'flex' : 'none';
+    updateObjectGeneratorUI();
     syncVirtualBedObjects();
     renderChannelEditor();
   }
@@ -359,6 +362,24 @@ export function applySurroundPlacementNow(value) {
   app.surroundPlacement = requested;
   updateSurroundPlacementUI();
   invoke('control_surround_placement', { value: requested });
+}
+
+// Reflect the active bed→height object generator in the selector from
+// `app.objectGeneratorId` (called on user action and on a state broadcast).
+export function updateObjectGeneratorUI() {
+  const sel = document.getElementById('objectGeneratorSelect');
+  if (!sel) return;
+  sel.value = app.objectGeneratorId || 'none';
+}
+
+// Commit a generator selection: update state + push it to the engine, which
+// synthesizes the height objects live (they appear in the 3D view + object list)
+// for channel content on a height-capable layout. 'none' disables it.
+export function applyObjectGeneratorNow(value) {
+  const requested = String(value || 'none').trim().toLowerCase();
+  app.objectGeneratorId = requested;
+  updateObjectGeneratorUI();
+  invoke('control_object_generator', { value: requested });
 }
 
 // Reflect the active by-index/by-name buttons from `app.outputChannelMapping`,

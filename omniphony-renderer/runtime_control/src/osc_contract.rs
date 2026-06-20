@@ -127,6 +127,9 @@ pub const CONTROL_OVERLAY_HEATMAP_CUSTOM_STOPS: &str =
     "/omniphony/control/overlay/heatmap_custom_stops";
 pub const CONTROL_OVERLAY_HEATMAP_ENABLED: &str = "/omniphony/control/overlay/heatmap_enabled";
 pub const CONTROL_CHANNEL_RENDER_MODE: &str = "/omniphony/control/channel_render_mode";
+/// Selects the bed→height object generator (2D upmix) for channel content.
+/// Argument is the generator id string (`none` / `copy_up` / …).
+pub const CONTROL_OBJECT_GENERATOR: &str = "/omniphony/control/object_generator";
 /// Where the 4.x/5.x surround pair is placed: `side` or `back`. Only affects
 /// channel sources without dedicated back channels. Persisted to config.
 pub const CONTROL_SURROUND_PLACEMENT: &str = "/omniphony/control/surround_placement";
@@ -286,6 +289,7 @@ pub const ALL_CONTROL: &[&str] = &[
     CONTROL_BACKEND_FILE_PUT,
     CONTROL_BACKEND_PARAM,
     CONTROL_CHANNEL_RENDER_MODE,
+    CONTROL_OBJECT_GENERATOR,
     CONTROL_OUTPUT_CHANNEL_MAPPING,
     CONTROL_VIRTUAL_BED,
     CONTROL_CONFIG_AUDIO,

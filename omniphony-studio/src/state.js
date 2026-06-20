@@ -231,6 +231,9 @@ export const app = {
   // Where the 4.x/5.x surround pair (Ls/Rs) of a 2D source is placed: 'side' or
   // 'back'. Only affects sources without dedicated back channels.
   surroundPlacement: 'side',
+  // Bed→height object generator (2D upmix) id: 'none' (off), 'copy_up', 'pad'.
+  // Synthesizes height objects from channel content on a height-capable layout.
+  objectGeneratorId: 'none',
   // How output channels map to device ports: 'by_index' (positionless — port N =
   // layout speaker N) or 'by_name' (positional). Default 'by_index'.
   outputChannelMapping: 'by_index',

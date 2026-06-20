@@ -126,6 +126,14 @@
               <button id="surroundPlacementBack" type="button" class="toggle-btn" data-i18n="twoDSources.surroundBack">Back</button>
             </span>
           </div>
+          <div id="objectGeneratorRow" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
+            <span style="font-size:12px" data-i18n="twoDSources.objectGeneratorLabel" data-help-i18n="help.objectGenerator" data-help-anchor="#objectGeneratorRow">Height objects from 2D</span>
+            <select id="objectGeneratorSelect" style="flex:0 1 auto;min-width:0">
+              <option value="none" data-i18n="twoDSources.objectGenNone">Off</option>
+              <option value="copy_up" data-i18n="twoDSources.objectGenCopyUp">Direct copy</option>
+              <option value="pad" data-i18n="twoDSources.objectGenPad">Ambience (PAD)</option>
+            </select>
+          </div>
           <div id="virtualBedActions" style="display:flex;justify-content:flex-end;margin-top:0.25rem">
             <button id="virtualBedResetBtn" type="button" class="ui-btn ui-btn-compact" style="white-space:nowrap" data-i18n="virtualBed.reset">Reset channel layout</button>
           </div>
