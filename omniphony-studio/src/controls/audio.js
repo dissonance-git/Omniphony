@@ -148,6 +148,12 @@ export function renderAudioFormatDisplay() {
     const surroundRow = document.getElementById('surroundPlacementRow');
     if (surroundRow) surroundRow.style.display = spatial ? 'flex' : 'none';
     updateSurroundPlacementUI();
+    const objectGeneratorRow = document.getElementById('objectGeneratorRow');
+    if (objectGeneratorRow) objectGeneratorRow.style.display = spatial ? 'flex' : 'none';
+    updateObjectGeneratorUI();
+    const phantomRow = document.getElementById('phantomExtractRow');
+    if (phantomRow) phantomRow.style.display = spatial ? 'flex' : 'none';
+    updatePhantomUI();
     syncVirtualBedObjects();
     renderChannelEditor();
   }
@@ -359,6 +365,250 @@ export function applySurroundPlacementNow(value) {
   app.surroundPlacement = requested;
   updateSurroundPlacementUI();
   invoke('control_surround_placement', { value: requested });
+}
+
+// The generator id whose param sliders are currently built into the DOM.
+let builtParamGenId = null;
+
+// Format a parameter value for display: decimals derived from the schema step,
+// plus an optional unit suffix.
+function fmtParamValue(spec, v) {
+  const n = Number(v);
+  const step = Number(spec.step) || 0;
+  let s;
+  if (step >= 1) s = String(Math.round(n));
+  else if (step >= 0.1) s = n.toFixed(1);
+  else s = n.toFixed(2);
+  return spec.unit ? `${s} ${spec.unit}` : s;
+}
+
+// Localized label from an i18n key when it resolves, else the English label the
+// schema carries (so out-of-tree generators still get a readable label).
+function schemaLabel(i18nKey, fallback) {
+  if (i18nKey) {
+    const localized = t(i18nKey);
+    if (localized && localized !== i18nKey) return localized;
+  }
+  return fallback || '';
+}
+
+function activeGeneratorSchema() {
+  const id = app.objectGeneratorId || 'none';
+  return (app.objectGenerators || []).find((g) => g && g.id === id) || null;
+}
+
+// (Re)build the generator selector from the declared schema. The hardcoded HTML
+// options stay as a fallback until the schema arrives / for older renderers.
+export function rebuildObjectGeneratorControls() {
+  const sel = document.getElementById('objectGeneratorSelect');
+  const list = app.objectGenerators || [];
+  if (sel && list.length) {
+    const current = app.objectGeneratorId || 'none';
+    sel.innerHTML = '';
+    const off = document.createElement('option');
+    off.value = 'none';
+    off.textContent = t('twoDSources.objectGenNone') || 'Off';
+    sel.appendChild(off);
+    for (const gen of list) {
+      const opt = document.createElement('option');
+      opt.value = gen.id;
+      opt.textContent = schemaLabel(gen.i18nKey, gen.label);
+      sel.appendChild(opt);
+    }
+    sel.value = current;
+  }
+  builtParamGenId = null; // force the param sliders to rebuild
+  updateObjectGeneratorUI();
+}
+
+function buildParamSliders(schema) {
+  const row = document.getElementById('objectGenParamsRow');
+  if (!row) return;
+  row.innerHTML = '';
+  const params = (schema && schema.params) || [];
+  for (const spec of params) {
+    const label = document.createElement('label');
+    label.style.cssText = 'display:flex;align-items:center;gap:0.5rem;font-size:11px';
+    const name = document.createElement('span');
+    name.style.cssText = 'flex:0 0 auto;min-width:96px';
+    name.textContent = schemaLabel(spec.i18nKey, spec.label);
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = String(spec.min);
+    slider.max = String(spec.max);
+    slider.step = String(spec.step);
+    slider.style.cssText = 'flex:1;min-width:0';
+    slider.dataset.paramKey = spec.key;
+    const valEl = document.createElement('span');
+    valEl.style.cssText =
+      'flex:0 0 auto;width:48px;text-align:right;font-variant-numeric:tabular-nums';
+    const stored = app.objectGeneratorParams && app.objectGeneratorParams[spec.key];
+    const initial = stored != null ? stored : spec.default;
+    slider.value = String(initial);
+    valEl.textContent = fmtParamValue(spec, initial);
+    slider.addEventListener('input', () => {
+      valEl.textContent = fmtParamValue(spec, slider.value);
+      applyObjectGeneratorParamNow(spec.key, slider.value);
+    });
+    label.appendChild(name);
+    label.appendChild(slider);
+    label.appendChild(valEl);
+    row.appendChild(label);
+  }
+  builtParamGenId = schema ? schema.id : null;
+}
+
+// Reflect the active generator + its parameter sliders. Rebuilds the sliders
+// when the active generator (or its schema) changes; otherwise just refreshes
+// values without disturbing an in-progress drag.
+export function updateObjectGeneratorUI() {
+  const sel = document.getElementById('objectGeneratorSelect');
+  if (sel) sel.value = app.objectGeneratorId || 'none';
+  // Grey out the whole control when the output layout has no top speaker — the
+  // 2D-upmix generators are a strict no-op there.
+  const hasHeight = app.objectGeneratorLayoutHasHeight !== false;
+  if (sel) sel.disabled = !hasHeight;
+  const note = document.getElementById('objectGeneratorNoHeightNote');
+  if (note) note.style.display = hasHeight ? 'none' : 'inline';
+  const schema = activeGeneratorSchema();
+  const row = document.getElementById('objectGenParamsRow');
+  const show =
+    !!(schema && (schema.params || []).length) && app.channelRenderMode !== 'host' && hasHeight;
+  if (row) row.style.display = show ? 'flex' : 'none';
+  const wantId = schema ? schema.id : null;
+  if (wantId !== builtParamGenId) {
+    buildParamSliders(schema);
+  } else if (row) {
+    for (const slider of row.querySelectorAll('input[type=range]')) {
+      const key = slider.dataset.paramKey;
+      const spec = (schema.params || []).find((p) => p.key === key);
+      if (!spec) continue;
+      const stored = app.objectGeneratorParams && app.objectGeneratorParams[key];
+      const v = stored != null ? stored : spec.default;
+      if (document.activeElement !== slider) slider.value = String(v);
+      const valEl = slider.nextElementSibling;
+      if (valEl) valEl.textContent = fmtParamValue(spec, v);
+    }
+  }
+}
+
+// Commit a generator selection: update state + push it to the engine, which
+// synthesizes the height objects live (they appear in the 3D view + object list)
+// for channel content on a height-capable layout. 'none' disables it.
+export function applyObjectGeneratorNow(value) {
+  const requested = String(value || 'none').trim().toLowerCase();
+  app.objectGeneratorId = requested;
+  // Switching generators drops the previous one's overrides (the renderer does
+  // the same) so the new generator shows its declared defaults.
+  app.objectGeneratorParams = {};
+  updateObjectGeneratorUI();
+  invoke('control_object_generator', { value: requested });
+}
+
+// Commit a generator parameter change live (slider drag): store the override and
+// push it to the engine, which validates/clamps and applies it by key without
+// resetting DSP state.
+export function applyObjectGeneratorParamNow(key, value) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return;
+  if (!app.objectGeneratorParams || typeof app.objectGeneratorParams !== 'object') {
+    app.objectGeneratorParams = {};
+  }
+  app.objectGeneratorParams[key] = v;
+  invoke('control_object_generator_param', { key, value: v });
+}
+
+// ── Phantom-source extraction pre-stage ──
+// Runs before the height lift: extracts the correlated/primary content of channel
+// pairs as discrete objects at their real panned position and reduces the bed.
+
+let builtPhantomParams = false;
+
+// Build the phantom param sliders from the declared schema (app.phantomSchema is
+// the param-spec array directly). Mirrors buildParamSliders.
+function buildPhantomParamSliders() {
+  const row = document.getElementById('phantomParamsRow');
+  if (!row) return;
+  row.innerHTML = '';
+  const params = app.phantomSchema || [];
+  for (const spec of params) {
+    const label = document.createElement('label');
+    label.style.cssText = 'display:flex;align-items:center;gap:0.5rem;font-size:11px';
+    const name = document.createElement('span');
+    name.style.cssText = 'flex:0 0 auto;min-width:96px';
+    name.textContent = schemaLabel(spec.i18nKey, spec.label);
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = String(spec.min);
+    slider.max = String(spec.max);
+    slider.step = String(spec.step);
+    slider.style.cssText = 'flex:1;min-width:0';
+    slider.dataset.paramKey = spec.key;
+    const valEl = document.createElement('span');
+    valEl.style.cssText =
+      'flex:0 0 auto;width:48px;text-align:right;font-variant-numeric:tabular-nums';
+    const stored = app.phantomParams && app.phantomParams[spec.key];
+    const initial = stored != null ? stored : spec.default;
+    slider.value = String(initial);
+    valEl.textContent = fmtParamValue(spec, initial);
+    slider.addEventListener('input', () => {
+      valEl.textContent = fmtParamValue(spec, slider.value);
+      applyPhantomParamNow(spec.key, slider.value);
+    });
+    label.appendChild(name);
+    label.appendChild(slider);
+    label.appendChild(valEl);
+    row.appendChild(label);
+  }
+  builtPhantomParams = (app.phantomSchema || []).length > 0;
+}
+
+// (Re)build the phantom controls when the schema arrives.
+export function rebuildPhantomControls() {
+  builtPhantomParams = false;
+  updatePhantomUI();
+}
+
+// Reflect the phantom enable switch + its parameter sliders (only when enabled).
+export function updatePhantomUI() {
+  const toggle = document.getElementById('phantomExtractToggle');
+  if (toggle) toggle.checked = !!app.phantomEnabled;
+  const params = app.phantomSchema || [];
+  const row = document.getElementById('phantomParamsRow');
+  const show = !!app.phantomEnabled && params.length > 0 && app.channelRenderMode !== 'host';
+  if (row) row.style.display = show ? 'flex' : 'none';
+  if (!builtPhantomParams && params.length > 0) {
+    buildPhantomParamSliders();
+  } else if (row) {
+    for (const slider of row.querySelectorAll('input[type=range]')) {
+      const key = slider.dataset.paramKey;
+      const spec = params.find((p) => p.key === key);
+      if (!spec) continue;
+      const stored = app.phantomParams && app.phantomParams[key];
+      const v = stored != null ? stored : spec.default;
+      if (document.activeElement !== slider) slider.value = String(v);
+      const valEl = slider.nextElementSibling;
+      if (valEl) valEl.textContent = fmtParamValue(spec, v);
+    }
+  }
+}
+
+// Toggle the phantom-extraction stage live.
+export function applyPhantomEnableNow(enabled) {
+  app.phantomEnabled = !!enabled;
+  updatePhantomUI();
+  invoke('control_phantom_extract', { enabled: !!enabled });
+}
+
+// Commit a phantom parameter change live (slider drag).
+export function applyPhantomParamNow(key, value) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return;
+  if (!app.phantomParams || typeof app.phantomParams !== 'object') {
+    app.phantomParams = {};
+  }
+  app.phantomParams[key] = v;
+  invoke('control_phantom_extract_param', { key, value: v });
 }
 
 // Reflect the active by-index/by-name buttons from `app.outputChannelMapping`,

@@ -175,6 +175,22 @@ pub struct RenderConfig {
     /// Absent = `by_index`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_channel_mapping: Option<crate::live_params::OutputChannelMapping>,
+    /// Bed→height object generator (2D upmix) id for channel content
+    /// (`none` / `copy_up` / `pad` / …). Absent / empty = off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object_generator_id: Option<String>,
+    /// Live parameter overrides for the active object generator (param key →
+    /// value), as declared by the generator's schema. Absent = each generator
+    /// uses its declared defaults.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object_generator_params: Option<std::collections::HashMap<String, f32>>,
+    /// Enables the phantom-source extraction pre-stage. Absent = off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phantom_enabled: Option<bool>,
+    /// Live parameter overrides for the phantom-extraction stage (`strength` /
+    /// `passes` / `lift`). Absent = the stage's declared defaults.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phantom_params: Option<std::collections::HashMap<String, f32>>,
     /// Parametrable virtual bed for channel-based (non-object) content. One
     /// entry per input-channel label (`L`, `R`, `C`, `LFE`, `Ls`, `Rs`, …):
     /// `spatialize:true` virtualizes the channel as an object at the entry's

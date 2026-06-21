@@ -60,7 +60,7 @@ import {
 } from './controls/vbap.js';
 import { invoke } from '@tauri-apps/api/core';
 import { setSpeakerGainTable } from './scene/speaker-gaintable.js';
-import { updateAudioFormatDisplay } from './controls/audio.js';
+import { updateAudioFormatDisplay, rebuildObjectGeneratorControls, rebuildPhantomControls } from './controls/audio.js';
 import { updateInputControlUI } from './controls/input.js';
 import { updateDrcMeterUI } from './controls/drc.js';
 import { updateAdaptiveResamplingUI } from './controls/adaptive.js';
@@ -676,6 +676,27 @@ export function setupTauriBridge() {
 
   listen('diag:values', ({ payload }) => {
     app.diagValues = parseDiagPayload(payload);
+  });
+
+  // Declared bed→height object-generator schema → build the 2D-upmix selector +
+  // parameter sliders dynamically.
+  listen('objectGenerators:schema', ({ payload }) => {
+    try {
+      app.objectGenerators = JSON.parse(payload?.value ?? '[]') || [];
+    } catch (_) {
+      app.objectGenerators = [];
+    }
+    rebuildObjectGeneratorControls();
+  });
+
+  // Declared phantom-extraction param schema → build its sliders dynamically.
+  listen('phantom:schema', ({ payload }) => {
+    try {
+      app.phantomSchema = JSON.parse(payload?.value ?? '[]') || [];
+    } catch (_) {
+      app.phantomSchema = [];
+    }
+    rebuildPhantomControls();
   });
 
   listen('latency:target', ({ payload }) => {

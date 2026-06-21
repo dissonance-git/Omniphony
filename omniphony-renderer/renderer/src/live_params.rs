@@ -651,6 +651,32 @@ pub struct LiveParams {
     /// falls back to the built-in canonical poses (LFE direct, the rest
     /// virtualized). Live-tunable via the `virtual_bed` layout OSC controls.
     pub virtual_bed: Option<SpeakerLayout>,
+
+    /// Selects the bed→height object generator (2D upmix): synthesizes height
+    /// objects from channel-based content so a height-capable layout (7.1.4, …)
+    /// is exercised when the source has no height. Empty / `"none"` = disabled
+    /// (the default). Consulted only for channel content without spatial objects;
+    /// object streams ignore it. Live-tunable via
+    /// `/omniphony/control/object_generator`.
+    pub object_generator_id: String,
+
+    /// Live-tunable parameter overrides for the active object generator, keyed by
+    /// the param `key` the generator declares in its schema. Sparse: an absent key
+    /// uses the generator's built-in default. Cleared when the active generator
+    /// changes. Set via `/omniphony/control/object_generator/param`.
+    pub object_generator_params: std::collections::HashMap<String, f32>,
+
+    /// Enables the phantom-source extraction pre-stage: before the height lift, it
+    /// pulls the correlated/primary content out of channel pairs as discrete
+    /// objects at their real panned position and subtracts it from the bed.
+    /// Off by default. Live-tunable via `/omniphony/control/phantom_extract`.
+    pub phantom_enabled: bool,
+
+    /// Live-tunable parameter overrides for the phantom-extraction stage, keyed by
+    /// the param `key` it declares (`strength` / `passes` / `lift`). Sparse: an
+    /// absent key uses the stage's default. Set via
+    /// `/omniphony/control/phantom_extract/param`.
+    pub phantom_params: std::collections::HashMap<String, f32>,
 }
 
 impl LiveParams {
@@ -925,6 +951,18 @@ pub struct RendererControl {
     /// (see [`crate::backend_params`]). Generic so a backend's params need no
     /// typed field here. Read at topology-build time, never on the audio hot path.
     backend_params: RwLock<HashMap<String, HashMap<String, crate::backend_params::ParamValue>>>,
+
+    /// JSON schema (`[{id,label,i18nKey,params:[…]}]`) of the available bed→height
+    /// object generators, set by the engine from its registry (which lives in
+    /// `orender_engine` and so can't be held here as a typed registry). Published
+    /// to Studio so host-registered (out-of-tree) generators appear too. `"[]"`
+    /// until the engine sets it.
+    object_generators_schema: RwLock<String>,
+
+    /// JSON schema (`[{key,label,i18nKey,…}]`) of the phantom-extraction stage's
+    /// declared params, set by the engine so Studio builds its sliders. `"[]"`
+    /// until the engine sets it.
+    phantom_schema: RwLock<String>,
 }
 
 impl RendererControl {
@@ -964,6 +1002,8 @@ impl RendererControl {
             diag_rate_hz_bits: Arc::new(std::sync::atomic::AtomicU32::new(50.0_f32.to_bits())),
             backend_registry: RwLock::new(BackendRegistry::builtin()),
             backend_params: RwLock::new(HashMap::new()),
+            object_generators_schema: RwLock::new("[]".to_string()),
+            phantom_schema: RwLock::new("[]".to_string()),
         })
     }
 
@@ -973,6 +1013,27 @@ impl RendererControl {
     /// rebuild through it.
     pub fn register_backend(&self, factory: Box<dyn crate::backend_registry::BackendFactory>) {
         self.backend_registry.write().register(factory);
+    }
+
+    /// Set the published object-generator schema JSON (called by the engine from
+    /// its registry, so any host-registered out-of-tree generators are included).
+    pub fn set_object_generators_schema(&self, json: String) {
+        *self.object_generators_schema.write() = json;
+    }
+
+    /// The published object-generator schema JSON (`"[]"` until the engine sets it).
+    pub fn object_generators_schema(&self) -> String {
+        self.object_generators_schema.read().clone()
+    }
+
+    /// Set the published phantom-extraction param schema JSON (called by the engine).
+    pub fn set_phantom_schema(&self, json: String) {
+        *self.phantom_schema.write() = json;
+    }
+
+    /// The published phantom-extraction schema JSON (`"[]"` until the engine sets it).
+    pub fn phantom_schema(&self) -> String {
+        self.phantom_schema.read().clone()
     }
 
     /// Whether a backend with this id is registered (built-in or host-registered).

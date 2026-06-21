@@ -148,6 +148,22 @@ pub fn save_live_config_to_path(
     renderer::config_fields::channel_render_mode::store(render, live.channel_render_mode);
     renderer::config_fields::surround_placement::store(render, live.surround_placement);
     renderer::config_fields::output_channel_mapping::store(render, live.output_channel_mapping);
+    renderer::config_fields::object_generator_id::store(render, &live.object_generator_id);
+    // Active generator's live param overrides (declared-schema map). `None` keeps
+    // the key out of the file so each generator falls back to its declared
+    // defaults.
+    render.object_generator_params = if live.object_generator_params.is_empty() {
+        None
+    } else {
+        Some(live.object_generator_params.clone())
+    };
+    // Phantom-source extraction pre-stage: enable flag + its param overrides.
+    renderer::config_fields::phantom_enabled::store(render, live.phantom_enabled);
+    render.phantom_params = if live.phantom_params.is_empty() {
+        None
+    } else {
+        Some(live.phantom_params.clone())
+    };
     // Parametrable virtual bed for channel content. Persist the live layout
     // verbatim (round6 the radius for stable diffs); `None` keeps the key out of
     // the file so the built-in canonical poses (LFE direct) stay in effect.

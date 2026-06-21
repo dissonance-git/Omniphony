@@ -166,6 +166,7 @@ import {
   updateEffectiveRenderDecoration,
   getObjectDisplayName,
   formatObjectLabel,
+  objectBadge,
   applyObjectItemColor,
   dbfsToScale,
   gainToMix,
@@ -1291,10 +1292,12 @@ export function createObjectItem(id) {
     setSelectedSource(id);
   });
 
+  // The badge shows a fixed type icon (▲ height-upmix, ◇ phantom) for the
+  // synthesized objects — name on hover — and the plain (short) name for the
+  // others (bed/ADM), so nothing is lost and the row stays compact.
   const idStrip = document.createElement('div');
   idStrip.className = 'id-strip flip';
   const idText = document.createElement('span');
-  idText.textContent = formatObjectLabel(id);
   idStrip.appendChild(idText);
   root.appendChild(idStrip);
 
@@ -1450,6 +1453,31 @@ export function applyObjectPositionIcon(entry, position) {
   entry.positionIcon.title = `X ${x}  Y ${y}  Z ${z}`;
 }
 
+// Set an object row's fixed type icon (▲ height upmix, ◇ phantom, blank
+// otherwise) + its short position code, from the object's name. Shared by the
+// item update and the live name-flush so they can't disagree.
+export function applyObjectIdentity(entry, id) {
+  if (!entry) return;
+  const badge = objectBadge(id);
+  const fullName = getObjectDisplayName(id);
+  const icon = badge.type === 'height' ? '▲' : badge.type === 'phantom' ? '◇' : '';
+  if (entry.label) {
+    // Icon for the synthesized types (name on hover); the short name in the badge
+    // for everything else. The name is vertical text only when there's no icon,
+    // so a bed name stays compact and a single icon never rotates.
+    entry.label.textContent = icon || badge.code;
+    entry.label.classList.toggle('object-type-icon', !!icon);
+  }
+  if (entry.idStrip) {
+    entry.idStrip.classList.toggle('type-height', badge.type === 'height');
+    entry.idStrip.classList.toggle('type-phantom', badge.type === 'phantom');
+  }
+  // The badge is pointer-events:none (so a click selects the row), so a title on
+  // it never gets a hover. Put the hover hint on the row itself, only where the
+  // name is hidden behind an icon.
+  if (entry.root) entry.root.title = icon ? fullName : '';
+}
+
 export function updateObjectItem(entry, id, position, name) {
   const selectedSourceId = get_selectedSourceId();
   const soloTarget = getSoloTarget('object');
@@ -1457,7 +1485,7 @@ export function updateObjectItem(entry, id, position, name) {
   if (name) {
     sourceNames.set(id, name);
   }
-  entry.label.textContent = formatObjectLabel(id);
+  applyObjectIdentity(entry, id);
   const coords = decomposePosition(position);
   Object.keys(entry.axisElems).forEach(axis => {
     entry.axisElems[axis].textContent = `${axis}:${coords[axis]}`;
@@ -1535,7 +1563,16 @@ export function renderObjectsList() {
   // order: DTS C,L,R,…; AC-3 L,C,R,…). Holds at rest (synthetic bed, id = label)
   // and during playback. Dynamic objects keep their numeric-id order, then locale.
   const channelRank = (id) => canonicalChannelOrder(formatObjectLabel(id));
+  // Group the list: bed/ADM first, then the phantom-extraction objects, then the
+  // height (top) upmix objects. Within a group, keep the canonical channel order.
+  const groupRank = (id) => {
+    const type = objectBadge(id).type;
+    return type === 'height' ? 2 : type === 'phantom' ? 1 : 0;
+  };
   const ids = [...sourceMeshes.keys()].sort((a, b) => {
+    const ga = groupRank(a);
+    const gb = groupRank(b);
+    if (ga !== gb) return ga - gb;
     const aOrd = channelRank(a);
     const bOrd = channelRank(b);
     if (aOrd !== -1 && bOrd !== -1) return aOrd - bOrd;

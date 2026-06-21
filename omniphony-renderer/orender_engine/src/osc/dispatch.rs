@@ -90,6 +90,91 @@ pub(crate) fn handle_control_message(
         return;
     }
 
+    // Bed→height object generator (2D upmix) selection for channel content.
+    // Live-tunable from Studio; an empty / "none" id disables it. (Persistence
+    // to config is added with the Studio UI; for now it is a live-only toggle
+    // committed on the next dirty flush.)
+    if addr == osc_contract::CONTROL_OBJECT_GENERATOR {
+        if let Some(OscType::String(s)) = msg.args.first() {
+            {
+                let mut live = control.live.write();
+                if live.object_generator_id != *s {
+                    // New generator: drop the previous one's param overrides so the
+                    // new generator starts at its declared defaults.
+                    live.object_generator_params.clear();
+                }
+                live.object_generator_id = s.clone();
+            }
+            control.mark_dirty();
+            broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
+            log::info!("OSC object generator set to '{}'", s);
+        }
+        return;
+    }
+
+    // Live object-generator parameter (PAD: strength / hpf_hz / gain_db).
+    if addr == osc_contract::CONTROL_OBJECT_GENERATOR_PARAM {
+        let key = match msg.args.first() {
+            Some(OscType::String(s)) => s.trim().to_ascii_lowercase(),
+            _ => return,
+        };
+        let value = match msg.args.get(1) {
+            Some(OscType::Float(f)) => *f,
+            Some(OscType::Double(d)) => *d as f32,
+            Some(OscType::Int(i)) => *i as f32,
+            _ => return,
+        };
+        if key.is_empty() || !value.is_finite() {
+            return;
+        }
+        // Store the override generically; the generator validates and clamps it by
+        // key when the render thread applies it (declared-schema design).
+        control
+            .live
+            .write()
+            .object_generator_params
+            .insert(key, value);
+        control.mark_dirty();
+        return;
+    }
+
+    // Phantom-source extraction pre-stage enable toggle (int 0/1).
+    if addr == osc_contract::CONTROL_PHANTOM_EXTRACT {
+        if let Some(arg) = msg.args.first() {
+            let on = match arg {
+                OscType::Int(i) => *i != 0,
+                OscType::Float(f) => *f != 0.0,
+                OscType::Bool(b) => *b,
+                _ => return,
+            };
+            control.live.write().phantom_enabled = on;
+            control.mark_dirty();
+            broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
+            log::info!("OSC phantom extraction {}", if on { "on" } else { "off" });
+        }
+        return;
+    }
+
+    // Live phantom-extraction parameter (strength / passes / lift).
+    if addr == osc_contract::CONTROL_PHANTOM_EXTRACT_PARAM {
+        let key = match msg.args.first() {
+            Some(OscType::String(s)) => s.trim().to_ascii_lowercase(),
+            _ => return,
+        };
+        let value = match msg.args.get(1) {
+            Some(OscType::Float(f)) => *f,
+            Some(OscType::Double(d)) => *d as f32,
+            Some(OscType::Int(i)) => *i as f32,
+            _ => return,
+        };
+        if key.is_empty() || !value.is_finite() {
+            return;
+        }
+        control.live.write().phantom_params.insert(key, value);
+        control.mark_dirty();
+        return;
+    }
+
     // Surround placement (side/back) for 4.x/5.x channel content. Live-tunable
     // from Studio; persists to config right away (same rationale as
     // channel_render_mode: a host fallback can route the next toggle to a

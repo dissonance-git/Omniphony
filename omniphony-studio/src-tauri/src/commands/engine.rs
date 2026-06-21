@@ -95,6 +95,70 @@ pub fn control_surround_placement(state: State<SharedState>, value: String) {
     );
 }
 
+/// Select the bed→height object generator (2D upmix): `none`, `copy_up`, `pad`,
+/// or any contributor id. The renderer resolves the id and falls back to off for
+/// an unknown one, so the id set is not restricted here (out-of-tree generators).
+#[tauri::command]
+pub fn control_object_generator(state: State<SharedState>, value: String) {
+    let trimmed = value.trim().to_ascii_lowercase();
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendString {
+            address: "/omniphony/control/object_generator".to_string(),
+            value: trimmed,
+        },
+    );
+}
+
+/// Set a live object-generator parameter (PAD: `strength` / `hpf_hz` /
+/// `gain_db`). Sent as `[key, value]`; the renderer clamps and applies it live.
+#[tauri::command]
+pub fn control_object_generator_param(state: State<SharedState>, key: String, value: f32) {
+    let k = key.trim().to_ascii_lowercase();
+    // Any non-empty key is accepted; the renderer validates it against the active
+    // generator's declared schema and clamps the value.
+    if k.is_empty() || !value.is_finite() {
+        return;
+    }
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/object_generator/param".to_string(),
+            args: vec![rosc::OscType::String(k), rosc::OscType::Float(value)],
+        },
+    );
+}
+
+/// Enable/disable the phantom-source extraction pre-stage (runs before the height
+/// lift). Sent as an int (0/1).
+#[tauri::command]
+pub fn control_phantom_extract(state: State<SharedState>, enabled: bool) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendInt {
+            address: "/omniphony/control/phantom_extract".to_string(),
+            value: if enabled { 1 } else { 0 },
+        },
+    );
+}
+
+/// Set a live phantom-extraction parameter (`strength` / `passes` / `lift`). Sent
+/// as `[key, value]`; the renderer clamps and applies it live.
+#[tauri::command]
+pub fn control_phantom_extract_param(state: State<SharedState>, key: String, value: f32) {
+    let k = key.trim().to_ascii_lowercase();
+    if k.is_empty() || !value.is_finite() {
+        return;
+    }
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/phantom_extract/param".to_string(),
+            args: vec![rosc::OscType::String(k), rosc::OscType::Float(value)],
+        },
+    );
+}
+
 /// Set the output channel mapping: `by_index` (positionless — port N = layout
 /// speaker N) or `by_name` (positional).
 #[tauri::command]

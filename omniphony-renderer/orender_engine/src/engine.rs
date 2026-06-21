@@ -10,7 +10,7 @@ use crate::events::Configuration;
 use crate::osc::{ObjectMeta, OscSender};
 use crate::overlay;
 use crate::renderer_build::{SpatialRendererParams, build_spatial_renderer};
-use crate::{render, spatial, virtual_bed};
+use crate::{object_gen, phantom_extract, render, spatial, virtual_bed};
 use anyhow::{Result, anyhow, bail};
 use bridge_api::{RChannelLabel, RCoordinateFormat, RDecodedFrame, RInputTransport};
 use renderer::config::Config;
@@ -93,6 +93,17 @@ pub struct Engine {
     /// Opt-in per-frame perf accumulator (env `ORENDER_PERF_LOG`). `None` = off
     /// (zero overhead). Diagnostic only; safe to remove once perf work lands.
     perf: Option<PerfLog>,
+
+    /// Pluggable bed→height object generator stage (2D upmix). Off by default;
+    /// active only for channel content on a height-capable layout. Selected by
+    /// the live param `object_generator_id`. See [`crate::object_gen`].
+    object_gen: object_gen::ObjectGenStage,
+
+    /// Phantom-source extraction pre-stage: runs before the height lift, pulling
+    /// correlated content out of channel pairs as planar objects and reducing the
+    /// bed. Off by default (live param `phantom_enabled`). See
+    /// [`crate::phantom_extract`].
+    phantom: phantom_extract::PhantomExtractStage,
 }
 
 /// Throttled (~1 Hz) aggregate of per-frame render/decode cost, correlated with
@@ -224,7 +235,22 @@ impl Engine {
             perf: std::env::var_os("ORENDER_PERF_LOG")
                 .is_some()
                 .then(PerfLog::new),
+            object_gen: object_gen::ObjectGenStage::new(),
+            phantom: phantom_extract::PhantomExtractStage::new(),
         }
+    }
+
+    /// Register a host-supplied (out-of-tree) bed→height object generator so it
+    /// can be selected by id and appears in Studio's selector + parameter sliders.
+    /// Call at startup (before `enable_osc`); a later call re-publishes the schema.
+    pub fn register_object_generator(
+        &mut self,
+        factory: Box<dyn object_gen::ObjectGeneratorFactory>,
+    ) {
+        self.object_gen.register(factory);
+        self.renderer
+            .renderer_control()
+            .set_object_generators_schema(self.object_gen.registry().listings_json());
     }
 
     /// Start the OSC live-control server, attaching the renderer control so
@@ -238,6 +264,17 @@ impl Engine {
     pub fn enable_osc(&mut self, opts: OscOptions) -> Result<()> {
         use std::net::SocketAddrV4;
         use std::str::FromStr;
+
+        // Publish the object-generator schema (built-ins + any host-registered
+        // out-of-tree generators) into RendererControl so the live-state bundle
+        // carries it to Studio.
+        self.renderer
+            .renderer_control()
+            .set_object_generators_schema(self.object_gen.registry().listings_json());
+        // Publish the phantom-extraction param schema for Studio's sliders.
+        self.renderer
+            .renderer_control()
+            .set_phantom_schema(phantom_extract::phantom_schema_json());
 
         let target = SocketAddrV4::from_str(&format!("{}:{}", opts.host, opts.port_out))
             .map_err(|e| anyhow!("invalid OSC target {}:{}: {e}", opts.host, opts.port_out))?;
@@ -428,6 +465,33 @@ impl Engine {
             .and_then(renderer::config_fields::output_channel_mapping::get)
             .unwrap_or(renderer::config_fields::output_channel_mapping::DEFAULT);
         control.live.write().output_channel_mapping = output_channel_mapping;
+
+        // Bed→height object generator selection + its live param overrides; seeded
+        // from config so the choice survives a restart (FFI/CLI parity). Empty id
+        // = off; absent params = the generator's declared defaults.
+        let object_generator_id = render_cfg
+            .as_ref()
+            .and_then(renderer::config_fields::object_generator_id::get)
+            .unwrap_or_default();
+        control.live.write().object_generator_id = object_generator_id;
+        if let Some(params) = render_cfg
+            .as_ref()
+            .and_then(|c| c.object_generator_params.clone())
+        {
+            control.live.write().object_generator_params = params;
+        }
+
+        // Phantom-source extraction pre-stage: enable flag + its param overrides,
+        // seeded from config (FFI/CLI parity). Absent = off / declared defaults.
+        if let Some(enabled) = render_cfg
+            .as_ref()
+            .and_then(renderer::config_fields::phantom_enabled::get)
+        {
+            control.live.write().phantom_enabled = enabled;
+        }
+        if let Some(params) = render_cfg.as_ref().and_then(|c| c.phantom_params.clone()) {
+            control.live.write().phantom_params = params;
+        }
 
         // Parametrable virtual bed (per-channel direct/virtual placement). Seed
         // from config so the embedded host matches the CLI bootstrap; `None`
@@ -808,6 +872,14 @@ impl Engine {
 
         self.decoded_samples += sample_count as u64;
 
+        // Number of synthesized height objects planned this frame by the
+        // object-generator stage (stays 0 unless activated in the bed-only
+        // branch below).
+        let mut synth_count = 0usize;
+        // Phantom-extraction pre-stage object count (planar primaries pulled out of
+        // the bed). Stays 0 unless enabled in the bed-only branch below.
+        let mut phantom_count = 0usize;
+
         // Bed-only / pre-metadata frames carry no OAMD objects: render them
         // according to the configured channel mode (host / direct / virtual),
         // identically to the CLI's file-decode path. The embedded host has no
@@ -823,6 +895,8 @@ impl Engine {
                 room_ratio_rear,
                 room_ratio_lower,
                 room_ratio_center_blend,
+                object_generator_id,
+                phantom_enabled,
             ) = {
                 let control = self.renderer.renderer_control();
                 let live = control.live.read();
@@ -834,6 +908,8 @@ impl Engine {
                     live.room_ratio_rear,
                     live.room_ratio_lower,
                     live.room_ratio_center_blend,
+                    live.object_generator_id.clone(),
+                    live.phantom_enabled,
                 )
             };
             let output_layout = self.renderer.speaker_layout();
@@ -885,10 +961,66 @@ impl Engine {
                 }
             }
 
-            // Outgoing: broadcast the virtual-bed channel poses as OSC objects
-            // and/or feed the in-process mpv overlay.
+            // Bed→height object generator (2D upmix): plan synthesized height
+            // objects for channel content on a height-capable layout. No-op
+            // unless a generator is selected and the gating passes. The static
+            // positions/names are planned here (before the OSC object emit); the
+            // audio for the new object channels is filled after the bed PCM is
+            // built, below — they then ride the existing object/VBAP path.
+            let ctx = object_gen::PrepareCtx {
+                input_labels: &labels,
+                output_layout: &output_layout,
+                sample_rate,
+                surround_placement,
+            };
+            // Phantom-extraction pre-stage runs first: its planar objects occupy the
+            // channel slots right after the bed; the height-lift objects follow. The
+            // audio (and the bed reduction) is applied after the bed PCM is built.
+            phantom_count = self.phantom.sync(phantom_enabled, &ctx);
+            synth_count = self.object_gen.sync(&object_generator_id, &ctx);
+            if phantom_count > 0 || synth_count > 0 {
+                // Push each stage's live param overrides (declared schema; sparse —
+                // absent keys keep the stage's default). Cheap + idempotent, so a
+                // freshly (re)built stage re-receives them next frame.
+                let control = self.renderer.renderer_control();
+                let live = control.live.read();
+                for (key, &value) in live.phantom_params.iter() {
+                    self.phantom.set_param(key, value, sample_rate);
+                }
+                for (key, &value) in live.object_generator_params.iter() {
+                    self.object_gen.set_param(key, value, sample_rate);
+                }
+            }
+            // Phantom objects first (channels [channel_count ..]), then the height
+            // objects offset past them.
+            for (p, spec) in self.phantom.specs().iter().enumerate() {
+                self.frame_events.push(SpatialChannelEvent {
+                    channel_idx: channel_count + p,
+                    is_bed: false,
+                    gain_db: Some(spec.gain_db),
+                    ramp_length: Some(0),
+                    size: Some(spec.size),
+                    position: Some(spec.position),
+                    sample_pos: Some(0),
+                });
+            }
+            for (k, spec) in self.object_gen.specs().iter().enumerate() {
+                self.frame_events.push(SpatialChannelEvent {
+                    channel_idx: channel_count + phantom_count + k,
+                    is_bed: false,
+                    gain_db: Some(spec.gain_db),
+                    ramp_length: Some(0),
+                    size: Some(spec.size),
+                    position: Some(spec.position),
+                    sample_pos: Some(0),
+                });
+            }
+
+            // Outgoing: broadcast the virtual-bed channel poses + any synthesized
+            // height objects as OSC objects and/or feed the in-process mpv
+            // overlay, so they appear in Studio's 3D view and object list.
             if want_objects {
-                if let Some(objects) = virtual_bed::build_virtual_bed_objects(
+                let mut objects = virtual_bed::build_virtual_bed_objects(
                     &labels,
                     virtual_bed_layout.as_ref(),
                     Some(&output_layout),
@@ -897,7 +1029,27 @@ impl Engine {
                     room_ratio_lower,
                     room_ratio_center_blend,
                     surround_placement,
-                ) {
+                )
+                .unwrap_or_default();
+                for spec in self
+                    .phantom
+                    .specs()
+                    .iter()
+                    .chain(self.object_gen.specs().iter())
+                {
+                    objects.push(ObjectMeta {
+                        name: spec.name.clone(),
+                        x: spec.position[0] as f32,
+                        y: spec.position[1] as f32,
+                        z: spec.position[2] as f32,
+                        coord_mode: "cartesian".to_string(),
+                        direct_speaker_index: None,
+                        gain: spec.gain_db as i32,
+                        priority: 0.0,
+                        size: spec.size,
+                    });
+                }
+                if !objects.is_empty() {
                     if want_osc {
                         if let Some(osc) = self.osc.as_mut() {
                             let _ = osc.send_object_frame(sample_pos_at_start, 0, 0, &objects);
@@ -937,6 +1089,24 @@ impl Engine {
             &mut self.drc_ramp_samples_remaining,
         );
 
+        // Two upmix stages now that the bed PCM exists. First the phantom pre-stage
+        // subtracts correlated content from the bed *in place* and appends its
+        // planar objects; then the height lift runs on the reduced bed and appends
+        // its objects. The renderer sees one extended interleaved buffer
+        // (bed | phantom objects | height objects). Both zero-cost when inactive.
+        let (mid_pcm, mid_channels): (&[f32], usize) = if phantom_count > 0 {
+            self.phantom
+                .process_and_extend(&mut pcm_f32, channel_count, sample_count, sample_rate)
+        } else {
+            (pcm_f32.as_slice(), channel_count)
+        };
+        let (render_pcm, render_channels): (&[f32], usize) = if synth_count > 0 {
+            self.object_gen
+                .fill_and_extend(mid_pcm, mid_channels, sample_count, sample_rate)
+        } else {
+            (mid_pcm, mid_channels)
+        };
+
         // VU metering (outgoing): feed object PCM pre-render; speakers post-render.
         // Needed for OSC metering clients and/or the in-process overlay (object
         // circle radius tracks RMS).
@@ -952,17 +1122,17 @@ impl Engine {
         }
         if want_metering {
             if let Some(meter) = self.audio_meter.as_mut() {
-                meter.update_channel_count(channel_count);
-                for chunk in pcm_f32.chunks_exact(channel_count) {
-                    meter.process_objects(chunk, channel_count);
+                meter.update_channel_count(render_channels);
+                for chunk in render_pcm.chunks_exact(render_channels) {
+                    meter.process_objects(chunk, render_channels);
                 }
             }
         }
 
         let render_started = std::time::Instant::now();
         let rendered = self.renderer.render_frame(
-            &pcm_f32,
-            channel_count,
+            render_pcm,
+            render_channels,
             &self.frame_events,
             Vec::new(),
             want_metering,

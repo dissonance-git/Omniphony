@@ -142,6 +142,26 @@ pub fn build_renderer_state_json(
         "autoGainCeilingDb": live.auto_gain_ceiling_db,
         "rampMode": live.ramp_mode.as_str(),
         "channelRenderMode": live.channel_render_mode.as_str(),
+        // Active bed→height object generator (2D upmix) id; empty = off.
+        "objectGeneratorId": live.object_generator_id.as_str(),
+        // Live param overrides for the active generator (key → value), for the
+        // Studio sliders. The schema itself is published separately by the engine
+        // on `/omniphony/state/object_generators`.
+        "objectGeneratorParams":
+            serde_json::to_value(&live.object_generator_params).unwrap_or(serde_json::Value::Null),
+        // Whether the active output layout has a top speaker. The 2D-upmix
+        // generators are a strict no-op without one, so Studio greys out the
+        // selector.
+        "objectGeneratorLayoutHasHeight": active_topology
+            .speaker_layout
+            .speakers
+            .iter()
+            .any(|s| s.spatialize && s.z > 1.0e-3),
+        // Phantom-source extraction pre-stage: enable flag + its param overrides
+        // (the param schema is published by the engine on `/state/phantom`).
+        "phantomEnabled": live.phantom_enabled,
+        "phantomParams":
+            serde_json::to_value(&live.phantom_params).unwrap_or(serde_json::Value::Null),
         "surroundPlacement": live.surround_placement.as_str(),
         "outputChannelMapping": live.output_channel_mapping.as_str(),
         "outputChannelMappingUnroutable": unroutable_speaker_names,

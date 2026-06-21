@@ -2036,6 +2036,22 @@
         align-items: center;
       }
 
+      /* Fixed-height type icon in the id strip (▲ height upmix, ◇ phantom), shown
+         only for synthesized objects; bed/ADM rows keep their short name as
+         (flipped) vertical text in the badge. The extra `.object-item` raises the
+         specificity above `.id-strip.flip span` so the icon stays upright and
+         horizontal (no 180° rotate). */
+      .object-item .id-strip .object-type-icon {
+        writing-mode: horizontal-tb;
+        text-orientation: mixed;
+        transform: none;
+        font-size: 12px;
+        line-height: 1;
+      }
+      .object-item .id-strip.type-phantom .object-type-icon {
+        color: #ffe66d;
+      }
+
       body.hide-object-details .object-head {
         display: none;
       }

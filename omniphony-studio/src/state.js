@@ -231,6 +231,29 @@ export const app = {
   // Where the 4.x/5.x surround pair (Ls/Rs) of a 2D source is placed: 'side' or
   // 'back'. Only affects sources without dedicated back channels.
   surroundPlacement: 'side',
+  // Bed→height object generator (2D upmix) id: 'none' (off), 'copy_up', 'pad'.
+  // Synthesizes height objects from channel content on a height-capable layout.
+  objectGeneratorId: 'none',
+  // Declared bed→height generator schema, published by the renderer on
+  // /omniphony/state/object_generators: [{id,label,i18nKey,requiresHeightLayer,
+  // params:[{key,label,i18nKey,min,max,step,default,unit}]}]. Studio builds the
+  // selector + parameter sliders from this.
+  objectGenerators: [],
+  // Live param overrides for the active generator (key → value).
+  objectGeneratorParams: {},
+  // Whether the active output layout has top speakers; when false the 2D-upmix
+  // generators are a no-op and the selector is greyed out. Assume yes until the
+  // renderer reports otherwise.
+  objectGeneratorLayoutHasHeight: true,
+  // Phantom-source extraction pre-stage: extracts correlated content from channel
+  // pairs as discrete objects at their real panned position, before the height
+  // lift. Off by default.
+  phantomEnabled: false,
+  // Declared phantom-extraction param schema, published on /omniphony/state/phantom
+  // as [{key,label,i18nKey,min,max,step,default,unit}]. Studio builds the sliders.
+  phantomSchema: [],
+  // Live param overrides for the phantom stage (key → value).
+  phantomParams: {},
   // How output channels map to device ports: 'by_index' (positionless — port N =
   // layout speaker N) or 'by_name' (positional). Default 'by_index'.
   outputChannelMapping: 'by_index',
