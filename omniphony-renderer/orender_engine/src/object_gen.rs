@@ -18,6 +18,7 @@
 //! in the Studio 3D view and object list like any ADM object.
 
 use bridge_api::RChannelLabel;
+use renderer::live_params::SurroundPlacement;
 use renderer::speaker_layout::SpeakerLayout;
 
 /// What a generator needs from its environment; lets the host gate the UI.
@@ -70,6 +71,9 @@ pub struct PrepareCtx<'a> {
     /// The active output speaker layout.
     pub output_layout: &'a SpeakerLayout,
     pub sample_rate: u32,
+    /// Where a 4.x/5.x surround pair (`Ls`/`Rs`) sits — Side or Back — so the
+    /// synthesized objects track the same choice as the virtual bed.
+    pub surround_placement: SurroundPlacement,
 }
 
 /// One block of channel-based bed PCM handed to [`ObjectGenerator::process`].
@@ -275,6 +279,32 @@ pub(crate) fn top_position(label: RChannelLabel) -> Option<[f64; 3]> {
     Some(pos)
 }
 
+/// True when the input carries dedicated back-surround channels (7.x); then the
+/// side surrounds are unambiguous and `surround_placement` does not apply.
+pub(crate) fn input_has_back(labels: &[RChannelLabel]) -> bool {
+    labels
+        .iter()
+        .any(|l| matches!(l, RChannelLabel::Lb | RChannelLabel::Rb | RChannelLabel::Cb))
+}
+
+/// Canonical top position of a bed channel, with a 4.x/5.x surround pair
+/// (`Ls`/`Rs`) moved to the side or back per `surround_placement` — matching the
+/// virtual bed — so synthesized objects track the same Side/Back choice.
+pub(crate) fn channel_top_position(
+    label: RChannelLabel,
+    use_7_1: bool,
+    placement: SurroundPlacement,
+) -> Option<[f64; 3]> {
+    let mut pos = top_position(label)?;
+    if let Some((x, y, _)) =
+        crate::virtual_bed::surround_placement_override(label, use_7_1, placement)
+    {
+        pos[0] = x as f64;
+        pos[1] = y as f64;
+    }
+    Some(pos)
+}
+
 // ───────────────────────── built-in: copy_up ─────────────────────────
 
 /// Simple reference generator: routes every spatializable floor channel straight
@@ -325,9 +355,11 @@ impl ObjectGenerator for CopyUpGenerator {
         const SIZE: [f32; 3] = [0.3, 0.3, 0.3];
         // Lift every spatializable bed channel (front, sides, back, center) to its
         // canonical top position; LFE / unknown channels have no `top_position`.
+        let use_7_1 = input_has_back(ctx.input_labels);
         let mut specs = Vec::new();
         for (ch, &label) in ctx.input_labels.iter().enumerate() {
-            let Some(position) = top_position(label) else {
+            let Some(position) = channel_top_position(label, use_7_1, ctx.surround_placement)
+            else {
                 continue;
             };
             self.src_channels.push(ch);
@@ -602,6 +634,7 @@ impl ObjectGenerator for PadGenerator {
         // One-pole smoothing coefficient for the statistics (τ = PAD_STAT_TC_MS).
         self.alpha = one_pole_coeff(PAD_STAT_TC_MS, fs);
         let labels = ctx.input_labels;
+        let use_7_1 = input_has_back(labels);
         let hpf = Biquad::highpass(fs, PAD_HPF_HZ, PAD_HPF_Q);
         const SIZE: [f32; 3] = [0.5, 0.5, 0.5];
 
@@ -637,7 +670,10 @@ impl ObjectGenerator for PadGenerator {
             else {
                 continue;
             };
-            let (Some(pos_l), Some(pos_r)) = (top_position(label_l), top_position(label_r)) else {
+            let (Some(pos_l), Some(pos_r)) = (
+                channel_top_position(label_l, use_7_1, ctx.surround_placement),
+                channel_top_position(label_r, use_7_1, ctx.surround_placement),
+            ) else {
                 continue;
             };
             let out_l = specs.len();
@@ -672,7 +708,7 @@ impl ObjectGenerator for PadGenerator {
         // whenever C exists so it shows in the 3D view; silent at amount 0.
         if let (Some(ch), Some(position)) = (
             find_channel(labels, RChannelLabel::C),
-            top_position(RChannelLabel::C),
+            channel_top_position(RChannelLabel::C, use_7_1, ctx.surround_placement),
         ) {
             let out = specs.len();
             self.center = Some(CenterChannel {
@@ -964,6 +1000,7 @@ mod tests {
             input_labels: &LABELS_5_1,
             output_layout: &out,
             sample_rate: 48_000,
+            surround_placement: renderer::live_params::SurroundPlacement::Side,
         });
         assert!(specs.is_empty());
     }
@@ -982,6 +1019,7 @@ mod tests {
             input_labels: &labels,
             output_layout: &out,
             sample_rate: 48_000,
+            surround_placement: renderer::live_params::SurroundPlacement::Side,
         });
         assert!(specs.is_empty());
     }
@@ -994,6 +1032,7 @@ mod tests {
             input_labels: &LABELS_5_1,
             output_layout: &out,
             sample_rate: 48_000,
+            surround_placement: renderer::live_params::SurroundPlacement::Side,
         });
         // L, R, C, Ls, Rs lifted (LFE skipped) — sides + center now included.
         assert_eq!(specs.len(), 5);
@@ -1011,6 +1050,7 @@ mod tests {
             input_labels: &LABELS_5_1,
             output_layout: &out,
             sample_rate: 48_000,
+            surround_placement: renderer::live_params::SurroundPlacement::Side,
         });
         // 2 sample frames, 6 channels: channel value = channel index + sample*10.
         let c = 6usize;
@@ -1054,6 +1094,7 @@ mod tests {
             input_labels: &LABELS_5_1,
             output_layout: &out_layout,
             sample_rate: 48_000,
+            surround_placement: renderer::live_params::SurroundPlacement::Side,
         });
         // 5.1 → front (L/R) + side (Ls/Rs) + center (C) = 5 objects.
         assert_eq!(specs.len(), 5);
@@ -1087,6 +1128,7 @@ mod tests {
                 input_labels: &LABELS_5_1,
                 output_layout: &out,
                 sample_rate: 48_000,
+                surround_placement: renderer::live_params::SurroundPlacement::Side,
             })
             .is_empty()
         );
@@ -1100,6 +1142,7 @@ mod tests {
             input_labels: &LABELS_5_1,
             output_layout: &out,
             sample_rate: 48_000,
+            surround_placement: renderer::live_params::SurroundPlacement::Side,
         });
         // front L/R + side Ls/Rs + center C (no back pair in 5.1).
         assert_eq!(specs.len(), 5);
@@ -1116,6 +1159,32 @@ mod tests {
             specs
                 .iter()
                 .any(|s| s.name == "Ambience_TC" && s.position == [0.0, 1.0, 1.0])
+        );
+    }
+
+    #[test]
+    fn surround_placement_back_moves_the_5_1_surround_to_the_back_row() {
+        // A 4.x/5.x source (no Lb/Rb) under Back placement: the Ls/Rs-derived
+        // objects must lift to the back row (y = -1), matching the virtual bed —
+        // not stay on the side (y = 0).
+        let mut g = PadGenerator::default();
+        let specs = g.prepare(&PrepareCtx {
+            input_labels: &LABELS_5_1,
+            output_layout: &layout_7_1_4(),
+            sample_rate: 48_000,
+            surround_placement: renderer::live_params::SurroundPlacement::Back,
+        });
+        assert!(
+            specs
+                .iter()
+                .any(|s| s.name == "Ambience_SL" && (s.position[1] + 1.0).abs() < 1.0e-6),
+            "Ls phantom should move to the back row (y = -1) under Back placement"
+        );
+        // The front pair is unaffected (still y = 1).
+        assert!(
+            specs
+                .iter()
+                .any(|s| s.name == "Ambience_FL" && (s.position[1] - 1.0).abs() < 1.0e-6)
         );
     }
 
@@ -1160,6 +1229,7 @@ mod tests {
             input_labels: &LABELS_5_1,
             output_layout: &out_layout,
             sample_rate: 48_000,
+            surround_placement: renderer::live_params::SurroundPlacement::Side,
         });
         g.set_param("strength", 1.0, 48_000);
         let mut out: Vec<Vec<f32>> = vec![vec![0.0; n]; 4];
@@ -1217,6 +1287,7 @@ mod tests {
                 input_labels: &LABELS_5_1,
                 output_layout: &out_layout,
                 sample_rate: 48_000,
+                surround_placement: renderer::live_params::SurroundPlacement::Side,
             });
             g.set_param("strength", strength, 48_000);
             let mut out: Vec<Vec<f32>> = vec![vec![0.0; n]; 4];
@@ -1276,6 +1347,7 @@ mod tests {
             input_labels: &labels,
             output_layout: &layout_7_1_4(),
             sample_rate: 48_000,
+            surround_placement: renderer::live_params::SurroundPlacement::Side,
         });
         // front + side + back pairs (6) + center (1) = 7.
         assert_eq!(specs.len(), 7);
@@ -1308,6 +1380,7 @@ mod tests {
                 input_labels: &LABELS_5_1,
                 output_layout: &layout_7_1_4(),
                 sample_rate: 48_000,
+                surround_placement: renderer::live_params::SurroundPlacement::Side,
             });
             let center_idx = specs.iter().position(|s| s.name == "Ambience_TC").unwrap();
             g.set_param("center_amount", amount, 48_000);
@@ -1367,6 +1440,7 @@ mod tests {
                 input_labels: &LABELS_5_1,
                 output_layout: &out_layout,
                 sample_rate: 48_000,
+                surround_placement: renderer::live_params::SurroundPlacement::Side,
             });
             if let Some(db) = gain_db {
                 g.set_param("gain_db", db, 48_000);

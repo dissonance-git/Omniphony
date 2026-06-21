@@ -370,7 +370,7 @@ fn fallback_virtual_bed_pose(
 /// corner `(∓1, 0, 0)`, `Back` → the back corner `(∓1, −1, 0)` (sign by L/R).
 /// Returns the normalized override position for `Ls`/`Rs`, or `None` (no
 /// override) for any other label or when the source already has back channels.
-fn surround_placement_override(
+pub(crate) fn surround_placement_override(
     label: RChannelLabel,
     use_7_1: bool,
     placement: SurroundPlacement,

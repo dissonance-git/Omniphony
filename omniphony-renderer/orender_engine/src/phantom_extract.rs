@@ -18,7 +18,8 @@
 use bridge_api::RChannelLabel;
 
 use crate::object_gen::{
-    ObjectGenParamSpec, PrepareCtx, SynthObjectSpec, one_pole_coeff, top_position,
+    ObjectGenParamSpec, PrepareCtx, SynthObjectSpec, channel_top_position, input_has_back,
+    one_pole_coeff,
 };
 
 /// Time constant (ms) of the one-pole smoothers for the inter-channel statistics.
@@ -200,9 +201,12 @@ impl PhantomExtractStage {
             return;
         }
         // Present, positionable bed channels with their floor position + azimuth.
+        // Honour the Side/Back surround placement (matching the virtual bed), so a
+        // 4.x/5.x surround phantom sits where the user put the surrounds.
+        let use_7_1 = input_has_back(ctx.input_labels);
         let mut chans: Vec<(usize, RChannelLabel, [f64; 3], f64)> = Vec::new();
         for (idx, &label) in ctx.input_labels.iter().enumerate() {
-            if let Some(top) = top_position(label) {
+            if let Some(top) = channel_top_position(label, use_7_1, ctx.surround_placement) {
                 let floor = [top[0], top[1], 0.0];
                 let az = floor[0].atan2(floor[1]); // atan2(x, y): 0 = front, +90° = right
                 chans.push((idx, label, floor, az));
@@ -402,6 +406,7 @@ mod tests {
             input_labels: labels,
             output_layout: layout,
             sample_rate: 48_000,
+            surround_placement: renderer::live_params::SurroundPlacement::Side,
         }
     }
 
