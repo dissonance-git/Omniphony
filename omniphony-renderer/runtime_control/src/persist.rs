@@ -157,6 +157,13 @@ pub fn save_live_config_to_path(
     } else {
         Some(live.object_generator_params.clone())
     };
+    // Phantom-source extraction pre-stage: enable flag + its param overrides.
+    renderer::config_fields::phantom_enabled::store(render, live.phantom_enabled);
+    render.phantom_params = if live.phantom_params.is_empty() {
+        None
+    } else {
+        Some(live.phantom_params.clone())
+    };
     // Parametrable virtual bed for channel content. Persist the live layout
     // verbatim (round6 the radius for stable diffs); `None` keeps the key out of
     // the file so the built-in canonical poses (LFE direct) stay in effect.

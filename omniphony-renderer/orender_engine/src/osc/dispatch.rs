@@ -138,6 +138,43 @@ pub(crate) fn handle_control_message(
         return;
     }
 
+    // Phantom-source extraction pre-stage enable toggle (int 0/1).
+    if addr == osc_contract::CONTROL_PHANTOM_EXTRACT {
+        if let Some(arg) = msg.args.first() {
+            let on = match arg {
+                OscType::Int(i) => *i != 0,
+                OscType::Float(f) => *f != 0.0,
+                OscType::Bool(b) => *b,
+                _ => return,
+            };
+            control.live.write().phantom_enabled = on;
+            control.mark_dirty();
+            broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
+            log::info!("OSC phantom extraction {}", if on { "on" } else { "off" });
+        }
+        return;
+    }
+
+    // Live phantom-extraction parameter (strength / passes / lift).
+    if addr == osc_contract::CONTROL_PHANTOM_EXTRACT_PARAM {
+        let key = match msg.args.first() {
+            Some(OscType::String(s)) => s.trim().to_ascii_lowercase(),
+            _ => return,
+        };
+        let value = match msg.args.get(1) {
+            Some(OscType::Float(f)) => *f,
+            Some(OscType::Double(d)) => *d as f32,
+            Some(OscType::Int(i)) => *i as f32,
+            _ => return,
+        };
+        if key.is_empty() || !value.is_finite() {
+            return;
+        }
+        control.live.write().phantom_params.insert(key, value);
+        control.mark_dirty();
+        return;
+    }
+
     // Surround placement (side/back) for 4.x/5.x channel content. Live-tunable
     // from Studio; persists to config right away (same rationale as
     // channel_render_mode: a host fallback can route the next toggle to a

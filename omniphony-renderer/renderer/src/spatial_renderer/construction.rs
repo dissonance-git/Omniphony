@@ -435,6 +435,9 @@ impl SpatialRenderer {
             object_generator_id: String::new(),
             // Empty = each generator uses its declared param defaults.
             object_generator_params: std::collections::HashMap::new(),
+            // Phantom-source extraction pre-stage: off by default.
+            phantom_enabled: false,
+            phantom_params: std::collections::HashMap::new(),
         }
     }
 

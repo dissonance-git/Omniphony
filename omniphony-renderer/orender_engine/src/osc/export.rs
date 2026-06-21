@@ -33,6 +33,11 @@ pub(crate) fn build_live_state_bundle(
         addr: "/omniphony/state/object_generators".to_string(),
         args: vec![OscType::String(control.object_generators_schema())],
     }));
+    // Declared phantom-extraction param schema, so Studio builds its sliders.
+    messages.push(OscPacket::Message(OscMessage {
+        addr: "/omniphony/state/phantom".to_string(),
+        args: vec![OscType::String(control.phantom_schema())],
+    }));
     messages.push(OscPacket::Message(OscMessage {
         addr: "/omniphony/state/snapshot_complete".to_string(),
         args: vec![OscType::Int(1)],

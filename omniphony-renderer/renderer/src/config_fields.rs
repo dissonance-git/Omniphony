@@ -348,6 +348,13 @@ render_field_str! {
 }
 
 render_field! {
+    /// Enable the phantom-source extraction pre-stage (`render.phantom_enabled`).
+    pub phantom_enabled: bool = false,
+    field = phantom_enabled,
+    eq = bool::eq
+}
+
+render_field! {
     /// Derive spread from object distance (`render.spread_from_distance`).
     pub spread_from_distance: bool = false,
     field = spread_from_distance,

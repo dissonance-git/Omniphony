@@ -1,3 +1,7 @@
+// The renderer-state `serde_json::json!` literal in `snapshot.rs` is large; raise
+// the macro recursion limit so it expands.
+#![recursion_limit = "256"]
+
 pub mod command;
 pub mod context;
 pub mod host_control;

@@ -133,6 +133,11 @@ pub const CONTROL_OBJECT_GENERATOR: &str = "/omniphony/control/object_generator"
 /// Sets a live object-generator parameter. Args: key (string), value (float).
 /// Keys: `strength`, `hpf_hz`, `gain_db` (PAD).
 pub const CONTROL_OBJECT_GENERATOR_PARAM: &str = "/omniphony/control/object_generator/param";
+/// Enables/disables the phantom-source extraction pre-stage. Arg: int (0/1).
+pub const CONTROL_PHANTOM_EXTRACT: &str = "/omniphony/control/phantom_extract";
+/// Sets a live phantom-extraction parameter. Args: key (string), value (float).
+/// Keys: `strength`, `passes`, `lift`.
+pub const CONTROL_PHANTOM_EXTRACT_PARAM: &str = "/omniphony/control/phantom_extract/param";
 /// Where the 4.x/5.x surround pair is placed: `side` or `back`. Only affects
 /// channel sources without dedicated back channels. Persisted to config.
 pub const CONTROL_SURROUND_PLACEMENT: &str = "/omniphony/control/surround_placement";
@@ -294,6 +299,8 @@ pub const ALL_CONTROL: &[&str] = &[
     CONTROL_CHANNEL_RENDER_MODE,
     CONTROL_OBJECT_GENERATOR,
     CONTROL_OBJECT_GENERATOR_PARAM,
+    CONTROL_PHANTOM_EXTRACT,
+    CONTROL_PHANTOM_EXTRACT_PARAM,
     CONTROL_OUTPUT_CHANNEL_MAPPING,
     CONTROL_VIRTUAL_BED,
     CONTROL_CONFIG_AUDIO,

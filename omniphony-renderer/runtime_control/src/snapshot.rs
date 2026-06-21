@@ -157,6 +157,11 @@ pub fn build_renderer_state_json(
             .speakers
             .iter()
             .any(|s| s.spatialize && s.z > 1.0e-3),
+        // Phantom-source extraction pre-stage: enable flag + its param overrides
+        // (the param schema is published by the engine on `/state/phantom`).
+        "phantomEnabled": live.phantom_enabled,
+        "phantomParams":
+            serde_json::to_value(&live.phantom_params).unwrap_or(serde_json::Value::Null),
         "surroundPlacement": live.surround_placement.as_str(),
         "outputChannelMapping": live.output_channel_mapping.as_str(),
         "outputChannelMappingUnroutable": unroutable_speaker_names,

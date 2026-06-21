@@ -243,15 +243,23 @@ pub fn input_has_height(labels: &[RChannelLabel]) -> bool {
     })
 }
 
-fn find_channel(labels: &[RChannelLabel], want: RChannelLabel) -> Option<usize> {
+pub(crate) fn find_channel(labels: &[RChannelLabel], want: RChannelLabel) -> Option<usize> {
     labels.iter().position(|&l| l == want)
+}
+
+/// One-pole smoothing coefficient from a time constant: `α = 1 − exp(−1/(τ·fs))`,
+/// with `τ = tc_ms` (ms). Shared by the inter-channel statistics smoothers (PAD,
+/// phantom extraction). Idiom shared with `audio_output::iir::step_one_pole`.
+pub(crate) fn one_pole_coeff(tc_ms: f32, fs: f32) -> f32 {
+    let tau_samples = (tc_ms * 1.0e-3 * fs).max(1.0);
+    1.0 - (-1.0 / tau_samples).exp()
 }
 
 /// Canonical top position of a bed channel: its floor position raised to the
 /// height layer (`z = 1`). Mirrors the engine's channel→position convention
 /// (`renderer/src/virtual_bed.rs`): x = right, y = front. `None` for channels
 /// that should never be lifted (LFE) or carry no position (unknown).
-fn top_position(label: RChannelLabel) -> Option<[f64; 3]> {
+pub(crate) fn top_position(label: RChannelLabel) -> Option<[f64; 3]> {
     use RChannelLabel::*;
     let pos = match label {
         L => [-1.0, 1.0, 1.0],
@@ -591,10 +599,8 @@ impl ObjectGenerator for PadGenerator {
             return Vec::new();
         }
         let fs = ctx.sample_rate.max(1) as f32;
-        // One-pole smoothing coefficient for the statistics: α = 1 − exp(−1/(τ·fs)),
-        // with τ = PAD_STAT_TC_MS. (Idiom shared with audio_output `step_one_pole`.)
-        let tau_samples = (PAD_STAT_TC_MS * 1.0e-3 * fs).max(1.0);
-        self.alpha = 1.0 - (-1.0 / tau_samples).exp();
+        // One-pole smoothing coefficient for the statistics (τ = PAD_STAT_TC_MS).
+        self.alpha = one_pole_coeff(PAD_STAT_TC_MS, fs);
         let labels = ctx.input_labels;
         let hpf = Biquad::highpass(fs, PAD_HPF_HZ, PAD_HPF_Q);
         const SIZE: [f32; 3] = [0.5, 0.5, 0.5];
