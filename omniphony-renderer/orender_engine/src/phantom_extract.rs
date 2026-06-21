@@ -114,34 +114,7 @@ struct PhantomPair {
     e_b: f32,
 }
 
-/// Joint extraction for the front L-C-R triplet. The centre is shared by the L-C
-/// and C-R phantoms, so a sequential pairwise cascade would peel C twice and
-/// mishandle a symmetric front source (it would localise it off-centre and leave
-/// R unbalanced). Here both phantoms are computed from the *original* channels and
-/// C's removal is split by its left/right correlation balance — a symmetric source
-/// stays symmetric, and a decorrelated centre (dialogue) is left anchored.
-struct FrontTriplet {
-    l_ch: usize,
-    c_ch: usize,
-    r_ch: usize,
-    out_lc: usize,
-    out_cr: usize,
-    pos_l: [f64; 3],
-    pos_c: [f64; 3],
-    pos_r: [f64; 3],
-    pl: f32,
-    pc: f32,
-    pr: f32,
-    x_lc: f32,
-    x_cr: f32,
-    /// Smoothed per-side correlated energy of each phantom → pan positions.
-    e_lc_l: f32,
-    e_lc_c: f32,
-    e_cr_c: f32,
-    e_cr_r: f32,
-}
-
-impl FrontTriplet {
+impl PhantomPair {
     fn process(
         &mut self,
         bed: &mut [f32],
@@ -151,71 +124,268 @@ impl FrontTriplet {
         alpha: f32,
         planar: &mut [Vec<f32>],
     ) {
-        if self.l_ch >= c
-            || self.c_ch >= c
-            || self.r_ch >= c
-            || self.out_lc >= planar.len()
-            || self.out_cr >= planar.len()
-        {
+        if self.a_ch >= c || self.b_ch >= c || self.out >= planar.len() {
             return;
         }
         for s in 0..n {
-            let l = bed[s * c + self.l_ch];
-            let cc = bed[s * c + self.c_ch];
-            let r = bed[s * c + self.r_ch];
+            let ia = s * c + self.a_ch;
+            let ib = s * c + self.b_ch;
+            let a = bed[ia];
+            let b = bed[ib];
 
-            self.pl += alpha * (l * l - self.pl);
-            self.pc += alpha * (cc * cc - self.pc);
-            self.pr += alpha * (r * r - self.pr);
-            self.x_lc += alpha * (l * cc - self.x_lc);
-            self.x_cr += alpha * (cc * r - self.x_cr);
+            self.pow_a += alpha * (a * a - self.pow_a);
+            self.pow_b += alpha * (b * b - self.pow_b);
+            self.cross += alpha * (a * b - self.cross);
 
-            let reg_l = PHANTOM_REG * self.pl + PHANTOM_FLOOR;
-            let reg_c = PHANTOM_REG * self.pc + PHANTOM_FLOOR;
-            let reg_r = PHANTOM_REG * self.pr + PHANTOM_FLOOR;
-            // L/R correlated with C (removed from L/R); C correlated with L/R (all
-            // from the *original* channels, no cascade).
-            let cl = (self.x_lc / (self.pc + reg_c)).clamp(-PHANTOM_W_CLAMP, PHANTOM_W_CLAMP) * cc;
-            let cr = (self.x_cr / (self.pc + reg_c)).clamp(-PHANTOM_W_CLAMP, PHANTOM_W_CLAMP) * cc;
-            let cc1 = (self.x_lc / (self.pl + reg_l)).clamp(-PHANTOM_W_CLAMP, PHANTOM_W_CLAMP) * l;
-            let cc2 = (self.x_cr / (self.pr + reg_r)).clamp(-PHANTOM_W_CLAMP, PHANTOM_W_CLAMP) * r;
+            let reg = PHANTOM_REG * 0.5 * (self.pow_a + self.pow_b) + PHANTOM_FLOOR;
+            let w_ab = (self.cross / (self.pow_b + reg)).clamp(-PHANTOM_W_CLAMP, PHANTOM_W_CLAMP);
+            let w_ba = (self.cross / (self.pow_a + reg)).clamp(-PHANTOM_W_CLAMP, PHANTOM_W_CLAMP);
 
-            // Coherences gate the extraction (a decorrelated centre stays put).
-            let coh_lc = (self.x_lc / ((self.pl * self.pc).sqrt() + PHANTOM_FLOOR)).clamp(0.0, 1.0);
-            let coh_cr = (self.x_cr / ((self.pc * self.pr).sqrt() + PHANTOM_FLOOR)).clamp(0.0, 1.0);
-            let k_lc = strength * coh_lc;
-            let k_cr = strength * coh_cr;
+            let denom = (self.pow_a * self.pow_b).sqrt() + PHANTOM_FLOOR;
+            let coh = (self.cross / denom).clamp(0.0, 1.0);
+            let k = strength * coh;
 
-            // Split C's removal by its left/right correlation balance (50/50 when
-            // balanced) so the centre is never peeled twice.
-            let fsum = coh_lc + coh_cr + PHANTOM_FLOOR;
-            let cc_l = (coh_lc / fsum) * cc1; // C's share routed to the L-C phantom
-            let cc_r = (coh_cr / fsum) * cc2; // C's share routed to the C-R phantom
+            let ca = w_ab * b;
+            let cb = w_ba * a;
 
-            bed[s * c + self.l_ch] = l - k_lc * cl;
-            bed[s * c + self.r_ch] = r - k_cr * cr;
-            bed[s * c + self.c_ch] = cc - (k_lc * cc_l + k_cr * cc_r);
+            bed[ia] = a - k * ca;
+            bed[ib] = b - k * cb;
 
-            let gl = self.pl.sqrt();
-            let gc = self.pc.sqrt();
-            let gr = self.pr.sqrt();
-            let gnorm_lc = (self.pl + self.pc).sqrt() + PHANTOM_FLOOR;
-            let gnorm_cr = (self.pc + self.pr).sqrt() + PHANTOM_FLOOR;
-            planar[self.out_lc][s] = k_lc * (cl * gl + cc_l * gc) / gnorm_lc;
-            planar[self.out_cr][s] = k_cr * (cr * gr + cc_r * gc) / gnorm_cr;
+            let ga = self.pow_a.sqrt();
+            let gb = self.pow_b.sqrt();
+            let gnorm = (self.pow_a + self.pow_b).sqrt() + PHANTOM_FLOOR;
+            planar[self.out][s] = k * (ca * ga + cb * gb) / gnorm;
 
-            self.e_lc_l += alpha * (cl * cl - self.e_lc_l);
-            self.e_lc_c += alpha * (cc_l * cc_l - self.e_lc_c);
-            self.e_cr_c += alpha * (cc_r * cc_r - self.e_cr_c);
-            self.e_cr_r += alpha * (cr * cr - self.e_cr_r);
+            self.e_a += alpha * (ca * ca - self.e_a);
+            self.e_b += alpha * (cb * cb - self.e_b);
+        }
+    }
+
+    fn refresh(&self, lift: f64, specs: &mut [SynthObjectSpec]) {
+        let t = (self.e_b / (self.e_a + self.e_b + PHANTOM_FLOOR)) as f64;
+        if let Some(spec) = specs.get_mut(self.out) {
+            spec.position = lerp_xy(self.pos_a, self.pos_b, t, lift);
         }
     }
 }
 
-/// The two front ring pairs the [`FrontTriplet`] subsumes: `(L,C)` and `(C,R)`.
-fn is_front_pair(a: RChannelLabel, b: RChannelLabel) -> bool {
-    use RChannelLabel::*;
-    matches!((a, b), (L, C) | (C, L) | (C, R) | (R, C))
+/// Interpolate `a→b` by `t` in the horizontal plane, with a fixed `z` (the lift).
+fn lerp_xy(a: [f64; 3], b: [f64; 3], t: f64, z: f64) -> [f64; 3] {
+    [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), z]
+}
+
+fn midpoint(a: [f64; 3], b: [f64; 3], z: f64) -> [f64; 3] {
+    [0.5 * (a[0] + b[0]), 0.5 * (a[1] + b[1]), z]
+}
+
+fn phantom_spec(name: String, position: [f64; 3]) -> SynthObjectSpec {
+    SynthObjectSpec {
+        name,
+        position,
+        gain_db: PHANTOM_GAIN_DB,
+        size: PHANTOM_SIZE,
+    }
+}
+
+/// Joint extraction for a three-channel arc `a — m — b` whose middle channel `m`
+/// is shared by the (a,m) and (m,b) phantoms. A sequential pairwise cascade would
+/// peel `m` twice and asymmetrically (a symmetric source comes out off-centre with
+/// the far end unbalanced). Here both phantoms are computed from the *original*
+/// channels and `m`'s removal is split by its correlation balance toward `a` vs
+/// `b`. Used for the front (L-C-R) and, in 7.1, the side arcs (L-Ls-Lb, R-Rs-Rb).
+struct ArcTriplet {
+    a_ch: usize,
+    m_ch: usize,
+    b_ch: usize,
+    out_am: usize,
+    out_mb: usize,
+    pos_a: [f64; 3],
+    pos_m: [f64; 3],
+    pos_b: [f64; 3],
+    pa: f32,
+    pm: f32,
+    pb: f32,
+    x_am: f32,
+    x_mb: f32,
+    /// Smoothed per-side correlated energy of each phantom → pan positions.
+    e_am_a: f32,
+    e_am_m: f32,
+    e_mb_m: f32,
+    e_mb_b: f32,
+}
+
+impl ArcTriplet {
+    fn process(
+        &mut self,
+        bed: &mut [f32],
+        c: usize,
+        n: usize,
+        strength: f32,
+        alpha: f32,
+        planar: &mut [Vec<f32>],
+    ) {
+        if self.a_ch >= c
+            || self.m_ch >= c
+            || self.b_ch >= c
+            || self.out_am >= planar.len()
+            || self.out_mb >= planar.len()
+        {
+            return;
+        }
+        for s in 0..n {
+            let a = bed[s * c + self.a_ch];
+            let m = bed[s * c + self.m_ch];
+            let b = bed[s * c + self.b_ch];
+
+            self.pa += alpha * (a * a - self.pa);
+            self.pm += alpha * (m * m - self.pm);
+            self.pb += alpha * (b * b - self.pb);
+            self.x_am += alpha * (a * m - self.x_am);
+            self.x_mb += alpha * (m * b - self.x_mb);
+
+            let reg_a = PHANTOM_REG * self.pa + PHANTOM_FLOOR;
+            let reg_m = PHANTOM_REG * self.pm + PHANTOM_FLOOR;
+            let reg_b = PHANTOM_REG * self.pb + PHANTOM_FLOOR;
+            // a/b correlated with m (removed from a/b); m correlated with a/b (all
+            // from the *original* channels, no cascade).
+            let ca = (self.x_am / (self.pm + reg_m)).clamp(-PHANTOM_W_CLAMP, PHANTOM_W_CLAMP) * m;
+            let cb = (self.x_mb / (self.pm + reg_m)).clamp(-PHANTOM_W_CLAMP, PHANTOM_W_CLAMP) * m;
+            let cm_a = (self.x_am / (self.pa + reg_a)).clamp(-PHANTOM_W_CLAMP, PHANTOM_W_CLAMP) * a;
+            let cm_b = (self.x_mb / (self.pb + reg_b)).clamp(-PHANTOM_W_CLAMP, PHANTOM_W_CLAMP) * b;
+
+            // Coherences gate the extraction (a decorrelated middle stays put).
+            let coh_am = (self.x_am / ((self.pa * self.pm).sqrt() + PHANTOM_FLOOR)).clamp(0.0, 1.0);
+            let coh_mb = (self.x_mb / ((self.pm * self.pb).sqrt() + PHANTOM_FLOOR)).clamp(0.0, 1.0);
+            let k_am = strength * coh_am;
+            let k_mb = strength * coh_mb;
+
+            // Split m's removal by its a/b correlation balance (50/50 when balanced)
+            // so the shared middle is never peeled twice.
+            let fsum = coh_am + coh_mb + PHANTOM_FLOOR;
+            let cm_to_a = (coh_am / fsum) * cm_a; // m's share routed to the a-m phantom
+            let cm_to_b = (coh_mb / fsum) * cm_b; // m's share routed to the m-b phantom
+
+            bed[s * c + self.a_ch] = a - k_am * ca;
+            bed[s * c + self.b_ch] = b - k_mb * cb;
+            bed[s * c + self.m_ch] = m - (k_am * cm_to_a + k_mb * cm_to_b);
+
+            let ga = self.pa.sqrt();
+            let gm = self.pm.sqrt();
+            let gb = self.pb.sqrt();
+            let gnorm_am = (self.pa + self.pm).sqrt() + PHANTOM_FLOOR;
+            let gnorm_mb = (self.pm + self.pb).sqrt() + PHANTOM_FLOOR;
+            planar[self.out_am][s] = k_am * (ca * ga + cm_to_a * gm) / gnorm_am;
+            planar[self.out_mb][s] = k_mb * (cb * gb + cm_to_b * gm) / gnorm_mb;
+
+            self.e_am_a += alpha * (ca * ca - self.e_am_a);
+            self.e_am_m += alpha * (cm_to_a * cm_to_a - self.e_am_m);
+            self.e_mb_m += alpha * (cm_to_b * cm_to_b - self.e_mb_m);
+            self.e_mb_b += alpha * (cb * cb - self.e_mb_b);
+        }
+    }
+
+    fn refresh(&self, lift: f64, specs: &mut [SynthObjectSpec]) {
+        let t_am = (self.e_am_m / (self.e_am_a + self.e_am_m + PHANTOM_FLOOR)) as f64;
+        if let Some(spec) = specs.get_mut(self.out_am) {
+            spec.position = lerp_xy(self.pos_a, self.pos_m, t_am, lift);
+        }
+        let t_mb = (self.e_mb_b / (self.e_mb_m + self.e_mb_b + PHANTOM_FLOOR)) as f64;
+        if let Some(spec) = specs.get_mut(self.out_mb) {
+            spec.position = lerp_xy(self.pos_m, self.pos_b, t_mb, lift);
+        }
+    }
+}
+
+type Pos = Option<(usize, [f64; 3])>;
+
+/// Build an `a—m—b` joint arc (two phantoms) if all three channels are present,
+/// appending its specs and recording the ring pairs it subsumes in `covered`.
+#[allow(clippy::too_many_arguments)]
+fn build_arc(
+    specs: &mut Vec<SynthObjectSpec>,
+    lift: f64,
+    a: Pos,
+    m: Pos,
+    b: Pos,
+    la: RChannelLabel,
+    lm: RChannelLabel,
+    lb: RChannelLabel,
+    covered: &mut Vec<(RChannelLabel, RChannelLabel)>,
+) -> Option<ArcTriplet> {
+    let ((a_ch, pos_a), (m_ch, pos_m), (b_ch, pos_b)) = (a?, m?, b?);
+    let out_am = specs.len();
+    let out_mb = out_am + 1;
+    specs.push(phantom_spec(
+        format!("Phantom_{la:?}_{lm:?}"),
+        midpoint(pos_a, pos_m, lift),
+    ));
+    specs.push(phantom_spec(
+        format!("Phantom_{lm:?}_{lb:?}"),
+        midpoint(pos_m, pos_b, lift),
+    ));
+    covered.push((la, lm));
+    covered.push((lm, lb));
+    Some(ArcTriplet {
+        a_ch,
+        m_ch,
+        b_ch,
+        out_am,
+        out_mb,
+        pos_a,
+        pos_m,
+        pos_b,
+        pa: 0.0,
+        pm: 0.0,
+        pb: 0.0,
+        x_am: 0.0,
+        x_mb: 0.0,
+        e_am_a: 0.0,
+        e_am_m: 0.0,
+        e_mb_m: 0.0,
+        e_mb_b: 0.0,
+    })
+}
+
+/// Build a single `(a,b)` phantom pair as an ordered unit (e.g. the back pair).
+fn build_pair_unit(
+    specs: &mut Vec<SynthObjectSpec>,
+    lift: f64,
+    a: Pos,
+    b: Pos,
+    la: RChannelLabel,
+    lb: RChannelLabel,
+    covered: &mut Vec<(RChannelLabel, RChannelLabel)>,
+) -> Option<PhantomPair> {
+    let ((a_ch, pos_a), (b_ch, pos_b)) = (a?, b?);
+    let out = specs.len();
+    specs.push(phantom_spec(
+        format!("Phantom_{la:?}_{lb:?}"),
+        midpoint(pos_a, pos_b, lift),
+    ));
+    covered.push((la, lb));
+    Some(PhantomPair {
+        a_ch,
+        b_ch,
+        out,
+        pos_a,
+        pos_b,
+        pow_a: 0.0,
+        pow_b: 0.0,
+        cross: 0.0,
+        e_a: 0.0,
+        e_b: 0.0,
+    })
+}
+
+/// Whether the unordered pair `{a, b}` is already handled by a triplet/back unit.
+fn is_covered(
+    a: RChannelLabel,
+    b: RChannelLabel,
+    covered: &[(RChannelLabel, RChannelLabel)],
+) -> bool {
+    covered
+        .iter()
+        .any(|&(x, y)| (x == a && y == b) || (x == b && y == a))
 }
 
 /// Signature of the inputs the current plan was built for; a change (including a
@@ -230,9 +400,14 @@ struct PlanSig {
 
 /// Host-side state for the phantom-extraction stage.
 pub struct PhantomExtractStage {
-    /// Joint front L-C-R handler (replaces the `(L,C)`/`(C,R)` ring pairs when all
-    /// three front channels are present).
-    front: Option<FrontTriplet>,
+    /// Joint arcs, processed in this order so the cardinal stages claim the shared
+    /// corner channels first: front (L-C-R), back (Lb-Rb pair), then the side arcs
+    /// (L-Ls-Lb, R-Rs-Rb). `None` when the input lacks the channels.
+    front: Option<ArcTriplet>,
+    back: Option<PhantomPair>,
+    left: Option<ArcTriplet>,
+    right: Option<ArcTriplet>,
+    /// Remaining ring + wide pairs (those not subsumed by an arc/back unit).
     pairs: Vec<PhantomPair>,
     specs: Vec<SynthObjectSpec>,
     /// Per-phantom planar audio scratch (persistent).
@@ -250,6 +425,9 @@ impl PhantomExtractStage {
     pub fn new() -> Self {
         Self {
             front: None,
+            back: None,
+            left: None,
+            right: None,
             pairs: Vec::new(),
             specs: Vec::new(),
             planar: Vec::new(),
@@ -301,6 +479,9 @@ impl PhantomExtractStage {
 
     fn rebuild(&mut self, enabled: bool, ctx: &PrepareCtx) {
         self.front = None;
+        self.back = None;
+        self.left = None;
+        self.right = None;
         self.pairs.clear();
         self.specs.clear();
         let fs = ctx.sample_rate.max(1) as f32;
@@ -327,63 +508,54 @@ impl PhantomExtractStage {
         }
         chans.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal));
         let n = chans.len();
-
-        // Front L-C-R: when all three are present, handle them with the joint
-        // triplet (specs 0/1) and skip the (L,C)/(C,R) ring pairs below.
+        let lift = self.lift as f64;
         let find =
             |want: RChannelLabel| chans.iter().find(|ch| ch.1 == want).map(|ch| (ch.0, ch.2));
-        if let (Some((l_ch, pos_l)), Some((c_ch, pos_c)), Some((r_ch, pos_r))) = (
-            find(RChannelLabel::L),
-            find(RChannelLabel::C),
-            find(RChannelLabel::R),
-        ) {
-            let out_lc = self.specs.len();
-            let out_cr = out_lc + 1;
-            self.front = Some(FrontTriplet {
-                l_ch,
-                c_ch,
-                r_ch,
-                out_lc,
-                out_cr,
-                pos_l,
-                pos_c,
-                pos_r,
-                pl: 0.0,
-                pc: 0.0,
-                pr: 0.0,
-                x_lc: 0.0,
-                x_cr: 0.0,
-                e_lc_l: 0.0,
-                e_lc_c: 0.0,
-                e_cr_c: 0.0,
-                e_cr_r: 0.0,
-            });
-            let lift = self.lift as f64;
-            self.specs.push(SynthObjectSpec {
-                name: "Phantom_L_C".to_string(),
-                position: [
-                    0.5 * (pos_l[0] + pos_c[0]),
-                    0.5 * (pos_l[1] + pos_c[1]),
-                    lift,
-                ],
-                gain_db: PHANTOM_GAIN_DB,
-                size: PHANTOM_SIZE,
-            });
-            self.specs.push(SynthObjectSpec {
-                name: "Phantom_C_R".to_string(),
-                position: [
-                    0.5 * (pos_c[0] + pos_r[0]),
-                    0.5 * (pos_c[1] + pos_r[1]),
-                    lift,
-                ],
-                gain_db: PHANTOM_GAIN_DB,
-                size: PHANTOM_SIZE,
-            });
-        }
+
+        // Build the joint arcs + back pair in cascade order — front and back are
+        // cardinal and claim the shared corner channels (L/R, Lb/Rb) before the
+        // side arcs. Each records the ring pairs it subsumes in `covered`.
+        use RChannelLabel::{C, L, Lb, Ls, R, Rb, Rs};
+        let mut covered: Vec<(RChannelLabel, RChannelLabel)> = Vec::new();
+        let specs = &mut self.specs;
+        self.front = build_arc(
+            specs,
+            lift,
+            find(L),
+            find(C),
+            find(R),
+            L,
+            C,
+            R,
+            &mut covered,
+        );
+        self.back = build_pair_unit(specs, lift, find(Lb), find(Rb), Lb, Rb, &mut covered);
+        self.left = build_arc(
+            specs,
+            lift,
+            find(L),
+            find(Ls),
+            find(Lb),
+            L,
+            Ls,
+            Lb,
+            &mut covered,
+        );
+        self.right = build_arc(
+            specs,
+            lift,
+            find(R),
+            find(Rs),
+            find(Rb),
+            R,
+            Rs,
+            Rb,
+            &mut covered,
+        );
 
         let passes = self.passes.clamp(1, PHANTOM_MAX_PASSES);
         // Ring distances 1..=passes around the azimuth circle, each unordered pair
-        // once (distance d and n−d coincide for a cycle).
+        // once (distance d and n−d coincide for a cycle); skip what the arcs cover.
         let mut seen: Vec<(usize, usize)> = Vec::new();
         for d in 1..=passes {
             if d >= n {
@@ -401,8 +573,7 @@ impl PhantomExtractStage {
                 seen.push(key);
                 let (a_ch, a_label, pos_a, _) = chans[key.0];
                 let (b_ch, b_label, pos_b, _) = chans[key.1];
-                // The front L-C-R triplet handles (L,C)/(C,R) jointly — skip them.
-                if self.front.is_some() && is_front_pair(a_label, b_label) {
+                if is_covered(a_label, b_label, &covered) {
                     continue;
                 }
                 let out = self.specs.len();
@@ -418,53 +589,34 @@ impl PhantomExtractStage {
                     e_a: 0.0,
                     e_b: 0.0,
                 });
-                self.specs.push(SynthObjectSpec {
-                    name: format!("Phantom_{a_label:?}_{b_label:?}"),
-                    position: [
-                        0.5 * (pos_a[0] + pos_b[0]),
-                        0.5 * (pos_a[1] + pos_b[1]),
-                        self.lift as f64,
-                    ],
-                    gain_db: PHANTOM_GAIN_DB,
-                    size: PHANTOM_SIZE,
-                });
+                self.specs.push(phantom_spec(
+                    format!("Phantom_{a_label:?}_{b_label:?}"),
+                    midpoint(pos_a, pos_b, lift),
+                ));
             }
         }
         self.planar.truncate(self.specs.len());
         self.planar.resize_with(self.specs.len(), Vec::new);
     }
 
-    /// Interpolate each phantom's position from its smoothed per-side correlated
-    /// energy (pan fraction `t = e_b / (e_a + e_b)`), with `z = lift`.
+    /// Refresh every phantom's position from its smoothed per-side correlated
+    /// energy, in the same order the units are processed.
     fn refresh_positions(&mut self) {
         let lift = self.lift as f64;
-        if let Some(ft) = self.front.as_ref() {
-            let t_lc = (ft.e_lc_c / (ft.e_lc_l + ft.e_lc_c + PHANTOM_FLOOR)) as f64;
-            if let Some(spec) = self.specs.get_mut(ft.out_lc) {
-                spec.position = [
-                    ft.pos_l[0] + t_lc * (ft.pos_c[0] - ft.pos_l[0]),
-                    ft.pos_l[1] + t_lc * (ft.pos_c[1] - ft.pos_l[1]),
-                    lift,
-                ];
-            }
-            let t_cr = (ft.e_cr_r / (ft.e_cr_c + ft.e_cr_r + PHANTOM_FLOOR)) as f64;
-            if let Some(spec) = self.specs.get_mut(ft.out_cr) {
-                spec.position = [
-                    ft.pos_c[0] + t_cr * (ft.pos_r[0] - ft.pos_c[0]),
-                    ft.pos_c[1] + t_cr * (ft.pos_r[1] - ft.pos_c[1]),
-                    lift,
-                ];
-            }
+        if let Some(t) = self.front.as_ref() {
+            t.refresh(lift, &mut self.specs);
+        }
+        if let Some(p) = self.back.as_ref() {
+            p.refresh(lift, &mut self.specs);
+        }
+        if let Some(t) = self.left.as_ref() {
+            t.refresh(lift, &mut self.specs);
+        }
+        if let Some(t) = self.right.as_ref() {
+            t.refresh(lift, &mut self.specs);
         }
         for pair in self.pairs.iter() {
-            let t = (pair.e_b / (pair.e_a + pair.e_b + PHANTOM_FLOOR)) as f64;
-            if let Some(spec) = self.specs.get_mut(pair.out) {
-                spec.position = [
-                    pair.pos_a[0] + t * (pair.pos_b[0] - pair.pos_a[0]),
-                    pair.pos_a[1] + t * (pair.pos_b[1] - pair.pos_a[1]),
-                    lift,
-                ];
-            }
+            pair.refresh(lift, &mut self.specs);
         }
     }
 
@@ -498,64 +650,29 @@ impl PhantomExtractStage {
     fn process(&mut self, bed: &mut [f32], c: usize, n: usize) {
         let strength = self.strength;
         let alpha = self.alpha;
-        let m = self.specs.len();
-        // Borrow the planar scratch out of `self` so the pair loop can write it
-        // while iterating `self.pairs` mutably (disjoint, but this keeps it simple).
+        // Borrow the planar scratch out of `self` so the units can write it while
+        // borrowing other `self` fields (disjoint, but this keeps it simple).
         let mut planar = std::mem::take(&mut self.planar);
         for buf in planar.iter_mut() {
             buf.clear();
             buf.resize(n, 0.0);
         }
-        // Front L-C-R first (joint, symmetric), then the remaining ring/wide pairs
-        // on the residual bed.
-        if let Some(ft) = self.front.as_mut() {
-            ft.process(bed, c, n, strength, alpha, &mut planar);
+        // Cascade order: front, then back, then the side arcs (which share the
+        // corner channels with front/back — those get first claim), then the rest.
+        if let Some(t) = self.front.as_mut() {
+            t.process(bed, c, n, strength, alpha, &mut planar);
+        }
+        if let Some(p) = self.back.as_mut() {
+            p.process(bed, c, n, strength, alpha, &mut planar);
+        }
+        if let Some(t) = self.left.as_mut() {
+            t.process(bed, c, n, strength, alpha, &mut planar);
+        }
+        if let Some(t) = self.right.as_mut() {
+            t.process(bed, c, n, strength, alpha, &mut planar);
         }
         for pair in self.pairs.iter_mut() {
-            if pair.a_ch >= c || pair.b_ch >= c || pair.out >= m {
-                continue;
-            }
-            let out = &mut planar[pair.out];
-            for s in 0..n {
-                let ia = s * c + pair.a_ch;
-                let ib = s * c + pair.b_ch;
-                let a = bed[ia];
-                let b = bed[ib];
-
-                pair.pow_a += alpha * (a * a - pair.pow_a);
-                pair.pow_b += alpha * (b * b - pair.pow_b);
-                pair.cross += alpha * (a * b - pair.cross);
-
-                let reg = PHANTOM_REG * 0.5 * (pair.pow_a + pair.pow_b) + PHANTOM_FLOOR;
-                let w_ab =
-                    (pair.cross / (pair.pow_b + reg)).clamp(-PHANTOM_W_CLAMP, PHANTOM_W_CLAMP);
-                let w_ba =
-                    (pair.cross / (pair.pow_a + reg)).clamp(-PHANTOM_W_CLAMP, PHANTOM_W_CLAMP);
-
-                // Coherence in [0, 1]: 0 leaves a decorrelated pair untouched.
-                let denom = (pair.pow_a * pair.pow_b).sqrt() + PHANTOM_FLOOR;
-                let coh = (pair.cross / denom).clamp(0.0, 1.0);
-                let k = strength * coh;
-
-                // Correlated component as it appears in each channel.
-                let ca = w_ab * b;
-                let cb = w_ba * a;
-
-                // Remove it from the bed.
-                bed[ia] = a - k * ca;
-                bed[ib] = b - k * cb;
-
-                // Object signal = the removed component projected onto the pan
-                // direction (matched filter), so re-panning it ≈ what was removed.
-                let ga = pair.pow_a.sqrt();
-                let gb = pair.pow_b.sqrt();
-                let gnorm = (pair.pow_a + pair.pow_b).sqrt() + PHANTOM_FLOOR;
-                out[s] = k * (ca * ga + cb * gb) / gnorm;
-
-                // Smoothed per-side correlated energy → pan position next frame.
-                pair.e_a += alpha * (ca * ca - pair.e_a);
-                pair.e_b += alpha * (cb * cb - pair.e_b);
-            }
+            pair.process(bed, c, n, strength, alpha, &mut planar);
         }
         self.planar = planar;
     }
@@ -579,6 +696,17 @@ mod tests {
         RChannelLabel::LFE,
         RChannelLabel::Ls,
         RChannelLabel::Rs,
+    ];
+
+    const LABELS_7_1: [RChannelLabel; 8] = [
+        RChannelLabel::L,
+        RChannelLabel::R,
+        RChannelLabel::C,
+        RChannelLabel::LFE,
+        RChannelLabel::Ls,
+        RChannelLabel::Rs,
+        RChannelLabel::Lb,
+        RChannelLabel::Rb,
     ];
 
     fn dummy_layout() -> SpeakerLayout {
@@ -773,6 +901,64 @@ mod tests {
         assert!(
             (x_lc + x_cr).abs() < 0.15,
             "phantoms should be symmetric ({x_lc} vs {x_cr})"
+        );
+    }
+
+    #[test]
+    fn builds_front_back_and_side_arcs_in_7_1() {
+        let mut st = PhantomExtractStage::new();
+        let layout = dummy_layout();
+        // front(2) + back(1) + left(2) + right(2); every ring distance-1 pair is
+        // covered, so passes=1 yields exactly these 7.
+        let n_specs = st.sync(true, &ctx(&LABELS_7_1, &layout));
+        assert_eq!(n_specs, 7);
+        let names: Vec<&str> = st.specs().iter().map(|s| s.name.as_str()).collect();
+        for want in [
+            "Phantom_L_C",
+            "Phantom_C_R",
+            "Phantom_Lb_Rb",
+            "Phantom_L_Ls",
+            "Phantom_Ls_Lb",
+            "Phantom_R_Rs",
+            "Phantom_Rs_Rb",
+        ] {
+            assert!(names.contains(&want), "missing {want} in {names:?}");
+        }
+    }
+
+    #[test]
+    fn side_arc_keeps_a_symmetric_source_symmetric_in_7_1() {
+        // L = Ls = Lb (correlated, on the left arc): like the front, the joint side
+        // arc must reduce the two ends (L and Lb) symmetrically.
+        let mut st = PhantomExtractStage::new();
+        let layout = dummy_layout();
+        st.set_param("strength", 1.0, 48_000);
+        st.sync(true, &ctx(&LABELS_7_1, &layout));
+        let c = 8usize; // L=0, Ls=4, Lb=6
+        let n = 6000usize;
+        let s = sine(700.0);
+        let mut bed = vec![0.0f32; c * n];
+        let mut in_l = 0.0f32;
+        for i in 0..n {
+            let v = s(i) * 0.5;
+            bed[i * c] = v; // L
+            bed[i * c + 4] = v; // Ls
+            bed[i * c + 6] = v; // Lb
+            if i >= n / 2 {
+                in_l += v * v;
+            }
+        }
+        let (pcm, out_ch) = st.process_and_extend(&mut bed, c, n, 48_000);
+        let tail = n / 2..n;
+        let l_red: f32 = tail.clone().map(|i| pcm[i * out_ch].powi(2)).sum();
+        let lb_red: f32 = tail.map(|i| pcm[i * out_ch + 6].powi(2)).sum();
+        assert!(
+            l_red < 0.2 * in_l,
+            "L should be reduced ({l_red} vs {in_l})"
+        );
+        assert!(
+            (l_red - lb_red).abs() < 0.1 * in_l + 1.0e-6,
+            "L and Lb must be reduced symmetrically ({l_red} vs {lb_red})"
         );
     }
 
