@@ -1471,8 +1471,11 @@ export function applyObjectIdentity(entry, id) {
   if (entry.idStrip) {
     entry.idStrip.classList.toggle('type-height', badge.type === 'height');
     entry.idStrip.classList.toggle('type-phantom', badge.type === 'phantom');
-    entry.idStrip.title = fullName;
   }
+  // The badge is pointer-events:none (so a click selects the row), so a title on
+  // it never gets a hover. Put the hover hint on the row itself, only where the
+  // name is hidden behind an icon.
+  if (entry.root) entry.root.title = icon ? fullName : '';
 }
 
 export function updateObjectItem(entry, id, position, name) {
@@ -1560,7 +1563,16 @@ export function renderObjectsList() {
   // order: DTS C,L,R,…; AC-3 L,C,R,…). Holds at rest (synthetic bed, id = label)
   // and during playback. Dynamic objects keep their numeric-id order, then locale.
   const channelRank = (id) => canonicalChannelOrder(formatObjectLabel(id));
+  // Group the list: bed/ADM first, then the phantom-extraction objects, then the
+  // height (top) upmix objects. Within a group, keep the canonical channel order.
+  const groupRank = (id) => {
+    const type = objectBadge(id).type;
+    return type === 'height' ? 2 : type === 'phantom' ? 1 : 0;
+  };
   const ids = [...sourceMeshes.keys()].sort((a, b) => {
+    const ga = groupRank(a);
+    const gb = groupRank(b);
+    if (ga !== gb) return ga - gb;
     const aOrd = channelRank(a);
     const bOrd = channelRank(b);
     if (aOrd !== -1 && bOrd !== -1) return aOrd - bOrd;
