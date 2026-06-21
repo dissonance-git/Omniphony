@@ -114,6 +114,110 @@ struct PhantomPair {
     e_b: f32,
 }
 
+/// Joint extraction for the front L-C-R triplet. The centre is shared by the L-C
+/// and C-R phantoms, so a sequential pairwise cascade would peel C twice and
+/// mishandle a symmetric front source (it would localise it off-centre and leave
+/// R unbalanced). Here both phantoms are computed from the *original* channels and
+/// C's removal is split by its left/right correlation balance — a symmetric source
+/// stays symmetric, and a decorrelated centre (dialogue) is left anchored.
+struct FrontTriplet {
+    l_ch: usize,
+    c_ch: usize,
+    r_ch: usize,
+    out_lc: usize,
+    out_cr: usize,
+    pos_l: [f64; 3],
+    pos_c: [f64; 3],
+    pos_r: [f64; 3],
+    pl: f32,
+    pc: f32,
+    pr: f32,
+    x_lc: f32,
+    x_cr: f32,
+    /// Smoothed per-side correlated energy of each phantom → pan positions.
+    e_lc_l: f32,
+    e_lc_c: f32,
+    e_cr_c: f32,
+    e_cr_r: f32,
+}
+
+impl FrontTriplet {
+    fn process(
+        &mut self,
+        bed: &mut [f32],
+        c: usize,
+        n: usize,
+        strength: f32,
+        alpha: f32,
+        planar: &mut [Vec<f32>],
+    ) {
+        if self.l_ch >= c
+            || self.c_ch >= c
+            || self.r_ch >= c
+            || self.out_lc >= planar.len()
+            || self.out_cr >= planar.len()
+        {
+            return;
+        }
+        for s in 0..n {
+            let l = bed[s * c + self.l_ch];
+            let cc = bed[s * c + self.c_ch];
+            let r = bed[s * c + self.r_ch];
+
+            self.pl += alpha * (l * l - self.pl);
+            self.pc += alpha * (cc * cc - self.pc);
+            self.pr += alpha * (r * r - self.pr);
+            self.x_lc += alpha * (l * cc - self.x_lc);
+            self.x_cr += alpha * (cc * r - self.x_cr);
+
+            let reg_l = PHANTOM_REG * self.pl + PHANTOM_FLOOR;
+            let reg_c = PHANTOM_REG * self.pc + PHANTOM_FLOOR;
+            let reg_r = PHANTOM_REG * self.pr + PHANTOM_FLOOR;
+            // L/R correlated with C (removed from L/R); C correlated with L/R (all
+            // from the *original* channels, no cascade).
+            let cl = (self.x_lc / (self.pc + reg_c)).clamp(-PHANTOM_W_CLAMP, PHANTOM_W_CLAMP) * cc;
+            let cr = (self.x_cr / (self.pc + reg_c)).clamp(-PHANTOM_W_CLAMP, PHANTOM_W_CLAMP) * cc;
+            let cc1 = (self.x_lc / (self.pl + reg_l)).clamp(-PHANTOM_W_CLAMP, PHANTOM_W_CLAMP) * l;
+            let cc2 = (self.x_cr / (self.pr + reg_r)).clamp(-PHANTOM_W_CLAMP, PHANTOM_W_CLAMP) * r;
+
+            // Coherences gate the extraction (a decorrelated centre stays put).
+            let coh_lc = (self.x_lc / ((self.pl * self.pc).sqrt() + PHANTOM_FLOOR)).clamp(0.0, 1.0);
+            let coh_cr = (self.x_cr / ((self.pc * self.pr).sqrt() + PHANTOM_FLOOR)).clamp(0.0, 1.0);
+            let k_lc = strength * coh_lc;
+            let k_cr = strength * coh_cr;
+
+            // Split C's removal by its left/right correlation balance (50/50 when
+            // balanced) so the centre is never peeled twice.
+            let fsum = coh_lc + coh_cr + PHANTOM_FLOOR;
+            let cc_l = (coh_lc / fsum) * cc1; // C's share routed to the L-C phantom
+            let cc_r = (coh_cr / fsum) * cc2; // C's share routed to the C-R phantom
+
+            bed[s * c + self.l_ch] = l - k_lc * cl;
+            bed[s * c + self.r_ch] = r - k_cr * cr;
+            bed[s * c + self.c_ch] = cc - (k_lc * cc_l + k_cr * cc_r);
+
+            let gl = self.pl.sqrt();
+            let gc = self.pc.sqrt();
+            let gr = self.pr.sqrt();
+            let gnorm_lc = (self.pl + self.pc).sqrt() + PHANTOM_FLOOR;
+            let gnorm_cr = (self.pc + self.pr).sqrt() + PHANTOM_FLOOR;
+            planar[self.out_lc][s] = k_lc * (cl * gl + cc_l * gc) / gnorm_lc;
+            planar[self.out_cr][s] = k_cr * (cr * gr + cc_r * gc) / gnorm_cr;
+
+            self.e_lc_l += alpha * (cl * cl - self.e_lc_l);
+            self.e_lc_c += alpha * (cc_l * cc_l - self.e_lc_c);
+            self.e_cr_c += alpha * (cc_r * cc_r - self.e_cr_c);
+            self.e_cr_r += alpha * (cr * cr - self.e_cr_r);
+        }
+    }
+}
+
+/// The two front ring pairs the [`FrontTriplet`] subsumes: `(L,C)` and `(C,R)`.
+fn is_front_pair(a: RChannelLabel, b: RChannelLabel) -> bool {
+    use RChannelLabel::*;
+    matches!((a, b), (L, C) | (C, L) | (C, R) | (R, C))
+}
+
 /// Signature of the inputs the current plan was built for; a change (including a
 /// `passes` change) triggers a rebuild. Compared without per-frame allocation.
 #[derive(Default)]
@@ -126,6 +230,9 @@ struct PlanSig {
 
 /// Host-side state for the phantom-extraction stage.
 pub struct PhantomExtractStage {
+    /// Joint front L-C-R handler (replaces the `(L,C)`/`(C,R)` ring pairs when all
+    /// three front channels are present).
+    front: Option<FrontTriplet>,
     pairs: Vec<PhantomPair>,
     specs: Vec<SynthObjectSpec>,
     /// Per-phantom planar audio scratch (persistent).
@@ -142,6 +249,7 @@ pub struct PhantomExtractStage {
 impl PhantomExtractStage {
     pub fn new() -> Self {
         Self {
+            front: None,
             pairs: Vec::new(),
             specs: Vec::new(),
             planar: Vec::new(),
@@ -192,6 +300,7 @@ impl PhantomExtractStage {
     }
 
     fn rebuild(&mut self, enabled: bool, ctx: &PrepareCtx) {
+        self.front = None;
         self.pairs.clear();
         self.specs.clear();
         let fs = ctx.sample_rate.max(1) as f32;
@@ -218,6 +327,60 @@ impl PhantomExtractStage {
         }
         chans.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal));
         let n = chans.len();
+
+        // Front L-C-R: when all three are present, handle them with the joint
+        // triplet (specs 0/1) and skip the (L,C)/(C,R) ring pairs below.
+        let find =
+            |want: RChannelLabel| chans.iter().find(|ch| ch.1 == want).map(|ch| (ch.0, ch.2));
+        if let (Some((l_ch, pos_l)), Some((c_ch, pos_c)), Some((r_ch, pos_r))) = (
+            find(RChannelLabel::L),
+            find(RChannelLabel::C),
+            find(RChannelLabel::R),
+        ) {
+            let out_lc = self.specs.len();
+            let out_cr = out_lc + 1;
+            self.front = Some(FrontTriplet {
+                l_ch,
+                c_ch,
+                r_ch,
+                out_lc,
+                out_cr,
+                pos_l,
+                pos_c,
+                pos_r,
+                pl: 0.0,
+                pc: 0.0,
+                pr: 0.0,
+                x_lc: 0.0,
+                x_cr: 0.0,
+                e_lc_l: 0.0,
+                e_lc_c: 0.0,
+                e_cr_c: 0.0,
+                e_cr_r: 0.0,
+            });
+            let lift = self.lift as f64;
+            self.specs.push(SynthObjectSpec {
+                name: "Phantom_L_C".to_string(),
+                position: [
+                    0.5 * (pos_l[0] + pos_c[0]),
+                    0.5 * (pos_l[1] + pos_c[1]),
+                    lift,
+                ],
+                gain_db: PHANTOM_GAIN_DB,
+                size: PHANTOM_SIZE,
+            });
+            self.specs.push(SynthObjectSpec {
+                name: "Phantom_C_R".to_string(),
+                position: [
+                    0.5 * (pos_c[0] + pos_r[0]),
+                    0.5 * (pos_c[1] + pos_r[1]),
+                    lift,
+                ],
+                gain_db: PHANTOM_GAIN_DB,
+                size: PHANTOM_SIZE,
+            });
+        }
+
         let passes = self.passes.clamp(1, PHANTOM_MAX_PASSES);
         // Ring distances 1..=passes around the azimuth circle, each unordered pair
         // once (distance d and n−d coincide for a cycle).
@@ -238,6 +401,10 @@ impl PhantomExtractStage {
                 seen.push(key);
                 let (a_ch, a_label, pos_a, _) = chans[key.0];
                 let (b_ch, b_label, pos_b, _) = chans[key.1];
+                // The front L-C-R triplet handles (L,C)/(C,R) jointly — skip them.
+                if self.front.is_some() && is_front_pair(a_label, b_label) {
+                    continue;
+                }
                 let out = self.specs.len();
                 self.pairs.push(PhantomPair {
                     a_ch,
@@ -271,13 +438,33 @@ impl PhantomExtractStage {
     /// energy (pan fraction `t = e_b / (e_a + e_b)`), with `z = lift`.
     fn refresh_positions(&mut self) {
         let lift = self.lift as f64;
-        for (pair, spec) in self.pairs.iter().zip(self.specs.iter_mut()) {
+        if let Some(ft) = self.front.as_ref() {
+            let t_lc = (ft.e_lc_c / (ft.e_lc_l + ft.e_lc_c + PHANTOM_FLOOR)) as f64;
+            if let Some(spec) = self.specs.get_mut(ft.out_lc) {
+                spec.position = [
+                    ft.pos_l[0] + t_lc * (ft.pos_c[0] - ft.pos_l[0]),
+                    ft.pos_l[1] + t_lc * (ft.pos_c[1] - ft.pos_l[1]),
+                    lift,
+                ];
+            }
+            let t_cr = (ft.e_cr_r / (ft.e_cr_c + ft.e_cr_r + PHANTOM_FLOOR)) as f64;
+            if let Some(spec) = self.specs.get_mut(ft.out_cr) {
+                spec.position = [
+                    ft.pos_c[0] + t_cr * (ft.pos_r[0] - ft.pos_c[0]),
+                    ft.pos_c[1] + t_cr * (ft.pos_r[1] - ft.pos_c[1]),
+                    lift,
+                ];
+            }
+        }
+        for pair in self.pairs.iter() {
             let t = (pair.e_b / (pair.e_a + pair.e_b + PHANTOM_FLOOR)) as f64;
-            spec.position = [
-                pair.pos_a[0] + t * (pair.pos_b[0] - pair.pos_a[0]),
-                pair.pos_a[1] + t * (pair.pos_b[1] - pair.pos_a[1]),
-                lift,
-            ];
+            if let Some(spec) = self.specs.get_mut(pair.out) {
+                spec.position = [
+                    pair.pos_a[0] + t * (pair.pos_b[0] - pair.pos_a[0]),
+                    pair.pos_a[1] + t * (pair.pos_b[1] - pair.pos_a[1]),
+                    lift,
+                ];
+            }
         }
     }
 
@@ -318,6 +505,11 @@ impl PhantomExtractStage {
         for buf in planar.iter_mut() {
             buf.clear();
             buf.resize(n, 0.0);
+        }
+        // Front L-C-R first (joint, symmetric), then the remaining ring/wide pairs
+        // on the residual bed.
+        if let Some(ft) = self.front.as_mut() {
+            ft.process(bed, c, n, strength, alpha, &mut planar);
         }
         for pair in self.pairs.iter_mut() {
             if pair.a_ch >= c || pair.b_ch >= c || pair.out >= m {
@@ -523,6 +715,64 @@ mod tests {
         assert!(
             l_red > 0.7 * in_l,
             "decorrelated L should be mostly retained ({l_red} vs {in_l})"
+        );
+    }
+
+    #[test]
+    fn front_triplet_keeps_a_symmetric_source_symmetric() {
+        // A correlated source equal in L, C, R. The old (L,C)→(C,R) cascade left R
+        // unbalanced and localised it off-centre; the joint triplet must remove
+        // from L and R symmetrically and place two phantoms straddling the centre.
+        let mut st = PhantomExtractStage::new();
+        let layout = dummy_layout();
+        st.set_param("strength", 1.0, 48_000);
+        st.sync(true, &ctx(&LABELS_5_1, &layout));
+        let c = 6usize;
+        let n = 6000usize;
+        let s = sine(700.0);
+        let mut bed = vec![0.0f32; c * n];
+        let mut in_l = 0.0f32;
+        for i in 0..n {
+            let v = s(i) * 0.5;
+            bed[i * c] = v; // L
+            bed[i * c + 1] = v; // R
+            bed[i * c + 2] = v; // C
+            if i >= n / 2 {
+                in_l += v * v;
+            }
+        }
+        let i_lc = st
+            .specs()
+            .iter()
+            .position(|sp| sp.name == "Phantom_L_C")
+            .unwrap();
+        let i_cr = st
+            .specs()
+            .iter()
+            .position(|sp| sp.name == "Phantom_C_R")
+            .unwrap();
+        let (pcm, out_ch) = st.process_and_extend(&mut bed, c, n, 48_000);
+        let tail = n / 2..n;
+        let l_red: f32 = tail.clone().map(|i| pcm[i * out_ch].powi(2)).sum();
+        let r_red: f32 = tail.map(|i| pcm[i * out_ch + 1].powi(2)).sum();
+        assert!(
+            l_red < 0.2 * in_l,
+            "L should be reduced ({l_red} vs {in_l})"
+        );
+        assert!(
+            (l_red - r_red).abs() < 0.1 * in_l + 1.0e-6,
+            "L and R must be reduced symmetrically ({l_red} vs {r_red})"
+        );
+        st.sync(true, &ctx(&LABELS_5_1, &layout));
+        let x_lc = st.specs()[i_lc].position[0];
+        let x_cr = st.specs()[i_cr].position[0];
+        assert!(
+            x_lc < 0.0 && x_cr > 0.0,
+            "phantoms should straddle the centre ({x_lc}, {x_cr})"
+        );
+        assert!(
+            (x_lc + x_cr).abs() < 0.15,
+            "phantoms should be symmetric ({x_lc} vs {x_cr})"
         );
     }
 
