@@ -290,6 +290,8 @@
   "twoDSources.padStrength": "Ambience strength",
   "twoDSources.padHpf": "Bass cutoff",
   "twoDSources.padGain": "Height level",
+  "twoDSources.padCenterAmount": "Center to height",
+  "twoDSources.padCenterHpf": "Center bass cutoff",
   "help.objectGenerator": "Synthesizes height objects from flat (2D) channel content — stereo, 5.1, 7.1 — so a layout with top speakers is used even when the source has no height. Off: nothing is added. Direct copy: the front/surround pairs are copied straight up. Ambience (PAD): only the diffuse, decorrelated part of each pair rises, so dialogue and centred sounds stay grounded. Object-based (3D) audio is never affected. The synthesized objects appear in the 3D view and the Objects list.",
   "virtualBed.virtual": "Virtual",
   "virtualBed.direct": "Direct",

@@ -290,6 +290,8 @@
   "twoDSources.padStrength": "Ambience-Stärke",
   "twoDSources.padHpf": "Bass-Trennfrequenz",
   "twoDSources.padGain": "Höhenpegel",
+  "twoDSources.padCenterAmount": "Center in die Höhe",
+  "twoDSources.padCenterHpf": "Center-Bass-Trennfrequenz",
   "help.objectGenerator": "Erzeugt Höhenobjekte aus flachem (2D) Kanalmaterial – Stereo, 5.1, 7.1 –, damit ein Layout mit Deckenlautsprechern auch dann genutzt wird, wenn die Quelle keine Höhe hat. Aus: nichts wird hinzugefügt. Direkte Kopie: die Front-/Surround-Paare werden direkt nach oben kopiert. Ambience (PAD): nur der diffuse, dekorrelierte Anteil jedes Paares steigt auf, Dialoge und mittige Klänge bleiben unten. Objektbasiertes (3D) Audio wird nie beeinflusst. Die erzeugten Objekte erscheinen in der 3D-Ansicht und der Objektliste.",
   "virtualBed.virtual": "Virtuell",
   "virtualBed.direct": "Direkt",

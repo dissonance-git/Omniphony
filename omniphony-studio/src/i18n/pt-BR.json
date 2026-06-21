@@ -290,6 +290,8 @@
   "twoDSources.padStrength": "Intensidade de ambiência",
   "twoDSources.padHpf": "Corte de graves",
   "twoDSources.padGain": "Nível de altura",
+  "twoDSources.padCenterAmount": "Centro para altura",
+  "twoDSources.padCenterHpf": "Corte de graves do centro",
   "help.objectGenerator": "Sintetiza objetos de altura a partir de conteúdo de canais plano (2D) — estéreo, 5.1, 7.1 — para usar uma configuração com alto-falantes de teto mesmo quando a fonte não tem altura. Desligado: nada é adicionado. Cópia direta: os pares frontal/surround são copiados diretamente para cima. Ambiência (PAD): apenas a parte difusa e descorrelacionada de cada par sobe, diálogos e sons centrais permanecem embaixo. O áudio baseado em objetos (3D) nunca é afetado. Os objetos sintetizados aparecem na vista 3D e na lista de objetos.",
   "virtualBed.virtual": "Virtual",
   "virtualBed.direct": "Direto",

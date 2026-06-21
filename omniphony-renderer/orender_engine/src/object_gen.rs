@@ -247,12 +247,33 @@ fn find_channel(labels: &[RChannelLabel], want: RChannelLabel) -> Option<usize> 
     labels.iter().position(|&l| l == want)
 }
 
+/// Canonical top position of a bed channel: its floor position raised to the
+/// height layer (`z = 1`). Mirrors the engine's channel→position convention
+/// (`renderer/src/virtual_bed.rs`): x = right, y = front. `None` for channels
+/// that should never be lifted (LFE) or carry no position (unknown).
+fn top_position(label: RChannelLabel) -> Option<[f64; 3]> {
+    use RChannelLabel::*;
+    let pos = match label {
+        L => [-1.0, 1.0, 1.0],
+        R => [1.0, 1.0, 1.0],
+        C => [0.0, 1.0, 1.0],
+        Ls => [-1.0, 0.0, 1.0],
+        Rs => [1.0, 0.0, 1.0],
+        Lb => [-1.0, -1.0, 1.0],
+        Rb => [1.0, -1.0, 1.0],
+        Cb => [0.0, -1.0, 1.0],
+        _ => return None,
+    };
+    Some(pos)
+}
+
 // ───────────────────────── built-in: copy_up ─────────────────────────
 
-/// Simple reference generator: routes the floor front/surround pairs straight up
-/// to the four top corners (no decorrelation). A basic, low-cost "lift" — also
-/// useful as the minimal example for contributors. The PAD generator below adds
-/// ambience extraction for a more natural result.
+/// Simple reference generator: routes every spatializable floor channel straight
+/// up to its matching top position (front, sides, back, center) with no
+/// decorrelation. A basic, low-cost "lift" — also useful as the minimal example
+/// for contributors. The PAD generator below adds ambience extraction for a more
+/// natural result.
 struct CopyUpFactory;
 
 impl ObjectGeneratorFactory for CopyUpFactory {
@@ -292,35 +313,22 @@ impl ObjectGenerator for CopyUpGenerator {
         if !layout_has_height(ctx.output_layout) || input_has_height(ctx.input_labels) {
             return Vec::new();
         }
-        let labels = ctx.input_labels;
-        // Rear source prefers dedicated back channels (7.1), else the surrounds.
-        let candidates: [(&str, [f64; 3], Option<usize>); 4] = [
-            ("Height_FL_synth", [-1.0, 1.0, 1.0], find_channel(labels, RChannelLabel::L)),
-            ("Height_FR_synth", [1.0, 1.0, 1.0], find_channel(labels, RChannelLabel::R)),
-            (
-                "Height_BL_synth",
-                [-1.0, -1.0, 1.0],
-                find_channel(labels, RChannelLabel::Lb).or_else(|| find_channel(labels, RChannelLabel::Ls)),
-            ),
-            (
-                "Height_BR_synth",
-                [1.0, -1.0, 1.0],
-                find_channel(labels, RChannelLabel::Rb).or_else(|| find_channel(labels, RChannelLabel::Rs)),
-            ),
-        ];
         const GAIN_DB: i8 = -6;
         const SIZE: [f32; 3] = [0.3, 0.3, 0.3];
+        // Lift every spatializable bed channel (front, sides, back, center) to its
+        // canonical top position; LFE / unknown channels have no `top_position`.
         let mut specs = Vec::new();
-        for (name, position, src) in candidates {
-            if let Some(ch) = src {
-                self.src_channels.push(ch);
-                specs.push(SynthObjectSpec {
-                    name: name.to_string(),
-                    position,
-                    gain_db: GAIN_DB,
-                    size: SIZE,
-                });
-            }
+        for (ch, &label) in ctx.input_labels.iter().enumerate() {
+            let Some(position) = top_position(label) else {
+                continue;
+            };
+            self.src_channels.push(ch);
+            specs.push(SynthObjectSpec {
+                name: format!("Height_{label:?}_synth"),
+                position,
+                gain_db: GAIN_DB,
+                size: SIZE,
+            });
         }
         specs
     }
@@ -446,9 +454,16 @@ const PAD_W_CLAMP: f32 = 1.2;
 /// Object gain for the lifted ambience (dB). The ambient component is already
 /// lower energy than the primary, so unity keeps it natural.
 const PAD_GAIN_DB: i8 = 0;
+/// Center → height defaults. The center has no stereo partner to decorrelate
+/// against, so it is lifted as a high-passed, scaled send: a high cutoff lifts
+/// only the "air" / reverb and keeps dialogue grounded.
+const PAD_CENTER_DEFAULT_AMOUNT: f32 = 0.4;
+const PAD_CENTER_DEFAULT_HPF_HZ: f32 = 3000.0;
+const PAD_CENTER_HPF_MIN: f32 = 300.0;
+const PAD_CENTER_HPF_MAX: f32 = 8000.0;
 
 /// Live-tunable parameters PAD declares (the schema the UI builds sliders from).
-const PAD_PARAM_SPECS: [ObjectGenParamSpec; 3] = [
+const PAD_PARAM_SPECS: [ObjectGenParamSpec; 5] = [
     ObjectGenParamSpec {
         key: "strength",
         label: "Ambience strength",
@@ -479,6 +494,26 @@ const PAD_PARAM_SPECS: [ObjectGenParamSpec; 3] = [
         default: 0.0,
         unit: "dB",
     },
+    ObjectGenParamSpec {
+        key: "center_amount",
+        label: "Center to height",
+        i18n_key: "twoDSources.padCenterAmount",
+        min: 0.0,
+        max: 1.0,
+        step: 0.01,
+        default: PAD_CENTER_DEFAULT_AMOUNT,
+        unit: "",
+    },
+    ObjectGenParamSpec {
+        key: "center_hpf_hz",
+        label: "Center bass cutoff",
+        i18n_key: "twoDSources.padCenterHpf",
+        min: PAD_CENTER_HPF_MIN,
+        max: PAD_CENTER_HPF_MAX,
+        step: 50.0,
+        default: PAD_CENTER_DEFAULT_HPF_HZ,
+        unit: "Hz",
+    },
 ];
 
 /// One floor pair (L, R) → two height objects (ambient of L, ambient of R), with
@@ -499,8 +534,19 @@ struct AmbientPair {
     hpf_r: Biquad,
 }
 
+/// The center channel lifted to a single top-center object. No stereo partner,
+/// so no decorrelation: a high-passed, level-scaled send (dialogue-safe when the
+/// cutoff is high).
+struct CenterChannel {
+    ch: usize,
+    out: usize,
+    hpf: Biquad,
+}
+
 struct PadGenerator {
     pairs: Vec<AmbientPair>,
+    /// Center → top-center send (present only when the input carries a C channel).
+    center: Option<CenterChannel>,
     /// Isolation depth (0..1): fraction of the predicted primary that is removed
     /// from each channel. `0` = clean copy of the floor up top, `1` = pure diffuse
     /// residual. Live-tunable via the `strength` param.
@@ -510,17 +556,23 @@ struct PadGenerator {
     /// One-pole smoothing coefficient for the statistics, derived from the sample
     /// rate in `prepare` (`α = 1 − exp(−1/(τ·fs))`).
     alpha: f32,
+    /// Center send level (0..1) and high-pass cutoff (Hz); live-tunable.
+    center_amount: f32,
+    center_hpf_hz: f32,
 }
 
 impl Default for PadGenerator {
     fn default() -> Self {
         Self {
             pairs: Vec::new(),
+            center: None,
             strength: PAD_DEFAULT_STRENGTH,
             makeup: 1.0,
             // Replaced in `prepare` once the sample rate is known; a safe non-zero
             // default keeps the smoother stable if `process` ever runs first.
             alpha: 0.0,
+            center_amount: PAD_CENTER_DEFAULT_AMOUNT,
+            center_hpf_hz: PAD_CENTER_DEFAULT_HPF_HZ,
         }
     }
 }
@@ -534,6 +586,7 @@ impl ObjectGenerator for PadGenerator {
 
     fn prepare(&mut self, ctx: &PrepareCtx) -> Vec<SynthObjectSpec> {
         self.pairs.clear();
+        self.center = None;
         if !layout_has_height(ctx.output_layout) || input_has_height(ctx.input_labels) {
             return Vec::new();
         }
@@ -546,23 +599,39 @@ impl ObjectGenerator for PadGenerator {
         let hpf = Biquad::highpass(fs, PAD_HPF_HZ, PAD_HPF_Q);
         const SIZE: [f32; 3] = [0.5, 0.5, 0.5];
 
-        // Front pair = L/R; surround pair = (Ls|Lb)/(Rs|Rb).
-        let front = (
-            find_channel(labels, RChannelLabel::L),
-            find_channel(labels, RChannelLabel::R),
-        );
-        let back = (
-            find_channel(labels, RChannelLabel::Ls).or_else(|| find_channel(labels, RChannelLabel::Lb)),
-            find_channel(labels, RChannelLabel::Rs).or_else(|| find_channel(labels, RChannelLabel::Rb)),
-        );
-        let defs: [(&str, &str, [f64; 3], [f64; 3], Option<usize>, Option<usize>); 2] = [
-            ("Ambience_FL", "Ambience_FR", [-1.0, 1.0, 1.0], [1.0, 1.0, 1.0], front.0, front.1),
-            ("Ambience_BL", "Ambience_BR", [-1.0, -1.0, 1.0], [1.0, -1.0, 1.0], back.0, back.1),
+        // One decorrelated pair per top row, each lifted to its canonical position:
+        // front (L/R) → top-front, sides (Ls/Rs) → top-side, back (Lb/Rb) → top-back.
+        // A pair is emitted only when both its channels exist (5.1 → front+side,
+        // 7.1 → front+side+back).
+        let pair_defs: [(&str, &str, RChannelLabel, RChannelLabel); 3] = [
+            (
+                "Ambience_FL",
+                "Ambience_FR",
+                RChannelLabel::L,
+                RChannelLabel::R,
+            ),
+            (
+                "Ambience_SL",
+                "Ambience_SR",
+                RChannelLabel::Ls,
+                RChannelLabel::Rs,
+            ),
+            (
+                "Ambience_BL",
+                "Ambience_BR",
+                RChannelLabel::Lb,
+                RChannelLabel::Rb,
+            ),
         ];
 
         let mut specs = Vec::new();
-        for (name_l, name_r, pos_l, pos_r, l_ch, r_ch) in defs {
-            let (Some(l_ch), Some(r_ch)) = (l_ch, r_ch) else {
+        for (name_l, name_r, label_l, label_r) in pair_defs {
+            let (Some(l_ch), Some(r_ch)) =
+                (find_channel(labels, label_l), find_channel(labels, label_r))
+            else {
+                continue;
+            };
+            let (Some(pos_l), Some(pos_r)) = (top_position(label_l), top_position(label_r)) else {
                 continue;
             };
             let out_l = specs.len();
@@ -591,6 +660,27 @@ impl ObjectGenerator for PadGenerator {
                 size: SIZE,
             });
         }
+
+        // Center → a single top-center object (no stereo partner; a high-passed
+        // send whose level is `center_amount` and cutoff `center_hpf_hz`). Planned
+        // whenever C exists so it shows in the 3D view; silent at amount 0.
+        if let (Some(ch), Some(position)) = (
+            find_channel(labels, RChannelLabel::C),
+            top_position(RChannelLabel::C),
+        ) {
+            let out = specs.len();
+            self.center = Some(CenterChannel {
+                ch,
+                out,
+                hpf: Biquad::highpass(fs, self.center_hpf_hz, PAD_HPF_Q),
+            });
+            specs.push(SynthObjectSpec {
+                name: "Ambience_TC".to_string(),
+                position,
+                gain_db: PAD_GAIN_DB,
+                size: SIZE,
+            });
+        }
         specs
     }
 
@@ -599,8 +689,12 @@ impl ObjectGenerator for PadGenerator {
         let strength = self.strength;
         let makeup = self.makeup;
         let alpha = self.alpha;
+        let center_gain = self.center_amount * makeup;
         for pair in self.pairs.iter_mut() {
-            if pair.l_ch >= c || pair.r_ch >= c || pair.out_l >= out.len() || pair.out_r >= out.len()
+            if pair.l_ch >= c
+                || pair.r_ch >= c
+                || pair.out_l >= out.len()
+                || pair.out_r >= out.len()
             {
                 continue;
             }
@@ -632,6 +726,16 @@ impl ObjectGenerator for PadGenerator {
                 out[pair.out_r][s] = pair.hpf_r.process(amb_r) * makeup;
             }
         }
+        // Center → top-center: a plain high-passed, level-scaled send (no partner
+        // to decorrelate against). A high cutoff keeps dialogue grounded.
+        if let Some(cc) = self.center.as_mut() {
+            if cc.ch < c && cc.out < out.len() {
+                for s in 0..bed.sample_count {
+                    let x = bed.pcm[s * c + cc.ch];
+                    out[cc.out][s] = cc.hpf.process(x) * center_gain;
+                }
+            }
+        }
     }
 
     fn param_schema(&self) -> &'static [ObjectGenParamSpec] {
@@ -648,6 +752,15 @@ impl ObjectGenerator for PadGenerator {
                 for pair in self.pairs.iter_mut() {
                     pair.hpf_l.set_highpass(fs, fc, PAD_HPF_Q);
                     pair.hpf_r.set_highpass(fs, fc, PAD_HPF_Q);
+                }
+            }
+            "center_amount" => self.center_amount = value.clamp(0.0, 1.0),
+            "center_hpf_hz" => {
+                let fs = sample_rate.max(1) as f32;
+                let fc = value.clamp(PAD_CENTER_HPF_MIN, PAD_CENTER_HPF_MAX);
+                self.center_hpf_hz = fc;
+                if let Some(cc) = self.center.as_mut() {
+                    cc.hpf.set_highpass(fs, fc, PAD_HPF_Q);
                 }
             }
             _ => {}
@@ -868,7 +981,7 @@ mod tests {
     }
 
     #[test]
-    fn plans_four_top_objects_for_5_1_on_7_1_4() {
+    fn plans_five_top_objects_for_5_1_on_7_1_4() {
         let mut g = CopyUpGenerator::default();
         let out = layout_7_1_4();
         let specs = g.prepare(&PrepareCtx {
@@ -876,8 +989,12 @@ mod tests {
             output_layout: &out,
             sample_rate: 48_000,
         });
-        assert_eq!(specs.len(), 4);
-        assert!(specs.iter().all(|s| s.position[2] > 0.0), "all objects above ear level");
+        // L, R, C, Ls, Rs lifted (LFE skipped) — sides + center now included.
+        assert_eq!(specs.len(), 5);
+        assert!(
+            specs.iter().all(|s| s.position[2] > 0.0),
+            "all objects above ear level"
+        );
     }
 
     #[test]
@@ -898,7 +1015,7 @@ mod tests {
                 pcm[s * c + ch] = ch as f32 + (s * 10) as f32;
             }
         }
-        let mut outbuf: Vec<Vec<f32>> = vec![vec![0.0; n]; 4];
+        let mut outbuf: Vec<Vec<f32>> = vec![vec![0.0; n]; 5];
         g.process(
             &BedFrame {
                 pcm: &pcm,
@@ -908,9 +1025,11 @@ mod tests {
             },
             &mut outbuf,
         );
-        // Object 0 (Height_FL) ← channel L (index 0); object 2 (Height_BL) ← Ls (index 4).
+        // Generic lift order = input label order minus LFE: [L, R, C, Ls, Rs].
+        // Object 0 ← L (idx 0); object 2 ← C (idx 2); object 3 ← Ls (idx 4).
         assert_eq!(outbuf[0], vec![0.0, 10.0]);
-        assert_eq!(outbuf[2], vec![4.0, 14.0]);
+        assert_eq!(outbuf[2], vec![2.0, 12.0]);
+        assert_eq!(outbuf[3], vec![4.0, 14.0]);
     }
 
     // ── PAD ──
@@ -930,7 +1049,8 @@ mod tests {
             output_layout: &out_layout,
             sample_rate: 48_000,
         });
-        assert_eq!(specs.len(), 4);
+        // 5.1 → front (L/R) + side (Ls/Rs) + center (C) = 5 objects.
+        assert_eq!(specs.len(), 5);
         // Full cancellation so the correlated/decorrelated contrast is maximal.
         g.set_param("strength", 1.0, 48_000);
         let c = 6usize;
@@ -939,7 +1059,7 @@ mod tests {
             pcm[s * c] = l(s); // L (channel 0)
             pcm[s * c + 1] = r(s); // R (channel 1)
         }
-        let mut outbuf: Vec<Vec<f32>> = vec![vec![0.0; n]; 4];
+        let mut outbuf: Vec<Vec<f32>> = vec![vec![0.0; n]; specs.len()];
         g.process(
             &BedFrame {
                 pcm: &pcm,
@@ -967,7 +1087,7 @@ mod tests {
     }
 
     #[test]
-    fn pad_plans_four_objects_for_5_1_on_7_1_4() {
+    fn pad_plans_five_objects_for_5_1_on_7_1_4() {
         let mut g = PadGenerator::default();
         let out = layout_7_1_4();
         let specs = g.prepare(&PrepareCtx {
@@ -975,8 +1095,22 @@ mod tests {
             output_layout: &out,
             sample_rate: 48_000,
         });
-        assert_eq!(specs.len(), 4);
+        // front L/R + side Ls/Rs + center C (no back pair in 5.1).
+        assert_eq!(specs.len(), 5);
         assert!(specs.iter().all(|s| s.position[2] > 0.0));
+        // The side pair sits on the top-side row (y = 0).
+        assert!(
+            specs
+                .iter()
+                .any(|s| s.position[1].abs() < 1.0e-6 && s.position[0] < 0.0),
+            "expected a top-side-left object at y≈0"
+        );
+        // The center sits at top-front-center.
+        assert!(
+            specs
+                .iter()
+                .any(|s| s.name == "Ambience_TC" && s.position == [0.0, 1.0, 1.0])
+        );
     }
 
     #[test]
@@ -1033,7 +1167,10 @@ mod tests {
             &mut out,
         );
         let tail = &out[0][n / 2..];
-        assert!(tail.iter().all(|x| x.is_finite()), "no NaN/Inf reaches output");
+        assert!(
+            tail.iter().all(|x| x.is_finite()),
+            "no NaN/Inf reaches output"
+        );
         let peak = tail.iter().fold(0.0f32, |m, &x| m.max(x.abs()));
         assert!(
             peak < 0.1 * amp,
@@ -1101,12 +1238,99 @@ mod tests {
     }
 
     #[test]
-    fn pad_declares_three_params() {
+    fn pad_declares_five_params() {
         let g = PadGenerator::default();
         let keys: Vec<&str> = g.param_schema().iter().map(|p| p.key).collect();
-        assert_eq!(g.param_schema().len(), 3);
+        assert_eq!(g.param_schema().len(), 5);
+        for key in [
+            "strength",
+            "hpf_hz",
+            "gain_db",
+            "center_amount",
+            "center_hpf_hz",
+        ] {
+            assert!(keys.contains(&key), "missing param {key}");
+        }
+    }
+
+    #[test]
+    fn pad_plans_seven_objects_for_7_1() {
+        let labels = [
+            RChannelLabel::L,
+            RChannelLabel::R,
+            RChannelLabel::C,
+            RChannelLabel::LFE,
+            RChannelLabel::Ls,
+            RChannelLabel::Rs,
+            RChannelLabel::Lb,
+            RChannelLabel::Rb,
+        ];
+        let mut g = PadGenerator::default();
+        let specs = g.prepare(&PrepareCtx {
+            input_labels: &labels,
+            output_layout: &layout_7_1_4(),
+            sample_rate: 48_000,
+        });
+        // front + side + back pairs (6) + center (1) = 7.
+        assert_eq!(specs.len(), 7);
+        // Three distinct top rows are represented: front y=1, side y=0, back y=-1.
+        for y in [1.0, 0.0, -1.0] {
+            assert!(
+                specs
+                    .iter()
+                    .any(|s| (s.position[1] - y).abs() < 1.0e-6 && s.position[0] < 0.0),
+                "expected a left object on the y={y} top row"
+            );
+        }
         assert!(
-            keys.contains(&"strength") && keys.contains(&"hpf_hz") && keys.contains(&"gain_db")
+            specs
+                .iter()
+                .any(|s| s.name == "Ambience_TC" && s.position == [0.0, 1.0, 1.0])
+        );
+    }
+
+    #[test]
+    fn pad_center_amount_and_hpf() {
+        // The center object is the last spec; drive only the C channel and measure
+        // its output. amount=0 → silent; a high cutoff attenuates a low tone more
+        // than a low cutoff (dialogue-safe).
+        let n = 4000usize;
+        let c = 6usize;
+        let center_energy = |amount: f32, hpf_hz: f32, freq: f32| -> f32 {
+            let mut g = PadGenerator::default();
+            let specs = g.prepare(&PrepareCtx {
+                input_labels: &LABELS_5_1,
+                output_layout: &layout_7_1_4(),
+                sample_rate: 48_000,
+            });
+            let center_idx = specs.iter().position(|s| s.name == "Ambience_TC").unwrap();
+            g.set_param("center_amount", amount, 48_000);
+            g.set_param("center_hpf_hz", hpf_hz, 48_000);
+            let mut pcm = vec![0.0f32; c * n];
+            for s in 0..n {
+                pcm[s * c + 2] = (std::f32::consts::TAU * freq * s as f32 / 48_000.0).sin() * 0.5;
+            }
+            let mut out: Vec<Vec<f32>> = vec![vec![0.0; n]; specs.len()];
+            g.process(
+                &BedFrame {
+                    pcm: &pcm,
+                    channel_count: c,
+                    sample_count: n,
+                    sample_rate: 48_000,
+                },
+                &mut out,
+            );
+            out[center_idx][n / 2..].iter().map(|&x| x * x).sum()
+        };
+        // amount=0 is silent.
+        assert_eq!(center_energy(0.0, 3000.0, 200.0), 0.0);
+        // A 200 Hz center tone: a high cutoff (dialogue-safe) attenuates it far more
+        // than a low cutoff.
+        let air_only = center_energy(1.0, 3000.0, 200.0);
+        let full = center_energy(1.0, 300.0, 200.0);
+        assert!(
+            air_only < 0.25 * full,
+            "high center cutoff should keep low-freq center grounded ({air_only} vs {full})"
         );
     }
 
