@@ -427,14 +427,22 @@ impl ObjectGeneratorFactory for PadFactory {
 const PAD_HPF_HZ: f32 = 300.0;
 /// High-pass quality (Butterworth).
 const PAD_HPF_Q: f32 = std::f32::consts::FRAC_1_SQRT_2;
-/// NLMS adaptation step (0..1): higher tracks faster, lower is smoother.
-const PAD_NLMS_MU: f32 = 0.3;
-/// One-pole smoothing for the per-channel power estimate (NLMS normalisation).
-const PAD_POW_DECAY: f32 = 0.99;
-/// Floor on the normalisation power, and clamp on the adaptive weight, for
-/// numerical safety (no NaN / runaway in the audio thread).
-const PAD_EPS: f32 = 1.0e-6;
-const PAD_W_CLAMP: f32 = 4.0;
+/// Default isolation depth (0..1): how much of the predicted primary is removed.
+const PAD_DEFAULT_STRENGTH: f32 = 0.5;
+/// Time constant (ms) of the one-pole smoothers for the inter-channel statistics
+/// (auto/cross power). Long enough (tens of ms) that the derived Wiener weight is
+/// quasi-stationary, so the residual gain does not jitter per sample — this is
+/// what avoids the amplitude-modulation ("wind / mic saturation") artifact.
+const PAD_STAT_TC_MS: f32 = 50.0;
+/// Relative regularisation on the Wiener denominator (fraction of the pair's mean
+/// power) so quiet passages and zero-crossings cannot blow the weight up.
+const PAD_REG: f32 = 1.0e-2;
+/// Absolute floor added to the denominator to keep it strictly positive in pure
+/// silence (no NaN reaches the audio thread).
+const PAD_FLOOR: f32 = 1.0e-9;
+/// Clamp on the prediction weight: a correlated stereo weight is ≤ 1; the small
+/// headroom prevents the residual from amplifying the partner channel.
+const PAD_W_CLAMP: f32 = 1.2;
 /// Object gain for the lifted ambience (dB). The ambient component is already
 /// lower energy than the primary, so unity keeps it natural.
 const PAD_GAIN_DB: i8 = 0;
@@ -448,7 +456,7 @@ const PAD_PARAM_SPECS: [ObjectGenParamSpec; 3] = [
         min: 0.0,
         max: 1.0,
         step: 0.01,
-        default: PAD_NLMS_MU,
+        default: PAD_DEFAULT_STRENGTH,
         unit: "",
     },
     ObjectGenParamSpec {
@@ -474,35 +482,45 @@ const PAD_PARAM_SPECS: [ObjectGenParamSpec; 3] = [
 ];
 
 /// One floor pair (L, R) → two height objects (ambient of L, ambient of R), with
-/// the adaptive-canceller and high-pass state that must persist across frames.
+/// the slowly-smoothed inter-channel statistics and high-pass state that must
+/// persist across frames.
 struct AmbientPair {
     l_ch: usize,
     r_ch: usize,
     out_l: usize,
     out_r: usize,
-    /// Adaptive weights: `w_lr` predicts L from R, `w_rl` predicts R from L.
-    w_lr: f32,
-    w_rl: f32,
+    /// One-pole smoothed auto-power of each channel (`E[L²]`, `E[R²]`).
     pow_l: f32,
     pow_r: f32,
+    /// One-pole smoothed inter-channel cross-power (`E[L·R]`). Symmetric, so it
+    /// feeds both prediction weights.
+    cross: f32,
     hpf_l: Biquad,
     hpf_r: Biquad,
 }
 
 struct PadGenerator {
     pairs: Vec<AmbientPair>,
-    /// NLMS step (ambience strength); live-tunable via [`ObjectGenParams`].
-    mu: f32,
+    /// Isolation depth (0..1): fraction of the predicted primary that is removed
+    /// from each channel. `0` = clean copy of the floor up top, `1` = pure diffuse
+    /// residual. Live-tunable via the `strength` param.
+    strength: f32,
     /// Linear makeup gain applied to the lifted ambience.
     makeup: f32,
+    /// One-pole smoothing coefficient for the statistics, derived from the sample
+    /// rate in `prepare` (`α = 1 − exp(−1/(τ·fs))`).
+    alpha: f32,
 }
 
 impl Default for PadGenerator {
     fn default() -> Self {
         Self {
             pairs: Vec::new(),
-            mu: PAD_NLMS_MU,
+            strength: PAD_DEFAULT_STRENGTH,
             makeup: 1.0,
+            // Replaced in `prepare` once the sample rate is known; a safe non-zero
+            // default keeps the smoother stable if `process` ever runs first.
+            alpha: 0.0,
         }
     }
 }
@@ -519,8 +537,13 @@ impl ObjectGenerator for PadGenerator {
         if !layout_has_height(ctx.output_layout) || input_has_height(ctx.input_labels) {
             return Vec::new();
         }
+        let fs = ctx.sample_rate.max(1) as f32;
+        // One-pole smoothing coefficient for the statistics: α = 1 − exp(−1/(τ·fs)),
+        // with τ = PAD_STAT_TC_MS. (Idiom shared with audio_output `step_one_pole`.)
+        let tau_samples = (PAD_STAT_TC_MS * 1.0e-3 * fs).max(1.0);
+        self.alpha = 1.0 - (-1.0 / tau_samples).exp();
         let labels = ctx.input_labels;
-        let hpf = Biquad::highpass(ctx.sample_rate.max(1) as f32, PAD_HPF_HZ, PAD_HPF_Q);
+        let hpf = Biquad::highpass(fs, PAD_HPF_HZ, PAD_HPF_Q);
         const SIZE: [f32; 3] = [0.5, 0.5, 0.5];
 
         // Front pair = L/R; surround pair = (Ls|Lb)/(Rs|Rb).
@@ -549,10 +572,9 @@ impl ObjectGenerator for PadGenerator {
                 r_ch,
                 out_l,
                 out_r,
-                w_lr: 0.0,
-                w_rl: 0.0,
                 pow_l: 0.0,
                 pow_r: 0.0,
+                cross: 0.0,
                 hpf_l: hpf,
                 hpf_r: hpf,
             });
@@ -574,8 +596,9 @@ impl ObjectGenerator for PadGenerator {
 
     fn process(&mut self, bed: &BedFrame, out: &mut [Vec<f32>]) {
         let c = bed.channel_count;
-        let mu = self.mu;
+        let strength = self.strength;
         let makeup = self.makeup;
+        let alpha = self.alpha;
         for pair in self.pairs.iter_mut() {
             if pair.l_ch >= c || pair.r_ch >= c || pair.out_l >= out.len() || pair.out_r >= out.len()
             {
@@ -585,20 +608,28 @@ impl ObjectGenerator for PadGenerator {
                 let l = bed.pcm[s * c + pair.l_ch];
                 let r = bed.pcm[s * c + pair.r_ch];
 
-                pair.pow_l = pair.pow_l * PAD_POW_DECAY + l * l * (1.0 - PAD_POW_DECAY);
-                pair.pow_r = pair.pow_r * PAD_POW_DECAY + r * r * (1.0 - PAD_POW_DECAY);
+                // Slowly-smoothed inter-channel statistics (~PAD_STAT_TC_MS). Long
+                // enough that the Wiener weight below is quasi-stationary, so the
+                // residual gain does not jitter per sample (no AM / "wind").
+                pair.pow_l += alpha * (l * l - pair.pow_l);
+                pair.pow_r += alpha * (r * r - pair.pow_r);
+                pair.cross += alpha * (l * r - pair.cross);
 
-                // Ambient = the part of each channel NOT predictable from its
-                // partner (the decorrelated residual of a 1-tap NLMS canceller).
-                let e_l = l - pair.w_lr * r;
-                let e_r = r - pair.w_rl * l;
-                pair.w_lr = (pair.w_lr + mu * e_l * r / (pair.pow_r + PAD_EPS))
-                    .clamp(-PAD_W_CLAMP, PAD_W_CLAMP);
-                pair.w_rl = (pair.w_rl + mu * e_r * l / (pair.pow_l + PAD_EPS))
-                    .clamp(-PAD_W_CLAMP, PAD_W_CLAMP);
+                // Relative regularisation: a fraction of the pair's mean power plus
+                // a tiny absolute floor — quiet passages and zero-crossings can no
+                // longer explode the weight.
+                let reg = PAD_REG * 0.5 * (pair.pow_l + pair.pow_r) + PAD_FLOOR;
+                let w_lr = (pair.cross / (pair.pow_r + reg)).clamp(-PAD_W_CLAMP, PAD_W_CLAMP);
+                let w_rl = (pair.cross / (pair.pow_l + reg)).clamp(-PAD_W_CLAMP, PAD_W_CLAMP);
 
-                out[pair.out_l][s] = pair.hpf_l.process(e_l) * makeup;
-                out[pair.out_r][s] = pair.hpf_r.process(e_r) * makeup;
+                // Ambient = each channel minus the `strength`-scaled part that is
+                // predictable from its partner. strength=0 → clean copy up;
+                // strength=1 → only the decorrelated (diffuse) residual rises.
+                let amb_l = l - strength * w_lr * r;
+                let amb_r = r - strength * w_rl * l;
+
+                out[pair.out_l][s] = pair.hpf_l.process(amb_l) * makeup;
+                out[pair.out_r][s] = pair.hpf_r.process(amb_r) * makeup;
             }
         }
     }
@@ -609,7 +640,7 @@ impl ObjectGenerator for PadGenerator {
 
     fn set_param(&mut self, key: &str, value: f32, sample_rate: u32) {
         match key {
-            "strength" => self.mu = value.clamp(0.0, 1.0),
+            "strength" => self.strength = value.clamp(0.0, 1.0),
             "gain_db" => self.makeup = 10.0_f32.powf(value.clamp(-24.0, 24.0) / 20.0),
             "hpf_hz" => {
                 let fs = sample_rate.max(1) as f32;
@@ -884,9 +915,9 @@ mod tests {
 
     // ── PAD ──
 
-    /// Run PAD over `n` samples with the given L/R source signals (5.1 → 7.1.4)
-    /// and return the energy of the front-left ambience object over the
-    /// converged tail.
+    /// Run PAD at full isolation depth over `n` samples with the given L/R source
+    /// signals (5.1 → 7.1.4) and return the energy of the front-left ambience
+    /// object over the converged tail.
     fn pad_front_ambient_energy(
         l: impl Fn(usize) -> f32,
         r: impl Fn(usize) -> f32,
@@ -900,6 +931,8 @@ mod tests {
             sample_rate: 48_000,
         });
         assert_eq!(specs.len(), 4);
+        // Full cancellation so the correlated/decorrelated contrast is maximal.
+        g.set_param("strength", 1.0, 48_000);
         let c = 6usize;
         let mut pcm = vec![0.0f32; c * n];
         for s in 0..n {
@@ -963,6 +996,108 @@ mod tests {
             correlated < 0.25 * decorrelated,
             "correlated ambience {correlated} should be << decorrelated {decorrelated}"
         );
+    }
+
+    #[test]
+    fn pad_output_is_stable_and_bounded() {
+        // A steady, fully-correlated tone (L == R) at full strength. The old
+        // per-sample NLMS produced gusty bursts near zero-crossings ("wind / mic
+        // saturation"); the smoothed-Wiener residual must instead stay small,
+        // bounded, and smooth.
+        let amp = 0.5f32;
+        let freq = 700.0f32;
+        let n = 8000usize;
+        let c = 6usize;
+        let mut pcm = vec![0.0f32; c * n];
+        for s in 0..n {
+            let v = (std::f32::consts::TAU * freq * s as f32 / 48_000.0).sin() * amp;
+            pcm[s * c] = v; // L
+            pcm[s * c + 1] = v; // R
+        }
+        let mut g = PadGenerator::default();
+        let out_layout = layout_7_1_4();
+        let _ = g.prepare(&PrepareCtx {
+            input_labels: &LABELS_5_1,
+            output_layout: &out_layout,
+            sample_rate: 48_000,
+        });
+        g.set_param("strength", 1.0, 48_000);
+        let mut out: Vec<Vec<f32>> = vec![vec![0.0; n]; 4];
+        g.process(
+            &BedFrame {
+                pcm: &pcm,
+                channel_count: c,
+                sample_count: n,
+                sample_rate: 48_000,
+            },
+            &mut out,
+        );
+        let tail = &out[0][n / 2..];
+        assert!(tail.iter().all(|x| x.is_finite()), "no NaN/Inf reaches output");
+        let peak = tail.iter().fold(0.0f32, |m, &x| m.max(x.abs()));
+        assert!(
+            peak < 0.1 * amp,
+            "correlated residual peak {peak} should be ≪ input {amp}"
+        );
+        let max_step = tail
+            .windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(0.0f32, f32::max);
+        assert!(
+            max_step < 0.02,
+            "output must be smooth (no per-sample gain jumps); max step was {max_step}"
+        );
+    }
+
+    #[test]
+    fn pad_finite_across_strength_sweep() {
+        // Mixed L/R (a shared/correlated component plus independent tones) at every
+        // strength: outputs must stay finite and bounded — no saturation at any
+        // setting.
+        let n = 6000usize;
+        let c = 6usize;
+        let mut pcm = vec![0.0f32; c * n];
+        let mut peak_in = 0.0f32;
+        for s in 0..n {
+            let t = s as f32 / 48_000.0;
+            let common = (std::f32::consts::TAU * 500.0 * t).sin() * 0.4;
+            let l = common + (std::f32::consts::TAU * 900.0 * t).sin() * 0.2;
+            let r = common + (std::f32::consts::TAU * 1100.0 * t).sin() * 0.2;
+            pcm[s * c] = l;
+            pcm[s * c + 1] = r;
+            peak_in = peak_in.max(l.abs()).max(r.abs());
+        }
+        let out_layout = layout_7_1_4();
+        for &strength in &[0.0f32, 0.25, 0.5, 0.75, 1.0] {
+            let mut g = PadGenerator::default();
+            let _ = g.prepare(&PrepareCtx {
+                input_labels: &LABELS_5_1,
+                output_layout: &out_layout,
+                sample_rate: 48_000,
+            });
+            g.set_param("strength", strength, 48_000);
+            let mut out: Vec<Vec<f32>> = vec![vec![0.0; n]; 4];
+            g.process(
+                &BedFrame {
+                    pcm: &pcm,
+                    channel_count: c,
+                    sample_count: n,
+                    sample_rate: 48_000,
+                },
+                &mut out,
+            );
+            for (ch, buf) in out.iter().enumerate() {
+                assert!(
+                    buf.iter().all(|x| x.is_finite()),
+                    "finite output at strength {strength} (ch {ch})"
+                );
+                let peak = buf[n / 2..].iter().fold(0.0f32, |m, &x| m.max(x.abs()));
+                assert!(
+                    peak <= 2.5 * peak_in,
+                    "strength {strength} ch {ch}: peak {peak} must stay bounded (≤ 2.5×{peak_in})"
+                );
+            }
+        }
     }
 
     #[test]
