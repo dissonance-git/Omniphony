@@ -99,7 +99,7 @@ import { updateObjectMeterUI, updateObjectPositionUI, updateObjectSizeUI, update
 import {
   renderObjectsList, updateSpeakerControlsUI, updateObjectControlsUI, updateObjectDominantSpeakerUI,
   objectHasActiveTrail, getObjectIds, updateSectionProportions, updateAllSpeakerBandBars,
-  updateSpeakerGizmo, applyObjectPositionIcon
+  updateSpeakerGizmo, applyObjectPositionIcon, applyObjectIdentity
 } from './speakers.js';
 import { rebuildTrailGeometry, captureTrailPointColor } from './trails.js';
 import { muteSoloCallbacks } from './mute-solo.js';
@@ -129,6 +129,7 @@ flushCallbacks.updateObjectContributionUI = updateObjectContributionUI;
 flushCallbacks.updateObjectPositionIcon = applyObjectPositionIcon;
 flushCallbacks.updateSpeakerContributionUI = updateSpeakerContributionUI;
 flushCallbacks.getObjectDisplayName = getObjectDisplayName;
+flushCallbacks.applyObjectIdentity = applyObjectIdentity;
 flushCallbacks.applyAudioSampleRateNow = applyAudioSampleRateNow;
 flushCallbacks.refreshEffectiveRenderVisibility = refreshEffectiveRenderDecorations;
 flushCallbacks.updateVbapCartesianFaceGrid = updateVbapCartesianFaceGrid;
