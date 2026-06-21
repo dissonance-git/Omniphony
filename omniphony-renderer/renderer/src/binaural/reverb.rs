@@ -12,9 +12,11 @@
 //! pre-delay → 8 mutually-prime delay lines with one-pole HF damping in the
 //! feedback path, mixed by a Householder matrix (O(N) per sample) → two
 //! sign-pattern output taps for decorrelated L/R. In a real room the
-//! reverberant field level is roughly independent of source distance while
-//! the direct falls as 1/d — so the caller sends a (near-field-attenuated)
-//! constant level and the DRR falls naturally with distance.
+//! reverberant field level is roughly independent of source distance. The
+//! direct object level is authored (Atmos) and never 1/d-attenuated here, so
+//! instead the caller raises the per-source reverb send with distance
+//! (near-field roll-in): the DRR falls with distance without ever touching the
+//! direct object level.
 
 /// Number of delay lines.
 const N: usize = 8;

@@ -9,7 +9,7 @@
 //!
 //! Pipeline per input channel, per frame:
 //! `pos_adm → rotate(head_pose) → (az, el, dist)`
-//!   → distance gain → per-ear ITD delay → per-ear HRIR convolution
+//!   → per-ear ITD delay → per-ear HRIR convolution
 //!   → (+ shoebox early reflections, see [`reflections`])
 //!   → sum into `[L, R]`.
 //!
@@ -77,11 +77,12 @@ impl HrirSource {
     }
 }
 
-/// Reference distance (m) at which the distance gain is unity.
+/// Reference distance (m) at which an early reflection's 1/d gain is unity.
 const REF_DISTANCE_M: f32 = 1.0;
-/// Closest distance (m) used for the 1/d law, bounding near-source boost.
+/// Closest image-source distance (m) for the reflection 1/d law, bounding the
+/// near-source boost. (The direct path is deliberately not distance-attenuated.)
 const MIN_DISTANCE_M: f32 = 0.25;
-/// Maximum distance gain, so a source at the origin can't blow up.
+/// Maximum reflection distance gain, so an image at the origin can't blow up.
 const MAX_DISTANCE_GAIN: f32 = 4.0;
 /// Delay-line capacity for the ITD (s) — comfortably above the ~0.7 ms max.
 const ITD_MAX_S: f32 = 0.003;
@@ -270,11 +271,13 @@ impl BinauralRenderer {
             let horiz = (hx * hx + hy * hy).sqrt();
             let el_rad = hz.atan2(horiz);
 
-            // Isotropic distance scale → 1/d gain (direction is scale-invariant).
+            // Isotropic distance scale → metric distance (m). Direction is
+            // scale-invariant. Object/bed levels are authored upstream (Atmos
+            // object gain), so the direct path applies NO inverse-distance gain;
+            // dist_m only drives the distance *cues* (air absorption, reverb
+            // send, early reflections), never the direct object level.
             let dist_norm = ((pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2]).sqrt()) as f32;
             let dist_m = (dist_norm * unit_scale_m).max(0.0);
-            let dist_gain =
-                (REF_DISTANCE_M / dist_m.max(MIN_DISTANCE_M)).clamp(0.0, MAX_DISTANCE_GAIN);
 
             // Per-frame HRIR + ITD update (continuous: delay/convolver state persists).
             self.hrir.at(
@@ -360,7 +363,8 @@ impl BinauralRenderer {
                     dsp.air_state += (raw - dsp.air_state) * (1.0 - air);
                     raw = dsp.air_state;
                 }
-                let x = raw * dist_gain;
+                // Authored object/bed level is respected: no 1/d attenuation.
+                let x = raw;
                 let mut yl = dsp.conv_l.process(dsp.delay_l.process(x));
                 let mut yr = dsp.conv_r.process(dsp.delay_r.process(x));
                 if let Some(bank) = dsp.refl.as_mut() {
@@ -515,7 +519,7 @@ mod tests {
     #[test]
     fn air_absorption_dulls_distant_sources() {
         // Nyquist-rate tone: a distance low-pass crushes it. Compare output
-        // energy (normalised by the 1/d gain) near vs far.
+        // energy near vs far (the direct path has no 1/d gain to factor out).
         let n = 2_048;
         let input: Vec<f32> = (0..n)
             .map(|i| if i % 2 == 0 { 1.0 } else { -1.0 })
@@ -528,15 +532,34 @@ mod tests {
             let mut out = vec![0.0f32; n * 2];
             let mut r = BinauralRenderer::new(48_000);
             r.render_frame(&input, 1, n, &params, &[[0.0, dist, 0.0]], &[1.0], &mut out);
-            let e: f32 = out[400 * 2..].iter().map(|x| x * x).sum();
-            let dist_gain = (1.0f32 / dist as f32).clamp(0.0, 4.0);
-            e / (dist_gain * dist_gain)
+            // Direct path no longer applies a 1/d gain, so the broadband level is
+            // distance-independent; the only near/far difference is the
+            // air-absorption HF roll-off under test.
+            out[400 * 2..].iter().map(|x| x * x).sum()
         };
         let near = render(2.0); // within the 3 m bypass → full HF
         let far = render(30.0); // ~5 kHz cutoff → Nyquist crushed
         assert!(
             far < near * 0.2,
             "air absorption ineffective: near={near} far={far}"
+        );
+    }
+
+    #[test]
+    fn direct_level_is_distance_invariant() {
+        // Object/bed level is authored (Atmos); the binaural direct path must
+        // NOT re-attenuate by 1/d. A front source rendered near vs far — same
+        // authored gain, air/reverb/reflections off — must yield identical
+        // broadband energy. Before the fix this differed by the 1/d clamp
+        // (here 2 m → ×0.5 vs 8 m → ×0.125, a 4× energy gap).
+        let (nl, nr) = render_single([0.0, 2.0, 0.0]); // near
+        let (fl, fr) = render_single([0.0, 8.0, 0.0]); // far
+        let near = nl + nr;
+        let far = fl + fr;
+        assert!(near > 0.0, "near energy must be non-zero");
+        assert!(
+            (far - near).abs() <= near * 1e-6,
+            "direct object level changed with distance: near={near} far={far}"
         );
     }
 
