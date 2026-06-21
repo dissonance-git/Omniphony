@@ -151,6 +151,9 @@ export function renderAudioFormatDisplay() {
     const objectGeneratorRow = document.getElementById('objectGeneratorRow');
     if (objectGeneratorRow) objectGeneratorRow.style.display = spatial ? 'flex' : 'none';
     updateObjectGeneratorUI();
+    const phantomRow = document.getElementById('phantomExtractRow');
+    if (phantomRow) phantomRow.style.display = spatial ? 'flex' : 'none';
+    updatePhantomUI();
     syncVirtualBedObjects();
     renderChannelEditor();
   }
@@ -513,6 +516,99 @@ export function applyObjectGeneratorParamNow(key, value) {
   }
   app.objectGeneratorParams[key] = v;
   invoke('control_object_generator_param', { key, value: v });
+}
+
+// ── Phantom-source extraction pre-stage ──
+// Runs before the height lift: extracts the correlated/primary content of channel
+// pairs as discrete objects at their real panned position and reduces the bed.
+
+let builtPhantomParams = false;
+
+// Build the phantom param sliders from the declared schema (app.phantomSchema is
+// the param-spec array directly). Mirrors buildParamSliders.
+function buildPhantomParamSliders() {
+  const row = document.getElementById('phantomParamsRow');
+  if (!row) return;
+  row.innerHTML = '';
+  const params = app.phantomSchema || [];
+  for (const spec of params) {
+    const label = document.createElement('label');
+    label.style.cssText = 'display:flex;align-items:center;gap:0.5rem;font-size:11px';
+    const name = document.createElement('span');
+    name.style.cssText = 'flex:0 0 auto;min-width:96px';
+    name.textContent = schemaLabel(spec.i18nKey, spec.label);
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = String(spec.min);
+    slider.max = String(spec.max);
+    slider.step = String(spec.step);
+    slider.style.cssText = 'flex:1;min-width:0';
+    slider.dataset.paramKey = spec.key;
+    const valEl = document.createElement('span');
+    valEl.style.cssText =
+      'flex:0 0 auto;width:48px;text-align:right;font-variant-numeric:tabular-nums';
+    const stored = app.phantomParams && app.phantomParams[spec.key];
+    const initial = stored != null ? stored : spec.default;
+    slider.value = String(initial);
+    valEl.textContent = fmtParamValue(spec, initial);
+    slider.addEventListener('input', () => {
+      valEl.textContent = fmtParamValue(spec, slider.value);
+      applyPhantomParamNow(spec.key, slider.value);
+    });
+    label.appendChild(name);
+    label.appendChild(slider);
+    label.appendChild(valEl);
+    row.appendChild(label);
+  }
+  builtPhantomParams = (app.phantomSchema || []).length > 0;
+}
+
+// (Re)build the phantom controls when the schema arrives.
+export function rebuildPhantomControls() {
+  builtPhantomParams = false;
+  updatePhantomUI();
+}
+
+// Reflect the phantom enable switch + its parameter sliders (only when enabled).
+export function updatePhantomUI() {
+  const toggle = document.getElementById('phantomExtractToggle');
+  if (toggle) toggle.checked = !!app.phantomEnabled;
+  const params = app.phantomSchema || [];
+  const row = document.getElementById('phantomParamsRow');
+  const show = !!app.phantomEnabled && params.length > 0 && app.channelRenderMode !== 'host';
+  if (row) row.style.display = show ? 'flex' : 'none';
+  if (!builtPhantomParams && params.length > 0) {
+    buildPhantomParamSliders();
+  } else if (row) {
+    for (const slider of row.querySelectorAll('input[type=range]')) {
+      const key = slider.dataset.paramKey;
+      const spec = params.find((p) => p.key === key);
+      if (!spec) continue;
+      const stored = app.phantomParams && app.phantomParams[key];
+      const v = stored != null ? stored : spec.default;
+      if (document.activeElement !== slider) slider.value = String(v);
+      const valEl = slider.nextElementSibling;
+      if (valEl) valEl.textContent = fmtParamValue(spec, v);
+    }
+  }
+}
+
+// Toggle the phantom-extraction stage live.
+export function applyPhantomEnableNow(enabled) {
+  app.phantomEnabled = !!enabled;
+  updatePhantomUI();
+  invoke('control_phantom_extract', { enabled: !!enabled });
+}
+
+// Commit a phantom parameter change live (slider drag).
+export function applyPhantomParamNow(key, value) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return;
+  if (!app.phantomParams || typeof app.phantomParams !== 'object') {
+    app.phantomParams = {};
+  }
+  app.phantomParams[key] = v;
+  invoke('control_phantom_extract_param', { key, value: v });
 }
 
 // Reflect the active by-index/by-name buttons from `app.outputChannelMapping`,

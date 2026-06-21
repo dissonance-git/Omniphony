@@ -118,6 +118,12 @@ export function applyRuntimeAudioStateSnapshot(payload) {
   if (typeof payload.objectGeneratorLayoutHasHeight === 'boolean') {
     app.objectGeneratorLayoutHasHeight = payload.objectGeneratorLayoutHasHeight;
   }
+  if (typeof payload.phantomEnabled === 'boolean') {
+    app.phantomEnabled = payload.phantomEnabled;
+  }
+  if (payload.phantomParams && typeof payload.phantomParams === 'object') {
+    app.phantomParams = payload.phantomParams;
+  }
   if (typeof payload.outputChannelMapping === 'string') {
     const next = payload.outputChannelMapping.trim().toLowerCase();
     if (next === 'by_index' || next === 'by_name') {

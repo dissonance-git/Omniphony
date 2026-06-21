@@ -129,6 +129,36 @@ pub fn control_object_generator_param(state: State<SharedState>, key: String, va
     );
 }
 
+/// Enable/disable the phantom-source extraction pre-stage (runs before the height
+/// lift). Sent as an int (0/1).
+#[tauri::command]
+pub fn control_phantom_extract(state: State<SharedState>, enabled: bool) {
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendInt {
+            address: "/omniphony/control/phantom_extract".to_string(),
+            value: if enabled { 1 } else { 0 },
+        },
+    );
+}
+
+/// Set a live phantom-extraction parameter (`strength` / `passes` / `lift`). Sent
+/// as `[key, value]`; the renderer clamps and applies it live.
+#[tauri::command]
+pub fn control_phantom_extract_param(state: State<SharedState>, key: String, value: f32) {
+    let k = key.trim().to_ascii_lowercase();
+    if k.is_empty() || !value.is_finite() {
+        return;
+    }
+    send_control(
+        &state.osc_tx,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/phantom_extract/param".to_string(),
+            args: vec![rosc::OscType::String(k), rosc::OscType::Float(value)],
+        },
+    );
+}
+
 /// Set the output channel mapping: `by_index` (positionless — port N = layout
 /// speaker N) or `by_name` (positional).
 #[tauri::command]

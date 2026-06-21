@@ -2407,6 +2407,13 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     removed_ids,
                 )
             }
+            OscEvent::StatePhantom { value } => {
+                // Declared phantom-extraction param schema. JS builds the sliders.
+                (
+                    Some(("phantom:schema", serde_json::json!({ "value": value }))),
+                    removed_ids,
+                )
+            }
             OscEvent::StateDecodeTimeMs { value } => {
                 s.decode_time_ms = Some(value);
                 (

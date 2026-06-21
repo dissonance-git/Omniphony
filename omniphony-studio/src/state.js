@@ -245,6 +245,15 @@ export const app = {
   // generators are a no-op and the selector is greyed out. Assume yes until the
   // renderer reports otherwise.
   objectGeneratorLayoutHasHeight: true,
+  // Phantom-source extraction pre-stage: extracts correlated content from channel
+  // pairs as discrete objects at their real panned position, before the height
+  // lift. Off by default.
+  phantomEnabled: false,
+  // Declared phantom-extraction param schema, published on /omniphony/state/phantom
+  // as [{key,label,i18nKey,min,max,step,default,unit}]. Studio builds the sliders.
+  phantomSchema: [],
+  // Live param overrides for the phantom stage (key → value).
+  phantomParams: {},
   // How output channels map to device ports: 'by_index' (positionless — port N =
   // layout speaker N) or 'by_name' (positional). Default 'by_index'.
   outputChannelMapping: 'by_index',

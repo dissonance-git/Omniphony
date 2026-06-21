@@ -140,6 +140,16 @@
           <!-- Per-generator parameter sliders, built dynamically from the
                generator's declared schema (/omniphony/state/object_generators). -->
           <div id="objectGenParamsRow" style="display:none;flex-direction:column;gap:0.3rem;padding-left:0.5rem"></div>
+          <!-- Phantom-source extraction pre-stage: pulls correlated content out of
+               channel pairs as discrete objects at their real position, before the
+               height lift. Off by default. -->
+          <label id="phantomExtractRow" class="switch-row" style="font-size:13px;cursor:pointer">
+            <span data-i18n="twoDSources.phantomLabel" data-help-i18n="help.phantomExtract" data-help-anchor=".switch-row">Phantom extraction</span>
+            <input id="phantomExtractToggle" type="checkbox" />
+          </label>
+          <!-- Phantom-extraction parameter sliders, built dynamically from the
+               declared schema (/omniphony/state/phantom). -->
+          <div id="phantomParamsRow" style="display:none;flex-direction:column;gap:0.3rem;padding-left:0.5rem"></div>
           <div id="virtualBedActions" style="display:flex;justify-content:flex-end;margin-top:0.25rem">
             <button id="virtualBedResetBtn" type="button" class="ui-btn ui-btn-compact" style="white-space:nowrap" data-i18n="virtualBed.reset">Reset channel layout</button>
           </div>

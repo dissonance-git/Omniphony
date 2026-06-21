@@ -304,6 +304,8 @@ fn main() {
             control_surround_placement,
             control_object_generator,
             control_object_generator_param,
+            control_phantom_extract,
+            control_phantom_extract_param,
             control_output_channel_mapping,
             control_virtual_bed,
             control_output_mode,

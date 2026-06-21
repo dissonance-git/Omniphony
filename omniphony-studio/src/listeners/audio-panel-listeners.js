@@ -6,7 +6,7 @@ import { updateAdaptiveResamplingUI, resetAdaptiveResamplingAdvancedDirtyState }
 import {
   closeAudioSampleRateMenu, openAudioSampleRateMenu, updateAudioFormatDisplay,
   applyAudioSampleRateNow, applyAudioOutputDeviceNow, applyRampModeNow,
-  applyChannelRenderModeNow, applySurroundPlacementNow, applyObjectGeneratorNow, applyOutputChannelMappingNow, sendAudioConfig,
+  applyChannelRenderModeNow, applySurroundPlacementNow, applyObjectGeneratorNow, applyPhantomEnableNow, applyOutputChannelMappingNow, sendAudioConfig,
   applyAudioOutputBackendNow, applyAudioOutputFileNow, applyAudioOutputFileFormatNow,
   applyAudioOutputNamedPipeNow
 } from '../controls/audio.js';
@@ -589,6 +589,13 @@ export function setupAudioPanelListeners() {
   if (objectGeneratorSelectEl) {
     objectGeneratorSelectEl.addEventListener('change', () => {
       applyObjectGeneratorNow(objectGeneratorSelectEl.value);
+    });
+  }
+
+  const phantomExtractToggleEl = document.getElementById('phantomExtractToggle');
+  if (phantomExtractToggleEl) {
+    phantomExtractToggleEl.addEventListener('change', () => {
+      applyPhantomEnableNow(phantomExtractToggleEl.checked);
     });
   }
   // Per-generator parameter sliders are built dynamically from the declared

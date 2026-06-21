@@ -271,6 +271,8 @@ pub enum OscEvent {
     StateDiagValues { value: String },
     #[serde(rename = "state:object_generators")]
     StateObjectGenerators { value: String },
+    #[serde(rename = "state:phantom")]
+    StatePhantom { value: String },
     #[serde(rename = "state:decode_time_ms")]
     StateDecodeTimeMs { value: f64 },
     #[serde(rename = "state:render_time_ms")]
@@ -604,6 +606,9 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
             value: raw_args.first().and_then(unwrap_string)?,
         }),
         (3, "object_generators") => Some(OscEvent::StateObjectGenerators {
+            value: raw_args.first().and_then(unwrap_string)?,
+        }),
+        (3, "phantom") => Some(OscEvent::StatePhantom {
             value: raw_args.first().and_then(unwrap_string)?,
         }),
         (3, "diag_values") => Some(OscEvent::StateDiagValues {
