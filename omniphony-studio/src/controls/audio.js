@@ -524,14 +524,41 @@ export function applyObjectGeneratorParamNow(key, value) {
 
 let builtPhantomParams = false;
 
-// Build the phantom param sliders from the declared schema (app.phantomSchema is
-// the param-spec array directly). Mirrors buildParamSliders.
+// Whether a declared param is a binary (on/off) toggle — rendered as a switch
+// rather than a slider, per the switches-not-checkboxes rule.
+function isBinaryParam(spec) {
+  return Number(spec.min) === 0 && Number(spec.max) === 1 && Number(spec.step) === 1;
+}
+
+// Build the phantom param controls from the declared schema (app.phantomSchema is
+// the param-spec array directly). Continuous params render as sliders; binary
+// params (min 0, max 1, step 1) render as a switch. Mirrors buildParamSliders.
 function buildPhantomParamSliders() {
   const row = document.getElementById('phantomParamsRow');
   if (!row) return;
   row.innerHTML = '';
   const params = app.phantomSchema || [];
   for (const spec of params) {
+    const stored = app.phantomParams && app.phantomParams[spec.key];
+    const initial = stored != null ? stored : spec.default;
+    if (isBinaryParam(spec)) {
+      const label = document.createElement('label');
+      label.className = 'switch-row';
+      label.style.cssText = 'font-size:11px;cursor:pointer;margin-top:0';
+      const name = document.createElement('span');
+      name.textContent = schemaLabel(spec.i18nKey, spec.label);
+      const toggle = document.createElement('input');
+      toggle.type = 'checkbox';
+      toggle.dataset.paramKey = spec.key;
+      toggle.checked = Number(initial) >= 0.5;
+      toggle.addEventListener('change', () => {
+        applyPhantomParamNow(spec.key, toggle.checked ? 1 : 0);
+      });
+      label.appendChild(name);
+      label.appendChild(toggle);
+      row.appendChild(label);
+      continue;
+    }
     const label = document.createElement('label');
     label.style.cssText = 'display:flex;align-items:center;gap:0.5rem;font-size:11px';
     const name = document.createElement('span');
@@ -547,8 +574,6 @@ function buildPhantomParamSliders() {
     const valEl = document.createElement('span');
     valEl.style.cssText =
       'flex:0 0 auto;width:48px;text-align:right;font-variant-numeric:tabular-nums';
-    const stored = app.phantomParams && app.phantomParams[spec.key];
-    const initial = stored != null ? stored : spec.default;
     slider.value = String(initial);
     valEl.textContent = fmtParamValue(spec, initial);
     slider.addEventListener('input', () => {
@@ -589,6 +614,14 @@ export function updatePhantomUI() {
       if (document.activeElement !== slider) slider.value = String(v);
       const valEl = slider.nextElementSibling;
       if (valEl) valEl.textContent = fmtParamValue(spec, v);
+    }
+    for (const toggle of row.querySelectorAll('input[type=checkbox][data-param-key]')) {
+      const key = toggle.dataset.paramKey;
+      const spec = params.find((p) => p.key === key);
+      if (!spec) continue;
+      const stored = app.phantomParams && app.phantomParams[key];
+      const v = stored != null ? stored : spec.default;
+      toggle.checked = Number(v) >= 0.5;
     }
   }
 }

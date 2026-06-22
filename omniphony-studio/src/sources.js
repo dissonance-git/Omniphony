@@ -129,9 +129,12 @@ export function objectBadge(id) {
   if (m) return { type: 'height', code: m[1] };
   m = name.match(/^Height_(.+)_synth$/i);
   if (m) return { type: 'height', code: m[1] };
-  // Phantom extraction "Phantom_L_C" → a source localized between two channels.
-  m = name.match(/^Phantom_(.+?)_(.+)$/i);
+  // Phantom extraction "Phantom_L_C" → a source localized between two channels;
+  // single-label "Phantom_C" → a relocalized channel.
+  m = name.match(/^Phantom_([^_]+)_(.+)$/i);
   if (m) return { type: 'phantom', code: `${m[1]}·${m[2]}` };
+  m = name.match(/^Phantom_([^_]+)$/i);
+  if (m) return { type: 'phantom', code: m[1] };
   // Default: strip a single technical prefix word, as before.
   const u = name.indexOf('_');
   const code = u >= 0 ? name.slice(u + 1) : name;
