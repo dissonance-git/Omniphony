@@ -40,7 +40,7 @@ const PHANTOM_GAIN_DB: i8 = 0;
 const PHANTOM_SIZE: [f32; 3] = [0.3, 0.3, 0.3];
 
 /// Live-tunable params this stage declares (the schema the UI builds sliders from).
-pub const PHANTOM_PARAM_SPECS: [ObjectGenParamSpec; 3] = [
+pub const PHANTOM_PARAM_SPECS: [ObjectGenParamSpec; 5] = [
     ObjectGenParamSpec {
         key: "strength",
         label: "Extraction",
@@ -68,6 +68,31 @@ pub const PHANTOM_PARAM_SPECS: [ObjectGenParamSpec; 3] = [
         min: 0.0,
         max: 1.0,
         step: 0.01,
+        default: 0.0,
+        unit: "",
+    },
+    // Binary mode (rendered as a switch by Studio): replace the front L-C-R split
+    // (two phantoms) with a single relocalized centre. See `RelocalizeArc`.
+    ObjectGenParamSpec {
+        key: "center",
+        label: "Relocalize center",
+        i18n_key: "twoDSources.phantomCenter",
+        min: 0.0,
+        max: 1.0,
+        step: 1.0,
+        default: 0.0,
+        unit: "",
+    },
+    // Binary mode: in 7.1, relocate each surround (Ls between L/Lb, Rs between
+    // R/Rb) as a single object instead of the joint side arcs. No-op without back
+    // channels (5.1 and below).
+    ObjectGenParamSpec {
+        key: "sides",
+        label: "Relocalize sides",
+        i18n_key: "twoDSources.phantomSides",
+        min: 0.0,
+        max: 1.0,
+        step: 1.0,
         default: 0.0,
         unit: "",
     },
@@ -296,6 +321,128 @@ impl ArcTriplet {
     }
 }
 
+/// Alternative arc treatment that **relocalizes** the middle channel `m` of a
+/// three-channel arc `a — m — b` instead of splitting it into two phantoms. `m` is
+/// first mixed 50/50 into the two ends `a` and `b` (a classic phantom spread) and
+/// removed from its own channel; the now-shared component is then re-extracted from
+/// the (a, b) pair as a *single* localized object whose position follows the a/b
+/// correlation balance. The net object count is therefore one (a relocated channel),
+/// not the two of the joint arc — it relocalizes rather than adds. At `strength = 0`
+/// it degrades to a pure phantom spread (no object). Used for the front (C between L
+/// and R) and, in 7.1, the sides (Ls between L and Lb, Rs between R and Rb).
+struct RelocalizeArc {
+    a_ch: usize,
+    b_ch: usize,
+    m_ch: usize,
+    out: usize,
+    pos_a: [f64; 3],
+    pos_b: [f64; 3],
+    pow_a: f32,
+    pow_b: f32,
+    cross: f32,
+    /// Smoothed correlated energy per end → pan fraction.
+    e_a: f32,
+    e_b: f32,
+}
+
+impl RelocalizeArc {
+    fn process(
+        &mut self,
+        bed: &mut [f32],
+        c: usize,
+        n: usize,
+        strength: f32,
+        alpha: f32,
+        planar: &mut [Vec<f32>],
+    ) {
+        if self.a_ch >= c || self.b_ch >= c || self.m_ch >= c || self.out >= planar.len() {
+            return;
+        }
+        for s in 0..n {
+            let ia = s * c + self.a_ch;
+            let ib = s * c + self.b_ch;
+            let im = s * c + self.m_ch;
+            let mm = bed[im];
+            // Spread the middle 50/50 into the two ends, then vacate its channel: it
+            // now lives as a (perfectly correlated) phantom in the (a, b) pair.
+            let ap = bed[ia] + 0.5 * mm;
+            let bp = bed[ib] + 0.5 * mm;
+            bed[im] = 0.0;
+
+            self.pow_a += alpha * (ap * ap - self.pow_a);
+            self.pow_b += alpha * (bp * bp - self.pow_b);
+            self.cross += alpha * (ap * bp - self.cross);
+
+            let reg = PHANTOM_REG * 0.5 * (self.pow_a + self.pow_b) + PHANTOM_FLOOR;
+            let w_ab = (self.cross / (self.pow_b + reg)).clamp(-PHANTOM_W_CLAMP, PHANTOM_W_CLAMP);
+            let w_ba = (self.cross / (self.pow_a + reg)).clamp(-PHANTOM_W_CLAMP, PHANTOM_W_CLAMP);
+            let denom = (self.pow_a * self.pow_b).sqrt() + PHANTOM_FLOOR;
+            let coh = (self.cross / denom).clamp(0.0, 1.0);
+            let k = strength * coh;
+
+            let ca = w_ab * bp;
+            let cb = w_ba * ap;
+            bed[ia] = ap - k * ca;
+            bed[ib] = bp - k * cb;
+
+            let ga = self.pow_a.sqrt();
+            let gb = self.pow_b.sqrt();
+            let gnorm = (self.pow_a + self.pow_b).sqrt() + PHANTOM_FLOOR;
+            planar[self.out][s] = k * (ca * ga + cb * gb) / gnorm;
+
+            self.e_a += alpha * (ca * ca - self.e_a);
+            self.e_b += alpha * (cb * cb - self.e_b);
+        }
+    }
+
+    fn refresh(&self, lift: f64, specs: &mut [SynthObjectSpec]) {
+        let t = (self.e_b / (self.e_a + self.e_b + PHANTOM_FLOOR)) as f64;
+        if let Some(spec) = specs.get_mut(self.out) {
+            spec.position = lerp_xy(self.pos_a, self.pos_b, t, lift);
+        }
+    }
+}
+
+/// A three-channel arc slot: either split into two phantoms (the joint arc) or
+/// collapsed to a single relocalized middle.
+enum ArcUnit {
+    Split(ArcTriplet),
+    Reloc(RelocalizeArc),
+}
+
+impl ArcUnit {
+    fn process(
+        &mut self,
+        bed: &mut [f32],
+        c: usize,
+        n: usize,
+        strength: f32,
+        alpha: f32,
+        planar: &mut [Vec<f32>],
+    ) {
+        match self {
+            ArcUnit::Split(t) => t.process(bed, c, n, strength, alpha, planar),
+            ArcUnit::Reloc(r) => r.process(bed, c, n, strength, alpha, planar),
+        }
+    }
+
+    fn refresh(&self, lift: f64, specs: &mut [SynthObjectSpec]) {
+        match self {
+            ArcUnit::Split(t) => t.refresh(lift, specs),
+            ArcUnit::Reloc(r) => r.refresh(lift, specs),
+        }
+    }
+
+    /// The vacated middle channel (relocalize units only), excluded from the ring
+    /// pairing so it never yields a silent phantom.
+    fn vacated(&self) -> Option<usize> {
+        match self {
+            ArcUnit::Reloc(r) => Some(r.m_ch),
+            ArcUnit::Split(_) => None,
+        }
+    }
+}
+
 type Pos = Option<(usize, [f64; 3])>;
 
 /// Build an `a—m—b` joint arc (two phantoms) if all three channels are present,
@@ -343,6 +490,45 @@ fn build_arc(
         e_am_m: 0.0,
         e_mb_m: 0.0,
         e_mb_b: 0.0,
+    })
+}
+
+/// Build a relocalize-arc unit (one object that relocates the middle `m` of the
+/// `a — m — b` arc) if all three channels are present. Records the a-m, m-b and a-b
+/// ring pairs as covered so the wide passes don't re-extract the arc it consumed.
+#[allow(clippy::too_many_arguments)]
+fn build_relocalize_arc(
+    specs: &mut Vec<SynthObjectSpec>,
+    lift: f64,
+    a: Pos,
+    b: Pos,
+    m: Pos,
+    la: RChannelLabel,
+    lb: RChannelLabel,
+    lm: RChannelLabel,
+    covered: &mut Vec<(RChannelLabel, RChannelLabel)>,
+) -> Option<RelocalizeArc> {
+    let ((a_ch, pos_a), (b_ch, pos_b), (m_ch, _)) = (a?, b?, m?);
+    let out = specs.len();
+    specs.push(phantom_spec(
+        format!("Phantom_{lm:?}"),
+        midpoint(pos_a, pos_b, lift),
+    ));
+    covered.push((la, lm));
+    covered.push((lm, lb));
+    covered.push((la, lb));
+    Some(RelocalizeArc {
+        a_ch,
+        b_ch,
+        m_ch,
+        out,
+        pos_a,
+        pos_b,
+        pow_a: 0.0,
+        pow_b: 0.0,
+        cross: 0.0,
+        e_a: 0.0,
+        e_b: 0.0,
     })
 }
 
@@ -396,17 +582,21 @@ struct PlanSig {
     labels: Vec<RChannelLabel>,
     rate: u32,
     passes: usize,
+    center: bool,
+    sides: bool,
 }
 
 /// Host-side state for the phantom-extraction stage.
 pub struct PhantomExtractStage {
-    /// Joint arcs, processed in this order so the cardinal stages claim the shared
+    /// Arc slots, processed in this order so the cardinal stages claim the shared
     /// corner channels first: front (L-C-R), back (Lb-Rb pair), then the side arcs
-    /// (L-Ls-Lb, R-Rs-Rb). `None` when the input lacks the channels.
-    front: Option<ArcTriplet>,
+    /// (L-Ls-Lb, R-Rs-Rb). Each is either split into two phantoms or relocalized to
+    /// a single object (per the `center`/`sides` modes). `None` when the input lacks
+    /// the channels.
+    front: Option<ArcUnit>,
     back: Option<PhantomPair>,
-    left: Option<ArcTriplet>,
-    right: Option<ArcTriplet>,
+    left: Option<ArcUnit>,
+    right: Option<ArcUnit>,
     /// Remaining ring + wide pairs (those not subsumed by an arc/back unit).
     pairs: Vec<PhantomPair>,
     specs: Vec<SynthObjectSpec>,
@@ -418,6 +608,10 @@ pub struct PhantomExtractStage {
     strength: f32,
     passes: usize,
     lift: f32,
+    /// Relocalize the front centre (single object) instead of the L-C-R split.
+    center_relocalize: bool,
+    /// Relocalize each 7.1 surround (single object) instead of the side arcs.
+    sides_relocalize: bool,
     alpha: f32,
 }
 
@@ -436,6 +630,8 @@ impl PhantomExtractStage {
             strength: PHANTOM_DEFAULT_STRENGTH,
             passes: 1,
             lift: 0.0,
+            center_relocalize: false,
+            sides_relocalize: false,
             alpha: 0.0,
         }
     }
@@ -451,11 +647,15 @@ impl PhantomExtractStage {
         let changed = self.sig.enabled != enabled
             || self.sig.rate != ctx.sample_rate
             || self.sig.passes != self.passes
+            || self.sig.center != self.center_relocalize
+            || self.sig.sides != self.sides_relocalize
             || self.sig.labels.as_slice() != ctx.input_labels;
         if changed {
             self.sig.enabled = enabled;
             self.sig.rate = ctx.sample_rate;
             self.sig.passes = self.passes;
+            self.sig.center = self.center_relocalize;
+            self.sig.sides = self.sides_relocalize;
             self.sig.labels.clear();
             self.sig.labels.extend_from_slice(ctx.input_labels);
             self.rebuild(enabled, ctx);
@@ -473,6 +673,8 @@ impl PhantomExtractStage {
                 self.passes = (value.round() as i64).clamp(1, PHANTOM_MAX_PASSES as i64) as usize
             }
             "lift" => self.lift = value.clamp(0.0, 1.0),
+            "center" => self.center_relocalize = value >= 0.5,
+            "sides" => self.sides_relocalize = value >= 0.5,
             _ => {}
         }
     }
@@ -518,40 +720,99 @@ impl PhantomExtractStage {
         use RChannelLabel::{C, L, Lb, Ls, R, Rb, Rs};
         let mut covered: Vec<(RChannelLabel, RChannelLabel)> = Vec::new();
         let specs = &mut self.specs;
-        self.front = build_arc(
-            specs,
-            lift,
-            find(L),
-            find(C),
-            find(R),
-            L,
-            C,
-            R,
-            &mut covered,
-        );
+        // Front (L-C-R) and the side arcs (L-Ls-Lb, R-Rs-Rb): each is either the joint
+        // split (two phantoms) or, in the matching relocalize mode, a single relocated
+        // middle. A relocalized arc vacates its middle channel (C, Ls or Rs), so those
+        // are also excluded from the ring/wide pairing below.
+        self.front = if self.center_relocalize {
+            build_relocalize_arc(
+                specs,
+                lift,
+                find(L),
+                find(R),
+                find(C),
+                L,
+                R,
+                C,
+                &mut covered,
+            )
+            .map(ArcUnit::Reloc)
+        } else {
+            build_arc(
+                specs,
+                lift,
+                find(L),
+                find(C),
+                find(R),
+                L,
+                C,
+                R,
+                &mut covered,
+            )
+            .map(ArcUnit::Split)
+        };
         self.back = build_pair_unit(specs, lift, find(Lb), find(Rb), Lb, Rb, &mut covered);
-        self.left = build_arc(
-            specs,
-            lift,
-            find(L),
-            find(Ls),
-            find(Lb),
-            L,
-            Ls,
-            Lb,
-            &mut covered,
-        );
-        self.right = build_arc(
-            specs,
-            lift,
-            find(R),
-            find(Rs),
-            find(Rb),
-            R,
-            Rs,
-            Rb,
-            &mut covered,
-        );
+        self.left = if self.sides_relocalize {
+            build_relocalize_arc(
+                specs,
+                lift,
+                find(L),
+                find(Lb),
+                find(Ls),
+                L,
+                Lb,
+                Ls,
+                &mut covered,
+            )
+            .map(ArcUnit::Reloc)
+        } else {
+            build_arc(
+                specs,
+                lift,
+                find(L),
+                find(Ls),
+                find(Lb),
+                L,
+                Ls,
+                Lb,
+                &mut covered,
+            )
+            .map(ArcUnit::Split)
+        };
+        self.right = if self.sides_relocalize {
+            build_relocalize_arc(
+                specs,
+                lift,
+                find(R),
+                find(Rb),
+                find(Rs),
+                R,
+                Rb,
+                Rs,
+                &mut covered,
+            )
+            .map(ArcUnit::Reloc)
+        } else {
+            build_arc(
+                specs,
+                lift,
+                find(R),
+                find(Rs),
+                find(Rb),
+                R,
+                Rs,
+                Rb,
+                &mut covered,
+            )
+            .map(ArcUnit::Split)
+        };
+        // Channels vacated by a relocalize arc (never paired in the ring loop).
+        let vacated: [Option<usize>; 3] = [
+            self.front.as_ref().and_then(ArcUnit::vacated),
+            self.left.as_ref().and_then(ArcUnit::vacated),
+            self.right.as_ref().and_then(ArcUnit::vacated),
+        ];
+        let is_vacated = |ch: usize| vacated.iter().any(|v| *v == Some(ch));
 
         let passes = self.passes.clamp(1, PHANTOM_MAX_PASSES);
         // Ring distances 1..=passes around the azimuth circle, each unordered pair
@@ -573,6 +834,10 @@ impl PhantomExtractStage {
                 seen.push(key);
                 let (a_ch, a_label, pos_a, _) = chans[key.0];
                 let (b_ch, b_label, pos_b, _) = chans[key.1];
+                // A relocalized middle is vacated; never pair it (silent phantom).
+                if is_vacated(a_ch) || is_vacated(b_ch) {
+                    continue;
+                }
                 if is_covered(a_label, b_label, &covered) {
                     continue;
                 }
@@ -603,17 +868,17 @@ impl PhantomExtractStage {
     /// energy, in the same order the units are processed.
     fn refresh_positions(&mut self) {
         let lift = self.lift as f64;
-        if let Some(t) = self.front.as_ref() {
-            t.refresh(lift, &mut self.specs);
+        if let Some(u) = self.front.as_ref() {
+            u.refresh(lift, &mut self.specs);
         }
         if let Some(p) = self.back.as_ref() {
             p.refresh(lift, &mut self.specs);
         }
-        if let Some(t) = self.left.as_ref() {
-            t.refresh(lift, &mut self.specs);
+        if let Some(u) = self.left.as_ref() {
+            u.refresh(lift, &mut self.specs);
         }
-        if let Some(t) = self.right.as_ref() {
-            t.refresh(lift, &mut self.specs);
+        if let Some(u) = self.right.as_ref() {
+            u.refresh(lift, &mut self.specs);
         }
         for pair in self.pairs.iter() {
             pair.refresh(lift, &mut self.specs);
@@ -659,17 +924,17 @@ impl PhantomExtractStage {
         }
         // Cascade order: front, then back, then the side arcs (which share the
         // corner channels with front/back — those get first claim), then the rest.
-        if let Some(t) = self.front.as_mut() {
-            t.process(bed, c, n, strength, alpha, &mut planar);
+        if let Some(u) = self.front.as_mut() {
+            u.process(bed, c, n, strength, alpha, &mut planar);
         }
         if let Some(p) = self.back.as_mut() {
             p.process(bed, c, n, strength, alpha, &mut planar);
         }
-        if let Some(t) = self.left.as_mut() {
-            t.process(bed, c, n, strength, alpha, &mut planar);
+        if let Some(u) = self.left.as_mut() {
+            u.process(bed, c, n, strength, alpha, &mut planar);
         }
-        if let Some(t) = self.right.as_mut() {
-            t.process(bed, c, n, strength, alpha, &mut planar);
+        if let Some(u) = self.right.as_mut() {
+            u.process(bed, c, n, strength, alpha, &mut planar);
         }
         for pair in self.pairs.iter_mut() {
             pair.process(bed, c, n, strength, alpha, &mut planar);
@@ -960,6 +1225,152 @@ mod tests {
             (l_red - lb_red).abs() < 0.1 * in_l + 1.0e-6,
             "L and Lb must be reduced symmetrically ({l_red} vs {lb_red})"
         );
+    }
+
+    #[test]
+    fn relocalize_center_collapses_front_to_one_object() {
+        // With centre-relocalize on, the front L-C-R split is replaced by a single
+        // "Phantom_C": the L-C / C-R phantoms are gone and the ring count drops by one.
+        let mut st = PhantomExtractStage::new();
+        let layout = dummy_layout();
+        st.set_param("center", 1.0, 48_000);
+        let n_specs = st.sync(true, &ctx(&LABELS_5_1, &layout));
+        let names: Vec<&str> = st.specs().iter().map(|s| s.name.as_str()).collect();
+        assert!(
+            names.contains(&"Phantom_C"),
+            "missing Phantom_C in {names:?}"
+        );
+        assert!(
+            !names
+                .iter()
+                .any(|n| *n == "Phantom_L_C" || *n == "Phantom_C_R"),
+            "front split should be gone in {names:?}"
+        );
+        // 5.1 ring is 5 phantoms in split mode; relocalize replaces the two front
+        // phantoms with one and drops the C channel from the wide pairing → 4.
+        assert_eq!(n_specs, 4);
+    }
+
+    #[test]
+    fn relocalize_center_moves_centre_to_object_and_empties_c() {
+        // A centre-only source (C = v, L = R = 0) is spread, re-extracted as one
+        // localized object near the centre, and the C channel is vacated.
+        let mut st = PhantomExtractStage::new();
+        let layout = dummy_layout();
+        st.set_param("center", 1.0, 48_000);
+        st.set_param("strength", 1.0, 48_000);
+        st.sync(true, &ctx(&LABELS_5_1, &layout));
+        let c = 6usize;
+        let n = 6000usize;
+        let s = sine(700.0);
+        let mut bed = vec![0.0f32; c * n];
+        let mut in_c = 0.0f32;
+        for i in 0..n {
+            let v = s(i) * 0.5;
+            bed[i * c + 2] = v; // C (index 2)
+            if i >= n / 2 {
+                in_c += v * v;
+            }
+        }
+        let k = st
+            .specs()
+            .iter()
+            .position(|sp| sp.name == "Phantom_C")
+            .unwrap();
+        let (pcm, out_ch) = st.process_and_extend(&mut bed, c, n, 48_000);
+        let tail = n / 2..n;
+        let ph: f32 = tail.clone().map(|i| pcm[i * out_ch + c + k].powi(2)).sum();
+        let c_red: f32 = tail.clone().map(|i| pcm[i * out_ch + 2].powi(2)).sum();
+        let lr_red: f32 = tail
+            .map(|i| pcm[i * out_ch].powi(2) + pcm[i * out_ch + 1].powi(2))
+            .sum();
+        assert!(
+            ph > 0.2 * in_c,
+            "object should carry the centre energy ({ph} vs in_c {in_c})"
+        );
+        assert!(c_red < 1.0e-6, "C channel must be vacated ({c_red})");
+        assert!(
+            lr_red < 0.1 * in_c,
+            "spread centre should be re-extracted, leaving L/R near silent ({lr_red} vs {in_c})"
+        );
+        // Position: symmetric centre → object sits near the centre line.
+        st.sync(true, &ctx(&LABELS_5_1, &layout));
+        let pos = st.specs()[k].position;
+        assert!(
+            pos[0].abs() < 0.15,
+            "centre object should be centred, x = {}",
+            pos[0]
+        );
+    }
+
+    #[test]
+    fn relocalize_sides_collapses_each_side_to_one_object_in_7_1() {
+        // With sides-relocalize on, each 7.1 side arc (L-Ls-Lb, R-Rs-Rb) is replaced
+        // by a single relocated surround ("Phantom_Ls" / "Phantom_Rs"); the front
+        // split is untouched.
+        let mut st = PhantomExtractStage::new();
+        let layout = dummy_layout();
+        st.set_param("sides", 1.0, 48_000);
+        let n_specs = st.sync(true, &ctx(&LABELS_7_1, &layout));
+        let names: Vec<&str> = st.specs().iter().map(|s| s.name.as_str()).collect();
+        assert!(
+            names.contains(&"Phantom_Ls"),
+            "missing Phantom_Ls in {names:?}"
+        );
+        assert!(
+            names.contains(&"Phantom_Rs"),
+            "missing Phantom_Rs in {names:?}"
+        );
+        assert!(
+            names.contains(&"Phantom_L_C"),
+            "front split should remain in {names:?}"
+        );
+        assert!(
+            !names.iter().any(|n| matches!(
+                *n,
+                "Phantom_L_Ls" | "Phantom_Ls_Lb" | "Phantom_R_Rs" | "Phantom_Rs_Rb"
+            )),
+            "side splits should be gone in {names:?}"
+        );
+        // front split (2) + back (1) + left reloc (1) + right reloc (1) = 5.
+        assert_eq!(n_specs, 5);
+    }
+
+    #[test]
+    fn relocalize_sides_moves_surround_to_object_and_empties_it() {
+        // A surround-only source (Ls = v) is spread into L/Lb, re-extracted as one
+        // localized object, and the Ls channel is vacated.
+        let mut st = PhantomExtractStage::new();
+        let layout = dummy_layout();
+        st.set_param("sides", 1.0, 48_000);
+        st.set_param("strength", 1.0, 48_000);
+        st.sync(true, &ctx(&LABELS_7_1, &layout));
+        let c = 8usize;
+        let n = 6000usize;
+        let s = sine(700.0);
+        let mut bed = vec![0.0f32; c * n];
+        let mut in_ls = 0.0f32;
+        for i in 0..n {
+            let v = s(i) * 0.5;
+            bed[i * c + 4] = v; // Ls (index 4)
+            if i >= n / 2 {
+                in_ls += v * v;
+            }
+        }
+        let k = st
+            .specs()
+            .iter()
+            .position(|sp| sp.name == "Phantom_Ls")
+            .unwrap();
+        let (pcm, out_ch) = st.process_and_extend(&mut bed, c, n, 48_000);
+        let tail = n / 2..n;
+        let ph: f32 = tail.clone().map(|i| pcm[i * out_ch + c + k].powi(2)).sum();
+        let ls_red: f32 = tail.map(|i| pcm[i * out_ch + 4].powi(2)).sum();
+        assert!(
+            ph > 0.2 * in_ls,
+            "object should carry the surround energy ({ph} vs {in_ls})"
+        );
+        assert!(ls_red < 1.0e-6, "Ls channel must be vacated ({ls_red})");
     }
 
     #[test]
