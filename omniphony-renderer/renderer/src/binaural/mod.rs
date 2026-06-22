@@ -25,6 +25,7 @@ pub mod head_pose;
 pub mod hrir;
 pub mod itd;
 pub mod measured;
+pub mod prtf;
 pub mod reflections;
 pub mod reverb;
 pub mod tracking;
@@ -35,10 +36,44 @@ pub use tracking::{HeadTracking, HeadTrackingFormat};
 use crate::delay_line::DelayLine;
 use crate::live_params::{BinauralReflections, BinauralReverb};
 use convolver::EarConvolver;
-use hrir::{HRIR_LEN, HrirPair, HrirSet};
+use hrir::{HRIR_LEN, HrirPair, HrirSet, ParametricPinnaHrir};
 use measured::MeasuredHrirData;
+use prtf::SpagnolPrtfHrir;
 use reflections::ReflectionBank;
 use reverb::Fdn;
+
+/// Per-listener `D_n` preset for the parametric pinna model (Brown & Duda 1998,
+/// Table I). `D_n` is the only parameter the paper individualizes per subject.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PinnaPreset {
+    /// Subjects PB & NH: D = [1, 0.5, 0.5, 0.5, 0.5].
+    #[default]
+    PbNh,
+    /// Subject RD: D = [0.85, 0.35, 0.35, 0.35, 0.35].
+    Rd,
+}
+
+impl PinnaPreset {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::PbNh => "pbnh",
+            Self::Rd => "rd",
+        }
+    }
+    pub fn from_str(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "rd" => Self::Rd,
+            _ => Self::PbNh,
+        }
+    }
+    /// The published `D_n` column for this preset.
+    fn d_base(&self) -> [f32; 5] {
+        match self {
+            Self::PbNh => ParametricPinnaHrir::D_PB_NH,
+            Self::Rd => ParametricPinnaHrir::D_RD,
+        }
+    }
+}
 
 /// Which HRIR data set the binaural stage convolves with.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -50,6 +85,21 @@ pub enum HrirSource {
     SafKemar,
     /// A SOFA file loaded from disk (requires the `sofa` build feature).
     Sofa(String),
+    /// Parametric structural model: analytic head shadow + the Brown-Duda pinna
+    /// echo train (exact Table I coefficients). `preset` picks a published `D_n`
+    /// column (the only per-listener parameter), `d_scale_pct` fine-tunes it,
+    /// `depth_pct` is the echo strength (0 ≈ synthetic, 100 = full). No measured
+    /// data — the "tune a few knobs" alternative to `saf`/`sofa`.
+    Pinna {
+        preset: PinnaPreset,
+        d_scale_pct: u16,
+        depth_pct: u16,
+    },
+    /// Structural PRTF model (Spagnol/Geronazzo/Avanzini): head shadow + two
+    /// concha resonances + three elevation-dependent notches, population-average
+    /// preset. `depth_pct` is the pinna-coloration amount (0 ≈ synthetic), and
+    /// `freq_scale_pct` shifts all notch/resonance frequencies (individualization).
+    Prtf { freq_scale_pct: u16, depth_pct: u16 },
 }
 
 impl HrirSource {
@@ -58,6 +108,8 @@ impl HrirSource {
             Self::Synthetic => "synthetic",
             Self::SafKemar => "saf",
             Self::Sofa(_) => "sofa",
+            Self::Pinna { .. } => "pinna",
+            Self::Prtf { .. } => "prtf",
         }
     }
 
@@ -68,10 +120,55 @@ impl HrirSource {
         if let Some(path) = s.strip_prefix("sofa:") {
             return Some(Self::Sofa(path.to_string()));
         }
-        match s.to_ascii_lowercase().as_str() {
+        let lower = s.to_ascii_lowercase();
+        // "pinna" | "pinna:<preset>:<dscale>:<depth>" (preset = pbnh|rd,
+        // dscale/depth percent integers).
+        if let Some(rest) = lower.strip_prefix("pinna:") {
+            let mut it = rest.split(':');
+            let preset = PinnaPreset::from_str(it.next().unwrap_or("pbnh"));
+            let d_scale = it
+                .next()
+                .and_then(|v| v.trim().parse::<u16>().ok())
+                .unwrap_or(100);
+            let depth = it
+                .next()
+                .and_then(|v| v.trim().parse::<u16>().ok())
+                .unwrap_or(100);
+            return Some(Self::Pinna {
+                preset,
+                d_scale_pct: d_scale.clamp(50, 150),
+                depth_pct: depth.clamp(0, 100),
+            });
+        }
+        // "prtf" | "prtf:<freq_scale>:<depth>" (percent integers).
+        if let Some(rest) = lower.strip_prefix("prtf:") {
+            let mut it = rest.split(':');
+            let freq = it
+                .next()
+                .and_then(|v| v.trim().parse::<u16>().ok())
+                .unwrap_or(100);
+            let depth = it
+                .next()
+                .and_then(|v| v.trim().parse::<u16>().ok())
+                .unwrap_or(100);
+            return Some(Self::Prtf {
+                freq_scale_pct: freq.clamp(50, 150),
+                depth_pct: depth.clamp(0, 100),
+            });
+        }
+        match lower.as_str() {
             "synthetic" | "synth" => Some(Self::Synthetic),
             "saf" | "kemar" | "saf_kemar" => Some(Self::SafKemar),
             "sofa" => Some(Self::Sofa(String::new())),
+            "pinna" | "parametric" => Some(Self::Pinna {
+                preset: PinnaPreset::PbNh,
+                d_scale_pct: 100,
+                depth_pct: 100,
+            }),
+            "prtf" | "spagnol" => Some(Self::Prtf {
+                freq_scale_pct: 100,
+                depth_pct: 100,
+            }),
             _ => None,
         }
     }
@@ -167,6 +264,31 @@ impl BinauralRenderer {
     fn build_hrir(source: &HrirSource, sample_rate: u32) -> HrirSet {
         match source {
             HrirSource::Synthetic => HrirSet::synthetic(sample_rate),
+            HrirSource::Pinna {
+                preset,
+                d_scale_pct,
+                depth_pct,
+            } => {
+                let scale = *d_scale_pct as f32 / 100.0;
+                let d = preset.d_base().map(|x| x * scale);
+                HrirSet::new(
+                    &ParametricPinnaHrir {
+                        d,
+                        depth: *depth_pct as f32 / 100.0,
+                    },
+                    sample_rate,
+                )
+            }
+            HrirSource::Prtf {
+                freq_scale_pct,
+                depth_pct,
+            } => HrirSet::new(
+                &SpagnolPrtfHrir {
+                    depth: *depth_pct as f32 / 100.0,
+                    freq_scale: *freq_scale_pct as f32 / 100.0,
+                },
+                sample_rate,
+            ),
             HrirSource::SafKemar => HrirSet::new(&MeasuredHrirData::saf_kemar(), sample_rate),
             HrirSource::Sofa(path) => match Self::load_sofa(path, sample_rate) {
                 Some(set) => set,
