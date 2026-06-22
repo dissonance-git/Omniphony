@@ -88,6 +88,102 @@ impl HrirProvider for SyntheticHrir {
     }
 }
 
+/// Structural pinna model layered on the analytic head shadow — the exact
+/// published model of Brown & Duda, *A Structural Model for Binaural Sound
+/// Synthesis*, IEEE Trans. Speech & Audio Processing 6(5), 1998 (pinna stage of
+/// Fig. 9; coefficients are Table I, p.485, verbatim).
+///
+/// The head term is the same per-ear shadow as [`SyntheticHrir`]; on top, a
+/// train of 5 elevation/azimuth-dependent pinna **echoes** (events n=2..6; n=1
+/// is the direct ridge ρ=1, τ=0, carried by the base IR) adds the comb-filter
+/// notches that carry the elevation and front/back cues the bare synthetic
+/// model cannot produce (its front and back HRIRs are identical on the median
+/// plane). This is the "tune a few parameters" alternative to a captured set.
+///
+/// Per Brown & Duda the only per-listener parameter is `D_n`; the caller passes
+/// the effective `d` (a published Table I preset scaled by the UI knob). `depth`
+/// scales the echo amplitudes (0 → bare head shadow ≈ synthetic, 1 → full pinna
+/// colouration) — our A/B aid, not part of the paper.
+///
+/// The reflection coefficients sum to zero, so the echo train has **unit DC
+/// gain**: it colours the spectrum (notches/peaks) without changing the
+/// broadband level, keeping an A/B against `synthetic`/`saf` level-fair.
+pub struct ParametricPinnaHrir {
+    /// Effective elevation factor `D_n` per event (a Table I preset × the UI
+    /// scale). The only individualized parameter in the published model.
+    pub d: [f32; 5],
+    /// Echo strength in [0, 1]. 0 ⇒ head shadow only; 1 ⇒ full echoes.
+    pub depth: f32,
+}
+
+impl ParametricPinnaHrir {
+    // Brown & Duda (1998), Table I — exact published coefficients (events n=2..6).
+    const RHO: [f32; 5] = [0.5, -1.0, 0.5, -0.25, 0.25]; // ρ_pn (Σ = 0 → unit DC)
+    const A: [f32; 5] = [1.0, 5.0, 5.0, 5.0, 5.0]; // A_n (samples @ REF_FS)
+    const B: [f32; 5] = [2.0, 4.0, 7.0, 11.0, 13.0]; // B_n (samples @ REF_FS)
+    /// `D_n` column for subjects PB & NH (Table I) — the default preset.
+    pub const D_PB_NH: [f32; 5] = [1.0, 0.5, 0.5, 0.5, 0.5];
+    /// `D_n` column for subject RD (Table I) — alternate per-listener preset.
+    pub const D_RD: [f32; 5] = [0.85, 0.35, 0.35, 0.35, 0.35];
+    /// Sample rate the A/B delays are tabulated at ("32 samples ≈ 0.7 ms").
+    const REF_FS: f32 = 44_100.0;
+
+    /// Add one ear's pinna echo train with **fractional** delays. Brown & Duda
+    /// "used linear interpolation to split the amplitude ρ between surrounding
+    /// sample points": an echo at delay i+f lands as (1−f)·ρ at tap i and f·ρ at
+    /// tap i+1, so notch frequencies move continuously with the delay instead of
+    /// snapping to the sample grid. (The direct ρ₀=1 at τ₀=0 is already `src`.)
+    fn apply_pinna(src: &[f32; HRIR_LEN], taus: &[f32; 5], depth: f32) -> [f32; HRIR_LEN] {
+        let mut out = *src;
+        for n in 0..5 {
+            let g = Self::RHO[n] * depth;
+            let tau = taus[n].max(0.0);
+            let i = tau.floor() as usize;
+            if i >= HRIR_LEN {
+                continue;
+            }
+            let f = tau - tau.floor();
+            let (w0, w1) = (g * (1.0 - f), g * f);
+            for k in i..HRIR_LEN {
+                out[k] += w0 * src[k - i];
+            }
+            for k in (i + 1)..HRIR_LEN {
+                out[k] += w1 * src[k - (i + 1)];
+            }
+        }
+        out
+    }
+}
+
+impl HrirProvider for ParametricPinnaHrir {
+    fn render(&self, az_deg: f32, el_deg: f32, sample_rate: u32) -> HrirPair {
+        // Base: the analytic head shadow + ILD (identical to SyntheticHrir).
+        let mut pair = SyntheticHrir.render(az_deg, el_deg, sample_rate);
+        if self.depth <= 1e-4 {
+            return pair; // degenerates to the plain synthetic head model
+        }
+
+        // Brown & Duda (8): τ_n = A_n·cos(θ/2)·sin(D_n·(90°−φ)) + B_n, with θ the
+        // azimuth and φ the elevation. cos(az/2) is 1 ahead and 0 behind, so the
+        // delay spread — hence the notch pattern — collapses behind the head:
+        // that is the front/back cue. (8) is validated for the frontal half
+        // space only; the rear is our extrapolation.
+        let az = az_deg.to_radians();
+        let front = (0.5 * az).cos().clamp(0.0, 1.0);
+        let el_term = (90.0 - el_deg).to_radians(); // 0 overhead, grows downward
+        let fs_scale = sample_rate as f32 / Self::REF_FS;
+        let mut taus = [0.0f32; 5];
+        for n in 0..5 {
+            let d = Self::B[n] + Self::A[n] * front * (self.d[n] * el_term).sin();
+            taus[n] = (d * fs_scale).max(0.0);
+        }
+
+        pair.left = Self::apply_pinna(&pair.left, &taus, self.depth);
+        pair.right = Self::apply_pinna(&pair.right, &taus, self.depth);
+        pair
+    }
+}
+
 /// A direction-indexed grid of HRIR pairs with bilinear (az × el) interpolation.
 ///
 /// Built once from an [`HrirProvider`]; queried per object per frame on the
@@ -180,6 +276,97 @@ mod tests {
 
     fn energy(h: &[f32; HRIR_LEN]) -> f32 {
         h.iter().map(|&x| x * x).sum()
+    }
+
+    #[test]
+    fn pinna_depth_zero_matches_synthetic() {
+        // depth = 0 must collapse to the bare head-shadow model.
+        let p = ParametricPinnaHrir {
+            d: ParametricPinnaHrir::D_PB_NH,
+            depth: 0.0,
+        }
+        .render(30.0, 20.0, 48_000);
+        let s = SyntheticHrir.render(30.0, 20.0, 48_000);
+        assert_eq!(p.left, s.left);
+        assert_eq!(p.right, s.right);
+    }
+
+    #[test]
+    fn pinna_distinguishes_front_from_back_unlike_synthetic() {
+        let sumsq_diff = |a: &[f32; HRIR_LEN], b: &[f32; HRIR_LEN]| -> f32 {
+            a.iter().zip(b.iter()).map(|(x, y)| (x - y) * (x - y)).sum()
+        };
+        // On the median plane the bare synthetic model is front/back (near-)
+        // identical (lateral = sin(az)·cos(el) ≈ 0 at az 0 and 180; only the
+        // f32 sin(π) residual differs): effectively no front/back cue.
+        let s_front = SyntheticHrir.render(0.0, 0.0, 48_000);
+        let s_back = SyntheticHrir.render(180.0, 0.0, 48_000);
+        let s_diff = sumsq_diff(&s_front.left, &s_back.left);
+        assert!(
+            s_diff < 1e-6,
+            "synthetic front/back should be ~identical: {s_diff}"
+        );
+
+        // The pinna echoes break that symmetry — front and back clearly differ,
+        // and that difference dominates the synthetic residual.
+        let pinna = ParametricPinnaHrir {
+            d: ParametricPinnaHrir::D_PB_NH,
+            depth: 1.0,
+        };
+        let p_front = pinna.render(0.0, 0.0, 48_000);
+        let p_back = pinna.render(180.0, 0.0, 48_000);
+        let p_diff = sumsq_diff(&p_front.left, &p_back.left);
+        assert!(p_diff > 1e-3, "pinna front/back too similar: {p_diff}");
+        assert!(
+            p_diff > s_diff * 1e3,
+            "pinna cue not dominant: p={p_diff} s={s_diff}"
+        );
+    }
+
+    #[test]
+    fn pinna_rd_preset_differs_from_pbnh() {
+        // D_n is the model's only per-listener parameter (Table I); off the
+        // horizon the two published columns must yield distinct HRIRs.
+        let pbnh = ParametricPinnaHrir {
+            d: ParametricPinnaHrir::D_PB_NH,
+            depth: 1.0,
+        }
+        .render(0.0, 45.0, 48_000);
+        let rd = ParametricPinnaHrir {
+            d: ParametricPinnaHrir::D_RD,
+            depth: 1.0,
+        }
+        .render(0.0, 45.0, 48_000);
+        let diff: f32 = pbnh
+            .left
+            .iter()
+            .zip(rd.left.iter())
+            .map(|(a, b)| (a - b) * (a - b))
+            .sum();
+        assert!(diff > 1e-4, "PB&NH and RD presets too similar: {diff}");
+    }
+
+    #[test]
+    fn pinna_fractional_delay_is_continuous_in_elevation() {
+        // Fractional (interpolated) echo delays: a tiny elevation step must not
+        // jump the HRIR the way snapping a delay to an integer sample would
+        // (an integer snap would shift a ρ≈1 echo by a whole tap → ~0.4 jump).
+        let pinna = ParametricPinnaHrir {
+            d: ParametricPinnaHrir::D_PB_NH,
+            depth: 1.0,
+        };
+        let a = pinna.render(0.0, 30.0, 48_000);
+        let b = pinna.render(0.0, 30.5, 48_000);
+        let max_diff = a
+            .left
+            .iter()
+            .zip(b.left.iter())
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0f32, f32::max);
+        assert!(
+            max_diff < 0.05,
+            "fractional-delay discontinuity: {max_diff}"
+        );
     }
 
     #[test]
