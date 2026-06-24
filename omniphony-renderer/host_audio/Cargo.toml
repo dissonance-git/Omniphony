@@ -2,7 +2,7 @@
 name = "host_audio"
 version = "0.1.0"
 edition = "2024"
-license = "GPL-3.0-only"
+license = "GPL-3.0-or-later"
 description = "Host audio layer (output/input device I/O + their OSC control) layered above the orender engine; never a dependency of the engine or liborender"
 
 [dependencies]
