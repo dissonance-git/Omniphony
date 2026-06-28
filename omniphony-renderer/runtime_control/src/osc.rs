@@ -814,8 +814,9 @@ pub fn apply_simple_osc_control(
     }
 
     if addr == "/omniphony/control/binaural/hrir_source" {
-        // "synthetic" | "saf"/"kemar" | "sofa:<path>". No topology rebuild; the
-        // render thread rebuilds the HRIR grid lazily when the source changes.
+        // "synthetic" | "saf"/"kemar" | "sofa:<path>" | "pinna[:<size>:<depth>]".
+        // No topology rebuild; the render thread rebuilds the HRIR grid lazily
+        // when the source changes.
         if let Some(src) = parse_string_arg(msg.args.first())
             .and_then(|s| renderer::binaural::HrirSource::from_str(&s))
         {

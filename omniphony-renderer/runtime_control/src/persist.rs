@@ -231,6 +231,18 @@ pub fn save_live_config_to_path(
         renderer::binaural::HrirSource::Sofa(p) if !p.is_empty() => {
             ("sofa".to_string(), Some(std::path::PathBuf::from(p)))
         }
+        renderer::binaural::HrirSource::Pinna {
+            preset,
+            d_scale_pct,
+            depth_pct,
+        } => (
+            format!("pinna:{}:{d_scale_pct}:{depth_pct}", preset.as_str()),
+            None,
+        ),
+        renderer::binaural::HrirSource::Prtf {
+            freq_scale_pct,
+            depth_pct,
+        } => (format!("prtf:{freq_scale_pct}:{depth_pct}"), None),
         other => (other.as_str().to_string(), None),
     };
     render.binaural = Some(renderer::config::BinauralConfig {
