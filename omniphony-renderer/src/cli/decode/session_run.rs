@@ -768,9 +768,13 @@ fn run_prepared_render(
 
         let initial_mode = ctrl.live.read().drc_mode.clone();
         *live_drc_mode.write().unwrap() = initial_mode.clone();
-        prepared
+        // Best-effort initial DRC sync. The decoder thread already defaults to
+        // this same mode, and on a fast/short file decode it can finish and drop
+        // the command receiver before we reach this point — so a closed channel
+        // here is benign and must not abort the whole render.
+        let _ = prepared
             .cmd_tx
-            .send(DecoderCommand::SetDrcMode(initial_mode))?;
+            .send(DecoderCommand::SetDrcMode(initial_mode));
     }
 
     if let Some(input_control) = handler.input_control.as_ref() {
