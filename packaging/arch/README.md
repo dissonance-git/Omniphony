@@ -6,7 +6,7 @@ itself (`mpv-omniphony`) lives in the separate `mpv-omniphony` repo and depends 
 
 | Package             | Builds from               | License      | Installs |
 |---------------------|---------------------------|--------------|----------|
-| `liborender`        | this repo's workspace     | GPL-3.0-only | `liborender.so*`, `orender.h`, `orender.pc`, layouts |
+| `liborender`        | this repo's workspace     | GPL-3.0-or-later | `liborender.so*`, `orender.h`, `orender.pc`, layouts |
 | `omniphony-bridge`  | sibling `harletty-bridge` | Apache-2.0   | `/usr/lib/orender/omniphony_bridge.so` |
 
 `liborender` depends on `omniphony-bridge`: the decoder is a runtime `dlopen`

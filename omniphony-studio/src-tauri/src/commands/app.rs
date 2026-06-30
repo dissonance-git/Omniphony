@@ -57,7 +57,7 @@ pub fn get_about_info() -> AboutInfo {
     AboutInfo {
         name: "Omniphony Studio",
         version: env!("CARGO_PKG_VERSION"),
-        license: "GPL-3.0-only",
+        license: "GPL-3.0-or-later",
         repository_url: "https://github.com/mgth/Omniphony",
         description: "Omniphony is an open spatial-audio project built around realtime rendering, transport, control, and monitoring tools for object-based audio workflows. Omniphony Studio is the visual control surface of that ecosystem.",
     }

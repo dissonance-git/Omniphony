@@ -154,4 +154,4 @@ truth; `ALL_CONTROL` / `ALL_STATE` are the exhaustive lists).
 - Make sure the three CI commands (fmt check, build, test) pass locally first.
 
 By contributing, you agree that your contributions are licensed under the
-project's `GPL-3.0-only` license.
+project's `GPL-3.0-or-later` license.
