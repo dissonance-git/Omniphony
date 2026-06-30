@@ -19,6 +19,7 @@ The repository also contains the supporting runtime stack:
 - `audio_output`: PipeWire and ASIO backends
 - `spdif`: IEC61937 / S/PDIF parsing helpers
 - `bridge_api`: ABI-stable interface for external bridge plugins
+- `reference_bridge`: a reference WAV/PCM bridge that powers the bundled demo
 - `sys`: platform integration, including Windows service support
 
 ## Status
@@ -69,6 +70,11 @@ Bridge lookup order:
 
 Without a bridge plugin, `orender` will not start.
 
+The repo ships a **reference bridge** (`reference_bridge/`, built as
+`libreference_bridge.so`) that reads a plain multichannel WAV. It powers the
+one-command demo — `./scripts/demo.sh`, see [QUICKSTART.md](QUICKSTART.md) — and is
+the smallest example for writing your own bridge ([BRIDGE_API.md](BRIDGE_API.md)).
+
 ## Commands
 
 `orender` currently exposes these commands:
@@ -85,18 +91,22 @@ orender --help
 
 ## Typical Usage
 
+The quickest check is `./scripts/demo.sh` (see [QUICKSTART.md](QUICKSTART.md)).
+The examples below use the bundled demo clip + the reference bridge so each one is
+runnable as-is; swap in your own input and bridge the same way.
+
 ```bash
 # Decode from stdin
-cat input.bin | orender - --bridge-path ./libformat_bridge.so
+cat assets/demo/spatial-demo.wav | orender - --bridge-path target/release/libreference_bridge.so
 
 # Linux realtime output via PipeWire
-orender input.bin \
-  --bridge-path ./libformat_bridge.so \
+orender assets/demo/spatial-demo.wav \
+  --bridge-path target/release/libreference_bridge.so \
   --output-backend pipewire
 
 # Enable VBAP rendering and OSC output
-orender input.bin \
-  --bridge-path ./libformat_bridge.so \
+orender assets/demo/spatial-demo.wav \
+  --bridge-path target/release/libreference_bridge.so \
   --enable-vbap \
   --speaker-layout ../layouts/7.1.4.yaml \
   --osc \
@@ -104,8 +114,8 @@ orender input.bin \
   --osc-port 9000
 
 # Select a non-VBAP render backend and its parameters (CLI parity with Studio/OSC)
-orender input.bin \
-  --bridge-path ./libformat_bridge.so \
+orender assets/demo/spatial-demo.wav \
+  --bridge-path target/release/libreference_bridge.so \
   --enable-vbap \
   --render-backend hybrid \
   --hybrid-external-backend vbap --hybrid-internal-backend barycenter \
