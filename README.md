@@ -4,8 +4,6 @@
 multichannel and object audio and renders it — with VBAP — to any speaker layout
 or to **binaural headphones**, in real time. Open source, GPL-3.0.
 
-### 🌐 Website &amp; docs → **[omniphony.mgth.fr](https://omniphony.mgth.fr)**
-
 [![Website & Docs — omniphony.mgth.fr](https://img.shields.io/badge/Website%20%26%20Docs-omniphony.mgth.fr-56c9ff?style=for-the-badge&logo=astro&logoColor=white)](https://omniphony.mgth.fr)
 
 [![Download Omniphony Studio](https://img.shields.io/badge/Download-Omniphony-2ea44f?style=for-the-badge&logo=github)](https://github.com/mgth/Omniphony/releases/latest)
