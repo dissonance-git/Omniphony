@@ -680,10 +680,57 @@ impl SpatialRenderer {
             };
             let gain_l = total_gain * ear(0);
             let gain_r = total_gain * ear(1);
-            if (gain_l - 1.0).abs() > f32::EPSILON || (gain_r - 1.0).abs() > f32::EPSILON {
-                for frame in output.chunks_exact_mut(2) {
-                    frame[0] *= gain_l;
-                    frame[1] *= gain_r;
+            // Apply the ear gains and track the output peak in the same pass
+            // (a whole immersive stream summed onto two channels exceeds full
+            // scale easily, so the stereo bus needs the same overload
+            // handling as the speaker path).
+            let mut peak_sample: f32 = 0.0;
+            let mut peak_ear: usize = 0;
+            for frame in output.chunks_exact_mut(2) {
+                frame[0] *= gain_l;
+                frame[1] *= gain_r;
+                let a_l = frame[0].abs();
+                if a_l > peak_sample {
+                    peak_sample = a_l;
+                    peak_ear = 0;
+                }
+                let a_r = frame[1].abs();
+                if a_r > peak_sample {
+                    peak_sample = a_r;
+                    peak_ear = 1;
+                }
+            }
+
+            // Clipping handling — same policy as the speaker path below:
+            // detection always at 0 dBFS so the UI indicators work with
+            // auto-gain off; the correction (when enabled) folds into the
+            // shared master gain, targeting the configured ceiling. The ear
+            // index reuses the first two speaker param slots, the same slots
+            // Studio's headphone L/R rows already ride for mute/gain.
+            if peak_sample > 1.0 {
+                self.control.note_clip(peak_ear);
+                if live.auto_gain {
+                    let ceiling = 10.0_f32.powf(live.auto_gain_ceiling_db / 20.0);
+                    let required_gain = ceiling / peak_sample;
+                    // Re-reading under the write lock preserves any
+                    // concurrent OSC master change.
+                    let new_master_gain = {
+                        let mut params = self.control.live.write();
+                        params.master_gain *= required_gain;
+                        params.master_gain
+                    };
+                    self.control.mark_dirty();
+                    self.control.bump_live_state();
+                    self.auto_gain_triggered
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    log::warn!(
+                        "Clipping detected on headphone {} (peak={:.3})! Master gain reduced to {:.4} ({:.1} dB), ceiling {:.1} dBFS",
+                        if peak_ear == 0 { "L" } else { "R" },
+                        peak_sample,
+                        new_master_gain,
+                        20.0 * new_master_gain.log10(),
+                        live.auto_gain_ceiling_db
+                    );
                 }
             }
             return Ok(RenderedFrame {

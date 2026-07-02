@@ -1150,5 +1150,107 @@ fn binaural_ear_mute_uses_first_speaker_slots() {
     assert!(e_r > 1e-6, "right ear should still play: {e_r}");
 }
 
+/// Binaural mode must carry the speaker path's overload policy (issue #149):
+/// the clip flag always fires above 0 dBFS (with the ear in the first two
+/// speaker slots, the same slots the headphone L/R rows ride), and auto-gain
+/// folds the correction into the shared master gain.
+#[test]
+fn binaural_clipping_flags_ear_and_auto_gain_reduces_master() {
+    fn build() -> SpatialRenderer {
+        let layout = SpeakerLayout::preset("7.1.4").unwrap();
+        SpatialRenderer::new(
+            layout,
+            48_000,
+            1,
+            1,
+            0.0,
+            2.0,
+            VbapTableMode::Cartesian {
+                x_size: 21,
+                y_size: 21,
+                z_size: 9,
+                z_neg_size: 9,
+            },
+            false,
+            true,
+            DistanceModel::Linear,
+            false,
+            1.0,
+            1.0,
+            0.0,
+            1.0,
+            false,
+            [1.0, 2.0, 0.5],
+            2.0,
+            0.5,
+            0.0,
+            0.0,
+            false,
+            false,
+            false,
+            1.0,
+            1.0,
+            PreferredEvaluationMode::PrecomputedCartesian,
+            LiveEvaluationMode::PrecomputedCartesian,
+            21,
+            21,
+            9,
+            9,
+        )
+        .unwrap()
+    }
+
+    let pcm: Vec<f32> = (0..40).map(|i| (i * 7 % 13) as f32 / 13.0 - 0.5).collect();
+    let event = vec![SpatialChannelEvent {
+        channel_idx: 0,
+        is_bed: false,
+        gain_db: Some(0),
+        ramp_length: Some(40),
+        size: Some([0.0, 0.0, 0.0]),
+        position: Some([0.5, 1.0, 0.0]),
+        sample_pos: Some(0),
+    }];
+
+    let render = |auto_gain: bool| -> SpatialRenderer {
+        let mut r = build();
+        {
+            let mut live = r.control.live.write();
+            live.binaural.output_mode = crate::live_params::OutputMode::Binaural;
+            // Hot enough that the HRIR-summed stereo bus exceeds 0 dBFS.
+            live.master_gain = 16.0;
+            live.auto_gain = auto_gain;
+        }
+        for i in 0..4 {
+            let ev: &[SpatialChannelEvent] = if i == 0 { &event } else { &[] };
+            r.render_frame(&pcm, 1, ev, Vec::new(), false).unwrap();
+        }
+        r
+    };
+
+    // Auto-gain off: the flag must still fire (UI indicators), the master
+    // gain must stay untouched.
+    let r = render(false);
+    let clip = r.control.take_clip_pending();
+    assert!(
+        matches!(clip, Some(0) | Some(1)),
+        "clip flag not raised for an ear slot: {clip:?}"
+    );
+    assert!(!r.auto_gain_triggered(), "auto-gain fired while disabled");
+    assert_eq!(r.control.live.read().master_gain, 16.0);
+
+    // Auto-gain on: correction folded into the master gain, trigger visible.
+    let r = render(true);
+    assert!(
+        matches!(r.control.take_clip_pending(), Some(0) | Some(1)),
+        "clip flag not raised with auto-gain on"
+    );
+    assert!(r.auto_gain_triggered(), "auto-gain did not trigger");
+    let master = r.control.live.read().master_gain;
+    assert!(
+        master < 16.0,
+        "master gain not reduced by auto-gain: {master}"
+    );
+}
+
 // TODO: Add integration test with real spatial metadata
 // For now, testing is done via real spatial audio content decoding
