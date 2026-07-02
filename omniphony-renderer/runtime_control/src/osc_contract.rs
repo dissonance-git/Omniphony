@@ -231,6 +231,7 @@ pub const STATE_OSC_METERING: &str = "/omniphony/state/osc/metering";
 pub const STATE_REALTIME_MASTER_GAIN: &str = "/omniphony/state/realtime/master_gain";
 pub const STATE_REALTIME_OBJECT_GAIN: &str = "/omniphony/state/realtime/object_gain";
 pub const STATE_REALTIME_SPEAKER_GAIN: &str = "/omniphony/state/realtime/speaker_gain";
+pub const STATE_RENDER_ABI: &str = "/omniphony/state/render/abi";
 pub const STATE_RENDER_BRIDGE_ERROR: &str = "/omniphony/state/render/bridge_error";
 pub const STATE_RENDER_BRIDGE_PATH: &str = "/omniphony/state/render/bridge_path";
 pub const STATE_RENDER_CONFIG_PATH: &str = "/omniphony/state/render/config_path";
@@ -416,6 +417,7 @@ pub const ALL_STATE: &[&str] = &[
     STATE_REALTIME_MASTER_GAIN,
     STATE_REALTIME_OBJECT_GAIN,
     STATE_REALTIME_SPEAKER_GAIN,
+    STATE_RENDER_ABI,
     STATE_RENDER_BRIDGE_ERROR,
     STATE_RENDER_BRIDGE_PATH,
     STATE_RENDER_CONFIG_PATH,

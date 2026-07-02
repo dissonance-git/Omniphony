@@ -11,3 +11,15 @@ pub mod persist;
 pub mod snapshot;
 
 pub use host_control::HostControlHandler;
+
+/// Build fingerprint of this workspace build (`<git-describe> (built <ts>)`),
+/// stamped by this crate's build.rs. Both renderer hosts (the `orender` CLI
+/// and the `liborender` cdylib) link this crate, so the string identifies the
+/// engine build regardless of packaging.
+pub fn build_fingerprint() -> String {
+    format!(
+        "{} (built {})",
+        env!("VERGEN_GIT_DESCRIBE"),
+        env!("BUILD_TIMESTAMP"),
+    )
+}

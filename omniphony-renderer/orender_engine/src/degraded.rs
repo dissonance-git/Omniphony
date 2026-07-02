@@ -47,13 +47,16 @@ pub struct DegradedReporter {
 
 /// Build and start the degraded reporter. `config_yaml_path` seeds the layout /
 /// room / OSC settings exactly as the real engine would, so Studio sees a
-/// coherent (if non-decoding) state alongside `bridge_error`. The returned value
-/// must be kept alive to keep the OSC server up.
+/// coherent (if non-decoding) state alongside `bridge_error`. `host_abi` is the
+/// FFI shim's C-ABI pair when the host is liborender (`None` for Rust-linked
+/// hosts), mirrored so About stays complete in the degraded state. The returned
+/// value must be kept alive to keep the OSC server up.
 pub fn start_degraded_reporter(
     config_yaml_path: Option<&Path>,
     sample_rate: u32,
     osc: OscOptions,
     bridge_error: String,
+    host_abi: Option<(u32, u32)>,
 ) -> Result<DegradedReporter> {
     let render_cfg = config_yaml_path
         .map(Config::load_or_default)
@@ -76,6 +79,9 @@ pub fn start_degraded_reporter(
 
     let control = renderer.renderer_control();
     control.set_bridge_error(Some(bridge_error));
+    if let Some((major, minor)) = host_abi {
+        control.set_host_abi(major, minor);
+    }
     // Mirror the real engine so About's config diagnostics stay meaningful.
     if let Some(path) = config_yaml_path {
         control.set_config_path(path.to_path_buf());

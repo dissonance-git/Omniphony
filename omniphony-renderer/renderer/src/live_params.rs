@@ -923,6 +923,12 @@ pub struct RendererControl {
     /// Studio can surface a red banner. `None`/empty in normal operation.
     pub bridge_error: Mutex<Option<String>>,
 
+    /// C-ABI version pair of the FFI shim hosting this engine (liborender),
+    /// set by the shim at session start. `None` for hosts that link the engine
+    /// as a Rust crate (the orender CLI). Broadcast to Studio's About panel
+    /// next to the build fingerprint.
+    pub host_abi: Mutex<Option<(u32, u32)>>,
+
     /// Actual renderer input path used for this process.
     pub input_path: Mutex<Option<String>>,
     /// Requested format bridge path to be persisted into render.bridge_path.
@@ -993,6 +999,7 @@ impl RendererControl {
             config_path: Mutex::new(None),
             config_status: Mutex::new(None),
             bridge_error: Mutex::new(None),
+            host_abi: Mutex::new(None),
             input_path: Mutex::new(None),
             bridge_path: Mutex::new(None),
             bridge_supported_drc_modes: Mutex::new(Vec::new()),
@@ -1171,6 +1178,16 @@ impl RendererControl {
 
     pub fn bridge_error(&self) -> Option<String> {
         self.bridge_error.lock().clone()
+    }
+
+    /// Record the hosting FFI shim's C-ABI version (liborender only; Rust-linked
+    /// hosts never call this).
+    pub fn set_host_abi(&self, major: u32, minor: u32) {
+        *self.host_abi.lock() = Some((major, minor));
+    }
+
+    pub fn host_abi(&self) -> Option<(u32, u32)> {
+        *self.host_abi.lock()
     }
 
     pub fn active_topology(&self) -> Arc<RenderTopology> {

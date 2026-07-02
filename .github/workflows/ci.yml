@@ -105,6 +105,18 @@ jobs:
         working-directory: omniphony-renderer
         run: cargo test --workspace
 
+      # ── C ABI smoke test (liborender) ──────────────────────────────────────
+      # Compile and run the header/link smoke test against the debug cdylib
+      # (debug builds skip the soname so the bare .so links directly). Guards
+      # the generated header, the exported symbols, and the version handshake —
+      # this is what mpv consumes, so it must never drift silently.
+      - name: C ABI smoke test (liborender)
+        working-directory: omniphony-renderer
+        run: |
+          cc -Wall -Werror -I orender_ffi/include orender_ffi/examples/smoke.c \
+             -L target/debug -lorender -o target/debug/orender_smoke
+          LD_LIBRARY_PATH=target/debug target/debug/orender_smoke
+
       # ── Studio frontend build (no Tauri bundling / no sidecar) ─────────────
       - name: Install Studio npm dependencies
         working-directory: omniphony-studio

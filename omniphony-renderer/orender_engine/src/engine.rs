@@ -253,6 +253,14 @@ impl Engine {
             .set_object_generators_schema(self.object_gen.registry().listings_json());
     }
 
+    /// Record the hosting FFI shim's C-ABI version so the live-state snapshot
+    /// broadcasts it (`/omniphony/state/render/abi`, shown in Studio's About).
+    /// Called by liborender right after creation; hosts linking the engine as a
+    /// Rust crate never call it.
+    pub fn set_host_abi(&self, major: u32, minor: u32) {
+        self.renderer.renderer_control().set_host_abi(major, minor);
+    }
+
     /// Start the OSC live-control server, attaching the renderer control so
     /// incoming `/omniphony/control/*` messages adjust live params (gains, room,
     /// spread, …) — picked up by the next `render_frame` — and registered

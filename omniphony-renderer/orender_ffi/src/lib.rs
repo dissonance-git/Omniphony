@@ -45,7 +45,13 @@ fn start_degraded_reporter_global(
         return;
     }
     std::thread::spawn(move || {
-        match start_degraded_reporter(config_path.as_deref(), sample_rate, opts, message) {
+        match start_degraded_reporter(
+            config_path.as_deref(),
+            sample_rate,
+            opts,
+            message,
+            Some((ORENDER_ABI_MAJOR, ORENDER_ABI_MINOR)),
+        ) {
             Ok(reporter) => {
                 // A real engine may have started while we were building; only
                 // keep ours if the slot is still claimed (else drop → free port).
@@ -109,6 +115,12 @@ pub struct OrenderRenderer {
 
 /// Session configuration passed to [`orender_create`]. All `*const c_char`
 /// fields are UTF-8, nul-terminated, and may be NULL (treated as "unset").
+///
+/// **FROZEN at ABI major 0** — never add, remove, reorder, or retype fields:
+/// consumers compiled against an older header pass this struct by layout with
+/// no size handshake, so any change here is silently breaking. New knobs go
+/// through [`orender_set_option`] (post-create) or the config YAML
+/// (create-time). See ABI.md.
 #[repr(C)]
 pub struct OrenderConfig {
     /// Output/host sample rate in Hz. 0 → 48000.
@@ -142,11 +154,61 @@ pub struct OrenderConfig {
     pub osc_host: *const c_char,
 }
 
-const VERSION_MAJOR: u32 = 0;
+/// C-ABI major version of this library. A bump means a breaking change: the
+/// Linux soname `liborender.so.<major>` follows automatically (see build.rs);
+/// Windows/macOS consumers must gate on [`orender_version_major`] at load time
+/// (their library file name does not change).
+///
+/// Exported into the generated header (as a `#define`) so a consumer can
+/// compare the constants it was compiled against with the runtime values
+/// reported by [`orender_version_major`]/[`orender_version_minor`]. Policy:
+/// additive change (new symbol, new [`orender_set_option`] key, enum value
+/// appended) bumps the minor; anything else (signature/struct/semantic change,
+/// symbol removal, enum reorder) bumps the major. See ABI.md.
+pub const ORENDER_ABI_MAJOR: u32 = 0;
+/// C-ABI minor version: backwards-compatible additions only. Consumers should
+/// gate optional features on symbol presence (dlsym), not on this value; it
+/// exists for logging and diagnostics.
 // 2: added orender_overlay_ass / orender_overlay_set_enabled (in-process overlay).
 // 3: added orender_overlay_heatmap_bgra (BGRA energy-field bitmap for overlay-add).
 // 4: added overlay toggles (labels/objects/trails/heatmap) + heatmap band/colormap cycling.
-const VERSION_MINOR: u32 = 4;
+// 5: added orender_set_option, orender_build_id, exported ORENDER_ABI_* consts,
+//    OrenderChannelLabel, and the /omniphony/state/render/abi OSC broadcast.
+pub const ORENDER_ABI_MINOR: u32 = 5;
+
+/// Speaker-position labels written by [`orender_channel_layout`] and
+/// [`orender_bed_layout`] (one byte per channel). Mirrors the engine's
+/// ABI-stable `bridge_api::RChannelLabel` exactly (a unit test asserts
+/// discriminant parity); values are append-only per the ABI policy.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OrenderChannelLabel {
+    L = 0,
+    R = 1,
+    C = 2,
+    Lfe = 3,
+    Ls = 4,
+    Rs = 5,
+    Tfl = 6,
+    Tfr = 7,
+    Tsl = 8,
+    Tsr = 9,
+    Tbl = 10,
+    Tbr = 11,
+    Lsc = 12,
+    Rsc = 13,
+    Lb = 14,
+    Rb = 15,
+    Cb = 16,
+    Tc = 17,
+    Lsd = 18,
+    Rsd = 19,
+    Lw = 20,
+    Rw = 21,
+    Tfc = 22,
+    Lfe2 = 23,
+    Unknown = 255,
+}
 
 unsafe fn opt_str<'a>(p: *const c_char) -> Option<&'a str> {
     if p.is_null() {
@@ -305,6 +367,9 @@ pub unsafe extern "C" fn orender_create(cfg: *const OrenderConfig) -> *mut Orend
         }
         match build_engine(&*cfg) {
             Ok(engine) => {
+                // Stamp the shim's C-ABI version so the live-state snapshot
+                // broadcasts it (Studio About shows it next to the fingerprint).
+                engine.set_host_abi(ORENDER_ABI_MAJOR, ORENDER_ABI_MINOR);
                 // Arm the spatial overlay: it stays blank until a session exists,
                 // so a host that loads the overlay shim without selecting
                 // `--ad=orender` (no session created) draws nothing.
@@ -386,7 +451,7 @@ pub unsafe extern "C" fn orender_dialnorm_db(r: *const OrenderRenderer) -> c_int
 }
 
 /// Write the bed channel labels of the last object-based frame (one
-/// [`RChannelLabel`] byte per bed channel) so the host can show the bed
+/// [`OrenderChannelLabel`] byte per bed channel) so the host can show the bed
 /// composition (e.g. "LFE+11 objects").
 ///
 /// Same query/fill convention as [`orender_channel_layout`]: returns the bed
@@ -484,14 +549,15 @@ pub unsafe extern "C" fn orender_channel_count(r: *const OrenderRenderer) -> u32
     .unwrap_or(0)
 }
 
-/// Write the active output layout's per-channel labels (one [`RChannelLabel`]
-/// byte per speaker, in render order) so the host can build a channel map.
+/// Write the active output layout's per-channel labels (one
+/// [`OrenderChannelLabel`] byte per speaker, in render order) so the host can
+/// build a channel map.
 ///
 /// Returns the channel count `N`. If `out_labels` is non-NULL and `cap >= N`,
 /// the first `N` bytes are filled with label discriminants; otherwise nothing is
 /// written — call with `out_labels = NULL` to query `N`, size a buffer, then
-/// call again. Each byte is an `RChannelLabel` value (255 = Unknown). Returns 0
-/// on error/NULL handle.
+/// call again. Each byte is an [`OrenderChannelLabel`] value (255 = Unknown).
+/// Returns 0 on error/NULL handle.
 #[no_mangle]
 pub unsafe extern "C" fn orender_channel_layout(
     r: *const OrenderRenderer,
@@ -798,14 +864,151 @@ pub unsafe extern "C" fn orender_overlay_heatmap_bgra(
     .unwrap_or(0)
 }
 
-/// ABI major version. A bump means a breaking change (new soname).
+/// ABI major version of the loaded library (see [`ORENDER_ABI_MAJOR`]). A
+/// consumer must refuse a library whose major differs from the one it was
+/// compiled against.
 #[no_mangle]
 pub extern "C" fn orender_version_major() -> u32 {
-    VERSION_MAJOR
+    ORENDER_ABI_MAJOR
 }
 
-/// ABI minor version (backwards-compatible additions).
+/// ABI minor version of the loaded library (backwards-compatible additions;
+/// see [`ORENDER_ABI_MINOR`]). For logging — gate features on symbol presence.
 #[no_mangle]
 pub extern "C" fn orender_version_minor() -> u32 {
-    VERSION_MINOR
+    ORENDER_ABI_MINOR
+}
+
+#[cfg(test)]
+mod tests {
+    use super::OrenderChannelLabel;
+    use bridge_api::RChannelLabel;
+
+    /// Exhaustive by construction: a new `RChannelLabel` variant breaks this
+    /// match at compile time, forcing the FFI mirror (and thus the generated C
+    /// header) to be updated in the same change.
+    fn mirror(label: RChannelLabel) -> OrenderChannelLabel {
+        match label {
+            RChannelLabel::L => OrenderChannelLabel::L,
+            RChannelLabel::R => OrenderChannelLabel::R,
+            RChannelLabel::C => OrenderChannelLabel::C,
+            RChannelLabel::LFE => OrenderChannelLabel::Lfe,
+            RChannelLabel::Ls => OrenderChannelLabel::Ls,
+            RChannelLabel::Rs => OrenderChannelLabel::Rs,
+            RChannelLabel::Tfl => OrenderChannelLabel::Tfl,
+            RChannelLabel::Tfr => OrenderChannelLabel::Tfr,
+            RChannelLabel::Tsl => OrenderChannelLabel::Tsl,
+            RChannelLabel::Tsr => OrenderChannelLabel::Tsr,
+            RChannelLabel::Tbl => OrenderChannelLabel::Tbl,
+            RChannelLabel::Tbr => OrenderChannelLabel::Tbr,
+            RChannelLabel::Lsc => OrenderChannelLabel::Lsc,
+            RChannelLabel::Rsc => OrenderChannelLabel::Rsc,
+            RChannelLabel::Lb => OrenderChannelLabel::Lb,
+            RChannelLabel::Rb => OrenderChannelLabel::Rb,
+            RChannelLabel::Cb => OrenderChannelLabel::Cb,
+            RChannelLabel::Tc => OrenderChannelLabel::Tc,
+            RChannelLabel::Lsd => OrenderChannelLabel::Lsd,
+            RChannelLabel::Rsd => OrenderChannelLabel::Rsd,
+            RChannelLabel::Lw => OrenderChannelLabel::Lw,
+            RChannelLabel::Rw => OrenderChannelLabel::Rw,
+            RChannelLabel::Tfc => OrenderChannelLabel::Tfc,
+            RChannelLabel::LFE2 => OrenderChannelLabel::Lfe2,
+            RChannelLabel::Unknown => OrenderChannelLabel::Unknown,
+        }
+    }
+
+    #[test]
+    fn channel_label_discriminants_match_bridge_api() {
+        let all = [
+            RChannelLabel::L,
+            RChannelLabel::R,
+            RChannelLabel::C,
+            RChannelLabel::LFE,
+            RChannelLabel::Ls,
+            RChannelLabel::Rs,
+            RChannelLabel::Tfl,
+            RChannelLabel::Tfr,
+            RChannelLabel::Tsl,
+            RChannelLabel::Tsr,
+            RChannelLabel::Tbl,
+            RChannelLabel::Tbr,
+            RChannelLabel::Lsc,
+            RChannelLabel::Rsc,
+            RChannelLabel::Lb,
+            RChannelLabel::Rb,
+            RChannelLabel::Cb,
+            RChannelLabel::Tc,
+            RChannelLabel::Lsd,
+            RChannelLabel::Rsd,
+            RChannelLabel::Lw,
+            RChannelLabel::Rw,
+            RChannelLabel::Tfc,
+            RChannelLabel::LFE2,
+            RChannelLabel::Unknown,
+        ];
+        for label in all {
+            assert_eq!(
+                label as u8,
+                mirror(label) as u8,
+                "discriminant mismatch for {label:?}"
+            );
+        }
+    }
+}
+
+/// Human-readable build identifier of the loaded library:
+/// `"<crate-version> <git-describe> (built <timestamp>)"`. Static storage,
+/// never NULL — for host logs, so "which engine did I actually load" is one
+/// log line instead of a debugging session.
+#[no_mangle]
+pub extern "C" fn orender_build_id() -> *const c_char {
+    use std::ffi::CString;
+    use std::sync::OnceLock;
+    static BUILD_ID: OnceLock<CString> = OnceLock::new();
+    catch_unwind(AssertUnwindSafe(|| {
+        BUILD_ID
+            .get_or_init(|| {
+                let id = format!(
+                    "{} {}",
+                    env!("CARGO_PKG_VERSION"),
+                    runtime_control::build_fingerprint()
+                );
+                CString::new(id).unwrap_or_default()
+            })
+            .as_ptr()
+    }))
+    .unwrap_or(ptr::null())
+}
+
+/// Set a named runtime option on a session — the additive evolution path for
+/// the frozen [`OrenderConfig`]: new knobs get a string key here instead of a
+/// struct field, so consumers compiled against older headers keep working and
+/// newer consumers can probe.
+///
+/// Returns 0 on success, -1 for an unknown key (also how a consumer probes
+/// whether this build supports a key), -2 for an invalid value, -3 on a NULL
+/// handle/argument or internal error.
+///
+/// No keys are defined at ABI 0.5 — every call returns -1. The mechanism ships
+/// ahead of the first key so consumers can adopt the probe pattern now.
+#[no_mangle]
+pub unsafe extern "C" fn orender_set_option(
+    r: *mut OrenderRenderer,
+    key: *const c_char,
+    value: *const c_char,
+) -> c_int {
+    catch_unwind(AssertUnwindSafe(|| {
+        if r.is_null() {
+            return -3;
+        }
+        let (Some(key), Some(_value)) = (opt_str(key), opt_str(value)) else {
+            return -3;
+        };
+        let _engine = &mut *(r as *mut Engine);
+        // No keys defined yet (ABI 0.5): report "unknown key" so consumers can
+        // probe support. First real key: match on `key` and route to the engine.
+        let _ = key;
+        -1
+    }))
+    .unwrap_or(-3)
 }
