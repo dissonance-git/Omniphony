@@ -101,6 +101,54 @@ struct LiveSnapshot<'a> {
     distance_diffuse_curve: f32,
 }
 
+/// Put the calling thread's FPU in flush-to-zero / denormals-are-zero mode,
+/// once per thread (issue #154).
+///
+/// Every recursive DSP path in the renderer (FDN delay lines and damping,
+/// reflection-tap smoothing, air-absorption one-poles, biquad states) decays
+/// exponentially toward zero after input stops; without FTZ those tails enter
+/// denormal range, where each multiply can cost 10–100× on x86 — a CPU spike
+/// exactly when the stream goes silent. Flushing to zero is the standard
+/// audio-DSP trade: values below ~1e-38 are ~−760 dBFS, far beyond audibility.
+///
+/// This claims the FP environment of the host's thread (mpv's decode thread,
+/// the CLI engine), which is deliberate: that thread runs our DSP, and FTZ is
+/// the conventional processing mode for realtime audio. On unknown
+/// architectures this is a no-op (correct, just without the protection).
+#[inline]
+fn ensure_denormals_flushed() {
+    use std::cell::Cell;
+    thread_local! {
+        static CLAIMED: Cell<bool> = const { Cell::new(false) };
+    }
+    CLAIMED.with(|claimed| {
+        if claimed.get() {
+            return;
+        }
+        claimed.set(true);
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            // MXCSR bits: FTZ = 15, DAZ = 6 (DAZ exists on every x86-64 CPU
+            // this crate targets). Inline asm instead of the deprecated
+            // `_mm_setcsr` intrinsics: the write is opaque to LLVM, which is
+            // the point — the changed FP mode must not be reasoned away.
+            let mut mxcsr: u32 = 0;
+            std::arch::asm!("stmxcsr [{}]", in(reg) &mut mxcsr, options(nostack));
+            mxcsr |= (1 << 15) | (1 << 6);
+            std::arch::asm!("ldmxcsr [{}]", in(reg) &mxcsr, options(nostack));
+        }
+        #[cfg(target_arch = "aarch64")]
+        unsafe {
+            // FPCR.FZ (bit 24): flush-to-zero for f32/f64 (Apple Silicon
+            // builds). Read-modify-write keeps the rounding mode intact.
+            let mut fpcr: u64;
+            std::arch::asm!("mrs {}, fpcr", out(reg) fpcr);
+            fpcr |= 1 << 24;
+            std::arch::asm!("msr fpcr, {}", in(reg) fpcr);
+        }
+    });
+}
+
 /// Spatial audio renderer using VBAP
 pub struct SpatialRenderer {
     /// Number of output speakers (total, including non-spatialized like LFE)
@@ -183,6 +231,11 @@ pub struct SpatialRenderer {
 
     /// Scratch per-channel gains for the binaural path (reused).
     binaural_gain_buf: Vec<f32>,
+
+    /// Scratch per-channel "direct" flags for the binaural path (reused):
+    /// beds mapped to a `spatialize: false` speaker (the LFE) feed both ears
+    /// equally instead of being HRTF-spatialized.
+    binaural_direct_buf: Vec<bool>,
 
     /// Per-band VBAP engines.  Always has at least one entry (the "all speakers" band when
     /// no crossover is configured).  Each engine returns full-size `Gains` (`num_speakers`).
@@ -437,6 +490,11 @@ impl SpatialRenderer {
         samples_buf: Vec<f32>,
         measure_breakdown: bool,
     ) -> Result<RenderedFrame> {
+        // The render thread belongs to the host (mpv's decode thread, the CLI
+        // engine, …), so the FP environment is claimed here, at the DSP entry
+        // point, rather than at thread creation.
+        ensure_denormals_flushed();
+
         // ── 0. Independent binaural (headphone) path ─────────────────────────
         // When headphone output is selected, bypass the entire VBAP / crossover /
         // speaker chain and emit a 2-channel frame. The branch is taken below,
@@ -584,6 +642,8 @@ impl SpatialRenderer {
                 .resize(input_channel_count, [0.0, 1.0, 0.0]);
             self.binaural_gain_buf.clear();
             self.binaural_gain_buf.resize(input_channel_count, 0.0);
+            self.binaural_direct_buf.clear();
+            self.binaural_direct_buf.resize(input_channel_count, false);
             let num_beds = bed_indices.len();
             {
                 let mut states = self.channel_states.lock();
@@ -608,9 +668,13 @@ impl SpatialRenderer {
                     let routed_as_bed = c < num_beds && bed_indices[c] != usize::MAX;
                     if routed_as_bed {
                         // Bed channel: place it at its mapped speaker's direction.
+                        // A bed mapped to a non-spatialized speaker (the LFE)
+                        // keeps the direct-routing intent in headphone mode
+                        // too: fed to both ears equally, no HRTF (issue #156).
                         if let Some(&spk) = active_bed_to_speaker_mapping.get(&bed_indices[c]) {
                             if let Some(s) = active_layout.speakers.get(spk) {
                                 self.binaural_pos_buf[c] = [s.x as f64, s.y as f64, s.z as f64];
+                                self.binaural_direct_buf[c] = !s.spatialize;
                             }
                         }
                     } else if let Some(st) = states.get_mut(&c) {
@@ -632,21 +696,21 @@ impl SpatialRenderer {
                     }
                 }
             }
-            let (binaural_params, hrir_source) = {
+            let binaural_params = {
                 let g = self.control.live.read();
-                (
-                    crate::binaural::BinauralFrameParams {
-                        head_pose: g.binaural.head_pose,
-                        unit_scale_m: g.binaural.unit_scale_m,
-                        head_radius_m: g.binaural.head_radius_m,
-                        reflections: g.binaural.reflections.clone(),
-                        reverb: g.binaural.reverb.clone(),
-                        air_absorption: g.binaural.air_absorption,
-                    },
-                    g.binaural.hrir_source.clone(),
-                )
+                // Compare against the live source in place: no per-frame clone
+                // (the `Sofa` variant carries a heap path), and any rebuild is
+                // pushed to the worker inside `ensure_source`.
+                self.binaural.ensure_source(&g.binaural.hrir_source);
+                crate::binaural::BinauralFrameParams {
+                    head_pose: g.binaural.head_pose,
+                    unit_scale_m: g.binaural.unit_scale_m,
+                    head_radius_m: g.binaural.head_radius_m,
+                    reflections: g.binaural.reflections.clone(),
+                    reverb: g.binaural.reverb.clone(),
+                    air_absorption: g.binaural.air_absorption,
+                }
             };
-            self.binaural.ensure_source(&hrir_source);
             let mut output = samples_buf;
             output.clear();
             output.resize(sample_length * 2, 0.0);
@@ -657,6 +721,7 @@ impl SpatialRenderer {
                 &binaural_params,
                 &self.binaural_pos_buf,
                 &self.binaural_gain_buf,
+                &self.binaural_direct_buf,
                 &mut output,
             );
             // Output gain parity with the speaker path: master gain × dialnorm
@@ -680,10 +745,57 @@ impl SpatialRenderer {
             };
             let gain_l = total_gain * ear(0);
             let gain_r = total_gain * ear(1);
-            if (gain_l - 1.0).abs() > f32::EPSILON || (gain_r - 1.0).abs() > f32::EPSILON {
-                for frame in output.chunks_exact_mut(2) {
-                    frame[0] *= gain_l;
-                    frame[1] *= gain_r;
+            // Apply the ear gains and track the output peak in the same pass
+            // (a whole immersive stream summed onto two channels exceeds full
+            // scale easily, so the stereo bus needs the same overload
+            // handling as the speaker path).
+            let mut peak_sample: f32 = 0.0;
+            let mut peak_ear: usize = 0;
+            for frame in output.chunks_exact_mut(2) {
+                frame[0] *= gain_l;
+                frame[1] *= gain_r;
+                let a_l = frame[0].abs();
+                if a_l > peak_sample {
+                    peak_sample = a_l;
+                    peak_ear = 0;
+                }
+                let a_r = frame[1].abs();
+                if a_r > peak_sample {
+                    peak_sample = a_r;
+                    peak_ear = 1;
+                }
+            }
+
+            // Clipping handling — same policy as the speaker path below:
+            // detection always at 0 dBFS so the UI indicators work with
+            // auto-gain off; the correction (when enabled) folds into the
+            // shared master gain, targeting the configured ceiling. The ear
+            // index reuses the first two speaker param slots, the same slots
+            // Studio's headphone L/R rows already ride for mute/gain.
+            if peak_sample > 1.0 {
+                self.control.note_clip(peak_ear);
+                if live.auto_gain {
+                    let ceiling = 10.0_f32.powf(live.auto_gain_ceiling_db / 20.0);
+                    let required_gain = ceiling / peak_sample;
+                    // Re-reading under the write lock preserves any
+                    // concurrent OSC master change.
+                    let new_master_gain = {
+                        let mut params = self.control.live.write();
+                        params.master_gain *= required_gain;
+                        params.master_gain
+                    };
+                    self.control.mark_dirty();
+                    self.control.bump_live_state();
+                    self.auto_gain_triggered
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    log::warn!(
+                        "Clipping detected on headphone {} (peak={:.3})! Master gain reduced to {:.4} ({:.1} dB), ceiling {:.1} dBFS",
+                        if peak_ear == 0 { "L" } else { "R" },
+                        peak_sample,
+                        new_master_gain,
+                        20.0 * new_master_gain.log10(),
+                        live.auto_gain_ceiling_db
+                    );
                 }
             }
             return Ok(RenderedFrame {
