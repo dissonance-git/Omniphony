@@ -41,7 +41,10 @@ fn biquad(input: f32, c: BiquadCoeffs, s: &mut BiquadState) -> f32 {
 /// Compute 2nd-order Butterworth LP biquad coefficients at `fc` Hz.
 fn butterworth2_lp(fc: f32, sample_rate: u32) -> BiquadCoeffs {
     let k = (std::f32::consts::PI * fc / sample_rate as f32).tan();
-    let q = std::f32::consts::SQRT_2;
+    // Butterworth damping: Q = 1/√2. Two cascaded sections then form a true
+    // Linkwitz-Riley 4th-order low-pass (flat passband, −6 dB at fc). A Q of
+    // √2 here would instead peak +3 dB per section (+6 dB at fc combined).
+    let q = std::f32::consts::FRAC_1_SQRT_2;
     let norm = 1.0 + k / q + k * k;
     let b0 = k * k / norm;
     let b1 = 2.0 * b0;
@@ -210,6 +213,52 @@ mod tests {
             }
         }
         assert!(max_error < 1e-5, "max reconstruction error = {max_error}");
+    }
+
+    /// The low band must be a real Linkwitz-Riley low-pass: flat passband
+    /// (no resonant peak), −6 dB at the cutoff, 24 dB/oct beyond. Guards the
+    /// Butterworth Q of the cascaded sections — a Q of √2 instead of 1/√2
+    /// turns the crossover into a +6 dB resonator at the cutoff.
+    #[test]
+    fn lr4_lowpass_frequency_response() {
+        let sample_rate = 48000u32;
+        let fc = 120.0f32;
+        let bank = LR4CrossoverBank::new(&[fc], sample_rate);
+
+        // Steady-state peak amplitude of the LP band for a unit sine.
+        let lp_amplitude = |freq: f32| -> f32 {
+            let mut states = vec![BiquadState::default(); bank.state_count()];
+            let n = 48000;
+            let mut peak = 0.0f32;
+            for i in 0..n {
+                let t = i as f32 / sample_rate as f32;
+                let x = (2.0 * std::f32::consts::PI * freq * t).sin();
+                let bands = bank.process_sample(x, &mut states);
+                if i > n / 2 {
+                    peak = peak.max(bands.get(0).abs());
+                }
+            }
+            peak
+        };
+
+        // Flat passband: within (−1.2, +0.2) dB up to fc/2, never peaking.
+        for freq in [20.0, 30.0, 60.0] {
+            let a = lp_amplitude(freq);
+            assert!(a < 1.02, "LP passband peaks at {freq} Hz: {a}");
+            assert!(a > 0.87, "LP passband droops at {freq} Hz: {a}");
+        }
+        // −6 dB at the cutoff — the Linkwitz-Riley signature.
+        let at_fc = lp_amplitude(fc);
+        assert!(
+            (at_fc - 0.5).abs() < 0.03,
+            "LP at fc must sit at −6 dB (0.5), got {at_fc}"
+        );
+        // 24 dB/oct: two octaves up ≈ −48 dB.
+        let at_4fc = lp_amplitude(4.0 * fc);
+        assert!(
+            at_4fc < 0.008,
+            "LP two octaves up must be ≤ −42 dB, got {at_4fc}"
+        );
     }
 
     /// Multi-band reconstruction: 3 bands must also sum to input.
