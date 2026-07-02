@@ -216,6 +216,48 @@ impl HrirSet {
                 grid.push(provider.render(az, el, sample_rate));
             }
         }
+
+        // Level-normalize the set to a shared reference: the cos(el)-weighted
+        // mean per-ear energy over the sphere (a diffuse-field-style level)
+        // becomes exactly 1.0. Without this every source sat at whatever
+        // level its data or model happened to have — switching `hrir_source`
+        // live jumped the loudness by several dB, and the output-gain parity
+        // with the speaker path was not actually guaranteed (issue #157).
+        // cos(el) compensates the denser sampling of the grid near the pole.
+        let mut num = 0.0f64;
+        let mut den = 0.0f64;
+        for ei in 0..el_count {
+            let el = Self::EL_MIN_DEG + ei as f32 * Self::EL_STEP_DEG;
+            let w = el.to_radians().cos().max(0.0) as f64;
+            for ai in 0..az_count {
+                let p = &grid[ei * az_count + ai];
+                let e: f64 = p
+                    .left
+                    .iter()
+                    .chain(p.right.iter())
+                    .map(|&x| (x as f64) * (x as f64))
+                    .sum();
+                num += w * e / 2.0;
+                den += w;
+            }
+        }
+        let mean = num / den.max(1e-12);
+        if mean > 1e-12 {
+            let scale = (1.0 / mean.sqrt()) as f32;
+            for p in grid.iter_mut() {
+                for v in p.left.iter_mut() {
+                    *v *= scale;
+                }
+                for v in p.right.iter_mut() {
+                    *v *= scale;
+                }
+            }
+            log::debug!(
+                "HRIR set normalized: mean energy {mean:.4} → gain {:+.2} dB",
+                -10.0 * mean.log10()
+            );
+        }
+
         Self {
             az_count,
             el_count,
@@ -276,6 +318,73 @@ mod tests {
 
     fn energy(h: &[f32; HRIR_LEN]) -> f32 {
         h.iter().map(|&x| x * x).sum()
+    }
+
+    /// cos(el)-weighted mean per-ear grid energy — the shared reference level
+    /// every built set is normalized to (issue #157).
+    fn grid_mean_energy(set: &HrirSet) -> f64 {
+        let mut num = 0.0f64;
+        let mut den = 0.0f64;
+        for ei in 0..set.el_count {
+            let el = HrirSet::EL_MIN_DEG + ei as f32 * HrirSet::EL_STEP_DEG;
+            let w = el.to_radians().cos().max(0.0) as f64;
+            for ai in 0..set.az_count {
+                let p = &set.grid[ei * set.az_count + ai];
+                let e: f64 = p
+                    .left
+                    .iter()
+                    .chain(p.right.iter())
+                    .map(|&x| (x as f64) * (x as f64))
+                    .sum();
+                num += w * e / 2.0;
+                den += w;
+            }
+        }
+        num / den
+    }
+
+    /// Every HRIR source must land on the same reference level after build,
+    /// so a live `hrir_source` switch keeps the loudness steady and the
+    /// speaker/headphone gain parity actually holds (issue #157).
+    #[test]
+    fn all_sources_share_the_reference_level() {
+        let sets: Vec<(&str, HrirSet)> = vec![
+            ("synthetic", HrirSet::synthetic(48_000)),
+            (
+                "pinna",
+                HrirSet::new(
+                    &ParametricPinnaHrir {
+                        d: ParametricPinnaHrir::D_PB_NH,
+                        depth: 1.0,
+                    },
+                    48_000,
+                ),
+            ),
+            (
+                "prtf",
+                HrirSet::new(
+                    &crate::binaural::prtf::SpagnolPrtfHrir {
+                        depth: 1.0,
+                        freq_scale: 1.0,
+                    },
+                    48_000,
+                ),
+            ),
+            (
+                "saf",
+                HrirSet::new(
+                    &crate::binaural::measured::MeasuredHrirData::saf_kemar(),
+                    48_000,
+                ),
+            ),
+        ];
+        for (name, set) in &sets {
+            let mean = grid_mean_energy(set);
+            assert!(
+                (mean - 1.0).abs() < 1e-3,
+                "{name}: grid mean energy {mean} != 1.0"
+            );
+        }
     }
 
     #[test]
