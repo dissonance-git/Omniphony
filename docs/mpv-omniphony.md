@@ -34,8 +34,28 @@ over OSC, showing per-object positions in the room and live meters.*
 
 ## Requirements
 
-- `liborender >= 0.2` and the decoder bridge installed (the `liborender` +
-  `omniphony-bridge` packages).
+- **The engine library (`liborender`) — loaded at runtime, not linked.** mpv
+  finds it on its own in most setups: the release zips bundle a fallback copy
+  next to `mpv(.exe)`, and installing/updating **Omniphony Studio** deploys the
+  current engine to a per-user location that takes precedence — so updating
+  Studio updates the engine mpv uses, with no new mpv build. The full search
+  order:
+  1. `--ad-orender-library=<path>` or `$ORENDER_LIBRARY` — explicit choice; if
+     set and unusable, spatial audio is disabled with a clear error (no
+     fallback);
+  2. the Studio-deployed per-user engine:
+     `~/.local/share/omniphony/lib/liborender.so.0` (Linux),
+     `~/Library/Application Support/omniphony/lib/liborender.dylib` (macOS),
+     `%LOCALAPPDATA%\omniphony\lib\orender.dll` (Windows);
+  3. the fallback copy bundled next to `mpv(.exe)` in the release zips;
+  4. the system library path (e.g. the `liborender` distro package).
+
+  Each candidate is checked with an ABI version handshake: an incompatible
+  library is rejected (one clear log line) and the search falls through to the
+  next location. If nothing usable is found, mpv still plays everything through
+  its native decoders — spatial rendering is simply unavailable.
+- **The decoder bridge** (the `omniphony-bridge` package, or see the release
+  notes — it is not bundled with the player).
 - The **shared omniphony config** at `~/.config/omniphony/config.yaml` (the same
   one the `orender` CLI and studio use) providing `render.bridge_path` (the
   decoder bridge) and optionally the speaker layout. ad_orender reads this
@@ -71,6 +91,7 @@ shared `~/.config/omniphony/config.yaml`. Per-invocation overrides:
 
 | Option | Overrides |
 | --- | --- |
+| `--ad-orender-library=<path>` | the liborender to load (else the search order above) |
 | `--ad-orender-config=<path>` | the render config YAML (else the shared default) |
 | `--ad-orender-bridge-path=<path>` | `render.bridge_path` (the decoder bridge `.so`) |
 | `--ad-orender-osc` | force OSC on (else follows `render.osc` in the config) |
