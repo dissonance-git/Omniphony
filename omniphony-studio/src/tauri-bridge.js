@@ -413,6 +413,11 @@ export function setupTauriBridge() {
     updateAboutRendererVersion();
   });
 
+  listen('render:abi', ({ payload }) => {
+    app.renderAbi = String(payload?.value ?? '').trim() || null;
+    updateAboutRendererVersion();
+  });
+
   listen('render:bridge_error', ({ payload }) => {
     app.renderBridgeError = String(payload?.value ?? '').trim() || null;
     renderOscStatus();

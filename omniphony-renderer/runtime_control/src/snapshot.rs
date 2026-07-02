@@ -549,11 +549,20 @@ pub fn build_live_state_bundle(
             // mpv-embedded liborender link). Studio shows it in About so a
             // liborender-vs-orender version skew is visible at a glance.
             addr: "/omniphony/state/render/version".to_string(),
-            args: vec![OscType::String(format!(
-                "{} (built {})",
-                env!("VERGEN_GIT_DESCRIBE"),
-                env!("BUILD_TIMESTAMP"),
-            ))],
+            args: vec![OscType::String(crate::build_fingerprint())],
+        }),
+        OscPacket::Message(OscMessage {
+            // C-ABI version ("major.minor") of the liborender shim hosting this
+            // engine, or "" when the engine is linked directly as a Rust crate
+            // (the CLI — no C ABI involved). Studio shows it in About next to
+            // the build fingerprint.
+            addr: "/omniphony/state/render/abi".to_string(),
+            args: vec![OscType::String(
+                control
+                    .host_abi()
+                    .map(|(major, minor)| format!("{major}.{minor}"))
+                    .unwrap_or_default(),
+            )],
         }),
         OscPacket::Message(OscMessage {
             // Non-empty when this renderer came up in the degraded "no decoder"

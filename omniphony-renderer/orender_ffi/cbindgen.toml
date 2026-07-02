@@ -10,3 +10,10 @@ parse_deps = false
 
 [export]
 prefix = ""
+# The label enum is not referenced by any signature (labels cross as raw bytes),
+# so cbindgen only emits it when listed explicitly.
+include = ["OrenderChannelLabel"]
+
+[enum]
+# C has one flat namespace: emit OrenderChannelLabel_L, not a bare `L`/`C`.
+prefix_with_name = true
