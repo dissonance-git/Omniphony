@@ -492,8 +492,12 @@ impl BinauralRenderer {
             let (itd_l, itd_r) = itd::ear_delays_seconds(az_rad, el_rad, head_radius_m);
 
             let dsp = self.channels[c].get_or_insert_with(|| ChannelDsp::new(self.sample_rate));
-            dsp.conv_l.set_coeffs(&self.hrir_scratch.left);
-            dsp.conv_r.set_coeffs(&self.hrir_scratch.right);
+            // Kernel changes (moving object / head) crossfade over the block
+            // — capped at HRIR_LEN samples for large offline blocks — so the
+            // transfer function never jumps at a block boundary (issue #155).
+            let fade = sample_length.min(HRIR_LEN);
+            dsp.conv_l.set_coeffs_smooth(&self.hrir_scratch.left, fade);
+            dsp.conv_r.set_coeffs_smooth(&self.hrir_scratch.right, fade);
             dsp.delay_l.set_target_ms(itd_l * 1000.0, self.sample_rate);
             dsp.delay_r.set_target_ms(itd_r * 1000.0, self.sample_rate);
 
