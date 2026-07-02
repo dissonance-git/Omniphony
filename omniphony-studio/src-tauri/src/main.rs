@@ -4,6 +4,7 @@
 mod app_state;
 mod commands;
 mod config;
+mod engine_deploy;
 mod layouts;
 mod osc_listener;
 mod osc_parser;
@@ -131,6 +132,10 @@ fn main() {
                 let window_icon = tauri::image::Image::new_owned(decoded.into_raw(), width, height);
                 let _ = window.set_icon(window_icon);
             }
+
+            // Publish the bundled engine library (liborender) to the per-user
+            // path external consumers (the forked mpv) load it from.
+            engine_deploy::deploy(app);
 
             let config_dir = app
                 .path()

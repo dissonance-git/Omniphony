@@ -585,6 +585,9 @@ export function applyInitState(payload) {
   if (typeof payload.renderVersion === 'string') {
     app.renderVersion = payload.renderVersion.trim() || null;
   }
+  if (typeof payload.renderAbi === 'string') {
+    app.renderAbi = payload.renderAbi.trim() || null;
+  }
   if (typeof payload.renderBridgeError === 'string') {
     app.renderBridgeError = payload.renderBridgeError.trim() || null;
   }

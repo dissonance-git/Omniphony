@@ -307,6 +307,9 @@ export const app = {
   // Build fingerprint of the connected renderer (git-describe + build time).
   // Lets About expose a liborender-vs-orender version skew.
   renderVersion: null,
+  // C-ABI version ("major.minor") of the liborender shim hosting the engine.
+  // Null when the engine is linked as a Rust crate (the CLI — no C ABI).
+  renderAbi: null,
   // Non-empty when the renderer came up degraded (decoder bridge missing) —
   // drives a red banner under the OSC status. Cleared when a healthy renderer
   // reports an empty value.

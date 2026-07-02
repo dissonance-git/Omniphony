@@ -293,6 +293,8 @@ pub enum OscEvent {
     StateRenderConfigStatus { value: String },
     #[serde(rename = "state:render:version")]
     StateRenderVersion { value: String },
+    #[serde(rename = "state:render:abi")]
+    StateRenderAbi { value: String },
     #[serde(rename = "state:render:bridge_error")]
     StateRenderBridgeError { value: String },
     #[serde(rename = "state:input_pipe")]
@@ -851,6 +853,11 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
             value: raw_args.first().and_then(unwrap_string)?,
         }),
         (4, "render") if parts[3] == "version" => Some(OscEvent::StateRenderVersion {
+            value: raw_args.first().and_then(unwrap_string)?,
+        }),
+        // C-ABI version of the liborender shim hosting the engine
+        // ("major.minor"); empty when the engine is linked as a Rust crate.
+        (4, "render") if parts[3] == "abi" => Some(OscEvent::StateRenderAbi {
             value: raw_args.first().and_then(unwrap_string)?,
         }),
         (4, "render") if parts[3] == "bridge_error" => Some(OscEvent::StateRenderBridgeError {
