@@ -1252,5 +1252,90 @@ fn binaural_clipping_flags_ear_and_auto_gain_reduces_master() {
     );
 }
 
+/// In binaural mode a bed mapped to a `spatialize: false` speaker (the LFE)
+/// keeps its direct-routing intent (issue #156): both ears receive the
+/// identical dry feed at constant power — no HRIR tail, no ITD, no head-pose
+/// effect — instead of being HRTF-spatialized at the sub's direction.
+#[test]
+fn binaural_lfe_bed_feeds_both_ears_equally_and_dry() {
+    let layout = SpeakerLayout::preset("7.1.4").unwrap();
+    let mut r = SpatialRenderer::new(
+        layout,
+        48_000,
+        1,
+        1,
+        0.0,
+        2.0,
+        VbapTableMode::Cartesian {
+            x_size: 21,
+            y_size: 21,
+            z_size: 9,
+            z_neg_size: 9,
+        },
+        false,
+        true,
+        DistanceModel::Linear,
+        false,
+        1.0,
+        1.0,
+        0.0,
+        1.0,
+        false,
+        [1.0, 2.0, 0.5],
+        2.0,
+        0.5,
+        0.0,
+        0.0,
+        false,
+        false,
+        false,
+        1.0,
+        1.0,
+        PreferredEvaluationMode::PrecomputedCartesian,
+        LiveEvaluationMode::PrecomputedCartesian,
+        21,
+        21,
+        9,
+        9,
+    )
+    .unwrap();
+    // Channel 0 = bed id 3 → the LFE speaker (index 3, spatialize:false).
+    r.configure_beds(&[3usize]);
+    {
+        let mut live = r.control.live.write();
+        live.binaural.output_mode = crate::live_params::OutputMode::Binaural;
+    }
+
+    let n = 40;
+    let mut pcm = vec![0.0f32; n];
+    pcm[0] = 0.8; // impulse: any post-render tail would expose a convolver
+    let event = vec![SpatialChannelEvent {
+        channel_idx: 0,
+        is_bed: true,
+        gain_db: Some(0),
+        ramp_length: Some(0),
+        size: None,
+        position: None,
+        sample_pos: Some(0),
+    }];
+    let out = r
+        .render_frame(&pcm, 1, &event, Vec::new(), false)
+        .unwrap()
+        .samples;
+
+    assert_eq!(out.len(), n * 2);
+    let expected = 0.8 * std::f32::consts::FRAC_1_SQRT_2;
+    assert!(
+        (out[0] - expected).abs() < 1e-6,
+        "constant-power direct feed expected {expected}, got {}",
+        out[0]
+    );
+    assert_eq!(out[0], out[1], "both ears must carry the identical feed");
+    assert!(
+        out[2..].iter().all(|&x| x == 0.0),
+        "direct feed must not ring (no HRIR/ITD tail)"
+    );
+}
+
 // TODO: Add integration test with real spatial metadata
 // For now, testing is done via real spatial audio content decoding
