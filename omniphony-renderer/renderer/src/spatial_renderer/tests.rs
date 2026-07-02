@@ -647,10 +647,8 @@ fn spatialized_lfe_alone_in_low_band_routes_object_bass() {
             .samples)
     };
 
-    // Deep bass: the sub must dominate. (The other speakers still receive
-    // some of it — the high band is the exact complement of the low-pass, so
-    // its low-frequency rejection is gentle — but the sub carries the tone
-    // at nearly full level while every main sits well below it.)
+    // Deep bass: the sub must carry the tone and the mains must be genuinely
+    // relieved of it — the LR4 high-pass rejects 20 Hz (fc/6) by ~60 dB.
     // Absolute levels include the renderer's distance attenuation for this
     // object position (identical across both tones), so the thresholds below
     // are calibrated with ample margin rather than derived from the input.
@@ -671,6 +669,10 @@ fn spatialized_lfe_alone_in_low_band_routes_object_bass() {
         "sub must dominate at 20 Hz: sub {} vs loudest main {}",
         low[LFE_SPK],
         max_main
+    );
+    assert!(
+        max_main < 0.02,
+        "mains must be relieved of the 20 Hz band (24 dB/oct high-pass), loudest main RMS {max_main}"
     );
 
     // Treble: the sub is out of the upper bands and the low-pass rejects

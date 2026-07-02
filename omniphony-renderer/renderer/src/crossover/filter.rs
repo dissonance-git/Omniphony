@@ -1,21 +1,31 @@
-//! Cascaded biquad crossover filter bank with perfect reconstruction.
+//! Cascaded Linkwitz-Riley (LR4) crossover filter bank.
 //!
-//! Each splitter stage produces:
-//!   LP  = BW2_LP(BW2_LP(input))  — 24 dB/oct Linkwitz-Riley LP
-//!   HP  = input − LP              — exact complement; LP + HP = input always
+//! Each splitter stage at cutoff `fc` produces, from its input `x`:
+//!   LP = BW2_LP(BW2_LP(x))   — LR4 low-pass:  −6 dB at fc, 24 dB/oct above
+//!   HP = BW2_HP(BW2_HP(x))   — LR4 high-pass: −6 dB at fc, 24 dB/oct below
 //!
-//! For N bands, N-1 splitters are chained:
+//! The two outputs are in phase at every frequency, and their sum is exactly
+//! the 2nd-order allpass AP(fc) sharing the same poles (s⁴ + ωc⁴ factors into
+//! D(s)·D(−s); the identity survives the bilinear transform). A split
+//! therefore sums back flat in magnitude with a benign phase rotation — the
+//! standard speaker-crossover behaviour. Unlike the previous subtractive
+//! design (HP = input − LP), the high side genuinely rejects lows at
+//! 24 dB/oct instead of ~6 dB/oct, at the price of the sample-exact sum.
+//!
+//! For N bands, N−1 splitters are chained on the HP branch:
 //!   Band 0   = LP of splitter 0
-//!   Band k   = LP of splitter k  (applied to HP of splitter k-1)
-//!   Band N-1 = HP of splitter N-2
+//!   Band k   = LP of splitter k  (applied to HP of splitter k−1)
+//!   Band N−1 = HP of splitter N−2
 //!
-//! Sum of all bands = original signal (perfect reconstruction by induction).
+//! Multiway phase compensation: when splitter k runs, every band already
+//! emitted (0..k) is passed through this splitter's AP(fc_k), so the total
+//! sum stays magnitude-flat around every cutoff. The sum of all bands then
+//! equals the input through the cascade of the N−1 allpasses.
 //!
-//! State layout per splitter (2 entries):
-//!   states[0] : stage 1 BW2-LP
-//!   states[1] : stage 2 BW2-LP
-//!
-//! Total state count per object = 2 × (N-1).
+//! State layout per object (`state_count()` entries):
+//!   4 per splitter — [lp1, lp2, hp1, hp2] — for splitters 0..N−1, followed
+//!   by the compensation allpass states: splitter k owns k entries (one per
+//!   earlier band). Total = 4·(N−1) + (N−1)(N−2)/2.
 
 /// State for a single Direct-Form-II Transposed biquad section.
 #[derive(Clone, Default)]
@@ -38,28 +48,53 @@ fn biquad(input: f32, c: BiquadCoeffs, s: &mut BiquadState) -> f32 {
     out
 }
 
-/// Compute 2nd-order Butterworth LP biquad coefficients at `fc` Hz.
-fn butterworth2_lp(fc: f32, sample_rate: u32) -> BiquadCoeffs {
+/// Shared bilinear-transform pieces of a 2nd-order Butterworth section at
+/// `fc` Hz: `(k², norm, a1, a2)`. LP, HP and the compensation allpass all use
+/// the same denominator.
+fn butterworth2_parts(fc: f32, sample_rate: u32) -> (f32, f32, f32, f32) {
     let k = (std::f32::consts::PI * fc / sample_rate as f32).tan();
     // Butterworth damping: Q = 1/√2. Two cascaded sections then form a true
-    // Linkwitz-Riley 4th-order low-pass (flat passband, −6 dB at fc). A Q of
+    // Linkwitz-Riley 4th-order filter (flat passband, −6 dB at fc). A Q of
     // √2 here would instead peak +3 dB per section (+6 dB at fc combined).
     let q = std::f32::consts::FRAC_1_SQRT_2;
     let norm = 1.0 + k / q + k * k;
-    let b0 = k * k / norm;
-    let b1 = 2.0 * b0;
-    let b2 = b0;
     let a1 = 2.0 * (k * k - 1.0) / norm;
     let a2 = (1.0 - k / q + k * k) / norm;
-    BiquadCoeffs([b0, b1, b2, a1, a2])
+    (k * k, norm, a1, a2)
 }
 
-/// Pre-computed coefficients for one cascaded-LP splitter at a given cutoff.
+/// 2nd-order Butterworth low-pass biquad at `fc` Hz.
+fn butterworth2_lp(fc: f32, sample_rate: u32) -> BiquadCoeffs {
+    let (k2, norm, a1, a2) = butterworth2_parts(fc, sample_rate);
+    let b0 = k2 / norm;
+    BiquadCoeffs([b0, 2.0 * b0, b0, a1, a2])
+}
+
+/// 2nd-order Butterworth high-pass biquad at `fc` Hz.
+fn butterworth2_hp(fc: f32, sample_rate: u32) -> BiquadCoeffs {
+    let (_, norm, a1, a2) = butterworth2_parts(fc, sample_rate);
+    let b0 = 1.0 / norm;
+    BiquadCoeffs([b0, -2.0 * b0, b0, a1, a2])
+}
+
+/// 2nd-order allpass at `fc` Hz with the same poles as the Butterworth
+/// sections — exactly LR4_LP(fc) + LR4_HP(fc). Used to phase-align earlier
+/// bands when a later splitter runs.
+fn allpass2(fc: f32, sample_rate: u32) -> BiquadCoeffs {
+    let (_, _, a1, a2) = butterworth2_parts(fc, sample_rate);
+    BiquadCoeffs([a2, a1, 1.0, a1, a2])
+}
+
+/// Pre-computed coefficients for one LR4 splitter at a given cutoff.
 struct Splitter {
-    /// First Butterworth LP stage.
-    stage1: BiquadCoeffs,
-    /// Second Butterworth LP stage (LR4 LP = stage1 → stage2).
-    stage2: BiquadCoeffs,
+    /// Cascaded low-pass stages (LR4 LP = lp1 → lp2).
+    lp1: BiquadCoeffs,
+    lp2: BiquadCoeffs,
+    /// Cascaded high-pass stages (LR4 HP = hp1 → hp2).
+    hp1: BiquadCoeffs,
+    hp2: BiquadCoeffs,
+    /// Compensation allpass applied to every band emitted before this splitter.
+    ap: BiquadCoeffs,
 }
 
 /// A bank of crossover filters for B = `cutoffs.len() + 1` bands.
@@ -82,8 +117,11 @@ impl LR4CrossoverBank {
             .map(|&fc| {
                 let fc = fc.clamp(1.0, nyquist - 1.0);
                 Splitter {
-                    stage1: butterworth2_lp(fc, sample_rate),
-                    stage2: butterworth2_lp(fc, sample_rate),
+                    lp1: butterworth2_lp(fc, sample_rate),
+                    lp2: butterworth2_lp(fc, sample_rate),
+                    hp1: butterworth2_hp(fc, sample_rate),
+                    hp2: butterworth2_hp(fc, sample_rate),
+                    ap: allpass2(fc, sample_rate),
                 }
             })
             .collect::<Vec<_>>();
@@ -97,8 +135,11 @@ impl LR4CrossoverBank {
     /// Number of `BiquadState` entries required per object.
     ///
     /// Allocate `vec![BiquadState::default(); state_count()]` for each object.
+    /// See the module doc for the layout: 4 filter states per splitter, then
+    /// the triangular block of compensation-allpass states.
     pub fn state_count(&self) -> usize {
-        self.splitters.len() * 2
+        let s = self.splitters.len();
+        s * 4 + s * s.saturating_sub(1) / 2
     }
 
     /// Split `input` into `num_bands` band samples using the per-object `states`.
@@ -108,16 +149,32 @@ impl LR4CrossoverBank {
     pub fn process_sample(&self, input: f32, states: &mut [BiquadState]) -> SmallBands {
         let mut signal = input;
         let mut bands = SmallBands::new(self.num_bands);
+        let ap_base = self.splitters.len() * 4;
 
         for (si, splitter) in self.splitters.iter().enumerate() {
-            let base = si * 2;
-            let after_stage1 = biquad(signal, splitter.stage1, &mut states[base]);
-            let lp_out = biquad(after_stage1, splitter.stage2, &mut states[base + 1]);
-            // HP = exact complement: LP + HP = signal always.
-            let hp_out = signal - lp_out;
+            let base = si * 4;
+            let lp = biquad(
+                biquad(signal, splitter.lp1, &mut states[base]),
+                splitter.lp2,
+                &mut states[base + 1],
+            );
+            let hp = biquad(
+                biquad(signal, splitter.hp1, &mut states[base + 2]),
+                splitter.hp2,
+                &mut states[base + 3],
+            );
 
-            bands.set(si, lp_out);
-            signal = hp_out;
+            // Phase-align the bands already emitted: this splitter's LP + HP
+            // sum to its AP, so earlier bands must pass through the same AP
+            // for the total to stay magnitude-flat around this cutoff.
+            let ap_row = ap_base + si * si.saturating_sub(1) / 2;
+            for b in 0..si {
+                let aligned = biquad(bands.get(b), splitter.ap, &mut states[ap_row + b]);
+                bands.set(b, aligned);
+            }
+
+            bands.set(si, lp);
+            signal = hp;
         }
         bands.set(self.splitters.len(), signal);
         bands
@@ -192,27 +249,44 @@ impl SmallBands {
 mod tests {
     use super::*;
 
-    /// LP + HP of a single LR4 splitter must sum to input within ±1e-5 (exact complement).
-    #[test]
-    fn test_lr4_reconstruction() {
-        let sample_rate = 48000u32;
-        let bank = LR4CrossoverBank::new(&[80.0], sample_rate);
-        assert_eq!(bank.num_bands, 2);
+    /// Steady-state amplitude of the summed bands for a unit sine, estimated
+    /// as RMS·√2 over the second half of a 1 s run. RMS is phase-independent
+    /// (unlike the sampled peak, which under-reads when only a few samples
+    /// hit each period, e.g. 6 samples/period at 8 kHz). Every frequency the
+    /// tests use completes an integer number of periods in the 0.5 s window,
+    /// so the estimate is exact up to f32 rounding.
+    fn band_sum_amplitude(bank: &LR4CrossoverBank, freq: f32, sample_rate: u32) -> f32 {
         let mut states = vec![BiquadState::default(); bank.state_count()];
-
-        // Run 8192 samples of a 1 kHz sine; check reconstruction after steady state.
-        let freq = 1000.0_f32;
-        let mut max_error: f32 = 0.0;
-        for i in 0..8192 {
+        let n = 48000;
+        let mut acc = 0.0f64;
+        for i in 0..n {
             let t = i as f32 / sample_rate as f32;
             let x = (2.0 * std::f32::consts::PI * freq * t).sin();
             let bands = bank.process_sample(x, &mut states);
-            if i > 4096 {
-                let reconstructed = bands.get(0) + bands.get(1);
-                max_error = max_error.max((reconstructed - x).abs());
+            if i >= n / 2 {
+                let sum: f32 = (0..bands.len()).map(|b| bands.get(b)).sum();
+                acc += (sum as f64) * (sum as f64);
             }
         }
-        assert!(max_error < 1e-5, "max reconstruction error = {max_error}");
+        ((acc / (n / 2) as f64).sqrt() * std::f64::consts::SQRT_2) as f32
+    }
+
+    /// LP + HP of one LR4 splitter sum to an allpass: the recombined bands
+    /// must stay flat in magnitude (±0.15 dB) across the spectrum, including
+    /// right at the cutoff. (The sum is no longer sample-exact — the phase
+    /// rotates — which is the standard speaker-crossover trade.)
+    #[test]
+    fn two_band_sum_is_magnitude_flat() {
+        let sample_rate = 48000u32;
+        let bank = LR4CrossoverBank::new(&[80.0], sample_rate);
+        assert_eq!(bank.num_bands, 2);
+        for freq in [20.0, 40.0, 80.0, 160.0, 1000.0, 8000.0] {
+            let a = band_sum_amplitude(&bank, freq, sample_rate);
+            assert!(
+                (0.983..=1.017).contains(&a),
+                "band sum must be magnitude-flat at {freq} Hz, got {a}"
+            );
+        }
     }
 
     /// The low band must be a real Linkwitz-Riley low-pass: flat passband
@@ -261,25 +335,65 @@ mod tests {
         );
     }
 
-    /// Multi-band reconstruction: 3 bands must also sum to input.
+    /// Three bands must also recombine flat — this exercises the multiway
+    /// phase compensation: without the allpass applied to band 0 at the
+    /// second splitter, the sum would ripple around the upper cutoff.
     #[test]
-    fn test_lr4_3band_reconstruction() {
+    fn three_band_sum_is_magnitude_flat() {
         let sample_rate = 48000u32;
         let bank = LR4CrossoverBank::new(&[80.0, 8000.0], sample_rate);
         assert_eq!(bank.num_bands, 3);
-        let mut states = vec![BiquadState::default(); bank.state_count()];
-
-        let freq = 440.0_f32;
-        let mut max_error: f32 = 0.0;
-        for i in 0..8192 {
-            let t = i as f32 / sample_rate as f32;
-            let x = (2.0 * std::f32::consts::PI * freq * t).sin();
-            let bands = bank.process_sample(x, &mut states);
-            if i > 4096 {
-                let reconstructed = bands.get(0) + bands.get(1) + bands.get(2);
-                max_error = max_error.max((reconstructed - x).abs());
-            }
+        for freq in [30.0, 80.0, 440.0, 4000.0, 8000.0, 12000.0] {
+            let a = band_sum_amplitude(&bank, freq, sample_rate);
+            assert!(
+                (0.983..=1.017).contains(&a),
+                "3-band sum must be magnitude-flat at {freq} Hz, got {a}"
+            );
         }
-        assert!(max_error < 1e-5, "max reconstruction error = {max_error}");
+    }
+
+    /// Mirror of the low-pass response test: the high band must be a real
+    /// LR4 high-pass — flat passband above, −6 dB at the cutoff, 24 dB/oct
+    /// below. This is the property the subtractive design (HP = input − LP)
+    /// lacked: its low-frequency rejection was only ~6 dB/oct.
+    #[test]
+    fn lr4_highpass_frequency_response() {
+        let sample_rate = 48000u32;
+        let fc = 120.0f32;
+        let bank = LR4CrossoverBank::new(&[fc], sample_rate);
+
+        let hp_amplitude = |freq: f32| -> f32 {
+            let mut states = vec![BiquadState::default(); bank.state_count()];
+            let n = 48000;
+            let mut peak = 0.0f32;
+            for i in 0..n {
+                let t = i as f32 / sample_rate as f32;
+                let x = (2.0 * std::f32::consts::PI * freq * t).sin();
+                let bands = bank.process_sample(x, &mut states);
+                if i > n / 2 {
+                    peak = peak.max(bands.get(1).abs());
+                }
+            }
+            peak
+        };
+
+        // Flat passband above the cutoff, never peaking.
+        for freq in [240.0, 480.0, 1000.0] {
+            let a = hp_amplitude(freq);
+            assert!(a < 1.02, "HP passband peaks at {freq} Hz: {a}");
+            assert!(a > 0.87, "HP passband droops at {freq} Hz: {a}");
+        }
+        // −6 dB at the cutoff.
+        let at_fc = hp_amplitude(fc);
+        assert!(
+            (at_fc - 0.5).abs() < 0.03,
+            "HP at fc must sit at −6 dB (0.5), got {at_fc}"
+        );
+        // 24 dB/oct: two octaves down ≈ −48 dB.
+        let at_quarter = hp_amplitude(fc / 4.0);
+        assert!(
+            at_quarter < 0.008,
+            "HP two octaves down must be ≤ −42 dB, got {at_quarter}"
+        );
     }
 }
