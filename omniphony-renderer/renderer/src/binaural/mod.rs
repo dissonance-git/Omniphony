@@ -230,9 +230,15 @@ pub struct BinauralFrameParams {
 /// channels of a frame to interleaved stereo.
 pub struct BinauralRenderer {
     sample_rate: u32,
-    hrir: HrirSet,
-    /// HRIR data set the current `hrir` grid was built from.
+    hrir: std::sync::Arc<HrirSet>,
+    /// HRIR source last *requested* (the active grid may briefly lag it while
+    /// the worker builds — see [`Self::ensure_source`]).
     source: HrirSource,
+    /// Finished grids from the rebuild worker, awaiting the audio-thread swap.
+    incoming: std::sync::Arc<arc_swap::ArcSwapOption<HrirSet>>,
+    /// Requests to the long-lived rebuild worker. Dropping the renderer drops
+    /// the sender, which terminates the worker.
+    rebuild_tx: std::sync::mpsc::Sender<HrirSource>,
     /// Per-input-channel DSP state, indexed directly by channel (sparse tail is
     /// fine; reset when the channel count shrinks).
     channels: Vec<Option<ChannelDsp>>,
@@ -247,10 +253,36 @@ pub struct BinauralRenderer {
 impl BinauralRenderer {
     pub fn new(sample_rate: u32) -> Self {
         let source = HrirSource::default();
+        let incoming: std::sync::Arc<arc_swap::ArcSwapOption<HrirSet>> =
+            std::sync::Arc::new(arc_swap::ArcSwapOption::empty());
+        // Long-lived rebuild worker: grid builds (allocations, provider
+        // renders, SOFA file I/O) must never run on the audio thread. The
+        // worker drains request bursts to the latest one, builds, and
+        // publishes into `incoming` for the audio thread to swap in.
+        let (rebuild_tx, rebuild_rx) = std::sync::mpsc::channel::<HrirSource>();
+        {
+            let slot = std::sync::Arc::clone(&incoming);
+            std::thread::Builder::new()
+                .name("binaural-hrir-rebuild".into())
+                .spawn(move || {
+                    while let Ok(mut req) = rebuild_rx.recv() {
+                        while let Ok(newer) = rebuild_rx.try_recv() {
+                            req = newer;
+                        }
+                        let set = Self::build_hrir(&req, sample_rate);
+                        slot.store(Some(std::sync::Arc::new(set)));
+                    }
+                })
+                .expect("spawn binaural HRIR rebuild worker");
+        }
         Self {
             sample_rate,
-            hrir: Self::build_hrir(&source, sample_rate),
+            // The initial (default) grid is built synchronously: `new` runs on
+            // a control thread, and the renderer must be usable immediately.
+            hrir: std::sync::Arc::new(Self::build_hrir(&source, sample_rate)),
             source,
+            incoming,
+            rebuild_tx,
             channels: Vec::new(),
             hrir_scratch: HrirPair {
                 left: [0.0; HRIR_LEN],
@@ -259,6 +291,12 @@ impl BinauralRenderer {
             fdn: None,
             reverb_bus: Vec::new(),
         }
+    }
+
+    /// Identity of the active HRIR grid (tests observe the async swap with it).
+    #[cfg(test)]
+    fn hrir_grid_id(&self) -> usize {
+        std::sync::Arc::as_ptr(&self.hrir) as usize
     }
 
     fn build_hrir(source: &HrirSource, sample_rate: u32) -> HrirSet {
@@ -325,12 +363,21 @@ impl BinauralRenderer {
         None
     }
 
-    /// Rebuild the HRIR grid if the requested source changed. Called once per
-    /// frame; the (allocating) rebuild only runs on an actual change.
+    /// Track the requested HRIR source. Called once per frame from the audio
+    /// thread; the steady-state cost is one compare plus one atomic swap. On
+    /// an actual change it only pushes a request to the rebuild worker — the
+    /// grid build (allocations, provider renders, SOFA file I/O) never runs
+    /// here (issue #153). Frames keep rendering with the previous grid until
+    /// the worker's result lands.
     pub fn ensure_source(&mut self, source: &HrirSource) {
+        if let Some(set) = self.incoming.swap(None) {
+            self.hrir = set;
+        }
         if &self.source != source {
-            self.hrir = Self::build_hrir(source, self.sample_rate);
             self.source = source.clone();
+            // `send` allocates one queue node — rare (a user-initiated source
+            // change), unlike the megabytes+I/O of the build it replaces.
+            let _ = self.rebuild_tx.send(source.clone());
         }
     }
 
@@ -564,6 +611,42 @@ mod tests {
     fn right_source_is_louder_in_right_channel() {
         let (el, er) = render_single([1.0, 0.0, 0.0]); // full right
         assert!(er > el, "L={el} R={er}");
+    }
+
+    /// A source switch must not stall rendering: the frame right after the
+    /// request still uses the old grid (and produces audio), and the new grid
+    /// lands asynchronously within a bounded delay (issue #153).
+    #[test]
+    fn hrir_source_switch_lands_asynchronously_without_blocking_render() {
+        let mut r = BinauralRenderer::new(48_000);
+        let n = 128;
+        let mut input = vec![0.0f32; n];
+        input[0] = 1.0;
+        let pos = [[0.5, 1.0, 0.0]];
+        let render = |r: &mut BinauralRenderer| -> f32 {
+            let mut out = vec![0.0f32; n * 2];
+            r.render_frame(&input, 1, n, &dry_params(), &pos, &[1.0], &mut out);
+            out.iter().map(|x| x * x).sum()
+        };
+
+        let initial_grid = r.hrir_grid_id();
+        r.ensure_source(&HrirSource::Synthetic);
+        // Immediately after the request the old grid must still be active and
+        // rendering must work (the build happens on the worker).
+        assert_eq!(r.hrir_grid_id(), initial_grid, "swap must be asynchronous");
+        assert!(render(&mut r) > 1e-9, "render stalled during rebuild");
+
+        // The new grid must land within a bounded delay.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while r.hrir_grid_id() == initial_grid {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "rebuilt grid never arrived"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            r.ensure_source(&HrirSource::Synthetic);
+        }
+        assert!(render(&mut r) > 1e-9, "render broken after grid swap");
     }
 
     #[test]
