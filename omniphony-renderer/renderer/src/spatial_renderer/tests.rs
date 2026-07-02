@@ -546,6 +546,197 @@ fn virtual_bed_mixes_direct_and_virtualized_channels() {
     }
 }
 
+/// Locks the documented subwoofer bass-management recipe: flip the LFE to
+/// `spatialize: true` with `freq_high: 120` while every other spatialized
+/// speaker carries `freq_low: 120`. The sub is then alone in the `[0, 120)`
+/// band, so the single-speaker degenerate rule routes the low band of every
+/// object to it; the bands above exclude it entirely; and the stream's own
+/// LFE bed channel keeps its direct one-hot feed (bed routing is keyed on
+/// the speaker name, not on `spatialize`).
+#[test]
+fn spatialized_lfe_alone_in_low_band_routes_object_bass() {
+    const CUTOFF: f32 = 120.0;
+    const LFE_SPK: usize = 3; // 7.1.4 preset order
+    fn build() -> SpatialRenderer {
+        let mut layout = SpeakerLayout::preset("7.1.4").unwrap();
+        for (idx, sp) in layout.speakers.iter_mut().enumerate() {
+            if idx == LFE_SPK {
+                sp.spatialize = true;
+                sp.freq_high = Some(CUTOFF);
+            } else {
+                sp.freq_low = Some(CUTOFF);
+            }
+        }
+        SpatialRenderer::new(
+            layout,
+            48_000,
+            1,
+            1,
+            0.0,
+            2.0,
+            VbapTableMode::Cartesian {
+                x_size: 21,
+                y_size: 21,
+                z_size: 9,
+                z_neg_size: 9,
+            },
+            false,
+            true,
+            DistanceModel::Linear,
+            false,
+            1.0,
+            1.0,
+            0.0,
+            1.0,
+            false,
+            [1.0, 2.0, 0.5],
+            2.0,
+            0.5,
+            0.0,
+            0.0,
+            false,
+            false,
+            false,
+            1.0,
+            1.0,
+            PreferredEvaluationMode::PrecomputedCartesian,
+            LiveEvaluationMode::PrecomputedCartesian,
+            21,
+            21,
+            9,
+            9,
+        )
+        .unwrap()
+    }
+
+    let num_speakers = 12;
+    let sample_length = 9_600; // 200 ms — lets the 20 Hz tone settle
+    let sample_rate = 48_000.0f32;
+
+    // Per-speaker RMS over the second half of the block (filter steady state).
+    let rms = |out: &[f32]| -> Vec<f32> {
+        let half = sample_length / 2;
+        let mut e = vec![0.0f32; num_speakers];
+        for s in half..sample_length {
+            for (spk, slot) in e.iter_mut().enumerate() {
+                let v = out[s * num_speakers + spk];
+                *slot += v * v;
+            }
+        }
+        e.iter().map(|x| (x / half as f32).sqrt()).collect()
+    };
+
+    // A front-centre object playing a sine at `freq`.
+    let render_tone = |freq: f32| -> Vec<f32> {
+        let mut r = build();
+        let pcm: Vec<f32> = (0..sample_length)
+            .map(|i| 0.5 * (2.0 * std::f32::consts::PI * freq * i as f32 / sample_rate).sin())
+            .collect();
+        let events = vec![SpatialChannelEvent {
+            channel_idx: 0,
+            is_bed: false,
+            gain_db: Some(0),
+            ramp_length: Some(0),
+            size: Some([0.0, 0.0, 0.0]),
+            position: Some([0.0, 1.0, 0.0]),
+            sample_pos: Some(0),
+        }];
+        rms(&r
+            .render_frame(&pcm, 1, &events, Vec::new(), false)
+            .unwrap()
+            .samples)
+    };
+
+    // Deep bass: the sub must dominate. (The other speakers still receive
+    // some of it — the high band is the exact complement of the low-pass, so
+    // its low-frequency rejection is gentle — but the sub carries the tone
+    // at nearly full level while every main sits well below it.)
+    // Absolute levels include the renderer's distance attenuation for this
+    // object position (identical across both tones), so the thresholds below
+    // are calibrated with ample margin rather than derived from the input.
+    let low = render_tone(20.0);
+    assert!(
+        low[LFE_SPK] > 0.08,
+        "sub must carry the 20 Hz object tone, got RMS {}",
+        low[LFE_SPK]
+    );
+    let max_main = low
+        .iter()
+        .enumerate()
+        .filter(|(spk, _)| *spk != LFE_SPK)
+        .map(|(_, e)| *e)
+        .fold(0.0f32, f32::max);
+    assert!(
+        low[LFE_SPK] > 1.5 * max_main,
+        "sub must dominate at 20 Hz: sub {} vs loudest main {}",
+        low[LFE_SPK],
+        max_main
+    );
+
+    // Treble: the sub is out of the upper bands and the low-pass rejects
+    // 4 kHz by >100 dB — it must stay silent.
+    let high = render_tone(4_000.0);
+    assert!(
+        high[LFE_SPK] < 1e-4,
+        "sub must not receive a 4 kHz object tone, got RMS {}",
+        high[LFE_SPK]
+    );
+    assert!(
+        high.iter().sum::<f32>() > 0.05,
+        "the 4 kHz tone must reach the mains"
+    );
+
+    // The stream's own LFE bed channel still routes one-hot to the sub even
+    // though the speaker is now spatialized.
+    let mut r = build();
+    let beds = [usize::MAX, 3usize];
+    r.configure_beds(&beds);
+    let bed_len = 8usize;
+    let pcm: Vec<f32> = (0..bed_len).flat_map(|_| [0.0f32, 0.6]).collect();
+    let events = vec![
+        SpatialChannelEvent {
+            channel_idx: 0,
+            is_bed: false,
+            gain_db: Some(0),
+            ramp_length: Some(0),
+            size: Some([0.0, 0.0, 0.0]),
+            position: Some([0.0, 1.0, 0.0]),
+            sample_pos: Some(0),
+        },
+        SpatialChannelEvent {
+            channel_idx: 1,
+            is_bed: true,
+            gain_db: Some(0),
+            ramp_length: Some(0),
+            size: None,
+            position: None,
+            sample_pos: Some(0),
+        },
+    ];
+    let out = r
+        .render_frame(&pcm, 2, &events, Vec::new(), false)
+        .unwrap()
+        .samples;
+    let mut e = vec![0.0f32; num_speakers];
+    for s in 0..bed_len {
+        for (spk, slot) in e.iter_mut().enumerate() {
+            *slot += out[s * num_speakers + spk].abs();
+        }
+    }
+    assert!(
+        e[LFE_SPK] > 0.0,
+        "the LFE bed channel must still reach the spatialized sub"
+    );
+    for (spk, v) in e.iter().enumerate() {
+        if spk != LFE_SPK {
+            assert!(
+                *v < 1e-6,
+                "LFE bed routing must stay one-hot with spatialize:true; speaker {spk} got {v}"
+            );
+        }
+    }
+}
+
 /// Guard rail: the four ramp modes must stay wired and each keep its own
 /// behaviour. `Off` snaps to the target, `Frame` holds the block-start
 /// position, `Sample` interpolates the position per sample, and `Interp`
