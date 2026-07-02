@@ -184,6 +184,11 @@ pub struct SpatialRenderer {
     /// Scratch per-channel gains for the binaural path (reused).
     binaural_gain_buf: Vec<f32>,
 
+    /// Scratch per-channel "direct" flags for the binaural path (reused):
+    /// beds mapped to a `spatialize: false` speaker (the LFE) feed both ears
+    /// equally instead of being HRTF-spatialized.
+    binaural_direct_buf: Vec<bool>,
+
     /// Per-band VBAP engines.  Always has at least one entry (the "all speakers" band when
     /// no crossover is configured).  Each engine returns full-size `Gains` (`num_speakers`).
     render_bands: Vec<BandRenderer>,
@@ -584,6 +589,8 @@ impl SpatialRenderer {
                 .resize(input_channel_count, [0.0, 1.0, 0.0]);
             self.binaural_gain_buf.clear();
             self.binaural_gain_buf.resize(input_channel_count, 0.0);
+            self.binaural_direct_buf.clear();
+            self.binaural_direct_buf.resize(input_channel_count, false);
             let num_beds = bed_indices.len();
             {
                 let mut states = self.channel_states.lock();
@@ -608,9 +615,13 @@ impl SpatialRenderer {
                     let routed_as_bed = c < num_beds && bed_indices[c] != usize::MAX;
                     if routed_as_bed {
                         // Bed channel: place it at its mapped speaker's direction.
+                        // A bed mapped to a non-spatialized speaker (the LFE)
+                        // keeps the direct-routing intent in headphone mode
+                        // too: fed to both ears equally, no HRTF (issue #156).
                         if let Some(&spk) = active_bed_to_speaker_mapping.get(&bed_indices[c]) {
                             if let Some(s) = active_layout.speakers.get(spk) {
                                 self.binaural_pos_buf[c] = [s.x as f64, s.y as f64, s.z as f64];
+                                self.binaural_direct_buf[c] = !s.spatialize;
                             }
                         }
                     } else if let Some(st) = states.get_mut(&c) {
@@ -657,6 +668,7 @@ impl SpatialRenderer {
                 &binaural_params,
                 &self.binaural_pos_buf,
                 &self.binaural_gain_buf,
+                &self.binaural_direct_buf,
                 &mut output,
             );
             // Output gain parity with the speaker path: master gain × dialnorm
