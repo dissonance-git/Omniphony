@@ -100,6 +100,29 @@ impl MeasuredHrirData {
         Some(Self::new(fs, dirs, irs))
     }
 
+    /// This set resampled to `target` Hz (no-op if already there).
+    ///
+    /// Runs once at build time, never in the audio loop. Without it the
+    /// 48 kHz KEMAR taps play verbatim at any engine rate, shifting every
+    /// HRTF feature by the rate ratio (issue #151).
+    pub fn resampled_to(self, target: u32) -> Self {
+        if self.sample_rate == target {
+            return self;
+        }
+        let from = self.sample_rate;
+        let irs = self
+            .irs
+            .iter()
+            .map(|(l, r)| (resample_ir(l, from, target), resample_ir(r, from, target)))
+            .collect();
+        Self {
+            sample_rate: target,
+            dirs: self.dirs,
+            vecs: self.vecs,
+            irs,
+        }
+    }
+
     /// Index of the measurement nearest to a query direction (max dot product).
     fn nearest(&self, az_deg: f32, el_deg: f32) -> usize {
         let q = dir_vec(az_deg, el_deg);
@@ -117,6 +140,8 @@ impl MeasuredHrirData {
 }
 
 impl HrirProvider for MeasuredHrirData {
+    // `_sample_rate` is deliberately unused: the set is brought to the engine
+    // rate once via [`MeasuredHrirData::resampled_to`] before grid building.
     fn render(&self, az_deg: f32, el_deg: f32, _sample_rate: u32) -> HrirPair {
         let mut pair = HrirPair {
             left: [0.0; HRIR_LEN],
@@ -188,6 +213,39 @@ fn dir_vec(az_deg: f32, el_deg: f32) -> [f32; 3] {
     [ce * az.sin(), ce * az.cos(), el.sin()]
 }
 
+/// Offline windowed-sinc resampler for measured IRs (Blackman window,
+/// half-width 16 input samples, low-passed at the lower of the two Nyquists
+/// so downsampling does not alias). Build-time only — O(len·32) per IR.
+fn resample_ir(x: &[f32], from: u32, to: u32) -> Vec<f32> {
+    const HALF_WIDTH: isize = 16;
+    let ratio = to as f64 / from as f64;
+    let cutoff = ratio.min(1.0);
+    let out_len = ((x.len() as f64) * ratio).round() as usize;
+    let mut out = Vec::with_capacity(out_len);
+    for n in 0..out_len {
+        // Position of output sample `n` on the input's sample axis.
+        let t = n as f64 / ratio;
+        let k0 = t.floor() as isize;
+        let mut acc = 0.0f64;
+        for k in (k0 - HALF_WIDTH + 1)..=(k0 + HALF_WIDTH) {
+            if k < 0 || k as usize >= x.len() {
+                continue;
+            }
+            let d = t - k as f64;
+            let w = 0.42
+                + 0.5 * (std::f64::consts::PI * d / HALF_WIDTH as f64).cos()
+                + 0.08 * (2.0 * std::f64::consts::PI * d / HALF_WIDTH as f64).cos();
+            acc += x[k as usize] as f64 * cutoff * sinc(std::f64::consts::PI * cutoff * d) * w;
+        }
+        out.push(acc as f32);
+    }
+    out
+}
+
+fn sinc(x: f64) -> f64 {
+    if x.abs() < 1e-12 { 1.0 } else { x.sin() / x }
+}
+
 /// Onset-align `ir` and copy `HRIR_LEN` taps into `out`. Idempotent for an
 /// already-aligned IR (onset ≈ 0).
 fn align_into(ir: &[f32], out: &mut [f32; HRIR_LEN]) {
@@ -249,5 +307,95 @@ mod tests {
             (0.5..2.0).contains(&ratio),
             "front asymmetric L={el} R={er}"
         );
+    }
+
+    /// The resampler must move signal content to the new sample axis: a tone
+    /// resampled 48 k → 44.1 k stays at its absolute frequency.
+    #[test]
+    fn resampler_preserves_tone_frequency() {
+        let (from, to) = (48_000u32, 44_100u32);
+        let f0 = 1_000.0f64;
+        let n = 480;
+        // Hann-windowed tone so edge truncation does not pollute the check.
+        let x: Vec<f32> = (0..n)
+            .map(|i| {
+                let t = i as f64 / from as f64;
+                let w = 0.5 - 0.5 * (2.0 * std::f64::consts::PI * i as f64 / n as f64).cos();
+                ((2.0 * std::f64::consts::PI * f0 * t).sin() * w) as f32
+            })
+            .collect();
+        let y = resample_ir(&x, from, to);
+        assert_eq!(y.len(), 441);
+        // Quadrature projection at f0 on the target rate vs. an off frequency.
+        let project = |f: f64| -> f64 {
+            let (mut c, mut s) = (0.0f64, 0.0f64);
+            for (i, &v) in y.iter().enumerate() {
+                let ph = 2.0 * std::f64::consts::PI * f * i as f64 / to as f64;
+                c += v as f64 * ph.cos();
+                s += v as f64 * ph.sin();
+            }
+            (c * c + s * s).sqrt()
+        };
+        let on = project(f0);
+        let off = project(f0 * 1.35);
+        assert!(
+            on > off * 5.0,
+            "tone did not stay at {f0} Hz: on={on} off={off}"
+        );
+    }
+
+    /// Building the SAF set at a non-native rate must actually change the
+    /// IRs (they used to be bit-identical at every rate — issue #151) while
+    /// keeping their energy in the same ballpark.
+    #[test]
+    fn saf_resampled_to_441_differs_and_preserves_energy() {
+        let native = MeasuredHrirData::saf_kemar();
+        let resampled = MeasuredHrirData::saf_kemar().resampled_to(44_100);
+        assert_eq!(resampled.sample_rate, 44_100);
+        assert_eq!(resampled.len(), native.len());
+
+        let grid_native = HrirSet::new(&native, 48_000);
+        let grid_resampled = HrirSet::new(&resampled, 44_100);
+        let mut a = HrirPair {
+            left: [0.0; HRIR_LEN],
+            right: [0.0; HRIR_LEN],
+        };
+        let mut b = a.clone();
+        let mut max_diff = 0.0f32;
+        for (az, el) in [(0.0, 0.0), (90.0, 0.0), (-30.0, 40.0), (150.0, -20.0)] {
+            grid_native.at(az, el, &mut a);
+            grid_resampled.at(az, el, &mut b);
+            for (x, y) in a.left.iter().zip(&b.left) {
+                max_diff = max_diff.max((x - y).abs());
+            }
+            let (ea, eb) = (energy(&a.left), energy(&b.left));
+            let ratio = eb / ea.max(1e-12);
+            assert!(
+                (0.5..1.5).contains(&ratio),
+                "energy drifted at ({az},{el}): native={ea} resampled={eb}"
+            );
+        }
+        assert!(
+            max_diff > 1e-4,
+            "44.1 kHz grid is identical to the 48 kHz one — no resampling happened"
+        );
+    }
+
+    /// At the native rate the resample must be a strict no-op.
+    #[test]
+    fn resample_is_noop_at_native_rate() {
+        let native = MeasuredHrirData::saf_kemar();
+        let same = MeasuredHrirData::saf_kemar().resampled_to(48_000);
+        let grid_a = HrirSet::new(&native, 48_000);
+        let grid_b = HrirSet::new(&same, 48_000);
+        let mut a = HrirPair {
+            left: [0.0; HRIR_LEN],
+            right: [0.0; HRIR_LEN],
+        };
+        let mut b = a.clone();
+        grid_a.at(37.0, 12.0, &mut a);
+        grid_b.at(37.0, 12.0, &mut b);
+        assert_eq!(a.left, b.left);
+        assert_eq!(a.right, b.right);
     }
 }
