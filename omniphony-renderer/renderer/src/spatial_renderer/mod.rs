@@ -632,21 +632,21 @@ impl SpatialRenderer {
                     }
                 }
             }
-            let (binaural_params, hrir_source) = {
+            let binaural_params = {
                 let g = self.control.live.read();
-                (
-                    crate::binaural::BinauralFrameParams {
-                        head_pose: g.binaural.head_pose,
-                        unit_scale_m: g.binaural.unit_scale_m,
-                        head_radius_m: g.binaural.head_radius_m,
-                        reflections: g.binaural.reflections.clone(),
-                        reverb: g.binaural.reverb.clone(),
-                        air_absorption: g.binaural.air_absorption,
-                    },
-                    g.binaural.hrir_source.clone(),
-                )
+                // Compare against the live source in place: no per-frame clone
+                // (the `Sofa` variant carries a heap path), and any rebuild is
+                // pushed to the worker inside `ensure_source`.
+                self.binaural.ensure_source(&g.binaural.hrir_source);
+                crate::binaural::BinauralFrameParams {
+                    head_pose: g.binaural.head_pose,
+                    unit_scale_m: g.binaural.unit_scale_m,
+                    head_radius_m: g.binaural.head_radius_m,
+                    reflections: g.binaural.reflections.clone(),
+                    reverb: g.binaural.reverb.clone(),
+                    air_absorption: g.binaural.air_absorption,
+                }
             };
-            self.binaural.ensure_source(&hrir_source);
             let mut output = samples_buf;
             output.clear();
             output.resize(sample_length * 2, 0.0);
