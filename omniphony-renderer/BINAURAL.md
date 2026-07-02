@@ -20,6 +20,14 @@ position → rotate(head pose) → (azimuth, elevation, distance)
 Measured cost: ~0.09 ms per 40-sample block for a 16-channel Atmos stream
 (~11 % of the realtime budget), reflections included.
 
+One exception: a bed mapped to a **`spatialize: false` speaker** (the LFE)
+keeps its direct-routing intent. Sub-bass carries no usable direction, so the
+channel skips the whole pipeline above and feeds **both ears equally at
+constant power** (−3 dB each), dry and full-range — no HRIR, no ITD, no
+reverb send, and head rotation has no effect on it. Level is unity overall
+(no +10 dB LFE convention), matching the speaker path's untouched one-hot
+routing.
+
 ## Enabling it
 
 Set the output mode in `~/.config/omniphony/config.yaml`:

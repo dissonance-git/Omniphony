@@ -385,6 +385,10 @@ impl BinauralRenderer {
     ///
     /// - `chan_pos[c]`: world (ADM) position of input channel `c`.
     /// - `chan_gain[c]`: linear gain for channel `c` (object mute/gain folded in).
+    /// - `chan_direct[c]`: `true` for channels that keep their direct-routing
+    ///   intent (beds mapped to a `spatialize: false` speaker — the LFE): fed
+    ///   to both ears equally, bypassing HRIR/ITD/air/reflections/reverb.
+    ///   Missing entries read as `false`.
     /// - `out`: must be `sample_length * 2`, pre-zeroed.
     #[allow(clippy::too_many_arguments)]
     pub fn render_frame(
@@ -395,6 +399,7 @@ impl BinauralRenderer {
         params: &BinauralFrameParams,
         chan_pos: &[[f64; 3]],
         chan_gain: &[f32],
+        chan_direct: &[bool],
         out: &mut [f32],
     ) {
         let BinauralFrameParams {
@@ -434,6 +439,30 @@ impl BinauralRenderer {
                     if let Some(bank) = dsp.refl.as_mut() {
                         bank.mute_targets();
                     }
+                }
+                continue;
+            }
+            // Direct (non-spatialized) feed — the LFE policy (issue #156):
+            // sub-bass carries no usable direction, so the channel goes to
+            // both ears at constant power (−3 dB each), dry and full-range —
+            // no HRIR, no ITD, no air, no reflections, no reverb send. Unity
+            // overall (no +10 dB LFE convention), matching the speaker path's
+            // untouched one-hot routing. Head rotation deliberately has no
+            // effect, like real sub-bass.
+            if chan_direct.get(c).copied().unwrap_or(false) {
+                if let Some(Some(dsp)) = self.channels.get_mut(c) {
+                    // Drop a stale reflection bank if the channel just
+                    // switched from the spatialized path (same policy as the
+                    // reflections-disabled branch below).
+                    dsp.refl = None;
+                }
+                for s in 0..sample_length {
+                    let v = input_pcm[s * input_channel_count + c]
+                        * gain
+                        * std::f32::consts::FRAC_1_SQRT_2;
+                    let o = s * 2;
+                    out[o] += v;
+                    out[o + 1] += v;
                 }
                 continue;
             }
@@ -597,7 +626,7 @@ mod tests {
         let mut input = vec![0.0f32; n];
         input[0] = 1.0;
         let mut out = vec![0.0f32; n * 2];
-        r.render_frame(&input, 1, n, &dry_params(), &[pos], &[1.0], &mut out);
+        r.render_frame(&input, 1, n, &dry_params(), &[pos], &[1.0], &[], &mut out);
         let mut el = 0.0f32;
         let mut er = 0.0f32;
         for s in 0..n {
@@ -625,7 +654,7 @@ mod tests {
         let pos = [[0.5, 1.0, 0.0]];
         let render = |r: &mut BinauralRenderer| -> f32 {
             let mut out = vec![0.0f32; n * 2];
-            r.render_frame(&input, 1, n, &dry_params(), &pos, &[1.0], &mut out);
+            r.render_frame(&input, 1, n, &dry_params(), &pos, &[1.0], &[], &mut out);
             out.iter().map(|x| x * x).sum()
         };
 
@@ -676,7 +705,7 @@ mod tests {
 
         let mut dry = vec![0.0f32; n * 2];
         let mut r = BinauralRenderer::new(48_000);
-        r.render_frame(&input, 1, n, &dry_params(), &pos, &[1.0], &mut dry);
+        r.render_frame(&input, 1, n, &dry_params(), &pos, &[1.0], &[], &mut dry);
 
         let wet_params = BinauralFrameParams {
             reflections: BinauralReflections {
@@ -688,7 +717,7 @@ mod tests {
         };
         let mut wet = vec![0.0f32; n * 2];
         let mut r = BinauralRenderer::new(48_000);
-        r.render_frame(&input, 1, n, &wet_params, &pos, &[1.0], &mut wet);
+        r.render_frame(&input, 1, n, &wet_params, &pos, &[1.0], &[], &mut wet);
 
         assert!(tail(&dry) < 1e-9, "dry render must have no late energy");
         assert!(
@@ -709,7 +738,7 @@ mod tests {
 
         let mut dry = vec![0.0f32; n * 2];
         let mut r = BinauralRenderer::new(48_000);
-        r.render_frame(&input, 1, n, &dry_params(), &pos, &[1.0], &mut dry);
+        r.render_frame(&input, 1, n, &dry_params(), &pos, &[1.0], &[], &mut dry);
         assert!(tail(&dry) < 1e-9, "dry render must have no tail");
 
         let wet_params = BinauralFrameParams {
@@ -723,7 +752,7 @@ mod tests {
         };
         let mut wet = vec![0.0f32; n * 2];
         let mut r = BinauralRenderer::new(48_000);
-        r.render_frame(&input, 1, n, &wet_params, &pos, &[1.0], &mut wet);
+        r.render_frame(&input, 1, n, &wet_params, &pos, &[1.0], &[], &mut wet);
         assert!(tail(&wet) > 1e-7, "no reverb tail: {}", tail(&wet));
     }
 
@@ -742,7 +771,16 @@ mod tests {
             };
             let mut out = vec![0.0f32; n * 2];
             let mut r = BinauralRenderer::new(48_000);
-            r.render_frame(&input, 1, n, &params, &[[0.0, dist, 0.0]], &[1.0], &mut out);
+            r.render_frame(
+                &input,
+                1,
+                n,
+                &params,
+                &[[0.0, dist, 0.0]],
+                &[1.0],
+                &[],
+                &mut out,
+            );
             // Direct path no longer applies a 1/d gain, so the broadband level is
             // distance-independent; the only near/far difference is the
             // air-absorption HF roll-off under test.
@@ -787,6 +825,7 @@ mod tests {
             &dry_params(),
             &[[1.0, 0.0, 0.0]],
             &[0.0],
+            &[],
             &mut out,
         );
         assert!(out.iter().all(|&x| x == 0.0));
