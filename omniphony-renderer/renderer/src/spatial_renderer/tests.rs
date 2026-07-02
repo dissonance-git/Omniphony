@@ -1337,5 +1337,21 @@ fn binaural_lfe_bed_feeds_both_ears_equally_and_dry() {
     );
 }
 
+/// After claiming the FP environment, subnormal arithmetic must flush to
+/// zero on this thread (issue #154) — without FTZ/DAZ the product below
+/// stays a nonzero subnormal.
+#[test]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+fn render_thread_flushes_denormals() {
+    ensure_denormals_flushed();
+    // MIN_POSITIVE is the smallest *normal*; dividing it makes a subnormal.
+    let tiny = std::hint::black_box(f32::MIN_POSITIVE) / std::hint::black_box(4.0f32);
+    let prod = std::hint::black_box(tiny) * std::hint::black_box(1.0f32);
+    assert_eq!(
+        prod, 0.0,
+        "subnormals must flush to zero on the render thread (got {prod:e})"
+    );
+}
+
 // TODO: Add integration test with real spatial metadata
 // For now, testing is done via real spatial audio content decoding

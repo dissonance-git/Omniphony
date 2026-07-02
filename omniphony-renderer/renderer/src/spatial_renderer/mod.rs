@@ -101,6 +101,54 @@ struct LiveSnapshot<'a> {
     distance_diffuse_curve: f32,
 }
 
+/// Put the calling thread's FPU in flush-to-zero / denormals-are-zero mode,
+/// once per thread (issue #154).
+///
+/// Every recursive DSP path in the renderer (FDN delay lines and damping,
+/// reflection-tap smoothing, air-absorption one-poles, biquad states) decays
+/// exponentially toward zero after input stops; without FTZ those tails enter
+/// denormal range, where each multiply can cost 10–100× on x86 — a CPU spike
+/// exactly when the stream goes silent. Flushing to zero is the standard
+/// audio-DSP trade: values below ~1e-38 are ~−760 dBFS, far beyond audibility.
+///
+/// This claims the FP environment of the host's thread (mpv's decode thread,
+/// the CLI engine), which is deliberate: that thread runs our DSP, and FTZ is
+/// the conventional processing mode for realtime audio. On unknown
+/// architectures this is a no-op (correct, just without the protection).
+#[inline]
+fn ensure_denormals_flushed() {
+    use std::cell::Cell;
+    thread_local! {
+        static CLAIMED: Cell<bool> = const { Cell::new(false) };
+    }
+    CLAIMED.with(|claimed| {
+        if claimed.get() {
+            return;
+        }
+        claimed.set(true);
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            // MXCSR bits: FTZ = 15, DAZ = 6 (DAZ exists on every x86-64 CPU
+            // this crate targets). Inline asm instead of the deprecated
+            // `_mm_setcsr` intrinsics: the write is opaque to LLVM, which is
+            // the point — the changed FP mode must not be reasoned away.
+            let mut mxcsr: u32 = 0;
+            std::arch::asm!("stmxcsr [{}]", in(reg) &mut mxcsr, options(nostack));
+            mxcsr |= (1 << 15) | (1 << 6);
+            std::arch::asm!("ldmxcsr [{}]", in(reg) &mxcsr, options(nostack));
+        }
+        #[cfg(target_arch = "aarch64")]
+        unsafe {
+            // FPCR.FZ (bit 24): flush-to-zero for f32/f64 (Apple Silicon
+            // builds). Read-modify-write keeps the rounding mode intact.
+            let mut fpcr: u64;
+            std::arch::asm!("mrs {}, fpcr", out(reg) fpcr);
+            fpcr |= 1 << 24;
+            std::arch::asm!("msr fpcr, {}", in(reg) fpcr);
+        }
+    });
+}
+
 /// Spatial audio renderer using VBAP
 pub struct SpatialRenderer {
     /// Number of output speakers (total, including non-spatialized like LFE)
@@ -442,6 +490,11 @@ impl SpatialRenderer {
         samples_buf: Vec<f32>,
         measure_breakdown: bool,
     ) -> Result<RenderedFrame> {
+        // The render thread belongs to the host (mpv's decode thread, the CLI
+        // engine, …), so the FP environment is claimed here, at the DSP entry
+        // point, rather than at thread creation.
+        ensure_denormals_flushed();
+
         // ── 0. Independent binaural (headphone) path ─────────────────────────
         // When headphone output is selected, bypass the entire VBAP / crossover /
         // speaker chain and emit a 2-channel frame. The branch is taken below,
