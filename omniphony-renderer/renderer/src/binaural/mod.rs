@@ -289,14 +289,20 @@ impl BinauralRenderer {
                 },
                 sample_rate,
             ),
-            HrirSource::SafKemar => HrirSet::new(&MeasuredHrirData::saf_kemar(), sample_rate),
+            HrirSource::SafKemar => HrirSet::new(
+                &MeasuredHrirData::saf_kemar().resampled_to(sample_rate),
+                sample_rate,
+            ),
             HrirSource::Sofa(path) => match Self::load_sofa(path, sample_rate) {
                 Some(set) => set,
                 None => {
                     log::warn!(
                         "binaural: SOFA source '{path}' unavailable; falling back to SAF KEMAR"
                     );
-                    HrirSet::new(&MeasuredHrirData::saf_kemar(), sample_rate)
+                    HrirSet::new(
+                        &MeasuredHrirData::saf_kemar().resampled_to(sample_rate),
+                        sample_rate,
+                    )
                 }
             },
         }
