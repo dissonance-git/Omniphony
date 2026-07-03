@@ -1,4 +1,4 @@
-import { copyFileSync, chmodSync, existsSync, mkdirSync } from 'fs';
+import { copyFileSync, chmodSync, existsSync, mkdirSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
@@ -41,3 +41,45 @@ if (process.platform !== 'win32') {
 }
 
 console.log(`Prepared sidecar: ${sidecarPath}`);
+
+// ── engine library (liborender) ────────────────────────────────────────────
+// Bundled as a resource and deployed at startup (src-tauri/src/engine_deploy.rs)
+// to the per-user path the forked mpv's runtime loader searches — so shipping
+// Studio ships the engine every consumer uses, built from this same commit as
+// the CLI sidecar above. The Linux artifact is named after its soname
+// (liborender.so.<ABI major>, read from the generated header) to match what
+// the loader probes.
+execFileSync('cargo', ['build', '--release', '-p', 'orender_ffi'], {
+  cwd: rendererDir,
+  stdio: 'inherit'
+});
+
+const engineDir = join(binariesDir, 'engine');
+mkdirSync(engineDir, { recursive: true });
+
+let libSrc, libName;
+if (process.platform === 'win32') {
+  libSrc = join(rendererDir, 'target', 'release', 'orender.dll');
+  libName = 'orender.dll';
+} else if (process.platform === 'darwin') {
+  libSrc = join(rendererDir, 'target', 'release', 'liborender.dylib');
+  libName = 'liborender.dylib';
+} else {
+  const header = readFileSync(
+    join(rendererDir, 'orender_ffi', 'include', 'orender.h'), 'utf8');
+  const major = /^#define ORENDER_ABI_MAJOR (\d+)$/m.exec(header)?.[1];
+  if (!major) {
+    throw new Error('ORENDER_ABI_MAJOR not found in orender.h');
+  }
+  libSrc = join(rendererDir, 'target', 'release', 'liborender.so');
+  libName = `liborender.so.${major}`;
+}
+if (!existsSync(libSrc)) {
+  throw new Error(`Engine library not found after build: ${libSrc}`);
+}
+copyFileSync(libSrc, join(engineDir, libName));
+if (process.platform !== 'win32') {
+  chmodSync(join(engineDir, libName), 0o755);
+}
+
+console.log(`Prepared engine library: ${join(engineDir, libName)}`);

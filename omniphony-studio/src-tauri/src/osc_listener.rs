@@ -2504,6 +2504,17 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     removed_ids,
                 )
             }
+            OscEvent::StateRenderAbi { value } => {
+                s.render_abi = if value.trim().is_empty() {
+                    None
+                } else {
+                    Some(value.clone())
+                };
+                (
+                    Some(("render:abi", serde_json::json!({ "value": value }))),
+                    removed_ids,
+                )
+            }
             OscEvent::StateRenderBridgeError { value } => {
                 s.render_bridge_error = if value.trim().is_empty() {
                     None

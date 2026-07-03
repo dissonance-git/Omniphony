@@ -87,9 +87,12 @@ export function updateAboutRendererVersion() {
   const el = document.getElementById('aboutRendererVersion');
   if (!el) return;
   const version = typeof app.renderVersion === 'string' ? app.renderVersion.trim() : '';
-  if (version) {
-    el.textContent = version;
-    el.title = version;
+  // The liborender host also reports its C-ABI pair; the CLI reports none.
+  const abi = typeof app.renderAbi === 'string' ? app.renderAbi.trim() : '';
+  const text = version && abi ? `${version} · ABI ${abi}` : version;
+  if (text) {
+    el.textContent = text;
+    el.title = text;
   } else {
     el.textContent = '—';
     el.removeAttribute('title');

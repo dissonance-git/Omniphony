@@ -14,7 +14,8 @@
     "externalBin": ["binaries/orender"],
     "resources": {
       "../../layouts/*.yaml": "layouts/",
-      "../../layouts/legacy/*.yaml": "layouts/legacy/"
+      "../../layouts/legacy/*.yaml": "layouts/legacy/",
+      "binaries/engine/*": "engine/"
     },
     "windows": {
       "nsis": {
