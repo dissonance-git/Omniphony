@@ -1353,5 +1353,124 @@ fn render_thread_flushes_denormals() {
     );
 }
 
+/// A layout without back floor speakers (5.1.4-style: sides + four tops) must
+/// still render content placed at the back floor corners — the direction sits
+/// outside the speaker hull (below the SL↔TBL / SR↔TBR faces) and must fold
+/// onto the closest hull face, never to silence (issue #169). Mirrors the field
+/// config: precomputed cartesian table, zero-length ramp, steady state.
+#[test]
+fn back_floor_position_renders_on_layout_without_back_speakers() {
+    const LAYOUT_5_1_4: &str = r#"
+radius_m: 1.0
+speakers:
+- { name: FL,  coord_mode: cartesian, x: -1.0, y:  1.0, z: 0.0, spatialize: true }
+- { name: FR,  coord_mode: cartesian, x:  1.0, y:  1.0, z: 0.0, spatialize: true }
+- { name: C,   coord_mode: cartesian, x:  0.0, y:  1.0, z: 0.0, spatialize: true }
+- { name: LFE, coord_mode: cartesian, x:  1.0, y:  1.0, z: -1.0, spatialize: false }
+- { name: SL,  coord_mode: cartesian, x: -1.0, y:  0.0, z: 0.0, spatialize: true }
+- { name: SR,  coord_mode: cartesian, x:  1.0, y:  0.0, z: 0.0, spatialize: true }
+- { name: TFL, coord_mode: cartesian, x: -1.0, y:  1.0, z: 1.0, spatialize: true }
+- { name: TFR, coord_mode: cartesian, x:  1.0, y:  1.0, z: 1.0, spatialize: true }
+- { name: TBL, coord_mode: cartesian, x: -1.0, y: -1.0, z: 1.0, spatialize: true }
+- { name: TBR, coord_mode: cartesian, x:  1.0, y: -1.0, z: 1.0, spatialize: true }
+"#;
+
+    fn build() -> SpatialRenderer {
+        SpatialRenderer::new(
+            SpeakerLayout::from_yaml_str(LAYOUT_5_1_4).unwrap(),
+            48_000,
+            1,
+            90,
+            0.25,
+            2.0,
+            VbapTableMode::Cartesian {
+                x_size: 63,
+                y_size: 63,
+                z_size: 16,
+                z_neg_size: 0,
+            },
+            false,
+            true,
+            DistanceModel::None,
+            false,
+            1.0,
+            1.0,
+            0.0,
+            1.0,
+            false,
+            [2.0, 2.0, 1.0],
+            1.0,
+            0.466667,
+            0.5,
+            0.0,
+            false,
+            true,
+            true,
+            1.0,
+            1.0,
+            PreferredEvaluationMode::PrecomputedCartesian,
+            LiveEvaluationMode::PrecomputedCartesian,
+            63,
+            63,
+            16,
+            0,
+        )
+        .unwrap()
+    }
+
+    let pcm: Vec<f32> = (0..40)
+        .map(|i| if i % 2 == 0 { 0.5 } else { -0.5 })
+        .collect();
+    // Steady-state per-speaker peaks: apply the event, then measure a second
+    // frame so a ramp (if any) cannot mask a zero steady-state gain.
+    let peaks_at = |pos: [f64; 3]| -> Vec<f32> {
+        let event = vec![SpatialChannelEvent {
+            channel_idx: 0,
+            is_bed: false,
+            gain_db: Some(0),
+            ramp_length: Some(0),
+            size: None,
+            position: Some(pos),
+            sample_pos: Some(0),
+        }];
+        let mut r = build();
+        r.render_frame(&pcm, 1, &event, Vec::new(), false).unwrap();
+        let out = r.render_frame(&pcm, 1, &[], Vec::new(), false).unwrap();
+        let n = 10usize;
+        let mut peaks = vec![0.0f32; n];
+        for (k, &s) in out.samples.iter().enumerate() {
+            let c = k % n;
+            peaks[c] = peaks[c].max(s.abs());
+        }
+        peaks
+    };
+
+    // Control: the exact side position renders on SL.
+    let side = peaks_at([-1.0, 0.0, 0.0]);
+    assert!(
+        side[4] > 1e-3,
+        "side-left content must render on SL (peaks {side:?})"
+    );
+
+    // Back floor corners: outside the hull; must fold onto the nearest face
+    // (side surround and/or top back of that side), never to silence.
+    for (pos, near) in [
+        ([-1.0f64, -1.0, 0.0], [4usize, 8]), // SL / TBL
+        ([1.0, -1.0, 0.0], [5, 9]),          // SR / TBR
+    ] {
+        let peaks = peaks_at(pos);
+        let near_peak = near.iter().map(|&c| peaks[c]).fold(0.0f32, f32::max);
+        let total: f32 = peaks.iter().sum();
+        assert!(
+            near_peak > 1e-3,
+            "back-floor content at {pos:?} must fold onto the near speakers (peaks {peaks:?})"
+        );
+        assert!(
+            near_peak >= total * 0.5,
+            "back-floor fold at {pos:?} should stay local (peaks {peaks:?})"
+        );
+    }
+}
+
 // TODO: Add integration test with real spatial metadata
 // For now, testing is done via real spatial audio content decoding
