@@ -1,36 +1,38 @@
 # Maintainer: Mathieu Grenet <mathieu@mgth.fr>
 #
-# omniphony-bridge — the format-decoder bridge plugin (built from the upstream
-# harletty-bridge source) loaded at runtime by liborender via dlopen. Installed
-# into the fixed libdir the embedded host uses by default:
+# harletty-bridge — the format-decoder bridge plugin loaded at runtime by the
+# orender engine via dlopen. Installed into the fixed libdir hosts are pointed
+# at:
 #
-#     /usr/lib/orender/omniphony_bridge.so
+#     /usr/lib/orender/libharletty_bridge.so
 #
-# Point mpv at it with `--ad-orender-bridge-path=/usr/lib/orender/omniphony_bridge.so`
-# (the intended default in the mpv-omniphony integration).
+# The engine auto-discovers any `*_bridge.so` sitting next to the host
+# executable; for system installs (host in /usr/bin) point it at the plugin
+# explicitly, e.g. `render.bridge_path` in ~/.config/omniphony/config.yaml or
+# `--ad-orender-bridge-path=/usr/lib/orender/libharletty_bridge.so` in mpv.
 #
 # The upstream bridge source builds against a few crates from the Omniphony
-# workspace via path deps (bridge_api/spdif/sys), so the matching liborender
+# workspace via path deps (bridge_api/spdif/sys), so the matching Omniphony
 # release source is fetched alongside and exposed under the sibling name its
 # Cargo.toml expects.
 
-pkgname=omniphony-bridge
-pkgver=0.6.0
+pkgname=harletty-bridge
+pkgver=0.7.1
 pkgrel=1
-pkgdesc="Format-decoder bridge plugin for liborender (loaded via dlopen at runtime)"
+pkgdesc="Format-decoder bridge plugin for the orender engine (loaded via dlopen at runtime)"
 arch=('x86_64')
-url="https://github.com/mgth/harletty-bridge"
+url="https://github.com/harletty/harletty-bridge"
 license=('Apache-2.0')
 depends=('gcc-libs')
 makedepends=('rust' 'cargo')
 
 # Omniphony tag providing the workspace path-deps (bridge_api/spdif/sys).
-_omniver=0.2.2
+_omniver=0.4.1
 
 source=("harletty-bridge-$pkgver.tar.gz::https://github.com/harletty/harletty-bridge/archive/refs/tags/v$pkgver.tar.gz"
         "omniphony-$_omniver.tar.gz::https://github.com/mgth/Omniphony/archive/refs/tags/liborender-v$_omniver.tar.gz")
-sha256sums=('d0d54e0f069d9a1a746e4336ac94fb7c8722e8091879ed098d1573703ad52dff'
-            'c5327383b303463680e65179dd3199e9b951acce2f6bea6fdc62ee20593e1568')
+sha256sums=('af39c8adb4fb70e74377944e91ecec5fc2bd81bcd6f4f02124db3815ae07d0ff'
+            '2828762b8d0b1bbfaf642108393a02fecc66e975ce0f370de9817c18f7f8b3d5')
 
 _bridge="harletty-bridge-$pkgver"
 
@@ -50,10 +52,10 @@ build() {
 package() {
     cd "$srcdir/$_bridge"
 
-    # Install under a generic `*_bridge.so` name in the fixed orender libdir so
-    # the plugin loader's filename pattern matches and the path is predictable.
+    # Keep the natural cargo artifact name: the engine's plugin discovery
+    # matches any `*_bridge.so`, so no rename is needed.
     install -Dm755 target/release/libharletty_bridge.so \
-        "$pkgdir/usr/lib/orender/omniphony_bridge.so"
+        "$pkgdir/usr/lib/orender/libharletty_bridge.so"
 
     # Apache-2.0 text is provided by the system `licenses` package; ship the
     # upstream copy too if the checkout has one (avoid creating an empty dir).
