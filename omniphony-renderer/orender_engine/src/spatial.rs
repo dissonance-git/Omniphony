@@ -8,6 +8,24 @@ use renderer::spatial_renderer::SpatialChannelEvent;
 use renderer::speaker_layout::SpeakerLayout;
 use std::collections::HashMap;
 
+/// Canonical display name for the bed-id scheme shared by bridge metadata and
+/// [`SpeakerLayout::bed_to_speaker_mapping`]. Dynamic objects start at id 10.
+pub fn canonical_bed_name(id: u32) -> Option<&'static str> {
+    match id {
+        0 => Some("L"),
+        1 => Some("R"),
+        2 => Some("C"),
+        3 => Some("LFE"),
+        4 => Some("Ls"),
+        5 => Some("Rs"),
+        6 => Some("Lb"),
+        7 => Some("Rb"),
+        8 => Some("TFL"),
+        9 => Some("TFR"),
+        _ => None,
+    }
+}
+
 /// Wrap an azimuth in degrees into `[-180, 180]`.
 pub fn normalize_azimuth_deg(mut azimuth_deg: f32) -> f32 {
     while azimuth_deg < -180.0 {
@@ -35,7 +53,8 @@ pub fn event_pos_raw(event: &Event) -> Option<[f64; 3]> {
 /// Bed objects (id `< 10`) are reported at their layout speaker position with
 /// `direct_speaker_index` set; dynamic objects report their raw event position
 /// in the bridge's coordinate format. Names come from the accumulated
-/// `object_names` map (falling back to `Obj_<id>`).
+/// `object_names` map. Unnamed beds use their canonical speaker name; only
+/// unnamed dynamic objects fall back to `Obj_<id>`.
 pub fn build_object_metas(
     conf: &Configuration,
     coordinate_format: RCoordinateFormat,
@@ -93,10 +112,11 @@ pub fn build_object_metas(
                     )
                 });
             ObjectMeta {
-                name: object_names
-                    .get(&logical_id)
-                    .cloned()
-                    .unwrap_or_else(|| format!("Obj_{logical_id}")),
+                name: object_names.get(&logical_id).cloned().unwrap_or_else(|| {
+                    canonical_bed_name(logical_id)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| format!("Obj_{logical_id}"))
+                }),
                 x: ox as f32,
                 y: oy as f32,
                 z: oz as f32,
@@ -111,6 +131,55 @@ pub fn build_object_metas(
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::events::Event;
+
+    #[test]
+    fn unnamed_beds_get_canonical_names_and_lfe_stays_direct() {
+        let bed_ids = [2, 0, 1, 4, 5, 3, 6, 7];
+        let mut events: Vec<Event> = bed_ids.iter().map(|&id| Event::with_id(id)).collect();
+        events.push(Event::with_id(10));
+        let conf = Configuration::new(events);
+        let layout = SpeakerLayout::preset_7_1_4().expect("7.1.4 preset");
+
+        let objects = build_object_metas(
+            &conf,
+            RCoordinateFormat::Cartesian,
+            Some(&layout),
+            &HashMap::new(),
+        );
+
+        let names: Vec<&str> = objects.iter().map(|object| object.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["C", "L", "R", "Ls", "Rs", "LFE", "Lb", "Rb", "Obj_10"]
+        );
+        assert_eq!(objects[5].direct_speaker_index, Some(3));
+        assert_eq!(objects[5].coord_mode, "cartesian");
+        assert_eq!(
+            [objects[5].x, objects[5].y, objects[5].z],
+            [
+                layout.speakers[3].x,
+                layout.speakers[3].y,
+                layout.speakers[3].z,
+            ]
+        );
+        assert_eq!(objects[8].direct_speaker_index, None);
+    }
+
+    #[test]
+    fn explicit_names_override_canonical_bed_names() {
+        let conf = Configuration::new(vec![Event::with_id(3)]);
+        let names = HashMap::from([(3, "Effects".to_string())]);
+
+        let objects = build_object_metas(&conf, RCoordinateFormat::Cartesian, None, &names);
+
+        assert_eq!(objects[0].name, "Effects");
+    }
 }
 
 /// Resolve an event's position to ADM Cartesian `[x, y, z]`, converting from the

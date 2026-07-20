@@ -1440,12 +1440,15 @@ export function createObjectItem(id) {
 // read identically. Cheap enough to call on every position flush.
 export function applyObjectPositionIcon(entry, position) {
   if (!entry?.positionIcon || !position) return;
-  // spatialize:1 → currentColor room frame (objects are always virtualized).
+  // A direct bed feed carries the output speaker index in the OSC payload. Keep
+  // its thumbnail consistent with the renderer instead of depicting it as a
+  // virtualized object (most importantly, LFE → sub).
+  const direct = Number.isInteger(position.directSpeakerIndex);
   entry.positionIcon.innerHTML = positionIconMarkup({
     x: position.x,
     y: position.y,
     z: position.z,
-    spatialize: 1
+    spatialize: direct ? 0 : 1
   });
   const x = (Number(position.x) || 0).toFixed(2);
   const y = (Number(position.y) || 0).toFixed(2);
