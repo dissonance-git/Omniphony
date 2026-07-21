@@ -3,7 +3,6 @@ use anyhow::Result;
 use bridge_api::{RCoordinateFormat, RMetadataFrame};
 use orender_engine::events::{Configuration, Event};
 use orender_engine::osc::{ObjectMeta, OscSender};
-use orender_engine::spatial::canonical_bed_name;
 
 pub struct SpatialMetadataCoordinator<'a> {
     spatial: &'a mut SpatialState,
@@ -164,11 +163,7 @@ impl<'a> SpatialMetadataCoordinator<'a> {
                             .object_names
                             .get(&logical_id)
                             .cloned()
-                            .unwrap_or_else(|| {
-                                canonical_bed_name(logical_id)
-                                    .map(str::to_owned)
-                                    .unwrap_or_else(|| format!("Obj_{logical_id}"))
-                            }),
+                            .unwrap_or_else(|| format!("Obj_{logical_id}")),
                         x: ox as f32,
                         y: oy as f32,
                         z: oz as f32,
