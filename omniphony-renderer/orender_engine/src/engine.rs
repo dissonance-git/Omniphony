@@ -801,16 +801,12 @@ impl Engine {
                 &mut self.frame_events,
             );
 
-            // Name updates are sparse and may only be emitted on the first
-            // metadata frame. Cache them even before an OSC/overlay consumer
-            // connects so a later Studio attachment still sees stable names.
-            for upd in meta.name_updates.iter() {
-                self.object_names.insert(upd.id, upd.name.to_string());
-            }
-
             // Outgoing: broadcast object positions/names to OSC clients and/or
             // feed the in-process mpv overlay.
             if want_objects {
+                for upd in meta.name_updates.iter() {
+                    self.object_names.insert(upd.id, upd.name.to_string());
+                }
                 let layout = self.renderer.speaker_layout();
                 let objects = spatial::build_object_metas(
                     &conf,
