@@ -232,7 +232,7 @@ impl SpatialRenderer {
             distance_diffuse_curve,
             auto_gain,
             &excluded,
-            &topology.bed_to_speaker_mapping,
+            &topology.label_to_speaker,
         );
         let editable_layout = topology.speaker_layout.clone();
         let control = RendererControl::new(
@@ -311,7 +311,7 @@ impl SpatialRenderer {
         distance_diffuse_curve: f32,
         auto_gain: bool,
         excluded: &[&str],
-        bed_to_speaker_mapping: &std::collections::HashMap<usize, usize>,
+        label_to_speaker: &std::collections::HashMap<bridge_api::RChannelLabel, usize>,
     ) -> LiveParams {
         if !excluded.is_empty() {
             log::info!("Excluded from VBAP spatialization: {}", excluded.join(", "));
@@ -350,10 +350,7 @@ impl SpatialRenderer {
             master_gain,
             auto_gain
         );
-        log::info!(
-            "Bed to speaker mapping (by name): {:?}",
-            bed_to_speaker_mapping
-        );
+        log::info!("Label to speaker mapping (by name): {:?}", label_to_speaker);
 
         let mut speaker_live = std::collections::HashMap::new();
         for (idx, spk) in speaker_layout.speakers.iter().enumerate() {
@@ -573,7 +570,7 @@ impl SpatialRenderer {
         Ok(Self {
             num_speakers,
             spread_resolution,
-            bed_indices: arc_swap::ArcSwap::new(std::sync::Arc::new(Vec::new())),
+            channel_routing: arc_swap::ArcSwap::new(std::sync::Arc::new(Vec::new())),
             first_render: std::sync::atomic::AtomicBool::new(true),
             frame_counter: std::sync::atomic::AtomicU64::new(0),
             channel_states: parking_lot::Mutex::new(std::collections::HashMap::new()),
