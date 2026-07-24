@@ -67,6 +67,7 @@ fn find_id_in_address(parts: &[&str]) -> Option<String> {
         "remove",
         "delete",
         "off",
+        "meta",
     ]
     .iter()
     .copied()
@@ -137,6 +138,15 @@ pub enum OscEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<String>,
     },
+    #[serde(rename = "update:meta")]
+    UpdateMeta {
+        id: String,
+        fixed: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        generation: Option<u64>,
+    },
     #[serde(rename = "update:size")]
     UpdateSize {
         id: String,
@@ -188,8 +198,6 @@ pub enum OscEvent {
 
     #[serde(rename = "state:speaker:gain")]
     StateSpeakerGain { id: String, gain: f64 },
-    #[serde(rename = "state:object:gain")]
-    StateObjectGain { id: String, gain: f64 },
     #[serde(rename = "state:speaker:delay")]
     StateSpeakerDelay { id: String, delay_ms: f64 },
     #[serde(rename = "state:object:mute")]
@@ -243,8 +251,6 @@ pub enum OscEvent {
     StateRealtimeMasterGain { value: f64, seq: i32 },
     #[serde(rename = "state:realtime:speaker_gain")]
     StateRealtimeSpeakerGain { id: String, value: f64, seq: i32 },
-    #[serde(rename = "state:realtime:object_gain")]
-    StateRealtimeObjectGain { id: String, value: f64, seq: i32 },
     #[serde(rename = "state:latency")]
     StateLatency { value: f64 },
     #[serde(rename = "state:latency:instant")]
@@ -269,6 +275,12 @@ pub enum OscEvent {
     StateDiagSchema { value: String },
     #[serde(rename = "state:diag:values")]
     StateDiagValues { value: String },
+    #[serde(rename = "state:object_generators")]
+    StateObjectGenerators { value: String },
+    #[serde(rename = "state:phantom")]
+    StatePhantom { value: String },
+    #[serde(rename = "state:options_schema")]
+    StateOptionsSchema { value: String },
     #[serde(rename = "state:decode_time_ms")]
     StateDecodeTimeMs { value: f64 },
     #[serde(rename = "state:render_time_ms")]
@@ -289,6 +301,8 @@ pub enum OscEvent {
     StateRenderConfigStatus { value: String },
     #[serde(rename = "state:render:version")]
     StateRenderVersion { value: String },
+    #[serde(rename = "state:render:abi")]
+    StateRenderAbi { value: String },
     #[serde(rename = "state:render:bridge_error")]
     StateRenderBridgeError { value: String },
     #[serde(rename = "state:input_pipe")]
@@ -511,6 +525,36 @@ fn parse_omniphony_object_size(
     })
 }
 
+/// `/omniphony/object/{id}/meta` — fixed-channel flag + canonical label
+/// ([Int fixed, String label, Long generation]). Additive companion of the
+/// positional message (`docs/channel-object-contract.md`, phase 4).
+fn parse_omniphony_object_meta(
+    parts: &[&str],
+    args: &[f64],
+    raw_args: &[OscType],
+) -> Option<OscEvent> {
+    if !parts.contains(&"omniphony") || !parts.contains(&"object") || !parts.contains(&"meta") {
+        return None;
+    }
+    let id = find_id_in_address(parts)?;
+    let fixed = to_number(args.first().copied()?)? as i64 != 0;
+    let label = raw_args
+        .get(1)
+        .and_then(|a| unwrap_string(a))
+        .filter(|s| !s.trim().is_empty());
+    let generation = match raw_args.get(2) {
+        Some(OscType::Long(v)) if *v >= 0 => Some(*v as u64),
+        Some(OscType::Int(v)) if *v >= 0 => Some(*v as u64),
+        _ => None,
+    };
+    Some(OscEvent::UpdateMeta {
+        id,
+        fixed,
+        label,
+        generation,
+    })
+}
+
 fn parse_omniphony_spatial_frame(parts: &[&str], args: &[f64]) -> Option<OscEvent> {
     if parts.len() != 3 || parts[0] != "omniphony" || parts[1] != "spatial" || parts[2] != "frame" {
         return None;
@@ -601,6 +645,15 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
         (3, "diag_schema") => Some(OscEvent::StateDiagSchema {
             value: raw_args.first().and_then(unwrap_string)?,
         }),
+        (3, "object_generators") => Some(OscEvent::StateObjectGenerators {
+            value: raw_args.first().and_then(unwrap_string)?,
+        }),
+        (3, "phantom") => Some(OscEvent::StatePhantom {
+            value: raw_args.first().and_then(unwrap_string)?,
+        }),
+        (3, "options_schema") => Some(OscEvent::StateOptionsSchema {
+            value: raw_args.first().and_then(unwrap_string)?,
+        }),
         (3, "diag_values") => Some(OscEvent::StateDiagValues {
             value: raw_args.first().and_then(unwrap_string)?,
         }),
@@ -674,11 +727,6 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
             }),
             "speaker_gain" => Some(OscEvent::StateRealtimeSpeakerGain {
                 id: to_number(args.first().copied()?)?.round().to_string(),
-                value: to_number(args.get(1).copied()?)?,
-                seq: to_number(args.get(2).copied()?)? as i32,
-            }),
-            "object_gain" => Some(OscEvent::StateRealtimeObjectGain {
-                id: raw_args.first().and_then(unwrap_string)?,
                 value: to_number(args.get(1).copied()?)?,
                 seq: to_number(args.get(2).copied()?)? as i32,
             }),
@@ -843,6 +891,11 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
         (4, "render") if parts[3] == "version" => Some(OscEvent::StateRenderVersion {
             value: raw_args.first().and_then(unwrap_string)?,
         }),
+        // C-ABI version of the liborender shim hosting the engine
+        // ("major.minor"); empty when the engine is linked as a Rust crate.
+        (4, "render") if parts[3] == "abi" => Some(OscEvent::StateRenderAbi {
+            value: raw_args.first().and_then(unwrap_string)?,
+        }),
         (4, "render") if parts[3] == "bridge_error" => Some(OscEvent::StateRenderBridgeError {
             value: raw_args.first().and_then(unwrap_string)?,
         }),
@@ -854,11 +907,6 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
             enabled: to_number(args[0])? != 0.0,
         }),
         (5, kind) if kind == "object" || kind == "speaker" => match parts[4] {
-            "gain" if kind == "object" => {
-                let id = parts[3].to_string();
-                let gain = clamp(to_number(args[0])?, 0.0, 2.0);
-                Some(OscEvent::StateObjectGain { id, gain })
-            }
             "gain" if kind == "speaker" => {
                 let id = parts[3].parse::<u32>().ok()?.to_string();
                 let gain = clamp(to_number(args[0])?, 0.0, 2.0);
@@ -992,6 +1040,46 @@ mod tests {
     use rosc::OscType;
 
     #[test]
+    fn parses_object_meta_message() {
+        let parsed = parse_osc_message(
+            "/omniphony/object/3/meta",
+            &[
+                OscType::Int(1),
+                OscType::String("LFE".to_string()),
+                OscType::Long(7),
+            ],
+            CoordinateFormat::Cartesian,
+        );
+        assert!(matches!(
+            parsed,
+            Some(OscEvent::UpdateMeta {
+                id,
+                fixed: true,
+                label: Some(label),
+                generation: Some(7),
+            }) if id == "3" && label == "LFE"
+        ));
+    }
+
+    #[test]
+    fn object_meta_empty_label_maps_to_none() {
+        let parsed = parse_osc_message(
+            "/omniphony/object/12/meta",
+            &[OscType::Int(0), OscType::String(String::new())],
+            CoordinateFormat::Cartesian,
+        );
+        assert!(matches!(
+            parsed,
+            Some(OscEvent::UpdateMeta {
+                id,
+                fixed: false,
+                label: None,
+                generation: None,
+            }) if id == "12"
+        ));
+    }
+
+    #[test]
     fn parses_state_speaker_freq_high() {
         let parsed = parse_osc_message(
             "/omniphony/state/speaker/3/freq_high",
@@ -1031,6 +1119,11 @@ pub fn parse_osc_message(
 
     // omniphony object size
     if let Some(ev) = parse_omniphony_object_size(&parts, &args, raw_args) {
+        return Some(ev);
+    }
+
+    // omniphony object meta (fixed-channel flag + label)
+    if let Some(ev) = parse_omniphony_object_meta(&parts, &args, raw_args) {
         return Some(ev);
     }
 

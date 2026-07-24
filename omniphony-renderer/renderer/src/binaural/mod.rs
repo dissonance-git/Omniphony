@@ -9,7 +9,7 @@
 //!
 //! Pipeline per input channel, per frame:
 //! `pos_adm → rotate(head_pose) → (az, el, dist)`
-//!   → distance gain → per-ear ITD delay → per-ear HRIR convolution
+//!   → per-ear ITD delay → per-ear HRIR convolution
 //!   → (+ shoebox early reflections, see [`reflections`])
 //!   → sum into `[L, R]`.
 //!
@@ -25,6 +25,7 @@ pub mod head_pose;
 pub mod hrir;
 pub mod itd;
 pub mod measured;
+pub mod prtf;
 pub mod reflections;
 pub mod reverb;
 pub mod tracking;
@@ -35,10 +36,44 @@ pub use tracking::{HeadTracking, HeadTrackingFormat};
 use crate::delay_line::DelayLine;
 use crate::live_params::{BinauralReflections, BinauralReverb};
 use convolver::EarConvolver;
-use hrir::{HRIR_LEN, HrirPair, HrirSet};
+use hrir::{HRIR_LEN, HrirPair, HrirSet, ParametricPinnaHrir};
 use measured::MeasuredHrirData;
+use prtf::SpagnolPrtfHrir;
 use reflections::ReflectionBank;
 use reverb::Fdn;
+
+/// Per-listener `D_n` preset for the parametric pinna model (Brown & Duda 1998,
+/// Table I). `D_n` is the only parameter the paper individualizes per subject.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PinnaPreset {
+    /// Subjects PB & NH: D = [1, 0.5, 0.5, 0.5, 0.5].
+    #[default]
+    PbNh,
+    /// Subject RD: D = [0.85, 0.35, 0.35, 0.35, 0.35].
+    Rd,
+}
+
+impl PinnaPreset {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::PbNh => "pbnh",
+            Self::Rd => "rd",
+        }
+    }
+    pub fn from_str(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "rd" => Self::Rd,
+            _ => Self::PbNh,
+        }
+    }
+    /// The published `D_n` column for this preset.
+    fn d_base(&self) -> [f32; 5] {
+        match self {
+            Self::PbNh => ParametricPinnaHrir::D_PB_NH,
+            Self::Rd => ParametricPinnaHrir::D_RD,
+        }
+    }
+}
 
 /// Which HRIR data set the binaural stage convolves with.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -50,6 +85,21 @@ pub enum HrirSource {
     SafKemar,
     /// A SOFA file loaded from disk (requires the `sofa` build feature).
     Sofa(String),
+    /// Parametric structural model: analytic head shadow + the Brown-Duda pinna
+    /// echo train (exact Table I coefficients). `preset` picks a published `D_n`
+    /// column (the only per-listener parameter), `d_scale_pct` fine-tunes it,
+    /// `depth_pct` is the echo strength (0 ≈ synthetic, 100 = full). No measured
+    /// data — the "tune a few knobs" alternative to `saf`/`sofa`.
+    Pinna {
+        preset: PinnaPreset,
+        d_scale_pct: u16,
+        depth_pct: u16,
+    },
+    /// Structural PRTF model (Spagnol/Geronazzo/Avanzini): head shadow + two
+    /// concha resonances + three elevation-dependent notches, population-average
+    /// preset. `depth_pct` is the pinna-coloration amount (0 ≈ synthetic), and
+    /// `freq_scale_pct` shifts all notch/resonance frequencies (individualization).
+    Prtf { freq_scale_pct: u16, depth_pct: u16 },
 }
 
 impl HrirSource {
@@ -58,6 +108,8 @@ impl HrirSource {
             Self::Synthetic => "synthetic",
             Self::SafKemar => "saf",
             Self::Sofa(_) => "sofa",
+            Self::Pinna { .. } => "pinna",
+            Self::Prtf { .. } => "prtf",
         }
     }
 
@@ -68,20 +120,66 @@ impl HrirSource {
         if let Some(path) = s.strip_prefix("sofa:") {
             return Some(Self::Sofa(path.to_string()));
         }
-        match s.to_ascii_lowercase().as_str() {
+        let lower = s.to_ascii_lowercase();
+        // "pinna" | "pinna:<preset>:<dscale>:<depth>" (preset = pbnh|rd,
+        // dscale/depth percent integers).
+        if let Some(rest) = lower.strip_prefix("pinna:") {
+            let mut it = rest.split(':');
+            let preset = PinnaPreset::from_str(it.next().unwrap_or("pbnh"));
+            let d_scale = it
+                .next()
+                .and_then(|v| v.trim().parse::<u16>().ok())
+                .unwrap_or(100);
+            let depth = it
+                .next()
+                .and_then(|v| v.trim().parse::<u16>().ok())
+                .unwrap_or(100);
+            return Some(Self::Pinna {
+                preset,
+                d_scale_pct: d_scale.clamp(50, 150),
+                depth_pct: depth.clamp(0, 100),
+            });
+        }
+        // "prtf" | "prtf:<freq_scale>:<depth>" (percent integers).
+        if let Some(rest) = lower.strip_prefix("prtf:") {
+            let mut it = rest.split(':');
+            let freq = it
+                .next()
+                .and_then(|v| v.trim().parse::<u16>().ok())
+                .unwrap_or(100);
+            let depth = it
+                .next()
+                .and_then(|v| v.trim().parse::<u16>().ok())
+                .unwrap_or(100);
+            return Some(Self::Prtf {
+                freq_scale_pct: freq.clamp(50, 150),
+                depth_pct: depth.clamp(0, 100),
+            });
+        }
+        match lower.as_str() {
             "synthetic" | "synth" => Some(Self::Synthetic),
             "saf" | "kemar" | "saf_kemar" => Some(Self::SafKemar),
             "sofa" => Some(Self::Sofa(String::new())),
+            "pinna" | "parametric" => Some(Self::Pinna {
+                preset: PinnaPreset::PbNh,
+                d_scale_pct: 100,
+                depth_pct: 100,
+            }),
+            "prtf" | "spagnol" => Some(Self::Prtf {
+                freq_scale_pct: 100,
+                depth_pct: 100,
+            }),
             _ => None,
         }
     }
 }
 
-/// Reference distance (m) at which the distance gain is unity.
+/// Reference distance (m) at which an early reflection's 1/d gain is unity.
 const REF_DISTANCE_M: f32 = 1.0;
-/// Closest distance (m) used for the 1/d law, bounding near-source boost.
+/// Closest image-source distance (m) for the reflection 1/d law, bounding the
+/// near-source boost. (The direct path is deliberately not distance-attenuated.)
 const MIN_DISTANCE_M: f32 = 0.25;
-/// Maximum distance gain, so a source at the origin can't blow up.
+/// Maximum reflection distance gain, so an image at the origin can't blow up.
 const MAX_DISTANCE_GAIN: f32 = 4.0;
 /// Delay-line capacity for the ITD (s) — comfortably above the ~0.7 ms max.
 const ITD_MAX_S: f32 = 0.003;
@@ -132,9 +230,15 @@ pub struct BinauralFrameParams {
 /// channels of a frame to interleaved stereo.
 pub struct BinauralRenderer {
     sample_rate: u32,
-    hrir: HrirSet,
-    /// HRIR data set the current `hrir` grid was built from.
+    hrir: std::sync::Arc<HrirSet>,
+    /// HRIR source last *requested* (the active grid may briefly lag it while
+    /// the worker builds — see [`Self::ensure_source`]).
     source: HrirSource,
+    /// Finished grids from the rebuild worker, awaiting the audio-thread swap.
+    incoming: std::sync::Arc<arc_swap::ArcSwapOption<HrirSet>>,
+    /// Requests to the long-lived rebuild worker. Dropping the renderer drops
+    /// the sender, which terminates the worker.
+    rebuild_tx: std::sync::mpsc::Sender<HrirSource>,
     /// Per-input-channel DSP state, indexed directly by channel (sparse tail is
     /// fine; reset when the channel count shrinks).
     channels: Vec<Option<ChannelDsp>>,
@@ -149,10 +253,36 @@ pub struct BinauralRenderer {
 impl BinauralRenderer {
     pub fn new(sample_rate: u32) -> Self {
         let source = HrirSource::default();
+        let incoming: std::sync::Arc<arc_swap::ArcSwapOption<HrirSet>> =
+            std::sync::Arc::new(arc_swap::ArcSwapOption::empty());
+        // Long-lived rebuild worker: grid builds (allocations, provider
+        // renders, SOFA file I/O) must never run on the audio thread. The
+        // worker drains request bursts to the latest one, builds, and
+        // publishes into `incoming` for the audio thread to swap in.
+        let (rebuild_tx, rebuild_rx) = std::sync::mpsc::channel::<HrirSource>();
+        {
+            let slot = std::sync::Arc::clone(&incoming);
+            std::thread::Builder::new()
+                .name("binaural-hrir-rebuild".into())
+                .spawn(move || {
+                    while let Ok(mut req) = rebuild_rx.recv() {
+                        while let Ok(newer) = rebuild_rx.try_recv() {
+                            req = newer;
+                        }
+                        let set = Self::build_hrir(&req, sample_rate);
+                        slot.store(Some(std::sync::Arc::new(set)));
+                    }
+                })
+                .expect("spawn binaural HRIR rebuild worker");
+        }
         Self {
             sample_rate,
-            hrir: Self::build_hrir(&source, sample_rate),
+            // The initial (default) grid is built synchronously: `new` runs on
+            // a control thread, and the renderer must be usable immediately.
+            hrir: std::sync::Arc::new(Self::build_hrir(&source, sample_rate)),
             source,
+            incoming,
+            rebuild_tx,
             channels: Vec::new(),
             hrir_scratch: HrirPair {
                 left: [0.0; HRIR_LEN],
@@ -163,17 +293,54 @@ impl BinauralRenderer {
         }
     }
 
+    /// Identity of the active HRIR grid (tests observe the async swap with it).
+    #[cfg(test)]
+    fn hrir_grid_id(&self) -> usize {
+        std::sync::Arc::as_ptr(&self.hrir) as usize
+    }
+
     fn build_hrir(source: &HrirSource, sample_rate: u32) -> HrirSet {
         match source {
             HrirSource::Synthetic => HrirSet::synthetic(sample_rate),
-            HrirSource::SafKemar => HrirSet::new(&MeasuredHrirData::saf_kemar(), sample_rate),
+            HrirSource::Pinna {
+                preset,
+                d_scale_pct,
+                depth_pct,
+            } => {
+                let scale = *d_scale_pct as f32 / 100.0;
+                let d = preset.d_base().map(|x| x * scale);
+                HrirSet::new(
+                    &ParametricPinnaHrir {
+                        d,
+                        depth: *depth_pct as f32 / 100.0,
+                    },
+                    sample_rate,
+                )
+            }
+            HrirSource::Prtf {
+                freq_scale_pct,
+                depth_pct,
+            } => HrirSet::new(
+                &SpagnolPrtfHrir {
+                    depth: *depth_pct as f32 / 100.0,
+                    freq_scale: *freq_scale_pct as f32 / 100.0,
+                },
+                sample_rate,
+            ),
+            HrirSource::SafKemar => HrirSet::new(
+                &MeasuredHrirData::saf_kemar().resampled_to(sample_rate),
+                sample_rate,
+            ),
             HrirSource::Sofa(path) => match Self::load_sofa(path, sample_rate) {
                 Some(set) => set,
                 None => {
                     log::warn!(
                         "binaural: SOFA source '{path}' unavailable; falling back to SAF KEMAR"
                     );
-                    HrirSet::new(&MeasuredHrirData::saf_kemar(), sample_rate)
+                    HrirSet::new(
+                        &MeasuredHrirData::saf_kemar().resampled_to(sample_rate),
+                        sample_rate,
+                    )
                 }
             },
         }
@@ -196,12 +363,21 @@ impl BinauralRenderer {
         None
     }
 
-    /// Rebuild the HRIR grid if the requested source changed. Called once per
-    /// frame; the (allocating) rebuild only runs on an actual change.
+    /// Track the requested HRIR source. Called once per frame from the audio
+    /// thread; the steady-state cost is one compare plus one atomic swap. On
+    /// an actual change it only pushes a request to the rebuild worker — the
+    /// grid build (allocations, provider renders, SOFA file I/O) never runs
+    /// here (issue #153). Frames keep rendering with the previous grid until
+    /// the worker's result lands.
     pub fn ensure_source(&mut self, source: &HrirSource) {
+        if let Some(set) = self.incoming.swap(None) {
+            self.hrir = set;
+        }
         if &self.source != source {
-            self.hrir = Self::build_hrir(source, self.sample_rate);
             self.source = source.clone();
+            // `send` allocates one queue node — rare (a user-initiated source
+            // change), unlike the megabytes+I/O of the build it replaces.
+            let _ = self.rebuild_tx.send(source.clone());
         }
     }
 
@@ -209,6 +385,10 @@ impl BinauralRenderer {
     ///
     /// - `chan_pos[c]`: world (ADM) position of input channel `c`.
     /// - `chan_gain[c]`: linear gain for channel `c` (object mute/gain folded in).
+    /// - `chan_direct[c]`: `true` for channels that keep their direct-routing
+    ///   intent (beds mapped to a `spatialize: false` speaker — the LFE): fed
+    ///   to both ears equally, bypassing HRIR/ITD/air/reflections/reverb.
+    ///   Missing entries read as `false`.
     /// - `out`: must be `sample_length * 2`, pre-zeroed.
     #[allow(clippy::too_many_arguments)]
     pub fn render_frame(
@@ -219,6 +399,7 @@ impl BinauralRenderer {
         params: &BinauralFrameParams,
         chan_pos: &[[f64; 3]],
         chan_gain: &[f32],
+        chan_direct: &[bool],
         out: &mut [f32],
     ) {
         let BinauralFrameParams {
@@ -261,6 +442,30 @@ impl BinauralRenderer {
                 }
                 continue;
             }
+            // Direct (non-spatialized) feed — the LFE policy (issue #156):
+            // sub-bass carries no usable direction, so the channel goes to
+            // both ears at constant power (−3 dB each), dry and full-range —
+            // no HRIR, no ITD, no air, no reflections, no reverb send. Unity
+            // overall (no +10 dB LFE convention), matching the speaker path's
+            // untouched one-hot routing. Head rotation deliberately has no
+            // effect, like real sub-bass.
+            if chan_direct.get(c).copied().unwrap_or(false) {
+                if let Some(Some(dsp)) = self.channels.get_mut(c) {
+                    // Drop a stale reflection bank if the channel just
+                    // switched from the spatialized path (same policy as the
+                    // reflections-disabled branch below).
+                    dsp.refl = None;
+                }
+                for s in 0..sample_length {
+                    let v = input_pcm[s * input_channel_count + c]
+                        * gain
+                        * std::f32::consts::FRAC_1_SQRT_2;
+                    let o = s * 2;
+                    out[o] += v;
+                    out[o + 1] += v;
+                }
+                continue;
+            }
             let pos = chan_pos.get(c).copied().unwrap_or([0.0, 1.0, 0.0]);
 
             // World → head-relative direction, then spherical angles.
@@ -270,11 +475,13 @@ impl BinauralRenderer {
             let horiz = (hx * hx + hy * hy).sqrt();
             let el_rad = hz.atan2(horiz);
 
-            // Isotropic distance scale → 1/d gain (direction is scale-invariant).
+            // Isotropic distance scale → metric distance (m). Direction is
+            // scale-invariant. Object/bed levels are authored upstream (Atmos
+            // object gain), so the direct path applies NO inverse-distance gain;
+            // dist_m only drives the distance *cues* (air absorption, reverb
+            // send, early reflections), never the direct object level.
             let dist_norm = ((pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2]).sqrt()) as f32;
             let dist_m = (dist_norm * unit_scale_m).max(0.0);
-            let dist_gain =
-                (REF_DISTANCE_M / dist_m.max(MIN_DISTANCE_M)).clamp(0.0, MAX_DISTANCE_GAIN);
 
             // Per-frame HRIR + ITD update (continuous: delay/convolver state persists).
             self.hrir.at(
@@ -285,8 +492,12 @@ impl BinauralRenderer {
             let (itd_l, itd_r) = itd::ear_delays_seconds(az_rad, el_rad, head_radius_m);
 
             let dsp = self.channels[c].get_or_insert_with(|| ChannelDsp::new(self.sample_rate));
-            dsp.conv_l.set_coeffs(&self.hrir_scratch.left);
-            dsp.conv_r.set_coeffs(&self.hrir_scratch.right);
+            // Kernel changes (moving object / head) crossfade over the block
+            // — capped at HRIR_LEN samples for large offline blocks — so the
+            // transfer function never jumps at a block boundary (issue #155).
+            let fade = sample_length.min(HRIR_LEN);
+            dsp.conv_l.set_coeffs_smooth(&self.hrir_scratch.left, fade);
+            dsp.conv_r.set_coeffs_smooth(&self.hrir_scratch.right, fade);
             dsp.delay_l.set_target_ms(itd_l * 1000.0, self.sample_rate);
             dsp.delay_r.set_target_ms(itd_r * 1000.0, self.sample_rate);
 
@@ -360,7 +571,8 @@ impl BinauralRenderer {
                     dsp.air_state += (raw - dsp.air_state) * (1.0 - air);
                     raw = dsp.air_state;
                 }
-                let x = raw * dist_gain;
+                // Authored object/bed level is respected: no 1/d attenuation.
+                let x = raw;
                 let mut yl = dsp.conv_l.process(dsp.delay_l.process(x));
                 let mut yr = dsp.conv_r.process(dsp.delay_r.process(x));
                 if let Some(bank) = dsp.refl.as_mut() {
@@ -418,7 +630,7 @@ mod tests {
         let mut input = vec![0.0f32; n];
         input[0] = 1.0;
         let mut out = vec![0.0f32; n * 2];
-        r.render_frame(&input, 1, n, &dry_params(), &[pos], &[1.0], &mut out);
+        r.render_frame(&input, 1, n, &dry_params(), &[pos], &[1.0], &[], &mut out);
         let mut el = 0.0f32;
         let mut er = 0.0f32;
         for s in 0..n {
@@ -432,6 +644,42 @@ mod tests {
     fn right_source_is_louder_in_right_channel() {
         let (el, er) = render_single([1.0, 0.0, 0.0]); // full right
         assert!(er > el, "L={el} R={er}");
+    }
+
+    /// A source switch must not stall rendering: the frame right after the
+    /// request still uses the old grid (and produces audio), and the new grid
+    /// lands asynchronously within a bounded delay (issue #153).
+    #[test]
+    fn hrir_source_switch_lands_asynchronously_without_blocking_render() {
+        let mut r = BinauralRenderer::new(48_000);
+        let n = 128;
+        let mut input = vec![0.0f32; n];
+        input[0] = 1.0;
+        let pos = [[0.5, 1.0, 0.0]];
+        let render = |r: &mut BinauralRenderer| -> f32 {
+            let mut out = vec![0.0f32; n * 2];
+            r.render_frame(&input, 1, n, &dry_params(), &pos, &[1.0], &[], &mut out);
+            out.iter().map(|x| x * x).sum()
+        };
+
+        let initial_grid = r.hrir_grid_id();
+        r.ensure_source(&HrirSource::Synthetic);
+        // Immediately after the request the old grid must still be active and
+        // rendering must work (the build happens on the worker).
+        assert_eq!(r.hrir_grid_id(), initial_grid, "swap must be asynchronous");
+        assert!(render(&mut r) > 1e-9, "render stalled during rebuild");
+
+        // The new grid must land within a bounded delay.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while r.hrir_grid_id() == initial_grid {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "rebuilt grid never arrived"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            r.ensure_source(&HrirSource::Synthetic);
+        }
+        assert!(render(&mut r) > 1e-9, "render broken after grid swap");
     }
 
     #[test]
@@ -461,7 +709,7 @@ mod tests {
 
         let mut dry = vec![0.0f32; n * 2];
         let mut r = BinauralRenderer::new(48_000);
-        r.render_frame(&input, 1, n, &dry_params(), &pos, &[1.0], &mut dry);
+        r.render_frame(&input, 1, n, &dry_params(), &pos, &[1.0], &[], &mut dry);
 
         let wet_params = BinauralFrameParams {
             reflections: BinauralReflections {
@@ -473,7 +721,7 @@ mod tests {
         };
         let mut wet = vec![0.0f32; n * 2];
         let mut r = BinauralRenderer::new(48_000);
-        r.render_frame(&input, 1, n, &wet_params, &pos, &[1.0], &mut wet);
+        r.render_frame(&input, 1, n, &wet_params, &pos, &[1.0], &[], &mut wet);
 
         assert!(tail(&dry) < 1e-9, "dry render must have no late energy");
         assert!(
@@ -494,7 +742,7 @@ mod tests {
 
         let mut dry = vec![0.0f32; n * 2];
         let mut r = BinauralRenderer::new(48_000);
-        r.render_frame(&input, 1, n, &dry_params(), &pos, &[1.0], &mut dry);
+        r.render_frame(&input, 1, n, &dry_params(), &pos, &[1.0], &[], &mut dry);
         assert!(tail(&dry) < 1e-9, "dry render must have no tail");
 
         let wet_params = BinauralFrameParams {
@@ -508,14 +756,14 @@ mod tests {
         };
         let mut wet = vec![0.0f32; n * 2];
         let mut r = BinauralRenderer::new(48_000);
-        r.render_frame(&input, 1, n, &wet_params, &pos, &[1.0], &mut wet);
+        r.render_frame(&input, 1, n, &wet_params, &pos, &[1.0], &[], &mut wet);
         assert!(tail(&wet) > 1e-7, "no reverb tail: {}", tail(&wet));
     }
 
     #[test]
     fn air_absorption_dulls_distant_sources() {
         // Nyquist-rate tone: a distance low-pass crushes it. Compare output
-        // energy (normalised by the 1/d gain) near vs far.
+        // energy near vs far (the direct path has no 1/d gain to factor out).
         let n = 2_048;
         let input: Vec<f32> = (0..n)
             .map(|i| if i % 2 == 0 { 1.0 } else { -1.0 })
@@ -527,16 +775,44 @@ mod tests {
             };
             let mut out = vec![0.0f32; n * 2];
             let mut r = BinauralRenderer::new(48_000);
-            r.render_frame(&input, 1, n, &params, &[[0.0, dist, 0.0]], &[1.0], &mut out);
-            let e: f32 = out[400 * 2..].iter().map(|x| x * x).sum();
-            let dist_gain = (1.0f32 / dist as f32).clamp(0.0, 4.0);
-            e / (dist_gain * dist_gain)
+            r.render_frame(
+                &input,
+                1,
+                n,
+                &params,
+                &[[0.0, dist, 0.0]],
+                &[1.0],
+                &[],
+                &mut out,
+            );
+            // Direct path no longer applies a 1/d gain, so the broadband level is
+            // distance-independent; the only near/far difference is the
+            // air-absorption HF roll-off under test.
+            out[400 * 2..].iter().map(|x| x * x).sum()
         };
         let near = render(2.0); // within the 3 m bypass → full HF
         let far = render(30.0); // ~5 kHz cutoff → Nyquist crushed
         assert!(
             far < near * 0.2,
             "air absorption ineffective: near={near} far={far}"
+        );
+    }
+
+    #[test]
+    fn direct_level_is_distance_invariant() {
+        // Object/bed level is authored (Atmos); the binaural direct path must
+        // NOT re-attenuate by 1/d. A front source rendered near vs far — same
+        // authored gain, air/reverb/reflections off — must yield identical
+        // broadband energy. Before the fix this differed by the 1/d clamp
+        // (here 2 m → ×0.5 vs 8 m → ×0.125, a 4× energy gap).
+        let (nl, nr) = render_single([0.0, 2.0, 0.0]); // near
+        let (fl, fr) = render_single([0.0, 8.0, 0.0]); // far
+        let near = nl + nr;
+        let far = fl + fr;
+        assert!(near > 0.0, "near energy must be non-zero");
+        assert!(
+            (far - near).abs() <= near * 1e-6,
+            "direct object level changed with distance: near={near} far={far}"
         );
     }
 
@@ -553,6 +829,7 @@ mod tests {
             &dry_params(),
             &[[1.0, 0.0, 0.0]],
             &[0.0],
+            &[],
             &mut out,
         );
         assert!(out.iter().all(|&x| x == 0.0));

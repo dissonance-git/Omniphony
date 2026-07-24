@@ -10,7 +10,7 @@ use crate::events::Configuration;
 use crate::osc::{ObjectMeta, OscSender};
 use crate::overlay;
 use crate::renderer_build::{SpatialRendererParams, build_spatial_renderer};
-use crate::{render, spatial, virtual_bed};
+use crate::{object_gen, phantom_extract, render, spatial, virtual_bed};
 use anyhow::{Result, anyhow, bail};
 use bridge_api::{RChannelLabel, RCoordinateFormat, RDecodedFrame, RInputTransport};
 use renderer::config::Config;
@@ -52,7 +52,11 @@ pub struct Engine {
     coordinate_format: RCoordinateFormat,
 
     // ── per-stream spatial state ──
-    bed_indices: Option<Vec<usize>>,
+    /// Shared fixed-channel planner (routing + plan cache, both stream kinds).
+    fixed_planner: virtual_bed::FixedChannelPlanner,
+    /// Cached object↔channel declaration from the bridge (sparse emission),
+    /// sorted by channel. See `docs/channel-object-contract.md`.
+    object_channels: Vec<(u32, usize)>,
     has_objects: bool,
     loudness_applied: bool,
     decoded_samples: u64,
@@ -93,6 +97,31 @@ pub struct Engine {
     /// Opt-in per-frame perf accumulator (env `ORENDER_PERF_LOG`). `None` = off
     /// (zero overhead). Diagnostic only; safe to remove once perf work lands.
     perf: Option<PerfLog>,
+
+    /// Pluggable bed→height object generator stage (2D upmix). Off by default;
+    /// active only for channel content on a height-capable layout. Selected by
+    /// the live param `object_generator_id`. See [`crate::object_gen`].
+    object_gen: object_gen::ObjectGenStage,
+
+    /// Phantom-source extraction pre-stage: runs before the height lift, pulling
+    /// correlated content out of channel pairs as planar objects and reducing the
+    /// bed. Off by default (live param `phantom_extract_mode`). See
+    /// [`crate::phantom_extract`].
+    phantom: phantom_extract::PhantomExtractStage,
+
+    /// Signature of the last published fixed-channel applicability state. The
+    /// JSON snapshot is rebuilt only when this changes, never every frame.
+    fixed_processing_sig: Option<FixedProcessingSig>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct FixedProcessingSig {
+    stream_has_objects: bool,
+    labels: Vec<RChannelLabel>,
+    options_epoch: u64,
+    output_has_height: bool,
+    phantom_count: usize,
+    height_count: usize,
 }
 
 /// Throttled (~1 Hz) aggregate of per-frame render/decode cost, correlated with
@@ -188,6 +217,13 @@ impl PerfLog {
 
 impl Drop for Engine {
     fn drop(&mut self) {
+        // Tear down the OSC server (stop + join its listener/standby threads)
+        // *before* the implicit field drops below free the renderer and bridge
+        // those threads read from. `osc` is declared after `bridge`/`renderer`,
+        // so plain field-order drop would stop the threads last, leaving a
+        // teardown window where a worker could read state mid-free. Explicit so
+        // it can't regress if the field order changes.
+        drop(self.osc.take());
         if let Some(perf) = self.perf.as_mut() {
             perf.flush();
         }
@@ -200,12 +236,13 @@ impl Engine {
     /// before the first [`process`](Self::process) call.
     pub fn new(bridge: LoadedBridge, renderer: SpatialRenderer, sample_rate: u32) -> Self {
         let coordinate_format = bridge.bridge.coordinate_format();
-        Self {
+        let engine = Self {
             bridge,
             renderer,
             sample_rate,
             coordinate_format,
-            bed_indices: None,
+            fixed_planner: virtual_bed::FixedChannelPlanner::new(),
+            object_channels: Vec::new(),
             has_objects: false,
             loudness_applied: false,
             decoded_samples: 0,
@@ -224,7 +261,36 @@ impl Engine {
             perf: std::env::var_os("ORENDER_PERF_LOG")
                 .is_some()
                 .then(PerfLog::new),
-        }
+            object_gen: object_gen::ObjectGenStage::new(),
+            phantom: phantom_extract::PhantomExtractStage::new(),
+            fixed_processing_sig: None,
+        };
+        engine
+            .renderer
+            .renderer_control()
+            .set_fixed_channel_catalog(virtual_bed::fixed_channel_catalog_json());
+        engine
+    }
+
+    /// Register a host-supplied (out-of-tree) bed→height object generator so it
+    /// can be selected by id and appears in Studio's selector + parameter sliders.
+    /// Call at startup (before `enable_osc`); a later call re-publishes the schema.
+    pub fn register_object_generator(
+        &mut self,
+        factory: Box<dyn object_gen::ObjectGeneratorFactory>,
+    ) {
+        self.object_gen.register(factory);
+        self.renderer
+            .renderer_control()
+            .set_object_generators_schema(self.object_gen.registry().listings_json());
+    }
+
+    /// Record the hosting FFI shim's C-ABI version so the live-state snapshot
+    /// broadcasts it (`/omniphony/state/render/abi`, shown in Studio's About).
+    /// Called by liborender right after creation; hosts linking the engine as a
+    /// Rust crate never call it.
+    pub fn set_host_abi(&self, major: u32, minor: u32) {
+        self.renderer.renderer_control().set_host_abi(major, minor);
     }
 
     /// Start the OSC live-control server, attaching the renderer control so
@@ -238,6 +304,17 @@ impl Engine {
     pub fn enable_osc(&mut self, opts: OscOptions) -> Result<()> {
         use std::net::SocketAddrV4;
         use std::str::FromStr;
+
+        // Publish the object-generator schema (built-ins + any host-registered
+        // out-of-tree generators) into RendererControl so the live-state bundle
+        // carries it to Studio.
+        self.renderer
+            .renderer_control()
+            .set_object_generators_schema(self.object_gen.registry().listings_json());
+        // Publish the phantom-extraction param schema for Studio's sliders.
+        self.renderer
+            .renderer_control()
+            .set_phantom_schema(phantom_extract::phantom_schema_json());
 
         let target = SocketAddrV4::from_str(&format!("{}:{}", opts.host, opts.port_out))
             .map_err(|e| anyhow!("invalid OSC target {}:{}: {e}", opts.host, opts.port_out))?;
@@ -404,36 +481,14 @@ impl Engine {
         control.set_requested_ramp_mode(ramp_mode);
         control.live.write().ramp_mode = ramp_mode;
 
-        // Channel render mode for non-object content (host / spatial). Mirror
-        // `ramp_mode`: the live snapshot is seeded from config here so the
-        // embedded host matches the CLI bootstrap. Default = Spatial.
-        let channel_render_mode = render_cfg
-            .as_ref()
-            .and_then(renderer::config_fields::channel_render_mode::get)
-            .unwrap_or(renderer::config_fields::channel_render_mode::DEFAULT);
-        control.live.write().channel_render_mode = channel_render_mode;
-
-        // Surround placement (side/back) for 4.x/5.x content; seeded from config
-        // like `channel_render_mode`. Default = Side.
-        let surround_placement = render_cfg
-            .as_ref()
-            .and_then(renderer::config_fields::surround_placement::get)
-            .unwrap_or(renderer::config_fields::surround_placement::DEFAULT);
-        control.live.write().surround_placement = surround_placement;
-
-        // Output channel mapping (by_index/by_name); seeded from config like
-        // `surround_placement`. Default = ByIndex.
-        let output_channel_mapping = render_cfg
-            .as_ref()
-            .and_then(renderer::config_fields::output_channel_mapping::get)
-            .unwrap_or(renderer::config_fields::output_channel_mapping::DEFAULT);
-        control.live.write().output_channel_mapping = output_channel_mapping;
-
-        // Parametrable virtual bed (per-channel direct/virtual placement). Seed
-        // from config so the embedded host matches the CLI bootstrap; `None`
-        // leaves the built-in canonical poses in effect (LFE direct).
-        let virtual_bed = render_cfg.as_ref().and_then(|c| c.virtual_bed.clone());
-        control.live.write().virtual_bed = virtual_bed;
+        // Declared live options (surround_placement, output_channel_mapping,
+        // synthesized-object master/generators) plus
+        // their param bags and the virtual bed: seeded from config through the
+        // shared registry seed — the same call as the CLI bootstrap, so the
+        // embedded host cannot drift from it (FFI/CLI parity by construction).
+        if let Some(render) = render_cfg.as_ref() {
+            renderer::options::seed_live_from_config(&mut control.live.write(), render);
+        }
 
         // DRC: seed the live params from config and publish the bridge's
         // supported modes (so studio shows the DRC control). The decode-side
@@ -495,11 +550,10 @@ impl Engine {
             .collect()
     }
 
-    /// Whether the current presentation may carry spatial objects. Valid after
-    /// the bridge has been configured; drives the host's spatial-vs-plain
-    /// fallback decision.
-    pub fn is_spatial(&self) -> bool {
-        self.bridge.bridge.is_spatial()
+    /// Whether the current presentation carries dynamic objects. A live fact
+    /// about the stream (it may flip mid-stream); hosts must not latch it.
+    pub fn has_objects(&self) -> bool {
+        self.bridge.bridge.has_objects()
     }
 
     /// Dynamic object count of the last rendered frame (decoded `channel_count`
@@ -610,7 +664,8 @@ impl Engine {
 
     fn reset_segment_state(&mut self) {
         self.has_objects = false;
-        self.bed_indices = None;
+        self.fixed_planner.reset();
+        self.object_channels.clear();
         self.frame_events.clear();
         self.loudness_applied = false;
         self.object_names.clear();
@@ -618,6 +673,91 @@ impl Engine {
         self.last_object_count = 0;
         self.last_dialnorm = None;
         self.last_bed_labels.clear();
+        self.fixed_processing_sig = None;
+        self.renderer
+            .renderer_control()
+            .set_fixed_channel_processing(
+                r#"{"stream":"idle","labels":[],"phantom":"no_stream","height":"no_stream"}"#
+                    .to_string(),
+            );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn publish_fixed_processing_state(
+        &mut self,
+        stream_has_objects: bool,
+        labels: &[RChannelLabel],
+        options_epoch: u64,
+        output_has_height: bool,
+        phantom_count: usize,
+        height_count: usize,
+        synthetic_objects_enabled: bool,
+        phantom_mode: renderer::live_params::PhantomExtractMode,
+        height_generator_enabled: bool,
+    ) {
+        let unchanged = self.fixed_processing_sig.as_ref().is_some_and(|sig| {
+            sig.stream_has_objects == stream_has_objects
+                && sig.labels.as_slice() == labels
+                && sig.options_epoch == options_epoch
+                && sig.output_has_height == output_has_height
+                && sig.phantom_count == phantom_count
+                && sig.height_count == height_count
+        });
+        if unchanged {
+            return;
+        }
+
+        self.fixed_processing_sig = Some(FixedProcessingSig {
+            stream_has_objects,
+            labels: labels.to_vec(),
+            options_epoch,
+            output_has_height,
+            phantom_count,
+            height_count,
+        });
+
+        let phantom = if phantom_mode == renderer::live_params::PhantomExtractMode::Off {
+            "off"
+        } else if !synthetic_objects_enabled {
+            "master_off"
+        } else if stream_has_objects {
+            "object_stream"
+        } else if phantom_count > 0 {
+            "active"
+        } else {
+            "insufficient_channels"
+        };
+        let input_has_height = object_gen::input_has_height(labels);
+        let height = if !height_generator_enabled {
+            "off"
+        } else if !synthetic_objects_enabled {
+            "master_off"
+        } else if stream_has_objects {
+            "object_stream"
+        } else if input_has_height {
+            "input_has_height"
+        } else if !output_has_height {
+            "output_has_no_height"
+        } else if height_count > 0 {
+            "active"
+        } else {
+            "insufficient_channels"
+        };
+        let names: Vec<&str> = labels
+            .iter()
+            .map(|&label| bridge_api::labels::canonical_name(label))
+            .collect();
+        let state = serde_json::json!({
+            "stream": if stream_has_objects { "objects" } else { "fixed" },
+            "labels": names,
+            "inputHasHeight": input_has_height,
+            "outputHasHeight": output_has_height,
+            "phantom": phantom,
+            "height": height,
+        });
+        self.renderer
+            .renderer_control()
+            .set_fixed_channel_processing(state.to_string());
     }
 
     /// Push the live DRC mode to the bridge when it changes (selects which DRC
@@ -754,36 +894,59 @@ impl Engine {
         // Spatial metadata → bed config + per-channel events (+ OSC objects).
         for meta in frame.metadata.iter() {
             self.has_objects = true;
-            if !meta.bed_indices.is_empty() {
-                let new_bed: Vec<usize> = meta.bed_indices.iter().copied().collect();
-                if self.bed_indices.as_ref() != Some(&new_bed) {
-                    self.bed_indices = Some(new_bed);
-                    self.renderer
-                        .configure_beds(self.bed_indices.as_deref().unwrap_or(&[]));
+            // Cache the sparse object↔channel declaration.
+            if !meta.object_channels.is_empty() {
+                let mut decl: Vec<(u32, usize)> = meta
+                    .object_channels
+                    .iter()
+                    .map(|oc| (oc.id, oc.channel as usize))
+                    .collect();
+                decl.sort_unstable_by_key(|&(_, channel)| channel);
+                if self.object_channels != decl {
+                    self.object_channels = decl;
                 }
             }
+            // Plan the fixed prefix through the shared channel planner:
+            // virtualized by default, per-entry direct opt-in via the
+            // placement layout — identically to fixed-only streams. Mode is
+            // always Spatial here (an object stream cannot pass through the
+            // host), and the plan is cached on (labels, options epoch).
+            self.fixed_planner.plan_object_stream_fixed(
+                &frame.channel_labels,
+                &self.renderer,
+                &mut self.frame_events,
+            );
             let conf = Configuration::from(meta);
-            let bed = self.bed_indices.as_deref().unwrap_or(&[]);
             spatial::build_spatial_channel_events(
                 &conf,
                 self.coordinate_format,
-                bed,
+                &self.object_channels,
+                &meta.channel_gains,
+                meta.sample_pos,
+                meta.ramp_duration,
                 &mut self.frame_events,
             );
 
             // Outgoing: broadcast object positions/names to OSC clients and/or
             // feed the in-process mpv overlay.
-            if want_objects {
-                for upd in meta.name_updates.iter() {
+            // Declarations are cached even before an OSC/overlay consumer
+            // connects, so a later Studio attachment sees stable names.
+            for upd in meta.name_updates.iter() {
+                if self.object_names.get(&upd.id).map(String::as_str) != Some(upd.name.as_str()) {
                     self.object_names.insert(upd.id, upd.name.to_string());
                 }
-                let layout = self.renderer.speaker_layout();
-                let objects = spatial::build_object_metas(
+            }
+            if want_objects {
+                let mut objects = virtual_bed::build_fixed_channel_objects(
+                    &self.renderer,
+                    self.fixed_planner.fixed_labels(),
+                )
+                .unwrap_or_default();
+                objects.extend(spatial::build_object_metas(
                     &conf,
                     self.coordinate_format,
-                    Some(&layout),
                     &self.object_names,
-                );
+                ));
                 if want_osc {
                     let coord_fmt = match self.coordinate_format {
                         RCoordinateFormat::Cartesian => 0,
@@ -806,7 +969,46 @@ impl Engine {
             }
         }
 
+        if self.has_objects {
+            let (master, phantom_mode, height_generator_enabled, options_epoch, output_has_height) = {
+                let control = self.renderer.renderer_control();
+                let live = control.live.read();
+                (
+                    live.synthetic_objects_enabled,
+                    live.phantom_extract_mode,
+                    !live.object_generator_id.trim().is_empty()
+                        && !live.object_generator_id.eq_ignore_ascii_case("none"),
+                    control.options_epoch(),
+                    object_gen::layout_has_height(&control.active_topology().speaker_layout),
+                )
+            };
+            let fixed_end = frame
+                .channel_labels
+                .iter()
+                .position(|label| *label == RChannelLabel::Object)
+                .unwrap_or(frame.channel_labels.len());
+            self.publish_fixed_processing_state(
+                true,
+                &frame.channel_labels[..fixed_end],
+                options_epoch,
+                output_has_height,
+                0,
+                0,
+                master,
+                phantom_mode,
+                height_generator_enabled,
+            );
+        }
+
         self.decoded_samples += sample_count as u64;
+
+        // Number of synthesized height objects planned this frame by the
+        // object-generator stage (stays 0 unless activated in the bed-only
+        // branch below).
+        let mut synth_count = 0usize;
+        // Phantom-extraction pre-stage object count (planar primaries pulled out of
+        // the bed). Stays 0 unless enabled in the bed-only branch below.
+        let mut phantom_count = 0usize;
 
         // Bed-only / pre-metadata frames carry no OAMD objects: render them
         // according to the configured channel mode (host / direct / virtual),
@@ -823,6 +1025,10 @@ impl Engine {
                 room_ratio_rear,
                 room_ratio_lower,
                 room_ratio_center_blend,
+                object_generator_id,
+                synthetic_objects_enabled,
+                phantom_extract_mode,
+                options_epoch,
             ) = {
                 let control = self.renderer.renderer_control();
                 let live = control.live.read();
@@ -834,6 +1040,10 @@ impl Engine {
                     live.room_ratio_rear,
                     live.room_ratio_lower,
                     live.room_ratio_center_blend,
+                    live.object_generator_id.clone(),
+                    live.synthetic_objects_enabled,
+                    live.phantom_extract_mode,
+                    control.options_epoch(),
                 )
             };
             let output_layout = self.renderer.speaker_layout();
@@ -849,23 +1059,12 @@ impl Engine {
                 room_ratio_center_blend,
                 surround_placement,
             ) {
-                virtual_bed::ChannelRenderPlan::Events {
-                    events,
-                    bed_indices,
-                } => {
-                    // Spatial mode mixes per channel: direct channels carry a
-                    // bed id, virtual channels carry the `usize::MAX` sentinel
-                    // (rendered as VBAP objects). Reconfigure only on change to
-                    // avoid per-frame churn.
-                    let desired: Vec<usize> = bed_indices.unwrap_or_default();
-                    if self.bed_indices.as_deref().unwrap_or(&[]) != desired.as_slice() {
-                        self.renderer.configure_beds(&desired);
-                        self.bed_indices = if desired.is_empty() {
-                            None
-                        } else {
-                            Some(desired)
-                        };
-                    }
+                virtual_bed::ChannelRenderPlan::Events { events, routes } => {
+                    // Spatial mode mixes per channel: direct channels route
+                    // one-hot by label, virtual channels render as VBAP
+                    // objects. Reconfigure only on change to avoid per-frame
+                    // churn.
+                    self.fixed_planner.apply_routes(&self.renderer, routes);
                     self.frame_events = events;
                 }
                 // Host: the mpv decoder declines at the spatial probe and falls
@@ -885,10 +1084,88 @@ impl Engine {
                 }
             }
 
-            // Outgoing: broadcast the virtual-bed channel poses as OSC objects
-            // and/or feed the in-process mpv overlay.
+            // Bed→height object generator (2D upmix): plan synthesized height
+            // objects for channel content on a height-capable layout. No-op
+            // unless a generator is selected and the gating passes. The static
+            // positions/names are planned here (before the OSC object emit); the
+            // audio for the new object channels is filled after the bed PCM is
+            // built, below — they then ride the existing object/VBAP path.
+            let ctx = object_gen::PrepareCtx {
+                input_labels: &labels,
+                output_layout: &output_layout,
+                sample_rate,
+                surround_placement,
+            };
+            // Phantom-extraction pre-stage runs first: its planar objects occupy the
+            // channel slots right after the bed; the height-lift objects follow. The
+            // audio (and the bed reduction) is applied after the bed PCM is built.
+            self.phantom.set_mode(phantom_extract_mode);
+            let phantom_enabled = synthetic_objects_enabled
+                && phantom_extract_mode != renderer::live_params::PhantomExtractMode::Off;
+            phantom_count = self.phantom.sync(phantom_enabled, &ctx, options_epoch);
+            let effective_generator_id = if synthetic_objects_enabled {
+                object_generator_id.as_str()
+            } else {
+                "none"
+            };
+            synth_count = self
+                .object_gen
+                .sync(effective_generator_id, &ctx, options_epoch);
+            self.publish_fixed_processing_state(
+                false,
+                &labels,
+                options_epoch,
+                object_gen::layout_has_height(&output_layout),
+                phantom_count,
+                synth_count,
+                synthetic_objects_enabled,
+                phantom_extract_mode,
+                !object_generator_id.trim().is_empty()
+                    && !object_generator_id.eq_ignore_ascii_case("none"),
+            );
+            if phantom_count > 0 || synth_count > 0 {
+                // Push each stage's live param overrides (declared schema; sparse —
+                // absent keys keep the stage's default). Cheap + idempotent, so a
+                // freshly (re)built stage re-receives them next frame.
+                let control = self.renderer.renderer_control();
+                let live = control.live.read();
+                for (key, &value) in live.phantom_params.iter() {
+                    self.phantom.set_param(key, value, sample_rate);
+                }
+                for (key, &value) in live.object_generator_params.iter() {
+                    self.object_gen.set_param(key, value, sample_rate);
+                }
+            }
+            // Phantom objects first (channels [channel_count ..]), then the height
+            // objects offset past them.
+            for (p, spec) in self.phantom.specs().iter().enumerate() {
+                self.frame_events.push(SpatialChannelEvent {
+                    channel_idx: channel_count + p,
+                    is_bed: false,
+                    gain_db: Some(spec.gain_db),
+                    ramp_length: Some(0),
+                    size: Some(spec.size),
+                    position: Some(spec.position),
+                    sample_pos: Some(0),
+                });
+            }
+            for (k, spec) in self.object_gen.specs().iter().enumerate() {
+                self.frame_events.push(SpatialChannelEvent {
+                    channel_idx: channel_count + phantom_count + k,
+                    is_bed: false,
+                    gain_db: Some(spec.gain_db),
+                    ramp_length: Some(0),
+                    size: Some(spec.size),
+                    position: Some(spec.position),
+                    sample_pos: Some(0),
+                });
+            }
+
+            // Outgoing: broadcast the virtual-bed channel poses + any synthesized
+            // height objects as OSC objects and/or feed the in-process mpv
+            // overlay, so they appear in Studio's 3D view and object list.
             if want_objects {
-                if let Some(objects) = virtual_bed::build_virtual_bed_objects(
+                let mut objects = virtual_bed::build_virtual_bed_objects(
                     &labels,
                     virtual_bed_layout.as_ref(),
                     Some(&output_layout),
@@ -897,7 +1174,29 @@ impl Engine {
                     room_ratio_lower,
                     room_ratio_center_blend,
                     surround_placement,
-                ) {
+                )
+                .unwrap_or_default();
+                for spec in self
+                    .phantom
+                    .specs()
+                    .iter()
+                    .chain(self.object_gen.specs().iter())
+                {
+                    objects.push(ObjectMeta {
+                        name: spec.name.clone(),
+                        x: spec.position[0] as f32,
+                        y: spec.position[1] as f32,
+                        z: spec.position[2] as f32,
+                        coord_mode: "cartesian".to_string(),
+                        direct_speaker_index: None,
+                        gain: spec.gain_db as i32,
+                        priority: 0.0,
+                        size: spec.size,
+                        fixed: false,
+                        label: String::new(),
+                    });
+                }
+                if !objects.is_empty() {
                     if want_osc {
                         if let Some(osc) = self.osc.as_mut() {
                             let _ = osc.send_object_frame(sample_pos_at_start, 0, 0, &objects);
@@ -937,6 +1236,24 @@ impl Engine {
             &mut self.drc_ramp_samples_remaining,
         );
 
+        // Two upmix stages now that the bed PCM exists. First the phantom pre-stage
+        // subtracts correlated content from the bed *in place* and appends its
+        // planar objects; then the height lift runs on the reduced bed and appends
+        // its objects. The renderer sees one extended interleaved buffer
+        // (bed | phantom objects | height objects). Both zero-cost when inactive.
+        let (mid_pcm, mid_channels): (&[f32], usize) = if phantom_count > 0 {
+            self.phantom
+                .process_and_extend(&mut pcm_f32, channel_count, sample_count, sample_rate)
+        } else {
+            (pcm_f32.as_slice(), channel_count)
+        };
+        let (render_pcm, render_channels): (&[f32], usize) = if synth_count > 0 {
+            self.object_gen
+                .fill_and_extend(mid_pcm, mid_channels, sample_count, sample_rate)
+        } else {
+            (mid_pcm, mid_channels)
+        };
+
         // VU metering (outgoing): feed object PCM pre-render; speakers post-render.
         // Needed for OSC metering clients and/or the in-process overlay (object
         // circle radius tracks RMS).
@@ -952,26 +1269,27 @@ impl Engine {
         }
         if want_metering {
             if let Some(meter) = self.audio_meter.as_mut() {
-                meter.update_channel_count(channel_count);
-                for chunk in pcm_f32.chunks_exact(channel_count) {
-                    meter.process_objects(chunk, channel_count);
+                meter.update_channel_count(render_channels);
+                for chunk in render_pcm.chunks_exact(render_channels) {
+                    meter.process_objects(chunk, render_channels);
                 }
             }
         }
 
         let render_started = std::time::Instant::now();
         let rendered = self.renderer.render_frame(
-            &pcm_f32,
-            channel_count,
+            render_pcm,
+            render_channels,
             &self.frame_events,
             Vec::new(),
             want_metering,
         )?;
         let render_time_ms = render_started.elapsed().as_secs_f32() * 1000.0;
 
-        // Dynamic object count = decoded channels minus the bed channels. Only
-        // meaningful for object-based content; plain multichannel reports 0.
-        let num_beds = self.bed_indices.as_ref().map_or(0, |b| b.len());
+        // Dynamic object count = decoded channels minus the fixed channels.
+        // Only meaningful for object-based content; plain multichannel
+        // reports 0.
+        let num_beds = self.fixed_planner.fixed_labels().len();
         let n_objects = (channel_count as u32).saturating_sub(num_beds as u32);
         self.last_object_count = if self.has_objects { n_objects } else { 0 };
 

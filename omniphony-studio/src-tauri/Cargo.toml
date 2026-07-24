@@ -1,6 +1,6 @@
 [package]
 name = "omniphony-studio"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 
 [[bin]]
@@ -28,6 +28,15 @@ tokio = { version = "1", features = ["sync", "rt", "macros"] }
 log = "0.4"
 image = { version = "0.25", default-features = false, features = ["png"] }
 rfd = "0.15"
+# Cross-platform process RSS/virtual memory readout for the opt-in memory
+# sampler (debug_memory_stats command). Tiny, no transitive bloat.
+memory-stats = "1"
+
+[features]
+# Ship WebView DevTools (F12, Inspect, heap snapshots) in RELEASE builds too,
+# for memory hunts on Windows where DevTools is otherwise debug-only:
+#   cargo build --release --features devtools
+devtools = ["tauri/devtools"]
 
 [target.'cfg(windows)'.dependencies]
 # Overlapped pipe I/O for the mpv IPC bridge so writes can't park the
@@ -39,6 +48,8 @@ windows-sys = { version = "0.59", features = [
     "Win32_Storage_FileSystem",
     "Win32_System_IO",
     "Win32_System_Threading",
+    "Win32_System_Diagnostics_ToolHelp", # process-tree enumeration (debug_memory_stats)
+    "Win32_System_ProcessStatus",        # K32GetProcessMemoryInfo (WebView2 child RSS)
 ] }
 
 [build-dependencies]
@@ -49,3 +60,9 @@ opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
+
+# sofar 0.3.0 drops variables from netCDF4-written SOFA files (ASH Toolset
+# exports, issue #185). Drop once https://github.com/andreiltd/sofar/pull/29
+# ships in a release.
+[patch.crates-io]
+sofar = { git = "https://github.com/mgth/sofar", rev = "c03ff5cfd997d316ae330e2735e82311769b45a3" }

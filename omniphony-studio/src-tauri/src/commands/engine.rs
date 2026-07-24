@@ -60,54 +60,68 @@ pub fn control_ramp_mode(state: State<SharedState>, value: String) {
     );
 }
 
+/// Set any declared live option (the renderer's `options` registry) through
+/// the generic `/omniphony/control/option [key, value]` address. The value is
+/// a JSON scalar from the `data-option` binder: a string for enum/id options,
+/// a bool for toggles (forwarded as int 0/1), a number for future scalar
+/// kinds. Validation lives renderer-side against the registry spec — an
+/// unknown key or a bad value is dropped there, per the OSC contract.
 #[tauri::command]
-pub fn control_channel_render_mode(state: State<SharedState>, value: String) {
-    let trimmed = value.trim().to_ascii_lowercase();
-    // `direct`/`virtual` are legacy aliases of `spatial`.
-    if !matches!(
-        trimmed.as_str(),
-        "host" | "spatial" | "direct" | "virtual"
-    ) {
+pub fn control_option(state: State<SharedState>, key: String, value: serde_json::Value) {
+    let k = key.trim().to_ascii_lowercase();
+    if k.is_empty() {
         return;
     }
+    let arg = match value {
+        serde_json::Value::String(s) => rosc::OscType::String(s.trim().to_ascii_lowercase()),
+        serde_json::Value::Bool(b) => rosc::OscType::Int(if b { 1 } else { 0 }),
+        serde_json::Value::Number(n) => match n.as_f64() {
+            Some(f) if f.is_finite() => rosc::OscType::Float(f as f32),
+            _ => return,
+        },
+        _ => return,
+    };
     send_control(
         &state.osc_tx,
-        OscControlMsg::SendString {
-            address: "/omniphony/control/channel_render_mode".to_string(),
-            value: trimmed,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/option".to_string(),
+            args: vec![rosc::OscType::String(k), arg],
         },
     );
 }
 
-/// Set the surround placement for 4.x/5.x channel content: `side` or `back`.
+/// Set a live object-generator parameter (PAD: `strength` / `hpf_hz` /
+/// `gain_db`). Sent as `[key, value]`; the renderer clamps and applies it live.
 #[tauri::command]
-pub fn control_surround_placement(state: State<SharedState>, value: String) {
-    let trimmed = value.trim().to_ascii_lowercase();
-    if !matches!(trimmed.as_str(), "side" | "back") {
+pub fn control_object_generator_param(state: State<SharedState>, key: String, value: f32) {
+    let k = key.trim().to_ascii_lowercase();
+    // Any non-empty key is accepted; the renderer validates it against the active
+    // generator's declared schema and clamps the value.
+    if k.is_empty() || !value.is_finite() {
         return;
     }
     send_control(
         &state.osc_tx,
-        OscControlMsg::SendString {
-            address: "/omniphony/control/surround_placement".to_string(),
-            value: trimmed,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/object_generator/param".to_string(),
+            args: vec![rosc::OscType::String(k), rosc::OscType::Float(value)],
         },
     );
 }
 
-/// Set the output channel mapping: `by_index` (positionless — port N = layout
-/// speaker N) or `by_name` (positional).
+/// Set a live phantom-extraction parameter (`strength` / `passes` / `lift`). Sent
+/// as `[key, value]`; the renderer clamps and applies it live.
 #[tauri::command]
-pub fn control_output_channel_mapping(state: State<SharedState>, value: String) {
-    let trimmed = value.trim().to_ascii_lowercase();
-    if !matches!(trimmed.as_str(), "by_index" | "by_name") {
+pub fn control_phantom_extract_param(state: State<SharedState>, key: String, value: f32) {
+    let k = key.trim().to_ascii_lowercase();
+    if k.is_empty() || !value.is_finite() {
         return;
     }
     send_control(
         &state.osc_tx,
-        OscControlMsg::SendString {
-            address: "/omniphony/control/output_channel_mapping".to_string(),
-            value: trimmed,
+        OscControlMsg::SendArgs {
+            address: "/omniphony/control/phantom_extract/param".to_string(),
+            args: vec![rosc::OscType::String(k), rosc::OscType::Float(value)],
         },
     );
 }

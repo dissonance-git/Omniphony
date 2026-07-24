@@ -60,7 +60,8 @@ import {
 } from './controls/vbap.js';
 import { invoke } from '@tauri-apps/api/core';
 import { setSpeakerGainTable } from './scene/speaker-gaintable.js';
-import { updateAudioFormatDisplay } from './controls/audio.js';
+import { updateAudioFormatDisplay, rebuildObjectGeneratorControls, rebuildPhantomControls } from './controls/audio.js';
+import { reflectBoundOptions } from './options-binder.js';
 import { updateInputControlUI } from './controls/input.js';
 import { updateDrcMeterUI } from './controls/drc.js';
 import { updateAdaptiveResamplingUI } from './controls/adaptive.js';
@@ -413,6 +414,11 @@ export function setupTauriBridge() {
     updateAboutRendererVersion();
   });
 
+  listen('render:abi', ({ payload }) => {
+    app.renderAbi = String(payload?.value ?? '').trim() || null;
+    updateAboutRendererVersion();
+  });
+
   listen('render:bridge_error', ({ payload }) => {
     app.renderBridgeError = String(payload?.value ?? '').trim() || null;
     renderOscStatus();
@@ -676,6 +682,38 @@ export function setupTauriBridge() {
 
   listen('diag:values', ({ payload }) => {
     app.diagValues = parseDiagPayload(payload);
+  });
+
+  // Declared fixed-bed→height object-generator schema → build the selector +
+  // parameter sliders dynamically.
+  listen('objectGenerators:schema', ({ payload }) => {
+    try {
+      app.objectGenerators = JSON.parse(payload?.value ?? '[]') || [];
+    } catch (_) {
+      app.objectGenerators = [];
+    }
+    rebuildObjectGeneratorControls();
+  });
+
+  // Declared phantom-extraction param schema → build its sliders dynamically.
+  listen('phantom:schema', ({ payload }) => {
+    try {
+      app.phantomSchema = JSON.parse(payload?.value ?? '[]') || [];
+    } catch (_) {
+      app.phantomSchema = [];
+    }
+    rebuildPhantomControls();
+  });
+
+  // Declared live-options schema (registry rows). Provides the binder's
+  // pre-snapshot defaults, so reflect once it lands.
+  listen('options:schema', ({ payload }) => {
+    try {
+      app.optionsSchema = JSON.parse(payload?.value ?? '[]') || [];
+    } catch (_) {
+      app.optionsSchema = [];
+    }
+    reflectBoundOptions();
   });
 
   listen('latency:target', ({ payload }) => {

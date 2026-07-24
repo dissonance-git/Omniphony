@@ -145,16 +145,10 @@ pub fn save_live_config_to_path(
     render.spread_distance_curve = None;
     render.size_to_spread_mode = None;
     renderer::config_fields::use_loudness::store(render, live.use_loudness);
-    renderer::config_fields::channel_render_mode::store(render, live.channel_render_mode);
-    renderer::config_fields::surround_placement::store(render, live.surround_placement);
-    renderer::config_fields::output_channel_mapping::store(render, live.output_channel_mapping);
-    // Parametrable virtual bed for channel content. Persist the live layout
-    // verbatim (round6 the radius for stable diffs); `None` keeps the key out of
-    // the file so the built-in canonical poses (LFE direct) stay in effect.
-    render.virtual_bed = live.virtual_bed.clone().map(|mut bed| {
-        bed.radius_m = round6(bed.radius_m);
-        bed
-    });
+    // Declared live options (registry rows) + their param bags and the virtual
+    // bed: one call covers what the OSC targeted persists cover, so the full
+    // save and the per-option writes cannot drift.
+    renderer::options::store_live_to_config(render, &live);
     renderer::config_fields::auto_gain::store(render, live.auto_gain);
     renderer::config_fields::auto_gain_ceiling_db::store(render, live.auto_gain_ceiling_db);
     renderer::config_fields::vbap_distance_model::store(render, live.distance_model.to_string());
@@ -215,6 +209,18 @@ pub fn save_live_config_to_path(
         renderer::binaural::HrirSource::Sofa(p) if !p.is_empty() => {
             ("sofa".to_string(), Some(std::path::PathBuf::from(p)))
         }
+        renderer::binaural::HrirSource::Pinna {
+            preset,
+            d_scale_pct,
+            depth_pct,
+        } => (
+            format!("pinna:{}:{d_scale_pct}:{depth_pct}", preset.as_str()),
+            None,
+        ),
+        renderer::binaural::HrirSource::Prtf {
+            freq_scale_pct,
+            depth_pct,
+        } => (format!("prtf:{freq_scale_pct}:{depth_pct}"), None),
         other => (other.as_str().to_string(), None),
     };
     render.binaural = Some(renderer::config::BinauralConfig {
@@ -226,6 +232,13 @@ pub fn save_live_config_to_path(
         head_tracking: Some(renderer::config::HeadTrackingConfig {
             osc_address: live.binaural.tracking.address.clone(),
             format: Some(live.binaural.tracking.format.as_str().to_string()),
+            reference_quat: {
+                // Carry the recenter reference through an explicit Save too (the
+                // targeted write-back already persists it on recenter); omit when
+                // back at identity to keep the YAML clean.
+                let r = live.binaural.tracking.reference;
+                (r != renderer::binaural::HeadPose::identity()).then(|| r.to_quat_array())
+            },
             extra: Default::default(),
         }),
         reflections: Some(renderer::config::ReflectionsConfig {

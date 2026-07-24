@@ -6,10 +6,11 @@ import { updateAdaptiveResamplingUI, resetAdaptiveResamplingAdvancedDirtyState }
 import {
   closeAudioSampleRateMenu, openAudioSampleRateMenu, updateAudioFormatDisplay,
   applyAudioSampleRateNow, applyAudioOutputDeviceNow, applyRampModeNow,
-  applyChannelRenderModeNow, applySurroundPlacementNow, applyOutputChannelMappingNow, sendAudioConfig,
+  sendAudioConfig,
   applyAudioOutputBackendNow, applyAudioOutputFileNow, applyAudioOutputFileFormatNow,
   applyAudioOutputNamedPipeNow
 } from '../controls/audio.js';
+import { bindOptionControls } from '../options-binder.js';
 import { resetVirtualBed } from '../controls/virtual-bed.js';
 import { applyLatencyTargetNow, updateLatencyDisplay } from '../controls/latency.js';
 import { openAutoTuneWizard } from '../auto-tune/wizard-ui.js';
@@ -58,7 +59,6 @@ export function setupAudioPanelListeners() {
   const audioOutputDeviceSelectEl = document.getElementById('audioOutputDeviceSelect');
   const refreshOutputDevicesBtnEl = document.getElementById('refreshOutputDevicesBtn');
   const rampModeSelectEl = document.getElementById('rampModeSelect');
-  const channelSpatializeToggleEl = document.getElementById('channelSpatializeToggle');
 
   if (masterGainSliderEl) {
     masterGainSliderEl.addEventListener('input', () => {
@@ -566,37 +566,12 @@ export function setupAudioPanelListeners() {
     });
   }
 
-  if (channelSpatializeToggleEl) {
-    channelSpatializeToggleEl.addEventListener('change', () => {
-      applyChannelRenderModeNow();
-    });
-  }
-
-  const surroundPlacementSideEl = document.getElementById('surroundPlacementSide');
-  if (surroundPlacementSideEl) {
-    surroundPlacementSideEl.addEventListener('click', () => {
-      applySurroundPlacementNow('side');
-    });
-  }
-  const surroundPlacementBackEl = document.getElementById('surroundPlacementBack');
-  if (surroundPlacementBackEl) {
-    surroundPlacementBackEl.addEventListener('click', () => {
-      applySurroundPlacementNow('back');
-    });
-  }
-
-  const outputChannelMappingByIndexEl = document.getElementById('outputChannelMappingByIndex');
-  if (outputChannelMappingByIndexEl) {
-    outputChannelMappingByIndexEl.addEventListener('click', () => {
-      applyOutputChannelMappingNow('by_index');
-    });
-  }
-  const outputChannelMappingByNameEl = document.getElementById('outputChannelMappingByName');
-  if (outputChannelMappingByNameEl) {
-    outputChannelMappingByNameEl.addEventListener('click', () => {
-      applyOutputChannelMappingNow('by_name');
-    });
-  }
+  // Declared live options (spatialize switch, Side/Back, generator select,
+  // phantom switch, by-index/by-name) are wired generically by the registry
+  // binder from their data-option markup — no per-option listener here.
+  // Per-generator/phantom parameter sliders are built dynamically from the
+  // declared schemas; their listeners are wired at creation.
+  bindOptionControls();
 
   const virtualBedResetBtnEl = document.getElementById('virtualBedResetBtn');
   if (virtualBedResetBtnEl) {

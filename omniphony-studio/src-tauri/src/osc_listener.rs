@@ -7,8 +7,8 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::app_state::OutputDeviceOption;
 use crate::app_state::{
-    AppState, DistanceDiffuse, Meter, RenderBackendState, RoomRatio, SpreadState, VbapCartesian,
-    VbapPolar,
+    AppState, DistanceDiffuse, LiveOptionsState, Meter, RenderBackendState, RoomRatio, SpreadState,
+    VbapCartesian, VbapPolar,
 };
 use crate::layouts::{Layout, Speaker};
 use crate::osc_parser::{
@@ -142,6 +142,13 @@ struct RendererDomainState {
     vbap_cartesian: Option<VbapCartesian>,
     vbap_polar: Option<VbapPolar>,
     render_backend_state: Option<RenderBackendState>,
+    /// Declared live options (registry RFC phase 1): the renderer's `options`
+    /// block, passed through verbatim — no typed mirror needed per option.
+    options: Option<serde_json::Value>,
+    /// The live fixed-channel-source / routing options, collected by key (flatten) and
+    /// mirrored into `AppState` verbatim — see [`LiveOptionsState`].
+    #[serde(flatten)]
+    live_options: LiveOptionsState,
 }
 
 #[derive(serde::Deserialize)]
@@ -641,6 +648,13 @@ fn apply_renderer_domain_state(s: &mut AppState, value: &str) -> bool {
     if let Some(render_backend_state) = parsed.render_backend_state {
         s.render_backend_state = render_backend_state;
     }
+    if let Some(options) = parsed.options {
+        s.options = Some(options);
+    }
+    // The renderer domain always carries the full option set, so mirror it
+    // wholesale (an explicit `virtualBed: null` must reach the UI — it means
+    // "no saved bed", which triggers the one-shot canonical-bed materialise).
+    s.live_options = parsed.live_options;
     true
 }
 
@@ -1736,6 +1750,9 @@ fn flush_emit_batch(app: &AppHandle) {
 }
 
 fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
+    // Per-object mutes preserved across a seek/reset so they can be re-emitted to
+    // the frontend after the `source:remove` wipe (see the SpatialFrame arm).
+    let mut restore_object_mutes: Vec<String> = Vec::new();
     // Update state under the lock, collect emit data, then release before emitting.
     let (to_emit, removed_ids): (Option<(&'static str, serde_json::Value)>, Vec<String>) = {
         let mut s = state.lock().unwrap();
@@ -1774,13 +1791,29 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                         .collect()
                 };
 
+                // On a seek/reset the renderer keeps each object's mute keyed by
+                // slot index (audio stays correctly soloed), but every source is
+                // dropped here and re-emitted as `source:remove`, which makes the
+                // frontend forget `objectMuted`. Preserve the authoritative mute
+                // mirror and schedule a re-emit so the visual solo/mute state is
+                // restored immediately instead of drifting until the next snapshot
+                // heartbeat. Non-reset stale removals (object count shrank) genuinely
+                // drop the slot, so they still clear the mute.
+                if is_reset {
+                    restore_object_mutes = s
+                        .object_mutes
+                        .iter()
+                        .filter_map(|(id, &m)| (m != 0).then(|| id.clone()))
+                        .collect();
+                }
                 for id in &stale_ids {
                     s.sources.remove(id);
                     s.source_levels.remove(id);
                     s.object_speaker_gains.remove(id);
                     s.object_band_gains.remove(id);
-                    s.object_gains.remove(id);
-                    s.object_mutes.remove(id);
+                    if !is_reset {
+                        s.object_mutes.remove(id);
+                    }
                 }
                 removed_ids.extend(stale_ids);
                 (
@@ -1830,6 +1863,45 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                             "gainDb": entry.gain_db,
                             "generation": entry.generation,
                             "directSpeakerIndex": entry.direct_speaker_index,
+                            "fixed": entry.fixed,
+                            "label": entry.label,
+                            "sourceTag": entry.source_tag,
+                            "name": entry.name
+                        }
+                });
+                (Some(("source:update", payload)), removed_ids)
+            }
+
+            OscEvent::UpdateMeta {
+                id,
+                fixed,
+                label,
+                generation,
+            } => {
+                let current_generation = s.current_content_generation;
+                let entry = s.sources.entry(id.clone()).or_default();
+                entry.fixed = Some(fixed);
+                entry.label = label.clone();
+                if entry.generation.is_none() {
+                    entry.generation = generation.or(current_generation);
+                }
+                // Re-emit the source through the regular update event so the
+                // front end has a single ingestion path for source state.
+                let payload = serde_json::json!({
+                    "id": id,
+                    "position": {
+                            "x": entry.x,
+                            "y": entry.y,
+                            "z": entry.z,
+                            "coordMode": entry.coord_mode,
+                            "azimuthDeg": entry.azimuth_deg,
+                            "elevationDeg": entry.elevation_deg,
+                            "distanceM": entry.distance_m,
+                            "gainDb": entry.gain_db,
+                            "generation": entry.generation,
+                            "directSpeakerIndex": entry.direct_speaker_index,
+                            "fixed": entry.fixed,
+                            "label": entry.label,
                             "sourceTag": entry.source_tag,
                             "name": entry.name
                         }
@@ -1855,7 +1927,6 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 s.source_levels.remove(&id);
                 s.object_speaker_gains.remove(&id);
                 s.object_band_gains.remove(&id);
-                s.object_gains.remove(&id);
                 s.object_mutes.remove(&id);
                 (
                     Some(("source:remove", serde_json::json!({ "id": id }))),
@@ -1968,13 +2039,6 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                         "speaker:gain",
                         serde_json::json!({ "id": id, "gain": gain }),
                     )),
-                    removed_ids,
-                )
-            }
-            OscEvent::StateObjectGain { id, gain } => {
-                s.object_gains.insert(id.clone(), gain);
-                (
-                    Some(("object:gain", serde_json::json!({ "id": id, "gain": gain }))),
                     removed_ids,
                 )
             }
@@ -2284,17 +2348,6 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     removed_ids,
                 )
             }
-            OscEvent::StateRealtimeObjectGain { id, value, .. } => {
-                s.object_gains.insert(id.clone(), value);
-                (
-                    Some((
-                        "object:gain",
-                        serde_json::json!({ "id": id, "gain": value }),
-                    )),
-                    removed_ids,
-                )
-            }
-
             OscEvent::StateLatency { value } => {
                 let rounded = s.set_latency_value(value);
                 (
@@ -2396,6 +2449,33 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                     removed_ids,
                 )
             }
+            OscEvent::StateObjectGenerators { value } => {
+                // Declared bed→height generator schema (id/label/param specs). JS
+                // parses the JSON once on arrival to build the selector + sliders.
+                (
+                    Some((
+                        "objectGenerators:schema",
+                        serde_json::json!({ "value": value }),
+                    )),
+                    removed_ids,
+                )
+            }
+            OscEvent::StatePhantom { value } => {
+                // Declared phantom-extraction param schema. JS builds the sliders.
+                (
+                    Some(("phantom:schema", serde_json::json!({ "value": value }))),
+                    removed_ids,
+                )
+            }
+            OscEvent::StateOptionsSchema { value } => {
+                // Declared live-options schema (registry rows: key, kind, values,
+                // default, flags, i18n keys). The data-option binder uses it for
+                // pre-snapshot defaults and control rendering.
+                (
+                    Some(("options:schema", serde_json::json!({ "value": value }))),
+                    removed_ids,
+                )
+            }
             OscEvent::StateDecodeTimeMs { value } => {
                 s.decode_time_ms = Some(value);
                 (
@@ -2483,6 +2563,17 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 };
                 (
                     Some(("render:version", serde_json::json!({ "value": value }))),
+                    removed_ids,
+                )
+            }
+            OscEvent::StateRenderAbi { value } => {
+                s.render_abi = if value.trim().is_empty() {
+                    None
+                } else {
+                    Some(value.clone())
+                };
+                (
+                    Some(("render:abi", serde_json::json!({ "value": value }))),
                     removed_ids,
                 )
             }
@@ -2875,6 +2966,13 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
 
     for id in removed_ids {
         let _ = app.emit("source:remove", serde_json::json!({ "id": id }));
+    }
+
+    // Re-emit the mutes preserved across a reset after the `source:remove` wipe so
+    // the frontend rebuilds `objectMuted` before the spatial:frame recreates the
+    // objects — keeping the visual solo/mute state in sync with the audio.
+    for id in restore_object_mutes {
+        let _ = app.emit("object:mute", serde_json::json!({ "id": id, "muted": 1 }));
     }
 
     if let Some((event, payload)) = to_emit {

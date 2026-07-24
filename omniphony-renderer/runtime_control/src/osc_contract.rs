@@ -126,7 +126,21 @@ pub const CONTROL_OVERLAY_HEATMAP_COLORMAP: &str = "/omniphony/control/overlay/h
 pub const CONTROL_OVERLAY_HEATMAP_CUSTOM_STOPS: &str =
     "/omniphony/control/overlay/heatmap_custom_stops";
 pub const CONTROL_OVERLAY_HEATMAP_ENABLED: &str = "/omniphony/control/overlay/heatmap_enabled";
-pub const CONTROL_CHANNEL_RENDER_MODE: &str = "/omniphony/control/channel_render_mode";
+/// Enables/disables every renderer-synthesized-object stage without clearing
+/// the configured phantom/height selections.
+pub const CONTROL_SYNTHETIC_OBJECTS: &str = "/omniphony/control/synthetic_objects";
+/// Selects the bed→height object generator (2D upmix) for channel content.
+/// Argument is the generator id string (`none` / `copy_up` / …).
+pub const CONTROL_OBJECT_GENERATOR: &str = "/omniphony/control/object_generator";
+/// Sets a live object-generator parameter. Args: key (string), value (float).
+/// Keys: `strength`, `hpf_hz`, `gain_db` (PAD).
+pub const CONTROL_OBJECT_GENERATOR_PARAM: &str = "/omniphony/control/object_generator/param";
+/// Selects phantom extraction: `off`, `broadband`, or `spectral`. The old int
+/// 0/1 spelling remains accepted as off/broadband on this legacy address.
+pub const CONTROL_PHANTOM_EXTRACT: &str = "/omniphony/control/phantom_extract";
+/// Sets a live phantom-extraction parameter. Args: key (string), value (float).
+/// Keys: `strength`, `passes`, `lift`.
+pub const CONTROL_PHANTOM_EXTRACT_PARAM: &str = "/omniphony/control/phantom_extract/param";
 /// Where the 4.x/5.x surround pair is placed: `side` or `back`. Only affects
 /// channel sources without dedicated back channels. Persisted to config.
 pub const CONTROL_SURROUND_PLACEMENT: &str = "/omniphony/control/surround_placement";
@@ -137,6 +151,11 @@ pub const CONTROL_OUTPUT_CHANNEL_MAPPING: &str = "/omniphony/control/output_chan
 /// `SpeakerLayout` (one entry per channel label, `spatialize` = virtual/direct);
 /// an empty string resets to the built-in canonical poses (LFE direct).
 pub const CONTROL_VIRTUAL_BED: &str = "/omniphony/control/virtual_bed";
+/// Generic setter for any declared live option (`renderer::options`):
+/// args `[key (string), value]`. The per-option addresses listed above
+/// (`synthetic_objects`, `object_generator`, `phantom_extract`,
+/// `surround_placement`, `output_channel_mapping`) are legacy aliases of this.
+pub const CONTROL_OPTION: &str = "/omniphony/control/option";
 pub const CONTROL_OVERLAY_LABELS: &str = "/omniphony/control/overlay/labels";
 pub const CONTROL_OVERLAY_OBJECTS: &str = "/omniphony/control/overlay/objects";
 pub const CONTROL_OVERLAY_TAG: &str = "/omniphony/control/overlay/tag";
@@ -144,7 +163,6 @@ pub const CONTROL_OVERLAY_TRAILS: &str = "/omniphony/control/overlay/trails";
 pub const CONTROL_QUIT: &str = "/omniphony/control/quit";
 pub const CONTROL_RAMP_MODE: &str = "/omniphony/control/ramp_mode";
 pub const CONTROL_REALTIME_MASTER_GAIN: &str = "/omniphony/control/realtime/master_gain";
-pub const CONTROL_REALTIME_OBJECT_GAIN: &str = "/omniphony/control/realtime/object_gain";
 pub const CONTROL_REALTIME_SPEAKER_GAIN: &str = "/omniphony/control/realtime/speaker_gain";
 pub const CONTROL_RELOAD_CONFIG: &str = "/omniphony/control/reload_config";
 pub const CONTROL_RENDER_BACKEND: &str = "/omniphony/control/render_backend";
@@ -215,11 +233,14 @@ pub const STATE_LAYOUT: &str = "/omniphony/state/layout";
 pub const STATE_LOG_LEVEL: &str = "/omniphony/state/log_level";
 pub const STATE_LOUDNESS: &str = "/omniphony/state/loudness";
 pub const STATE_MONITORING: &str = "/omniphony/state/monitoring";
+/// Schema of the declared live options (`renderer::options` registry rows),
+/// as a JSON string. Same pattern as `/state/object_generators` / `/state/phantom`.
+pub const STATE_OPTIONS_SCHEMA: &str = "/omniphony/state/options_schema";
 pub const STATE_OSC_DIAG: &str = "/omniphony/state/osc/diag";
 pub const STATE_OSC_METERING: &str = "/omniphony/state/osc/metering";
 pub const STATE_REALTIME_MASTER_GAIN: &str = "/omniphony/state/realtime/master_gain";
-pub const STATE_REALTIME_OBJECT_GAIN: &str = "/omniphony/state/realtime/object_gain";
 pub const STATE_REALTIME_SPEAKER_GAIN: &str = "/omniphony/state/realtime/speaker_gain";
+pub const STATE_RENDER_ABI: &str = "/omniphony/state/render/abi";
 pub const STATE_RENDER_BRIDGE_ERROR: &str = "/omniphony/state/render/bridge_error";
 pub const STATE_RENDER_BRIDGE_PATH: &str = "/omniphony/state/render/bridge_path";
 pub const STATE_RENDER_CONFIG_PATH: &str = "/omniphony/state/render/config_path";
@@ -285,7 +306,13 @@ pub const ALL_CONTROL: &[&str] = &[
     CONTROL_BACKEND_FILE_LIST,
     CONTROL_BACKEND_FILE_PUT,
     CONTROL_BACKEND_PARAM,
-    CONTROL_CHANNEL_RENDER_MODE,
+    CONTROL_SYNTHETIC_OBJECTS,
+    CONTROL_OBJECT_GENERATOR,
+    CONTROL_OBJECT_GENERATOR_PARAM,
+    CONTROL_OPTION,
+    CONTROL_PHANTOM_EXTRACT,
+    CONTROL_PHANTOM_EXTRACT_PARAM,
+    CONTROL_SURROUND_PLACEMENT,
     CONTROL_OUTPUT_CHANNEL_MAPPING,
     CONTROL_VIRTUAL_BED,
     CONTROL_CONFIG_AUDIO,
@@ -337,7 +364,6 @@ pub const ALL_CONTROL: &[&str] = &[
     CONTROL_QUIT,
     CONTROL_RAMP_MODE,
     CONTROL_REALTIME_MASTER_GAIN,
-    CONTROL_REALTIME_OBJECT_GAIN,
     CONTROL_REALTIME_SPEAKER_GAIN,
     CONTROL_RELOAD_CONFIG,
     CONTROL_RENDER_BACKEND,
@@ -396,11 +422,12 @@ pub const ALL_STATE: &[&str] = &[
     STATE_LOG_LEVEL,
     STATE_LOUDNESS,
     STATE_MONITORING,
+    STATE_OPTIONS_SCHEMA,
     STATE_OSC_DIAG,
     STATE_OSC_METERING,
     STATE_REALTIME_MASTER_GAIN,
-    STATE_REALTIME_OBJECT_GAIN,
     STATE_REALTIME_SPEAKER_GAIN,
+    STATE_RENDER_ABI,
     STATE_RENDER_BRIDGE_ERROR,
     STATE_RENDER_BRIDGE_PATH,
     STATE_RENDER_CONFIG_PATH,

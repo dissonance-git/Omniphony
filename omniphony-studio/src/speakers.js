@@ -166,6 +166,7 @@ import {
   updateEffectiveRenderDecoration,
   getObjectDisplayName,
   formatObjectLabel,
+  objectBadge,
   applyObjectItemColor,
   dbfsToScale,
   gainToMix,
@@ -1291,10 +1292,12 @@ export function createObjectItem(id) {
     setSelectedSource(id);
   });
 
+  // The badge shows a fixed type icon (▲ height-upmix, ◇ phantom) for the
+  // synthesized objects — name on hover — and the plain (short) name for the
+  // others (bed/ADM), so nothing is lost and the row stays compact.
   const idStrip = document.createElement('div');
   idStrip.className = 'id-strip flip';
   const idText = document.createElement('span');
-  idText.textContent = formatObjectLabel(id);
   idStrip.appendChild(idText);
   root.appendChild(idStrip);
 
@@ -1432,22 +1435,68 @@ export function createObjectItem(id) {
   };
 }
 
+// Resolve the physical output used by a fixed channel in Direct mode. The
+// renderer publishes the final layout index after label aliases and surround
+// routing have been resolved, so this is more accurate than matching names in
+// Studio (notably when 5.1 surrounds use a 7.1 back pair).
+function directFixedSpeakerTarget(position) {
+  if (position?.fixed !== true || !Number.isInteger(position.directSpeakerIndex)) return null;
+  const index = position.directSpeakerIndex;
+  const speaker = get_currentLayoutSpeakers()[index];
+  if (!speaker) return null;
+  return {
+    index,
+    speaker,
+    name: String(speaker.id ?? speaker.name ?? index)
+  };
+}
+
 // Refresh an object row's position thumbnail from a normalized position
-// (`{ x, y, z }` in [-1, 1]). Reuses the speaker marker so objects and speakers
-// read identically. Cheap enough to call on every position flush.
-export function applyObjectPositionIcon(entry, position) {
+// (`{ x, y, z }` in [-1, 1]). Direct fixed channels use the actual destination
+// speaker position and the same black room frame as non-spatialized outputs.
+// Cheap enough to call on every position flush.
+export function applyObjectPositionIcon(entry, position, directTarget = directFixedSpeakerTarget(position)) {
   if (!entry?.positionIcon || !position) return;
-  // spatialize:1 → currentColor room frame (objects are always virtualized).
+  const displayedPosition = directTarget?.speaker || position;
   entry.positionIcon.innerHTML = positionIconMarkup({
-    x: position.x,
-    y: position.y,
-    z: position.z,
-    spatialize: 1
+    x: displayedPosition.x,
+    y: displayedPosition.y,
+    z: displayedPosition.z,
+    spatialize: directTarget ? 0 : 1
   });
-  const x = (Number(position.x) || 0).toFixed(2);
-  const y = (Number(position.y) || 0).toFixed(2);
-  const z = (Number(position.z) || 0).toFixed(2);
-  entry.positionIcon.title = `X ${x}  Y ${y}  Z ${z}`;
+  const x = (Number(displayedPosition.x) || 0).toFixed(2);
+  const y = (Number(displayedPosition.y) || 0).toFixed(2);
+  const z = (Number(displayedPosition.z) || 0).toFixed(2);
+  const coords = `X ${x}  Y ${y}  Z ${z}`;
+  const label = position.label || position.name;
+  entry.positionIcon.title = directTarget
+    ? `${label ? `${label} → ` : ''}${directTarget.name} — ${coords}`
+    : label ? `${label} — ${coords}` : coords;
+}
+
+// Set an object row's fixed type icon (▲ height upmix, ◇ phantom, blank
+// otherwise) + its short position code, from the object's name. Shared by the
+// item update and the live name-flush so they can't disagree.
+export function applyObjectIdentity(entry, id) {
+  if (!entry) return;
+  const badge = objectBadge(id);
+  const fullName = getObjectDisplayName(id);
+  const icon = badge.type === 'height' ? '▲' : badge.type === 'phantom' ? '◇' : '';
+  if (entry.label) {
+    // Icon for the synthesized types (name on hover); the short name in the badge
+    // for everything else. The name is vertical text only when there's no icon,
+    // so a bed name stays compact and a single icon never rotates.
+    entry.label.textContent = icon || badge.code;
+    entry.label.classList.toggle('object-type-icon', !!icon);
+  }
+  if (entry.idStrip) {
+    entry.idStrip.classList.toggle('type-height', badge.type === 'height');
+    entry.idStrip.classList.toggle('type-phantom', badge.type === 'phantom');
+  }
+  // The badge is pointer-events:none (so a click selects the row), so a title on
+  // it never gets a hover. Put the hover hint on the row itself, only where the
+  // name is hidden behind an icon.
+  if (entry.root) entry.root.title = icon ? fullName : '';
 }
 
 export function updateObjectItem(entry, id, position, name) {
@@ -1457,13 +1506,15 @@ export function updateObjectItem(entry, id, position, name) {
   if (name) {
     sourceNames.set(id, name);
   }
-  entry.label.textContent = formatObjectLabel(id);
-  const coords = decomposePosition(position);
+  applyObjectIdentity(entry, id);
+  const directTarget = directFixedSpeakerTarget(position);
+  const coords = decomposePosition(directTarget?.speaker || position);
   Object.keys(entry.axisElems).forEach(axis => {
     entry.axisElems[axis].textContent = `${axis}:${coords[axis]}`;
   });
-  applyObjectPositionIcon(entry, position);
-  entry.topRight.textContent = getObjectDominantSpeakerText(id);
+  applyObjectPositionIcon(entry, position, directTarget);
+  entry.topRight.textContent = directTarget ? `→ ${directTarget.name}` : getObjectDominantSpeakerText(id);
+  entry.topRight.title = directTarget ? `${t('channelEdit.destinationSpeaker')}: ${directTarget.name}` : '';
   entry.root.classList.toggle('has-active-trail', objectHasActiveTrail(id));
   entry.muteBtn.classList.toggle('active', objectMuted.has(id));
   entry.soloBtn.classList.toggle('active', soloTarget === id);
@@ -1535,7 +1586,16 @@ export function renderObjectsList() {
   // order: DTS C,L,R,…; AC-3 L,C,R,…). Holds at rest (synthetic bed, id = label)
   // and during playback. Dynamic objects keep their numeric-id order, then locale.
   const channelRank = (id) => canonicalChannelOrder(formatObjectLabel(id));
+  // Group the list: bed/ADM first, then the phantom-extraction objects, then the
+  // height (top) upmix objects. Within a group, keep the canonical channel order.
+  const groupRank = (id) => {
+    const type = objectBadge(id).type;
+    return type === 'height' ? 2 : type === 'phantom' ? 1 : 0;
+  };
   const ids = [...sourceMeshes.keys()].sort((a, b) => {
+    const ga = groupRank(a);
+    const gb = groupRank(b);
+    if (ga !== gb) return ga - gb;
     const aOrd = channelRank(a);
     const bOrd = channelRank(b);
     if (aOrd !== -1 && bOrd !== -1) return aOrd - bOrd;
@@ -1620,7 +1680,7 @@ export function resolveEditTarget() {
     if (!mesh) return null;
     return { kind: 'speaker', index: speakerIndex, mesh, label: speakerLabels[speakerIndex] };
   }
-  if (app.channelRenderMode !== 'host' && app.selectedSourceId !== null && app.selectedSourceId !== undefined) {
+  if (app.selectedSourceId !== null && app.selectedSourceId !== undefined) {
     const id = String(app.selectedSourceId);
     const mesh = sourceMeshes.get(id);
     if (!mesh) return null;

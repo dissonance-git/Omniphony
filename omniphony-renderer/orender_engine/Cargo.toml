@@ -2,7 +2,7 @@
 name = "orender_engine"
 version = "0.2.3"
 edition = "2024"
-license = "GPL-3.0-only"
+license = "GPL-3.0-or-later"
 description = "Headless decode→render engine for the orender spatial audio renderer (host-agnostic, no audio I/O)"
 repository = "https://github.com/mgth/Omniphony"
 
@@ -13,7 +13,7 @@ renderer = { version = "0.2.4", path = "../renderer" }
 example_backend = { path = "../example_backend" }
 # User-scriptable (Lua) render backend, registered at startup.
 script_backend = { path = "../script_backend" }
-bridge_api = { version = "0.2.0", path = "../bridge_api" }
+bridge_api = { version = "0.3.0", path = "../bridge_api" }
 runtime_control = { version = "0.2.4", path = "../runtime_control" }
 sys = { version = "0.1.0", path = "../sys" }
 # Audio output/input belong to the host_audio crate and reach the OSC server
@@ -24,6 +24,9 @@ anyhow = "1.0"
 log = "0.4"
 rosc = "0.11"
 serde_json = "1.0"
+# Real-input FFT for the DirAC diffuse→height object generator (pure Rust, no
+# system deps — safe for the liborender cdylib). Already in the workspace lock.
+realfft = "3.5"
 
 [features]
 # Personalised HRTF loading (SOFA files) in the binaural stage.

@@ -17,6 +17,7 @@ import {
   hasControlConfig,
   isEmbeddedProducer
 } from './state.js';
+import { reflectBoundOptions } from './options-binder.js';
 
 import { updateSource, updateSourceLevel, updateSourceGains } from './sources.js';
 import {
@@ -46,7 +47,8 @@ import {
   updateVbapPositionInterpolation,
   renderVbapStatus
 } from './controls/vbap.js';
-import { updateAudioFormatDisplay } from './controls/audio.js';
+import { updateAudioFormatDisplay, updateOutputChannelMappingUI } from './controls/audio.js';
+import { materializeDefaultVirtualBed } from './controls/virtual-bed.js';
 import { updateInputControlUI } from './controls/input.js';
 import { updateAdaptiveResamplingUI } from './controls/adaptive.js';
 import { syncMeterRateFromRenderer } from './controls/osc.js';
@@ -451,6 +453,9 @@ export function applyInitState(payload) {
   if (typeof payload.latencyControlMs === 'number') {
     app.latencyControlMs = payload.latencyControlMs;
   }
+  if (typeof payload.latencySmoothedMs === 'number') {
+    app.latencySmoothedMs = payload.latencySmoothedMs;
+  }
   if (typeof payload.latencyDownstreamMs === 'number') {
     app.latencyDownstreamMs = payload.latencyDownstreamMs;
   }
@@ -488,6 +493,50 @@ export function applyInitState(payload) {
     const next = payload.rampMode.trim().toLowerCase();
     if (next === 'off' || next === 'frame' || next === 'sample' || next === 'interp') {
       app.rampMode = next;
+    }
+  }
+  // Declared live options (registry): the renderer's authoritative values,
+  // ingested generically under their canonical snake_case keys — the binder
+  // and every reader go through `app.options`/`getLiveOption`, so the panel
+  // reflects the ENGINE state at (re)connect with no per-option line here.
+  if (payload.options && typeof payload.options === 'object') {
+    Object.assign(app.options, payload.options);
+  }
+  if (payload.objectGeneratorParams && typeof payload.objectGeneratorParams === 'object') {
+    app.objectGeneratorParams = payload.objectGeneratorParams;
+  }
+  if (typeof payload.objectGeneratorLayoutHasHeight === 'boolean') {
+    app.objectGeneratorLayoutHasHeight = payload.objectGeneratorLayoutHasHeight;
+  }
+  if (payload.phantomParams && typeof payload.phantomParams === 'object') {
+    app.phantomParams = payload.phantomParams;
+  }
+  if (Array.isArray(payload.fixedChannelCatalog)) {
+    app.fixedChannelCatalog = payload.fixedChannelCatalog;
+  }
+  if (payload.fixedChannelProcessing && typeof payload.fixedChannelProcessing === 'object') {
+    app.fixedChannelProcessing = payload.fixedChannelProcessing;
+  }
+  if (Array.isArray(payload.outputChannelMappingUnroutable)) {
+    app.outputChannelMappingUnroutable = payload.outputChannelMappingUnroutable.filter(
+      (n) => typeof n === 'string'
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'virtualBed')) {
+    // null = renderer is on the built-in canonical poses; an object is the
+    // configured/live bed. The editor seeds defaults when this is null.
+    app.virtualBed =
+      payload.virtualBed && typeof payload.virtualBed === 'object' ? payload.virtualBed : null;
+    // First authoritative snapshot reporting no saved bed:
+    // materialise the canonical cartesian bed so the editor's values persist to
+    // config.yaml (like `current_layout`) and are used in priority, instead of
+    // relying on a built-in default. One-shot; once a bed exists this is skipped.
+    if (
+      !app.virtualBed &&
+      !app.virtualBedMaterialized
+    ) {
+      app.virtualBedMaterialized = true;
+      materializeDefaultVirtualBed();
     }
   }
   if (typeof payload.audioOutputDevice === 'string') {
@@ -585,6 +634,9 @@ export function applyInitState(payload) {
   if (typeof payload.renderVersion === 'string') {
     app.renderVersion = payload.renderVersion.trim() || null;
   }
+  if (typeof payload.renderAbi === 'string') {
+    app.renderAbi = payload.renderAbi.trim() || null;
+  }
   if (typeof payload.renderBridgeError === 'string') {
     app.renderBridgeError = payload.renderBridgeError.trim() || null;
   }
@@ -649,6 +701,8 @@ export function applyInitState(payload) {
   updateRenderTimeUI();
   updateResampleRatioDisplay();
   updateAudioFormatDisplay();
+  reflectBoundOptions();
+  updateOutputChannelMappingUI();
   updateInputControlUI();
   renderDrcUI();
   // Auto-surface the Audio Input section on a bridge-class error, but only on

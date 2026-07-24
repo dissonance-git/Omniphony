@@ -175,6 +175,29 @@ pub struct RenderConfig {
     /// Absent = `by_index`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_channel_mapping: Option<crate::live_params::OutputChannelMapping>,
+    /// Bed→height object generator (2D upmix) id for channel content
+    /// (`none` / `copy_up` / `pad` / …). Absent / empty = off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object_generator_id: Option<String>,
+    /// Live parameter overrides for the active object generator (param key →
+    /// value), as declared by the generator's schema. Absent = each generator
+    /// uses its declared defaults.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object_generator_params: Option<std::collections::HashMap<String, f32>>,
+    /// Global renderer-synthesized-object master. Kept explicit once migrated so
+    /// an off master can retain non-off child selections.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub synthetic_objects_enabled: Option<bool>,
+    /// Phantom extraction algorithm. Absent = off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phantom_extract_mode: Option<crate::live_params::PhantomExtractMode>,
+    /// Legacy phantom enable flag, read for migration and dropped on save.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phantom_enabled: Option<bool>,
+    /// Live parameter overrides for the phantom-extraction stage (`strength` /
+    /// `passes` / `lift`). Absent = the stage's declared defaults.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phantom_params: Option<std::collections::HashMap<String, f32>>,
     /// Parametrable virtual bed for channel-based (non-object) content. One
     /// entry per input-channel label (`L`, `R`, `C`, `LFE`, `Ls`, `Rs`, …):
     /// `spatialize:true` virtualizes the channel as an object at the entry's
@@ -409,6 +432,11 @@ pub struct HeadTrackingConfig {
     /// Orientation value format: `"auto"` (default), `"quat"`, `"rotvec"`, `"euler"`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
+    /// Recenter "forward" reference quaternion `[w, x, y, z]`, persisted so the
+    /// chosen centering survives an engine rebuild (mpv track change) or restart.
+    /// Absent until the tracker has been recentered (identity = uncentered).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reference_quat: Option<[f32; 4]>,
     /// See `Config::extra` — preserve unknown keys through round-trips.
     #[serde(flatten, default, skip_serializing_if = "Mapping::is_empty")]
     pub extra: Mapping,
@@ -786,6 +814,28 @@ mod tests {
         assert_eq!(rc.room_ratio.as_deref(), Some("1.0,2.000000,1.000000"));
         assert_eq!(rc.room_ratio_rear, Some(1.0));
         assert_eq!(rc.room_ratio_lower, Some(0.5));
+    }
+
+    #[test]
+    fn head_tracking_reference_quat_round_trips_and_omits_when_absent() {
+        // Present: serializes and parses back equal.
+        let ht = HeadTrackingConfig {
+            osc_address: Some("/android/rotationvector".to_string()),
+            reference_quat: Some([0.5, 0.5, 0.5, 0.5]),
+            ..Default::default()
+        };
+        let yaml = serde_yaml_ng::to_string(&ht).unwrap();
+        assert!(yaml.contains("reference_quat"), "field not written: {yaml}");
+        let back: HeadTrackingConfig = serde_yaml_ng::from_str(&yaml).unwrap();
+        assert_eq!(back.reference_quat, Some([0.5, 0.5, 0.5, 0.5]));
+
+        // Absent: the key is skipped entirely.
+        let bare = HeadTrackingConfig::default();
+        let yaml = serde_yaml_ng::to_string(&bare).unwrap();
+        assert!(
+            !yaml.contains("reference_quat"),
+            "None should omit the key: {yaml}"
+        );
     }
 
     #[test]

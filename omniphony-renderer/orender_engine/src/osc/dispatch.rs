@@ -30,7 +30,6 @@ use super::transport::{
 pub(crate) struct RealtimeSeqState {
     pub master_gain: Option<i32>,
     pub speaker_gain: HashMap<usize, i32>,
-    pub object_gain: HashMap<String, i32>,
 }
 
 pub(crate) fn handle_control_message(
@@ -67,62 +66,85 @@ pub(crate) fn handle_control_message(
         return;
     }
 
-    // Channel render mode for non-object content (host / direct / virtual).
-    // Live-tunable from Studio; persists to config so it survives a restart.
-    if addr == osc_contract::CONTROL_CHANNEL_RENDER_MODE {
-        if let Some(OscType::String(s)) = msg.args.first() {
-            if let Some(mode) = renderer::live_params::ChannelRenderMode::from_str(s) {
-                control.live.write().channel_render_mode = mode;
-                control.mark_dirty();
-                // Persist to config.yaml right away (not only mark_dirty). `host`
-                // makes the embedded mpv decoder decline and tear the engine down,
-                // so the OSC re-enable after a fallback is received by a *different*
-                // orender instance (the standby renderer that resumes on the port).
-                // Committing it to config.yaml here — by whichever instance gets the
-                // toggle — is what lets the next mpv launch read the right mode.
-                persist_channel_render_mode(control, mode);
-                broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
-                log::info!("OSC channel render mode set to {}", mode.as_str());
-            } else {
-                log::warn!("OSC channel render mode: unknown value '{}'", s);
-            }
+    // Declared live options (renderer::options registry): the generic setter
+    // `/control/option [key, value]` and the legacy per-option addresses both
+    // land on the same registry-driven path — validate, apply, mark dirty,
+    // bump the replan epoch, and commit PERSIST-flagged options to config.yaml
+    // right away (not only mark_dirty): a host fallback can route the next
+    // toggle to a *different* orender instance (the standby renderer that
+    // resumes on the port), so the file — written by whichever instance got
+    // the toggle — is what the next boot reads.
+    if addr == osc_contract::CONTROL_OPTION {
+        let Some(OscType::String(key)) = msg.args.first() else {
+            return;
+        };
+        let Some(spec) = renderer::options::find(key) else {
+            log::warn!("OSC option: unknown key '{}'", key);
+            return;
+        };
+        if let Some(raw) = raw_option_value(msg.args.get(1)) {
+            apply_live_option(control, spec, &raw, socket, clients);
+        }
+        return;
+    }
+    if let Some(spec) = renderer::options::find_by_legacy_addr(addr) {
+        if let Some(raw) = raw_option_value(msg.args.first()) {
+            apply_live_option(control, spec, &raw, socket, clients);
         }
         return;
     }
 
-    // Surround placement (side/back) for 4.x/5.x channel content. Live-tunable
-    // from Studio; persists to config right away (same rationale as
-    // channel_render_mode: a host fallback can route the next toggle to a
-    // different orender instance, so commit it to config.yaml here).
-    if addr == osc_contract::CONTROL_SURROUND_PLACEMENT {
-        if let Some(OscType::String(s)) = msg.args.first() {
-            if let Some(placement) = renderer::live_params::SurroundPlacement::from_str(s) {
-                control.live.write().surround_placement = placement;
-                control.mark_dirty();
-                persist_surround_placement(control, placement);
-                broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
-                log::info!("OSC surround placement set to {}", placement.as_str());
-            } else {
-                log::warn!("OSC surround placement: unknown value '{}'", s);
-            }
+    // Live object-generator parameter (PAD: strength / hpf_hz / gain_db).
+    if addr == osc_contract::CONTROL_OBJECT_GENERATOR_PARAM {
+        let key = match msg.args.first() {
+            Some(OscType::String(s)) => s.trim().to_ascii_lowercase(),
+            _ => return,
+        };
+        let value = match msg.args.get(1) {
+            Some(OscType::Float(f)) => *f,
+            Some(OscType::Double(d)) => *d as f32,
+            Some(OscType::Int(i)) => *i as f32,
+            _ => return,
+        };
+        if key.is_empty() || !value.is_finite() {
+            return;
         }
+        // Store the override generically; the generator validates and clamps it by
+        // key when the render thread applies it (declared-schema design).
+        control
+            .live
+            .write()
+            .object_generator_params
+            .insert(key, value);
+        control.mark_dirty();
+        // Params are NOT persisted immediately (a slider drag is a burst of
+        // updates — no config write per tick), so the Save button is the only
+        // way to keep them: tell clients the config is dirty or the button
+        // never lights for a param-only change.
+        broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
         return;
     }
 
-    // Output channel mapping (by_index/by_name). Live-tunable from Studio;
-    // persists to config right away (same rationale as surround_placement).
-    if addr == osc_contract::CONTROL_OUTPUT_CHANNEL_MAPPING {
-        if let Some(OscType::String(s)) = msg.args.first() {
-            if let Some(mapping) = renderer::live_params::OutputChannelMapping::from_str(s) {
-                control.live.write().output_channel_mapping = mapping;
-                control.mark_dirty();
-                persist_output_channel_mapping(control, mapping);
-                broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
-                log::info!("OSC output channel mapping set to {}", mapping.as_str());
-            } else {
-                log::warn!("OSC output channel mapping: unknown value '{}'", s);
-            }
+    // Live phantom-extraction parameter (strength / passes / lift).
+    if addr == osc_contract::CONTROL_PHANTOM_EXTRACT_PARAM {
+        let key = match msg.args.first() {
+            Some(OscType::String(s)) => s.trim().to_ascii_lowercase(),
+            _ => return,
+        };
+        let value = match msg.args.get(1) {
+            Some(OscType::Float(f)) => *f,
+            Some(OscType::Double(d)) => *d as f32,
+            Some(OscType::Int(i)) => *i as f32,
+            _ => return,
+        };
+        if key.is_empty() || !value.is_finite() {
+            return;
         }
+        control.live.write().phantom_params.insert(key, value);
+        control.mark_dirty();
+        // Same as the generator params above: deferred persistence, so the
+        // dirty state must reach the clients' Save button.
+        broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
         return;
     }
 
@@ -453,71 +475,6 @@ pub(crate) fn handle_control_message(
         return;
     }
 
-    if addr == osc_contract::CONTROL_REALTIME_OBJECT_GAIN {
-        let Some(id) = msg.args.first().and_then(|arg| match arg {
-            OscType::String(v) => {
-                let trimmed = v.trim();
-                if trimmed.is_empty() {
-                    None
-                } else {
-                    Some(trimmed.to_string())
-                }
-            }
-            OscType::Int(v) if *v >= 0 => Some(v.to_string()),
-            OscType::Float(v) if *v >= 0.0 => Some((*v as i32).to_string()),
-            _ => None,
-        }) else {
-            return;
-        };
-        let Some(value) = msg.args.get(1).and_then(|arg| match arg {
-            OscType::Float(v) => Some(*v),
-            OscType::Int(v) => Some(*v as f32),
-            _ => None,
-        }) else {
-            return;
-        };
-        let Some(seq) = msg.args.get(2).and_then(|arg| match arg {
-            OscType::Int(v) => Some(*v),
-            _ => None,
-        }) else {
-            return;
-        };
-        if realtime_seq
-            .object_gain
-            .get(&id)
-            .copied()
-            .is_some_and(|last| seq < last)
-        {
-            return;
-        }
-        let Ok(idx) = id.parse::<usize>() else {
-            return;
-        };
-        let clamped = value.clamp(0.0, 2.0);
-        realtime_seq.object_gain.insert(id.clone(), seq);
-        control.live.write().objects.entry(idx).or_default().gain = clamped;
-        control.mark_object_params_dirty();
-        control.mark_dirty();
-        broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
-        if let Ok(bytes) = rosc::encoder::encode(&rosc::OscPacket::Message(rosc::OscMessage {
-            addr: osc_contract::STATE_REALTIME_OBJECT_GAIN.to_string(),
-            args: vec![
-                OscType::String(id.clone()),
-                OscType::Float(clamped),
-                OscType::Int(seq),
-            ],
-        })) {
-            super::transport::send_raw(socket, clients, &bytes);
-        }
-        broadcast_float(
-            socket,
-            clients,
-            &format!("/omniphony/state/object/{idx}/gain"),
-            clamped,
-        );
-        return;
-    }
-
     if addr == osc_contract::CONTROL_RENDER_BRIDGE_PATH {
         let value = match msg.args.first() {
             Some(OscType::String(s)) => s.trim(),
@@ -695,36 +652,65 @@ fn set_dirty(control: &Arc<RendererControl>, socket: &UdpSocket, clients: &OscCl
     broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
 }
 
-/// Persist `channel_render_mode` to the on-disk config so it survives a restart.
-///
-/// Targeted, side-effect-free write: load the existing config, set *only* this
-/// field (preserving every other key, including unknown ones via the config's
-/// flattened `extra`), save, then drop the live-handoff sidecar + overlay cache
-/// so a stale `host` sidecar — written when a previous instance fell back and
-/// tore down — cannot override `config.yaml` on the next boot. `Spatial` (the
-/// default) omits the key; `Host` writes it. Best-effort; logs on error.
-fn persist_channel_render_mode(
-    control: &Arc<RendererControl>,
-    mode: renderer::live_params::ChannelRenderMode,
-) {
-    let Some(path) = control.config_path() else {
-        return;
-    };
-    persist_channel_render_mode_to_path(&path, mode);
+/// Map a client-supplied OSC argument onto the registry's transport-agnostic
+/// raw value. `None` for shapes no option accepts (blobs, arrays, …).
+fn raw_option_value(arg: Option<&OscType>) -> Option<renderer::options::RawOptionValue<'_>> {
+    use renderer::options::RawOptionValue;
+    match arg? {
+        OscType::String(s) => Some(RawOptionValue::Str(s)),
+        OscType::Int(i) => Some(RawOptionValue::Number(*i as f64)),
+        OscType::Float(f) => Some(RawOptionValue::Number(*f as f64)),
+        OscType::Double(d) => Some(RawOptionValue::Number(*d)),
+        OscType::Bool(b) => Some(RawOptionValue::Bool(*b)),
+        _ => None,
+    }
 }
 
-fn persist_channel_render_mode_to_path(
+/// Registry-driven application of a declared live option: validate + apply via
+/// `options::apply_to_control` (which marks dirty and bumps the replan epoch
+/// on a real change), then commit to config.yaml (`PERSIST`) and notify
+/// clients. Invalid values are dropped with a warning, per the OSC contract.
+fn apply_live_option(
+    control: &Arc<RendererControl>,
+    spec: &'static renderer::options::OptionSpec,
+    raw: &renderer::options::RawOptionValue,
+    socket: &Arc<UdpSocket>,
+    clients: &Arc<OscClientRegistry>,
+) {
+    let Some(canonical) = renderer::options::apply_to_control(control, spec, raw) else {
+        log::warn!("OSC option {}: rejected value", spec.key);
+        return;
+    };
+    if spec.flags.contains(renderer::options::OptionFlags::PERSIST) {
+        if let Some(path) = control.config_path() {
+            persist_render_field_to_path(&path, spec.key, |render| {
+                let live = control.live.read();
+                (spec.config_store)(render, &live);
+            });
+        }
+    }
+    broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
+    log::info!("OSC option {} set to '{}'", spec.key, canonical);
+}
+
+/// Targeted, sidecar-clearing config write shared by every per-option persist.
+///
+/// Load the existing config, let `store` set *only* its field (preserving every
+/// other key, including unknown ones via the config's flattened `extra`), save,
+/// then drop the live-handoff sidecar + overlay cache so a stale sidecar —
+/// written when a previous instance fell back and tore down — cannot override
+/// `config.yaml` on the next boot. Skip-if-default descriptors keep a default
+/// value out of the file entirely. Best-effort; logs on error.
+fn persist_render_field_to_path(
     path: &Path,
-    mode: renderer::live_params::ChannelRenderMode,
+    what: &str,
+    store: impl FnOnce(&mut renderer::config::RenderConfig),
 ) {
     let mut config = renderer::config::Config::load_or_default(path);
     let render = config.render.get_or_insert_with(Default::default);
-    renderer::config_fields::channel_render_mode::store(render, mode);
+    store(render);
     if let Err(e) = config.save(path) {
-        log::warn!(
-            "failed to persist channel_render_mode to {}: {e}",
-            path.display()
-        );
+        log::warn!("failed to persist {what} to {}: {e}", path.display());
         return;
     }
     // A persisted change supersedes any pending live-handoff overlay.
@@ -732,57 +718,25 @@ fn persist_channel_render_mode_to_path(
     renderer::config::clear_live_overlay_cache();
 }
 
-/// Persist `surround_placement` to the on-disk config so it survives a restart.
-/// Same targeted, sidecar-clearing write as [`persist_channel_render_mode`].
-fn persist_surround_placement(
-    control: &Arc<RendererControl>,
-    placement: renderer::live_params::SurroundPlacement,
-) {
+/// Persist the head-tracking recenter reference to the on-disk config so the
+/// chosen "forward" survives an engine rebuild (mpv track change) and a restart.
+/// Same targeted, sidecar-clearing write as the live options.
+fn persist_head_center(control: &Arc<RendererControl>, reference_quat: [f32; 4]) {
     let Some(path) = control.config_path() else {
         return;
     };
-    persist_surround_placement_to_path(&path, placement);
+    persist_head_center_to_path(&path, reference_quat);
 }
 
-fn persist_surround_placement_to_path(
-    path: &Path,
-    placement: renderer::live_params::SurroundPlacement,
-) {
-    let mut config = renderer::config::Config::load_or_default(path);
-    let render = config.render.get_or_insert_with(Default::default);
-    renderer::config_fields::surround_placement::store(render, placement);
-    if let Err(e) = config.save(path) {
-        log::warn!(
-            "failed to persist surround_placement to {}: {e}",
-            path.display()
-        );
-        return;
-    }
-    let _ = std::fs::remove_file(renderer::config::live_sidecar_path(path));
-    renderer::config::clear_live_overlay_cache();
-}
-
-/// Persist `output_channel_mapping` to the on-disk config so it survives a
-/// restart. Same targeted, sidecar-clearing write as [`persist_surround_placement`].
-fn persist_output_channel_mapping(
-    control: &Arc<RendererControl>,
-    mapping: renderer::live_params::OutputChannelMapping,
-) {
-    let Some(path) = control.config_path() else {
-        return;
-    };
-    let mut config = renderer::config::Config::load_or_default(&path);
-    let render = config.render.get_or_insert_with(Default::default);
-    renderer::config_fields::output_channel_mapping::store(render, mapping);
-    if let Err(e) = config.save(&path) {
-        log::warn!(
-            "failed to persist output_channel_mapping to {}: {e}",
-            path.display()
-        );
-        return;
-    }
-    let _ = std::fs::remove_file(renderer::config::live_sidecar_path(&path));
-    renderer::config::clear_live_overlay_cache();
+fn persist_head_center_to_path(path: &Path, reference_quat: [f32; 4]) {
+    persist_render_field_to_path(path, "head recenter", |render| {
+        let bin = render.binaural.get_or_insert_with(Default::default);
+        let ht = bin.head_tracking.get_or_insert_with(Default::default);
+        // Drop the key when back at identity so an "uncentered" tracker leaves a
+        // clean config rather than persisting a no-op quaternion.
+        let identity = renderer::binaural::HeadPose::identity().to_quat_array();
+        ht.reference_quat = (reference_quat != identity).then_some(reference_quat);
+    });
 }
 
 fn apply_control_effects(
@@ -797,6 +751,9 @@ fn apply_control_effects(
         set_dirty(control, socket, clients);
         let state_bytes = build_live_state_bundle(control, host);
         super::transport::send_raw(socket, clients, &state_bytes);
+    }
+    if let Some(reference_quat) = effects.persist_head_center {
+        persist_head_center(control, reference_quat);
     }
     for update in effects.broadcasts {
         match update.value {
@@ -1108,7 +1065,9 @@ mod tests {
         let sidecar = renderer::config::live_sidecar_path(&path);
         std::fs::write(&sidecar, "render:\n  channel_render_mode: host\n").unwrap();
 
-        persist_channel_render_mode_to_path(&path, ChannelRenderMode::Host);
+        persist_render_field_to_path(&path, "channel_render_mode", |render| {
+            renderer::config_fields::channel_render_mode::store(render, ChannelRenderMode::Host)
+        });
 
         let written = std::fs::read_to_string(&path).unwrap();
         assert!(
@@ -1139,7 +1098,9 @@ mod tests {
         let sidecar = renderer::config::live_sidecar_path(&path);
         std::fs::write(&sidecar, "render:\n  channel_render_mode: host\n").unwrap();
 
-        persist_channel_render_mode_to_path(&path, ChannelRenderMode::Spatial);
+        persist_render_field_to_path(&path, "channel_render_mode", |render| {
+            renderer::config_fields::channel_render_mode::store(render, ChannelRenderMode::Spatial)
+        });
 
         let written = std::fs::read_to_string(&path).unwrap();
         // Spatial is the default → skip-if-default omits the key entirely.
@@ -1177,7 +1138,9 @@ mod tests {
         let sidecar = renderer::config::live_sidecar_path(&path);
         std::fs::write(&sidecar, "render:\n  surround_placement: back\n").unwrap();
 
-        persist_surround_placement_to_path(&path, SurroundPlacement::Back);
+        persist_render_field_to_path(&path, "surround_placement", |render| {
+            renderer::config_fields::surround_placement::store(render, SurroundPlacement::Back)
+        });
 
         let written = std::fs::read_to_string(&path).unwrap();
         assert!(
@@ -1198,6 +1161,54 @@ mod tests {
     }
 
     #[test]
+    fn persist_head_center_writes_reference_and_clears_sidecar() {
+        let path = temp_config_path("head-center");
+        std::fs::write(
+            &path,
+            "render:\n  bridge_path: /tmp/libbridge.so\n  binaural:\n    head_tracking:\n      osc_address: /android/rotationvector\n",
+        )
+        .unwrap();
+        let sidecar = renderer::config::live_sidecar_path(&path);
+        std::fs::write(&sidecar, "render:\n  surround_placement: back\n").unwrap();
+
+        let reference = [0.5, 0.5, 0.5, 0.5];
+        persist_head_center_to_path(&path, reference);
+
+        // Written under binaural.head_tracking, the existing osc_address kept,
+        // bridge_path preserved, and the stale sidecar removed.
+        let cfg = renderer::config::Config::load_or_default(&path);
+        let ht = cfg
+            .render
+            .as_ref()
+            .and_then(|r| r.binaural.as_ref())
+            .and_then(|b| b.head_tracking.as_ref())
+            .expect("head_tracking present");
+        assert_eq!(ht.reference_quat, Some(reference));
+        assert_eq!(ht.osc_address.as_deref(), Some("/android/rotationvector"));
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("bridge_path: /tmp/libbridge.so"),
+            "known key lost"
+        );
+        assert!(!sidecar.exists(), "live sidecar not removed");
+
+        // Recentering back to identity drops the key entirely.
+        let identity = renderer::binaural::HeadPose::identity().to_quat_array();
+        persist_head_center_to_path(&path, identity);
+        let cfg = renderer::config::Config::load_or_default(&path);
+        let ht = cfg
+            .render
+            .as_ref()
+            .and_then(|r| r.binaural.as_ref())
+            .and_then(|b| b.head_tracking.as_ref())
+            .expect("head_tracking present");
+        assert_eq!(ht.reference_quat, None, "identity should omit the key");
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
     fn persist_surround_placement_side_omits_key_and_clears_sidecar() {
         use renderer::live_params::SurroundPlacement;
         let path = temp_config_path("surround-side");
@@ -1209,7 +1220,9 @@ mod tests {
         let sidecar = renderer::config::live_sidecar_path(&path);
         std::fs::write(&sidecar, "render:\n  surround_placement: back\n").unwrap();
 
-        persist_surround_placement_to_path(&path, SurroundPlacement::Side);
+        persist_render_field_to_path(&path, "surround_placement", |render| {
+            renderer::config_fields::surround_placement::store(render, SurroundPlacement::Side)
+        });
 
         let written = std::fs::read_to_string(&path).unwrap();
         // Side is the default → skip-if-default omits the key entirely.

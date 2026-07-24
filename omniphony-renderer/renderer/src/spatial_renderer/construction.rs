@@ -232,7 +232,7 @@ impl SpatialRenderer {
             distance_diffuse_curve,
             auto_gain,
             &excluded,
-            &topology.bed_to_speaker_mapping,
+            &topology.label_to_speaker,
         );
         let editable_layout = topology.speaker_layout.clone();
         let control = RendererControl::new(
@@ -311,7 +311,7 @@ impl SpatialRenderer {
         distance_diffuse_curve: f32,
         auto_gain: bool,
         excluded: &[&str],
-        bed_to_speaker_mapping: &std::collections::HashMap<usize, usize>,
+        label_to_speaker: &std::collections::HashMap<bridge_api::RChannelLabel, usize>,
     ) -> LiveParams {
         if !excluded.is_empty() {
             log::info!("Excluded from VBAP spatialization: {}", excluded.join(", "));
@@ -350,10 +350,7 @@ impl SpatialRenderer {
             master_gain,
             auto_gain
         );
-        log::info!(
-            "Bed to speaker mapping (by name): {:?}",
-            bed_to_speaker_mapping
-        );
+        log::info!("Label to speaker mapping (by name): {:?}", label_to_speaker);
 
         let mut speaker_live = std::collections::HashMap::new();
         for (idx, spk) in speaker_layout.speakers.iter().enumerate() {
@@ -419,7 +416,8 @@ impl SpatialRenderer {
             binaural: crate::live_params::BinauralLiveParams::default(),
             // Seeded to the default (Spatial); the CLI bootstrap and the
             // embedded mpv host (`Engine::from_paths`) override it from
-            // `render.channel_render_mode`, mirroring `ramp_mode`.
+            // Internal host/CLI override; persistent user config is normalized
+            // to the spatial policy by the option/config migration layer.
             channel_render_mode: crate::live_params::ChannelRenderMode::default(),
             // Seeded to the default (Side); the CLI bootstrap and the embedded
             // mpv host override it from `render.surround_placement`.
@@ -430,6 +428,17 @@ impl SpatialRenderer {
             // Seeded from `render.virtual_bed` by the same bootstrap; `None`
             // uses the built-in canonical poses (LFE direct, rest virtualized).
             virtual_bed: None,
+            // Off by default; selects the bed→height object generator (2D upmix)
+            // for channel content. Empty / "none" = disabled.
+            object_generator_id: String::new(),
+            // Empty = each generator uses its declared param defaults.
+            object_generator_params: std::collections::HashMap::new(),
+            // Renderer-synthesized objects and phantom extraction are both off
+            // by default; their selections remain independent so the master can
+            // temporarily bypass processing without losing setup.
+            synthetic_objects_enabled: false,
+            phantom_extract_mode: crate::live_params::PhantomExtractMode::Off,
+            phantom_params: std::collections::HashMap::new(),
         }
     }
 
@@ -565,7 +574,7 @@ impl SpatialRenderer {
         Ok(Self {
             num_speakers,
             spread_resolution,
-            bed_indices: arc_swap::ArcSwap::new(std::sync::Arc::new(Vec::new())),
+            channel_routing: arc_swap::ArcSwap::new(std::sync::Arc::new(Vec::new())),
             first_render: std::sync::atomic::AtomicBool::new(true),
             frame_counter: std::sync::atomic::AtomicU64::new(0),
             channel_states: parking_lot::Mutex::new(std::collections::HashMap::new()),
@@ -594,6 +603,7 @@ impl SpatialRenderer {
             binaural: crate::binaural::BinauralRenderer::new(sample_rate),
             binaural_pos_buf: Vec::new(),
             binaural_gain_buf: Vec::new(),
+            binaural_direct_buf: Vec::new(),
             render_bands,
             unified_table,
             render_bands_topology_identity: topology_identity,

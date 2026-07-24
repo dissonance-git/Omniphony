@@ -484,12 +484,15 @@ fn virtual_bed_mixes_direct_and_virtualized_channels() {
         e
     };
 
-    // bed_indices: channel 0 = sentinel (object), channel 1 = bed id 3 (LFE).
-    let beds = [usize::MAX, 3usize];
+    // Routing: channel 0 = virtual (object), channel 1 = direct LFE.
+    let beds = [
+        ChannelRoute::Virtual,
+        ChannelRoute::Direct(bridge_api::RChannelLabel::LFE),
+    ];
 
     // Pass A: only the object channel (0) carries signal.
     let mut ra = build();
-    ra.configure_beds(&beds);
+    ra.configure_channel_routing(&beds);
     let pcm_a: Vec<f32> = (0..sample_length).flat_map(|_| [0.6f32, 0.0]).collect();
     let events_a = vec![
         SpatialChannelEvent {
@@ -528,7 +531,7 @@ fn virtual_bed_mixes_direct_and_virtualized_channels() {
 
     // Pass B: only the bed channel (1) carries signal → one-hot at the LFE.
     let mut rb = build();
-    rb.configure_beds(&beds);
+    rb.configure_channel_routing(&beds);
     let pcm_b: Vec<f32> = (0..sample_length).flat_map(|_| [0.0f32, 0.6]).collect();
     let eb = energy(
         &rb.render_frame(&pcm_b, 2, &events_a, Vec::new(), false)
@@ -541,6 +544,202 @@ fn virtual_bed_mixes_direct_and_virtualized_channels() {
             assert!(
                 *e < 1e-6,
                 "bed routing must be one-hot; speaker {spk} got {e}"
+            );
+        }
+    }
+}
+
+/// Locks the documented subwoofer bass-management recipe: flip the LFE to
+/// `spatialize: true` with `freq_high: 120` while every other spatialized
+/// speaker carries `freq_low: 120`. The sub is then alone in the `[0, 120)`
+/// band, so the single-speaker degenerate rule routes the low band of every
+/// object to it; the bands above exclude it entirely; and the stream's own
+/// LFE bed channel keeps its direct one-hot feed (bed routing is keyed on
+/// the speaker name, not on `spatialize`).
+#[test]
+fn spatialized_lfe_alone_in_low_band_routes_object_bass() {
+    const CUTOFF: f32 = 120.0;
+    const LFE_SPK: usize = 3; // 7.1.4 preset order
+    fn build() -> SpatialRenderer {
+        let mut layout = SpeakerLayout::preset("7.1.4").unwrap();
+        for (idx, sp) in layout.speakers.iter_mut().enumerate() {
+            if idx == LFE_SPK {
+                sp.spatialize = true;
+                sp.freq_high = Some(CUTOFF);
+            } else {
+                sp.freq_low = Some(CUTOFF);
+            }
+        }
+        SpatialRenderer::new(
+            layout,
+            48_000,
+            1,
+            1,
+            0.0,
+            2.0,
+            VbapTableMode::Cartesian {
+                x_size: 21,
+                y_size: 21,
+                z_size: 9,
+                z_neg_size: 9,
+            },
+            false,
+            true,
+            DistanceModel::Linear,
+            false,
+            1.0,
+            1.0,
+            0.0,
+            1.0,
+            false,
+            [1.0, 2.0, 0.5],
+            2.0,
+            0.5,
+            0.0,
+            0.0,
+            false,
+            false,
+            false,
+            1.0,
+            1.0,
+            PreferredEvaluationMode::PrecomputedCartesian,
+            LiveEvaluationMode::PrecomputedCartesian,
+            21,
+            21,
+            9,
+            9,
+        )
+        .unwrap()
+    }
+
+    let num_speakers = 12;
+    let sample_length = 9_600; // 200 ms — lets the 20 Hz tone settle
+    let sample_rate = 48_000.0f32;
+
+    // Per-speaker RMS over the second half of the block (filter steady state).
+    let rms = |out: &[f32]| -> Vec<f32> {
+        let half = sample_length / 2;
+        let mut e = vec![0.0f32; num_speakers];
+        for s in half..sample_length {
+            for (spk, slot) in e.iter_mut().enumerate() {
+                let v = out[s * num_speakers + spk];
+                *slot += v * v;
+            }
+        }
+        e.iter().map(|x| (x / half as f32).sqrt()).collect()
+    };
+
+    // A front-centre object playing a sine at `freq`.
+    let render_tone = |freq: f32| -> Vec<f32> {
+        let mut r = build();
+        let pcm: Vec<f32> = (0..sample_length)
+            .map(|i| 0.5 * (2.0 * std::f32::consts::PI * freq * i as f32 / sample_rate).sin())
+            .collect();
+        let events = vec![SpatialChannelEvent {
+            channel_idx: 0,
+            is_bed: false,
+            gain_db: Some(0),
+            ramp_length: Some(0),
+            size: Some([0.0, 0.0, 0.0]),
+            position: Some([0.0, 1.0, 0.0]),
+            sample_pos: Some(0),
+        }];
+        rms(&r
+            .render_frame(&pcm, 1, &events, Vec::new(), false)
+            .unwrap()
+            .samples)
+    };
+
+    // Deep bass: the sub must carry the tone and the mains must be genuinely
+    // relieved of it — the LR4 high-pass rejects 20 Hz (fc/6) by ~60 dB.
+    // Absolute levels include the renderer's distance attenuation for this
+    // object position (identical across both tones), so the thresholds below
+    // are calibrated with ample margin rather than derived from the input.
+    let low = render_tone(20.0);
+    assert!(
+        low[LFE_SPK] > 0.08,
+        "sub must carry the 20 Hz object tone, got RMS {}",
+        low[LFE_SPK]
+    );
+    let max_main = low
+        .iter()
+        .enumerate()
+        .filter(|(spk, _)| *spk != LFE_SPK)
+        .map(|(_, e)| *e)
+        .fold(0.0f32, f32::max);
+    assert!(
+        low[LFE_SPK] > 1.5 * max_main,
+        "sub must dominate at 20 Hz: sub {} vs loudest main {}",
+        low[LFE_SPK],
+        max_main
+    );
+    assert!(
+        max_main < 0.02,
+        "mains must be relieved of the 20 Hz band (24 dB/oct high-pass), loudest main RMS {max_main}"
+    );
+
+    // Treble: the sub is out of the upper bands and the low-pass rejects
+    // 4 kHz by >100 dB — it must stay silent.
+    let high = render_tone(4_000.0);
+    assert!(
+        high[LFE_SPK] < 1e-4,
+        "sub must not receive a 4 kHz object tone, got RMS {}",
+        high[LFE_SPK]
+    );
+    assert!(
+        high.iter().sum::<f32>() > 0.05,
+        "the 4 kHz tone must reach the mains"
+    );
+
+    // The stream's own LFE bed channel still routes one-hot to the sub even
+    // though the speaker is now spatialized.
+    let mut r = build();
+    let beds = [
+        ChannelRoute::Virtual,
+        ChannelRoute::Direct(bridge_api::RChannelLabel::LFE),
+    ];
+    r.configure_channel_routing(&beds);
+    let bed_len = 8usize;
+    let pcm: Vec<f32> = (0..bed_len).flat_map(|_| [0.0f32, 0.6]).collect();
+    let events = vec![
+        SpatialChannelEvent {
+            channel_idx: 0,
+            is_bed: false,
+            gain_db: Some(0),
+            ramp_length: Some(0),
+            size: Some([0.0, 0.0, 0.0]),
+            position: Some([0.0, 1.0, 0.0]),
+            sample_pos: Some(0),
+        },
+        SpatialChannelEvent {
+            channel_idx: 1,
+            is_bed: true,
+            gain_db: Some(0),
+            ramp_length: Some(0),
+            size: None,
+            position: None,
+            sample_pos: Some(0),
+        },
+    ];
+    let out = r
+        .render_frame(&pcm, 2, &events, Vec::new(), false)
+        .unwrap()
+        .samples;
+    let mut e = vec![0.0f32; num_speakers];
+    for s in 0..bed_len {
+        for (spk, slot) in e.iter_mut().enumerate() {
+            *slot += out[s * num_speakers + spk].abs();
+        }
+    }
+    assert!(
+        e[LFE_SPK] > 0.0,
+        "the LFE bed channel must still reach the spatialized sub"
+    );
+    for (spk, v) in e.iter().enumerate() {
+        if spk != LFE_SPK {
+            assert!(
+                *v < 1e-6,
+                "LFE bed routing must stay one-hot with spatialize:true; speaker {spk} got {v}"
             );
         }
     }
@@ -955,6 +1154,334 @@ fn binaural_ear_mute_uses_first_speaker_slots() {
     let e_r: f32 = out.iter().skip(1).step_by(2).map(|x| x * x).sum();
     assert!(e_l == 0.0, "left ear not silenced: {e_l}");
     assert!(e_r > 1e-6, "right ear should still play: {e_r}");
+}
+
+/// Binaural mode must carry the speaker path's overload policy (issue #149):
+/// the clip flag always fires above 0 dBFS (with the ear in the first two
+/// speaker slots, the same slots the headphone L/R rows ride), and auto-gain
+/// folds the correction into the shared master gain.
+#[test]
+fn binaural_clipping_flags_ear_and_auto_gain_reduces_master() {
+    fn build() -> SpatialRenderer {
+        let layout = SpeakerLayout::preset("7.1.4").unwrap();
+        SpatialRenderer::new(
+            layout,
+            48_000,
+            1,
+            1,
+            0.0,
+            2.0,
+            VbapTableMode::Cartesian {
+                x_size: 21,
+                y_size: 21,
+                z_size: 9,
+                z_neg_size: 9,
+            },
+            false,
+            true,
+            DistanceModel::Linear,
+            false,
+            1.0,
+            1.0,
+            0.0,
+            1.0,
+            false,
+            [1.0, 2.0, 0.5],
+            2.0,
+            0.5,
+            0.0,
+            0.0,
+            false,
+            false,
+            false,
+            1.0,
+            1.0,
+            PreferredEvaluationMode::PrecomputedCartesian,
+            LiveEvaluationMode::PrecomputedCartesian,
+            21,
+            21,
+            9,
+            9,
+        )
+        .unwrap()
+    }
+
+    let pcm: Vec<f32> = (0..40).map(|i| (i * 7 % 13) as f32 / 13.0 - 0.5).collect();
+    let event = vec![SpatialChannelEvent {
+        channel_idx: 0,
+        is_bed: false,
+        gain_db: Some(0),
+        ramp_length: Some(40),
+        size: Some([0.0, 0.0, 0.0]),
+        position: Some([0.5, 1.0, 0.0]),
+        sample_pos: Some(0),
+    }];
+
+    let render = |auto_gain: bool| -> SpatialRenderer {
+        let mut r = build();
+        {
+            let mut live = r.control.live.write();
+            live.binaural.output_mode = crate::live_params::OutputMode::Binaural;
+            // Hot enough that the HRIR-summed stereo bus exceeds 0 dBFS.
+            live.master_gain = 16.0;
+            live.auto_gain = auto_gain;
+        }
+        for i in 0..4 {
+            let ev: &[SpatialChannelEvent] = if i == 0 { &event } else { &[] };
+            r.render_frame(&pcm, 1, ev, Vec::new(), false).unwrap();
+        }
+        r
+    };
+
+    // Auto-gain off: the flag must still fire (UI indicators), the master
+    // gain must stay untouched.
+    let r = render(false);
+    let clip = r.control.take_clip_pending();
+    assert!(
+        matches!(clip, Some(0) | Some(1)),
+        "clip flag not raised for an ear slot: {clip:?}"
+    );
+    assert!(!r.auto_gain_triggered(), "auto-gain fired while disabled");
+    assert_eq!(r.control.live.read().master_gain, 16.0);
+
+    // Auto-gain on: correction folded into the master gain, trigger visible.
+    let r = render(true);
+    assert!(
+        matches!(r.control.take_clip_pending(), Some(0) | Some(1)),
+        "clip flag not raised with auto-gain on"
+    );
+    assert!(r.auto_gain_triggered(), "auto-gain did not trigger");
+    let master = r.control.live.read().master_gain;
+    assert!(
+        master < 16.0,
+        "master gain not reduced by auto-gain: {master}"
+    );
+}
+
+/// In binaural mode a bed mapped to a `spatialize: false` speaker (the LFE)
+/// keeps its direct-routing intent (issue #156): both ears receive the
+/// identical dry feed at constant power — no HRIR tail, no ITD, no head-pose
+/// effect — instead of being HRTF-spatialized at the sub's direction.
+#[test]
+fn binaural_lfe_bed_feeds_both_ears_equally_and_dry() {
+    let layout = SpeakerLayout::preset("7.1.4").unwrap();
+    let mut r = SpatialRenderer::new(
+        layout,
+        48_000,
+        1,
+        1,
+        0.0,
+        2.0,
+        VbapTableMode::Cartesian {
+            x_size: 21,
+            y_size: 21,
+            z_size: 9,
+            z_neg_size: 9,
+        },
+        false,
+        true,
+        DistanceModel::Linear,
+        false,
+        1.0,
+        1.0,
+        0.0,
+        1.0,
+        false,
+        [1.0, 2.0, 0.5],
+        2.0,
+        0.5,
+        0.0,
+        0.0,
+        false,
+        false,
+        false,
+        1.0,
+        1.0,
+        PreferredEvaluationMode::PrecomputedCartesian,
+        LiveEvaluationMode::PrecomputedCartesian,
+        21,
+        21,
+        9,
+        9,
+    )
+    .unwrap();
+    // Channel 0 = direct LFE → the LFE speaker (index 3, spatialize:false).
+    r.configure_channel_routing(&[ChannelRoute::Direct(bridge_api::RChannelLabel::LFE)]);
+    {
+        let mut live = r.control.live.write();
+        live.binaural.output_mode = crate::live_params::OutputMode::Binaural;
+    }
+
+    let n = 40;
+    let mut pcm = vec![0.0f32; n];
+    pcm[0] = 0.8; // impulse: any post-render tail would expose a convolver
+    let event = vec![SpatialChannelEvent {
+        channel_idx: 0,
+        is_bed: true,
+        gain_db: Some(0),
+        ramp_length: Some(0),
+        size: None,
+        position: None,
+        sample_pos: Some(0),
+    }];
+    // Warm up the per-channel gain slew (channels fade in over
+    // GAIN_SLEW_SECS from silence) with one long silent block, so the
+    // asserted block runs at settled gain.
+    let warmup = vec![0.0f32; 4096];
+    r.render_frame(&warmup, 1, &event, Vec::new(), false)
+        .unwrap();
+    let out = r
+        .render_frame(&pcm, 1, &event, Vec::new(), false)
+        .unwrap()
+        .samples;
+
+    assert_eq!(out.len(), n * 2);
+    let expected = 0.8 * std::f32::consts::FRAC_1_SQRT_2;
+    assert!(
+        (out[0] - expected).abs() < 1e-6,
+        "constant-power direct feed expected {expected}, got {}",
+        out[0]
+    );
+    assert_eq!(out[0], out[1], "both ears must carry the identical feed");
+    assert!(
+        out[2..].iter().all(|&x| x == 0.0),
+        "direct feed must not ring (no HRIR/ITD tail)"
+    );
+}
+
+/// After claiming the FP environment, subnormal arithmetic must flush to
+/// zero on this thread (issue #154) — without FTZ/DAZ the product below
+/// stays a nonzero subnormal.
+#[test]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+fn render_thread_flushes_denormals() {
+    ensure_denormals_flushed();
+    // MIN_POSITIVE is the smallest *normal*; dividing it makes a subnormal.
+    let tiny = std::hint::black_box(f32::MIN_POSITIVE) / std::hint::black_box(4.0f32);
+    let prod = std::hint::black_box(tiny) * std::hint::black_box(1.0f32);
+    assert_eq!(
+        prod, 0.0,
+        "subnormals must flush to zero on the render thread (got {prod:e})"
+    );
+}
+
+/// A layout without back floor speakers (5.1.4-style: sides + four tops) must
+/// still render content placed at the back floor corners — the direction sits
+/// outside the speaker hull (below the SL↔TBL / SR↔TBR faces) and must fold
+/// onto the closest hull face, never to silence (issue #169). Mirrors the field
+/// config: precomputed cartesian table, zero-length ramp, steady state.
+#[test]
+fn back_floor_position_renders_on_layout_without_back_speakers() {
+    const LAYOUT_5_1_4: &str = r#"
+radius_m: 1.0
+speakers:
+- { name: FL,  coord_mode: cartesian, x: -1.0, y:  1.0, z: 0.0, spatialize: true }
+- { name: FR,  coord_mode: cartesian, x:  1.0, y:  1.0, z: 0.0, spatialize: true }
+- { name: C,   coord_mode: cartesian, x:  0.0, y:  1.0, z: 0.0, spatialize: true }
+- { name: LFE, coord_mode: cartesian, x:  1.0, y:  1.0, z: -1.0, spatialize: false }
+- { name: SL,  coord_mode: cartesian, x: -1.0, y:  0.0, z: 0.0, spatialize: true }
+- { name: SR,  coord_mode: cartesian, x:  1.0, y:  0.0, z: 0.0, spatialize: true }
+- { name: TFL, coord_mode: cartesian, x: -1.0, y:  1.0, z: 1.0, spatialize: true }
+- { name: TFR, coord_mode: cartesian, x:  1.0, y:  1.0, z: 1.0, spatialize: true }
+- { name: TBL, coord_mode: cartesian, x: -1.0, y: -1.0, z: 1.0, spatialize: true }
+- { name: TBR, coord_mode: cartesian, x:  1.0, y: -1.0, z: 1.0, spatialize: true }
+"#;
+
+    fn build() -> SpatialRenderer {
+        SpatialRenderer::new(
+            SpeakerLayout::from_yaml_str(LAYOUT_5_1_4).unwrap(),
+            48_000,
+            1,
+            90,
+            0.25,
+            2.0,
+            VbapTableMode::Cartesian {
+                x_size: 63,
+                y_size: 63,
+                z_size: 16,
+                z_neg_size: 0,
+            },
+            false,
+            true,
+            DistanceModel::None,
+            false,
+            1.0,
+            1.0,
+            0.0,
+            1.0,
+            false,
+            [2.0, 2.0, 1.0],
+            1.0,
+            0.466667,
+            0.5,
+            0.0,
+            false,
+            true,
+            true,
+            1.0,
+            1.0,
+            PreferredEvaluationMode::PrecomputedCartesian,
+            LiveEvaluationMode::PrecomputedCartesian,
+            63,
+            63,
+            16,
+            0,
+        )
+        .unwrap()
+    }
+
+    let pcm: Vec<f32> = (0..40)
+        .map(|i| if i % 2 == 0 { 0.5 } else { -0.5 })
+        .collect();
+    // Steady-state per-speaker peaks: apply the event, then measure a second
+    // frame so a ramp (if any) cannot mask a zero steady-state gain.
+    let peaks_at = |pos: [f64; 3]| -> Vec<f32> {
+        let event = vec![SpatialChannelEvent {
+            channel_idx: 0,
+            is_bed: false,
+            gain_db: Some(0),
+            ramp_length: Some(0),
+            size: None,
+            position: Some(pos),
+            sample_pos: Some(0),
+        }];
+        let mut r = build();
+        r.render_frame(&pcm, 1, &event, Vec::new(), false).unwrap();
+        let out = r.render_frame(&pcm, 1, &[], Vec::new(), false).unwrap();
+        let n = 10usize;
+        let mut peaks = vec![0.0f32; n];
+        for (k, &s) in out.samples.iter().enumerate() {
+            let c = k % n;
+            peaks[c] = peaks[c].max(s.abs());
+        }
+        peaks
+    };
+
+    // Control: the exact side position renders on SL.
+    let side = peaks_at([-1.0, 0.0, 0.0]);
+    assert!(
+        side[4] > 1e-3,
+        "side-left content must render on SL (peaks {side:?})"
+    );
+
+    // Back floor corners: outside the hull; must fold onto the nearest face
+    // (side surround and/or top back of that side), never to silence.
+    for (pos, near) in [
+        ([-1.0f64, -1.0, 0.0], [4usize, 8]), // SL / TBL
+        ([1.0, -1.0, 0.0], [5, 9]),          // SR / TBR
+    ] {
+        let peaks = peaks_at(pos);
+        let near_peak = near.iter().map(|&c| peaks[c]).fold(0.0f32, f32::max);
+        let total: f32 = peaks.iter().sum();
+        assert!(
+            near_peak > 1e-3,
+            "back-floor content at {pos:?} must fold onto the near speakers (peaks {peaks:?})"
+        );
+        assert!(
+            near_peak >= total * 0.5,
+            "back-floor fold at {pos:?} should stay local (peaks {peaks:?})"
+        );
+    }
 }
 
 // TODO: Add integration test with real spatial metadata

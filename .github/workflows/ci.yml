@@ -105,6 +105,18 @@ jobs:
         working-directory: omniphony-renderer
         run: cargo test --workspace
 
+      # ── C ABI smoke test (liborender) ──────────────────────────────────────
+      # Compile and run the header/link smoke test against the debug cdylib
+      # (debug builds skip the soname so the bare .so links directly). Guards
+      # the generated header, the exported symbols, and the version handshake —
+      # this is what mpv consumes, so it must never drift silently.
+      - name: C ABI smoke test (liborender)
+        working-directory: omniphony-renderer
+        run: |
+          cc -Wall -Werror -I orender_ffi/include orender_ffi/examples/smoke.c \
+             -L target/debug -lorender -o target/debug/orender_smoke
+          LD_LIBRARY_PATH=target/debug target/debug/orender_smoke
+
       # ── Studio frontend build (no Tauri bundling / no sidecar) ─────────────
       - name: Install Studio npm dependencies
         working-directory: omniphony-studio
@@ -121,6 +133,24 @@ jobs:
         working-directory: omniphony-studio
         continue-on-error: true
         run: npm run i18n:check
+
+      # Dead-code gate (knip): a module with no importer fails the build.
+      # An orphaned ingestion module is how live-option state silently stopped
+      # reaching the UI for months (see docs/live-options-registry.md, "The
+      # incident"); unused *exports* are only warnings for now.
+      - name: Dead-code lint (knip)
+        working-directory: omniphony-studio
+        run: npm run lint:dead
+
+      # Options-schema contract: the renderer dumps its declared live options
+      # (registry rows); every option must resolve its Studio i18n keys. Hard
+      # gate — an option declared engine-side but invisible to the UI is the
+      # silent-omission class the registry exists to kill.
+      - name: Check options-schema ↔ Studio contract
+        run: |
+          cargo run -q -p renderer --example dump_options_schema \
+            --manifest-path omniphony-renderer/Cargo.toml > /tmp/options-schema.json
+          node omniphony-studio/scripts/check-options-schema.mjs /tmp/options-schema.json
 
   build-macos:
     # macOS arm64 compile gate. The renderer workspace pulls the CoreAudio

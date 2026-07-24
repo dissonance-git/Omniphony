@@ -1,12 +1,13 @@
 //! Measured HRIR sets (e.g. the embedded SAF KEMAR data, or a loaded SOFA file).
 //!
 //! A [`MeasuredHrirData`] holds scattered-direction impulse responses. It
-//! implements [`HrirProvider`] by nearest-direction lookup followed by
+//! implements [`HrirProvider`] by blending the three nearest measurements
+//! (inverse-angular-distance weights, per-ear energy compensation) after
 //! onset-alignment and truncation to [`HRIR_LEN`], so it plugs straight into
 //! [`HrirSet::new`](super::hrir::HrirSet::new) and reuses the regular-grid
 //! bilinear interpolation. Time alignment (the interaural delay is supplied
-//! analytically, see [`super::itd`]) keeps the grid interpolable without
-//! comb-filtering.
+//! analytically, see [`super::itd`]) keeps both the blend and the grid
+//! interpolable without comb-filtering.
 
 use super::hrir::{HRIR_LEN, HrirPair, HrirProvider};
 
@@ -100,23 +101,68 @@ impl MeasuredHrirData {
         Some(Self::new(fs, dirs, irs))
     }
 
-    /// Index of the measurement nearest to a query direction (max dot product).
-    fn nearest(&self, az_deg: f32, el_deg: f32) -> usize {
+    /// This set resampled to `target` Hz (no-op if already there).
+    ///
+    /// Runs once at build time, never in the audio loop. Without it the
+    /// 48 kHz KEMAR taps play verbatim at any engine rate, shifting every
+    /// HRTF feature by the rate ratio (issue #151).
+    pub fn resampled_to(self, target: u32) -> Self {
+        if self.sample_rate == target {
+            return self;
+        }
+        let from = self.sample_rate;
+        let irs = self
+            .irs
+            .iter()
+            .map(|(l, r)| (resample_ir(l, from, target), resample_ir(r, from, target)))
+            .collect();
+        Self {
+            sample_rate: target,
+            dirs: self.dirs,
+            vecs: self.vecs,
+            irs,
+        }
+    }
+
+    /// The three measurements nearest to a query direction, as
+    /// `(index, angle_rad)` sorted nearest-first.
+    fn nearest3(&self, az_deg: f32, el_deg: f32) -> [(usize, f32); 3] {
         let q = dir_vec(az_deg, el_deg);
-        let mut best = 0usize;
-        let mut best_dot = f32::NEG_INFINITY;
+        // (dot, index): best three by dot product in one pass.
+        let mut best = [(f32::NEG_INFINITY, usize::MAX); 3];
         for (i, v) in self.vecs.iter().enumerate() {
             let d = q[0] * v[0] + q[1] * v[1] + q[2] * v[2];
-            if d > best_dot {
-                best_dot = d;
-                best = i;
+            if d > best[0].0 {
+                best[2] = best[1];
+                best[1] = best[0];
+                best[0] = (d, i);
+            } else if d > best[1].0 {
+                best[2] = best[1];
+                best[1] = (d, i);
+            } else if d > best[2].0 {
+                best[2] = (d, i);
             }
         }
-        best
+        best.map(|(d, i)| {
+            let i = if i == usize::MAX { 0 } else { i };
+            (i, d.clamp(-1.0, 1.0).acos())
+        })
     }
 }
 
 impl HrirProvider for MeasuredHrirData {
+    // `_sample_rate` is deliberately unused: the set is brought to the engine
+    // rate once via [`MeasuredHrirData::resampled_to`] before grid building.
+    //
+    // Spatial interpolation (issue #158): instead of snapping each grid node
+    // to the single nearest measurement — which decimates a set denser than
+    // the grid and steps discontinuously between cells — the three nearest
+    // measurements are blended with inverse-angular-distance weights. The
+    // per-ear blend is then rescaled to the weighted mean of the source
+    // energies: onset-aligned neighbours are largely coherent, but their
+    // residual decorrelation would otherwise dip the level between
+    // measurement points. A query landing (nearly) on a measurement takes
+    // that measurement alone.
     fn render(&self, az_deg: f32, el_deg: f32, _sample_rate: u32) -> HrirPair {
         let mut pair = HrirPair {
             left: [0.0; HRIR_LEN],
@@ -125,11 +171,57 @@ impl HrirProvider for MeasuredHrirData {
         if self.irs.is_empty() {
             return pair;
         }
-        let (l, r) = &self.irs[self.nearest(az_deg, el_deg)];
-        align_into(l, &mut pair.left);
-        align_into(r, &mut pair.right);
+        let near = self.nearest3(az_deg, el_deg);
+
+        // On (within ~0.06° of) a measurement point, or a tiny set: exact.
+        if near[0].1 < 1e-3 || self.irs.len() < 3 {
+            let (l, r) = &self.irs[near[0].0];
+            align_into(l, &mut pair.left);
+            align_into(r, &mut pair.right);
+            return pair;
+        }
+
+        let mut weights = [0.0f32; 3];
+        let mut wsum = 0.0f32;
+        for (k, &(_, ang)) in near.iter().enumerate() {
+            weights[k] = 1.0 / ang;
+            wsum += weights[k];
+        }
+
+        let mut aligned = [0.0f32; HRIR_LEN];
+        let mut target_l = 0.0f32;
+        let mut target_r = 0.0f32;
+        for (k, &(idx, _)) in near.iter().enumerate() {
+            let w = weights[k] / wsum;
+            let (l, r) = &self.irs[idx];
+            align_into(l, &mut aligned);
+            target_l += w * energy_of(&aligned);
+            for (o, a) in pair.left.iter_mut().zip(&aligned) {
+                *o += w * a;
+            }
+            align_into(r, &mut aligned);
+            target_r += w * energy_of(&aligned);
+            for (o, a) in pair.right.iter_mut().zip(&aligned) {
+                *o += w * a;
+            }
+        }
+
+        // Per-ear energy compensation toward the weighted source mean.
+        for (ear, target) in [(&mut pair.left, target_l), (&mut pair.right, target_r)] {
+            let e = energy_of(ear);
+            if e > 1e-12 {
+                let g = (target / e).sqrt();
+                for v in ear.iter_mut() {
+                    *v *= g;
+                }
+            }
+        }
         pair
     }
+}
+
+fn energy_of(h: &[f32; HRIR_LEN]) -> f32 {
+    h.iter().map(|&x| x * x).sum()
 }
 
 /// Build an [`HrirSet`](super::hrir::HrirSet) from a SOFA file, resampled to
@@ -186,6 +278,39 @@ fn dir_vec(az_deg: f32, el_deg: f32) -> [f32; 3] {
     let el = el_deg.to_radians();
     let ce = el.cos();
     [ce * az.sin(), ce * az.cos(), el.sin()]
+}
+
+/// Offline windowed-sinc resampler for measured IRs (Blackman window,
+/// half-width 16 input samples, low-passed at the lower of the two Nyquists
+/// so downsampling does not alias). Build-time only — O(len·32) per IR.
+fn resample_ir(x: &[f32], from: u32, to: u32) -> Vec<f32> {
+    const HALF_WIDTH: isize = 16;
+    let ratio = to as f64 / from as f64;
+    let cutoff = ratio.min(1.0);
+    let out_len = ((x.len() as f64) * ratio).round() as usize;
+    let mut out = Vec::with_capacity(out_len);
+    for n in 0..out_len {
+        // Position of output sample `n` on the input's sample axis.
+        let t = n as f64 / ratio;
+        let k0 = t.floor() as isize;
+        let mut acc = 0.0f64;
+        for k in (k0 - HALF_WIDTH + 1)..=(k0 + HALF_WIDTH) {
+            if k < 0 || k as usize >= x.len() {
+                continue;
+            }
+            let d = t - k as f64;
+            let w = 0.42
+                + 0.5 * (std::f64::consts::PI * d / HALF_WIDTH as f64).cos()
+                + 0.08 * (2.0 * std::f64::consts::PI * d / HALF_WIDTH as f64).cos();
+            acc += x[k as usize] as f64 * cutoff * sinc(std::f64::consts::PI * cutoff * d) * w;
+        }
+        out.push(acc as f32);
+    }
+    out
+}
+
+fn sinc(x: f64) -> f64 {
+    if x.abs() < 1e-12 { 1.0 } else { x.sin() / x }
 }
 
 /// Onset-align `ir` and copy `HRIR_LEN` taps into `out`. Idempotent for an
@@ -249,5 +374,157 @@ mod tests {
             (0.5..2.0).contains(&ratio),
             "front asymmetric L={el} R={er}"
         );
+    }
+
+    /// The resampler must move signal content to the new sample axis: a tone
+    /// resampled 48 k → 44.1 k stays at its absolute frequency.
+    #[test]
+    fn resampler_preserves_tone_frequency() {
+        let (from, to) = (48_000u32, 44_100u32);
+        let f0 = 1_000.0f64;
+        let n = 480;
+        // Hann-windowed tone so edge truncation does not pollute the check.
+        let x: Vec<f32> = (0..n)
+            .map(|i| {
+                let t = i as f64 / from as f64;
+                let w = 0.5 - 0.5 * (2.0 * std::f64::consts::PI * i as f64 / n as f64).cos();
+                ((2.0 * std::f64::consts::PI * f0 * t).sin() * w) as f32
+            })
+            .collect();
+        let y = resample_ir(&x, from, to);
+        assert_eq!(y.len(), 441);
+        // Quadrature projection at f0 on the target rate vs. an off frequency.
+        let project = |f: f64| -> f64 {
+            let (mut c, mut s) = (0.0f64, 0.0f64);
+            for (i, &v) in y.iter().enumerate() {
+                let ph = 2.0 * std::f64::consts::PI * f * i as f64 / to as f64;
+                c += v as f64 * ph.cos();
+                s += v as f64 * ph.sin();
+            }
+            (c * c + s * s).sqrt()
+        };
+        let on = project(f0);
+        let off = project(f0 * 1.35);
+        assert!(
+            on > off * 5.0,
+            "tone did not stay at {f0} Hz: on={on} off={off}"
+        );
+    }
+
+    /// Building the SAF set at a non-native rate must actually change the
+    /// IRs (they used to be bit-identical at every rate — issue #151) while
+    /// keeping their energy in the same ballpark.
+    #[test]
+    fn saf_resampled_to_441_differs_and_preserves_energy() {
+        let native = MeasuredHrirData::saf_kemar();
+        let resampled = MeasuredHrirData::saf_kemar().resampled_to(44_100);
+        assert_eq!(resampled.sample_rate, 44_100);
+        assert_eq!(resampled.len(), native.len());
+
+        let grid_native = HrirSet::new(&native, 48_000);
+        let grid_resampled = HrirSet::new(&resampled, 44_100);
+        let mut a = HrirPair {
+            left: [0.0; HRIR_LEN],
+            right: [0.0; HRIR_LEN],
+        };
+        let mut b = a.clone();
+        let mut max_diff = 0.0f32;
+        for (az, el) in [(0.0, 0.0), (90.0, 0.0), (-30.0, 40.0), (150.0, -20.0)] {
+            grid_native.at(az, el, &mut a);
+            grid_resampled.at(az, el, &mut b);
+            for (x, y) in a.left.iter().zip(&b.left) {
+                max_diff = max_diff.max((x - y).abs());
+            }
+            let (ea, eb) = (energy(&a.left), energy(&b.left));
+            let ratio = eb / ea.max(1e-12);
+            assert!(
+                (0.5..1.5).contains(&ratio),
+                "energy drifted at ({az},{el}): native={ea} resampled={eb}"
+            );
+        }
+        assert!(
+            max_diff > 1e-4,
+            "44.1 kHz grid is identical to the 48 kHz one — no resampling happened"
+        );
+    }
+
+    /// A query landing exactly on a measurement must return that measurement
+    /// (aligned), not a blend — interpolation only fills the space between.
+    #[test]
+    fn render_is_exact_on_measurement_points() {
+        let d = MeasuredHrirData::saf_kemar();
+        let (az, el) = d.dirs[100];
+        let got = d.render(az, el, 48_000);
+        let mut expected = HrirPair {
+            left: [0.0; HRIR_LEN],
+            right: [0.0; HRIR_LEN],
+        };
+        align_into(&d.irs[100].0, &mut expected.left);
+        align_into(&d.irs[100].1, &mut expected.right);
+        assert_eq!(got.left, expected.left);
+        assert_eq!(got.right, expected.right);
+    }
+
+    /// Between measurement points the provider must actually blend (differ
+    /// from the plain nearest measurement) and keep the per-ear energy at the
+    /// weighted mean of its sources — no level dip from residual
+    /// decorrelation between neighbours (issue #158).
+    #[test]
+    fn between_points_blends_and_preserves_energy() {
+        let d = MeasuredHrirData::saf_kemar();
+        // Midpoint between two real directions, at ear level-ish.
+        let (az0, el0) = d.dirs[100];
+        let near = d.nearest3(az0 + 2.0, el0 + 2.0);
+        assert!(near[0].1 > 1e-3, "query must sit between measurements");
+        let got = d.render(az0 + 2.0, el0 + 2.0, 48_000);
+
+        // Differs from pure nearest-neighbour.
+        let mut nn = HrirPair {
+            left: [0.0; HRIR_LEN],
+            right: [0.0; HRIR_LEN],
+        };
+        align_into(&d.irs[near[0].0].0, &mut nn.left);
+        let diff: f32 = got
+            .left
+            .iter()
+            .zip(&nn.left)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f32::max);
+        assert!(diff > 1e-6, "midpoint query must blend, not snap");
+
+        // Energy sits inside the range spanned by its three sources.
+        let mut aligned = [0.0f32; HRIR_LEN];
+        let mut src_energies = Vec::new();
+        for &(idx, _) in &near {
+            align_into(&d.irs[idx].0, &mut aligned);
+            src_energies.push(energy(&aligned));
+        }
+        let e = energy(&got.left);
+        let (lo, hi) = (
+            src_energies.iter().cloned().fold(f32::MAX, f32::min),
+            src_energies.iter().cloned().fold(0.0f32, f32::max),
+        );
+        assert!(
+            e >= lo * 0.99 && e <= hi * 1.01,
+            "blend energy {e} outside source range [{lo}, {hi}]"
+        );
+    }
+
+    /// At the native rate the resample must be a strict no-op.
+    #[test]
+    fn resample_is_noop_at_native_rate() {
+        let native = MeasuredHrirData::saf_kemar();
+        let same = MeasuredHrirData::saf_kemar().resampled_to(48_000);
+        let grid_a = HrirSet::new(&native, 48_000);
+        let grid_b = HrirSet::new(&same, 48_000);
+        let mut a = HrirPair {
+            left: [0.0; HRIR_LEN],
+            right: [0.0; HRIR_LEN],
+        };
+        let mut b = a.clone();
+        grid_a.at(37.0, 12.0, &mut a);
+        grid_b.at(37.0, 12.0, &mut b);
+        assert_eq!(a.left, b.left);
+        assert_eq!(a.right, b.right);
     }
 }

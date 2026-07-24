@@ -58,6 +58,8 @@ export function rendererPanelMarkup() {
                 <select id="binauralHrirSource" class="form-select" style="font-size:0.75rem;padding:0.1rem 0.2rem;width:auto;min-width:90px;">
                   <option value="saf" data-i18n="binaural.hrtfSource.kemar">KEMAR (measured)</option>
                   <option value="synthetic" data-i18n="binaural.hrtfSource.synthetic">Synthetic</option>
+                  <option value="pinna" data-i18n="binaural.hrtfSource.pinna">Pinna (parametric)</option>
+                  <option value="prtf" data-i18n="binaural.hrtfSource.prtf">PRTF (Spagnol)</option>
                   <option value="sofa" data-i18n="binaural.hrtfSource.sofa">SOFA file</option>
                 </select>
                 <button id="sofaBrowseBtn" type="button" class="toggle-btn" style="display:none" data-i18n="backend.file.browse" data-i18n-title="binaural.sofaBrowseTitle" title="Browse the sofacoustics.org HRTF database">Browse…</button>
@@ -71,6 +73,45 @@ export function rendererPanelMarkup() {
                   <span id="binauralHeadRadiusVal">8.8</span>
                 </div>
                 <input id="binauralHeadRadius" type="range" min="5" max="15" step="0.1" value="8.75" style="width:100%;" />
+              </div>
+              <div id="binauralPinnaControls" style="display:none;gap:0.3rem;">
+                <div class="binaural-help-row" style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem;">
+                  <span style="font-size:0.65rem;color:#888;" data-i18n="binaural.pinnaPreset" data-help-i18n="help.binaural.pinnaPreset" data-help-anchor=".binaural-help-row">Pinna preset (D)</span>
+                  <select id="binauralPinnaPreset" class="form-select" style="font-size:0.7rem;padding:0.1rem 0.2rem;width:auto;">
+                    <option value="pbnh" data-i18n="binaural.pinnaPreset.pbnh">PB &amp; NH</option>
+                    <option value="rd" data-i18n="binaural.pinnaPreset.rd">RD</option>
+                  </select>
+                </div>
+                <div class="binaural-help-row">
+                  <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
+                    <span data-i18n="binaural.pinnaDScale" data-help-i18n="help.binaural.pinnaDScale" data-help-anchor=".binaural-help-row">Elevation factor D (%)</span>
+                    <span id="binauralPinnaDScaleVal">100</span>
+                  </div>
+                  <input id="binauralPinnaDScale" type="range" min="50" max="150" step="5" value="100" style="width:100%;" />
+                </div>
+                <div class="binaural-help-row">
+                  <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
+                    <span data-i18n="binaural.pinnaDepth" data-help-i18n="help.binaural.pinnaDepth" data-help-anchor=".binaural-help-row">Pinna echoes (%)</span>
+                    <span id="binauralPinnaDepthVal">100</span>
+                  </div>
+                  <input id="binauralPinnaDepth" type="range" min="0" max="100" step="5" value="100" style="width:100%;" />
+                </div>
+              </div>
+              <div id="binauralPrtfControls" style="display:none;gap:0.3rem;">
+                <div class="binaural-help-row">
+                  <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
+                    <span data-i18n="binaural.prtfDepth" data-help-i18n="help.binaural.prtfDepth" data-help-anchor=".binaural-help-row">Pinna coloration (%)</span>
+                    <span id="binauralPrtfDepthVal">100</span>
+                  </div>
+                  <input id="binauralPrtfDepth" type="range" min="0" max="100" step="5" value="100" style="width:100%;" />
+                </div>
+                <div class="binaural-help-row">
+                  <div style="font-size:0.65rem;color:#888;margin-bottom:0.15rem;display:flex;justify-content:space-between;">
+                    <span data-i18n="binaural.prtfFreqScale" data-help-i18n="help.binaural.prtfFreqScale" data-help-anchor=".binaural-help-row">Notch frequency scale (%)</span>
+                    <span id="binauralPrtfFreqScaleVal">100</span>
+                  </div>
+                  <input id="binauralPrtfFreqScale" type="range" min="50" max="150" step="5" value="100" style="width:100%;" />
+                </div>
               </div>
             </div>
           </div>

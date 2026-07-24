@@ -398,6 +398,59 @@ fn redistribute_dummy_in_triangle(g: [f32; 3], face: [usize; 3], is_dummy: &[boo
     out
 }
 
+/// Fold an out-of-hull direction onto the hull boundary: for each face, clamp
+/// the raw inverse-matrix gains to ≥ 0 and score the candidate by how close the
+/// direction those clamped gains actually radiate from (recovered through the
+/// face's speaker matrix) lies to the requested one. The best-scoring candidate
+/// wins, so content outside the speaker hull renders on the nearest boundary
+/// edge/face instead of dropping to silence (issue #169).
+///
+/// Returns `(face_index, unit-energy gains, fade)` where `fade` is the score
+/// (cosine of the fold angle) clamped to [0, 1]: the fold is full-strength at
+/// the hull boundary and fades smoothly to silence for directions ≥ 90° away,
+/// keeping the gain field continuous (no hard flips at the nadir/antipode).
+/// Cold path: runs only for directions no face contains — bed poses
+/// behind/below sparse layouts and the out-of-hull cells of table generation.
+fn fold_out_of_hull(
+    u: [f32; 3],
+    ls_groups: &[[usize; 3]],
+    layout_inv_mtx: &[[f32; 9]],
+    is_dummy: &[bool],
+) -> Option<(usize, [f32; 3], f32)> {
+    let mut best_score = f32::NEG_INFINITY;
+    let mut best: Option<(usize, [f32; 3])> = None;
+    for (fi, face) in ls_groups.iter().enumerate() {
+        let inv = &layout_inv_mtx[fi];
+        let c0 = (inv[0] * u[0] + inv[1] * u[1] + inv[2] * u[2]).max(0.0);
+        let c1 = (inv[3] * u[0] + inv[4] * u[1] + inv[5] * u[2]).max(0.0);
+        let c2 = (inv[6] * u[0] + inv[7] * u[1] + inv[8] * u[2]).max(0.0);
+        let rms = (c0 * c0 + c1 * c1 + c2 * c2).sqrt();
+        if rms <= 1e-30 {
+            continue;
+        }
+        // Invert back to the face's speaker-direction matrix: the candidate's
+        // radiated direction is the clamped-gain combination of the speakers.
+        let Some(m) = inv3x3(inv) else { continue };
+        let v = normalise3([
+            m[0] * c0 + m[1] * c1 + m[2] * c2,
+            m[3] * c0 + m[4] * c1 + m[5] * c2,
+            m[6] * c0 + m[7] * c1 + m[8] * c2,
+        ]);
+        let score = dot3(u, v);
+        if score > best_score {
+            best_score = score;
+            best = Some((
+                fi,
+                redistribute_dummy_in_triangle([c0 / rms, c1 / rms, c2 / rms], *face, is_dummy),
+            ));
+        }
+    }
+    if best_score <= 0.0 {
+        return None;
+    }
+    best.map(|(fi, g)| (fi, g, best_score.min(1.0)))
+}
+
 // ── vbap3D ───────────────────────────────────────────────────────────────────
 
 /// Compute VBAP (or MDAP with spread) gains for a batch of source directions.
@@ -441,6 +494,7 @@ pub fn vbap3d(
 
             for u_vec in &u_spread {
                 let u = *u_vec;
+                let mut hit = false;
 
                 // Find matching triangle and accumulate gains
                 for (fi, face) in ls_groups.iter().enumerate() {
@@ -463,6 +517,21 @@ pub fn vbap3d(
                             gains[face[1]] += gr[1];
                             gains[face[2]] += gr[2];
                         }
+                        hit = true;
+                    }
+                }
+
+                // Out-of-hull spread source: fold onto the hull boundary so the
+                // spread cloud keeps its below/behind-hull energy, faded by the
+                // fold angle so far-outside members contribute less to the mix.
+                if !hit {
+                    if let Some((fi, gr, fade)) =
+                        fold_out_of_hull(u, ls_groups, layout_inv_mtx, is_dummy)
+                    {
+                        let face = ls_groups[fi];
+                        gains[face[0]] += gr[0] * fade;
+                        gains[face[1]] += gr[1] * fade;
+                        gains[face[2]] += gr[2] * fade;
                     }
                 }
             }
@@ -484,6 +553,7 @@ pub fn vbap3d(
             let u = sph_to_cart(az_rad, el_rad);
 
             let mut gains = vec![0.0f32; n_speakers];
+            let mut hit = false;
 
             'faces: for (fi, face) in ls_groups.iter().enumerate() {
                 let inv = &layout_inv_mtx[fi];
@@ -505,16 +575,40 @@ pub fn vbap3d(
                         gains[face[1]] = gr[1];
                         gains[face[2]] = gr[2];
                     }
+                    hit = true;
                     break 'faces;
                 }
             }
 
-            // Energy-normalise
-            let gains_rms = gains.iter().map(|&g| g * g).sum::<f32>().sqrt();
+            // Out-of-hull: no face contains the direction; fold onto the hull
+            // boundary instead of leaving the source silent. The fold is
+            // already unit-energy scaled by its fade — renormalising it would
+            // undo the fade, so it bypasses the energy-normalise below.
+            let mut folded = false;
+            if !hit {
+                if let Some((fi, gr, fade)) =
+                    fold_out_of_hull(u, ls_groups, layout_inv_mtx, is_dummy)
+                {
+                    let face = ls_groups[fi];
+                    gains[face[0]] = gr[0] * fade;
+                    gains[face[1]] = gr[1] * fade;
+                    gains[face[2]] = gr[2] * fade;
+                    folded = true;
+                }
+            }
+
             let out = &mut gain_mtx[ns * n_speakers..(ns + 1) * n_speakers];
-            if gains_rms > 1e-30 {
+            if folded {
                 for (o, &g) in out.iter_mut().zip(gains.iter()) {
-                    *o = (g / gains_rms).max(0.0);
+                    *o = g.max(0.0);
+                }
+            } else {
+                // Energy-normalise
+                let gains_rms = gains.iter().map(|&g| g * g).sum::<f32>().sqrt();
+                if gains_rms > 1e-30 {
+                    for (o, &g) in out.iter_mut().zip(gains.iter()) {
+                        *o = (g / gains_rms).max(0.0);
+                    }
                 }
             }
         }

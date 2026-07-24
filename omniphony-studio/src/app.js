@@ -99,10 +99,15 @@ import { updateObjectMeterUI, updateObjectPositionUI, updateObjectSizeUI, update
 import {
   renderObjectsList, updateSpeakerControlsUI, updateObjectControlsUI, updateObjectDominantSpeakerUI,
   objectHasActiveTrail, getObjectIds, updateSectionProportions, updateAllSpeakerBandBars,
-  updateSpeakerGizmo, applyObjectPositionIcon
+  updateSpeakerGizmo, applyObjectPositionIcon, applyObjectIdentity
 } from './speakers.js';
 import { rebuildTrailGeometry, captureTrailPointColor } from './trails.js';
 import { muteSoloCallbacks } from './mute-solo.js';
+import { installMemoryDiagnostics } from './debug-memory.js';
+
+// Memory diagnostics: registers window.omniphonyDebug.memory and samples only
+// when opted in via localStorage 'spatialviz.memory_sampler' (see debug-memory.js).
+installMemoryDiagnostics();
 
 flushCallbacks.renderRoomRatioDisplay = renderRoomRatioDisplay;
 flushCallbacks.renderEvaluationMode = renderEvaluationMode;
@@ -129,6 +134,7 @@ flushCallbacks.updateObjectContributionUI = updateObjectContributionUI;
 flushCallbacks.updateObjectPositionIcon = applyObjectPositionIcon;
 flushCallbacks.updateSpeakerContributionUI = updateSpeakerContributionUI;
 flushCallbacks.getObjectDisplayName = getObjectDisplayName;
+flushCallbacks.applyObjectIdentity = applyObjectIdentity;
 flushCallbacks.applyAudioSampleRateNow = applyAudioSampleRateNow;
 flushCallbacks.refreshEffectiveRenderVisibility = refreshEffectiveRenderDecorations;
 flushCallbacks.updateVbapCartesianFaceGrid = updateVbapCartesianFaceGrid;

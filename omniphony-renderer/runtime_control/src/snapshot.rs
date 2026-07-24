@@ -122,6 +122,8 @@ pub fn build_renderer_state_json(
     // Speaker names that can't be routed by position in by_name mode (computed by
     // the engine, which owns the name→label classifier). Shown as a warning.
     unroutable_speaker_names: &[String],
+    fixed_channel_catalog_json: &str,
+    fixed_channel_processing_json: &str,
 ) -> String {
     let effective_backend = active_topology.backend.backend_id();
     let effective_evaluation_mode = active_topology.backend.evaluation_mode().as_str();
@@ -131,6 +133,12 @@ pub fn build_renderer_state_json(
         available_backends,
         backend_param_values_by_id,
     );
+    let fixed_channel_catalog =
+        serde_json::from_str::<serde_json::Value>(fixed_channel_catalog_json)
+            .unwrap_or_else(|_| serde_json::Value::Array(Vec::new()));
+    let fixed_channel_processing =
+        serde_json::from_str::<serde_json::Value>(fixed_channel_processing_json)
+            .unwrap_or_else(|_| serde_json::json!({ "stream": "idle" }));
     json!({
         "renderBackend": live.backend_id(),
         "renderBackendEffective": effective_backend,
@@ -142,9 +150,38 @@ pub fn build_renderer_state_json(
         "autoGainCeilingDb": live.auto_gain_ceiling_db,
         "rampMode": live.ramp_mode.as_str(),
         "channelRenderMode": live.channel_render_mode.as_str(),
+        "syntheticObjectsEnabled": live.synthetic_objects_enabled,
+        // Active fixed-bed→height object generator id; empty = off.
+        "objectGeneratorId": live.object_generator_id.as_str(),
+        // Live param overrides for the active generator (key → value), for the
+        // Studio sliders. The schema itself is published separately by the engine
+        // on `/omniphony/state/object_generators`.
+        "objectGeneratorParams":
+            serde_json::to_value(&live.object_generator_params).unwrap_or(serde_json::Value::Null),
+        // Whether the active output layout has a top speaker. Generators are a
+        // strict no-op without one; Studio still leaves them editable for
+        // offline configuration and reports the applicability reason.
+        "objectGeneratorLayoutHasHeight": active_topology
+            .speaker_layout
+            .speakers
+            .iter()
+            .any(|s| s.spatialize && s.z > 1.0e-3),
+        // Canonical three-position mode plus the old derived boolean spelling
+        // for clients that have not migrated yet.
+        "phantomExtractMode": live.phantom_extract_mode.as_str(),
+        "phantomEnabled": live.synthetic_objects_enabled
+            && live.phantom_extract_mode != renderer::live_params::PhantomExtractMode::Off,
+        "phantomParams":
+            serde_json::to_value(&live.phantom_params).unwrap_or(serde_json::Value::Null),
         "surroundPlacement": live.surround_placement.as_str(),
         "outputChannelMapping": live.output_channel_mapping.as_str(),
         "outputChannelMappingUnroutable": unroutable_speaker_names,
+        "fixedChannelCatalog": fixed_channel_catalog,
+        "fixedChannelProcessing": fixed_channel_processing,
+        // Declared live options, emitted generically from the registry under
+        // their canonical (snake_case) keys. The flat camelCase keys above are
+        // the legacy spellings, kept while clients migrate to this block.
+        "options": renderer::options::options_json(live),
         // Parametrable virtual bed for channel content (null = built-in
         // canonical poses, LFE direct). Reuses the speaker-layout schema so the
         // Studio 3D editor can target it.
@@ -262,7 +299,7 @@ fn build_renderer_capabilities_json(has_audio: bool, has_input: bool) -> String 
         "variant": if has_audio { "standalone" } else { "embedded" },
         "host": if has_audio { "cli" } else { "mpv" },
         "domains": domains,
-        "realtime": ["master_gain", "speaker_gain", "object_gain"],
+        "realtime": ["master_gain", "speaker_gain"],
         "spatial": true,
         "metering": true,
         "controlConfig": control_config
@@ -367,6 +404,8 @@ pub fn build_live_state_bundle(
         // which runtime_control can't reach; the engine's recompute broadcast
         // (fired on topology build and every layout edit) carries the real list.
         &[],
+        &control.fixed_channel_catalog(),
+        &control.fixed_channel_processing(),
     );
 
     let mut messages = vec![
@@ -375,6 +414,13 @@ pub fn build_live_state_bundle(
             args: vec![OscType::String(build_renderer_capabilities_json(
                 has_audio, has_input,
             ))],
+        }),
+        OscPacket::Message(OscMessage {
+            // Schema of the declared live options (registry rows: key, kind,
+            // default, flags, i18n keys) — same pattern as the generator /
+            // phantom param schemas, so clients can build controls from it.
+            addr: crate::osc_contract::STATE_OPTIONS_SCHEMA.to_string(),
+            args: vec![OscType::String(renderer::options::schema_json())],
         }),
         OscPacket::Message(OscMessage {
             addr: "/omniphony/state/renderer".to_string(),
@@ -529,11 +575,20 @@ pub fn build_live_state_bundle(
             // mpv-embedded liborender link). Studio shows it in About so a
             // liborender-vs-orender version skew is visible at a glance.
             addr: "/omniphony/state/render/version".to_string(),
-            args: vec![OscType::String(format!(
-                "{} (built {})",
-                env!("VERGEN_GIT_DESCRIBE"),
-                env!("BUILD_TIMESTAMP"),
-            ))],
+            args: vec![OscType::String(crate::build_fingerprint())],
+        }),
+        OscPacket::Message(OscMessage {
+            // C-ABI version ("major.minor") of the liborender shim hosting this
+            // engine, or "" when the engine is linked directly as a Rust crate
+            // (the CLI — no C ABI involved). Studio shows it in About next to
+            // the build fingerprint.
+            addr: "/omniphony/state/render/abi".to_string(),
+            args: vec![OscType::String(
+                control
+                    .host_abi()
+                    .map(|(major, minor)| format!("{major}.{minor}"))
+                    .unwrap_or_default(),
+            )],
         }),
         OscPacket::Message(OscMessage {
             // Non-empty when this renderer came up in the degraded "no decoder"
@@ -568,12 +623,6 @@ pub fn build_live_state_bundle(
     let mut all_messages = messages;
 
     for (&idx, obj) in &live.objects {
-        if obj.gain != 1.0 {
-            all_messages.push(OscPacket::Message(OscMessage {
-                addr: format!("/omniphony/state/object/{}/gain", idx),
-                args: vec![OscType::Float(obj.gain)],
-            }));
-        }
         if obj.muted {
             all_messages.push(OscPacket::Message(OscMessage {
                 addr: format!("/omniphony/state/object/{}/mute", idx),

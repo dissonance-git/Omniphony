@@ -340,6 +340,21 @@ render_field! {
     eq = crate::live_params::OutputChannelMapping::eq
 }
 
+render_field_str! {
+    /// Bed→height object generator id for channel content
+    /// (`render.object_generator_id`). Empty / absent = off.
+    pub object_generator_id = "",
+    field = object_generator_id
+}
+
+render_field! {
+    /// Phantom extraction algorithm (`render.phantom_extract_mode`).
+    pub phantom_extract_mode: crate::live_params::PhantomExtractMode =
+        crate::live_params::PhantomExtractMode::Off,
+    field = phantom_extract_mode,
+    eq = crate::live_params::PhantomExtractMode::eq
+}
+
 render_field! {
     /// Derive spread from object distance (`render.spread_from_distance`).
     pub spread_from_distance: bool = false,

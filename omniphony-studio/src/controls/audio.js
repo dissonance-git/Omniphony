@@ -8,9 +8,11 @@ import { invoke } from '@tauri-apps/api/core';
 import {
   app,
   dirty,
+  getLiveOption,
   AUDIO_SAMPLE_RATE_PRESETS,
   hasProducerDomain
 } from '../state.js';
+import { reflectBoundOptions } from '../options-binder.js';
 import { t, tf } from '../i18n.js';
 import { scheduleUIFlush } from '../flush.js';
 import { inAudioPanel, inRendererPanel } from '../ui/panel-roots.js';
@@ -19,7 +21,6 @@ import { syncVirtualBedObjects, renderChannelEditor } from './virtual-bed.js';
 function getAudioFormatInfoEl() { return inAudioPanel('audioFormatInfo'); }
 function getAudioOutputDeviceSelectEl() { return inAudioPanel('audioOutputDeviceSelect'); }
 function getRampModeSelectEl() { return inRendererPanel('rampModeSelect'); }
-function getChannelSpatializeToggleEl() { return document.getElementById('channelSpatializeToggle'); }
 function getAudioSampleRateInputEl() { return inAudioPanel('audioSampleRateInput'); }
 function getAudioSampleRateMenuEl() { return inAudioPanel('audioSampleRateMenu'); }
 function getAudioOutputSummaryEl() { return inAudioPanel('audioOutputSummary'); }
@@ -137,17 +138,22 @@ export function renderAudioFormatDisplay() {
   if (rampModeSelectEl) {
     rampModeSelectEl.value = ['off', 'frame', 'sample', 'interp'].includes(app.rampMode) ? app.rampMode : 'frame';
   }
-  const channelSpatializeToggleEl = getChannelSpatializeToggleEl();
-  if (channelSpatializeToggleEl) {
-    // Off = host (let the player decode), on = spatial (render through the
-    // virtual bed). Legacy `direct`/`virtual` snapshots count as spatial.
-    const spatial = app.channelRenderMode !== 'host';
-    channelSpatializeToggleEl.checked = spatial;
+  {
+    // The registry binder reflects the bound controls. Applicability only
+    // changes status text: every setting remains available for offline setup.
+    reflectBoundOptions();
     const virtualBedActions = document.getElementById('virtualBedActions');
-    if (virtualBedActions) virtualBedActions.style.display = spatial ? 'flex' : 'none';
+    if (virtualBedActions) virtualBedActions.style.display = 'flex';
     const surroundRow = document.getElementById('surroundPlacementRow');
-    if (surroundRow) surroundRow.style.display = spatial ? 'flex' : 'none';
-    updateSurroundPlacementUI();
+    if (surroundRow) surroundRow.style.display = 'flex';
+    updateTwoDSourcesSummary();
+    const objectGeneratorRow = document.getElementById('objectGeneratorRow');
+    if (objectGeneratorRow) objectGeneratorRow.style.display = 'flex';
+    updateObjectGeneratorUI();
+    const phantomRow = document.getElementById('phantomExtractRow');
+    if (phantomRow) phantomRow.style.display = 'flex';
+    updatePhantomUI();
+    updateFixedChannelProcessingUI();
     syncVirtualBedObjects();
     renderChannelEditor();
   }
@@ -159,7 +165,7 @@ export function renderAudioFormatDisplay() {
     if (!hasAudioDomain) {
       // Host/mpv mode: the renderer doesn't own the output device, so this panel
       // shows only the channel mapping — summarise that, not a (stale) device.
-      const mKey = app.outputChannelMapping === 'by_name'
+      const mKey = getLiveOption('output_channel_mapping') === 'by_name'
         ? 'audio.channelMapping.byName'
         : 'audio.channelMapping.byIndex';
       audioOutputSummaryEl.textContent = `${t('audio.channelMapping')}: ${t(mKey)}`;
@@ -308,68 +314,362 @@ export function applyRampModeNow() {
   invoke('control_ramp_mode', { value: requested });
 }
 
-export function applyChannelRenderModeNow() {
-  const el = getChannelSpatializeToggleEl();
-  if (!el) return;
-  const requested = el.checked ? 'spatial' : 'host';
-  app.channelRenderMode = requested;
-  const virtualBedActions = document.getElementById('virtualBedActions');
-  if (virtualBedActions) virtualBedActions.style.display = el.checked ? 'flex' : 'none';
-  const surroundRow = document.getElementById('surroundPlacementRow');
-  if (surroundRow) surroundRow.style.display = el.checked ? 'flex' : 'none';
-  syncVirtualBedObjects(true);
-  renderChannelEditor(true);
-  updateTwoDSourcesSummary();
-  invoke('control_channel_render_mode', { value: requested });
-}
-
-// Reflect the active Side/Back button from `app.surroundPlacement` (called both
-// on user action and on a state broadcast from the renderer).
-export function updateSurroundPlacementUI() {
-  const placement = app.surroundPlacement === 'back' ? 'back' : 'side';
-  const sideBtn = document.getElementById('surroundPlacementSide');
-  const backBtn = document.getElementById('surroundPlacementBack');
-  if (sideBtn) sideBtn.classList.toggle('active', placement === 'side');
-  if (backBtn) backBtn.classList.toggle('active', placement === 'back');
-  updateTwoDSourcesSummary();
-}
-
-// Header summary shown while the 2D-sources panel is collapsed: whether flat 2D
-// beds are spatialised (with the rear-channel placement) or passed through to the
-// player. Reads `channelRenderMode` and `surroundPlacement` from app state.
+// Header summary shown while the fixed-channel-source panel is collapsed.
 export function updateTwoDSourcesSummary() {
   const summaryEl = document.getElementById('twoDSourcesSummary');
   if (!summaryEl) return;
-  if (app.channelRenderMode !== 'host') {
-    const placement = app.surroundPlacement === 'back'
-      ? t('twoDSources.surroundBack')
-      : t('twoDSources.surroundSide');
-    summaryEl.textContent = `${t('twoDSources.summary.spatialized')} · ${placement}`;
-  } else {
-    summaryEl.textContent = t('twoDSources.summary.passthrough');
+  const placement = getLiveOption('surround_placement') === 'back'
+    ? t('twoDSources.surroundBack')
+    : t('twoDSources.surroundSide');
+  const synthesis = getLiveOption('synthetic_objects_enabled')
+    ? t('twoDSources.summary.syntheticEnabled')
+    : t('twoDSources.summary.fixedOnly');
+  summaryEl.textContent = `${placement} · ${synthesis}`;
+}
+
+const PROCESSING_REASON_KEYS = {
+  active: 'twoDSources.status.active',
+  off: 'twoDSources.status.off',
+  master_off: 'twoDSources.status.masterOff',
+  no_stream: 'twoDSources.status.noStream',
+  object_stream: 'twoDSources.status.objectStream',
+  input_has_height: 'twoDSources.status.inputHasHeight',
+  output_has_no_height: 'twoDSources.status.outputHasNoHeight',
+  insufficient_channels: 'twoDSources.status.insufficientChannels'
+};
+
+function processingReason(value) {
+  return t(PROCESSING_REASON_KEYS[value] || 'twoDSources.status.noStream');
+}
+
+function effectivePhantomReason() {
+  if ((getLiveOption('phantom_extract_mode') || 'off') === 'off') return 'off';
+  if (!getLiveOption('synthetic_objects_enabled')) return 'master_off';
+  return app.fixedChannelProcessing?.phantom || 'no_stream';
+}
+
+function effectiveHeightReason() {
+  const generator = getLiveOption('object_generator_id') || 'none';
+  if (!generator || generator === 'none') return 'off';
+  if (!getLiveOption('synthetic_objects_enabled')) return 'master_off';
+  return app.fixedChannelProcessing?.height || 'no_stream';
+}
+
+export function updateFixedChannelProcessingUI() {
+  const state = app.fixedChannelProcessing || {};
+  const activity = document.getElementById('fixedChannelActivity');
+  if (activity) {
+    const key = state.stream === 'fixed'
+      ? 'twoDSources.stream.fixed'
+      : state.stream === 'objects'
+        ? 'twoDSources.stream.objects'
+        : 'twoDSources.stream.idle';
+    activity.textContent = t(key);
+  }
+  const masterStatus = document.getElementById('syntheticObjectsStatus');
+  if (masterStatus) {
+    masterStatus.textContent = getLiveOption('synthetic_objects_enabled')
+      ? t('twoDSources.syntheticConfigured')
+      : t('twoDSources.fixedOnly');
+  }
+  const phantomStatus = document.getElementById('phantomStatus');
+  if (phantomStatus) phantomStatus.textContent = processingReason(effectivePhantomReason());
+}
+
+// The generator id whose param sliders are currently built into the DOM.
+let builtParamGenId = null;
+
+// Format a parameter value for display: decimals derived from the schema step,
+// plus an optional unit suffix.
+function fmtParamValue(spec, v) {
+  const n = Number(v);
+  const step = Number(spec.step) || 0;
+  let s;
+  if (step >= 1) s = String(Math.round(n));
+  else if (step >= 0.1) s = n.toFixed(1);
+  else s = n.toFixed(2);
+  return spec.unit ? `${s} ${spec.unit}` : s;
+}
+
+// Localized label from an i18n key when it resolves, else the English label the
+// schema carries (so out-of-tree generators still get a readable label).
+function schemaLabel(i18nKey, fallback) {
+  if (i18nKey) {
+    const localized = t(i18nKey);
+    if (localized && localized !== i18nKey) return localized;
+  }
+  return fallback || '';
+}
+
+function activeGeneratorSchema() {
+  const id = getLiveOption('object_generator_id') || 'none';
+  return (app.objectGenerators || []).find((g) => g && g.id === id) || null;
+}
+
+// (Re)build the generator selector from the declared schema. The hardcoded HTML
+// options stay as a fallback until the schema arrives / for older renderers.
+export function rebuildObjectGeneratorControls() {
+  const sel = document.getElementById('objectGeneratorSelect');
+  const list = app.objectGenerators || [];
+  if (sel && list.length) {
+    const current = getLiveOption('object_generator_id') || 'none';
+    sel.innerHTML = '';
+    const off = document.createElement('option');
+    off.value = 'none';
+    off.textContent = t('twoDSources.objectGenNone') || 'Off';
+    sel.appendChild(off);
+    for (const gen of list) {
+      const opt = document.createElement('option');
+      opt.value = gen.id;
+      opt.textContent = schemaLabel(gen.i18nKey, gen.label);
+      sel.appendChild(opt);
+    }
+    sel.value = current;
+  }
+  builtParamGenId = null; // force the param sliders to rebuild
+  updateObjectGeneratorUI();
+}
+
+function buildParamSliders(schema) {
+  const row = document.getElementById('objectGenParamsRow');
+  if (!row) return;
+  row.innerHTML = '';
+  const params = (schema && schema.params) || [];
+  for (const spec of params) {
+    const label = document.createElement('label');
+    label.style.cssText = 'display:flex;align-items:center;gap:0.5rem;font-size:11px';
+    const name = document.createElement('span');
+    name.style.cssText = 'flex:0 0 auto;min-width:96px';
+    name.textContent = schemaLabel(spec.i18nKey, spec.label);
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = String(spec.min);
+    slider.max = String(spec.max);
+    slider.step = String(spec.step);
+    slider.style.cssText = 'flex:1;min-width:0';
+    slider.dataset.paramKey = spec.key;
+    const valEl = document.createElement('span');
+    valEl.style.cssText =
+      'flex:0 0 auto;width:48px;text-align:right;font-variant-numeric:tabular-nums';
+    const stored = app.objectGeneratorParams && app.objectGeneratorParams[spec.key];
+    const initial = stored != null ? stored : spec.default;
+    slider.value = String(initial);
+    valEl.textContent = fmtParamValue(spec, initial);
+    slider.addEventListener('input', () => {
+      valEl.textContent = fmtParamValue(spec, slider.value);
+      applyObjectGeneratorParamNow(spec.key, slider.value);
+    });
+    label.appendChild(name);
+    label.appendChild(slider);
+    label.appendChild(valEl);
+    row.appendChild(label);
+  }
+  builtParamGenId = schema ? schema.id : null;
+}
+
+// Reflect the active generator + its parameter sliders. Rebuilds the sliders
+// when the active generator (or its schema) changes; otherwise just refreshes
+// values without disturbing an in-progress drag.
+export function updateObjectGeneratorUI() {
+  const sel = document.getElementById('objectGeneratorSelect');
+  // (Re)set after a schema-driven rebuild; the binder reflects the same value.
+  if (sel && document.activeElement !== sel) sel.value = getLiveOption('object_generator_id') || 'none';
+  // Applicability never disables configuration. The renderer reports why a
+  // selected generator is currently inactive while offline edits remain valid.
+  const hasHeight = app.objectGeneratorLayoutHasHeight !== false;
+  if (sel) sel.disabled = false;
+  const note = document.getElementById('objectGeneratorNoHeightNote');
+  if (note) {
+    const reason = effectiveHeightReason();
+    note.style.display = reason && reason !== 'active' && reason !== 'off' ? 'inline' : 'none';
+    note.textContent = processingReason(reason || (hasHeight ? 'off' : 'output_has_no_height'));
+  }
+  const schema = activeGeneratorSchema();
+  const row = document.getElementById('objectGenParamsRow');
+  const show = !!(schema && (schema.params || []).length);
+  if (row) row.style.display = show ? 'flex' : 'none';
+  const wantId = schema ? schema.id : null;
+  if (wantId !== builtParamGenId) {
+    buildParamSliders(schema);
+  } else if (row) {
+    for (const slider of row.querySelectorAll('input[type=range]')) {
+      const key = slider.dataset.paramKey;
+      const spec = (schema.params || []).find((p) => p.key === key);
+      if (!spec) continue;
+      const stored = app.objectGeneratorParams && app.objectGeneratorParams[key];
+      const v = stored != null ? stored : spec.default;
+      if (document.activeElement !== slider) slider.value = String(v);
+      const valEl = slider.nextElementSibling;
+      if (valEl) valEl.textContent = fmtParamValue(spec, v);
+    }
   }
 }
 
-// Commit a Side/Back choice: update state + the active button and push it to the
-// engine, which renders it live and persists it to config. The visible effect is
-// at playback of a 4.x/5.x source (the engine streams Ls/Rs at the chosen
-// corner); the at-rest editor keeps showing the full canonical 7.1 set.
-export function applySurroundPlacementNow(value) {
-  const requested = value === 'back' ? 'back' : 'side';
-  app.surroundPlacement = requested;
-  updateSurroundPlacementUI();
-  invoke('control_surround_placement', { value: requested });
+// Commit a generator parameter change live (slider drag): store the override and
+// push it to the engine, which validates/clamps and applies it by key without
+// resetting DSP state.
+export function applyObjectGeneratorParamNow(key, value) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return;
+  if (!app.objectGeneratorParams || typeof app.objectGeneratorParams !== 'object') {
+    app.objectGeneratorParams = {};
+  }
+  app.objectGeneratorParams[key] = v;
+  invoke('control_object_generator_param', { key, value: v });
 }
 
-// Reflect the active by-index/by-name buttons from `app.outputChannelMapping`,
-// and show a warning when by-name can't route some speakers (non-standard names
-// for the active backend, reported by the renderer).
+// ── Phantom-source extraction pre-stage ──
+// Runs before the height lift: extracts the correlated/primary content of channel
+// pairs as discrete objects at their real panned position and reduces the bed.
+
+let builtPhantomParams = false;
+
+// Whether a declared param is a binary (on/off) toggle — rendered as a switch
+// rather than a slider, per the switches-not-checkboxes rule.
+function isBinaryParam(spec) {
+  return Number(spec.min) === 0 && Number(spec.max) === 1 && Number(spec.step) === 1;
+}
+
+// Params that only shape the BROADBAND plan: the engine deliberately ignores
+// their changes while spectral mode is active (see phantom_extract.rs sync —
+// no pointless re-prime). Keep them editable for offline configuration, but
+// visually identify that they do not affect the current mode.
+const PHANTOM_BROADBAND_ONLY = new Set(['passes', 'center', 'sides']);
+
+function phantomMethodIsSpectral() {
+  return getLiveOption('phantom_extract_mode') === 'spectral';
+}
+
+// Reflect a param row's broadband-only gating on its container + control.
+function applyPhantomParamGate(container, control, key, spectral) {
+  const gated = spectral && PHANTOM_BROADBAND_ONLY.has(key);
+  control.disabled = false;
+  container.style.opacity = gated ? '0.7' : '';
+  if (gated) {
+    container.title = t('twoDSources.phantomBroadbandOnly');
+  } else {
+    container.removeAttribute('title');
+  }
+}
+
+// Build the phantom param controls from the declared schema (app.phantomSchema is
+// the param-spec array directly). Continuous params render as sliders; binary
+// params (min 0, max 1, step 1) render as a switch. Mirrors buildParamSliders.
+function buildPhantomParamSliders() {
+  const row = document.getElementById('phantomParamsRow');
+  if (!row) return;
+  row.innerHTML = '';
+  const params = app.phantomSchema || [];
+  const spectral = phantomMethodIsSpectral();
+  for (const spec of params) {
+    const stored = app.phantomParams && app.phantomParams[spec.key];
+    const initial = stored != null ? stored : spec.default;
+    if (isBinaryParam(spec)) {
+      const label = document.createElement('label');
+      label.className = 'switch-row';
+      label.style.cssText = 'font-size:11px;cursor:pointer;margin-top:0';
+      const name = document.createElement('span');
+      name.textContent = schemaLabel(spec.i18nKey, spec.label);
+      const toggle = document.createElement('input');
+      toggle.type = 'checkbox';
+      toggle.dataset.paramKey = spec.key;
+      toggle.checked = Number(initial) >= 0.5;
+      toggle.addEventListener('change', () => {
+        applyPhantomParamNow(spec.key, toggle.checked ? 1 : 0);
+      });
+      applyPhantomParamGate(label, toggle, spec.key, spectral);
+      label.appendChild(name);
+      label.appendChild(toggle);
+      row.appendChild(label);
+      continue;
+    }
+    const label = document.createElement('label');
+    label.style.cssText = 'display:flex;align-items:center;gap:0.5rem;font-size:11px';
+    const name = document.createElement('span');
+    name.style.cssText = 'flex:0 0 auto;min-width:96px';
+    name.textContent = schemaLabel(spec.i18nKey, spec.label);
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = String(spec.min);
+    slider.max = String(spec.max);
+    slider.step = String(spec.step);
+    slider.style.cssText = 'flex:1;min-width:0';
+    slider.dataset.paramKey = spec.key;
+    const valEl = document.createElement('span');
+    valEl.style.cssText =
+      'flex:0 0 auto;width:48px;text-align:right;font-variant-numeric:tabular-nums';
+    slider.value = String(initial);
+    valEl.textContent = fmtParamValue(spec, initial);
+    slider.addEventListener('input', () => {
+      valEl.textContent = fmtParamValue(spec, slider.value);
+      applyPhantomParamNow(spec.key, slider.value);
+    });
+    applyPhantomParamGate(label, slider, spec.key, spectral);
+    label.appendChild(name);
+    label.appendChild(slider);
+    label.appendChild(valEl);
+    row.appendChild(label);
+  }
+  builtPhantomParams = (app.phantomSchema || []).length > 0;
+}
+
+// (Re)build the phantom controls when the schema arrives.
+export function rebuildPhantomControls() {
+  builtPhantomParams = false;
+  updatePhantomUI();
+}
+
+// Show/hide + refresh the phantom parameter sliders.
+export function updatePhantomUI() {
+  const params = app.phantomSchema || [];
+  const row = document.getElementById('phantomParamsRow');
+  const show =
+    getLiveOption('phantom_extract_mode') !== 'off' &&
+    params.length > 0;
+  if (row) row.style.display = show ? 'flex' : 'none';
+  if (!builtPhantomParams && params.length > 0) {
+    buildPhantomParamSliders();
+  } else if (row) {
+    const spectral = phantomMethodIsSpectral();
+    for (const slider of row.querySelectorAll('input[type=range]')) {
+      const key = slider.dataset.paramKey;
+      const spec = params.find((p) => p.key === key);
+      if (!spec) continue;
+      const stored = app.phantomParams && app.phantomParams[key];
+      const v = stored != null ? stored : spec.default;
+      if (document.activeElement !== slider) slider.value = String(v);
+      const valEl = slider.nextElementSibling;
+      if (valEl) valEl.textContent = fmtParamValue(spec, v);
+      applyPhantomParamGate(slider.parentElement, slider, key, spectral);
+    }
+    for (const toggle of row.querySelectorAll('input[type=checkbox][data-param-key]')) {
+      const key = toggle.dataset.paramKey;
+      const spec = params.find((p) => p.key === key);
+      if (!spec) continue;
+      const stored = app.phantomParams && app.phantomParams[key];
+      const v = stored != null ? stored : spec.default;
+      toggle.checked = Number(v) >= 0.5;
+      applyPhantomParamGate(toggle.closest('label') || toggle.parentElement, toggle, key, spectral);
+    }
+  }
+}
+
+// Commit a phantom parameter change live (slider drag).
+export function applyPhantomParamNow(key, value) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return;
+  if (!app.phantomParams || typeof app.phantomParams !== 'object') {
+    app.phantomParams = {};
+  }
+  app.phantomParams[key] = v;
+  invoke('control_phantom_extract_param', { key, value: v });
+}
+
+// Show a warning when by-name mapping can't route some speakers (non-standard
+// names for the active backend, reported by the renderer). The by-index/by-name
+// buttons themselves are binder-reflected.
 export function updateOutputChannelMappingUI() {
-  const mapping = app.outputChannelMapping === 'by_name' ? 'by_name' : 'by_index';
-  const idxBtn = document.getElementById('outputChannelMappingByIndex');
-  const nameBtn = document.getElementById('outputChannelMappingByName');
-  if (idxBtn) idxBtn.classList.toggle('active', mapping === 'by_index');
-  if (nameBtn) nameBtn.classList.toggle('active', mapping === 'by_name');
+  const mapping = getLiveOption('output_channel_mapping') === 'by_name' ? 'by_name' : 'by_index';
   const warnEl = document.getElementById('outputChannelMappingWarning');
   if (warnEl) {
     const names = Array.isArray(app.outputChannelMappingUnroutable)
@@ -382,14 +682,4 @@ export function updateOutputChannelMappingUI() {
       warnEl.style.display = 'none';
     }
   }
-}
-
-// Commit a by-index/by-name choice: update state + buttons and push it to the
-// engine (applied live and persisted to config). By-index = positionless
-// passthrough (port N = layout speaker N); by-name = positional routing.
-export function applyOutputChannelMappingNow(value) {
-  const requested = value === 'by_name' ? 'by_name' : 'by_index';
-  app.outputChannelMapping = requested;
-  updateOutputChannelMappingUI();
-  invoke('control_output_channel_mapping', { value: requested });
 }

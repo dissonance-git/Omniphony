@@ -2,7 +2,7 @@
 name = "renderer"
 version = "0.2.4"
 edition = "2024"
-license = "GPL-3.0-only"
+license = "GPL-3.0-or-later"
 description = "VBAP-based spatial audio renderer"
 
 [lib]
@@ -10,6 +10,7 @@ name = "renderer"
 
 [dependencies]
 anyhow = "1"
+bridge_api = { version = "0.3.0", path = "../bridge_api" }
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

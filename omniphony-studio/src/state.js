@@ -227,19 +227,41 @@ export const app = {
   // Audio
   audioSampleRate: null,
   rampMode: 'sample',
-  channelRenderMode: 'spatial',
-  // Where the 4.x/5.x surround pair (Ls/Rs) of a 2D source is placed: 'side' or
-  // 'back'. Only affects sources without dedicated back channels.
-  surroundPlacement: 'side',
-  // How output channels map to device ports: 'by_index' (positionless — port N =
-  // layout speaker N) or 'by_name' (positional). Default 'by_index'.
-  outputChannelMapping: 'by_index',
+  // Declared bed→height generator schema, published by the renderer on
+  // /omniphony/state/object_generators: [{id,label,i18nKey,requiresHeightLayer,
+  // params:[{key,label,i18nKey,min,max,step,default,unit}]}]. Studio builds the
+  // selector + parameter sliders from this.
+  objectGenerators: [],
+  // Live param overrides for the active generator (key → value).
+  objectGeneratorParams: {},
+  // Whether the active output layout has top speakers; when false a configured
+  // height generator remains editable but cannot run. Assume yes until the
+  // renderer reports otherwise.
+  objectGeneratorLayoutHasHeight: true,
+  // Declared phantom-extraction param schema, published on /omniphony/state/phantom
+  // as [{key,label,i18nKey,min,max,step,default,unit}]. Studio builds the sliders.
+  phantomSchema: [],
+  // Live param overrides for the phantom stage (key → value).
+  phantomParams: {},
+  // Canonical fixed-channel catalogue and current applicability state supplied
+  // by the renderer. They keep the editor useful without a compatible stream.
+  fixedChannelCatalog: [],
+  fixedChannelProcessing: { stream: 'idle', labels: [], phantom: 'no_stream', height: 'no_stream' },
   // Speaker names that can't be routed by position in by_name mode (reported by
   // the renderer for the active backend); shown as a warning. Empty when none.
   outputChannelMappingUnroutable: [],
-  // Parametrable virtual bed for 2D sources (a SpeakerLayout-shaped object, or
+  // Parametrable virtual bed for fixed-channel sources (a SpeakerLayout-shaped object, or
   // null = built-in canonical poses). Edited by the virtual-bed editor.
   virtualBed: null,
+  // Declared live options (registry RFC): the renderer's `options` snapshot
+  // block, keyed by canonical snake_case option key. THE single JS-side value
+  // store for registry options — read through `getLiveOption`, never through
+  // per-option mirrors (the lying hard-coded defaults died with phase 2).
+  options: {},
+  // Declared live-options schema, published on /omniphony/state/options_schema
+  // as [{key,kind,values?,default,flags,i18nKey,helpI18nKey?}]. Provides the
+  // pre-snapshot defaults for `getLiveOption` and (later) control rendering.
+  optionsSchema: [],
   // One-shot guard: once we've materialised the canonical bed into the
   // renderer/config (when none was saved), don't push it again this session.
   virtualBedMaterialized: false,
@@ -284,6 +306,9 @@ export const app = {
   // Build fingerprint of the connected renderer (git-describe + build time).
   // Lets About expose a liborender-vs-orender version skew.
   renderVersion: null,
+  // C-ABI version ("major.minor") of the liborender shim hosting the engine.
+  // Null when the engine is linked as a Rust crate (the CLI — no C ABI).
+  renderAbi: null,
   // Non-empty when the renderer came up degraded (decoder bridge missing) —
   // drives a red banner under the OSC status. Cleared when a healthy renderer
   // reports an empty value.
@@ -399,7 +424,7 @@ export const app = {
   // resolved at drag start so update/end commit to the right model.
   dragEditTarget: null,
 
-  // Virtual-bed channel edit (a 2D-source marker edited via the 3D gizmo).
+  // Virtual-bed channel edit (a fixed-channel-source marker edited via the 3D gizmo).
   // While set, updateSource skips repositioning this id so the live OSC stream
   // doesn't fight the gizmo drag; the new position is sent on release.
   isDraggingVirtualBed: false,
@@ -564,3 +589,14 @@ export const LATENCY_RAW_WINDOW_MS = 4000;
 export const RENDER_TIME_WINDOW_MS = 5000;
 export const AUDIO_SAMPLE_RATE_PRESETS = [0, 32000, 44100, 48000, 88200, 96000, 176400, 192000];
 export const isLinux = typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('linux');
+
+// Read a declared live option by its canonical (snake_case) registry key.
+// Precedence: the renderer snapshot (`app.options`), then the published
+// schema's default, then `undefined` (pre-connect — callers fall back to
+// their safe interpretation, e.g. `!== 'host'` still means spatial).
+export function getLiveOption(key) {
+  const v = app.options[key];
+  if (v !== undefined) return v;
+  const spec = (app.optionsSchema || []).find((s) => s && s.key === key);
+  return spec ? spec.default : undefined;
+}

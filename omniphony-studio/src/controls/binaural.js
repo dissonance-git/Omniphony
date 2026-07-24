@@ -67,12 +67,46 @@ export function initBinauralPanel() {
     if (btn) btn.style.display = value === 'sofa' ? '' : 'none';
   };
 
+  // The parametric-pinna model exposes two tuning sliders; show them only for
+  // the 'pinna' source. The renderer carries the size/depth in the source
+  // string itself ("pinna:<size>:<depth>"), so both sliders just re-send it.
+  const syncPinnaVisibility = (value) => {
+    const box = el('binauralPinnaControls');
+    if (box) box.style.display = value === 'pinna' ? 'grid' : 'none';
+  };
+  const sendPinna = () => {
+    const preset = el('binauralPinnaPreset')?.value === 'rd' ? 'rd' : 'pbnh';
+    const dScale = Math.round(Number(el('binauralPinnaDScale')?.value));
+    const depth = Math.round(Number(el('binauralPinnaDepth')?.value));
+    const ds = Number.isFinite(dScale) ? dScale : 100;
+    const dp = Number.isFinite(depth) ? depth : 100;
+    send('control_hrir_source', { value: `pinna:${preset}:${ds}:${dp}` });
+  };
+
+  // Spagnol PRTF model carries its two knobs in the source string too
+  // ("prtf:<freqScale>:<depth>").
+  const syncPrtfVisibility = (value) => {
+    const box = el('binauralPrtfControls');
+    if (box) box.style.display = value === 'prtf' ? 'grid' : 'none';
+  };
+  const sendPrtf = () => {
+    const freq = Math.round(Number(el('binauralPrtfFreqScale')?.value));
+    const depth = Math.round(Number(el('binauralPrtfDepth')?.value));
+    const fs = Number.isFinite(freq) ? freq : 100;
+    const dp = Number.isFinite(depth) ? depth : 100;
+    send('control_hrir_source', { value: `prtf:${fs}:${dp}` });
+  };
+
   const src = el('binauralHrirSource');
   if (src) {
     src.addEventListener('change', (e) => {
       syncSofaBrowseVisibility(e.target.value);
+      syncPinnaVisibility(e.target.value);
+      syncPrtfVisibility(e.target.value);
       if (applying) return;
-      send('control_hrir_source', { value: e.target.value });
+      if (e.target.value === 'pinna') sendPinna();
+      else if (e.target.value === 'prtf') sendPrtf();
+      else send('control_hrir_source', { value: e.target.value });
     });
   }
 
@@ -84,6 +118,51 @@ export function initBinauralPanel() {
       const out = el('binauralUnitScaleVal');
       if (out) out.textContent = v.toFixed(1);
       send('control_binaural_unit_scale', { value: v });
+    });
+  }
+
+  const pinnaPreset = el('binauralPinnaPreset');
+  if (pinnaPreset) {
+    pinnaPreset.addEventListener('change', () => {
+      if (applying) return;
+      sendPinna();
+    });
+  }
+  const pinnaDScale = el('binauralPinnaDScale');
+  if (pinnaDScale) {
+    pinnaDScale.addEventListener('input', (e) => {
+      const out = el('binauralPinnaDScaleVal');
+      if (out) out.textContent = String(Math.round(Number(e.target.value)));
+      if (applying) return;
+      sendPinna();
+    });
+  }
+  const pinnaDepth = el('binauralPinnaDepth');
+  if (pinnaDepth) {
+    pinnaDepth.addEventListener('input', (e) => {
+      const out = el('binauralPinnaDepthVal');
+      if (out) out.textContent = String(Math.round(Number(e.target.value)));
+      if (applying) return;
+      sendPinna();
+    });
+  }
+
+  const prtfDepth = el('binauralPrtfDepth');
+  if (prtfDepth) {
+    prtfDepth.addEventListener('input', (e) => {
+      const out = el('binauralPrtfDepthVal');
+      if (out) out.textContent = String(Math.round(Number(e.target.value)));
+      if (applying) return;
+      sendPrtf();
+    });
+  }
+  const prtfFreqScale = el('binauralPrtfFreqScale');
+  if (prtfFreqScale) {
+    prtfFreqScale.addEventListener('input', (e) => {
+      const out = el('binauralPrtfFreqScaleVal');
+      if (out) out.textContent = String(Math.round(Number(e.target.value)));
+      if (applying) return;
+      sendPrtf();
     });
   }
 
@@ -255,6 +334,10 @@ export function applyBinauralState(b) {
       setVal('binauralHrirSource', b.hrirSource);
       const btn = el('sofaBrowseBtn');
       if (btn) btn.style.display = b.hrirSource === 'sofa' ? '' : 'none';
+      const pinnaBox = el('binauralPinnaControls');
+      if (pinnaBox) pinnaBox.style.display = b.hrirSource === 'pinna' ? 'grid' : 'none';
+      const prtfBox = el('binauralPrtfControls');
+      if (prtfBox) prtfBox.style.display = b.hrirSource === 'prtf' ? 'grid' : 'none';
       // Info line under the source zone: chosen file name, or the
       // KEMAR-fallback notice while no file is selected yet.
       setActiveSofaPath(typeof b.hrtfSofaPath === 'string' ? b.hrtfSofaPath : '');

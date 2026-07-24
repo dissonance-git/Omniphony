@@ -4,6 +4,7 @@
 mod app_state;
 mod commands;
 mod config;
+mod engine_deploy;
 mod layouts;
 mod osc_listener;
 mod osc_parser;
@@ -132,6 +133,10 @@ fn main() {
                 let _ = window.set_icon(window_icon);
             }
 
+            // Publish the bundled engine library (liborender) to the per-user
+            // path external consumers (the forked mpv) load it from.
+            engine_deploy::deploy(app);
+
             let config_dir = app
                 .path()
                 .app_config_dir()
@@ -184,6 +189,9 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            debug_memory_stats,
+            debug_state_sizes,
+            debug_write_memory_csv,
             get_state,
             get_osc_config,
             renderer_is_local,
@@ -212,7 +220,6 @@ fn main() {
             export_layout_to_path,
             control_speaker_gain,
             control_object_mute,
-            control_object_gain,
             control_speaker_mute,
             control_master_gain,
             control_loudness,
@@ -300,9 +307,9 @@ fn main() {
             control_reload_config,
             control_log_level,
             control_ramp_mode,
-            control_channel_render_mode,
-            control_surround_placement,
-            control_output_channel_mapping,
+            control_option,
+            control_object_generator_param,
+            control_phantom_extract_param,
             control_virtual_bed,
             control_output_mode,
             control_hrir_source,

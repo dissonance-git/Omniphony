@@ -54,10 +54,31 @@ pub struct ControlEffects {
     pub evaluation_only: bool,
     pub broadcasts: Vec<BroadcastUpdate>,
     pub log_message: Option<String>,
+    /// Head-tracking recenter reference `[w, x, y, z]` to write straight to
+    /// `config.yaml` (systematic save, like `surround_placement`). The engine
+    /// layer performs the I/O in `apply_control_effects`.
+    pub persist_head_center: Option<[f32; 4]>,
 }
 
 // AdaptiveResamplingPatch / AudioConfigPatch / LiveInputPatch / InputConfigPatch
 // moved to the `host_audio` crate alongside their dispatch handlers.
+
+/// Deserialize an `Option<Option<T>>` so an explicit JSON `null` means "clear"
+/// (`Some(None)`) while an absent field leaves the value untouched (`None`).
+///
+/// Plain `#[serde(default)]` can't express this: serde_json folds `null` into
+/// the *outer* `None`, making an explicit "remove this cutoff" request from the
+/// editor indistinguishable from "field not sent" — so a per-speaker crossover
+/// cutoff could be changed but never blanked. Pair with
+/// `#[serde(default, deserialize_with = "double_option")]`: `default` covers the
+/// absent case (the helper is only called when the field is present).
+fn double_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -72,9 +93,9 @@ struct LayoutSpeakerPatch {
     elevation: Option<f32>,
     distance: Option<f32>,
     spatialize: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "double_option")]
     freq_low: Option<Option<f32>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "double_option")]
     freq_high: Option<Option<f32>>,
 }
 
@@ -91,9 +112,9 @@ struct LayoutAddSpeakerPatch {
     distance: Option<f32>,
     spatialize: Option<bool>,
     delay_ms: Option<f32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "double_option")]
     freq_low: Option<Option<f32>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "double_option")]
     freq_high: Option<Option<f32>>,
 }
 
@@ -797,8 +818,9 @@ pub fn apply_simple_osc_control(
     }
 
     if addr == "/omniphony/control/binaural/hrir_source" {
-        // "synthetic" | "saf"/"kemar" | "sofa:<path>". No topology rebuild; the
-        // render thread rebuilds the HRIR grid lazily when the source changes.
+        // "synthetic" | "saf"/"kemar" | "sofa:<path>" | "pinna[:<size>:<depth>]".
+        // No topology rebuild; the render thread rebuilds the HRIR grid lazily
+        // when the source changes.
         if let Some(src) = parse_string_arg(msg.args.first())
             .and_then(|s| renderer::binaural::HrirSource::from_str(&s))
         {
@@ -1033,6 +1055,9 @@ pub fn apply_simple_osc_control(
         let mut live = ctx.renderer.live.write();
         live.binaural.tracking.recenter();
         live.binaural.head_pose = renderer::binaural::HeadPose::identity();
+        // Persist the new reference to config right away so the centering survives
+        // an engine rebuild (mpv track change) and a restart.
+        effects.persist_head_center = Some(live.binaural.tracking.reference.to_quat_array());
         effects.mark_dirty = true;
         effects.log_message = Some("OSC: head/recenter".to_string());
         return Some(effects);
@@ -1643,29 +1668,6 @@ pub fn apply_simple_osc_control(
     }
 
     if let Some(rest) = addr.strip_prefix("/omniphony/control/object/") {
-        if let Some(idx_str) = rest.strip_suffix("/gain") {
-            if let Ok(idx) = idx_str.parse::<usize>() {
-                if let Some(gain) =
-                    parse_f32_arg(msg.args.first()).map(|value| value.clamp(0.0, 2.0))
-                {
-                    ctx.renderer
-                        .live
-                        .write()
-                        .objects
-                        .entry(idx)
-                        .or_default()
-                        .gain = gain;
-                    ctx.renderer.mark_object_params_dirty();
-                    effects.mark_dirty = true;
-                    effects.broadcasts.push(BroadcastUpdate {
-                        addr: format!("/omniphony/state/object/{}/gain", idx),
-                        value: BroadcastValue::Float(gain),
-                    });
-                    effects.log_message = Some(format!("OSC: object[{}] gain → {}", idx, gain));
-                }
-            }
-            return Some(effects);
-        }
         if let Some(idx_str) = rest.strip_suffix("/mute") {
             if let Ok(idx) = idx_str.parse::<usize>() {
                 if let Some(muted) = parse_bool_arg(msg.args.first()) {
@@ -1690,4 +1692,69 @@ pub fn apply_simple_osc_control(
     }
 
     None
+}
+
+#[cfg(test)]
+mod freq_cutoff_clear_tests {
+    use super::*;
+
+    fn speaker_patch(json: &str) -> LayoutSpeakerPatch {
+        serde_json::from_str(json).expect("valid LayoutSpeakerPatch")
+    }
+
+    /// The editor sends `freqLow: null` to remove a cutoff; an unrelated edit
+    /// omits the field entirely. These must be distinguishable, which plain
+    /// `Option<Option<f32>>` + `#[serde(default)]` was not (`null` collapsed to
+    /// the outer `None`, so a clear was silently dropped).
+    #[test]
+    fn double_option_distinguishes_absent_null_and_value() {
+        // Absent → leave untouched.
+        assert_eq!(speaker_patch(r#"{"id":0}"#).freq_low, None);
+        // Explicit null → clear the cutoff.
+        assert_eq!(
+            speaker_patch(r#"{"id":0,"freqLow":null}"#).freq_low,
+            Some(None)
+        );
+        // A value → set the cutoff.
+        assert_eq!(
+            speaker_patch(r#"{"id":0,"freqLow":80.0}"#).freq_low,
+            Some(Some(80.0))
+        );
+        // freq_high follows the same rule.
+        assert_eq!(
+            speaker_patch(r#"{"id":0,"freqHigh":null}"#).freq_high,
+            Some(None)
+        );
+    }
+
+    #[test]
+    fn explicit_null_clears_an_existing_cutoff() {
+        let mut speaker =
+            renderer::speaker_layout::Speaker::from_polar("FL", 30.0, 0.0, 1.0, true, 0.0)
+                .with_freq_low(120.0)
+                .with_freq_high(18_000.0);
+        assert_eq!(speaker.freq_low, Some(120.0));
+
+        let changed =
+            apply_layout_speaker_patch(&mut speaker, &speaker_patch(r#"{"id":0,"freqLow":null}"#));
+        assert!(changed, "clearing a set cutoff is a change");
+        assert_eq!(
+            speaker.freq_low, None,
+            "explicit null must blank the cutoff"
+        );
+        // freq_high was absent from the patch → left untouched.
+        assert_eq!(speaker.freq_high, Some(18_000.0));
+    }
+
+    #[test]
+    fn absent_cutoff_field_leaves_value_untouched() {
+        let mut speaker =
+            renderer::speaker_layout::Speaker::from_polar("FL", 30.0, 0.0, 1.0, true, 0.0)
+                .with_freq_low(120.0);
+        apply_layout_speaker_patch(
+            &mut speaker,
+            &speaker_patch(r#"{"id":0,"spatialize":true}"#),
+        );
+        assert_eq!(speaker.freq_low, Some(120.0));
+    }
 }

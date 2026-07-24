@@ -1,12 +1,12 @@
 [workspace]
-members = ["renderer", "audio_input", "audio_output", "sys", "bridge_api", "spdif", "runtime_control", "orender_engine", "orender_ffi", "host_audio", "example_backend", "script_backend"]
+members = ["renderer", "audio_input", "audio_output", "sys", "bridge_api", "spdif", "runtime_control", "orender_engine", "orender_ffi", "host_audio", "example_backend", "script_backend", "reference_bridge"]
 resolver = "2"
 
 [package]
 name = "omniphony-renderer"
 version = "0.2.5"
 edition = "2024"
-license = "GPL-3.0-only"
+license = "GPL-3.0-or-later"
 description = "Omniphony Renderer: bridge-driven spatial audio decoding and rendering"
 repository = "https://github.com/mgth/Omniphony"
 build = "build.rs"
@@ -22,7 +22,7 @@ renderer = { version = "0.2.4", path = "renderer" }
 audio_output = { version = "0.2.4", path = "audio_output" }
 audio_input = { version = "0.2.4", path = "audio_input" }
 sys = { version = "0.1.0", path = "sys" }
-bridge_api = { version = "0.2.0", path = "bridge_api" }
+bridge_api = { version = "0.3.0", path = "bridge_api" }
 spdif = { version = "0.1.0", path = "spdif" }
 runtime_control = { version = "0.2.4", path = "runtime_control" }
 orender_engine = { version = "0.2.2", path = "orender_engine" }
@@ -69,6 +69,18 @@ inherits = "release"
 lto = "thin"
 strip = "symbols"
 
+# Diagnostic-only: a release build that keeps full debug info so the cdylib
+# (orender.dll / liborender.so) symbolizes in a crash dump. Used to investigate
+# the intermittent Windows heap/loader access violations (ucrtbase/ntdll
+# c0000005) under PageHeap. Never ship this — the shipped artifact stays
+# `release-deploy` (stripped). Build with:
+#   cargo build --profile release-debug -p orender_ffi
+# On windows-msvc this emits orender.pdb next to orender.dll.
+[profile.release-debug]
+inherits = "release"
+debug = "full"
+strip = false
+
 [features]
 # Pure-Rust native VBAP backend is the default — no external library required.
 default = []
@@ -83,3 +95,9 @@ asio = []
 
 # Legacy compatibility alias. PipeWire support is compiled by default on Linux.
 pipewire = []
+
+# sofar 0.3.0 drops variables from netCDF4-written SOFA files (ASH Toolset
+# exports, issue #185). Drop once https://github.com/andreiltd/sofar/pull/29
+# ships in a release.
+[patch.crates-io]
+sofar = { git = "https://github.com/mgth/sofar", rev = "c03ff5cfd997d316ae330e2735e82311769b45a3" }

@@ -117,11 +117,35 @@ export function getObjectDisplayName(id) {
   return name;
 }
 
-export function formatObjectLabel(id) {
+// Classify a (possibly synthesized) object from its name into a compact badge:
+// a `type` for the list's fixed type-icon ('height' for the bed→height upmix
+// objects, 'phantom' for the phantom-extraction objects, '' otherwise) and a
+// short position `code` (e.g. FL, Ls, L·C, L). Keeps the long technical name off
+// the vertical strip so list rows don't grow tall.
+export function objectBadge(id) {
   const name = getObjectDisplayName(id);
-  const underscoreIndex = name.indexOf('_');
-  const cleaned = underscoreIndex >= 0 ? name.slice(underscoreIndex + 1) : name;
-  return cleaned || name;
+  // Bed→height synth objects: PAD "Ambience_FL", copy_up "Height_Ls_synth",
+  // DirAC diffuse "Diffuse_TFL".
+  let m = name.match(/^Ambience_(.+)$/i);
+  if (m) return { type: 'height', code: m[1] };
+  m = name.match(/^Height_(.+)_synth$/i);
+  if (m) return { type: 'height', code: m[1] };
+  m = name.match(/^Diffuse_(.+)$/i);
+  if (m) return { type: 'height', code: m[1] };
+  // Phantom extraction "Phantom_L_C" → a source localized between two channels;
+  // single-label "Phantom_C" → a relocalized channel.
+  m = name.match(/^Phantom_([^_]+)_(.+)$/i);
+  if (m) return { type: 'phantom', code: `${m[1]}·${m[2]}` };
+  m = name.match(/^Phantom_([^_]+)$/i);
+  if (m) return { type: 'phantom', code: m[1] };
+  // Default: strip a single technical prefix word, as before.
+  const u = name.indexOf('_');
+  const code = u >= 0 ? name.slice(u + 1) : name;
+  return { type: '', code: code || name };
+}
+
+export function formatObjectLabel(id) {
+  return objectBadge(id).code;
 }
 
 const OBJECT_COLOR_PALETTE = [
@@ -1014,6 +1038,10 @@ export function updateSource(id, position) {
     distanceM: Number.isFinite(Number(position?.distanceM)) ? Number(position.distanceM) : undefined,
     metadataGainDb: Number.isFinite(Number(position?.gainDb)) ? Number(position.gainDb) : undefined,
     directSpeakerIndex,
+    // Explicit contract fields (channel-object contract, phase 4): a fixed
+    // channel and its canonical label — never inferred from directSpeakerIndex.
+    fixed: position?.fixed === true ? true : undefined,
+    label: typeof position?.label === 'string' && position.label ? position.label : undefined,
     t: now
   });
   sourcePositionsRaw.set(String(id), raw);

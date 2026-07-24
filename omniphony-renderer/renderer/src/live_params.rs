@@ -150,6 +150,42 @@ impl ChannelRenderMode {
     }
 }
 
+/// Phantom-source extraction algorithm selected for synthesized objects.
+///
+/// This is deliberately separate from the global synthesized-object master:
+/// the user can prepare/tune a method while synthesis is disabled, then restore
+/// it without losing the choice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PhantomExtractMode {
+    /// Do not run the phantom extraction stage.
+    #[default]
+    Off,
+    /// Pairwise time-domain extraction.
+    Broadband,
+    /// Per-band STFT extraction.
+    Spectral,
+}
+
+impl PhantomExtractMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Broadband => "broadband",
+            Self::Spectral => "spectral",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "off" | "disabled" | "none" => Some(Self::Off),
+            "broadband" | "wideband" => Some(Self::Broadband),
+            "spectral" | "per_band" | "per-band" => Some(Self::Spectral),
+            _ => None,
+        }
+    }
+}
+
 /// Where the surround pair (`Ls`/`Rs`) of a channel-based source WITHOUT
 /// dedicated back channels (4.x / 5.x) is placed when rendered through the
 /// virtual bed. Sources that already carry back channels (7.x: `Lb`/`Rb`/`Cb`)
@@ -375,18 +411,13 @@ impl Default for BinauralLiveParams {
 /// Live-tunable parameters for a single input object (bed or audio object).
 #[derive(Clone)]
 pub struct ObjectLiveParams {
-    /// Linear gain override (default 1.0 = unity).
-    pub gain: f32,
     /// Mute flag; when true the object is silenced.
     pub muted: bool,
 }
 
 impl Default for ObjectLiveParams {
     fn default() -> Self {
-        Self {
-            gain: 1.0,
-            muted: false,
-        }
+        Self { muted: false }
     }
 }
 
@@ -512,8 +543,8 @@ pub struct LiveParams {
     /// Master output gain, linear scale (1.0 = unity, 0.5 ≈ −6 dB).
     pub master_gain: f32,
 
-    /// Per-object live parameters (gain, mute).
-    /// Absent entries use `ObjectLiveParams::default()` (gain=1.0, muted=false).
+    /// Per-object live parameters (mute).
+    /// Absent entries use `ObjectLiveParams::default()` (muted=false).
     pub objects: HashMap<usize, ObjectLiveParams>,
 
     /// Minimum spread applied when the object spread value is 0.0.
@@ -627,8 +658,8 @@ pub struct LiveParams {
 
     /// How channel-based (non-object) content is rendered. Only consulted for
     /// streams that carry no spatial objects; object streams ignore it. Read
-    /// identically by the CLI/spdif decode path and the embedded mpv host.
-    /// Live-tunable via `/omniphony/control/channel_render_mode`.
+    /// identically by the CLI/spdif decode path and the embedded mpv host. This
+    /// is an internal/host override, not a Studio or persistent live option.
     pub channel_render_mode: ChannelRenderMode,
 
     /// Where the 4.x/5.x surround pair (`Ls`/`Rs`) is placed: side vs back.
@@ -651,6 +682,35 @@ pub struct LiveParams {
     /// falls back to the built-in canonical poses (LFE direct, the rest
     /// virtualized). Live-tunable via the `virtual_bed` layout OSC controls.
     pub virtual_bed: Option<SpeakerLayout>,
+
+    /// Selects the bed→height object generator (2D upmix): synthesizes height
+    /// objects from channel-based content so a height-capable layout (7.1.4, …)
+    /// is exercised when the source has no height. Empty / `"none"` = disabled
+    /// (the default). Consulted only for channel content without spatial objects;
+    /// object streams ignore it. Live-tunable via
+    /// `/omniphony/control/object_generator`.
+    pub object_generator_id: String,
+
+    /// Live-tunable parameter overrides for the active object generator, keyed by
+    /// the param `key` the generator declares in its schema. Sparse: an absent key
+    /// uses the generator's built-in default. Cleared when the active generator
+    /// changes. Set via `/omniphony/control/object_generator/param`.
+    pub object_generator_params: std::collections::HashMap<String, f32>,
+
+    /// Global permission for renderer-synthesized objects. When false, both the
+    /// phantom extractor and height generator are bypassed without clearing
+    /// their configured selections or parameters.
+    pub synthetic_objects_enabled: bool,
+
+    /// Phantom-source extraction algorithm. `Off` disables only this stage;
+    /// the global synthesized-object master may independently suppress it.
+    pub phantom_extract_mode: PhantomExtractMode,
+
+    /// Live-tunable parameter overrides for the phantom-extraction stage, keyed by
+    /// the param `key` it declares (`strength` / `passes` / `lift`). Sparse: an
+    /// absent key uses the stage's default. Set via
+    /// `/omniphony/control/phantom_extract/param`.
+    pub phantom_params: std::collections::HashMap<String, f32>,
 }
 
 impl LiveParams {
@@ -753,7 +813,9 @@ pub struct RenderTopology {
     pub speaker_layout: SpeakerLayout,
     pub backend: Arc<PreparedRenderEngine>,
     pub backend_to_speaker_mapping: Option<Vec<usize>>,
-    pub bed_to_speaker_mapping: HashMap<usize, usize>,
+    /// Per-label speaker lookup for the channel-routing table (re-resolved on
+    /// every topology rebuild, so stored labels survive layout swaps).
+    pub label_to_speaker: HashMap<bridge_api::RChannelLabel, usize>,
     pub num_speakers: usize,
     pub num_spatializable: usize,
     /// The `RendererControl::geometry_generation` this topology's gain models were
@@ -792,7 +854,7 @@ impl RenderTopology {
         };
 
         Ok(Self {
-            bed_to_speaker_mapping: speaker_layout.bed_to_speaker_mapping(),
+            label_to_speaker: speaker_layout.label_to_speaker_mapping(),
             num_speakers,
             num_spatializable,
             speaker_layout,
@@ -874,6 +936,12 @@ pub struct RendererControl {
     /// wrapper, avoiding re-triangulation. See `build_topology_reusing`.
     pub geometry_generation: std::sync::atomic::AtomicU64,
 
+    /// Monotonic counter bumped whenever a live option flagged `REPLAN` in the
+    /// declared registry ([`crate::options`]) changes. Plan signatures compare
+    /// this single epoch instead of enumerating options field by field, so a
+    /// new re-planning option cannot be forgotten in a signature.
+    pub options_epoch: std::sync::atomic::AtomicU64,
+
     /// Set by the gain stage whenever output clipping is detected (peak > 0 dBFS),
     /// independently of whether auto-gain is enabled. Holds the index of the speaker
     /// channel that held the peak, or `-1` when no clip is pending. The OSC listener
@@ -896,6 +964,12 @@ pub struct RendererControl {
     /// because the bridge could not be resolved/loaded. Broadcast over OSC so
     /// Studio can surface a red banner. `None`/empty in normal operation.
     pub bridge_error: Mutex<Option<String>>,
+
+    /// C-ABI version pair of the FFI shim hosting this engine (liborender),
+    /// set by the shim at session start. `None` for hosts that link the engine
+    /// as a Rust crate (the orender CLI). Broadcast to Studio's About panel
+    /// next to the build fingerprint.
+    pub host_abi: Mutex<Option<(u32, u32)>>,
 
     /// Actual renderer input path used for this process.
     pub input_path: Mutex<Option<String>>,
@@ -925,6 +999,27 @@ pub struct RendererControl {
     /// (see [`crate::backend_params`]). Generic so a backend's params need no
     /// typed field here. Read at topology-build time, never on the audio hot path.
     backend_params: RwLock<HashMap<String, HashMap<String, crate::backend_params::ParamValue>>>,
+
+    /// JSON schema (`[{id,label,i18nKey,params:[…]}]`) of the available bed→height
+    /// object generators, set by the engine from its registry (which lives in
+    /// `orender_engine` and so can't be held here as a typed registry). Published
+    /// to Studio so host-registered (out-of-tree) generators appear too. `"[]"`
+    /// until the engine sets it.
+    object_generators_schema: RwLock<String>,
+
+    /// JSON schema (`[{key,label,i18nKey,…}]`) of the phantom-extraction stage's
+    /// declared params, set by the engine so Studio builds its sliders. `"[]"`
+    /// until the engine sets it.
+    phantom_schema: RwLock<String>,
+
+    /// Canonical fixed-channel editor catalogue supplied by the engine. Kept as
+    /// JSON because the canonical poses live in `orender_engine`, above this
+    /// crate in the dependency graph.
+    fixed_channel_catalog: RwLock<String>,
+
+    /// Current fixed-channel/synthesized-object applicability state supplied by
+    /// the engine on declaration/topology/option changes (never per sample).
+    fixed_channel_processing: RwLock<String>,
 }
 
 impl RendererControl {
@@ -951,10 +1046,12 @@ impl RendererControl {
             speaker_params_generation: std::sync::atomic::AtomicU64::new(1),
             live_state_generation: std::sync::atomic::AtomicU64::new(0),
             geometry_generation: std::sync::atomic::AtomicU64::new(0),
+            options_epoch: std::sync::atomic::AtomicU64::new(0),
             clip_pending: AtomicI32::new(-1),
             config_path: Mutex::new(None),
             config_status: Mutex::new(None),
             bridge_error: Mutex::new(None),
+            host_abi: Mutex::new(None),
             input_path: Mutex::new(None),
             bridge_path: Mutex::new(None),
             bridge_supported_drc_modes: Mutex::new(Vec::new()),
@@ -964,6 +1061,13 @@ impl RendererControl {
             diag_rate_hz_bits: Arc::new(std::sync::atomic::AtomicU32::new(50.0_f32.to_bits())),
             backend_registry: RwLock::new(BackendRegistry::builtin()),
             backend_params: RwLock::new(HashMap::new()),
+            object_generators_schema: RwLock::new("[]".to_string()),
+            phantom_schema: RwLock::new("[]".to_string()),
+            fixed_channel_catalog: RwLock::new("[]".to_string()),
+            fixed_channel_processing: RwLock::new(
+                r#"{"stream":"idle","labels":[],"phantom":"no_stream","height":"no_stream"}"#
+                    .to_string(),
+            ),
         })
     }
 
@@ -973,6 +1077,49 @@ impl RendererControl {
     /// rebuild through it.
     pub fn register_backend(&self, factory: Box<dyn crate::backend_registry::BackendFactory>) {
         self.backend_registry.write().register(factory);
+    }
+
+    /// Set the published object-generator schema JSON (called by the engine from
+    /// its registry, so any host-registered out-of-tree generators are included).
+    pub fn set_object_generators_schema(&self, json: String) {
+        *self.object_generators_schema.write() = json;
+    }
+
+    /// The published object-generator schema JSON (`"[]"` until the engine sets it).
+    pub fn object_generators_schema(&self) -> String {
+        self.object_generators_schema.read().clone()
+    }
+
+    /// Set the published phantom-extraction param schema JSON (called by the engine).
+    pub fn set_phantom_schema(&self, json: String) {
+        *self.phantom_schema.write() = json;
+    }
+
+    /// The published phantom-extraction schema JSON (`"[]"` until the engine sets it).
+    pub fn phantom_schema(&self) -> String {
+        self.phantom_schema.read().clone()
+    }
+
+    pub fn set_fixed_channel_catalog(&self, json: String) {
+        *self.fixed_channel_catalog.write() = json;
+    }
+
+    pub fn fixed_channel_catalog(&self) -> String {
+        self.fixed_channel_catalog.read().clone()
+    }
+
+    /// Publish a new applicability snapshot only when it actually changed.
+    pub fn set_fixed_channel_processing(&self, json: String) {
+        let mut current = self.fixed_channel_processing.write();
+        if *current != json {
+            *current = json;
+            drop(current);
+            self.bump_live_state();
+        }
+    }
+
+    pub fn fixed_channel_processing(&self) -> String {
+        self.fixed_channel_processing.read().clone()
     }
 
     /// Whether a backend with this id is registered (built-in or host-registered).
@@ -1112,6 +1259,16 @@ impl RendererControl {
         self.bridge_error.lock().clone()
     }
 
+    /// Record the hosting FFI shim's C-ABI version (liborender only; Rust-linked
+    /// hosts never call this).
+    pub fn set_host_abi(&self, major: u32, minor: u32) {
+        *self.host_abi.lock() = Some((major, minor));
+    }
+
+    pub fn host_abi(&self) -> Option<(u32, u32)> {
+        *self.host_abi.lock()
+    }
+
     pub fn active_topology(&self) -> Arc<RenderTopology> {
         self.topology.load_full()
     }
@@ -1168,6 +1325,16 @@ impl RendererControl {
 
     pub fn geometry_generation(&self) -> u64 {
         self.geometry_generation.load(Ordering::Relaxed)
+    }
+
+    /// Bump the options epoch: a `REPLAN`-flagged live option changed, so the
+    /// synthesized-object plan signatures must invalidate (see [`crate::options`]).
+    pub fn bump_options_epoch(&self) {
+        self.options_epoch.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn options_epoch(&self) -> u64 {
+        self.options_epoch.load(Ordering::Relaxed)
     }
 
     /// Flag that output clipping was detected this frame on `speaker_idx`

@@ -101,7 +101,72 @@ struct LiveSnapshot<'a> {
     distance_diffuse_curve: f32,
 }
 
+/// Put the calling thread's FPU in flush-to-zero / denormals-are-zero mode,
+/// once per thread (issue #154).
+///
+/// Every recursive DSP path in the renderer (FDN delay lines and damping,
+/// reflection-tap smoothing, air-absorption one-poles, biquad states) decays
+/// exponentially toward zero after input stops; without FTZ those tails enter
+/// denormal range, where each multiply can cost 10–100× on x86 — a CPU spike
+/// exactly when the stream goes silent. Flushing to zero is the standard
+/// audio-DSP trade: values below ~1e-38 are ~−760 dBFS, far beyond audibility.
+///
+/// This claims the FP environment of the host's thread (mpv's decode thread,
+/// the CLI engine), which is deliberate: that thread runs our DSP, and FTZ is
+/// the conventional processing mode for realtime audio. On unknown
+/// architectures this is a no-op (correct, just without the protection).
+#[inline]
+fn ensure_denormals_flushed() {
+    use std::cell::Cell;
+    thread_local! {
+        static CLAIMED: Cell<bool> = const { Cell::new(false) };
+    }
+    CLAIMED.with(|claimed| {
+        if claimed.get() {
+            return;
+        }
+        claimed.set(true);
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            // MXCSR bits: FTZ = 15, DAZ = 6 (DAZ exists on every x86-64 CPU
+            // this crate targets). Inline asm instead of the deprecated
+            // `_mm_setcsr` intrinsics: the write is opaque to LLVM, which is
+            // the point — the changed FP mode must not be reasoned away.
+            let mut mxcsr: u32 = 0;
+            std::arch::asm!("stmxcsr [{}]", in(reg) &mut mxcsr, options(nostack));
+            mxcsr |= (1 << 15) | (1 << 6);
+            std::arch::asm!("ldmxcsr [{}]", in(reg) &mxcsr, options(nostack));
+        }
+        #[cfg(target_arch = "aarch64")]
+        unsafe {
+            // FPCR.FZ (bit 24): flush-to-zero for f32/f64 (Apple Silicon
+            // builds). Read-modify-write keeps the rounding mode intact.
+            let mut fpcr: u64;
+            std::arch::asm!("mrs {}, fpcr", out(reg) fpcr);
+            fpcr |= 1 << 24;
+            std::arch::asm!("msr fpcr, {}", in(reg) fpcr);
+        }
+    });
+}
+
 /// Spatial audio renderer using VBAP
+/// Time for a full-scale (0 → unity) gain change to complete, in seconds.
+/// Every per-channel gain step is slewed at this constant rate so metadata
+/// jumps, mute toggles and channel-plan transitions never click
+/// (`docs/channel-object-contract.md`, phase 2b).
+pub const GAIN_SLEW_SECS: f32 = 0.02;
+
+/// Per-input-channel routing decision, in the layout-independent label
+/// language of `docs/channel-object-contract.md`: a `Direct` channel is
+/// one-hot routed to the speaker its label resolves to in the active topology
+/// (skipped when the layout has none); a `Virtual` channel renders through
+/// the VBAP/object path from its metadata events.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ChannelRoute {
+    Direct(bridge_api::RChannelLabel),
+    Virtual,
+}
+
 pub struct SpatialRenderer {
     /// Number of output speakers (total, including non-spatialized like LFE)
     num_speakers: usize,
@@ -111,7 +176,7 @@ pub struct SpatialRenderer {
 
     /// Bed channel IDs in PCM order (e.g. [3, 0, 1, 2, ...]).
     /// Updated when format metadata changes and read lock-free in the audio thread.
-    bed_indices: arc_swap::ArcSwap<Vec<usize>>,
+    channel_routing: arc_swap::ArcSwap<Vec<ChannelRoute>>,
 
     /// Flag for first render (for detailed logging)
     first_render: std::sync::atomic::AtomicBool,
@@ -183,6 +248,11 @@ pub struct SpatialRenderer {
 
     /// Scratch per-channel gains for the binaural path (reused).
     binaural_gain_buf: Vec<f32>,
+
+    /// Scratch per-channel "direct" flags for the binaural path (reused):
+    /// beds mapped to a `spatialize: false` speaker (the LFE) feed both ears
+    /// equally instead of being HRTF-spatialized.
+    binaural_direct_buf: Vec<bool>,
 
     /// Per-band VBAP engines.  Always has at least one entry (the "all speakers" band when
     /// no crossover is configured).  Each engine returns full-size `Gains` (`num_speakers`).
@@ -275,10 +345,10 @@ impl SpatialRenderer {
     ///
     /// Must be called once when the first metadata arrives, before any call to `render_frame`.
     /// The mapping is stable for the lifetime of the stream.
-    pub fn configure_beds(&self, bed_indices: &[usize]) {
-        self.bed_indices
-            .store(std::sync::Arc::new(bed_indices.to_vec()));
-        log::debug!("Renderer bed_indices configured: {:?}", bed_indices);
+    pub fn configure_channel_routing(&self, routes: &[ChannelRoute]) {
+        self.channel_routing
+            .store(std::sync::Arc::new(routes.to_vec()));
+        log::debug!("Renderer channel routing configured: {:?}", routes);
     }
 
     /// Return the shared `RendererControl` Arc so that `OscSender` can hold it.
@@ -437,6 +507,11 @@ impl SpatialRenderer {
         samples_buf: Vec<f32>,
         measure_breakdown: bool,
     ) -> Result<RenderedFrame> {
+        // The render thread belongs to the host (mpv's decode thread, the CLI
+        // engine, …), so the FP environment is claimed here, at the DSP entry
+        // point, rather than at thread creation.
+        ensure_denormals_flushed();
+
         // ── 0. Independent binaural (headphone) path ─────────────────────────
         // When headphone output is selected, bypass the entire VBAP / crossover /
         // speaker chain and emit a 2-channel frame. The branch is taken below,
@@ -569,10 +644,11 @@ impl SpatialRenderer {
             0
         };
 
-        // Snapshot bed_indices once for this frame via ArcSwap: no mutex and no Vec clone.
-        let bed_indices = self.bed_indices.load_full();
+        // Snapshot the routing once for this frame via ArcSwap: no mutex and no
+        // Vec clone.
+        let channel_routing = self.channel_routing.load_full();
         let active_layout = &topology.speaker_layout;
-        let active_bed_to_speaker_mapping = &topology.bed_to_speaker_mapping;
+        let active_label_to_speaker = &topology.label_to_speaker;
 
         // ── Binaural branch ──────────────────────────────────────────────────
         // Build per-channel world positions (beds → speaker direction, objects →
@@ -584,14 +660,17 @@ impl SpatialRenderer {
                 .resize(input_channel_count, [0.0, 1.0, 0.0]);
             self.binaural_gain_buf.clear();
             self.binaural_gain_buf.resize(input_channel_count, 0.0);
-            let num_beds = bed_indices.len();
+            self.binaural_direct_buf.clear();
+            self.binaural_direct_buf.resize(input_channel_count, false);
+            let num_routed = channel_routing.len();
             {
                 let mut states = self.channel_states.lock();
                 for c in 0..input_channel_count {
+                    // Object-level mute as a 0/1 factor (per-object output gain was
+                    // removed; only mute remains live-tunable).
                     let obj_gain = match self.object_params_buf.get(c) {
                         Some(o) if o.muted => 0.0,
-                        Some(o) => o.gain,
-                        None => 1.0,
+                        _ => 1.0,
                     };
                     // Stream metadata gain, same semantics as the VBAP path:
                     // silent (-128 = -inf dB) until the first metadata arrives.
@@ -601,16 +680,31 @@ impl SpatialRenderer {
                     } else {
                         10.0_f32.powf(gain_db as f32 / 20.0)
                     };
-                    self.binaural_gain_buf[c] = obj_gain * gain_linear;
-                    // Same bed/object split as the VBAP path: a `usize::MAX`
-                    // sentinel in the bed map means "virtualize" (object), so it
-                    // takes the ramp branch even though it is within `num_beds`.
-                    let routed_as_bed = c < num_beds && bed_indices[c] != usize::MAX;
-                    if routed_as_bed {
-                        // Bed channel: place it at its mapped speaker's direction.
-                        if let Some(&spk) = active_bed_to_speaker_mapping.get(&bed_indices[c]) {
+                    // Slewed like the VBAP path (block-end value: the binaural
+                    // stage updates per block anyway).
+                    let ramp_samples = self.sample_rate as f32 * GAIN_SLEW_SECS;
+                    if let Some(state) = states.get_mut(&c) {
+                        let (start, step) =
+                            state.slew_gain(obj_gain * gain_linear, sample_length, ramp_samples);
+                        self.binaural_gain_buf[c] = start + step * sample_length as f32;
+                    } else {
+                        self.binaural_gain_buf[c] = 0.0;
+                    }
+                    // Same direct/virtual split as the VBAP path.
+                    let direct_label = match channel_routing.get(c) {
+                        Some(ChannelRoute::Direct(label)) if c < num_routed => Some(*label),
+                        _ => None,
+                    };
+                    if let Some(label) = direct_label {
+                        // Direct channel: place it at its resolved speaker's
+                        // direction. A channel routed to a non-spatialized
+                        // speaker (the LFE) keeps the direct-routing intent in
+                        // headphone mode too: fed to both ears equally, no
+                        // HRTF (issue #156).
+                        if let Some(&spk) = active_label_to_speaker.get(&label) {
                             if let Some(s) = active_layout.speakers.get(spk) {
                                 self.binaural_pos_buf[c] = [s.x as f64, s.y as f64, s.z as f64];
+                                self.binaural_direct_buf[c] = !s.spatialize;
                             }
                         }
                     } else if let Some(st) = states.get_mut(&c) {
@@ -632,21 +726,21 @@ impl SpatialRenderer {
                     }
                 }
             }
-            let (binaural_params, hrir_source) = {
+            let binaural_params = {
                 let g = self.control.live.read();
-                (
-                    crate::binaural::BinauralFrameParams {
-                        head_pose: g.binaural.head_pose,
-                        unit_scale_m: g.binaural.unit_scale_m,
-                        head_radius_m: g.binaural.head_radius_m,
-                        reflections: g.binaural.reflections.clone(),
-                        reverb: g.binaural.reverb.clone(),
-                        air_absorption: g.binaural.air_absorption,
-                    },
-                    g.binaural.hrir_source.clone(),
-                )
+                // Compare against the live source in place: no per-frame clone
+                // (the `Sofa` variant carries a heap path), and any rebuild is
+                // pushed to the worker inside `ensure_source`.
+                self.binaural.ensure_source(&g.binaural.hrir_source);
+                crate::binaural::BinauralFrameParams {
+                    head_pose: g.binaural.head_pose,
+                    unit_scale_m: g.binaural.unit_scale_m,
+                    head_radius_m: g.binaural.head_radius_m,
+                    reflections: g.binaural.reflections.clone(),
+                    reverb: g.binaural.reverb.clone(),
+                    air_absorption: g.binaural.air_absorption,
+                }
             };
-            self.binaural.ensure_source(&hrir_source);
             let mut output = samples_buf;
             output.clear();
             output.resize(sample_length * 2, 0.0);
@@ -657,6 +751,7 @@ impl SpatialRenderer {
                 &binaural_params,
                 &self.binaural_pos_buf,
                 &self.binaural_gain_buf,
+                &self.binaural_direct_buf,
                 &mut output,
             );
             // Output gain parity with the speaker path: master gain × dialnorm
@@ -680,10 +775,57 @@ impl SpatialRenderer {
             };
             let gain_l = total_gain * ear(0);
             let gain_r = total_gain * ear(1);
-            if (gain_l - 1.0).abs() > f32::EPSILON || (gain_r - 1.0).abs() > f32::EPSILON {
-                for frame in output.chunks_exact_mut(2) {
-                    frame[0] *= gain_l;
-                    frame[1] *= gain_r;
+            // Apply the ear gains and track the output peak in the same pass
+            // (a whole immersive stream summed onto two channels exceeds full
+            // scale easily, so the stereo bus needs the same overload
+            // handling as the speaker path).
+            let mut peak_sample: f32 = 0.0;
+            let mut peak_ear: usize = 0;
+            for frame in output.chunks_exact_mut(2) {
+                frame[0] *= gain_l;
+                frame[1] *= gain_r;
+                let a_l = frame[0].abs();
+                if a_l > peak_sample {
+                    peak_sample = a_l;
+                    peak_ear = 0;
+                }
+                let a_r = frame[1].abs();
+                if a_r > peak_sample {
+                    peak_sample = a_r;
+                    peak_ear = 1;
+                }
+            }
+
+            // Clipping handling — same policy as the speaker path below:
+            // detection always at 0 dBFS so the UI indicators work with
+            // auto-gain off; the correction (when enabled) folds into the
+            // shared master gain, targeting the configured ceiling. The ear
+            // index reuses the first two speaker param slots, the same slots
+            // Studio's headphone L/R rows already ride for mute/gain.
+            if peak_sample > 1.0 {
+                self.control.note_clip(peak_ear);
+                if live.auto_gain {
+                    let ceiling = 10.0_f32.powf(live.auto_gain_ceiling_db / 20.0);
+                    let required_gain = ceiling / peak_sample;
+                    // Re-reading under the write lock preserves any
+                    // concurrent OSC master change.
+                    let new_master_gain = {
+                        let mut params = self.control.live.write();
+                        params.master_gain *= required_gain;
+                        params.master_gain
+                    };
+                    self.control.mark_dirty();
+                    self.control.bump_live_state();
+                    self.auto_gain_triggered
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    log::warn!(
+                        "Clipping detected on headphone {} (peak={:.3})! Master gain reduced to {:.4} ({:.1} dB), ceiling {:.1} dBFS",
+                        if peak_ear == 0 { "L" } else { "R" },
+                        peak_sample,
+                        new_master_gain,
+                        20.0 * new_master_gain.log10(),
+                        live.auto_gain_ceiling_db
+                    );
                 }
             }
             return Ok(RenderedFrame {
@@ -712,9 +854,8 @@ impl SpatialRenderer {
         let mut crossover_elapsed = std::time::Duration::ZERO;
         let profile_crossover = measure_breakdown && self.crossover_filter_bank.is_some();
 
-        // Beds always come FIRST in PCM data, then objects.
-        // bed_indices contains bed channel IDs (e.g., [3] for LFE), NOT PCM channel indices.
-        let num_beds = bed_indices.len();
+        // Directly-routed channels always come FIRST in PCM data, then objects.
+        let num_routed = channel_routing.len();
 
         // Check if this is the first render for detailed logging
         let is_first = self
@@ -722,19 +863,12 @@ impl SpatialRenderer {
             .swap(false, std::sync::atomic::Ordering::Relaxed);
         if is_first {
             log::info!(
-                "VBAP render: {} total PCM channels, {} bed channels (PCM 0..{}), {} object channels (PCM {}..{})",
+                "VBAP render: {} total PCM channels, {} routed entries, {} trailing object channels",
                 input_channel_count,
-                num_beds,
-                num_beds.saturating_sub(1),
-                input_channel_count - num_beds,
-                num_beds,
-                input_channel_count - 1
+                num_routed,
+                input_channel_count.saturating_sub(num_routed),
             );
-            log::info!("  Bed IDs (spatial metadata): {:?}", bed_indices);
-            log::info!("  Mapping: channel_idx -> bed_id");
-            for (ch_idx, &bed_id) in bed_indices.iter().enumerate() {
-                log::info!("    PCM channel {} -> bed channel ID {}", ch_idx, bed_id);
-            }
+            log::info!("  Channel routing: {:?}", channel_routing);
         }
 
         // Hold channel metadata state lock once for the whole render pass.
@@ -743,18 +877,15 @@ impl SpatialRenderer {
 
         // Process each channel
         for input_channel_idx in 0..input_channel_count {
-            // Per-channel mute (applies to beds and objects).
+            // Per-channel mute (applies to beds and objects), as a 0/1 factor.
             let obj_gain = match live.object_params.get(input_channel_idx) {
                 Some(o) if o.muted => 0.0,
-                Some(o) => o.gain,
-                None => 1.0,
+                _ => 1.0,
             };
 
             // Get gain from cached metadata (common for ALL channels - beds and objects)
-            let gain_db = channel_states
-                .get(&input_channel_idx)
-                .map(|s| s.gain_db)
-                .unwrap_or(-128);
+            let state = channel_states.entry(input_channel_idx).or_default();
+            let gain_db = state.gain_db;
 
             // Convert gain from dB to linear
             let gain_linear = if gain_db == -128 {
@@ -762,30 +893,31 @@ impl SpatialRenderer {
             } else {
                 10.0_f32.powf(gain_db as f32 / 20.0)
             };
+            // Slewed per-sample gain factor (includes the mute 0/1 factor):
+            // factor(s) = gain_start + gain_step * s.
+            let ramp_samples = self.sample_rate as f32 * GAIN_SLEW_SECS;
+            let (gain_start, gain_step) =
+                state.slew_gain(gain_linear * obj_gain, sample_length, ramp_samples);
 
-            // A channel is a bed when it has a bed-id entry that is not the
-            // `usize::MAX` "virtualize me" sentinel. Object-content beds list
-            // their ids as a prefix (so `idx < num_beds` ⇒ bed, the rest are
-            // objects); the parametrable virtual bed instead emits a full-length
-            // map that mixes real bed ids (direct, e.g. LFE) with `usize::MAX`
-            // (virtualized → VBAP object). The sentinel check unifies both: a
-            // prefix bed map has no sentinels, so its behaviour is unchanged.
-            let routed_as_bed =
-                input_channel_idx < num_beds && bed_indices[input_channel_idx] != usize::MAX;
-            if routed_as_bed {
-                // BED CHANNEL: Route to speaker based on bed_to_speaker_mapping (by name)
-                let bed_id = bed_indices[input_channel_idx];
-
-                // Look up speaker index from bed ID using name-based mapping
-                let speaker_idx = match active_bed_to_speaker_mapping.get(&bed_id) {
+            // A channel is directly routed when its routing entry is
+            // `Direct` (channels beyond the routing table are trailing object
+            // channels; `Virtual` entries render through the object path from
+            // their metadata events).
+            let direct_label = match channel_routing.get(input_channel_idx) {
+                Some(ChannelRoute::Direct(label)) => Some(*label),
+                _ => None,
+            };
+            if let Some(label) = direct_label {
+                // DIRECT CHANNEL: one-hot route to the speaker its label
+                // resolves to in the active topology.
+                let speaker_idx = match active_label_to_speaker.get(&label) {
                     Some(&idx) => idx,
                     None => {
-                        // Bed ID not found in speaker layout - skip this channel
+                        // No matching speaker in this layout — skip the channel.
                         if is_first {
                             log::warn!(
-                                "  Bed ch{} (ID={}) has no matching speaker in layout, skipping",
+                                "  Direct ch{} ({label:?}) has no matching speaker in layout, skipping",
                                 input_channel_idx,
-                                bed_id
                             );
                         }
                         continue;
@@ -799,8 +931,7 @@ impl SpatialRenderer {
                 // used for objects, but with a one-hot routing table.
                 for sample_idx in 0..sample_length {
                     let sample = input_pcm[sample_idx * input_channel_count + input_channel_idx]
-                        * gain_linear
-                        * obj_gain;
+                        * (gain_start + gain_step * sample_idx as f32);
                     let out_base = sample_idx * self.num_speakers;
                     for (speaker_idx, &gain) in self.bed_routing_gains_buf.iter().enumerate() {
                         output[out_base + speaker_idx] += sample * gain;
@@ -816,9 +947,8 @@ impl SpatialRenderer {
                 if is_first {
                     let speaker_name = active_layout.speakers[speaker_idx].name.as_str();
                     log::info!(
-                        "  Bed ch{} (ID={}) → Speaker {} ({}) gain={}dB",
+                        "  Direct ch{} ({label:?}) → Speaker {} ({}) gain={}dB",
                         input_channel_idx,
-                        bed_id,
                         speaker_idx,
                         speaker_name,
                         gain_db
@@ -900,8 +1030,7 @@ impl SpatialRenderer {
                                 &mut self.crossover_band_scratch,
                                 |sample_idx| {
                                     input_pcm[sample_idx * input_channel_count + input_channel_idx]
-                                        * gain_linear
-                                        * obj_gain
+                                        * (gain_start + gain_step * sample_idx as f32)
                                 },
                             );
                             crossover_elapsed += started_at.elapsed();
@@ -918,8 +1047,7 @@ impl SpatialRenderer {
                             for sample_idx in 0..sample_length {
                                 let raw = input_pcm
                                     [sample_idx * input_channel_count + input_channel_idx]
-                                    * gain_linear
-                                    * obj_gain;
+                                    * (gain_start + gain_step * sample_idx as f32);
                                 let split = split_bands(
                                     raw,
                                     &self.crossover_filter_bank,
@@ -963,8 +1091,7 @@ impl SpatialRenderer {
                                 &mut self.crossover_band_scratch,
                                 |sample_idx| {
                                     input_pcm[sample_idx * input_channel_count + input_channel_idx]
-                                        * gain_linear
-                                        * obj_gain
+                                        * (gain_start + gain_step * sample_idx as f32)
                                 },
                             );
                             crossover_elapsed += started_at.elapsed();
@@ -981,8 +1108,7 @@ impl SpatialRenderer {
                             for sample_idx in 0..sample_length {
                                 let raw = input_pcm
                                     [sample_idx * input_channel_count + input_channel_idx]
-                                    * gain_linear
-                                    * obj_gain;
+                                    * (gain_start + gain_step * sample_idx as f32);
                                 let split = split_bands(
                                     raw,
                                     &self.crossover_filter_bank,
@@ -1016,8 +1142,7 @@ impl SpatialRenderer {
                                 &mut self.crossover_band_scratch,
                                 |sample_idx| {
                                     input_pcm[sample_idx * input_channel_count + input_channel_idx]
-                                        * gain_linear
-                                        * obj_gain
+                                        * (gain_start + gain_step * sample_idx as f32)
                                 },
                             );
                             crossover_elapsed += started_at.elapsed();
@@ -1089,8 +1214,7 @@ impl SpatialRenderer {
                                 }
                                 let raw = input_pcm
                                     [sample_idx * input_channel_count + input_channel_idx]
-                                    * gain_linear
-                                    * obj_gain;
+                                    * (gain_start + gain_step * sample_idx as f32);
                                 let split = split_bands(
                                     raw,
                                     &self.crossover_filter_bank,
@@ -1153,8 +1277,7 @@ impl SpatialRenderer {
                                 &mut self.crossover_band_scratch,
                                 |sample_idx| {
                                     input_pcm[sample_idx * input_channel_count + input_channel_idx]
-                                        * gain_linear
-                                        * obj_gain
+                                        * (gain_start + gain_step * sample_idx as f32)
                                 },
                             );
                             crossover_elapsed += started_at.elapsed();
@@ -1189,8 +1312,7 @@ impl SpatialRenderer {
                                 }
                                 let raw = input_pcm
                                     [sample_idx * input_channel_count + input_channel_idx]
-                                    * gain_linear
-                                    * obj_gain;
+                                    * (gain_start + gain_step * sample_idx as f32);
                                 let split = split_bands(
                                     raw,
                                     &self.crossover_filter_bank,

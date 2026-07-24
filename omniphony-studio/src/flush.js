@@ -115,16 +115,16 @@ export function flushUI() {
   dirtyObjectLabels.forEach((id) => {
     const entry = objectItems.get(id);
     if (!entry) return;
-    const displayName = flushCallbacks.getObjectDisplayName
-      ? flushCallbacks.getObjectDisplayName(id)
-      : (() => {
-          const raw = sourceNames.get(String(id));
-          let name = (raw && typeof raw === 'string' && raw.trim()) ? raw.trim() : String(id);
-          name = name.replace(/^[av][_:-]/i, '');
-          name = name.replace(/^obj[_:-]/i, '');
-          return name;
-        })();
-    entry.label.textContent = displayName;
+    // Refresh the fixed type icon + short position code from the (possibly
+    // changed) name. Falls back to writing the raw name onto the strip only if
+    // the identity callback isn't wired yet.
+    if (flushCallbacks.applyObjectIdentity) {
+      flushCallbacks.applyObjectIdentity(entry, id);
+    } else {
+      const raw = sourceNames.get(String(id));
+      entry.label.textContent =
+        (raw && typeof raw === 'string' && raw.trim()) ? raw.trim() : String(id);
+    }
   });
   dirtyObjectLabels.clear();
 

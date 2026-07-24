@@ -22,6 +22,14 @@ pub struct SourcePosition {
     pub generation: Option<u64>,
     #[serde(rename = "directSpeakerIndex", skip_serializing_if = "Option::is_none")]
     pub direct_speaker_index: Option<u32>,
+    /// `true` for a fixed channel (pose from the channel plan), `false`/absent
+    /// for a dynamic object. Explicit — never inferred from
+    /// `directSpeakerIndex` (which stays as position info).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fixed: Option<bool>,
+    /// Canonical channel-label name for a fixed channel ("L", "TFL"…).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(rename = "sourceTag", skip_serializing_if = "Option::is_none")]
@@ -300,6 +308,28 @@ pub struct LiveInputState {
     pub lfe_mode: Option<String>,
 }
 
+/// The fixed-channel-source companions that are NOT scalar registry options, mirrored
+/// verbatim from the renderer's `/omniphony/state/renderer` domain (camelCase
+/// keys). The scalar options themselves (surround placement, synthesized-object
+/// master, generator ids/modes, output mapping) ride the generic
+/// `options` passthrough on [`AppState`] instead — no typed mirror per option
+/// (registry RFC phase 2). Grouped in one struct flattened into both the
+/// domain parser and [`AppState`].
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveOptionsState {
+    pub object_generator_params: Option<serde_json::Value>,
+    pub object_generator_layout_has_height: Option<bool>,
+    pub phantom_params: Option<serde_json::Value>,
+    pub fixed_channel_catalog: Option<serde_json::Value>,
+    pub fixed_channel_processing: Option<serde_json::Value>,
+    pub output_channel_mapping_unroutable: Option<Vec<String>>,
+    /// `None` serializes as an explicit `"virtualBed": null` (no skip): the UI
+    /// distinguishes "renderer reports no saved bed" (null → it materialises
+    /// the canonical bed once) from a configured bed object.
+    pub virtual_bed: Option<serde_json::Value>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppState {
     pub sources: HashMap<String, SourcePosition>,
@@ -308,6 +338,13 @@ pub struct AppState {
     /// the UI without a typed mirror here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binaural: Option<serde_json::Value>,
+    /// Declared live options (`options` block of `/state/renderer`, canonical
+    /// snake_case keys straight from the renderer's registry). Passthrough
+    /// JSON: a registry row needs no typed mirror here (registry RFC phase 1).
+    /// The typed [`LiveOptionsState`] fields above remain the UI's consumers
+    /// until the `data-option` binder (phase 2) reads this instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<serde_json::Value>,
     #[serde(rename = "sourceLevels")]
     pub source_levels: HashMap<String, Meter>,
     #[serde(rename = "speakerLevels")]
@@ -316,8 +353,6 @@ pub struct AppState {
     pub master_level: Option<Meter>,
     #[serde(rename = "objectSpeakerGains")]
     pub object_speaker_gains: HashMap<String, Vec<f64>>,
-    #[serde(rename = "objectGains")]
-    pub object_gains: HashMap<String, f64>,
     #[serde(rename = "speakerGains")]
     pub speaker_gains: HashMap<String, f64>,
     #[serde(rename = "objectMutes")]
@@ -430,6 +465,8 @@ pub struct AppState {
     pub resample_ratio: Option<f64>,
     #[serde(flatten)]
     pub audio: RuntimeAudioState,
+    #[serde(flatten)]
+    pub live_options: LiveOptionsState,
     #[serde(rename = "inputMode")]
     pub input_mode: Option<String>,
     #[serde(rename = "inputActiveMode")]
@@ -468,6 +505,8 @@ pub struct AppState {
     pub render_config_status: Option<String>,
     #[serde(rename = "renderVersion")]
     pub render_version: Option<String>,
+    #[serde(rename = "renderAbi")]
+    pub render_abi: Option<String>,
     #[serde(rename = "renderBridgeError")]
     pub render_bridge_error: Option<String>,
     #[serde(rename = "liveInput")]
@@ -657,7 +696,6 @@ impl Default for AppState {
             speaker_levels: HashMap::new(),
             master_level: None,
             object_speaker_gains: HashMap::new(),
-            object_gains: HashMap::new(),
             speaker_gains: HashMap::new(),
             object_mutes: HashMap::new(),
             speaker_mutes: HashMap::new(),
@@ -677,6 +715,7 @@ impl Default for AppState {
             render_evaluation_mode_state: RenderEvaluationModeState::default(),
             object_size_intervals: 0,
             binaural: None,
+            options: None,
             vbap_allow_negative_z: None,
             adaptive_resampling: Some(0),
             adaptive_resampling_enable_far_mode: Some(1),
@@ -718,6 +757,7 @@ impl Default for AppState {
                 ramp_mode: Some("sample".to_string()),
                 ..RuntimeAudioState::default()
             },
+            live_options: LiveOptionsState::default(),
             input_mode: Some("pipe_bridge".to_string()),
             input_active_mode: Some("pipe_bridge".to_string()),
             input_apply_pending: Some(0),
@@ -737,6 +777,7 @@ impl Default for AppState {
             render_config_path: None,
             render_config_status: None,
             render_version: None,
+            render_abi: None,
             render_bridge_error: None,
             live_input: LiveInputState::default(),
             orender_input_pipe: None,

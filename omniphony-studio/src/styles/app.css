@@ -194,7 +194,7 @@
       }
 
       /* Channel editor pinned below the left-overlay scroll — same treatment as
-         the speaker editor: the 2D sources / objects list above keep scrolling
+         the speaker editor: the fixed-channel sources / objects list above keeps scrolling
          while this temporary editing panel stays visible at the bottom. */
       #overlay > #channelEditSection {
         flex: 0 0 auto;
@@ -334,6 +334,39 @@
       #overlay .info-section.section-collapsed .panel-header,
       #roomGeometryPanelRoot.section-collapsed > .panel-header {
         min-height: 1.55rem;
+      }
+
+      /* Keep the scene viewport stable when the fixed-channel controls grow.
+         The section scrolls internally instead of expanding the overlay. */
+      #twoDSourcesBody {
+        max-height: min(52vh, 34rem);
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+        scrollbar-gutter: stable;
+      }
+
+      .channel-direct-target {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.15rem 0.5rem;
+        align-items: baseline;
+        margin-bottom: 0.4rem;
+        padding: 0.35rem 0.45rem;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.22);
+        font-size: 11px;
+      }
+
+      .channel-direct-target strong {
+        color: #d9ecff;
+        text-align: right;
+      }
+
+      .channel-direct-target small {
+        grid-column: 1 / -1;
+        color: #8fa3b7;
+        font-size: 10px;
       }
 
       .input-panel-inline-status {
@@ -2034,6 +2067,22 @@
         grid-template-columns: minmax(0, 1fr) 95px;
         gap: 0.5rem;
         align-items: center;
+      }
+
+      /* Fixed-height type icon in the id strip (▲ height upmix, ◇ phantom), shown
+         only for synthesized objects; bed/ADM rows keep their short name as
+         (flipped) vertical text in the badge. The extra `.object-item` raises the
+         specificity above `.id-strip.flip span` so the icon stays upright and
+         horizontal (no 180° rotate). */
+      .object-item .id-strip .object-type-icon {
+        writing-mode: horizontal-tb;
+        text-orientation: mixed;
+        transform: none;
+        font-size: 12px;
+        line-height: 1;
+      }
+      .object-item .id-strip.type-phantom .object-type-icon {
+        color: #ffe66d;
       }
 
       body.hide-object-details .object-head {

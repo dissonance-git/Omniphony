@@ -121,22 +121,30 @@ fn load_virtual_bed_layout(file_name: &str) -> Option<SpeakerLayout> {
     // The 5.1 / 7.1 virtual-bed layouts are height-less, so they now live in
     // the layouts/legacy/ subfolder. Try that first, then the historical
     // top-level path (older installs / packaging that still ships them flat).
-    // `mut` is used only on Windows (the %ProgramData% push below).
-    #[cfg_attr(not(windows), allow(unused_mut))]
+    // `mut` is unused when the install-dir pushes below are compiled out.
+    #[cfg_attr(test, allow(unused_mut))]
     let mut bases: Vec<PathBuf> = vec![
         // cwd-relative first — matches the CLI run from the workspace root.
         PathBuf::from("layouts"),
         PathBuf::from("omniphony").join("layouts"),
         Path::new(env!("CARGO_MANIFEST_DIR")).join("layouts"),
-        // Fixed install dirs for the embedded host (mpv has no workspace cwd);
-        // reached only when the cwd-relative lookups miss, so CLI parity holds.
-        PathBuf::from("/usr/lib/orender/layouts"),
-        PathBuf::from("/usr/share/orender/layouts"),
     ];
+    // Fixed install dirs for the embedded host (mpv has no workspace cwd);
+    // reached only when the cwd-relative lookups miss, so CLI parity holds.
+    // Compiled out of unit tests: a system package (e.g. the AUR install)
+    // shipping layouts here made test outcomes depend on machine state — the
+    // installed 7.1.yaml's non-spatialized LFE placeholder pose (z=-0.5)
+    // tripped the virtual-bed pose asserts on hosts with orender installed
+    // while CI's clean environment passed.
+    #[cfg(not(test))]
+    {
+        bases.push(PathBuf::from("/usr/lib/orender/layouts"));
+        bases.push(PathBuf::from("/usr/share/orender/layouts"));
+    }
     // Windows: the embedded host (mpv) has no workspace cwd, and the shared
     // install lives under %ProgramData%\omniphony (machine-wide, same as the
     // config + service). Search its layouts dir so layouts ship/resolve there.
-    #[cfg(windows)]
+    #[cfg(all(windows, not(test)))]
     if let Ok(program_data) = std::env::var("ProgramData") {
         let mut p = PathBuf::from(program_data);
         p.push("omniphony");
@@ -238,9 +246,8 @@ fn label_aliases(label: RChannelLabel, use_7_1: bool) -> Option<&'static [&'stat
         RChannelLabel::L => Some(&["FL", "L", "FrontLeft", "LeftFront"]),
         RChannelLabel::R => Some(&["FR", "R", "FrontRight", "RightFront"]),
         RChannelLabel::C => Some(&["C", "FC", "Center", "Centre"]),
-        RChannelLabel::LFE | RChannelLabel::LFE2 => {
-            Some(&["LFE", "LFE1", "Sub", "Subwoofer", "SW"])
-        }
+        RChannelLabel::LFE => Some(&["LFE", "LFE1", "Sub", "Subwoofer", "SW"]),
+        RChannelLabel::LFE2 => Some(&["LFE2"]),
         RChannelLabel::Ls => {
             if use_7_1 {
                 Some(&["SL", "Ls", "LeftSurround", "SurroundLeft"])
@@ -286,6 +293,12 @@ fn label_aliases(label: RChannelLabel, use_7_1: bool) -> Option<&'static [&'stat
             "RightRear",
         ]),
         RChannelLabel::Cb => Some(&["BC", "Cb", "BackCenter", "RearCenter"]),
+        RChannelLabel::Lsc => Some(&["LSC", "FLC", "FrontLeftCenter", "LeftCenter"]),
+        RChannelLabel::Rsc => Some(&["RSC", "FRC", "FrontRightCenter", "RightCenter"]),
+        RChannelLabel::Lw => Some(&["Lw", "FWL", "WL", "WideLeft", "FrontWideLeft"]),
+        RChannelLabel::Rw => Some(&["Rw", "FWR", "WR", "WideRight", "FrontWideRight"]),
+        RChannelLabel::Lsd => Some(&["LSD"]),
+        RChannelLabel::Rsd => Some(&["RSD"]),
         // Height layer. Aliases cover the common naming schemes (TFL/TBL,
         // Dolby Ltf/Ltr, ADM Tp* / U* upper-layer) so a configured 7.1.4 layout
         // resolves these to its named top speakers.
@@ -325,6 +338,7 @@ fn label_aliases(label: RChannelLabel, use_7_1: bool) -> Option<&'static [&'stat
         ]),
         RChannelLabel::Tsl => Some(&["TSL", "Tsl", "TpSL", "TopSideLeft", "UpperSideLeft"]),
         RChannelLabel::Tsr => Some(&["TSR", "Tsr", "TpSR", "TopSideRight", "UpperSideRight"]),
+        RChannelLabel::Tc => Some(&["TC", "TpC", "TopCenter", "TopMiddleCenter"]),
         RChannelLabel::Tfc => Some(&["TFC", "Tfc", "TpFC", "TopFrontCenter"]),
         _ => None,
     }
@@ -352,6 +366,12 @@ fn fallback_virtual_bed_pose(
         RChannelLabel::Lb => ("BL", -1.0, -1.0, 0.0),
         RChannelLabel::Rb => ("BR", 1.0, -1.0, 0.0),
         RChannelLabel::Cb => ("BC", 0.0, -1.0, 0.0),
+        RChannelLabel::Lsc => ("Lsc", -0.5, 1.0, 0.0),
+        RChannelLabel::Rsc => ("Rsc", 0.5, 1.0, 0.0),
+        RChannelLabel::Lw => ("Lw", -1.0, 0.5, 0.0),
+        RChannelLabel::Rw => ("Rw", 1.0, 0.5, 0.0),
+        RChannelLabel::Lsd => ("Lsd", -1.0, -0.5, 0.0),
+        RChannelLabel::Rsd => ("Rsd", 1.0, -0.5, 0.0),
         // Height layer at the ceiling (z = 1), mirroring the floor corners.
         RChannelLabel::Tfl => ("TFL", -1.0, 1.0, 1.0),
         RChannelLabel::Tfr => ("TFR", 1.0, 1.0, 1.0),
@@ -359,10 +379,40 @@ fn fallback_virtual_bed_pose(
         RChannelLabel::Tbr => ("TBR", 1.0, -1.0, 1.0),
         RChannelLabel::Tsl => ("TSL", -1.0, 0.0, 1.0),
         RChannelLabel::Tsr => ("TSR", 1.0, 0.0, 1.0),
+        RChannelLabel::Tc => ("TC", 0.0, 0.0, 1.0),
         RChannelLabel::Tfc => ("TFC", 0.0, 1.0, 1.0),
         _ => return None,
     };
     Some((name.to_string(), x, y, z))
+}
+
+/// Stable editor catalogue available even when no stream is active. Every
+/// fixed-channel label has a canonical pose; dynamic objects and unknown
+/// channels are deliberately excluded.
+pub fn fixed_channel_catalog_json() -> String {
+    use RChannelLabel::{
+        C, Cb, L, LFE, LFE2, Lb, Ls, Lsc, Lsd, Lw, R, Rb, Rs, Rsc, Rsd, Rw, Tbl, Tbr, Tc, Tfc, Tfl,
+        Tfr, Tsl, Tsr,
+    };
+    const FIXED: [RChannelLabel; 24] = [
+        L, R, C, LFE, Ls, Rs, Lb, Rb, Tfl, Tfr, Tbl, Tbr, Lsc, Rsc, Cb, Lsd, Rsd, Lw, Rw, LFE2,
+        Tsl, Tsr, Tc, Tfc,
+    ];
+    let entries: Vec<serde_json::Value> = FIXED
+        .iter()
+        .filter_map(|&label| {
+            let (_, x, y, z) = fallback_virtual_bed_pose(label, true)?;
+            Some(serde_json::json!({
+                "label": bridge_api::labels::canonical_name(label),
+                "group": if z > 0.0 { "height" } else { "floor" },
+                "x": x,
+                "y": y,
+                "z": z,
+                "spatialize": default_channel_spatialize(label),
+            }))
+        })
+        .collect();
+    serde_json::Value::Array(entries).to_string()
 }
 
 /// For a 4.x/5.x source (no back channels) the surround pair (`Ls`/`Rs`) has no
@@ -370,7 +420,7 @@ fn fallback_virtual_bed_pose(
 /// corner `(∓1, 0, 0)`, `Back` → the back corner `(∓1, −1, 0)` (sign by L/R).
 /// Returns the normalized override position for `Ls`/`Rs`, or `None` (no
 /// override) for any other label or when the source already has back channels.
-fn surround_placement_override(
+pub(crate) fn surround_placement_override(
     label: RChannelLabel,
     use_7_1: bool,
     placement: SurroundPlacement,
@@ -390,28 +440,37 @@ fn surround_placement_override(
     Some((sign, y, 0.0))
 }
 
-/// Bed id a *direct* (non-spatialized) surround channel routes to, honouring
-/// `surround_placement`. `Back` sends `Ls`/`Rs` to the back speaker (bed 6/7)
-/// when the output layout actually has one, otherwise it falls back to the side
-/// bed (4/5). All other labels keep [`bed_id_for_label`].
-fn direct_bed_id_for_label(
+/// Label a *direct* (non-spatialized) channel routes to, honouring
+/// `surround_placement`. `Back` sends `Ls`/`Rs` to the back speaker when the
+/// output layout actually has one, otherwise it keeps the side label. An
+/// `LFE2` without a matching speaker folds onto the `LFE` sub, as the legacy
+/// bed scheme did. `Object`/`Unknown` have no direct route.
+fn direct_route_label(
     label: RChannelLabel,
     use_7_1: bool,
     placement: SurroundPlacement,
-    output_bed_to_speaker: Option<&HashMap<usize, usize>>,
-) -> Option<usize> {
-    let base = bed_id_for_label(label)?;
+    label_to_speaker: Option<&HashMap<RChannelLabel, usize>>,
+) -> Option<RChannelLabel> {
+    let has_speaker = |l: RChannelLabel| label_to_speaker.is_some_and(|map| map.contains_key(&l));
+    match label {
+        RChannelLabel::Object | RChannelLabel::Unknown => return None,
+        RChannelLabel::LFE2 if !has_speaker(RChannelLabel::LFE2) => {
+            return Some(RChannelLabel::LFE);
+        }
+        _ => {}
+    }
     if use_7_1 || placement != SurroundPlacement::Back {
-        return Some(base);
+        return Some(label);
     }
     let back = match label {
-        RChannelLabel::Ls => 6, // Lb
-        RChannelLabel::Rs => 7, // Rb
-        _ => return Some(base),
+        RChannelLabel::Ls => RChannelLabel::Lb,
+        RChannelLabel::Rs => RChannelLabel::Rb,
+        _ => return Some(label),
     };
-    match output_bed_to_speaker {
-        Some(map) if map.contains_key(&back) => Some(back),
-        _ => Some(base),
+    if has_speaker(back) {
+        Some(back)
+    } else {
+        Some(label)
     }
 }
 
@@ -572,7 +631,7 @@ pub fn build_virtual_bed_objects(
 
     // Used to anchor a direct channel onto its output speaker so Studio shows it
     // snapped to that speaker (its `directSpeakerIndex` decoration).
-    let bed_to_speaker = output_layout.map(|layout| layout.bed_to_speaker_mapping());
+    let label_to_speaker = output_layout.map(|layout| layout.label_to_speaker_mapping());
 
     let mut objects: Vec<ObjectMeta> = Vec::with_capacity(channel_labels.len());
     for label in channel_labels {
@@ -596,12 +655,17 @@ pub fn build_virtual_bed_objects(
         let direct_speaker_index = if spatialize {
             None
         } else {
-            direct_bed_id_for_label(*label, use_7_1, surround_placement, bed_to_speaker.as_ref())
-                .and_then(|bed_id| {
-                    bed_to_speaker
-                        .as_ref()
-                        .and_then(|m| m.get(&bed_id).map(|&spk| spk as u32))
-                })
+            direct_route_label(
+                *label,
+                use_7_1,
+                surround_placement,
+                label_to_speaker.as_ref(),
+            )
+            .and_then(|route_label| {
+                label_to_speaker
+                    .as_ref()
+                    .and_then(|m| m.get(&route_label).map(|&spk| spk as u32))
+            })
         };
         // Per-channel gain from the virtual bed (dB); 0 = unity when unset.
         let gain = find_virtual_bed_entry(virtual_bed, *label, use_7_1)
@@ -617,32 +681,14 @@ pub fn build_virtual_bed_objects(
             gain,
             priority: 0.0,
             size: [0.0, 0.0, 0.0],
+            fixed: true,
+            label: bridge_api::labels::canonical_name(*label).to_string(),
         });
     }
     if objects.is_empty() {
         None
     } else {
         Some(objects)
-    }
-}
-
-/// Bed id (0–9, the scheme used by [`SpeakerLayout::bed_to_speaker_mapping`])
-/// for a channel label, or `None` when the label has no direct-speaker slot in
-/// that scheme (e.g. back-centre / top-side channels). Used to route a channel
-/// the virtual bed marks `spatialize:false` direct to its output speaker.
-fn bed_id_for_label(label: RChannelLabel) -> Option<usize> {
-    match label {
-        RChannelLabel::L => Some(0),
-        RChannelLabel::R => Some(1),
-        RChannelLabel::C => Some(2),
-        RChannelLabel::LFE | RChannelLabel::LFE2 => Some(3),
-        RChannelLabel::Ls => Some(4),
-        RChannelLabel::Rs => Some(5),
-        RChannelLabel::Lb => Some(6),
-        RChannelLabel::Rb => Some(7),
-        RChannelLabel::Tfl => Some(8),
-        RChannelLabel::Tfr => Some(9),
-        _ => None,
     }
 }
 
@@ -690,14 +736,14 @@ pub enum ChannelRenderPlan {
     /// writes the decoded channels straight out; the embedded mpv decoder
     /// declines so mpv falls back to its native decoder.
     HostPassthrough,
-    /// Render the events through the virtual bed. `bed_indices` is always
-    /// `Some(..)` with one entry per input channel: a bed id (0–9) for a channel
-    /// routed direct to its speaker, or `usize::MAX` for a channel virtualized as
-    /// a VBAP object (its position is carried by the matching event). The
-    /// renderer must `configure_beds` to it.
+    /// Render the events through the virtual bed. `routes` has one entry per
+    /// input channel: `Direct(label)` for a channel routed one-hot to the
+    /// speaker its label resolves to, `Virtual` for a channel rendered as a
+    /// VBAP object (its position is carried by the matching event). The
+    /// renderer must `configure_channel_routing` to it.
     Events {
         events: Vec<renderer::spatial_renderer::SpatialChannelEvent>,
-        bed_indices: Option<Vec<usize>>,
+        routes: Vec<renderer::spatial_renderer::ChannelRoute>,
     },
     /// No renderable mapping for these labels → emit silence (advance the host
     /// by the frame's sample count without producing sound).
@@ -758,11 +804,12 @@ fn build_virtual_bed_plan(
         .any(|l| matches!(l, RChannelLabel::Lb | RChannelLabel::Rb | RChannelLabel::Cb));
     let use_7_1 = has_back;
 
-    // Bed-id → output-speaker map, so a direct surround can be rerouted to a
+    // Label → output-speaker map, so a direct surround can be rerouted to a
     // back speaker (Back placement) only when the layout actually has one.
-    let bed_to_speaker = output_layout.map(|layout| layout.bed_to_speaker_mapping());
+    let label_to_speaker = output_layout.map(|layout| layout.label_to_speaker_mapping());
 
-    let mut bed_indices: Vec<usize> = Vec::with_capacity(channel_labels.len());
+    let mut routes: Vec<renderer::spatial_renderer::ChannelRoute> =
+        Vec::with_capacity(channel_labels.len());
     let mut events: Vec<renderer::spatial_renderer::SpatialChannelEvent> =
         Vec::with_capacity(channel_labels.len());
 
@@ -781,7 +828,7 @@ fn build_virtual_bed_plan(
                 surround_placement,
             ) {
                 Some((_name, x, y, z)) => {
-                    bed_indices.push(usize::MAX);
+                    routes.push(renderer::spatial_renderer::ChannelRoute::Virtual);
                     events.push(renderer::spatial_renderer::SpatialChannelEvent {
                         channel_idx,
                         is_bed: false,
@@ -793,20 +840,22 @@ fn build_virtual_bed_plan(
                     });
                 }
                 // No resolvable pose: keep index alignment, route nowhere.
-                None => bed_indices.push(usize::MAX),
+                None => routes.push(renderer::spatial_renderer::ChannelRoute::Virtual),
             }
         } else {
-            // Direct: route to the matching output speaker (by bed id / name),
-            // honouring Back placement for a 4.x/5.x surround when a back speaker
-            // exists.
-            match direct_bed_id_for_label(
+            // Direct: route to the matching output speaker (by label),
+            // honouring Back placement for a 4.x/5.x surround when a back
+            // speaker exists.
+            match direct_route_label(
                 *label,
                 use_7_1,
                 surround_placement,
-                bed_to_speaker.as_ref(),
+                label_to_speaker.as_ref(),
             ) {
-                Some(bed_id) => {
-                    bed_indices.push(bed_id);
+                Some(route_label) => {
+                    routes.push(renderer::spatial_renderer::ChannelRoute::Direct(
+                        route_label,
+                    ));
                     events.push(renderer::spatial_renderer::SpatialChannelEvent {
                         channel_idx,
                         is_bed: true,
@@ -818,7 +867,7 @@ fn build_virtual_bed_plan(
                     });
                 }
                 // No direct slot for a channel asked to route direct: silent.
-                None => bed_indices.push(usize::MAX),
+                None => routes.push(renderer::spatial_renderer::ChannelRoute::Virtual),
             }
         }
     }
@@ -826,10 +875,161 @@ fn build_virtual_bed_plan(
     if events.is_empty() {
         ChannelRenderPlan::Silence
     } else {
-        ChannelRenderPlan::Events {
-            events,
-            bed_indices: Some(bed_indices),
+        ChannelRenderPlan::Events { events, routes }
+    }
+}
+
+/// Build the OSC display objects for an object stream's fixed prefix, using
+/// the renderer's live placement options so the displayed poses match the
+/// applied channel plan. `None` when the prefix is empty or unresolvable.
+pub fn build_fixed_channel_objects(
+    renderer: &renderer::spatial_renderer::SpatialRenderer,
+    fixed_labels: &[RChannelLabel],
+) -> Option<Vec<ObjectMeta>> {
+    if fixed_labels.is_empty() {
+        return None;
+    }
+    let control = renderer.renderer_control();
+    let (
+        virtual_bed_layout,
+        surround_placement,
+        room_ratio,
+        room_ratio_rear,
+        room_ratio_lower,
+        room_ratio_center_blend,
+    ) = {
+        let live = control.live.read();
+        (
+            live.virtual_bed.clone(),
+            live.surround_placement,
+            live.room_ratio,
+            live.room_ratio_rear,
+            live.room_ratio_lower,
+            live.room_ratio_center_blend,
+        )
+    };
+    let layout = renderer.speaker_layout();
+    build_virtual_bed_objects(
+        fixed_labels,
+        virtual_bed_layout.as_ref(),
+        Some(&layout),
+        room_ratio,
+        room_ratio_rear,
+        room_ratio_lower,
+        room_ratio_center_blend,
+        surround_placement,
+    )
+}
+
+/// Shared fixed-channel planner for object streams (engine + CLI decode
+/// paths). Plans the fixed prefix of the channel list through
+/// [`plan_channel_render`] — virtualized by default, per-entry direct opt-in
+/// via the placement layout — caches the result on `(labels, options_epoch)`,
+/// and applies the routing to the renderer only on change.
+#[derive(Default)]
+pub struct FixedChannelPlanner {
+    planned_labels: Vec<RChannelLabel>,
+    planned_epoch: Option<u64>,
+    applied_routes: Option<Vec<renderer::spatial_renderer::ChannelRoute>>,
+}
+
+impl FixedChannelPlanner {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Forget everything (stream reset / new segment).
+    pub fn reset(&mut self) {
+        self.planned_labels.clear();
+        self.planned_epoch = None;
+        self.applied_routes = None;
+    }
+
+    /// Fixed labels of the last planned prefix.
+    pub fn fixed_labels(&self) -> &[RChannelLabel] {
+        &self.planned_labels
+    }
+
+    /// Apply a route set computed elsewhere (the fixed-only render path),
+    /// deduplicated against the last applied set.
+    pub fn apply_routes(
+        &mut self,
+        renderer: &renderer::spatial_renderer::SpatialRenderer,
+        routes: Vec<renderer::spatial_renderer::ChannelRoute>,
+    ) {
+        if self.applied_routes.as_deref() != Some(routes.as_slice()) {
+            renderer.configure_channel_routing(&routes);
+            self.applied_routes = Some(routes);
         }
+    }
+
+    /// Plan the fixed prefix (labels before the first `Object` channel) of an
+    /// object stream and apply it. Mode is always spatial here: an object
+    /// stream cannot pass through the host, so the live channel mode only
+    /// applies to fixed-only streams. On replan the fixed channels' pose/gain
+    /// events are appended to `out` (the renderer caches per-channel state,
+    /// so they are only needed when the plan changes).
+    #[allow(clippy::too_many_arguments)]
+    pub fn plan_object_stream_fixed(
+        &mut self,
+        channel_labels: &[RChannelLabel],
+        renderer: &renderer::spatial_renderer::SpatialRenderer,
+        out: &mut Vec<renderer::spatial_renderer::SpatialChannelEvent>,
+    ) {
+        let fixed_end = channel_labels
+            .iter()
+            .position(|l| *l == RChannelLabel::Object)
+            .unwrap_or(channel_labels.len());
+        let fixed = &channel_labels[..fixed_end];
+
+        let control = renderer.renderer_control();
+        let epoch = control.options_epoch();
+        if self.planned_epoch == Some(epoch) && self.planned_labels == fixed {
+            return;
+        }
+
+        let (
+            virtual_bed_layout,
+            surround_placement,
+            room_ratio,
+            room_ratio_rear,
+            room_ratio_lower,
+            room_ratio_center_blend,
+        ) = {
+            let live = control.live.read();
+            (
+                live.virtual_bed.clone(),
+                live.surround_placement,
+                live.room_ratio,
+                live.room_ratio_rear,
+                live.room_ratio_lower,
+                live.room_ratio_center_blend,
+            )
+        };
+        let output_layout = renderer.speaker_layout();
+
+        match plan_channel_render(
+            renderer::live_params::ChannelRenderMode::Spatial,
+            fixed,
+            virtual_bed_layout.as_ref(),
+            Some(&output_layout),
+            room_ratio,
+            room_ratio_rear,
+            room_ratio_lower,
+            room_ratio_center_blend,
+            surround_placement,
+        ) {
+            ChannelRenderPlan::Events { events, routes } => {
+                self.apply_routes(renderer, routes);
+                out.extend(events);
+            }
+            ChannelRenderPlan::HostPassthrough | ChannelRenderPlan::Silence => {
+                self.apply_routes(renderer, Vec::new());
+            }
+        }
+
+        self.planned_labels = fixed.to_vec();
+        self.planned_epoch = Some(epoch);
     }
 }
 
@@ -838,6 +1038,72 @@ mod tests {
     use super::*;
 
     const UNIT_ROOM: [f32; 3] = [1.0, 1.0, 1.0];
+
+    #[test]
+    fn fixed_channel_catalog_covers_every_fixed_label_with_canonical_poses() {
+        let catalog: serde_json::Value =
+            serde_json::from_str(&fixed_channel_catalog_json()).expect("valid catalog JSON");
+        let entries = catalog.as_array().expect("catalog array");
+        let labels: Vec<&str> = entries
+            .iter()
+            .map(|entry| entry["label"].as_str().expect("label"))
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                "L", "R", "C", "LFE", "Ls", "Rs", "Lb", "Rb", "TFL", "TFR", "TBL", "TBR", "Lsc",
+                "Rsc", "Cb", "Lsd", "Rsd", "Lw", "Rw", "LFE2", "TSL", "TSR", "TC", "TFC",
+            ]
+        );
+
+        let lfe = &entries[3];
+        assert_eq!(lfe["group"], "floor");
+        assert_eq!(lfe["spatialize"], false);
+        for height in &entries[8..12] {
+            assert_eq!(height["group"], "height");
+            assert_eq!(height["z"], 1.0);
+        }
+
+        let entry = |label: &str| {
+            entries
+                .iter()
+                .find(|entry| entry["label"] == label)
+                .unwrap_or_else(|| panic!("missing {label}"))
+        };
+        let lfe2 = entry("LFE2");
+        assert_eq!(lfe2["spatialize"], false);
+        assert_eq!(lfe2["x"], 0.0);
+        assert_eq!(lfe2["y"], 1.0);
+        assert_eq!(lfe2["z"], 0.0);
+
+        let tc = entry("TC");
+        assert_eq!(tc["x"], 0.0);
+        assert_eq!(tc["y"], 0.0);
+        assert_eq!(tc["z"], 1.0);
+
+        let tfc = entry("TFC");
+        assert_eq!(tfc["group"], "height");
+        assert_eq!(tfc["x"], 0.0);
+        assert_eq!(tfc["y"], 1.0);
+        assert_eq!(tfc["z"], 1.0);
+    }
+
+    #[test]
+    fn fallback_pose_exists_for_every_non_object_label() {
+        use RChannelLabel::*;
+        let fixed = [
+            L, R, C, LFE, Ls, Rs, Tfl, Tfr, Tsl, Tsr, Tbl, Tbr, Lsc, Rsc, Lb, Rb, Cb, Tc, Lsd, Rsd,
+            Lw, Rw, Tfc, LFE2,
+        ];
+        for label in fixed {
+            assert!(
+                fallback_virtual_bed_pose(label, true).is_some(),
+                "missing fallback for {label:?}"
+            );
+        }
+        assert!(fallback_virtual_bed_pose(Object, true).is_none());
+        assert!(fallback_virtual_bed_pose(Unknown, true).is_none());
+    }
 
     #[test]
     fn maps_a_5_1_bed_with_fallback_poses() {
@@ -1247,68 +1513,68 @@ mod tests {
         // Back placement sends a direct (non-spatialized) surround to the back
         // bed (6/7) only when the output layout has that speaker; else the side
         // bed (4/5). Side never remaps, and 7.x is unaffected.
-        let mut with_back: HashMap<usize, usize> = HashMap::new();
-        with_back.insert(6, 10);
-        with_back.insert(7, 11);
-        let without_back: HashMap<usize, usize> = HashMap::new();
+        let mut with_back: HashMap<RChannelLabel, usize> = HashMap::new();
+        with_back.insert(RChannelLabel::Lb, 10);
+        with_back.insert(RChannelLabel::Rb, 11);
+        let without_back: HashMap<RChannelLabel, usize> = HashMap::new();
 
         assert_eq!(
-            direct_bed_id_for_label(
+            direct_route_label(
                 RChannelLabel::Ls,
                 false,
                 SurroundPlacement::Back,
                 Some(&with_back)
             ),
-            Some(6)
+            Some(RChannelLabel::Lb)
         );
         assert_eq!(
-            direct_bed_id_for_label(
+            direct_route_label(
                 RChannelLabel::Rs,
                 false,
                 SurroundPlacement::Back,
                 Some(&with_back)
             ),
-            Some(7)
+            Some(RChannelLabel::Rb)
         );
         assert_eq!(
-            direct_bed_id_for_label(
+            direct_route_label(
                 RChannelLabel::Ls,
                 false,
                 SurroundPlacement::Back,
                 Some(&without_back)
             ),
-            Some(4),
-            "no back speaker → side bed"
+            Some(RChannelLabel::Ls),
+            "no back speaker → side label"
         );
         assert_eq!(
-            direct_bed_id_for_label(
+            direct_route_label(
                 RChannelLabel::Ls,
                 false,
                 SurroundPlacement::Side,
                 Some(&with_back)
             ),
-            Some(4),
+            Some(RChannelLabel::Ls),
             "Side never remaps"
         );
         assert_eq!(
-            direct_bed_id_for_label(
+            direct_route_label(
                 RChannelLabel::Ls,
                 true,
                 SurroundPlacement::Back,
                 Some(&with_back)
             ),
-            Some(4),
+            Some(RChannelLabel::Ls),
             "7.x ignores the setting"
         );
         // LFE and front channels are never remapped.
         assert_eq!(
-            direct_bed_id_for_label(
+            direct_route_label(
                 RChannelLabel::LFE,
                 false,
                 SurroundPlacement::Back,
                 Some(&with_back)
             ),
-            Some(3)
+            Some(RChannelLabel::LFE)
         );
     }
 
@@ -1357,21 +1623,18 @@ mod tests {
             SurroundPlacement::Side,
         );
         match plan {
-            ChannelRenderPlan::Events {
-                events,
-                bed_indices,
-            } => {
-                let bi = bed_indices.expect("spatial mode configures bed_indices");
+            ChannelRenderPlan::Events { events, routes } => {
+                use renderer::spatial_renderer::ChannelRoute;
                 // One entry per channel: LFE (idx 3) is direct, the rest virtual.
                 assert_eq!(
-                    bi,
+                    routes,
                     vec![
-                        usize::MAX,
-                        usize::MAX,
-                        usize::MAX,
-                        3,
-                        usize::MAX,
-                        usize::MAX
+                        ChannelRoute::Virtual,
+                        ChannelRoute::Virtual,
+                        ChannelRoute::Virtual,
+                        ChannelRoute::Direct(RChannelLabel::LFE),
+                        ChannelRoute::Virtual,
+                        ChannelRoute::Virtual,
                     ]
                 );
                 // Six events: five virtual objects + the LFE bed.
@@ -1410,23 +1673,36 @@ mod tests {
             SurroundPlacement::Side,
         );
         match plan {
-            ChannelRenderPlan::Events { bed_indices, .. } => {
-                let bi = bed_indices.unwrap();
-                // C (idx 2) is now direct → bed id 2; LFE (idx 3) is virtual → MAX.
-                assert_eq!(bi[2], 2, "C explicitly direct");
-                assert_eq!(bi[3], usize::MAX, "LFE explicitly virtualized");
-                assert_eq!(bi[0], usize::MAX, "L keeps the virtual default");
+            ChannelRenderPlan::Events { routes, .. } => {
+                use renderer::spatial_renderer::ChannelRoute;
+                // C (idx 2) is now direct; LFE (idx 3) is virtual.
+                assert_eq!(
+                    routes[2],
+                    ChannelRoute::Direct(RChannelLabel::C),
+                    "C explicitly direct"
+                );
+                assert_eq!(
+                    routes[3],
+                    ChannelRoute::Virtual,
+                    "LFE explicitly virtualized"
+                );
+                assert_eq!(
+                    routes[0],
+                    ChannelRoute::Virtual,
+                    "L keeps the virtual default"
+                );
             }
             other => panic!("expected Events, got {:?}", PlanKind::from(&other)),
         }
     }
 
     #[test]
-    fn plan_spatial_keeps_alignment_for_unroutable_direct_channel() {
+    fn plan_spatial_routes_direct_channels_by_label() {
         use renderer::speaker_layout::Speaker;
-        // Back-centre (Cb) has no direct-speaker slot. Even if asked to route
-        // direct, it must keep index alignment with a sentinel and emit no event
-        // (silent), not shift the other channels.
+        // A direct back-centre routes by label: with the label language there
+        // is no "no slot in the scheme" case anymore — the route carries Cb
+        // and the renderer resolves (or silently skips) it against the active
+        // layout. Index alignment is preserved either way.
         let bed = vbed(vec![
             Speaker::new_with_spatialize("BC", 180.0, 0.0, false),
             Speaker::new_with_spatialize("FL", -30.0, 0.0, true),
@@ -1445,16 +1721,18 @@ mod tests {
             SurroundPlacement::Side,
         );
         match plan {
-            ChannelRenderPlan::Events {
-                events,
-                bed_indices,
-            } => {
-                let bi = bed_indices.unwrap();
-                assert_eq!(bi.len(), 3);
-                assert_eq!(bi[1], usize::MAX, "Cb direct but no slot → sentinel");
-                // L and R virtualize (objects); Cb produces no event.
-                assert!(events.iter().all(|e| e.channel_idx != 1));
-                assert_eq!(events.len(), 2);
+            ChannelRenderPlan::Events { events, routes } => {
+                use renderer::spatial_renderer::ChannelRoute;
+                assert_eq!(routes.len(), 3);
+                assert_eq!(
+                    routes[1],
+                    ChannelRoute::Direct(RChannelLabel::Cb),
+                    "Cb routes direct by label; the layout decides at render time"
+                );
+                // L and R virtualize (objects); Cb carries a direct (bed) event.
+                assert_eq!(events.len(), 3);
+                let cb = events.iter().find(|e| e.channel_idx == 1).unwrap();
+                assert!(cb.is_bed);
             }
             other => panic!("expected Events, got {:?}", PlanKind::from(&other)),
         }

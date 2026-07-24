@@ -139,6 +139,33 @@ mod tests {
         assert_eq!(bands[2].speaker_indices, vec![0, 2]);
     }
 
+    /// The documented subwoofer bass-management recipe: an LFE flipped to
+    /// `spatialize: true` with `freq_high: N`, while every other spatialized
+    /// speaker carries the matching `freq_low: N`, must own the low band
+    /// alone and stay out of every band above.
+    #[test]
+    fn spatialized_lfe_with_freq_high_owns_the_low_band() {
+        let bands = compute_bands(&layout(vec![
+            spatial_speaker("FL").with_freq_low(120.0),
+            spatial_speaker("FR").with_freq_low(120.0),
+            spatial_speaker("C").with_freq_low(120.0),
+            spatial_speaker("LFE").with_freq_high(120.0),
+        ]));
+        assert_eq!(bands.len(), 2);
+        assert_eq!((bands[0].low_hz, bands[0].high_hz), (0.0, 120.0));
+        assert_eq!(
+            bands[0].speaker_indices,
+            vec![3],
+            "the sub must be alone in the low band"
+        );
+        assert_eq!((bands[1].low_hz, bands[1].high_hz), (120.0, f32::INFINITY));
+        assert_eq!(
+            bands[1].speaker_indices,
+            vec![0, 1, 2],
+            "the sub must be excluded from the bands above its freq_high"
+        );
+    }
+
     #[test]
     fn mixed_cutoffs_follow_containment_logic() {
         let bands = compute_bands(&layout(vec![
