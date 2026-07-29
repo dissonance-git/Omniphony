@@ -68,6 +68,7 @@
   "help.osc.omniphonyPort": "orender（渲染器）接收控制并发送状态的 UDP 端口。",
   "help.osc.listenPort": "Studio 监听 OSC 状态的本地 UDP 端口。0 让系统自动选择一个。",
   "help.osc.autoStartRenderer": "当本地（127.x）目标无响应时，Studio 会自动启动一个备用渲染器。播放期间它会把 OSC 端口让给 mpv 内置渲染器，并在 mpv 退出时返回。",
+  "help.osc.mpvOrender": "mpv 仅在被要求时使用引擎（ad=orender）。此选项会将该行写入你的 mpv.conf，放在所有配置档节之前的标记块中，以便全局生效。关闭时会注释掉该行，文件其余内容不会被改动。",
   "help.osc.keepRendererAlive": "关闭 Studio 后让 Studio 启动的渲染器继续运行。关闭（默认）：它随 Studio 一起退出。",
   "help.osc.metering": "通过 OSC 流式传输每对象与每扬声器的电平表，以驱动界面中的电平表。速率（Hz）设定电平发布的频率 — 越高越平滑，但流量越大。",
   "help.display.language": "界面语言。「自动」跟随你的系统区域设置；否则所选语言用于所有 Studio 文本。",
@@ -126,6 +127,9 @@
   "osc.listenPort": "监听端口",
   "osc.autoStartRenderer": "自动启动本地渲染器",
   "osc.keepRendererAlive": "退出后保持渲染器运行",
+  "osc.mpvOrender": "在 mpv 配置中启用",
+  "osc.mpvOrenderPath": "在 {path} 中管理",
+  "osc.mpvOrenderConflict": "第 {line} 行已设置解码器：{text}。请先删除它再使用此开关。",
   "osc.metering": "计量",
   "osc.connect": "连接",
   "osc.service.install": "安装服务",
@@ -784,5 +788,8 @@
   "backendParamHelp.size_to_spread_mode": "如何将 3D 对象尺寸三元组（宽、深、高）归约为标量扩散。基于对象尺寸的扩散实时应用，且仅在实时评估中生效。",
   "backendParamOption.size_to_spread_mode.max": "最大轴",
   "backendParamOption.size_to_spread_mode.mean": "轴的平均",
-  "backendParamOption.size_to_spread_mode.projection_perpendicular": "垂直投影"
+  "backendParamOption.size_to_spread_mode.projection_perpendicular": "垂直投影",
+  "log.mpvOrenderEnabled": "已在 {path} 中启用 orender",
+  "log.mpvOrenderDisabled": "已在 {path} 中注释掉 orender",
+  "log.mpvOrenderFailed": "修改 mpv 配置失败：{error}"
 }

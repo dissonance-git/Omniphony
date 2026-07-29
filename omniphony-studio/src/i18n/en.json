@@ -68,6 +68,7 @@
   "help.osc.omniphonyPort": "UDP port where orender (the renderer) receives control and sends state.",
   "help.osc.listenPort": "Local UDP port Studio listens on for OSC state. 0 lets the system choose one.",
   "help.osc.autoStartRenderer": "When nothing answers on a local (127.x) target, Studio launches a standby renderer automatically. It yields the OSC port to an mpv-embedded renderer during playback and comes back when mpv exits.",
+  "help.osc.mpvOrender": "mpv only uses the engine when asked to (ad=orender). This writes that line into your mpv.conf, in a marked block placed before any profile section so it applies globally. Turning it off comments the line out; nothing else in the file is touched.",
   "help.osc.keepRendererAlive": "Leave the Studio-launched renderer running after closing Studio. Off (default): it quits with Studio.",
   "help.osc.metering": "Stream per-object and per-speaker level meters over OSC to drive the meters in the UI. The rate (Hz) sets how often levels are published — higher is smoother but more traffic.",
   "help.display.language": "UI language. “Auto” follows your system locale; otherwise the chosen language is used for all Studio text.",
@@ -126,6 +127,9 @@
   "osc.listenPort": "Listen Port",
   "osc.autoStartRenderer": "Auto-start local renderer",
   "osc.keepRendererAlive": "Keep renderer alive on quit",
+  "osc.mpvOrender": "Activate in mpv config",
+  "osc.mpvOrenderPath": "Managed in {path}",
+  "osc.mpvOrenderConflict": "Line {line} already sets a decoder: {text}. Remove it to use this switch.",
   "osc.metering": "Metering",
   "osc.connect": "Connect",
   "osc.service.install": "Install service",
@@ -784,5 +788,8 @@
   "backendParamHelp.size_to_spread_mode": "How a 3-D object-size triplet (w, d, h) is reduced to a scalar spread. Object-size spread is applied live and is honoured only in realtime evaluation.",
   "backendParamOption.size_to_spread_mode.max": "Max axis",
   "backendParamOption.size_to_spread_mode.mean": "Mean of axes",
-  "backendParamOption.size_to_spread_mode.projection_perpendicular": "Perpendicular projection"
+  "backendParamOption.size_to_spread_mode.projection_perpendicular": "Perpendicular projection",
+  "log.mpvOrenderEnabled": "orender enabled in {path}",
+  "log.mpvOrenderDisabled": "orender commented out in {path}",
+  "log.mpvOrenderFailed": "mpv config change failed: {error}"
 }

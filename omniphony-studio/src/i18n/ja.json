@@ -68,6 +68,7 @@
   "help.osc.omniphonyPort": "orender（レンダラー）が制御を受信し状態を送信する UDP ポート。",
   "help.osc.listenPort": "Studio が OSC 状態を待ち受けるローカル UDP ポート。0 でシステムが自動選択します。",
   "help.osc.autoStartRenderer": "ローカル（127.x）の宛先で何も応答しない場合、Studio はスタンバイレンダラーを自動起動します。再生中は mpv 内蔵レンダラーに OSC ポートを譲り、mpv 終了時に復帰します。",
+  "help.osc.mpvOrender": "mpv は指示があった場合のみエンジンを使用します（ad=orender）。この設定はその行を mpv.conf に書き込みます。全体に適用されるよう、プロファイルセクションより前の専用ブロックに配置されます。オフにすると行がコメントアウトされ、他の内容は変更されません。",
   "help.osc.keepRendererAlive": "Studio を閉じた後も、Studio が起動したレンダラーを動かし続けます。オフ（既定）: Studio と一緒に終了します。",
   "help.osc.metering": "オブジェクトごと・スピーカーごとのレベルメーターを OSC で配信し、UI のメーターを駆動します。レート（Hz）はレベルを配信する頻度を決めます — 高いほど滑らかですがトラフィックが増えます。",
   "help.display.language": "UI 言語。「自動」はシステムのロケールに従います。それ以外は選択した言語が Studio のすべてのテキストに使われます。",
@@ -126,6 +127,9 @@
   "osc.listenPort": "受信ポート",
   "osc.autoStartRenderer": "ローカルレンダラーを自動起動",
   "osc.keepRendererAlive": "終了後もレンダラーを起動したままにする",
+  "osc.mpvOrender": "mpv 設定で有効化",
+  "osc.mpvOrenderPath": "{path} で管理",
+  "osc.mpvOrenderConflict": "{line} 行目で既にデコーダーが指定されています: {text}。このスイッチを使うには削除してください。",
   "osc.metering": "メータリング",
   "osc.connect": "接続",
   "osc.service.install": "サービスをインストール",
@@ -784,5 +788,8 @@
   "backendParamHelp.size_to_spread_mode": "3D のオブジェクトサイズ三つ組（幅・奥行・高さ）をどのようにスカラーのスプレッドに縮約するか。オブジェクトサイズスプレッドはライブで適用され、リアルタイム評価でのみ反映されます。",
   "backendParamOption.size_to_spread_mode.max": "最大軸",
   "backendParamOption.size_to_spread_mode.mean": "軸の平均",
-  "backendParamOption.size_to_spread_mode.projection_perpendicular": "垂直投影"
+  "backendParamOption.size_to_spread_mode.projection_perpendicular": "垂直投影",
+  "log.mpvOrenderEnabled": "{path} で orender を有効化しました",
+  "log.mpvOrenderDisabled": "{path} で orender をコメントアウトしました",
+  "log.mpvOrenderFailed": "mpv 設定の変更に失敗しました: {error}"
 }

@@ -92,6 +92,11 @@
           <span data-i18n="osc.keepRendererAlive" data-help-i18n="help.osc.keepRendererAlive" data-help-anchor=".switch-row">Keep renderer alive on quit</span>
           <input id="keepRendererAliveToggle" type="checkbox" />
         </label>
+        <label class="switch-row" style="font-size:13px;cursor:pointer">
+          <span data-i18n="osc.mpvOrender" data-help-i18n="help.osc.mpvOrender" data-help-anchor=".switch-row">Activate in mpv config</span>
+          <input id="mpvOrenderToggle" type="checkbox" />
+        </label>
+        <div id="mpvOrenderNote" class="mpv-orender-note" style="display:none"></div>
         <div class="osc-config-actions">
           <button id="oscConfigApplyBtn" class="ui-btn ui-btn-success" data-i18n="osc.connect">Connect</button>
           <button id="oscServiceBtn" type="button" class="ui-btn">Install service</button>
