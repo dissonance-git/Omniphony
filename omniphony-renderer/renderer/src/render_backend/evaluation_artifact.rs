@@ -112,8 +112,15 @@ pub struct CartesianArtifact {
     y_positions: Vec<f32>,
     z_positions: Vec<f32>,
     // Division-free lookups rebuilt from the *_positions arrays (not serialized).
+    // Read by `EvaluationArtifactEvaluator::compute_gains`, which is parked until
+    // the artifact-receiving path is wired up — hence the `allow` there too. Dead
+    // code analysis is transitive: an unreachable reader leaves these looking
+    // unread, and the release build promotes that warning to an error.
+    #[allow(dead_code)]
     x_lut: AxisLut,
+    #[allow(dead_code)]
     y_lut: AxisLut,
+    #[allow(dead_code)]
     z_lut: AxisLut,
     gains: Vec<f32>,
 }
@@ -125,8 +132,12 @@ pub struct PolarArtifact {
     elevation_positions: Vec<f32>,
     distance_positions: Vec<f32>,
     // Division-free lookups rebuilt from the *_positions arrays (not serialized).
+    // Parked alongside their cartesian counterparts — see `CartesianArtifact`.
+    #[allow(dead_code)]
     azimuth_lut: AzimuthLut,
+    #[allow(dead_code)]
     elevation_lut: AxisLut,
+    #[allow(dead_code)]
     distance_lut: AxisLut,
     gains: Vec<f32>,
 }
