@@ -24,7 +24,11 @@ const OSC_CONTROL_IDS = new Set([
   'oscRestartPipewireBtn',
   'oscLaunchRendererBtn',
   'oscInfoBtn',
-  'oscMeteringToggle'
+  'oscMeteringToggle',
+  // Edits the local mpv.conf, not the runtime: it must stay usable while
+  // nothing is connected. That is in fact when it is needed — the switch is
+  // what gets a first-time setup to the point where a renderer can connect.
+  'mpvOrenderToggle'
 ]);
 
 const PANEL_TOGGLE_IDS = [

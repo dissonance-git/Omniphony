@@ -68,6 +68,7 @@
   "help.osc.omniphonyPort": "Porta UDP su cui orender (il renderer) riceve il controllo e invia lo stato.",
   "help.osc.listenPort": "Porta UDP locale su cui Studio ascolta lo stato OSC. 0 lascia che il sistema ne scelga una.",
   "help.osc.autoStartRenderer": "Quando nulla risponde su una destinazione locale (127.x), Studio avvia automaticamente un renderer di standby. Cede la porta OSC a un renderer incorporato in mpv durante la riproduzione e ritorna quando mpv esce.",
+  "help.osc.mpvOrender": "mpv usa il motore solo se richiesto (ad=orender). Questa opzione scrive quella riga nel tuo mpv.conf, in un blocco delimitato posto prima di ogni sezione di profilo perché valga globalmente. Disattivandola la riga viene commentata; nient'altro viene modificato.",
   "help.osc.keepRendererAlive": "Lascia in esecuzione il renderer avviato da Studio dopo la chiusura di Studio. Disattivato (predefinito): si chiude con Studio.",
   "help.osc.metering": "Trasmette i livelli per oggetto e per diffusore via OSC per alimentare gli indicatori nell'interfaccia. La frequenza (Hz) imposta ogni quanto i livelli vengono pubblicati — più alta è più fluida ma genera più traffico.",
   "help.display.language": "Lingua dell'interfaccia. «Auto» segue la lingua del sistema; altrimenti la lingua scelta viene usata per tutto il testo di Studio.",
@@ -126,6 +127,9 @@
   "osc.listenPort": "Porta di ascolto",
   "osc.autoStartRenderer": "Avvia automaticamente il renderer locale",
   "osc.keepRendererAlive": "Mantieni il renderer attivo all'uscita",
+  "osc.mpvOrender": "Attiva nella configurazione di mpv",
+  "osc.mpvOrenderPath": "Gestito in {path}",
+  "osc.mpvOrenderConflict": "La riga {line} imposta già un decodificatore: {text}. Rimuovila per usare questo interruttore.",
   "osc.metering": "Metering",
   "osc.connect": "Connetti",
   "osc.service.install": "Installa servizio",
@@ -784,5 +788,8 @@
   "backendParamHelp.size_to_spread_mode": "Come un triplet di dimensione oggetto 3D (l, p, a) viene ridotto a uno spread scalare. Lo spread per dimensione oggetto è applicato in tempo reale ed è rispettato solo nella valutazione realtime.",
   "backendParamOption.size_to_spread_mode.max": "Asse max",
   "backendParamOption.size_to_spread_mode.mean": "Media degli assi",
-  "backendParamOption.size_to_spread_mode.projection_perpendicular": "Proiezione perpendicolare"
+  "backendParamOption.size_to_spread_mode.projection_perpendicular": "Proiezione perpendicolare",
+  "log.mpvOrenderEnabled": "orender attivato in {path}",
+  "log.mpvOrenderDisabled": "orender commentato in {path}",
+  "log.mpvOrenderFailed": "Modifica della configurazione di mpv non riuscita: {error}"
 }

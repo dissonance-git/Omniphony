@@ -856,6 +856,20 @@
         margin-top: 0.25rem;
       }
 
+      /* Status line under the "activate in mpv config" switch: says where the
+         file is, or why the toggle stood down (a hand-written `ad=` wins). */
+      .mpv-orender-note {
+        font-size: 12px;
+        line-height: 1.45;
+        margin: -0.1rem 0 0.35rem;
+        color: rgba(217, 236, 255, 0.62);
+        overflow-wrap: anywhere;
+      }
+
+      .mpv-orender-note.is-conflict {
+        color: #ffbf66;
+      }
+
       .clip-indicator {
         display: inline-block;
         width: 9px;

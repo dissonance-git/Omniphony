@@ -29,6 +29,7 @@ use commands::engine::*;
 use commands::gain::*;
 use commands::input::*;
 use commands::layout_io::*;
+use commands::mpv_config::*;
 use commands::mpv_overlay::*;
 use commands::orender::*;
 use commands::render::*;
@@ -366,6 +367,8 @@ fn main() {
             auto_tune_snapshot_save,
             auto_tune_snapshot_take,
             auto_tune_snapshot_peek,
+            mpv_orender_status,
+            mpv_orender_set,
             mpv_overlay_set_trail_prefs,
             mpv_overlay_set_active,
             mpv_overlay_set_labels,

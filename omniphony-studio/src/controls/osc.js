@@ -38,6 +38,8 @@ function getOscServiceBtnEl() { return inOscPanel('oscServiceBtn'); }
 function getOscRestartServiceBtnEl() { return inOscPanel('oscRestartServiceBtn'); }
 function getOscRestartPipewireBtnEl() { return inOscPanel('oscRestartPipewireBtn'); }
 function getOscLaunchRendererBtnEl() { return inOscPanel('oscLaunchRendererBtn'); }
+function getMpvOrenderToggleEl() { return inOscPanel('mpvOrenderToggle'); }
+function getMpvOrenderNoteEl() { return inOscPanel('mpvOrenderNote'); }
 
 // ---------------------------------------------------------------------------
 // OSC status rendering
@@ -175,6 +177,9 @@ export function openOscConfigPanel() {
   if (!oscConfigFormEl) return;
   oscConfigFormEl.classList.add('open');
   if (oscConfigToggleBtnEl) oscConfigToggleBtnEl.textContent = '\u2715';
+  // mpv.conf can change outside Studio (hand edit, another machine), so the
+  // switch is re-read every time the panel is opened rather than cached.
+  refreshMpvOrenderToggle();
 }
 
 export function closeOscConfigPanel() {
@@ -647,4 +652,71 @@ export function syncMeterRateFromRenderer(hz) {
   if (!Number.isFinite(rounded) || !METER_RATE_OPTIONS_HZ.includes(rounded)) return;
   applyMeterRateToSelect(rounded);
   try { localStorage.setItem(METER_RATE_STORAGE_KEY, String(rounded)); } catch (_) { /* ignore */ }
+}
+
+// ---------------------------------------------------------------------------
+// "Activate in mpv config" — the one-line opt-in that makes mpv actually use
+// the engine (`ad=orender`). Unlike the fields above this is not part of the
+// OSC form: it writes the user's mpv.conf straight away, so it has no Apply
+// step and is deliberately excluded from the dirty-state listeners.
+// ---------------------------------------------------------------------------
+
+function renderMpvOrenderToggle(status) {
+  const toggleEl = getMpvOrenderToggleEl();
+  const noteEl = getMpvOrenderNoteEl();
+  if (!toggleEl) return;
+
+  const conflict = status?.state === 'conflict';
+  toggleEl.checked = status?.state === 'enabled';
+  // A hand-written `ad=` wins: Studio never edits a line it did not write, so
+  // the switch is inert until the user resolves it themselves.
+  toggleEl.disabled = conflict;
+
+  if (!noteEl) return;
+  noteEl.classList.toggle('is-conflict', conflict);
+  if (conflict) {
+    noteEl.textContent = tf('osc.mpvOrenderConflict', {
+      line: status.conflictLine ?? '?',
+      text: (status.conflictText ?? '').trim(),
+    });
+  } else {
+    noteEl.textContent = tf('osc.mpvOrenderPath', { path: status?.path ?? '' });
+  }
+  noteEl.style.display = status ? 'block' : 'none';
+}
+
+export function refreshMpvOrenderToggle() {
+  return invoke('mpv_orender_status')
+    .then(renderMpvOrenderToggle)
+    .catch((e) => {
+      console.error('[mpv config]', e);
+      const noteEl = getMpvOrenderNoteEl();
+      if (noteEl) {
+        noteEl.classList.add('is-conflict');
+        noteEl.textContent = normalizeLogError(e);
+        noteEl.style.display = 'block';
+      }
+    });
+}
+
+const initialMpvOrenderToggleEl = getMpvOrenderToggleEl();
+if (initialMpvOrenderToggleEl) {
+  initialMpvOrenderToggleEl.addEventListener('change', () => {
+    const wanted = initialMpvOrenderToggleEl.checked;
+    initialMpvOrenderToggleEl.disabled = true;
+    invoke('mpv_orender_set', { enabled: wanted })
+      .then((status) => {
+        renderMpvOrenderToggle(status);
+        pushLog('info', tf(wanted ? 'log.mpvOrenderEnabled' : 'log.mpvOrenderDisabled', {
+          path: status?.path ?? '',
+        }));
+      })
+      .catch((e) => {
+        // Put the switch back where it was: the file was not changed. A refused
+        // conflict lands here too, which is how the warning gets shown.
+        pushLog('error', tf('log.mpvOrenderFailed', { error: normalizeLogError(e) }));
+        return refreshMpvOrenderToggle();
+      });
+  });
+  refreshMpvOrenderToggle();
 }
