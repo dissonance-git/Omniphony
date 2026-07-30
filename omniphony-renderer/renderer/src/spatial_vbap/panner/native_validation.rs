@@ -9,12 +9,13 @@
 //! **Energy** — VBAP normalises so that `Σg² = 1`. In dB: `10·log10(Σg²) = 0`.
 //!
 //! **Seams** — VBAP is continuous by construction: gains fall to zero at a
-//! triplet edge as the adjacent triplet takes over. So `‖g(θ+Δ) − g(θ)‖₂` must
-//! scale with Δ. Measuring at Δ = 1° and Δ = 0.5°, the ratio must be ≈ 0.5. A
-//! jump discontinuity at a triplet boundary does *not* halve — and it is
-//! invisible to the energy check, since the image can jump while energy stays
-//! perfectly conserved. Expressing the criterion as a ratio avoids inventing a
-//! Lipschitz constant.
+//! triplet edge as the adjacent triplet takes over. A jump there is invisible
+//! to the energy check, since the image can step while energy stays perfectly
+//! conserved. Each lattice point is swept over a degree and then bisected
+//! toward whatever produced the change: a continuous function's difference
+//! collapses as the interval shrinks, while a discontinuity keeps its full
+//! magnitude. See [`MAX_SEAM_JUMP`] for two earlier formulations that were
+//! wrong, and why.
 
 use dsp_fixtures::dirs::fibonacci_sphere;
 
@@ -73,13 +74,73 @@ fn gain_step_norm(panner: &NativeVbapLayout, az: f32, el: f32, delta: f32) -> f3
 /// Theory-derived: VBAP normalises to `Σg² = 1`, i.e. 0 dB.
 const ENERGY_TOLERANCE_DB: f32 = 0.25;
 
-/// Halving the angular step must roughly halve the gain-vector difference.
-/// 0.65 leaves headroom over the ideal 0.5 for curvature within a triplet,
-/// while still rejecting a jump discontinuity (ratio ≈ 1).
-const MAX_SEAM_RATIO: f32 = 0.65;
+/// Largest gain-vector jump permitted, in L2 norm, after the discontinuity has
+/// been localised to a vanishing angular interval.
+///
+/// This is a continuity test, not a smoothness test. VBAP gains are continuous
+/// but deliberately *not* differentiable: at a speaker's own direction the gain
+/// peaks at 1 and falls away on both sides, so the gain vector has a kink.
+/// Kinks are inherent and inaudible; jumps are the defect.
+///
+/// Two earlier formulations were wrong in opposite directions, and both are
+/// worth recording so they are not reintroduced:
+///
+/// - Requiring `‖Δg‖` to *halve* when the step halves tests differentiability,
+///   so it flagged every speaker direction as a seam (ratio ≈ 1/√2 at a kink).
+/// - Probing `‖Δg‖` across one fixed small step from each lattice point misses
+///   a jump unless the jump happens to fall inside that step. With a 0.01°
+///   probe it passed even on a layout with a known discontinuity — a test that
+///   cannot fail.
+///
+/// So the search sweeps a whole degree per lattice point and then *bisects*
+/// toward whatever produced the change. A continuous function's difference
+/// collapses as the interval shrinks; a jump keeps its full magnitude however
+/// small the interval gets. That distinction needs no Lipschitz constant.
+const MAX_SEAM_JUMP: f32 = 0.02;
+
+/// Known blind spot: this sweeps **azimuth at fixed elevation**, so it never
+/// crosses a pole, where azimuth is degenerate. A discontinuity exactly at the
+/// zenith or nadir is invisible here. `backend_conformance` covers that case by
+/// stepping along Cartesian axes through the poles, and it is what caught a
+/// √2 gain jump at the nadir introduced by an attempted fix for the energy
+/// deferral above. The two tests are complementary; neither replaces the other.
+///
+/// Angular span searched around each lattice point, in degrees.
+const SEAM_SPAN_DEG: f32 = 1.0;
+
+/// Bisection depth: 1° / 2^14 ≈ 6·10⁻⁵ °.
+const SEAM_BISECT_STEPS: usize = 14;
+
+/// `‖g(az_b) − g(az_a)‖₂` at fixed elevation.
+fn gain_diff(panner: &NativeVbapLayout, az_a: f32, az_b: f32, el: f32) -> f32 {
+    let a = panner.vbap_gains(az_a, el, 0.0).expect("vbap gains");
+    let b = panner.vbap_gains(az_b, el, 0.0).expect("vbap gains");
+    let mut acc = 0.0f32;
+    for i in 0..a.len() {
+        let d = a[i] - b[i];
+        acc += d * d;
+    }
+    acc.sqrt()
+}
+
+/// Localise the largest gain change within `[az, az + SEAM_SPAN_DEG]` by
+/// repeatedly keeping the half that carries more of it, and report the change
+/// that survives at the finest interval together with where it sits.
+fn residual_jump(panner: &NativeVbapLayout, az: f32, el: f32) -> (f32, f32) {
+    let (mut lo, mut hi) = (az, az + SEAM_SPAN_DEG);
+    for _ in 0..SEAM_BISECT_STEPS {
+        let mid = 0.5 * (lo + hi);
+        if gain_diff(panner, lo, mid, el) >= gain_diff(panner, mid, hi, el) {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    (gain_diff(panner, lo, hi, el), 0.5 * (lo + hi))
+}
 
 #[test]
-#[ignore = "engine misses this: measured -24.6592 dB at az=66.5 el=-86.4, target ±0.25 dB — tracked deferral, see docs/dsp-validation-report.md"]
+#[ignore = "engine misses this: -24.6592 dB at az=66.5 el=-86.4 — the nadir lies outside the 7.1.4 hull and no dummy is injected. Injecting one restores energy but makes the pole discontinuous (backend_conformance sees L2 1.4142 there), so the fix needs continuous pole redistribution, not just a dummy. Tracked deferral, see docs/dsp-validation-report.md"]
 fn vbap_conserves_energy_over_the_sphere() {
     let (panner, n_spk) = panner_for("7.1.4");
     let mut worst = (0.0f32, 0.0f32, 0.0f32);
@@ -109,36 +170,35 @@ fn vbap_conserves_energy_over_the_sphere() {
 }
 
 #[test]
-#[ignore = "engine misses this: measured ratio 0.9991 at az=77.7 el=-22.6, target < 0.65 — tracked deferral, see docs/dsp-validation-report.md"]
+#[ignore = "engine misses this: surviving jump 0.807848 at az=15.80 el=-39.7 — same uncovered-hull root cause as the energy deferral. Tracked deferral, see docs/dsp-validation-report.md"]
 fn vbap_gains_are_continuous_across_triplet_boundaries() {
     let (panner, _) = panner_for("7.1.4");
-    // Skip directions where the gain barely moves — the ratio is 0/0 there and
-    // carries no information about continuity.
-    const MIN_STEP_NORM: f32 = 1e-4;
     let mut worst = (0.0f32, 0.0f32, 0.0f32);
     for (az, el) in fibonacci_sphere(LATTICE_POINTS) {
-        let coarse = gain_step_norm(&panner, az, el, 1.0);
-        if coarse < MIN_STEP_NORM {
-            continue;
-        }
-        let ratio = gain_step_norm(&panner, az, el, 0.5) / coarse;
-        if ratio > worst.2 {
-            worst = (az, el, ratio);
+        let (jump, at_az) = residual_jump(&panner, az, el);
+        if jump > worst.2 {
+            worst = (at_az, el, jump);
         }
     }
     println!(
-        "[measure] vbap_seams 7.1.4 ({LATTICE_POINTS} dirs): worst ratio \
-         {:.4} at az={:.1} el={:.1}",
-        worst.2, worst.0, worst.1
+        "[measure] vbap_seams 7.1.4 ({LATTICE_POINTS} dirs, bisected to \
+         {:.0e}°): worst surviving jump {:.6} at az={:.2} el={:.1}",
+        SEAM_SPAN_DEG / (1u32 << SEAM_BISECT_STEPS) as f32,
+        worst.2,
+        worst.0,
+        worst.1
     );
     assert!(
-        worst.2 <= MAX_SEAM_RATIO,
-        "gain vector does not halve when the step halves at az={:.1} el={:.1} \
-         (ratio {:.4}, max {MAX_SEAM_RATIO}) — a seam, i.e. the panned image \
-         jumps at a triplet boundary even though energy stays conserved",
+        worst.2 <= MAX_SEAM_JUMP,
+        "gain vector jumps {:.6} across an interval of only {:.0e}° at \
+         az={:.2} el={:.1} (max {MAX_SEAM_JUMP}) — a discontinuity that \
+         survives bisection, i.e. the panned image steps at a triplet \
+         boundary. Energy conservation cannot see this: energy stays \
+         conserved while the image jumps.",
+        worst.2,
+        SEAM_SPAN_DEG / (1u32 << SEAM_BISECT_STEPS) as f32,
         worst.0,
-        worst.1,
-        worst.2
+        worst.1
     );
 }
 
@@ -150,7 +210,7 @@ fn vbap_gains_are_continuous_across_triplet_boundaries() {
 /// covers the surround presets that `panner_for` can actually build.
 #[cfg(feature = "wide-matrix")]
 #[test]
-#[ignore = "engine misses this: 5.1 spread=0 has a silent direction at az=-117.4 el=86.5 — widens the deferred vbap_conserves_energy_over_the_sphere, see docs/dsp-validation-report.md"]
+#[ignore = "engine misses this: MDAP spread does not conserve energy — 5.1 spread=0.25 is -3.0090 dB at az=-75.1 el=67.5, target ±0.25 dB. Distinct from pole coverage, which is now fixed. Tracked deferral, see docs/dsp-validation-report.md"]
 fn vbap_conserves_energy_over_the_sphere_wide() {
     const WIDE_POINTS: usize = 8192;
     for preset in ["5.1", "7.1", "7.1.4", "9.1.6"] {
