@@ -190,6 +190,56 @@ pub fn prepared(
     (r, pcm)
 }
 
+use renderer::live_params::OutputMode;
+
+/// A renderer switched to the independent binaural (headphone) path, with the
+/// bundled SAF KEMAR set. Output is 2-channel regardless of the layout.
+///
+/// `HrirSource::SafKemar` is already the default, so it is not set explicitly —
+/// the golden would silently change if that default moved, which is exactly the
+/// kind of drift a null test should catch.
+pub fn prepared_binaural(n_objects: usize, ramp_mode: RampMode) -> (SpatialRenderer, Vec<f32>) {
+    let mut r = make_renderer("7.1.4", true, false);
+    {
+        let ctrl = r.renderer_control();
+        ctrl.set_requested_ramp_mode(ramp_mode);
+        let mut live = ctrl.live.write();
+        live.ramp_mode = ramp_mode;
+        live.binaural.output_mode = OutputMode::Binaural;
+    }
+    let pcm = make_pcm(n_objects);
+    let init = move_events(n_objects, 0);
+    let mut buf = Vec::new();
+    for _ in 0..4 {
+        let f = r
+            .render_frame(&pcm, n_objects, &init, buf, false)
+            .expect("prime binaural render");
+        buf = f.samples;
+    }
+    (r, pcm)
+}
+
+/// A renderer on the band-limited [`crossover_layout`], so `compute_bands`
+/// splits rendering across four frequency bands and the LR4 bank runs.
+pub fn prepared_crossover(n_objects: usize, ramp_mode: RampMode) -> (SpatialRenderer, Vec<f32>) {
+    let mut r = build_renderer(crossover_layout(), true, false);
+    {
+        let ctrl = r.renderer_control();
+        ctrl.set_requested_ramp_mode(ramp_mode);
+        ctrl.live.write().ramp_mode = ramp_mode;
+    }
+    let pcm = make_pcm(n_objects);
+    let init = move_events(n_objects, 0);
+    let mut buf = Vec::new();
+    for _ in 0..4 {
+        let f = r
+            .render_frame(&pcm, n_objects, &init, buf, false)
+            .expect("prime crossover render");
+        buf = f.samples;
+    }
+    (r, pcm)
+}
+
 /// Render `blocks` consecutive blocks, concatenating the interleaved output.
 ///
 /// `move_every` controls how often fresh movement events are injected: every
