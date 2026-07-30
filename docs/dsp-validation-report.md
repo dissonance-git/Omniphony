@@ -153,3 +153,133 @@ approaches the interaural axis, and it is close to — but not exactly at — th
 y = 0 plane where the front/rear hemisphere distinction flips (`cos 85° ≈ 0.09`).
 Both the front/back folding in `binaural/itd.rs` and the HRIR direction lookup
 in `binaural/measured.rs` are plausible places for a boundary at that angle.
+
+---
+
+# Phase 2 — Resolution
+
+Investigated 2026-07-30 after the phase 1 report. The headline correction: **the
+ITD findings were defects in this harness, not in the renderer.** The VBAP
+findings are real, and now have a root cause.
+
+## Retraction: the ITD deferrals
+
+The addendum above bracketed an apparent sign inversion between 80° and 85° and
+argued the harness was sound because it agreed with theory up to 80°. That
+reasoning was wrong.
+
+Instrumenting `binaural/mod.rs` showed the engine computing the direction
+exactly right (az = 85.00°, el = 0.00°) and applying the correct delay to the
+correct ear (`itd_l = 0.000633 s` = 30.4 samples, smoothly tracking Woodworth).
+The HRIR pair was fine too, and the ITD delay line holds 144 samples against a
+31-sample maximum, so neither clamped.
+
+The fault was the excitation. `render_single_object_binaural` fed the *same*
+40-sample `make_pcm` buffer to every `render_frame` call, making the signal
+periodic at `BLOCK_SAMPLES`. Cross-correlation resolves lag only modulo that
+period, and the aliased peaks scored within 0.01 % of the true one — at az = 80°
+lag −31 scored 25.2028 while lag +9 scored 25.2006. Which peak won was decided
+by noise, and the loser looked like a sign inversion.
+
+Two fixes, and all three ITD gates now pass as live gates:
+
+| Metric | Target | Now |
+| --- | --- | --- |
+| ITD magnitude vs model | ±3 samples | ≤ 0.748 samples, all azimuths |
+| ITD antisymmetry | \|sum\| ≤ 1 sample | exactly 0.000 at ±30/60/90° |
+| ITD monotonicity | strictly increasing | [0.0, 12.84, 23.99, 32.23] |
+
+- `make_pcm_block` generates a continuous aperiodic stream.
+- `estimate_lag_checked` now refuses to resolve an ambiguous correlation and
+  says why, instead of returning a confidently wrong answer. This is the change
+  that stops the failure mode recurring: it turns a silent error into a loud one.
+- The engine-symmetry gates run against `HrirSource::Synthetic`, which is
+  time-aligned and symmetric by construction, so they measure the renderer
+  rather than the bundled dataset.
+
+### What this did uncover
+
+The measured KEMAR set is **not left/right symmetric** and **not time-aligned**:
+intrinsic interaural lag is −1.103 samples at az = +30° but −0.168 at −30°, and
+reaches −6.998 at +90°, where it is not even resolvable on the −90° side. That
+violates the contract `HrirProvider` states in its own doc comment —
+implementors "must return time-aligned FIRs (no bulk interaural delay) for safe
+interpolation" — which matters because `HrirSet` blends the three nearest
+measurements, and blending misaligned FIRs combs their shared content instead of
+interpolating it.
+
+`hrir_providers_return_time_aligned_pairs` now asserts that contract and is
+deferred against the bundled set. This is a genuine finding, and it is the one
+the false ITD alarm was standing in front of.
+
+## VBAP: one root cause, two symptoms, and a trade-off
+
+Both VBAP deferrals come from the same place. Every shipped layout is a stack of
+horizontal rings — 7.1.4 is {0°, 35.26°}, 5.1 and 7.1 are {−12.6°, 0°} — and
+`prepare_effective_speaker_dirs` returns the first successful triangulation
+without checking whether the resulting hull *covers the sphere*. It triangulates
+fine and leaves one pole outside, so no dummy is ever injected there.
+
+| Layout | Zenith | Nadir |
+| --- | --- | --- |
+| 5.1 | **−148 dB** | 0.00 dB |
+| 7.1 | **−148 dB** | 0.00 dB |
+| 7.1.4 | 0.00 dB | **−150 dB** |
+| 9.1.6 | 0.00 dB | 0.00 dB |
+
+Below the hull, energy decays as `cos²(elevation)` — at az = 66.5° it falls
+−0.78 dB at el = −22.6°, −3.22 dB at −45°, −24.62 dB at −86.4°, to silence at
+the nadir — and the panner steps between degenerate triplets on the way, which
+is the seam.
+
+**An attempted fix was reverted.** Measuring pole coverage after triangulation
+and injecting a dummy only where a pole is genuinely uncovered does restore
+energy completely: sphere-wide worst case goes from −24.66 dB to +0.0000 dB, all
+four layouts reach 0.00 dB at both poles, and the seam disappears. But
+`backend_conformance` then fails with a gain-vector jump of L2 1.4142 across a
+0.05 step at [0, 0, −1]: the dummy's redistributed energy snaps between single
+speakers instead of spreading, so the pole becomes discontinuous.
+
+Trading a silent pole for a stepping one is not an improvement. The fix needs
+**continuous redistribution at the pole**, not dummy injection alone. Both
+deferrals now record this so the next attempt starts from it rather than
+rediscovering it.
+
+## Seam metric: two wrong formulations
+
+Worth recording, because both are easy to reintroduce.
+
+1. *Requiring `‖Δg‖` to halve when the step halves* tests differentiability. VBAP
+   gains are continuous but not differentiable — at a speaker's own direction
+   the gain peaks and falls away on both sides — so this flagged every speaker
+   direction as a seam (ratio 0.7048 at az = −45.6°, which is the −45° speaker).
+2. *Probing `‖Δg‖` across one fixed small step* misses a jump unless the jump
+   lands inside that step. At 0.01° it passed on a layout with a known
+   discontinuity. **A test that cannot fail is worse than no test.**
+
+The detector now sweeps a degree per lattice point and bisects toward whatever
+produced the change: a continuous function's difference collapses as the
+interval shrinks, a jump keeps its magnitude. Verified in both directions —
+0.001311 with the hull covered, 0.807848 without.
+
+It has a known blind spot: it sweeps azimuth at fixed elevation and never
+crosses a pole, where azimuth is degenerate. `backend_conformance` covers that,
+and is what caught the regression above.
+
+## Current gate state
+
+| Gate | Status |
+| --- | --- |
+| Null: 7.1.4 / binaural / crossover | live |
+| LR4 reconstruction flatness | live (+0.0018 dB) |
+| ITD magnitude / antisymmetry / monotonicity | live (all three) |
+| VBAP energy conservation | deferred — uncovered pole |
+| VBAP seam continuity | deferred — same root cause |
+| HRIR time alignment | deferred — bundled KEMAR violates the contract |
+| Wide: LR4, ITD magnitude | live |
+| Wide: VBAP energy with spread | deferred — MDAP spread loses 3.009 dB at spread = 0.25 |
+
+Suite is green at roughly 10.2 s against a 7.42 s baseline. That is ~2.8 s added
+against a stated budget of 2 s; the scenes are already at their documented
+minimum (0.125 s), so closing the remaining gap means cutting coverage rather
+than waste.
