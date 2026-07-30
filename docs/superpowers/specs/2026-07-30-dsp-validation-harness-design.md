@@ -112,15 +112,18 @@ drift, and then the perf gate and the null test stop measuring the same scene).
 
 One case per family plus three null scenes on every PR.
 
-The wide matrix is gated on the **`wide-matrix` cargo feature** of
-`dsp_fixtures`, not on `#[ignore]` (see D2). Wide cases are
-`#[cfg_attr(not(feature = "wide-matrix"), ignore)]`-free — they are compiled
-only when the feature is on:
+The wide matrix is gated on a **`wide-matrix` cargo feature**, not on
+`#[ignore]` (see D2). Wide cases are `#[cfg(feature = "wide-matrix")]`, so they
+are compiled only when the feature is on.
+
+The feature is declared on **`renderer`**, not on `dsp_fixtures`: the wide cases
+are test code inside `renderer`, so a feature on the fixture crate could not
+gate them.
 
 ```sh
-cargo test --workspace                                    # PR gate
-cargo test --workspace --features dsp_fixtures/wide-matrix # full matrix
-cargo test --workspace -- --ignored                        # known-failing only
+cargo test --workspace                                   # PR gate
+cargo test --workspace --features renderer/wide-matrix   # full matrix
+cargo test --workspace -- --ignored                       # known-failing only
 ```
 
 Each command then has a meaningful exit code. macOS stays build-only.
