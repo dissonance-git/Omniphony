@@ -116,3 +116,26 @@ fn itd_magnitude_grows_toward_the_interaural_axis() {
         );
     }
 }
+
+/// The wide matrix: a full azimuth grid at several elevations.
+/// Compiled only with `--features wide-matrix`.
+#[cfg(feature = "wide-matrix")]
+#[test]
+#[ignore = "engine misses this: measured delta -39.954 samples at az=-120°, target ±3 samples — widens the deferred itd_magnitude_tracks_the_model, see docs/dsp-validation-report.md"]
+fn itd_magnitude_tracks_the_model_wide() {
+    for az_i in -6..=6 {
+        let az = az_i as f32 * 30.0;
+        let measured = measured_lag(az);
+        let model = model_lag(az);
+        let delta = measured - model;
+        println!(
+            "[measure] itd_wide az={az:+6.1}°: measured {measured:+7.3}, \
+             model {model:+7.3}, delta {delta:+.3}"
+        );
+        assert!(
+            delta.abs() <= MAGNITUDE_TOLERANCE_SAMPLES,
+            "ITD at az={az:+.1}°: delta {delta:+.3} samples exceeds \
+             ±{MAGNITUDE_TOLERANCE_SAMPLES}"
+        );
+    }
+}

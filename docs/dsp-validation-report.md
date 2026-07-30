@@ -85,3 +85,26 @@ tracked deferral (`#[ignore]` carrying the measured value) rather than a gate.
 
 LR4 reconstruction flatness (`lr4_reconstruction_is_magnitude_flat`) meets its
 target and lands as a live gate with no deferral.
+
+### Wide matrix
+
+Task 12 adds an opt-in wide matrix behind `--features renderer/wide-matrix`.
+Its LR4 case is a live gate; the two cases that widen an already-deferred metric
+inherit that deferral, so `cargo test --workspace --features renderer/wide-matrix`
+stays green unless something *new* breaks.
+
+| Wide case | Status | Deferred value recorded in `#[ignore]` |
+| --- | --- | --- |
+| `lr4_reconstruction_is_magnitude_flat_wide` (3 cutoff sets × 44.1/48/96 kHz) | gate | — |
+| `vbap_conserves_energy_over_the_sphere_wide` (5.1, 7.1, 7.1.4, 9.1.6 × 4 spreads, 8192 dirs) | deferred | 5.1 spread=0 has a silent direction at az=−117.4° el=86.5° |
+| `itd_magnitude_tracks_the_model_wide` (13 azimuths, 30° apart) | deferred | measured delta −39.954 samples at az=−120°, target ±3 samples |
+
+The wide VBAP case fails earlier and harder than its narrow counterpart: on the
+5.1 preset the spatialized speakers are coplanar, so directions near the zenith
+fall outside the convex hull entirely and receive no energy at all rather than
+merely mis-normalised energy. That is the same convex-hull question the
+narrow-gate observation above raises, seen from a layout with no height layer.
+
+The wide ITD case reaches azimuths the narrow gate never visits (±120° and
+±150°) and breaks down there in the same way it does at ±90°: at az = −120° the
+measured lag is −16.5 samples where the model predicts +23.4, a sign flip.

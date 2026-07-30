@@ -83,3 +83,26 @@ fn lr4_reconstruction_is_magnitude_flat() {
          coefficients or the multiway compensation are wrong."
     );
 }
+
+/// The wide matrix: every band count against every supported sample rate.
+/// Compiled only with `--features wide-matrix`.
+#[cfg(feature = "wide-matrix")]
+#[test]
+fn lr4_reconstruction_is_magnitude_flat_wide() {
+    const CUTOFF_SETS: [&[f32]; 3] = [&[500.0], &[200.0, 2000.0], &[80.0, 200.0, 500.0]];
+    for fs in [44_100u32, 48_000, 96_000] {
+        for cutoffs in CUTOFF_SETS {
+            let (freq, dev) = worst_flatness_deviation(cutoffs, fs);
+            println!(
+                "[measure] lr4_flatness_wide cutoffs={cutoffs:?} fs={fs}: \
+                 {dev:+.4} dB at {freq:.1} Hz"
+            );
+            assert!(
+                dev.abs() <= FLATNESS_TOLERANCE_DB,
+                "LR4 sum deviates {dev:+.4} dB at {freq:.1} Hz \
+                 (cutoffs {cutoffs:?}, fs {fs}), tolerance \
+                 ±{FLATNESS_TOLERANCE_DB} dB"
+            );
+        }
+    }
+}

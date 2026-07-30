@@ -141,3 +141,50 @@ fn vbap_gains_are_continuous_across_triplet_boundaries() {
         worst.2
     );
 }
+
+/// The wide matrix: every shipped layout at a denser lattice, plus spread.
+/// Compiled only with `--features wide-matrix`.
+///
+/// `SpeakerLayout::preset` exposes `stereo`, `5.1`, `7.1`, `7.1.4` and `9.1.6`;
+/// `5.1.2` and `7.1.2` ship only as YAML files, not as presets, so the sweep
+/// covers the surround presets that `panner_for` can actually build.
+#[cfg(feature = "wide-matrix")]
+#[test]
+#[ignore = "engine misses this: 5.1 spread=0 has a silent direction at az=-117.4 el=86.5 — widens the deferred vbap_conserves_energy_over_the_sphere, see docs/dsp-validation-report.md"]
+fn vbap_conserves_energy_over_the_sphere_wide() {
+    const WIDE_POINTS: usize = 8192;
+    for preset in ["5.1", "7.1", "7.1.4", "9.1.6"] {
+        let (panner, n_spk) = panner_for(preset);
+        for spread in [0.0f32, 0.25, 0.5, 1.0] {
+            let mut worst = (0.0f32, 0.0f32, 0.0f32);
+            for (az, el) in fibonacci_sphere(WIDE_POINTS) {
+                let g = panner.vbap_gains(az, el, spread).expect("vbap gains");
+                let mut sum_sq = 0.0f32;
+                for i in 0..g.len() {
+                    sum_sq += g[i] * g[i];
+                }
+                assert!(
+                    sum_sq > 0.0,
+                    "{preset} spread={spread}: silent direction az={az:.1} el={el:.1}"
+                );
+                let dev = 10.0 * sum_sq.log10();
+                if dev.abs() > worst.2.abs() {
+                    worst = (az, el, dev);
+                }
+            }
+            println!(
+                "[measure] vbap_energy_wide {preset} spread={spread} \
+                 ({n_spk} speakers): worst {:+.4} dB at az={:.1} el={:.1}",
+                worst.2, worst.0, worst.1
+            );
+            assert!(
+                worst.2.abs() <= ENERGY_TOLERANCE_DB,
+                "{preset} spread={spread}: energy off by {:+.4} dB at \
+                 az={:.1} el={:.1}",
+                worst.2,
+                worst.0,
+                worst.1
+            );
+        }
+    }
+}
