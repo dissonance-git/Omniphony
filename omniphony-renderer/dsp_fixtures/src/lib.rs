@@ -8,6 +8,7 @@
 //! worst-case-block-time gate all measure *the same* scenes. Duplicating scene
 //! generation between those consumers is how they silently drift apart.
 
+pub mod analysis;
 pub mod golden;
 pub mod residual;
 pub mod scene;
