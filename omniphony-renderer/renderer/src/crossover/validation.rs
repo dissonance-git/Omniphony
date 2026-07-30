@@ -64,12 +64,22 @@ fn worst_flatness_deviation(cutoffs: &[f32], sample_rate: u32) -> (f32, f32) {
     worst
 }
 
+/// Theory-derived: the band sum is a cascade of allpasses, so magnitude is
+/// exactly 1. This bound is float and coefficient error only.
+const FLATNESS_TOLERANCE_DB: f32 = 0.25;
+
 #[test]
-fn measure_lr4_reconstruction_flatness() {
-    // PHASE 1: report only. Task 11 converts this into an assertion.
+fn lr4_reconstruction_is_magnitude_flat() {
     let (freq, dev) = worst_flatness_deviation(&DEFAULT_CUTOFFS, SAMPLE_RATE);
     println!(
         "[measure] lr4_flatness cutoffs={DEFAULT_CUTOFFS:?} fs={SAMPLE_RATE}: \
-         worst deviation {dev:+.4} dB at {freq:.1} Hz (target ±0.25 dB)"
+         worst deviation {dev:+.4} dB at {freq:.1} Hz"
+    );
+    assert!(
+        dev.abs() <= FLATNESS_TOLERANCE_DB,
+        "LR4 band sum deviates {dev:+.4} dB from flat at {freq:.1} Hz, \
+         tolerance ±{FLATNESS_TOLERANCE_DB} dB. The sum of LR4 bands is an \
+         allpass cascade, so its magnitude must be 1 — a deviation means the \
+         coefficients or the multiway compensation are wrong."
     );
 }
