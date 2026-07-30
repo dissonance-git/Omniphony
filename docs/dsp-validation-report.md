@@ -108,3 +108,48 @@ narrow-gate observation above raises, seen from a layout with no height layer.
 The wide ITD case reaches azimuths the narrow gate never visits (±120° and
 ±150°) and breaks down there in the same way it does at ±90°: at az = −120° the
 measured lag is −16.5 samples where the model predicts +23.4, a sign flip.
+
+## Addendum — the ITD failure bracketed
+
+The three ITD deferrals above all report their failure at the sampled azimuths
+(±90°, and ±120° in the wide matrix), which makes the defect look like a
+broad lateral/rear inaccuracy. A denser sweep run afterwards shows it is
+something much sharper: a **discontinuity between 80° and 85°**.
+
+| Azimuth | Measured lag (samples) | Model (samples) | Delta |
+| ---: | ---: | ---: | ---: |
+| +0° | +0.104 | +0.000 | +0.10 |
+| +30° | −13.713 | −12.534 | −1.18 |
+| +60° | −26.062 | −23.427 | −2.64 |
+| +75° | −29.950 | −27.856 | −2.09 |
+| **+80°** | **−31.387** | **−29.156** | **−2.23** |
+| **+85°** | **+6.991** | **−30.364** | **+37.36** |
+| +88° | +5.957 | −31.044 | +37.00 |
+| +89° | +5.693 | −31.264 | +36.96 |
+| +90° | +5.343 | −31.479 | +36.82 |
+| +91° | +5.567 | −31.264 | +36.83 |
+| +95° | +6.132 | −30.364 | +36.50 |
+| +100° | +2.946 | −29.156 | +32.10 |
+| +120° | +15.912 | −23.427 | +39.34 |
+
+Up to +80° the rendered ITD tracks Woodworth closely and monotonically, running
+2–3 samples long in exactly the way per-ear HRIR group delay predicts. Between
++80° and +85° it **inverts sign and collapses in magnitude**, and never
+recovers: every azimuth beyond that point reports the contralateral ear as the
+*early* one, which inverts the primary localisation cue for all lateral and rear
+sources.
+
+Two things follow from the bracketing:
+
+- **The measurement is sound.** A harness that agrees with the model to within
+  2–3 samples across 0–80°, then disagrees by 37, is not mis-measuring; it is
+  reporting a real discontinuity in the rendered output.
+- **The defect is narrow.** Whatever changes between 80° and 85° is a single
+  branch or lookup boundary, not a diffuse accuracy problem. The three ITD
+  deferrals are very likely one root cause, not three.
+
+Worth noting for whoever picks this up: this region is where the source
+approaches the interaural axis, and it is close to — but not exactly at — the
+y = 0 plane where the front/rear hemisphere distinction flips (`cos 85° ≈ 0.09`).
+Both the front/back folding in `binaural/itd.rs` and the HRIR direction lookup
+in `binaural/measured.rs` are plausible places for a boundary at that angle.
