@@ -29,6 +29,7 @@ bindgen = "0.70"
 
 [dev-dependencies]
 criterion = "0.5"
+dsp_fixtures = { path = "../dsp_fixtures" }
 
 [[bench]]
 name = "render_frame"

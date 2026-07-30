@@ -9,3 +9,4 @@
 //! generation between those consumers is how they silently drift apart.
 
 pub mod residual;
+pub mod scene;
