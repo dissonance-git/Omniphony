@@ -17,7 +17,7 @@
 //!    the group delay.
 
 use dsp_fixtures::analysis::estimate_lag_samples;
-use dsp_fixtures::scene::render_single_object_binaural;
+use dsp_fixtures::scene::{HrirSource, render_single_object_binaural};
 
 use super::itd::{DEFAULT_HEAD_RADIUS_M, ear_delays_seconds};
 
@@ -33,7 +33,12 @@ const AZIMUTHS: [f32; 7] = [0.0, 30.0, -30.0, 60.0, -60.0, 90.0, -90.0];
 /// Measured lag in samples: positive means the right channel is delayed, so a
 /// source on the right (positive azimuth) yields a negative value.
 fn measured_lag(azimuth_deg: f32) -> f32 {
-    let (left, right) = render_single_object_binaural(azimuth_deg, BLOCKS);
+    // The synthetic provider is symmetric and time-aligned by construction, so
+    // these tests measure the *engine's* ITD rather than the bundled KEMAR
+    // set's own left/right asymmetry. See
+    // `hrir_providers_return_time_aligned_pairs` for the test that holds a
+    // provider to the time-alignment contract.
+    let (left, right) = render_single_object_binaural(azimuth_deg, BLOCKS, HrirSource::Synthetic);
     estimate_lag_samples(&left, &right, MAX_LAG)
 }
 
@@ -55,7 +60,6 @@ const MAGNITUDE_TOLERANCE_SAMPLES: f32 = 3.0;
 const ANTISYMMETRY_TOLERANCE_SAMPLES: f32 = 1.0;
 
 #[test]
-#[ignore = "engine misses this: measured delta +36.822 samples at az=+90°, target ±3 samples — tracked deferral, see docs/dsp-validation-report.md"]
 fn itd_magnitude_tracks_the_model() {
     for az in AZIMUTHS {
         let measured = measured_lag(az);
@@ -75,7 +79,6 @@ fn itd_magnitude_tracks_the_model() {
 }
 
 #[test]
-#[ignore = "engine misses this: measured sum -1.829 samples at ±60°, target |sum| ≤ 1 sample — tracked deferral, see docs/dsp-validation-report.md"]
 fn itd_is_antisymmetric_about_the_median_plane() {
     let centre = measured_lag(0.0);
     println!("[measure] itd az=0°: {centre:+.3} samples");
@@ -102,7 +105,6 @@ fn itd_is_antisymmetric_about_the_median_plane() {
 }
 
 #[test]
-#[ignore = "engine misses this: measured |lag| [0.104, 13.713, 26.062, 5.343] at 0/30/60/90°, target strictly increasing — tracked deferral, see docs/dsp-validation-report.md"]
 fn itd_magnitude_grows_toward_the_interaural_axis() {
     let mags: Vec<f32> = [0.0f32, 30.0, 60.0, 90.0]
         .iter()
@@ -121,7 +123,6 @@ fn itd_magnitude_grows_toward_the_interaural_axis() {
 /// Compiled only with `--features wide-matrix`.
 #[cfg(feature = "wide-matrix")]
 #[test]
-#[ignore = "engine misses this: measured delta -39.954 samples at az=-120°, target ±3 samples — widens the deferred itd_magnitude_tracks_the_model, see docs/dsp-validation-report.md"]
 fn itd_magnitude_tracks_the_model_wide() {
     for az_i in -6..=6 {
         let az = az_i as f32 * 30.0;
@@ -138,4 +139,72 @@ fn itd_magnitude_tracks_the_model_wide() {
              ±{MAGNITUDE_TOLERANCE_SAMPLES}"
         );
     }
+}
+
+/// A time-aligned HRIR pair carries no bulk interaural delay of its own; ±1
+/// sample allows for interpolation and measurement slop.
+const TIME_ALIGNMENT_TOLERANCE_SAMPLES: f32 = 1.0;
+
+/// [`HrirProvider`](super::hrir::HrirProvider) documents that implementors
+/// "must return time-aligned FIRs (no bulk interaural delay) for safe
+/// interpolation". The engine relies on that in two places: it adds its own
+/// Woodworth ITD as a separate per-ear delay, and [`HrirSet`] blends the three
+/// nearest measurements. Blending FIRs that are not time-aligned combs their
+/// shared content instead of interpolating it.
+///
+/// This asserts the contract rather than assuming it. It is the invariant whose
+/// violation made the bundled measured set look like an engine defect: the set's
+/// own left/right asymmetry showed up in end-to-end ITD measurements and was
+/// initially misread as the renderer mis-placing sources.
+#[test]
+#[ignore = "SAF KEMAR violates it: intrinsic interaural lag is unresolvable at az=-90 and reaches -6.998 samples at az=+90, against a ±1 sample contract; the set is also left/right asymmetric (-1.103 at +30 vs -0.168 at -30) — tracked deferral, see docs/dsp-validation-report.md"]
+fn hrir_providers_return_time_aligned_pairs() {
+    use super::hrir::{HRIR_LEN, HrirPair, HrirSet};
+    use super::measured::MeasuredHrirData;
+    use dsp_fixtures::analysis::estimate_lag_checked;
+
+    let set = HrirSet::new(&MeasuredHrirData::saf_kemar(), 48_000);
+    let mut pair = HrirPair {
+        left: [0.0; HRIR_LEN],
+        right: [0.0; HRIR_LEN],
+    };
+    let mut worst = (0.0f32, 0.0f32);
+    let mut unresolvable = Vec::new();
+
+    for az_i in -6..=6 {
+        let az = az_i as f32 * 30.0;
+        set.at(az, 0.0, &mut pair);
+        match estimate_lag_checked(&pair.left, &pair.right, 40) {
+            Ok(lag) => {
+                println!(
+                    "[measure] hrir_time_alignment az={az:+6.1}: intrinsic lag {lag:+.3} samples"
+                );
+                if lag.abs() > worst.1.abs() {
+                    worst = (az, lag);
+                }
+            }
+            // An unresolvable pair cannot be shown to satisfy the contract
+            // either — record it rather than quietly treating it as a pass.
+            Err(e) => {
+                println!("[measure] hrir_time_alignment az={az:+6.1}: unresolvable — {e}");
+                unresolvable.push(az);
+            }
+        }
+    }
+
+    assert!(
+        unresolvable.is_empty(),
+        "intrinsic interaural lag could not be resolved at azimuths {unresolvable:?}, \
+         so the time-alignment contract cannot be verified there"
+    );
+    assert!(
+        worst.1.abs() <= TIME_ALIGNMENT_TOLERANCE_SAMPLES,
+        "HRIR pair at az={:.1}° carries {:+.3} samples of intrinsic interaural \
+         delay, exceeding the ±{TIME_ALIGNMENT_TOLERANCE_SAMPLES} sample \
+         time-alignment contract. The engine adds Woodworth ITD on top of this, \
+         and HrirSet blends neighbouring measurements — both assume the pair is \
+         time-aligned.",
+        worst.0,
+        worst.1
+    );
 }

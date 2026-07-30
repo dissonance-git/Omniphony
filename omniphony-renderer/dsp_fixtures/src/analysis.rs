@@ -34,7 +34,16 @@ pub fn magnitude_response_db(ir: &[f32], sample_rate: u32) -> Vec<(f32, f32)> {
         .collect()
 }
 
-/// Lag, in samples, by which `right` is delayed relative to `left`.
+/// Minimum lag separation, in samples, before a second correlation peak counts
+/// as a competing interpretation rather than part of the same main lobe.
+const AMBIGUITY_SEPARATION: i64 = 4;
+
+/// A competing peak scoring at least this fraction of the best one makes the
+/// estimate ambiguous.
+const AMBIGUITY_RATIO: f64 = 0.95;
+
+/// Lag, in samples, by which `right` is delayed relative to `left` — or an
+/// error describing why the signals cannot yield an unambiguous answer.
 ///
 /// Positive means `right[n] ≈ left[n - lag]`. For a binaural render this means
 /// a source on the **right** returns a *negative* value: the contralateral
@@ -42,15 +51,32 @@ pub fn magnitude_response_db(ir: &[f32], sample_rate: u32) -> Vec<(f32, f32)> {
 ///
 /// The integer cross-correlation peak is refined by parabolic interpolation, so
 /// sub-sample delays are recovered — necessary because ITD at 48 kHz is only
-/// ~31 samples at full deflection and the interesting differences are fractions
-/// of a sample.
-pub fn estimate_lag_samples(left: &[f32], right: &[f32], max_lag: usize) -> f32 {
-    assert_eq!(left.len(), right.len(), "channels must be equal length");
-    assert!(
-        left.len() > 2 * max_lag + 2,
-        "signal ({}) too short for a ±{max_lag} lag search",
-        left.len()
-    );
+/// ~31 samples at full deflection.
+///
+/// # Why this is checked
+///
+/// Cross-correlation resolves lag only modulo the period of the excitation. A
+/// periodic input produces several equally good peaks, and whichever wins is
+/// decided by noise — which silently yields a confidently wrong, often
+/// sign-flipped answer. That is not hypothetical: it is exactly what a
+/// 40-sample-periodic excitation did to the binaural ITD measurement, and it
+/// looked like an engine defect for as long as the estimator kept quiet about
+/// it. So a competing peak at least [`AMBIGUITY_SEPARATION`] away scoring
+/// [`AMBIGUITY_RATIO`] of the best is reported as an error rather than resolved.
+pub fn estimate_lag_checked(left: &[f32], right: &[f32], max_lag: usize) -> Result<f32, String> {
+    if left.len() != right.len() {
+        return Err(format!(
+            "channels must be equal length, got {} and {}",
+            left.len(),
+            right.len()
+        ));
+    }
+    if left.len() <= 2 * max_lag + 2 {
+        return Err(format!(
+            "signal ({}) too short for a ±{max_lag} lag search",
+            left.len()
+        ));
+    }
 
     let n = left.len() as i64;
     let corr = |lag: i64| -> f64 {
@@ -64,27 +90,54 @@ pub fn estimate_lag_samples(left: &[f32], right: &[f32], max_lag: usize) -> f32 
     };
 
     let ml = max_lag as i64;
-    let mut best = 0i64;
-    let mut best_v = f64::NEG_INFINITY;
-    for lag in -ml..=ml {
-        let v = corr(lag);
-        if v > best_v {
-            best_v = v;
-            best = lag;
-        }
+    let scores: Vec<(i64, f64)> = (-ml..=ml).map(|lag| (lag, corr(lag))).collect();
+    let &(best_lag, best) = scores
+        .iter()
+        .max_by(|a, b| a.1.partial_cmp(&b.1).expect("correlation is finite"))
+        .expect("search range is non-empty");
+
+    if best <= 0.0 {
+        return Err(format!(
+            "no positive correlation peak (best {best:.4} at lag {best_lag}); \
+             the channels are uncorrelated or inverted"
+        ));
+    }
+
+    // A competing peak far enough away to be a different interpretation.
+    if let Some(&(rival_lag, rival)) = scores
+        .iter()
+        .filter(|(lag, _)| (lag - best_lag).abs() >= AMBIGUITY_SEPARATION)
+        .max_by(|a, b| a.1.partial_cmp(&b.1).expect("correlation is finite"))
+        && rival >= AMBIGUITY_RATIO * best
+    {
+        return Err(format!(
+            "ambiguous lag: peak {best:.4} at lag {best_lag} but a competing \
+             peak scores {rival:.4} at lag {rival_lag} ({:.2}% of the best). \
+             The excitation is probably periodic — cross-correlation resolves \
+             lag only modulo that period, so the winner is decided by noise.",
+            100.0 * rival / best
+        ));
     }
 
     // Parabolic refinement around the peak. Skipped at the search edges, where
     // one neighbour is unavailable.
-    if best > -ml && best < ml {
-        let cm = corr(best - 1);
-        let cp = corr(best + 1);
-        let denom = cm - 2.0 * best_v + cp;
+    if best_lag > -ml && best_lag < ml {
+        let cm = corr(best_lag - 1);
+        let cp = corr(best_lag + 1);
+        let denom = cm - 2.0 * best + cp;
         if denom.abs() > f64::EPSILON {
-            return best as f32 + (0.5 * (cm - cp) / denom) as f32;
+            return Ok(best_lag as f32 + (0.5 * (cm - cp) / denom) as f32);
         }
     }
-    best as f32
+    Ok(best_lag as f32)
+}
+
+/// [`estimate_lag_checked`], panicking on an ambiguous or degenerate estimate.
+///
+/// Test code wants a bare `f32`; a panic converts a silently wrong measurement
+/// into a loud, explained failure.
+pub fn estimate_lag_samples(left: &[f32], right: &[f32], max_lag: usize) -> f32 {
+    estimate_lag_checked(left, right, max_lag).expect("lag estimate")
 }
 
 #[cfg(test)]
@@ -170,6 +223,43 @@ mod tests {
         let right = sinc_pulse(512, 100.0);
         let lag = estimate_lag_samples(&left, &right, 64);
         assert!((lag - -7.0).abs() < 0.02, "expected -7.0, got {lag}");
+    }
+
+    /// A signal that repeats every `period` samples, delayed by `delay`.
+    /// Cross-correlation cannot resolve its lag beyond one period.
+    fn periodic_signal(len: usize, period: usize, delay: usize) -> Vec<f32> {
+        (0..len)
+            .map(|n| {
+                let phase = (n + period - delay % period) % period;
+                // Deterministic pseudo-noise within one period, then repeated.
+                let mut x = (phase as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+                x ^= x >> 30;
+                ((x >> 40) as f32 / (1u64 << 24) as f32) * 2.0 - 1.0
+            })
+            .collect()
+    }
+
+    #[test]
+    fn periodic_excitation_is_reported_as_ambiguous() {
+        // Period 40 is BLOCK_SAMPLES: exactly the case that made the binaural
+        // ITD measurement report a sign-flipped lag. The true delay is 7, but
+        // lags 7, 47 and -33 all correlate equally well.
+        let left = periodic_signal(2048, 40, 0);
+        let right = periodic_signal(2048, 40, 7);
+        let err = estimate_lag_checked(&left, &right, 64)
+            .expect_err("a period-40 signal must be rejected, not silently resolved");
+        assert!(
+            err.contains("ambiguous"),
+            "error should name the ambiguity, got: {err}"
+        );
+    }
+
+    #[test]
+    fn aperiodic_excitation_is_accepted() {
+        let left = sinc_pulse(2048, 100.0);
+        let right = sinc_pulse(2048, 107.0);
+        let lag = estimate_lag_checked(&left, &right, 64).expect("unambiguous");
+        assert!((lag - 7.0).abs() < 0.02, "expected +7.0, got {lag}");
     }
 
     #[test]

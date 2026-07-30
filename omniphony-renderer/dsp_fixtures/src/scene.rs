@@ -52,6 +52,73 @@ pub fn crossover_layout() -> SpeakerLayout {
     layout
 }
 
+/// A renderer for **binaural-only** scenes, built with a coarse VBAP table.
+///
+/// `render_frame` takes the independent binaural branch before touching the
+/// VBAP/crossover chain, so the precomputed panning tables are dead weight
+/// here — and at the 1°×1° resolution [`build_renderer`] uses they cost
+/// ~730 ms per construction, which dominated the ITD tests entirely. Coarsening
+/// them changes nothing the binaural path can observe.
+pub fn build_renderer_binaural(
+    layout: SpeakerLayout,
+    position_interpolation: bool,
+    cartesian: bool,
+) -> SpatialRenderer {
+    let (table_mode, preferred, initial) = if cartesian {
+        (
+            VbapTableMode::Cartesian {
+                x_size: 31,
+                y_size: 31,
+                z_size: 15,
+                z_neg_size: 15,
+            },
+            PreferredEvaluationMode::PrecomputedCartesian,
+            LiveEvaluationMode::PrecomputedCartesian,
+        )
+    } else {
+        (
+            VbapTableMode::Polar,
+            PreferredEvaluationMode::PrecomputedPolar,
+            LiveEvaluationMode::PrecomputedPolar,
+        )
+    };
+    SpatialRenderer::new(
+        layout,
+        SAMPLE_RATE,
+        15, // az_res_deg — coarse: the binaural path never reads the VBAP table
+        15, // el_res_deg
+        0.0,
+        2.0,
+        table_mode,
+        false, // allow_negative_z
+        position_interpolation,
+        DistanceModel::Linear,
+        false,
+        1.0,
+        1.0,
+        0.0,
+        1.0,
+        false,           // log_object_positions
+        [1.0, 2.0, 0.5], // room_ratio
+        2.0,
+        0.5,
+        0.0,
+        0.0,   // master_gain_db
+        false, // auto_gain
+        false, // use_loudness
+        false, // distance_diffuse
+        1.0,
+        1.0,
+        preferred,
+        initial,
+        31,
+        31,
+        15,
+        15,
+    )
+    .expect("renderer build")
+}
+
 pub fn build_renderer(
     layout: SpeakerLayout,
     position_interpolation: bool,
@@ -131,6 +198,20 @@ pub fn make_pcm(n_objects: usize) -> Vec<f32> {
     pcm
 }
 
+/// Interleaved noise for block `block_index` of a *continuous* stream.
+///
+/// Unlike [`make_pcm`], successive blocks carry different samples, so a
+/// multi-block capture is aperiodic. This matters for any measurement based on
+/// cross-correlation: reusing one block as the excitation makes the signal
+/// periodic at [`BLOCK_SAMPLES`], and correlation then resolves lag only modulo
+/// 40 samples, which silently produces sign-flipped results.
+pub fn make_pcm_block(n_objects: usize, block_index: usize) -> Vec<f32> {
+    let base = (block_index * BLOCK_SAMPLES * n_objects) as u64;
+    (0..BLOCK_SAMPLES * n_objects)
+        .map(|i| pseudo(base + i as u64) * 0.25)
+        .collect()
+}
+
 /// One movement event per object, positions spread deterministically over the
 /// dome. `seed_round` rotates the positions so successive metadata frames
 /// actually change the target (and thus start a ramp).
@@ -190,6 +271,11 @@ pub fn prepared(
     (r, pcm)
 }
 
+// Re-exported for the same reason as `RampMode` above: the dev-dependency
+// cycle means `renderer`'s own test build is a distinct crate instance, so
+// tests inside `renderer` must name this type through the fixture crate for
+// the argument types to match.
+pub use renderer::binaural::HrirSource;
 use renderer::live_params::OutputMode;
 
 /// A renderer switched to the independent binaural (headphone) path, with the
@@ -284,22 +370,30 @@ pub fn render_blocks(
 ///
 /// The first `PRIME_BLOCKS` blocks are discarded: the 20 ms gain slew and the
 /// position ramp must settle before the lag measurement is meaningful.
-pub fn render_single_object_binaural(azimuth_deg: f32, blocks: usize) -> (Vec<f32>, Vec<f32>) {
+pub fn render_single_object_binaural(
+    azimuth_deg: f32,
+    blocks: usize,
+    hrir_source: HrirSource,
+) -> (Vec<f32>, Vec<f32>) {
     const PRIME_BLOCKS: usize = 64;
 
     let theta = (azimuth_deg as f64).to_radians();
     let position = [theta.sin(), theta.cos(), 0.0];
 
-    let mut r = make_renderer("7.1.4", true, false);
+    let mut r = build_renderer_binaural(
+        SpeakerLayout::preset("7.1.4").expect("known preset"),
+        true,
+        false,
+    );
     {
         let ctrl = r.renderer_control();
         ctrl.set_requested_ramp_mode(RampMode::Frame);
         let mut live = ctrl.live.write();
         live.ramp_mode = RampMode::Frame;
         live.binaural.output_mode = OutputMode::Binaural;
+        live.binaural.hrir_source = hrir_source;
     }
 
-    let pcm = make_pcm(1);
     let event = vec![SpatialChannelEvent {
         channel_idx: 0,
         is_bed: false,
@@ -311,9 +405,9 @@ pub fn render_single_object_binaural(azimuth_deg: f32, blocks: usize) -> (Vec<f3
     }];
 
     let mut buf = Vec::new();
-    for _ in 0..PRIME_BLOCKS {
+    for block in 0..PRIME_BLOCKS {
         let f = r
-            .render_frame(&pcm, 1, &event, buf, false)
+            .render_frame(&make_pcm_block(1, block), 1, &event, buf, false)
             .expect("prime binaural ITD render");
         buf = f.samples;
         buf.clear();
@@ -321,9 +415,15 @@ pub fn render_single_object_binaural(azimuth_deg: f32, blocks: usize) -> (Vec<f3
 
     let mut left = Vec::with_capacity(blocks * BLOCK_SAMPLES);
     let mut right = Vec::with_capacity(blocks * BLOCK_SAMPLES);
-    for _ in 0..blocks {
+    for block in 0..blocks {
         let f = r
-            .render_frame(&pcm, 1, &event, buf, false)
+            .render_frame(
+                &make_pcm_block(1, PRIME_BLOCKS + block),
+                1,
+                &event,
+                buf,
+                false,
+            )
             .expect("binaural ITD render");
         for frame in f.samples.chunks_exact(2) {
             left.push(frame[0]);
