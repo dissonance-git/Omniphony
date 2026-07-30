@@ -140,7 +140,6 @@ fn residual_jump(panner: &NativeVbapLayout, az: f32, el: f32) -> (f32, f32) {
 }
 
 #[test]
-#[ignore = "engine misses this: -24.6592 dB at az=66.5 el=-86.4 — the nadir lies outside the 7.1.4 hull and no dummy is injected. Injecting one restores energy but makes the pole discontinuous (backend_conformance sees L2 1.4142 there), so the fix needs continuous pole redistribution, not just a dummy. Tracked deferral, see docs/dsp-validation-report.md"]
 fn vbap_conserves_energy_over_the_sphere() {
     let (panner, n_spk) = panner_for("7.1.4");
     let mut worst = (0.0f32, 0.0f32, 0.0f32);
@@ -170,7 +169,6 @@ fn vbap_conserves_energy_over_the_sphere() {
 }
 
 #[test]
-#[ignore = "engine misses this: surviving jump 0.807848 at az=15.80 el=-39.7 — same uncovered-hull root cause as the energy deferral. Tracked deferral, see docs/dsp-validation-report.md"]
 fn vbap_gains_are_continuous_across_triplet_boundaries() {
     let (panner, _) = panner_for("7.1.4");
     let mut worst = (0.0f32, 0.0f32, 0.0f32);
