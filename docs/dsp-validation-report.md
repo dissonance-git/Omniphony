@@ -283,3 +283,50 @@ Suite is green at roughly 10.2 s against a 7.42 s baseline. That is ~2.8 s added
 against a stated budget of 2 s; the scenes are already at their documented
 minimum (0.125 s), so closing the remaining gap means cutting coverage rather
 than waste.
+
+## Attempt 2 at the pole fix — also reverted
+
+The prescribed fix was: inject a dummy where a pole is uncovered, and replace
+`redistribute_dummy_in_triangle`'s triangle-local folding with a precomputed,
+direction-independent weight vector per dummy, then renormalise to `Σg² = 1`.
+
+It was implemented in full and reverted. Results:
+
+- **Energy: solved.** Sphere-wide worst case −0.0000 dB, and every pre-existing
+  pole test (`test_energy_conservation_at_pole`, `test_z_sweep_continuity`,
+  `test_vertical_z_axis_no_silence`, `test_coplanar_layout_still_falls_back_to_dummy_poles`)
+  stayed green.
+- **Continuity: worse.** The surviving jump went from 0.807848 to 1.255847, at
+  az = 71.28° el = −59.9°.
+
+The gain vectors either side of that azimuth explain why, and they refute the
+premise the fix was built on:
+
+```
+az=71.27  g=[0, 0.977, 0, 0, 0, 0, 0.211, 0, 0, 0, 0]
+az=71.28  g=[0, 0,     0, 0, 0, 0, 1.000, 0, 0, 0, 0]
+```
+
+Energy sits on one or two speakers and snaps — **there is no ring spreading at
+all**, so the dummy's gain is zero in this direction. The source is not being
+panned through a triangle containing the dummy; it is going through
+`fold_out_of_hull`, which projects out-of-hull directions onto the nearest
+triangle and snaps as the nearest triangle changes.
+
+So the dummy is *not* closing the hull below the bed ring, and no redistribution
+scheme can help while that is true. Redistribution was never the discontinuity's
+source; `fold_out_of_hull` is.
+
+### The lead for attempt 3
+
+`NativeVbapLayout::build` calls `find_ls_triplets(&effective_dirs, true)` with
+`omit_large_triangles` hard-coded to `true`. A triangle joining the bed ring
+(el = 0°) to a nadir dummy (el = −90°) spans 90° and is a strong candidate for
+omission, which would leave the lower hemisphere outside the hull no matter how
+the dummy is redistributed. Passing `false` through
+`try_dirs_with_optional_dummy` does *not* test this — `build` ignores it and
+re-triangulates with `true` regardless. That hard-coded argument is where the
+next attempt should start.
+
+Both VBAP deferrals remain, with this recorded so attempt 3 does not repeat
+attempts 1 and 2.
