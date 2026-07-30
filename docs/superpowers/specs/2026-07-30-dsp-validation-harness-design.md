@@ -74,6 +74,26 @@ matrix uses a separate mechanism (D4) so that "run the wide matrix" and "run the
 known-failing tests" are different actions — otherwise the deferral escape hatch
 and the opt-in matrix collide, and neither command has a meaningful exit code.
 
+### D2a — Measure before gating
+
+Implementation runs in two phases, so the findings are known before any
+threshold becomes a merge gate.
+
+**Phase 1 — measure.** Build the fixtures, the null test, and all three
+acceptance measurements, but have each acceptance case *report* its metric
+rather than assert on it. Produce one measurement report: per case, the
+theoretical target and the value the engine actually achieves. The null test is
+asserted from the start — it has no theoretical threshold to discover, and it is
+what protects #7.
+
+**Phase 2 — gate.** With the report in hand, convert each acceptance measurement
+into an assertion. Cases that meet their target become PR gates; cases that miss
+become tracked deferrals under D2, with the measured value recorded.
+
+This keeps the discovery of defects separate from the decision to block merges on
+them, and means the size of any follow-up backlog is known before it is
+inherited.
+
 ### D3 — Fixtures live in a separate dev-only crate
 
 `omniphony-renderer/dsp_fixtures/`, consumed as a path dev-dependency of
@@ -311,11 +331,10 @@ enough to act on:
 
 ## Risks
 
-- **Day-one failures.** Expected by D2. The triage policy keeps `main` green
-  while findings are tracked, but if many thresholds miss at once, the harness
-  lands mostly `#[ignore]`d and the follow-up work is larger than this spec.
-  That outcome is information, not failure — but it should be reported rather
-  than absorbed.
+- **Day-one failures.** Expected by D2, and handled by the two-phase order in
+  D2a: the measurement report quantifies the backlog before any threshold
+  becomes a gate, so the scope of follow-up work is a decision rather than a
+  surprise.
 - **Golden churn from legitimate changes.** Mitigated by the blessing workflow
   printing the residual it replaced. Requires review discipline, not just tooling.
 - **Repo weight.** ~1.05 MB of goldens. Acceptable next to the existing 2.8 MB
