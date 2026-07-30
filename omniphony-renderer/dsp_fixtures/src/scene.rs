@@ -8,7 +8,12 @@
 //! Moved here from `renderer/benches/render_frame.rs` so the benches and the
 //! validation tests cannot drift apart.
 
-use renderer::live_params::{LiveEvaluationMode, PreferredEvaluationMode, RampMode};
+use renderer::live_params::{LiveEvaluationMode, PreferredEvaluationMode};
+// Re-exported: tests living *inside* `renderer` see a second instantiation of
+// that crate (the `--test` build), whose `RampMode` is a distinct type from the
+// rlib one these fixtures are compiled against. Callers must name the type
+// through this crate or the argument types will not match.
+pub use renderer::live_params::RampMode;
 use renderer::spatial_renderer::{SpatialChannelEvent, SpatialRenderer};
 use renderer::spatial_vbap::{DistanceModel, VbapTableMode};
 use renderer::speaker_layout::SpeakerLayout;
