@@ -330,3 +330,23 @@ next attempt should start.
 
 Both VBAP deferrals remain, with this recorded so attempt 3 does not repeat
 attempts 1 and 2.
+
+### Correction: the omit_large_triangles lead is wrong
+
+`APERTURE_LIMIT_RAD` is `π` — 180°. `omit_large_triangles` therefore discards
+only faces with an edge subtending a full 180°, which essentially never happens;
+a bed-ring-to-nadir edge is 90° and is kept. The flag is close to a no-op, and
+the hard-coded `true` in `NativeVbapLayout::build` is **not** why the hull stays
+open. Disregard that lead.
+
+What the evidence actually leaves open: with a nadir dummy injected, the energy
+sweep reports full coverage (−0.0000 dB everywhere, including the nadir), so the
+hull *is* closed. Yet at az = 71.28°, el = −59.9° the gains show two real bed
+speakers and no dummy contribution at all. A closed hull and a dummy-free
+matched triangle at a below-hull direction are contradictory, so the next step is
+to instrument the triangle search itself — print which face index and which
+vertices `vbap3d` selects for that direction, with and without the dummy — rather
+than to theorise about pruning again.
+
+Both prior attempts assumed they knew why the source missed the dummy triangle.
+Neither checked. That is the check to run first.
