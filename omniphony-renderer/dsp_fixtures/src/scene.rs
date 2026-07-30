@@ -270,3 +270,67 @@ pub fn render_blocks(
     }
     out
 }
+
+/// Render one object at a fixed horizontal azimuth through the binaural path,
+/// returning deinterleaved `(left, right)`.
+///
+/// Position is set in Omniphony normalized Cartesian, where +x is right, +y is
+/// front and +z is up (see `layouts/7.1.4.yaml`), so azimuth θ measured from
+/// front toward the right is `(sin θ, cos θ, 0)`.
+///
+/// The binaural path uses `unit_scale_m` and ignores the anisotropic
+/// `room_ratio` (see `BINAURAL.md`), so the azimuth is not distorted by the
+/// `[1.0, 2.0, 0.5]` ratio the fixture renderer is built with.
+///
+/// The first `PRIME_BLOCKS` blocks are discarded: the 20 ms gain slew and the
+/// position ramp must settle before the lag measurement is meaningful.
+pub fn render_single_object_binaural(azimuth_deg: f32, blocks: usize) -> (Vec<f32>, Vec<f32>) {
+    const PRIME_BLOCKS: usize = 64;
+
+    let theta = (azimuth_deg as f64).to_radians();
+    let position = [theta.sin(), theta.cos(), 0.0];
+
+    let mut r = make_renderer("7.1.4", true, false);
+    {
+        let ctrl = r.renderer_control();
+        ctrl.set_requested_ramp_mode(RampMode::Frame);
+        let mut live = ctrl.live.write();
+        live.ramp_mode = RampMode::Frame;
+        live.binaural.output_mode = OutputMode::Binaural;
+    }
+
+    let pcm = make_pcm(1);
+    let event = vec![SpatialChannelEvent {
+        channel_idx: 0,
+        is_bed: false,
+        gain_db: Some(0),
+        ramp_length: Some(BLOCK_SAMPLES as u32),
+        size: Some([0.0, 0.0, 0.0]),
+        position: Some(position),
+        sample_pos: Some(0),
+    }];
+
+    let mut buf = Vec::new();
+    for _ in 0..PRIME_BLOCKS {
+        let f = r
+            .render_frame(&pcm, 1, &event, buf, false)
+            .expect("prime binaural ITD render");
+        buf = f.samples;
+        buf.clear();
+    }
+
+    let mut left = Vec::with_capacity(blocks * BLOCK_SAMPLES);
+    let mut right = Vec::with_capacity(blocks * BLOCK_SAMPLES);
+    for _ in 0..blocks {
+        let f = r
+            .render_frame(&pcm, 1, &event, buf, false)
+            .expect("binaural ITD render");
+        for frame in f.samples.chunks_exact(2) {
+            left.push(frame[0]);
+            right.push(frame[1]);
+        }
+        buf = f.samples;
+        buf.clear();
+    }
+    (left, right)
+}

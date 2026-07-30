@@ -30,6 +30,9 @@ pub mod reflections;
 pub mod reverb;
 pub mod tracking;
 
+#[cfg(test)]
+mod validation;
+
 pub use head_pose::HeadPose;
 pub use tracking::{HeadTracking, HeadTrackingFormat};
 
