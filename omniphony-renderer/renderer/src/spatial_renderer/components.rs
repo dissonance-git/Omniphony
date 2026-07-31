@@ -121,6 +121,16 @@ pub struct SpatialChannelEvent {
 /// Per-channel state for movement detection and gain ramping
 #[derive(Clone)]
 pub(super) struct ChannelState {
+    /// Has this channel ever received metadata?
+    ///
+    /// The state used to live in a `HashMap`, where *absence* carried this
+    /// meaning — a missing entry read as −128 dB (silent) while a
+    /// default-constructed one reads as 0 dB (unity). Moving to a
+    /// preallocated `Vec` makes every channel present, so the distinction
+    /// has to be explicit or every stream would start at unity instead of
+    /// silent.
+    pub(super) initialized: bool,
+
     /// Gain in dB
     pub(super) gain_db: i8,
 
@@ -169,6 +179,7 @@ impl ChannelState {
 impl Default for ChannelState {
     fn default() -> Self {
         Self {
+            initialized: false,
             gain_db: -128, // -inf dB (muted)
             slewed_gain: 0.0,
             ramp: ChannelRampState::default(),

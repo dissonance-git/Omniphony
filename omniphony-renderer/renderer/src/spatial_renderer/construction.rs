@@ -577,7 +577,10 @@ impl SpatialRenderer {
             channel_routing: arc_swap::ArcSwap::new(std::sync::Arc::new(Vec::new())),
             first_render: std::sync::atomic::AtomicBool::new(true),
             frame_counter: std::sync::atomic::AtomicU64::new(0),
-            channel_states: parking_lot::Mutex::new(std::collections::HashMap::new()),
+            // Preallocated so a first block never allocates. Grows only if a
+            // stream carries more channels than this.
+            channel_states: Vec::with_capacity(64),
+            reset_requested: std::sync::atomic::AtomicBool::new(false),
             sample_rate,
             distance_model,
             log_object_positions,

@@ -966,8 +966,7 @@ fn binaural_object_ramp_advances_and_lateralizes() {
 
     let pos = r
         .channel_states
-        .lock()
-        .get(&0)
+        .get(0)
         .expect("channel state")
         .ramp
         .current_position;
