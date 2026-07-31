@@ -55,3 +55,33 @@ fn null_crossover_bands() {
     );
     assert_matches_golden("crossover_bands", &out, channels);
 }
+
+/// Half the channels never receive metadata.
+///
+/// The other scenes send events for every object, so none of them exercises
+/// what a channel does with no cached metadata at all.
+///
+/// Honest scope: this scene does *not* discriminate the one case that motivated
+/// it. Filtering the channel-state lookup on `initialized` — which makes the
+/// "missing cached metadata, skipping" arm reachable — leaves this golden
+/// unchanged, because such a channel still reads a default 0 dB gain and
+/// renders the same either way. The scene is kept for the coverage it does add:
+/// it is the only null test where the object count and the metadata count
+/// differ, which is the shape a real stream takes when objects appear
+/// mid-stream.
+#[test]
+fn null_partial_metadata() {
+    let (mut r, _) = prepared("7.1.4", N_OBJECTS, RampMode::Frame, true, false);
+    let pcm = make_pcm(N_OBJECTS);
+    let out = dsp_fixtures::scene::render_blocks_partial_metadata(
+        &mut r,
+        &pcm,
+        N_OBJECTS,
+        N_OBJECTS / 2,
+        BLOCKS,
+        MOVE_EVERY,
+    );
+    let channels = out.len() / (BLOCKS * dsp_fixtures::scene::BLOCK_SAMPLES);
+    assert_eq!(channels, 12, "7.1.4 must render 12 speaker channels");
+    assert_matches_golden("partial_metadata", &out, channels);
+}

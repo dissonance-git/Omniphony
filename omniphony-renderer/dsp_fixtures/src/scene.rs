@@ -357,6 +357,39 @@ pub fn render_blocks(
     out
 }
 
+/// Render blocks where only *some* channels ever receive metadata.
+///
+/// `metadata_channels` gives events; the rest never do. This exercises the
+/// branch a channel takes when it has no cached metadata — a path the other
+/// null scenes never reach, because they send events for every object. A
+/// refactor once made that branch skip such channels entirely and every
+/// existing golden still matched.
+pub fn render_blocks_partial_metadata(
+    r: &mut SpatialRenderer,
+    pcm: &[f32],
+    n_objects: usize,
+    metadata_channels: usize,
+    blocks: usize,
+    move_every: usize,
+) -> Vec<f32> {
+    let mut out = Vec::new();
+    let mut buf = Vec::new();
+    for round in 0..blocks {
+        let events = if move_every > 0 && round % move_every == 0 {
+            move_events(metadata_channels, round as u64 + 1)
+        } else {
+            Vec::new()
+        };
+        let frame = r
+            .render_frame(pcm, n_objects, &events, buf, false)
+            .expect("render_frame in partial-metadata scene");
+        out.extend_from_slice(&frame.samples);
+        buf = frame.samples;
+        buf.clear();
+    }
+    out
+}
+
 /// Render one object at a fixed horizontal azimuth through the binaural path,
 /// returning deinterleaved `(left, right)`.
 ///
