@@ -998,10 +998,13 @@ impl SpatialRenderer {
                     );
                 }
             } else {
-                let state_mut = self
-                    .channel_states
-                    .get_mut(input_channel_idx)
-                    .filter(|s| s.initialized);
+                // Deliberately NOT filtered on `initialized`: the `state_mut`
+                // call above already created this channel's entry earlier in
+                // this same iteration, so the HashMap version was always `Some`
+                // here and the `None` arm below was unreachable. Filtering
+                // would make it reachable and start skipping channels that
+                // previously rendered with default state.
+                let state_mut = self.channel_states.get_mut(input_channel_idx);
                 let state = match state_mut {
                     // Skip if no metadata available
                     Some(s) => s,

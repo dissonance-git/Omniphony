@@ -78,6 +78,17 @@ fn itd_magnitude_tracks_the_model() {
     }
 }
 
+/// Observed flaking once in three full `cargo test --release --workspace` runs
+/// while passing in isolation and on re-run. Not reproduced since, and not
+/// dismissed: `ensure_denormals_flushed` sets FTZ/DAZ per *thread*
+/// (spatial_renderer/mod.rs), so under test parallelism a render can land on a
+/// thread whose FP environment differs, and a denormal-range difference can
+/// flip a near-tied cross-correlation peak. `estimate_lag_checked` rejects an
+/// ambiguous peak, but this test compares two independently measured lags, so a
+/// flip surfaces as a failed sum rather than an ambiguity error.
+///
+/// If it recurs, the fix is to claim the FP environment inside the measurement
+/// rather than rely on whichever thread the harness picked.
 #[test]
 fn itd_is_antisymmetric_about_the_median_plane() {
     let centre = measured_lag(0.0);
