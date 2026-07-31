@@ -1567,3 +1567,6 @@ mod tests;
 
 #[cfg(test)]
 mod golden_tests;
+
+#[cfg(test)]
+mod perf_gate;
