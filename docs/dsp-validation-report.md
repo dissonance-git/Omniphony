@@ -350,3 +350,22 @@ than to theorise about pruning again.
 
 Both prior attempts assumed they knew why the source missed the dummy triangle.
 Neither checked. That is the check to run first.
+
+## Pre-existing: state leaks past `reset_runtime_state`
+
+`reset_runtime_state` is called on decoder reset and stream restart from four
+places outside the renderer (`orender_engine/src/engine.rs` 649/810/871,
+`src/cli/decode/spatial_metadata.rs:86`). A reset stream must not inherit the
+previous one's positions or gains.
+
+It does. Rendering a stream, resetting, and rendering again does **not** match a
+freshly-constructed renderer fed the same blocks: peak residual −20.3 dBFS
+against a −120 dBFS gate.
+
+This is **not** a regression from the channel-state refactor. The same test
+fails identically on the code before it, so clearing `channel_states` — whether
+synchronously under a mutex or via the deferred flag that replaced it — was
+never sufficient to restore the renderer's initial condition. Something outside
+that map survives a reset; identifying it is a separate investigation.
+
+Tracked by `reset_runtime_state_matches_a_fresh_renderer`, deferred.
