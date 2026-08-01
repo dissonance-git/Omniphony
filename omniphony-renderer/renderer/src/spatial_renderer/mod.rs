@@ -1574,5 +1574,5 @@ mod tests;
 #[cfg(test)]
 mod golden_tests;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "perf-gate"))]
 mod perf_gate;

@@ -1102,6 +1102,12 @@ mod yield_tests {
 
     #[test]
     fn bind_succeeds_on_free_port() {
+        // Take SERIAL like every other test in this module. `free_port` binds
+        // port 0, reads the assigned port and drops the socket, so the port is
+        // free-but-unclaimed until `bind_rx_socket` takes it. Without the lock
+        // a sibling test can win that window and this one fails with
+        // EADDRINUSE — observed as a flake in a repeated release run.
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let port = free_port();
         let socket = bind_rx_socket(port, true, Duration::from_millis(200)).expect("free port");
         assert_eq!(socket.local_addr().unwrap().port(), port);
