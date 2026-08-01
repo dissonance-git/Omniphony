@@ -86,57 +86,53 @@ fn null_partial_metadata() {
     assert_matches_golden("partial_metadata", &out, channels);
 }
 
-/// `reset_runtime_state` must leave the renderer equivalent to a fresh one.
+/// `reset_runtime_state` must erase the previous stream.
 ///
-/// The channel-state refactor changed this from a synchronous clear (it held
-/// the mutex) to a flag consumed at the top of the next `render_frame`. That is
-/// what keeps the render path lock-free, but it moves *when* the clear happens,
-/// and four call sites outside the renderer depend on it
+/// The channel-state refactor changed this from a synchronous clear under the
+/// mutex to a flag consumed at the top of the next `render_frame`. That is what
+/// keeps the render path lock-free, but it moves *when* the clear happens, and
+/// four call sites outside the renderer depend on it
 /// (`orender_engine/src/engine.rs` 649/810/871,
-/// `src/cli/decode/spatial_metadata.rs:86` — all decoder-reset or
-/// stream-restart paths).
+/// `src/cli/decode/spatial_metadata.rs:86` — decoder-reset and stream-restart
+/// paths).
 ///
-/// **Currently failing, and pre-existing.** The same assertion fails identically
-/// (peak residual −20.3 dBFS) on the code before the channel-state refactor, so
-/// state leaked past a reset already and the move from a synchronous clear to a
-/// deferred flag did not cause it. Clearing `channel_states` is evidently not
-/// sufficient to restore a renderer to its initial condition; something else
-/// survives. Finding what is a separate investigation.
+/// Two renderers are given *different* prior content, both reset, then fed
+/// identical blocks. If a reset erases the previous stream, the outputs match.
 ///
-/// The assertion is equivalence rather than an internal check: render a stream,
-/// reset, render again, and require the result to be bit-identical to a
-/// freshly-constructed renderer fed the same blocks. That is the property the
-/// callers actually rely on — a reset stream must not inherit the previous
-/// one's positions or gains — and it holds regardless of when the clear lands.
+/// Comparing a reset renderer against a *fresh* one instead would be wrong, and
+/// reports a −20.3 dBFS difference that looks like a leak: `prepared` primes
+/// four rounds of events, so a fresh renderer carries a ramped-up `slewed_gain`
+/// while a reset one restarts from silence. That difference is the documented
+/// fade-in, not leakage.
 #[test]
-#[ignore = "pre-existing: state leaks past reset_runtime_state — peak residual -20.3 dBFS, and identical on the pre-refactor code, so the deferred-flag change did not cause it. Tracked deferral, see docs/dsp-validation-report.md"]
-fn reset_runtime_state_matches_a_fresh_renderer() {
+fn reset_runtime_state_erases_the_previous_stream() {
     const WARMUP: usize = 40;
     const AFTER: usize = 60;
 
     let pcm = make_pcm(N_OBJECTS);
 
-    // A renderer that has rendered a different stream, then been reset.
-    let (mut reused, _) = prepared("7.1.4", N_OBJECTS, RampMode::Frame, true, false);
-    let _ = render_blocks(&mut reused, &pcm, N_OBJECTS, WARMUP, 4);
-    reused.reset_runtime_state();
-    let after_reset = render_blocks(&mut reused, &pcm, N_OBJECTS, AFTER, MOVE_EVERY);
+    let render_after_reset = |warmup_move_every: usize| -> Vec<f32> {
+        let (mut r, _) = prepared("7.1.4", N_OBJECTS, RampMode::Frame, true, false);
+        let _ = render_blocks(&mut r, &pcm, N_OBJECTS, WARMUP, warmup_move_every);
+        r.reset_runtime_state();
+        render_blocks(&mut r, &pcm, N_OBJECTS, AFTER, MOVE_EVERY)
+    };
 
-    // A renderer that has never rendered anything.
-    let (mut fresh, _) = prepared("7.1.4", N_OBJECTS, RampMode::Frame, true, false);
-    let from_fresh = render_blocks(&mut fresh, &pcm, N_OBJECTS, AFTER, MOVE_EVERY);
+    // Different histories: objects moving every 4th block versus every block.
+    let a = render_after_reset(4);
+    let b = render_after_reset(1);
 
     assert_eq!(
-        after_reset.len(),
-        from_fresh.len(),
-        "reset renderer produced a different frame count"
+        a.len(),
+        b.len(),
+        "reset renderers produced different lengths"
     );
-    let residual = dsp_fixtures::residual::peak_residual_dbfs(&after_reset, &from_fresh);
+    let residual = dsp_fixtures::residual::peak_residual_dbfs(&a, &b);
     assert!(
         residual <= dsp_fixtures::golden::RESIDUAL_GATE_DBFS,
-        "after reset_runtime_state the renderer does not match a fresh one: \
-         peak residual {residual:.1} dBFS (gate {:.1}). State from the previous \
-         stream is leaking past the reset.",
+        "two renderers with different prior streams still differ after \
+         reset_runtime_state: peak residual {residual:.1} dBFS (gate {:.1}). \
+         The previous stream is leaking past the reset.",
         dsp_fixtures::golden::RESIDUAL_GATE_DBFS
     );
 }

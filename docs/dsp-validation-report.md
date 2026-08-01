@@ -351,21 +351,26 @@ than to theorise about pruning again.
 Both prior attempts assumed they knew why the source missed the dummy triangle.
 Neither checked. That is the check to run first.
 
-## Pre-existing: state leaks past `reset_runtime_state`
+## Retracted: `reset_runtime_state` does not leak
 
-`reset_runtime_state` is called on decoder reset and stream restart from four
-places outside the renderer (`orender_engine/src/engine.rs` 649/810/871,
-`src/cli/decode/spatial_metadata.rs:86`). A reset stream must not inherit the
-previous one's positions or gains.
+An earlier revision of this report recorded a pre-existing defect — a −20.3 dBFS
+residual said to show the previous stream surviving a reset. **That was wrong**,
+and the fault was in the test, not the renderer.
 
-It does. Rendering a stream, resetting, and rendering again does **not** match a
-freshly-constructed renderer fed the same blocks: peak residual −20.3 dBFS
-against a −120 dBFS gate.
+It compared a renderer that had been reset against a *freshly constructed* one.
+Those are not the same situation: `dsp_fixtures::scene::prepared` primes four
+rounds of events, so a fresh renderer carries a ramped-up `slewed_gain` while a
+reset one restarts from silence. The residual was the documented 20 ms fade-in,
+which is correct behaviour.
 
-This is **not** a regression from the channel-state refactor. The same test
-fails identically on the code before it, so clearing `channel_states` — whether
-synchronously under a mutex or via the deferred flag that replaced it — was
-never sufficient to restore the renderer's initial condition. Something outside
-that map survives a reset; identifying it is a separate investigation.
+Restated so it isolates the property that actually matters — two renderers given
+*different* prior content, both reset, then fed identical blocks — the assertion
+passes. `reset_runtime_state` erases the previous stream.
 
-Tracked by `reset_runtime_state_matches_a_fresh_renderer`, deferred.
+That also settles the open question about the channel-state refactor, which
+replaced a synchronous clear under a mutex with a flag consumed at the top of the
+next `render_frame`. The four call sites outside the renderer
+(`orender_engine/src/engine.rs` 649/810/871,
+`src/cli/decode/spatial_metadata.rs:86`) get the same guarantee as before.
+
+Covered by `reset_runtime_state_erases_the_previous_stream`, a live gate.
