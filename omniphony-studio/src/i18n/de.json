@@ -68,6 +68,7 @@
   "help.osc.omniphonyPort": "UDP-Port, auf dem orender (der Renderer) Steuerung empfängt und Zustand sendet.",
   "help.osc.listenPort": "Lokaler UDP-Port, auf dem Studio auf OSC-Zustand lauscht. 0 lässt das System einen wählen.",
   "help.osc.autoStartRenderer": "Wenn auf einem lokalen Ziel (127.x) nichts antwortet, startet Studio automatisch einen Standby-Renderer. Er gibt den OSC-Port während der Wiedergabe an einen in mpv eingebetteten Renderer ab und kehrt zurück, wenn mpv beendet wird.",
+  "help.osc.mpvOrender": "mpv nutzt die Engine nur auf Anforderung (ad=orender). Dies schreibt diese Zeile in Ihre mpv.conf, in einen markierten Block vor allen Profilabschnitten, damit sie global gilt. Beim Deaktivieren wird die Zeile auskommentiert; sonst wird nichts verändert.",
   "help.osc.keepRendererAlive": "Den von Studio gestarteten Renderer nach dem Schließen von Studio weiterlaufen lassen. Aus (Standard): er beendet sich mit Studio.",
   "help.osc.metering": "Streamt Pegel pro Objekt und pro Lautsprecher über OSC, um die Anzeigen in der UI zu speisen. Die Rate (Hz) bestimmt, wie oft Pegel veröffentlicht werden — höher ist flüssiger, aber mehr Datenverkehr.",
   "help.display.language": "UI-Sprache. „Auto“ folgt deiner Systemsprache; andernfalls wird die gewählte Sprache für allen Studio-Text verwendet.",
@@ -126,6 +127,9 @@
   "osc.listenPort": "Listen-Port",
   "osc.autoStartRenderer": "Lokalen Renderer automatisch starten",
   "osc.keepRendererAlive": "Renderer beim Beenden weiterlaufen lassen",
+  "osc.mpvOrender": "In mpv-Konfiguration aktivieren",
+  "osc.mpvOrenderPath": "Verwaltet in {path}",
+  "osc.mpvOrenderConflict": "Zeile {line} legt bereits einen Decoder fest: {text}. Entfernen Sie sie, um diesen Schalter zu nutzen.",
   "osc.metering": "Pegelung",
   "osc.connect": "Verbinden",
   "osc.service.install": "Dienst installieren",
@@ -784,5 +788,8 @@
   "backendParamHelp.size_to_spread_mode": "Wie ein 3-D-Objektgrößen-Triplett (B, T, H) auf einen skalaren Spread reduziert wird. Objektgrößen-Spread wird live angewendet und nur in der Echtzeit-Auswertung berücksichtigt.",
   "backendParamOption.size_to_spread_mode.max": "Max. Achse",
   "backendParamOption.size_to_spread_mode.mean": "Mittel der Achsen",
-  "backendParamOption.size_to_spread_mode.projection_perpendicular": "Senkrechte Projektion"
+  "backendParamOption.size_to_spread_mode.projection_perpendicular": "Senkrechte Projektion",
+  "log.mpvOrenderEnabled": "orender in {path} aktiviert",
+  "log.mpvOrenderDisabled": "orender in {path} auskommentiert",
+  "log.mpvOrenderFailed": "Änderung der mpv-Konfiguration fehlgeschlagen: {error}"
 }

@@ -68,6 +68,7 @@
   "help.osc.omniphonyPort": "Port UDP sur lequel orender (le renderer) reçoit les contrôles et envoie l'état.",
   "help.osc.listenPort": "Port UDP local sur lequel Studio écoute l'état OSC. 0 laisse le système en choisir un.",
   "help.osc.autoStartRenderer": "Quand rien ne répond sur une cible locale (127.x), Studio lance automatiquement un renderer de veille. Il cède le port OSC à un renderer embarqué dans mpv pendant la lecture et revient quand mpv se ferme.",
+  "help.osc.mpvOrender": "mpv n'utilise le moteur que si on le lui demande (ad=orender). Cette option écrit cette ligne dans votre mpv.conf, dans un bloc balisé placé avant toute section de profil pour qu'elle s'applique globalement. La désactiver commente la ligne ; rien d'autre n'est modifié.",
   "help.osc.keepRendererAlive": "Laisser tourner le renderer lancé par Studio après la fermeture de Studio. Désactivé (défaut) : il s'arrête avec Studio.",
   "help.osc.metering": "Diffuse les niveaux par objet et par enceinte via OSC pour alimenter les vumètres de l'interface. Le débit (Hz) règle la fréquence de publication des niveaux — plus haut est plus fluide mais génère plus de trafic.",
   "help.display.language": "Langue de l'interface. « Auto » suit la langue de ton système ; sinon la langue choisie s'applique à tout le texte de Studio.",
@@ -126,6 +127,9 @@
   "osc.listenPort": "Port d'écoute",
   "osc.autoStartRenderer": "Démarrage auto du renderer local",
   "osc.keepRendererAlive": "Garder le renderer actif en quittant",
+  "osc.mpvOrender": "Activer dans la config mpv",
+  "osc.mpvOrenderPath": "Géré dans {path}",
+  "osc.mpvOrenderConflict": "La ligne {line} définit déjà un décodeur : {text}. Supprimez-la pour utiliser ce commutateur.",
   "osc.metering": "Mesure",
   "osc.connect": "Connecter",
   "osc.service.install": "Installer le service",
@@ -784,5 +788,8 @@
   "backendParamHelp.size_to_spread_mode": "Comment un triplet de taille d'objet 3D (l, p, h) est réduit à un spread scalaire. Le spread basé sur la taille d'objet est appliqué en direct et n'est honoré qu'en évaluation temps réel.",
   "backendParamOption.size_to_spread_mode.max": "Axe max",
   "backendParamOption.size_to_spread_mode.mean": "Moyenne des axes",
-  "backendParamOption.size_to_spread_mode.projection_perpendicular": "Projection perpendiculaire"
+  "backendParamOption.size_to_spread_mode.projection_perpendicular": "Projection perpendiculaire",
+  "log.mpvOrenderEnabled": "orender activé dans {path}",
+  "log.mpvOrenderDisabled": "orender commenté dans {path}",
+  "log.mpvOrenderFailed": "Échec de la modification de la config mpv : {error}"
 }
