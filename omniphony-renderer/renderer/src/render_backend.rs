@@ -1999,6 +1999,42 @@ mod size_interval_tests {
         }
     }
 
+    /// A bridge that advertises `allow_negative_z` does not imply the cartesian
+    /// grid has negative-z cells (`z_neg_size` defaults to 0). Below-horizon
+    /// requests against such a table must clamp onto the `z = 0` plane — finite
+    /// gains, identical to the same position at `z = 0` — never an
+    /// out-of-bounds lookup or an extrapolation. The realtime path has no grid
+    /// and reaches the panner's out-of-hull handling directly.
+    #[test]
+    fn cartesian_without_neg_cells_clamps_below_horizon_requests() {
+        let table = engine(EffectiveEvaluationMode::PrecomputedCartesian, 0, [0.0; 3]);
+        for (below, at_plane) in [
+            ([0.3, 0.1, -0.4], [0.3, 0.1, 0.0]),
+            ([-0.6, 0.2, -1.0], [-0.6, 0.2, 0.0]),
+            ([0.0, 0.0, -1.0], [0.0, 0.0, 0.0]),
+        ] {
+            let below_gains = table.compute_gains(&request(below, [0.0; 3])).gains;
+            let plane_gains = table.compute_gains(&request(at_plane, [0.0; 3])).gains;
+            for g in below_gains.iter() {
+                assert!(g.is_finite(), "non-finite gain for {below:?}");
+            }
+            assert_close(&below_gains, &plane_gains, 1e-6);
+        }
+
+        let realtime = engine(EffectiveEvaluationMode::Realtime, 0, [0.0; 3]);
+        let gains = realtime
+            .compute_gains(&request([0.3, 0.1, -0.4], [0.0; 3]))
+            .gains;
+        let energy: f32 = gains.iter().map(|g| g * g).sum::<f32>().sqrt();
+        for g in gains.iter() {
+            assert!(g.is_finite(), "non-finite realtime gain below the horizon");
+        }
+        assert!(
+            energy > 0.5,
+            "below-horizon realtime request should render at level, got rms {energy}"
+        );
+    }
+
     /// At the sampled endpoints (size 0 and size 1) the interval engine reproduces
     /// the single tables frozen at those sizes, and object size visibly matters.
     fn endpoints_match_frozen_tables(mode: EffectiveEvaluationMode) {
