@@ -40,7 +40,7 @@ fn panner_for(preset: &str) -> (NativeVbapLayout, usize) {
         .collect();
     let n = dirs.len();
     (
-        NativeVbapLayout::from_speaker_dirs(&dirs).expect("triplet search"),
+        NativeVbapLayout::from_speaker_dirs(&dirs, Default::default()).expect("triplet search"),
         n,
     )
 }

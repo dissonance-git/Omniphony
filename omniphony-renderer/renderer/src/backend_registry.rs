@@ -230,6 +230,10 @@ pub struct VbapTopologyBuildPlan {
     pub diffuse: bool,
     pub diffuse_thr: f32,
     pub diffuse_curve: f32,
+    /// Out-of-hull rendering mode, baked into the panner at build (it shapes
+    /// the triangulation in `VirtualPoles`). Sourced from the live options;
+    /// a change rebuilds the topology (`OptionFlags::REBUILD`).
+    pub out_of_hull_mode: crate::spatial_vbap::OutOfHullMode,
 }
 
 impl VbapTopologyBuildPlan {
@@ -245,6 +249,7 @@ impl VbapTopologyBuildPlan {
             self.azimuth_resolution,
             self.elevation_resolution,
             0.0,
+            self.out_of_hull_mode,
         ) {
             Ok(panner) => panner.with_negative_z(self.allow_negative_z),
             // Degenerate geometry (collinear/coplanar, or a speaker at the
@@ -574,6 +579,7 @@ fn build_vbap_build_plan(
         diffuse: live.use_distance_diffuse,
         diffuse_thr: live.distance_diffuse_threshold,
         diffuse_curve: live.distance_diffuse_curve,
+        out_of_hull_mode: live.out_of_hull_vbap_mode(),
     }))
 }
 

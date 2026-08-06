@@ -1935,7 +1935,7 @@ mod size_interval_tests {
     /// default spread range is [0, 1], so a non-zero `event_size` widens the pan.
     fn make_model() -> Box<dyn GainModel> {
         let positions = [[-30.0, 0.0], [30.0, 0.0], [-110.0, 0.0], [110.0, 0.0]];
-        let panner = VbapPanner::new(&positions, 5, 5, 0.0)
+        let panner = VbapPanner::new(&positions, 5, 5, 0.0, Default::default())
             .expect("panner")
             .with_negative_z(true);
         Box::new(VbapBackend::new(panner, VbapSpreadParams::default()))

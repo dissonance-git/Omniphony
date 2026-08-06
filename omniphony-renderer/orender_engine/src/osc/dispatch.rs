@@ -83,13 +83,13 @@ pub(crate) fn handle_control_message(
             return;
         };
         if let Some(raw) = raw_option_value(msg.args.get(1)) {
-            apply_live_option(control, spec, &raw, socket, clients);
+            apply_live_option(control, spec, &raw, socket, clients, gaintable_cache);
         }
         return;
     }
     if let Some(spec) = renderer::options::find_by_legacy_addr(addr) {
         if let Some(raw) = raw_option_value(msg.args.first()) {
-            apply_live_option(control, spec, &raw, socket, clients);
+            apply_live_option(control, spec, &raw, socket, clients, gaintable_cache);
         }
         return;
     }
@@ -668,16 +668,19 @@ fn raw_option_value(arg: Option<&OscType>) -> Option<renderer::options::RawOptio
 
 /// Registry-driven application of a declared live option: validate + apply via
 /// `options::apply_to_control` (which marks dirty and bumps the replan epoch
-/// on a real change), then commit to config.yaml (`PERSIST`) and notify
-/// clients. Invalid values are dropped with a warning, per the OSC contract.
+/// on a real change), then commit to config.yaml (`PERSIST`), notify clients,
+/// and — for `REBUILD`-flagged options that actually changed — bump the
+/// geometry generation and trigger the same topology recompute a speaker-layout
+/// edit does. Invalid values are dropped with a warning, per the OSC contract.
 fn apply_live_option(
     control: &Arc<RendererControl>,
     spec: &'static renderer::options::OptionSpec,
     raw: &renderer::options::RawOptionValue,
     socket: &Arc<UdpSocket>,
     clients: &Arc<OscClientRegistry>,
+    gaintable_cache: &Arc<GaintableCache>,
 ) {
-    let Some(canonical) = renderer::options::apply_to_control(control, spec, raw) else {
+    let Some(applied) = renderer::options::apply_to_control(control, spec, raw) else {
         log::warn!("OSC option {}: rejected value", spec.key);
         return;
     };
@@ -690,7 +693,11 @@ fn apply_live_option(
         }
     }
     broadcast_int(socket, clients, osc_contract::STATE_CONFIG_SAVED, 0);
-    log::info!("OSC option {} set to '{}'", spec.key, canonical);
+    log::info!("OSC option {} set to '{}'", spec.key, applied.canonical);
+    if applied.changed && spec.flags.contains(renderer::options::OptionFlags::REBUILD) {
+        control.bump_geometry_generation();
+        trigger_layout_recompute(control, socket, clients, gaintable_cache);
+    }
 }
 
 /// Targeted, sidecar-clearing config write shared by every per-option persist.

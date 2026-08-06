@@ -29,11 +29,13 @@
 //! missing a layer.
 
 use crate::config::RenderConfig;
-use crate::live_params::{LiveParams, OutputChannelMapping, PhantomExtractMode, SurroundPlacement};
+use crate::live_params::{
+    LiveParams, OutOfHullPanning, OutputChannelMapping, PhantomExtractMode, SurroundPlacement,
+};
 
 /// What kind of value an option takes. Drives wire validation, the published
 /// schema, and (later) which Studio control the binder renders.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OptionKind {
     /// Boolean toggle; accepts int/float (0 = false) and bool on the wire.
     Bool,
@@ -43,6 +45,11 @@ pub enum OptionKind {
     Enum(&'static [&'static str]),
     /// Free-form string (e.g. a registry id).
     Str,
+    /// Bounded scalar. The setter clamps to `[min, max]`; `step` is a UI
+    /// hint only (the engine accepts any in-range value). Mirrors the
+    /// object-generator param-schema shape so Studio renders the same
+    /// numeric controls.
+    F32 { min: f32, max: f32, step: f32 },
 }
 
 /// Behaviour flags, interpreted generically by the plumbing layers.
@@ -60,6 +67,12 @@ impl OptionFlags {
     /// `RendererControl::options_epoch`, which plan signatures compare instead
     /// of enumerating options field by field.
     pub const REPLAN: Self = Self(1 << 1);
+    /// A change alters the backend geometry (triangulation / baked build
+    /// params): on a real change the transport bumps the geometry generation
+    /// and triggers a full topology rebuild, exactly like a speaker-layout
+    /// edit. Implies the cost of a recompute — reserve it for options the
+    /// gain models bake at construction.
+    pub const REBUILD: Self = Self(1 << 2);
 
     pub const fn or(self, other: Self) -> Self {
         Self(self.0 | other.0)
@@ -75,6 +88,7 @@ impl OptionFlags {
 pub enum OptionDefault {
     Bool(bool),
     Str(&'static str),
+    F32(f32),
 }
 
 impl OptionDefault {
@@ -82,6 +96,7 @@ impl OptionDefault {
         match self {
             Self::Bool(b) => b.into(),
             Self::Str(s) => s.into(),
+            Self::F32(v) => v.into(),
         }
     }
 }
@@ -239,6 +254,66 @@ pub static LIVE_OPTIONS: &[OptionSpec] = &[
         },
     },
     OptionSpec {
+        key: "out_of_hull_mode",
+        kind: OptionKind::Enum(&["blend", "virtual_poles"]),
+        default: OptionDefault::Str("blend"),
+        flags: OptionFlags::PERSIST.or(OptionFlags::REBUILD),
+        i18n_key: "rendering.outOfHullLabel",
+        help_i18n_key: Some("help.outOfHull"),
+        legacy_control_addr: "/omniphony/control/out_of_hull_mode",
+        set: |live, raw| match raw {
+            RawOptionValue::Str(s) => {
+                let mode = OutOfHullPanning::from_str(s)?;
+                live.out_of_hull_mode = mode;
+                Some(mode.as_str().to_string())
+            }
+            _ => None,
+        },
+        get_json: |live| live.out_of_hull_mode.as_str().into(),
+        config_store: |render, live| {
+            crate::config_fields::out_of_hull_mode::store(render, live.out_of_hull_mode)
+        },
+        config_seed: |live, render| {
+            if let Some(mode) = crate::config_fields::out_of_hull_mode::get(render) {
+                live.out_of_hull_mode = mode;
+            }
+        },
+    },
+    OptionSpec {
+        key: "fold_blend_power",
+        kind: OptionKind::F32 {
+            min: 1.0,
+            max: 64.0,
+            step: 1.0,
+        },
+        default: OptionDefault::F32(12.0),
+        flags: OptionFlags::PERSIST.or(OptionFlags::REBUILD),
+        i18n_key: "rendering.foldBlendPowerLabel",
+        help_i18n_key: Some("help.foldBlendPower"),
+        legacy_control_addr: "/omniphony/control/fold_blend_power",
+        set: |live, raw| {
+            let v = match raw {
+                RawOptionValue::Number(n) => *n as f32,
+                RawOptionValue::Str(s) => s.trim().parse::<f32>().ok()?,
+                RawOptionValue::Bool(_) => return None,
+            };
+            if !v.is_finite() {
+                return None;
+            }
+            live.fold_blend_power = v.clamp(1.0, 64.0);
+            Some(format!("{}", live.fold_blend_power))
+        },
+        get_json: |live| live.fold_blend_power.into(),
+        config_store: |render, live| {
+            crate::config_fields::fold_blend_power::store(render, live.fold_blend_power)
+        },
+        config_seed: |live, render| {
+            if let Some(power) = crate::config_fields::fold_blend_power::get(render) {
+                live.fold_blend_power = power.clamp(1.0, 64.0);
+            }
+        },
+    },
+    OptionSpec {
         key: "phantom_extract_mode",
         kind: OptionKind::Enum(&["off", "broadband", "spectral"]),
         default: OptionDefault::Str("off"),
@@ -288,20 +363,29 @@ pub fn find(key: &str) -> Option<&'static OptionSpec> {
     LIVE_OPTIONS.iter().find(|spec| spec.key == key)
 }
 
+/// Outcome of a successful [`apply_to_control`]: the canonical value applied,
+/// and whether the stored value actually changed (drives the `REBUILD`
+/// transport follow-up the same way the epoch bump gates on it).
+pub struct AppliedOption {
+    pub canonical: String,
+    pub changed: bool,
+}
+
 /// Apply a client value to a control's live params through `spec`: validate +
 /// set, mark the config dirty, and bump the replan epoch when a
 /// `REPLAN`-flagged option **actually changed value** — a redundant re-send
 /// (Studio reconnecting, a client echoing state back) must not force a
 /// re-plan, which can carry an audible re-prime transient. Returns the
-/// canonical value applied, or `None` when the value was rejected.
+/// applied outcome, or `None` when the value was rejected.
 ///
-/// Persistence and client notification stay with the transport layer (the OSC
-/// dispatcher), which alone knows the config path and the subscriber list.
+/// Persistence, client notification and the `REBUILD` topology recompute stay
+/// with the transport layer (the OSC dispatcher), which alone knows the config
+/// path, the subscriber list and the rebuild machinery.
 pub fn apply_to_control(
     control: &crate::live_params::RendererControl,
     spec: &OptionSpec,
     raw: &RawOptionValue,
-) -> Option<String> {
+) -> Option<AppliedOption> {
     let (canonical, changed) = {
         let mut live = control.live.write();
         let before = (spec.get_json)(&live);
@@ -313,7 +397,7 @@ pub fn apply_to_control(
     if changed && spec.flags.contains(OptionFlags::REPLAN) {
         control.bump_options_epoch();
     }
-    Some(canonical)
+    Some(AppliedOption { canonical, changed })
 }
 
 /// Look an option up by its pre-registry dedicated control address.
@@ -425,6 +509,7 @@ pub fn schema_json() -> String {
                 OptionKind::Bool => ("bool", None),
                 OptionKind::Enum(values) => ("enum", Some(values)),
                 OptionKind::Str => ("string", None),
+                OptionKind::F32 { .. } => ("f32", None),
             };
             let mut flags = Vec::new();
             if spec.flags.contains(OptionFlags::PERSIST) {
@@ -442,6 +527,11 @@ pub fn schema_json() -> String {
             });
             if let Some(values) = values {
                 obj["values"] = values.into();
+            }
+            if let OptionKind::F32 { min, max, step } = spec.kind {
+                obj["min"] = min.into();
+                obj["max"] = max.into();
+                obj["step"] = step.into();
             }
             if let Some(help) = spec.help_i18n_key {
                 obj["helpI18nKey"] = help.into();
@@ -488,6 +578,27 @@ mod tests {
                     "{}: default '{}' missing from values",
                     spec.key,
                     default
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn f32_bounds_are_sane_and_defaults_in_range() {
+        for spec in LIVE_OPTIONS {
+            if let OptionKind::F32 { min, max, step } = spec.kind {
+                assert!(min < max, "{}: min {} !< max {}", spec.key, min, max);
+                assert!(step > 0.0, "{}: step must be positive", spec.key);
+                let OptionDefault::F32(default) = spec.default else {
+                    panic!("{}: F32 option needs an F32 default", spec.key);
+                };
+                assert!(
+                    (min..=max).contains(&default),
+                    "{}: default {} outside [{}, {}]",
+                    spec.key,
+                    default,
+                    min,
+                    max
                 );
             }
         }

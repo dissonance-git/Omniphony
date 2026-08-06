@@ -268,6 +268,8 @@ mod registry {
             ("synthetic_objects_enabled", RawOptionValue::Bool(true)),
             ("object_generator_id", RawOptionValue::Str("copy_up")),
             ("phantom_extract_mode", RawOptionValue::Str("spectral")),
+            ("out_of_hull_mode", RawOptionValue::Str("virtual_poles")),
+            ("fold_blend_power", RawOptionValue::Number(24.0)),
         ]
     }
 
@@ -375,7 +377,9 @@ mod registry {
 
         let epoch = control.options_epoch();
         assert_eq!(
-            options::apply_to_control(&control, placement, &RawOptionValue::Str("back")).as_deref(),
+            options::apply_to_control(&control, placement, &RawOptionValue::Str("back"))
+                .map(|a| a.canonical)
+                .as_deref(),
             Some("back")
         );
         assert_eq!(control.options_epoch(), epoch + 1, "real change must bump");

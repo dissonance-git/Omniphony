@@ -356,6 +356,23 @@ render_field! {
 }
 
 render_field! {
+    /// Out-of-hull rendering mode: face blend vs BS.2127 virtual poles
+    /// (`render.out_of_hull_mode`). Default `Blend`.
+    pub out_of_hull_mode: crate::live_params::OutOfHullPanning =
+        crate::live_params::OutOfHullPanning::Blend,
+    field = out_of_hull_mode,
+    eq = crate::live_params::OutOfHullPanning::eq
+}
+
+render_field! {
+    /// Face-blend sharpness for the out-of-hull blend mode
+    /// (`render.fold_blend_power`). Default 12 — the historical `score^12`.
+    pub fold_blend_power: f32 = 12.0,
+    field = fold_blend_power,
+    eq = |a: &f32, b: &f32| (a - b).abs() < 1e-6
+}
+
+render_field! {
     /// Derive spread from object distance (`render.spread_from_distance`).
     pub spread_from_distance: bool = false,
     field = spread_from_distance,

@@ -410,7 +410,7 @@ mod tests {
         use crate::spatial_vbap::VbapPanner;
 
         let positions = [[-30.0, 0.0], [30.0, 0.0], [-110.0, 0.0], [110.0, 0.0]];
-        let panner = VbapPanner::new(&positions, 5, 5, 0.0)
+        let panner = VbapPanner::new(&positions, 5, 5, 0.0, Default::default())
             .expect("vbap panner")
             .with_negative_z(true);
         let external: Box<dyn GainModel> = Box::new(VbapBackend::new(
