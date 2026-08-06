@@ -185,7 +185,16 @@ pub struct SpatialRenderer {
     frame_counter: std::sync::atomic::AtomicU64,
 
     /// Per-channel state (movement detection + gain ramping)
-    channel_states: parking_lot::Mutex<std::collections::HashMap<usize, ChannelState>>,
+    /// Per-channel state, indexed by channel. A plain `Vec` owned by `&mut
+    /// self`: `render_frame` takes `&mut self`, so the audio path needs no
+    /// lock and no hashing. Grown only when the channel count rises, never
+    /// per block.
+    channel_states: Vec<ChannelState>,
+    /// Set by [`Self::reset_runtime_state`] from other threads and consumed by
+    /// `render_frame`. An atomic flag replaces the mutex that used to guard
+    /// `channel_states`: the reset is the only cross-thread access, and making
+    /// it a flag keeps the render path lock-free.
+    reset_requested: std::sync::atomic::AtomicBool,
 
     /// Sample rate for ramp time calculations
     sample_rate: u32,
@@ -382,8 +391,19 @@ impl SpatialRenderer {
     /// Clear cached per-channel spatial/ramp state after a decoder reset or
     /// stream restart so stale object positions cannot leak into subsequent
     /// rendering.
+    /// Borrow a channel's state, growing the backing `Vec` if the stream just
+    /// widened. Growth happens only when the channel count rises — never per
+    /// block — so the render path stays allocation-free in steady state.
+    fn state_mut(states: &mut Vec<ChannelState>, channel_idx: usize) -> &mut ChannelState {
+        if channel_idx >= states.len() {
+            states.resize_with(channel_idx + 1, ChannelState::default);
+        }
+        &mut states[channel_idx]
+    }
+
     pub fn reset_runtime_state(&self) {
-        self.channel_states.lock().clear();
+        self.reset_requested
+            .store(true, std::sync::atomic::Ordering::Release);
         self.first_render
             .store(true, std::sync::atomic::Ordering::Relaxed);
     }
@@ -393,18 +413,20 @@ impl SpatialRenderer {
     /// Called internally from `render_frame` when pending events are present.
     /// The `channel_idx` and `is_bed` fields of each event must already be
     /// resolved by the caller (see `SpatialChannelEvent`).
+    /// Takes `&mut Vec<ChannelState>` rather than `&mut self` so the caller can
+    /// split the borrow: `render_frame` holds an immutable snapshot of other
+    /// fields while this mutates channel state.
     fn update_metadata(
-        &self,
+        states: &mut Vec<ChannelState>,
+        log_object_positions: bool,
+        sample_rate: u32,
         events: &[SpatialChannelEvent],
         strategy: &dyn RampStrategy,
         ctx: &RampContext,
     ) -> Result<()> {
-        let mut channel_states = self.channel_states.lock();
-
         for event in events {
-            let state = channel_states
-                .entry(event.channel_idx)
-                .or_insert_with(ChannelState::default);
+            let state = Self::state_mut(states, event.channel_idx);
+            state.initialized = true;
 
             if let Some(gain) = event.gain_db {
                 state.gain_db = gain;
@@ -425,7 +447,7 @@ impl SpatialRenderer {
             if let Some(target_position) = event.position {
                 if state.ramp.target_position != target_position || size_changed {
                     let current_ramp_length = state.ramp.ramp_length;
-                    if self.log_object_positions {
+                    if log_object_positions {
                         let remaining_units = state.ramp.remaining_ramp_units.unwrap_or(0);
                         let sample_pos = event.sample_pos.unwrap_or(0);
                         if state.ramp.target_position != target_position {
@@ -435,7 +457,7 @@ impl SpatialRenderer {
                                 sample_pos,
                                 remaining_units,
                                 state.ramp.ramp_length,
-                                state.ramp.ramp_length as f32 / self.sample_rate as f32 * 1000.0
+                                state.ramp.ramp_length as f32 / sample_rate as f32 * 1000.0
                             );
                         }
                     }
@@ -511,6 +533,17 @@ impl SpatialRenderer {
         // engine, …), so the FP environment is claimed here, at the DSP entry
         // point, rather than at thread creation.
         ensure_denormals_flushed();
+
+        // Consume a reset requested from another thread (decoder reset, stream
+        // restart). Clearing here rather than under a lock in
+        // `reset_runtime_state` is what keeps the render path lock-free; the
+        // capacity is retained so the regrowth costs no allocation.
+        if self
+            .reset_requested
+            .swap(false, std::sync::atomic::Ordering::Acquire)
+        {
+            self.channel_states.clear();
+        }
 
         // ── 0. Independent binaural (headphone) path ─────────────────────────
         // When headphone output is selected, bypass the entire VBAP / crossover /
@@ -634,7 +667,14 @@ impl SpatialRenderer {
         };
 
         if !pending_events.is_empty() {
-            self.update_metadata(pending_events, ramp_strategy, &ramp_context)?;
+            Self::update_metadata(
+                &mut self.channel_states,
+                self.log_object_positions,
+                self.sample_rate,
+                pending_events,
+                ramp_strategy,
+                &ramp_context,
+            )?;
         }
 
         // Derive sample count from slice length and channel count.
@@ -664,7 +704,7 @@ impl SpatialRenderer {
             self.binaural_direct_buf.resize(input_channel_count, false);
             let num_routed = channel_routing.len();
             {
-                let mut states = self.channel_states.lock();
+                let states = &mut self.channel_states;
                 for c in 0..input_channel_count {
                     // Object-level mute as a 0/1 factor (per-object output gain was
                     // removed; only mute remains live-tunable).
@@ -674,7 +714,11 @@ impl SpatialRenderer {
                     };
                     // Stream metadata gain, same semantics as the VBAP path:
                     // silent (-128 = -inf dB) until the first metadata arrives.
-                    let gain_db = states.get(&c).map(|s| s.gain_db).unwrap_or(-128);
+                    let gain_db = states
+                        .get(c)
+                        .filter(|s| s.initialized)
+                        .map(|s| s.gain_db)
+                        .unwrap_or(-128);
                     let gain_linear = if gain_db == -128 {
                         0.0
                     } else {
@@ -683,7 +727,7 @@ impl SpatialRenderer {
                     // Slewed like the VBAP path (block-end value: the binaural
                     // stage updates per block anyway).
                     let ramp_samples = self.sample_rate as f32 * GAIN_SLEW_SECS;
-                    if let Some(state) = states.get_mut(&c) {
+                    if let Some(state) = states.get_mut(c) {
                         let (start, step) =
                             state.slew_gain(obj_gain * gain_linear, sample_length, ramp_samples);
                         self.binaural_gain_buf[c] = start + step * sample_length as f32;
@@ -707,7 +751,7 @@ impl SpatialRenderer {
                                 self.binaural_direct_buf[c] = !s.spatialize;
                             }
                         }
-                    } else if let Some(st) = states.get_mut(&c) {
+                    } else if let Some(st) = states.get_mut(c) {
                         // Advance the position ramp for this block (Frame-mode
                         // granularity: the binaural stage updates HRIR/ITD once
                         // per block anyway). Nothing else advances ramps in
@@ -873,7 +917,6 @@ impl SpatialRenderer {
 
         // Hold channel metadata state lock once for the whole render pass.
         // This avoids lock/unlock churn in the channel loop.
-        let mut channel_states = self.channel_states.lock();
 
         // Process each channel
         for input_channel_idx in 0..input_channel_count {
@@ -884,7 +927,7 @@ impl SpatialRenderer {
             };
 
             // Get gain from cached metadata (common for ALL channels - beds and objects)
-            let state = channel_states.entry(input_channel_idx).or_default();
+            let state = Self::state_mut(&mut self.channel_states, input_channel_idx);
             let gain_db = state.gain_db;
 
             // Convert gain from dB to linear
@@ -955,7 +998,10 @@ impl SpatialRenderer {
                     );
                 }
             } else {
-                let state_mut = channel_states.get_mut(&input_channel_idx);
+                let state_mut = self
+                    .channel_states
+                    .get_mut(input_channel_idx)
+                    .filter(|s| s.initialized);
                 let state = match state_mut {
                     // Skip if no metadata available
                     Some(s) => s,
@@ -1354,7 +1400,6 @@ impl SpatialRenderer {
                 self.band_gains_scratch = band_gains;
             }
         }
-        drop(channel_states);
 
         // topology_guard is an ArcSwap Guard (no lock held); drop it here to make the
         // intent explicit before the gain/auto-gain section.
