@@ -416,20 +416,28 @@ fn fold_out_of_hull(
     ls_groups: &[[usize; 3]],
     layout_inv_mtx: &[[f32; 9]],
     is_dummy: &[bool],
-) -> Option<(usize, [f32; 3], f32)> {
-    let mut best_score = f32::NEG_INFINITY;
-    let mut best: Option<(usize, [f32; 3])> = None;
+    n_speakers: usize,
+) -> Option<Vec<f32>> {
+    /// Sharpness of the face blend. Large enough that a clearly-closest face
+    /// dominates (behaviour matches the old argmax wherever one face wins),
+    /// finite so that ties blend instead of flipping.
+    const BLEND_POWER: i32 = 12;
+
+    let mut acc = vec![0.0f32; n_speakers];
+    let mut any = false;
+
     for (fi, face) in ls_groups.iter().enumerate() {
+        if is_dummy[face[0]] || is_dummy[face[1]] || is_dummy[face[2]] {
+            continue;
+        }
         let inv = &layout_inv_mtx[fi];
         let c0 = (inv[0] * u[0] + inv[1] * u[1] + inv[2] * u[2]).max(0.0);
         let c1 = (inv[3] * u[0] + inv[4] * u[1] + inv[5] * u[2]).max(0.0);
         let c2 = (inv[6] * u[0] + inv[7] * u[1] + inv[8] * u[2]).max(0.0);
         let rms = (c0 * c0 + c1 * c1 + c2 * c2).sqrt();
-        if rms <= 1e-30 {
+        if rms <= 1e-20 {
             continue;
         }
-        // Invert back to the face's speaker-direction matrix: the candidate's
-        // radiated direction is the clamped-gain combination of the speakers.
         let Some(m) = inv3x3(inv) else { continue };
         let v = normalise3([
             m[0] * c0 + m[1] * c1 + m[2] * c2,
@@ -437,18 +445,28 @@ fn fold_out_of_hull(
             m[6] * c0 + m[7] * c1 + m[8] * c2,
         ]);
         let score = dot3(u, v);
-        if score > best_score {
-            best_score = score;
-            best = Some((
-                fi,
-                redistribute_dummy_in_triangle([c0 / rms, c1 / rms, c2 / rms], *face, is_dummy),
-            ));
+        if score <= 0.0 {
+            continue;
         }
+        let w = score.powi(BLEND_POWER);
+        acc[face[0]] += w * c0 / rms;
+        acc[face[1]] += w * c1 / rms;
+        acc[face[2]] += w * c2 / rms;
+        any = true;
     }
-    if best_score <= 0.0 {
+
+    if !any {
         return None;
     }
-    best.map(|(fi, g)| (fi, g, best_score.min(1.0)))
+    let norm: f32 = acc.iter().map(|g| g * g).sum::<f32>().sqrt();
+    if norm <= 1e-20 {
+        return None;
+    }
+    let inv_norm = 1.0 / norm;
+    for g in acc.iter_mut() {
+        *g *= inv_norm;
+    }
+    Some(acc)
 }
 
 // ── vbap3D ───────────────────────────────────────────────────────────────────
@@ -525,13 +543,12 @@ pub fn vbap3d(
                 // spread cloud keeps its below/behind-hull energy, faded by the
                 // fold angle so far-outside members contribute less to the mix.
                 if !hit {
-                    if let Some((fi, gr, fade)) =
-                        fold_out_of_hull(u, ls_groups, layout_inv_mtx, is_dummy)
+                    if let Some(gr) =
+                        fold_out_of_hull(u, ls_groups, layout_inv_mtx, is_dummy, n_speakers)
                     {
-                        let face = ls_groups[fi];
-                        gains[face[0]] += gr[0] * fade;
-                        gains[face[1]] += gr[1] * fade;
-                        gains[face[2]] += gr[2] * fade;
+                        for (g, add) in gains.iter_mut().zip(gr) {
+                            *g += add;
+                        }
                     }
                 }
             }
@@ -586,14 +603,11 @@ pub fn vbap3d(
             // undo the fade, so it bypasses the energy-normalise below.
             let mut folded = false;
             if !hit {
-                if let Some((fi, gr, fade)) =
-                    fold_out_of_hull(u, ls_groups, layout_inv_mtx, is_dummy)
+                if let Some(gr) =
+                    fold_out_of_hull(u, ls_groups, layout_inv_mtx, is_dummy, n_speakers)
                 {
-                    let face = ls_groups[fi];
-                    gains[face[0]] = gr[0] * fade;
-                    gains[face[1]] = gr[1] * fade;
-                    gains[face[2]] = gr[2] * fade;
-                    folded = true;
+                    gains[..n_speakers].copy_from_slice(&gr);
+                    folded = false; // renormalise like any other path
                 }
             }
 

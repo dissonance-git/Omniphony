@@ -1519,3 +1519,6 @@ impl SpatialRenderer {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod golden_tests;

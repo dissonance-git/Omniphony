@@ -218,3 +218,6 @@ mod runtime;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod native_validation;
