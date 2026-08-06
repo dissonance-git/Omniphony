@@ -8,7 +8,9 @@
 //!   OMNIPHONY_BLESS_GOLDENS=1 cargo test -p renderer
 //! and quote the printed residual in the pull request.
 
-use dsp_fixtures::golden::assert_matches_golden;
+use dsp_fixtures::golden::{
+    BINAURAL_RESIDUAL_GATE_DBFS, assert_matches_golden, assert_matches_golden_with_gate,
+};
 use dsp_fixtures::scene::{RampMode, make_pcm, prepared, render_blocks};
 
 /// 0.125 s at 48 kHz. `GAIN_SLEW_SECS` is 0.02, so this covers the 20 ms
@@ -41,7 +43,14 @@ fn null_binaural_kemar() {
     let out = render_blocks(&mut r, &pcm, N_OBJECTS, BLOCKS, MOVE_EVERY);
     let channels = out.len() / (BLOCKS * dsp_fixtures::scene::BLOCK_SAMPLES);
     assert_eq!(channels, 2, "the binaural path must render 2 channels");
-    assert_matches_golden("binaural_kemar", &out, channels);
+    // Wider gate than the mix paths: HRIR convolution's cross-host FP noise
+    // exceeds −120 dBFS on its own (see `BINAURAL_RESIDUAL_GATE_DBFS`).
+    assert_matches_golden_with_gate(
+        "binaural_kemar",
+        &out,
+        channels,
+        BINAURAL_RESIDUAL_GATE_DBFS,
+    );
 }
 
 #[test]

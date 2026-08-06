@@ -21,6 +21,22 @@ use crate::residual::{peak_dbfs, peak_residual_dbfs, rms_residual_dbfs, worst_de
 /// meaningful, while being immune to that churn.
 pub const RESIDUAL_GATE_DBFS: f32 = -120.0;
 
+/// Gate for goldens produced by the **binaural** path, in dBFS.
+///
+/// HRIR convolution accumulates far more floating-point error than the gain-mix
+/// paths: hundreds of multiply-adds per output sample, over a filter whose taps
+/// are themselves interpolated between measurements. The order those adds are
+/// vectorized in differs between hosts, so the residual between two machines
+/// running the *same* source is an order of magnitude above the mix paths'.
+///
+/// Measured: a golden blessed on a developer workstation reads −109.8 dBFS peak
+/// (−126.0 dBFS rms) against a GitHub-hosted runner, with no source difference —
+/// which failed the −120 gate on `main` for every run after the harness landed.
+/// −100 dBFS sits above that cross-host noise while staying ~100 dB below any
+/// behavioural change (a wrong HRIR, a shifted ITD or a gain error lands tens of
+/// dB higher, not fractions of one).
+pub const BINAURAL_RESIDUAL_GATE_DBFS: f32 = -100.0;
+
 /// Floor below which a render is treated as degenerate, in dBFS. Guards
 /// against a golden of zeros matching a silent render and "passing".
 pub const NON_SILENT_FLOOR_DBFS: f32 = -60.0;
@@ -76,6 +92,20 @@ pub fn bless_enabled() -> bool {
 /// On mismatch the render is dumped beside the golden as `<name>.actual.f32`
 /// so it can be auditioned or diffed offline.
 pub fn assert_matches_golden(name: &str, rendered: &[f32], channels: usize) {
+    assert_matches_golden_with_gate(name, rendered, channels, RESIDUAL_GATE_DBFS)
+}
+
+/// [`assert_matches_golden`] with an explicit residual gate, for paths whose
+/// cross-host floating-point noise exceeds the default (see
+/// [`BINAURAL_RESIDUAL_GATE_DBFS`]). Prefer the default gate: widening one is a
+/// statement about a path's numerical behaviour and belongs next to a measured
+/// value, not a convenience.
+pub fn assert_matches_golden_with_gate(
+    name: &str,
+    rendered: &[f32],
+    channels: usize,
+    gate_dbfs: f32,
+) {
     assert!(channels > 0, "channels must be non-zero");
     assert_eq!(
         rendered.len() % channels,
@@ -141,7 +171,7 @@ pub fn assert_matches_golden(name: &str, rendered: &[f32], channels: usize) {
     }
 
     let peak = peak_residual_dbfs(&golden, rendered);
-    if peak > RESIDUAL_GATE_DBFS {
+    if peak > gate_dbfs {
         let rms = rms_residual_dbfs(&golden, rendered);
         let (frame, channel, delta) = worst_deviation(&golden, rendered, channels);
         let mut diverging = String::new();
@@ -162,7 +192,7 @@ pub fn assert_matches_golden(name: &str, rendered: &[f32], channels: usize) {
         let _ = write_golden(&format!("{name}.actual"), rendered);
         panic!(
             "{name}: null test failed.\n  \
-             peak residual {peak:.1} dBFS (gate {RESIDUAL_GATE_DBFS:.1})\n  \
+             peak residual {peak:.1} dBFS (gate {gate_dbfs:.1})\n  \
              rms residual  {rms:.1} dBFS\n  \
              worst at frame {frame} channel {channel}, delta {delta:.9}\n  \
              first diverging samples:{diverging}\n  \
