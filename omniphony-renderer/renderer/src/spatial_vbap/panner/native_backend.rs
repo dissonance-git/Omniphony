@@ -149,7 +149,13 @@ mod tests {
             [45.0, 36.0],
         ];
 
-        let layout = NativeVbapLayout::from_speaker_dirs(&dirs, OutOfHullMode::default()).unwrap();
+        // Pinned to Blend: the assertion is about the *fallback* mechanism
+        // (dummies only when the real layout cannot triangulate) — in
+        // VirtualPoles a nadir dummy is injected by design.
+        let mode = OutOfHullMode::Blend {
+            power: OutOfHullMode::DEFAULT_BLEND_POWER,
+        };
+        let layout = NativeVbapLayout::from_speaker_dirs(&dirs, mode).unwrap();
 
         assert_eq!(layout.n_speakers, dirs.len());
         assert_eq!(layout.n_eff, dirs.len());
@@ -385,5 +391,35 @@ mod tests {
             count_active(&sharp),
             count_active(&wide)
         );
+    }
+
+    /// The legacy mode must reproduce the historical measurements from the
+    /// dsp-validation report: on 7.1.4 at az 66.5°, energy decays with the
+    /// fold angle (−0.78 dB at −22.6°, −3.22 dB at −45°) down to silence at
+    /// the nadir.
+    #[test]
+    fn test_fade_mode_reproduces_original_decay() {
+        let dirs = layout_714();
+        let layout = NativeVbapLayout::from_speaker_dirs(&dirs, OutOfHullMode::Fade).unwrap();
+
+        let rms_at = |el: f32| {
+            let g = layout.vbap_gains(66.5, el, 0.0).unwrap();
+            rms(&g)
+        };
+
+        // In-hull stays unit energy.
+        assert!((rms_at(0.0) - 1.0).abs() < 0.05, "in-hull must stay full");
+        // Below the hull the fade applies: the historical dB figures.
+        assert!(
+            (rms_at(-22.6) - 0.914).abs() < 0.02,
+            "-22.6°: expected ≈ -0.78 dB, got {}",
+            rms_at(-22.6)
+        );
+        assert!(
+            (rms_at(-45.0) - 0.690).abs() < 0.02,
+            "-45°: expected ≈ -3.22 dB, got {}",
+            rms_at(-45.0)
+        );
+        assert!(rms_at(-90.0) < 1e-3, "nadir must be silent in Fade mode");
     }
 }

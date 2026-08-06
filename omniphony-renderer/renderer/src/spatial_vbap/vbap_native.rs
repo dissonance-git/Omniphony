@@ -237,12 +237,20 @@ fn try_dirs_with_optional_dummy(
 
 /// How directions outside the speaker convex hull are rendered.
 ///
-/// Both modes deliver the full-level, energy-conserving behaviour required by
-/// ITU-R BS.2127 §6.1.1 / §7.3.10; they differ in the *image* at steep
-/// out-of-hull angles. See docs/dsp-validation-report.md ("Full level below
-/// the hull is required") for the measurements behind each.
+/// `Blend` and `VirtualPoles` deliver the full-level, energy-conserving
+/// behaviour required by ITU-R BS.2127 §6.1.1 / §7.3.10; they differ in the
+/// *image* at steep out-of-hull angles. `Fade` is the historical behaviour,
+/// kept selectable for comparison. See docs/dsp-validation-report.md ("Full
+/// level below the hull is required") for the measurements behind each.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OutOfHullMode {
+    /// The original (pre-full-level-fix) behaviour: fold onto the single
+    /// best-scoring boundary face and fade the gains by the cosine of the
+    /// fold angle. Energy decays as cos²(angle outside hull) down to silence
+    /// at an uncovered pole, and the argmax face selection steps where faces
+    /// tie near a pole. Not standard-conformant — BS.2127 requires full
+    /// level over the whole sphere.
+    Fade,
     /// Fold onto the hull boundary, blending contributions from candidate
     /// faces by `score^power`. High `power` snaps to the closest face
     /// (Pulkki-like, localised image); low `power` widens the blend near
@@ -267,9 +275,7 @@ impl OutOfHullMode {
 
 impl Default for OutOfHullMode {
     fn default() -> Self {
-        Self::Blend {
-            power: Self::DEFAULT_BLEND_POWER,
-        }
+        Self::VirtualPoles
     }
 }
 
@@ -603,6 +609,51 @@ fn fold_out_of_hull(
     true
 }
 
+/// The original out-of-hull fold ([`OutOfHullMode::Fade`]), byte-faithful to
+/// the pre-full-level-fix implementation: pick the single best-scoring
+/// boundary face and return its clamped gains plus the fold-angle cosine as a
+/// fade. The caller applies the fade and, on the pure-VBAP path, bypasses the
+/// energy normalise so the fade survives — energy decays as cos²(fold angle).
+fn fold_out_of_hull_argmax(
+    u: [f32; 3],
+    ls_groups: &[[usize; 3]],
+    layout_inv_mtx: &[[f32; 9]],
+    is_dummy: &[bool],
+) -> Option<(usize, [f32; 3], f32)> {
+    let mut best_score = f32::NEG_INFINITY;
+    let mut best: Option<(usize, [f32; 3])> = None;
+    for (fi, face) in ls_groups.iter().enumerate() {
+        let inv = &layout_inv_mtx[fi];
+        let c0 = (inv[0] * u[0] + inv[1] * u[1] + inv[2] * u[2]).max(0.0);
+        let c1 = (inv[3] * u[0] + inv[4] * u[1] + inv[5] * u[2]).max(0.0);
+        let c2 = (inv[6] * u[0] + inv[7] * u[1] + inv[8] * u[2]).max(0.0);
+        let rms = (c0 * c0 + c1 * c1 + c2 * c2).sqrt();
+        if rms <= 1e-30 {
+            continue;
+        }
+        // Invert back to the face's speaker-direction matrix: the candidate's
+        // radiated direction is the clamped-gain combination of the speakers.
+        let Some(m) = inv3x3(inv) else { continue };
+        let v = normalise3([
+            m[0] * c0 + m[1] * c1 + m[2] * c2,
+            m[3] * c0 + m[4] * c1 + m[5] * c2,
+            m[6] * c0 + m[7] * c1 + m[8] * c2,
+        ]);
+        let score = dot3(u, v);
+        if score > best_score {
+            best_score = score;
+            best = Some((
+                fi,
+                redistribute_dummy_in_triangle([c0 / rms, c1 / rms, c2 / rms], *face, is_dummy),
+            ));
+        }
+    }
+    if best_score <= 0.0 {
+        return None;
+    }
+    best.map(|(fi, g)| (fi, g, best_score.min(1.0)))
+}
+
 /// Downmix any gain landed on virtual pole speakers onto their adjacent real
 /// ring at `1/√n`, then silence the pole entries. Distribution is independent
 /// of which triangle matched, so the field stays continuous across the pole.
@@ -655,12 +706,14 @@ pub fn vbap3d(
     // In VirtualPoles the pole gain is redistributed ring-wide after the face
     // pass, so the per-triangle fold must not touch it first.
     let per_triangle_fold = !matches!(mode, OutOfHullMode::VirtualPoles);
+    // Legacy fade: the original argmax fold, with its cos² decay.
+    let legacy_fade = matches!(mode, OutOfHullMode::Fade);
     // Out-of-hull directions cannot occur in VirtualPoles once the hull is
     // closed; the fold stays as a safety net (at the historical sharpness)
     // for the degenerate case where the pole triangulation failed.
     let fold_power = match mode {
         OutOfHullMode::Blend { power } => power.max(1.0),
-        OutOfHullMode::VirtualPoles => OutOfHullMode::DEFAULT_BLEND_POWER,
+        _ => OutOfHullMode::DEFAULT_BLEND_POWER,
     };
     // Scratch buffers reused across sources and spread members — the sweep
     // allocates nothing per direction.
@@ -722,18 +775,30 @@ pub fn vbap3d(
                 // weight is the opposite choice. It keeps a spread source's
                 // energy constant as it crosses the hull boundary, which is
                 // what the energy gate asserts, but it is not what Pulkki does.
-                if !hit
-                    && fold_out_of_hull(
+                if !hit {
+                    if legacy_fade {
+                        // Original behaviour: single argmax face, contribution
+                        // faded by the fold angle so far-outside members
+                        // contribute less to the mix.
+                        if let Some((fi, gr, fade)) =
+                            fold_out_of_hull_argmax(u, ls_groups, layout_inv_mtx, is_dummy)
+                        {
+                            let face = ls_groups[fi];
+                            gains[face[0]] += gr[0] * fade;
+                            gains[face[1]] += gr[1] * fade;
+                            gains[face[2]] += gr[2] * fade;
+                        }
+                    } else if fold_out_of_hull(
                         u,
                         ls_groups,
                         layout_inv_mtx,
                         is_dummy,
                         fold_power,
                         &mut fold_acc,
-                    )
-                {
-                    for (g, &add) in gains.iter_mut().zip(fold_acc.iter()) {
-                        *g += add;
+                    ) {
+                        for (g, &add) in gains.iter_mut().zip(fold_acc.iter()) {
+                            *g += add;
+                        }
                     }
                 }
             }
@@ -786,27 +851,43 @@ pub fn vbap3d(
             }
 
             // Out-of-hull: no face contains the direction; fold onto the hull
-            // boundary instead of leaving the source silent. Folded gains take
-            // the same energy normalise as every other path — there used to be
-            // a `folded` flag that bypassed it to preserve a fade, but the fade
-            // is gone and the flag was left dead.
-            if !hit
-                && fold_out_of_hull(
+            // boundary instead of leaving the source silent. In `Fade` the
+            // folded gains bypass the energy normalise below so the cos fade
+            // survives (the original behaviour); in `Blend` they take the
+            // same normalise as every other path.
+            let mut folded_faded = false;
+            if !hit {
+                if legacy_fade {
+                    if let Some((fi, gr, fade)) =
+                        fold_out_of_hull_argmax(u, ls_groups, layout_inv_mtx, is_dummy)
+                    {
+                        let face = ls_groups[fi];
+                        gains[face[0]] = gr[0] * fade;
+                        gains[face[1]] = gr[1] * fade;
+                        gains[face[2]] = gr[2] * fade;
+                        folded_faded = true;
+                    }
+                } else if fold_out_of_hull(
                     u,
                     ls_groups,
                     layout_inv_mtx,
                     is_dummy,
                     fold_power,
                     &mut fold_acc,
-                )
-            {
-                gains[..n_speakers].copy_from_slice(&fold_acc);
+                ) {
+                    gains[..n_speakers].copy_from_slice(&fold_acc);
+                }
             }
 
             downmix_dummy_rings(&mut gains, dummy_rings);
 
             let out = &mut gain_mtx[ns * n_speakers..(ns + 1) * n_speakers];
-            {
+            if folded_faded {
+                // Preserve the fade: clamp only, no energy normalise.
+                for (o, &g) in out.iter_mut().zip(gains.iter()) {
+                    *o = g.max(0.0);
+                }
+            } else {
                 // Energy-normalise
                 let gains_rms = gains.iter().map(|&g| g * g).sum::<f32>().sqrt();
                 if gains_rms > 1e-30 {

@@ -609,14 +609,20 @@ fn parse_out_of_hull_mode(
     power: Option<f32>,
 ) -> crate::spatial_vbap::OutOfHullMode {
     use crate::spatial_vbap::OutOfHullMode;
-    match mode.unwrap_or("blend").trim().to_ascii_lowercase().as_str() {
-        "virtual_poles" | "poles" | "bs2127" => OutOfHullMode::VirtualPoles,
-        _ => OutOfHullMode::Blend {
+    match mode
+        .unwrap_or("virtual_poles")
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "blend" | "fold" => OutOfHullMode::Blend {
             power: power
                 .filter(|p| p.is_finite())
                 .unwrap_or(OutOfHullMode::DEFAULT_BLEND_POWER)
                 .clamp(1.0, 64.0),
         },
+        "fade" | "original" | "legacy" => OutOfHullMode::Fade,
+        _ => OutOfHullMode::VirtualPoles,
     }
 }
 
@@ -1039,18 +1045,21 @@ impl BackendFactory for VbapFactory {
                 label: "Out-of-hull mode",
                 kind: ParamKind::Enum {
                     options: vec![
-                        enum_option("blend", "Face blend"),
                         enum_option("virtual_poles", "Virtual poles (BS.2127)"),
+                        enum_option("blend", "Face blend"),
+                        enum_option("fade", "Original (fade out)"),
                     ],
                 },
-                default: ParamValue::Text("blend".to_string()),
+                default: ParamValue::Text("virtual_poles".to_string()),
                 requires: None,
                 help: Some(
                     "How directions outside the speaker hull (overhead on layouts without \
-                     heights, or below the listener) are rendered. Face blend keeps the image \
-                     as localised as the layout allows; Virtual poles follows ITU-R BS.2127 \
-                     and spreads pole energy evenly over the nearest speaker ring. Both play \
-                     at full level; a change rebuilds the topology.",
+                     heights, or below the listener) are rendered. Virtual poles (the \
+                     default) follows ITU-R BS.2127: pole energy spreads evenly over the \
+                     nearest speaker ring, at full level. Face blend also plays at full \
+                     level but keeps the image as localised as the layout allows. Original \
+                     is the historical behaviour: level fades with the fold angle, down to \
+                     silence at an uncovered pole. A change rebuilds the topology.",
                 ),
             },
             ParamSpec::float("fold_blend_power", "Blend sharpness", 1.0, 64.0, 1.0, 12.0).help(
@@ -1250,12 +1259,10 @@ mod tests {
 
     #[test]
     fn out_of_hull_bag_values_resolve_with_schema_defaults() {
-        // Absent keys → the schema defaults (blend at the historical power).
+        // Absent keys → the schema default (BS.2127 virtual poles).
         assert_eq!(
             parse_out_of_hull_mode(None, None),
-            OutOfHullMode::Blend {
-                power: OutOfHullMode::DEFAULT_BLEND_POWER
-            }
+            OutOfHullMode::VirtualPoles
         );
         // Canonical and alias spellings select the pole downmix.
         for spelling in ["virtual_poles", "poles", "bs2127", " Virtual_Poles "] {
@@ -1265,8 +1272,22 @@ mod tests {
                 "{spelling}"
             );
         }
+        // The legacy fade and its aliases.
+        for spelling in ["fade", "original", "legacy"] {
+            assert_eq!(
+                parse_out_of_hull_mode(Some(spelling), None),
+                OutOfHullMode::Fade,
+                "{spelling}"
+            );
+        }
         // Power follows the bag in blend mode, clamped to the schema bounds;
-        // junk falls back rather than poisoning the build.
+        // an absent power uses the historical constant.
+        assert_eq!(
+            parse_out_of_hull_mode(Some("blend"), None),
+            OutOfHullMode::Blend {
+                power: OutOfHullMode::DEFAULT_BLEND_POWER
+            }
+        );
         assert_eq!(
             parse_out_of_hull_mode(Some("blend"), Some(24.0)),
             OutOfHullMode::Blend { power: 24.0 }
@@ -1276,10 +1297,15 @@ mod tests {
             OutOfHullMode::Blend { power: 64.0 }
         );
         assert_eq!(
-            parse_out_of_hull_mode(Some("nonsense"), Some(f32::NAN)),
+            parse_out_of_hull_mode(Some("blend"), Some(f32::NAN)),
             OutOfHullMode::Blend {
                 power: OutOfHullMode::DEFAULT_BLEND_POWER
             }
+        );
+        // Junk falls back to the default mode rather than poisoning the build.
+        assert_eq!(
+            parse_out_of_hull_mode(Some("nonsense"), Some(3.0)),
+            OutOfHullMode::VirtualPoles
         );
     }
 
