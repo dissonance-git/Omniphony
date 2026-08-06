@@ -405,10 +405,22 @@ fn redistribute_dummy_in_triangle(g: [f32; 3], face: [usize; 3], is_dummy: &[boo
 /// wins, so content outside the speaker hull renders on the nearest boundary
 /// edge/face instead of dropping to silence (issue #169).
 ///
-/// Returns `(face_index, unit-energy gains, fade)` where `fade` is the score
-/// (cosine of the fold angle) clamped to [0, 1]: the fold is full-strength at
-/// the hull boundary and fades smoothly to silence for directions ≥ 90° away,
-/// keeping the gain field continuous (no hard flips at the nadir/antipode).
+/// Returns unit-energy gains over all speakers, at **full level** — there is no
+/// attenuation based on how far outside the hull a direction lies. A direction
+/// outside the hull cannot be reproduced *there*, but it must still be
+/// reproduced at full level from the closest direction that can be. This
+/// matches ITU-R BS.2127 §6.1.1, which makes full-sphere coverage a defining
+/// property of a valid point-source panner, and §7.3.10, where out-of-range
+/// positions clamp to the boundary at full gain ("the sum of the squares of the
+/// loudspeaker gains will always be 1").
+///
+/// Contributions from several boundary faces are blended by `score^12` rather
+/// than snapping to the single best face, which keeps the gain field continuous
+/// at the poles where faces are equidistant. Note this is *not* how the
+/// references get there: BS.2127 inserts a virtual loudspeaker and downmixes it
+/// at 1/√n over the adjacent ring, while Pulkki's own implementations snap to
+/// one face (and are discontinuous below the hull as a result). Same level,
+/// different image at steep angles — see docs/dsp-validation-report.md.
 /// Cold path: runs only for directions no face contains — bed poses
 /// behind/below sparse layouts and the out-of-hull cells of table generation.
 fn fold_out_of_hull(
@@ -540,8 +552,16 @@ pub fn vbap3d(
                 }
 
                 // Out-of-hull spread source: fold onto the hull boundary so the
-                // spread cloud keeps its below/behind-hull energy, faded by the
-                // fold angle so far-outside members contribute less to the mix.
+                // spread cloud keeps its below/behind-hull energy, at full
+                // level like the non-spread path.
+                //
+                // Divergence worth recording: Pulkki's own spread path
+                // (`additive_vbap` in his Pd external, and rvbap.c) guards its
+                // accumulate with `if (gains_modified != 1)`, so an out-of-hull
+                // spread member contributes *nothing*. Folding it in at full
+                // weight is the opposite choice. It keeps a spread source's
+                // energy constant as it crosses the hull boundary, which is
+                // what the energy gate asserts, but it is not what Pulkki does.
                 if !hit {
                     if let Some(gr) =
                         fold_out_of_hull(u, ls_groups, layout_inv_mtx, is_dummy, n_speakers)
@@ -598,25 +618,20 @@ pub fn vbap3d(
             }
 
             // Out-of-hull: no face contains the direction; fold onto the hull
-            // boundary instead of leaving the source silent. The fold is
-            // already unit-energy scaled by its fade — renormalising it would
-            // undo the fade, so it bypasses the energy-normalise below.
-            let mut folded = false;
+            // boundary instead of leaving the source silent. Folded gains take
+            // the same energy normalise as every other path — there used to be
+            // a `folded` flag that bypassed it to preserve a fade, but the fade
+            // is gone and the flag was left dead.
             if !hit {
                 if let Some(gr) =
                     fold_out_of_hull(u, ls_groups, layout_inv_mtx, is_dummy, n_speakers)
                 {
                     gains[..n_speakers].copy_from_slice(&gr);
-                    folded = false; // renormalise like any other path
                 }
             }
 
             let out = &mut gain_mtx[ns * n_speakers..(ns + 1) * n_speakers];
-            if folded {
-                for (o, &g) in out.iter_mut().zip(gains.iter()) {
-                    *o = g.max(0.0);
-                }
-            } else {
+            {
                 // Energy-normalise
                 let gains_rms = gains.iter().map(|&g| g * g).sum::<f32>().sqrt();
                 if gains_rms > 1e-30 {

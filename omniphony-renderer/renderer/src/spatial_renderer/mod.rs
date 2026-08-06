@@ -998,10 +998,16 @@ impl SpatialRenderer {
                     );
                 }
             } else {
-                let state_mut = self
-                    .channel_states
-                    .get_mut(input_channel_idx)
-                    .filter(|s| s.initialized);
+                // Deliberately NOT filtered on `initialized`, to match the
+                // HashMap version exactly: `state_mut` above already created
+                // this channel's entry earlier in the same iteration, so the
+                // lookup was always `Some` and the `None` arm was unreachable.
+                // Filtering would make it reachable. No behavioural difference
+                // could be demonstrated either way — `null_partial_metadata`
+                // passes with and without the filter — so this keeps the
+                // original control flow rather than relying on the two being
+                // equivalent.
+                let state_mut = self.channel_states.get_mut(input_channel_idx);
                 let state = match state_mut {
                     // Skip if no metadata available
                     Some(s) => s,
@@ -1567,3 +1573,6 @@ mod tests;
 
 #[cfg(test)]
 mod golden_tests;
+
+#[cfg(all(test, feature = "perf-gate"))]
+mod perf_gate;

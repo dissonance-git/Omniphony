@@ -350,3 +350,109 @@ than to theorise about pruning again.
 
 Both prior attempts assumed they knew why the source missed the dummy triangle.
 Neither checked. That is the check to run first.
+
+## Retracted: `reset_runtime_state` does not leak
+
+An earlier revision of this report recorded a pre-existing defect — a −20.3 dBFS
+residual said to show the previous stream surviving a reset. **That was wrong**,
+and the fault was in the test, not the renderer.
+
+It compared a renderer that had been reset against a *freshly constructed* one.
+Those are not the same situation: `dsp_fixtures::scene::prepared` primes four
+rounds of events, so a fresh renderer carries a ramped-up `slewed_gain` while a
+reset one restarts from silence. The residual was the documented 20 ms fade-in,
+which is correct behaviour.
+
+Restated so it isolates the property that actually matters — two renderers given
+*different* prior content, both reset, then fed identical blocks — the assertion
+passes. `reset_runtime_state` erases the previous stream.
+
+That also settles the open question about the channel-state refactor, which
+replaced a synchronous clear under a mutex with a flag consumed at the top of the
+next `render_frame`. The four call sites outside the renderer
+(`orender_engine/src/engine.rs` 649/810/871,
+`src/cli/decode/spatial_metadata.rs:86`) get the same guarantee as before.
+
+Covered by `reset_runtime_state_erases_the_previous_stream`, a live gate.
+
+# Is the out-of-hull fix standard? — researched verdict
+
+Four independent researchers plus adversarial verification, against primary
+sources and by executing reference implementations.
+
+**Answer: the removed fade was wrong and matches no authoritative source. The
+new behaviour achieves the standard's outcome by a non-standard mechanism.**
+
+## The fade has no precedent
+
+No authoritative source prescribes attenuating a source by how far outside the
+hull it lies. Across Pulkki's Pd/Max external, its SuperCollider port, Csound,
+Ardour, EAR, libspatialaudio, IEM AllRADecoder, SAF and polarch's MATLAB
+library, no `cos(fold angle)` gain scalar exists. Omniphony's cos²-energy law
+appears to be an invention. (Absence of evidence after targeted searching, not
+proof of non-existence.)
+
+## Full level below the hull is required
+
+ITU-R BS.2127-1 — the ADM renderer, and the sole broadcast authority since
+EBU Tech 3388 v2 withdrew the EBU's competing spec — makes full-sphere coverage
+a *defining property* of a valid panner (§6.1.1): "At least one region is able
+to handle any given direction." There is no out-of-hull case: a direction no
+region handles is a malformed panner, not a direction to attenuate. §7.3.10
+confirms the intent — out-of-range positions clamp to the boundary at full gain,
+and "the sum of the squares of the loudspeaker gains will always be 1".
+
+This was measured, not just read. The official EAR reference implementation was
+run on BS.2051 System D (4+5+0) at Omniphony's exact test azimuth of 66.5°:
+**0.0000 dB at elevations 0, −22.6, −45, −86.4 and −90**. A 4096-point sphere
+sweep across four layouts gave zero unhandled directions and |g| = 1.000000
+everywhere.
+
+BS.2051-3 confirms this is the normal case: of ten standard layouts only two
+have any bottom-layer speaker, and BS.2076-3 explicitly permits objects at
+elevation −90°. An uncovered nadir is the renderer's problem to solve, not an
+authoring error to punish with silence.
+
+## The mechanism is not ours
+
+BS.2127 §6.1.3.1 appends virtual loudspeakers unconditionally — "0,0,−1 (below
+the listener) is always added" — and §6.1.2.2 redistributes the virtual gain
+over the adjacent ring at 1/√n, then power-normalises. MPEG-H does the same
+(Fraunhofer, DAGA 2015). Pulkki's own Pd external and Csound instead clamp
+negatives and renormalise on a single argmax face — full level, but
+discontinuous below the hull.
+
+Omniphony does neither: it folds onto the nearest boundary faces blended by
+`score^12`. That yields the right **level** and better **continuity** than
+Pulkki, but a more localised **image** at steep downward angles than BS.2127,
+which diffuses to a uniform 1/√5 across the bottom ring at nadir.
+
+## The parity target genuinely conflicts
+
+This module claims parity with SAF, and **SAF really does fade to silence**. Its
+`saf_vbap.c` truncates dummy gains with a bare `memmove` and no renormalisation
+("they have served their purpose and can now be laid to rest"). Re-executed on
+Omniphony's 7.1.4 at az 66.5°, that gives −1.12 dB at −22.6°, −4.32 dB at −45°,
+−26.35 dB at −86.4° and silence at nadir — *steeper* than the fade just removed,
+and on ring-only layouts exactly the cos(angle) law we had.
+
+A literal parity argument favours reverting. Three things outweigh it: SAF's own
+public header promises the table is energy-normalised (`sum(gains^2) = 1`),
+which the truncation violates; SAF ships no VBAP test at all; and SPARTA's
+Panner — SAF's own reference application — cancels the fade at its default
+`roomCoeff = 0.5`. The attenuation looks like an artefact of the truncation
+rather than a designed fade, though SAF's intent is genuinely unknown.
+
+## Status
+
+**Level: standard-conformant — done.** **Image below the hull: not BS.2127's.**
+
+If ADM/object conformance ever matters, implement §6.1.2.2 properly:
+unconditional nadir speaker, 1/√n downmix over the adjacent ring, power
+normalise — rather than folding. Two further divergences are recorded in the
+code: `prepare_effective_speaker_dirs` injects pole dummies only when
+triangulating the real layout *fails* (BS.2127 adds the nadir speaker always;
+SAF adds them whenever no speaker is within 60° of a pole), and the MDAP spread
+path folds out-of-hull members at full weight where Pulkki's discards them.
+
+Not to be described as parity with SAF or with Pulkki.
