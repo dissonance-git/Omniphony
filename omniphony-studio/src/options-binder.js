@@ -9,7 +9,6 @@
 //   switch (bool):    <input type="checkbox" data-option="synthetic_objects_enabled">
 //   enum select:      <select data-option="phantom_extract_mode">…</select>
 //   select:           <select data-option="object_generator_id" data-option-empty="none">
-//   f32 number/range: <input type="number" data-option="fold_blend_power" min="1" max="64">
 //
 // Sending: the generic `control_option` Tauri command → OSC
 // `/omniphony/control/option [key, value]`; the renderer validates the value
@@ -67,22 +66,6 @@ export function bindOptionControls() {
           enumOn !== undefined ? (el.checked ? enumOn : el.dataset.optionOff) : el.checked
         );
       });
-    } else if (el.type === 'number' || el.type === 'range') {
-      // f32 options: send on commit (change), not per keystroke. The markup's
-      // min/max mirror the schema bounds; the renderer clamps anyway.
-      el.addEventListener('change', () => {
-        let v = parseFloat(el.value);
-        if (!Number.isFinite(v)) {
-          reflectBoundOptions(); // restore the last known value
-          return;
-        }
-        const min = parseFloat(el.min);
-        const max = parseFloat(el.max);
-        if (Number.isFinite(min)) v = Math.max(v, min);
-        if (Number.isFinite(max)) v = Math.min(v, max);
-        el.value = String(v);
-        setOption(key, v);
-      });
     }
   }
   reflectBoundOptions();
@@ -103,9 +86,6 @@ export function reflectBoundOptions() {
     } else if (el.type === 'checkbox') {
       const enumOn = el.dataset.optionOn;
       el.checked = enumOn !== undefined ? String(v) === enumOn : !!v;
-    } else if (el.type === 'number' || el.type === 'range') {
-      if (document.activeElement === el) continue;
-      el.value = String(v);
     }
   }
 }

@@ -147,12 +147,6 @@ pub const CONTROL_SURROUND_PLACEMENT: &str = "/omniphony/control/surround_placem
 /// How output channels map to device ports: `by_index` (positionless — port N =
 /// layout speaker N) or `by_name` (positional). Persisted to config.
 pub const CONTROL_OUTPUT_CHANNEL_MAPPING: &str = "/omniphony/control/output_channel_mapping";
-/// Out-of-hull rendering mode: `blend` (face blend) or `virtual_poles`
-/// (BS.2127-style pole downmix). Persisted; a change rebuilds the topology.
-pub const CONTROL_OUT_OF_HULL_MODE: &str = "/omniphony/control/out_of_hull_mode";
-/// Face-blend sharpness for the out-of-hull `blend` mode (float, 1–64).
-/// Persisted; a change rebuilds the topology.
-pub const CONTROL_FOLD_BLEND_POWER: &str = "/omniphony/control/fold_blend_power";
 /// Set the parametrable virtual bed for channel content. Argument is a YAML
 /// `SpeakerLayout` (one entry per channel label, `spatialize` = virtual/direct);
 /// an empty string resets to the built-in canonical poses (LFE direct).
@@ -320,8 +314,6 @@ pub const ALL_CONTROL: &[&str] = &[
     CONTROL_PHANTOM_EXTRACT_PARAM,
     CONTROL_SURROUND_PLACEMENT,
     CONTROL_OUTPUT_CHANNEL_MAPPING,
-    CONTROL_OUT_OF_HULL_MODE,
-    CONTROL_FOLD_BLEND_POWER,
     CONTROL_VIRTUAL_BED,
     CONTROL_CONFIG_AUDIO,
     CONTROL_CONFIG_AUDIO_APPLY,

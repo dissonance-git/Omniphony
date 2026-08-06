@@ -430,10 +430,6 @@ impl SpatialRenderer {
             // Seeded to the default (ByIndex); the CLI bootstrap and the embedded
             // mpv host override it from `render.output_channel_mapping`.
             output_channel_mapping: crate::live_params::OutputChannelMapping::default(),
-            // Seeded to the defaults (Blend, 12); the CLI bootstrap and the
-            // embedded mpv host override them from the config via the registry.
-            out_of_hull_mode: crate::live_params::OutOfHullPanning::default(),
-            fold_blend_power: crate::config_fields::fold_blend_power::DEFAULT,
             // Seeded from `render.virtual_bed` by the same bootstrap; `None`
             // uses the built-in canonical poses (LFE direct, rest virtualized).
             virtual_bed: None,

@@ -175,14 +175,6 @@ pub struct RenderConfig {
     /// Absent = `by_index`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_channel_mapping: Option<crate::live_params::OutputChannelMapping>,
-    /// How out-of-hull directions render: `blend` (face blend, the default) or
-    /// `virtual_poles` (BS.2127-style pole downmix). Absent = `blend`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub out_of_hull_mode: Option<crate::live_params::OutOfHullPanning>,
-    /// Face-blend sharpness for `out_of_hull_mode: blend` (`score^power`).
-    /// Absent = 12 (the historical constant).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fold_blend_power: Option<f32>,
     /// Bed→height object generator (2D upmix) id for channel content
     /// (`none` / `copy_up` / `pad` / …). Absent / empty = off.
     #[serde(skip_serializing_if = "Option::is_none")]

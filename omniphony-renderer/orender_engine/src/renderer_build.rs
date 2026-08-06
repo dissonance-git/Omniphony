@@ -566,22 +566,6 @@ pub fn build_spatial_renderer(
                     requires_rebuild = true;
                 }
             }
-            // Out-of-hull mode + blend power: apply from config here (the
-            // registry seed may run before or after this builder depending on
-            // the host), then rebuild whenever the effective mode differs from
-            // the constructor's default — the initial topology is always built
-            // at `OutOfHullMode::default()`.
-            if let Some(cfg) = render_cfg {
-                if let Some(mode) = renderer::config_fields::out_of_hull_mode::get(cfg) {
-                    live.out_of_hull_mode = mode;
-                }
-                if let Some(power) = renderer::config_fields::fold_blend_power::get(cfg) {
-                    live.fold_blend_power = power.clamp(1.0, 64.0);
-                }
-            }
-            if live.out_of_hull_vbap_mode() != renderer::spatial_vbap::OutOfHullMode::default() {
-                requires_rebuild = true;
-            }
             // Per-frame live params (no topology rebuild): seed from config so a
             // saved value is honoured at startup, not only after an OSC tweak.
             if let Some(mode) = render_cfg.and_then(|cfg| cfg.size_to_spread_mode) {

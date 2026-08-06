@@ -221,40 +221,6 @@ impl SurroundPlacement {
     }
 }
 
-/// How directions outside the speaker convex hull are rendered (the wire/config
-/// face of [`crate::spatial_vbap::OutOfHullMode`]; the DSP enum carries the
-/// blend power, which lives separately in [`LiveParams::fold_blend_power`]).
-/// Live-tunable via `/omniphony/control/option [out_of_hull_mode]`; changing it
-/// rebuilds the render topology (the mode shapes the triangulation itself).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OutOfHullPanning {
-    /// Fold onto the hull boundary, blended across candidate faces by
-    /// `score^fold_blend_power` (this renderer's own mechanism).
-    #[default]
-    Blend,
-    /// BS.2127-style virtual pole speakers with a `1/√n` ring downmix — the
-    /// standard's diffuse pole image.
-    VirtualPoles,
-}
-
-impl OutOfHullPanning {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Blend => "blend",
-            Self::VirtualPoles => "virtual_poles",
-        }
-    }
-
-    pub fn from_str(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "blend" | "fold" => Some(Self::Blend),
-            "virtual_poles" | "poles" | "bs2127" => Some(Self::VirtualPoles),
-            _ => None,
-        }
-    }
-}
-
 /// How the renderer's output channels map to the physical device ports. The
 /// output is always the user's speaker layout in order; this selects whether each
 /// output channel is tagged with its spatial position (so a position-aware
@@ -708,17 +674,6 @@ pub struct LiveParams {
     /// `/omniphony/control/output_channel_mapping`.
     pub output_channel_mapping: OutputChannelMapping,
 
-    /// How out-of-hull directions render: face blend vs BS.2127 virtual poles.
-    /// Baked into the VBAP topology at build; a live change triggers a full
-    /// backend rebuild. Live-tunable via `/omniphony/control/option`.
-    pub out_of_hull_mode: OutOfHullPanning,
-
-    /// Blend sharpness for [`OutOfHullPanning::Blend`] (`score^power` face
-    /// weighting; 12 = the historical constant). Ignored in `VirtualPoles`.
-    /// Baked at topology build like the mode. Live-tunable via
-    /// `/omniphony/control/option`.
-    pub fold_blend_power: f32,
-
     /// Parametrable virtual bed for channel-based content (consulted only when
     /// `channel_render_mode == Spatial`). One entry per input-channel label
     /// (`L`, `R`, `C`, `LFE`, `Ls`, `Rs`, `Lb`, `Rb`, …): `spatialize:true`
@@ -761,17 +716,6 @@ pub struct LiveParams {
 impl LiveParams {
     pub fn set_evaluation_mode(&mut self, mode: LiveEvaluationMode) {
         self.evaluation.mode = mode;
-    }
-
-    /// Compose the wire-facing mode + power pair into the DSP-facing enum
-    /// consumed by the VBAP layer at topology build.
-    pub fn out_of_hull_vbap_mode(&self) -> crate::spatial_vbap::OutOfHullMode {
-        match self.out_of_hull_mode {
-            OutOfHullPanning::Blend => crate::spatial_vbap::OutOfHullMode::Blend {
-                power: self.fold_blend_power.max(1.0),
-            },
-            OutOfHullPanning::VirtualPoles => crate::spatial_vbap::OutOfHullMode::VirtualPoles,
-        }
     }
 
     pub fn backend_id(&self) -> &str {

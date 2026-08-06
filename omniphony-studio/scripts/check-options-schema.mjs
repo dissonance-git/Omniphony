@@ -38,7 +38,7 @@ function resolvesInEn(key) {
   return typeof node === 'string';
 }
 
-const KINDS = new Set(['bool', 'enum', 'string', 'f32']);
+const KINDS = new Set(['bool', 'enum', 'string']);
 const failures = [];
 const fail = (msg) => {
   failures.push(msg);
@@ -72,17 +72,6 @@ for (const spec of schema) {
       fail(`${key}: enum without >= 2 values`);
     } else if (!spec.values.includes(spec.default)) {
       fail(`${key}: default '${spec.default}' not in values`);
-    }
-  }
-  if (spec.kind === 'f32') {
-    for (const field of ['min', 'max', 'step', 'default']) {
-      if (typeof spec[field] !== 'number') fail(`${key}: f32 ${field} is not a number`);
-    }
-    if (typeof spec.min === 'number' && typeof spec.max === 'number') {
-      if (!(spec.min < spec.max)) fail(`${key}: f32 min must be < max`);
-      if (typeof spec.default === 'number' && (spec.default < spec.min || spec.default > spec.max)) {
-        fail(`${key}: default ${spec.default} outside [${spec.min}, ${spec.max}]`);
-      }
     }
   }
   if (spec.default === undefined) fail(`${key}: missing default`);
