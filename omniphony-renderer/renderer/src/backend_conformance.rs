@@ -433,7 +433,7 @@ mod tests {
     fn vbap_714() -> VbapBackend {
         let layout = SpeakerLayout::preset("7.1.4").expect("7.1.4 preset");
         let (dirs, _) = layout.spatializable_positions();
-        let panner = VbapPanner::new(&dirs, 1, 1, 0.0)
+        let panner = VbapPanner::new(&dirs, 1, 1, 0.0, Default::default())
             .expect("panner")
             .with_negative_z(true);
         VbapBackend::new(panner, crate::render_backend::VbapSpreadParams::default())

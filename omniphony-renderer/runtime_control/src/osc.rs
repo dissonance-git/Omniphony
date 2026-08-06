@@ -1139,12 +1139,35 @@ pub fn apply_simple_osc_control(
             _ => None,
         });
         if let (Some(key), Some(value)) = (key, value) {
-            let backend_id =
-                target.unwrap_or_else(|| ctx.renderer.live.read().backend_id().to_string());
+            let (backend_id, active, hybrid_legs) = {
+                let live = ctx.renderer.live.read();
+                (
+                    target.unwrap_or_else(|| live.backend_id().to_string()),
+                    live.backend_id().to_string(),
+                    (
+                        live.hybrid.external_backend_id.clone(),
+                        live.hybrid.internal_backend_id.clone(),
+                    ),
+                )
+            };
             ctx.renderer.set_backend_param(&backend_id, &key, value);
             effects.mark_dirty = true;
-            effects.trigger_layout_recompute = true;
-            effects.log_message = Some(format!("OSC: backend param {backend_id}.{key} updated"));
+            // Recompute only when the edited backend participates in the
+            // active topology (the selection itself, or a leg of an active
+            // hybrid). Params of an inactive backend are stored and persisted;
+            // they are read at the next rebuild that involves that backend.
+            let participates = backend_id == active
+                || (active == "hybrid"
+                    && (backend_id == hybrid_legs.0 || backend_id == hybrid_legs.1));
+            effects.trigger_layout_recompute = participates;
+            effects.log_message = Some(format!(
+                "OSC: backend param {backend_id}.{key} updated{}",
+                if participates {
+                    ""
+                } else {
+                    " (inactive backend, no rebuild)"
+                }
+            ));
         }
         return Some(effects);
     }

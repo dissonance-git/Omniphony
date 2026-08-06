@@ -521,7 +521,7 @@ fn build_lua_vbap(speakers: &Table, room: RoomCell) -> mlua::Result<LuaVbap> {
         let (az, el, _dist) = adm_to_spherical(x, y, z);
         az_el.push([az, el]);
     }
-    let panner = VbapPanner::new(&az_el, 5, 5, 0.0)
+    let panner = VbapPanner::new(&az_el, 5, 5, 0.0, Default::default())
         .map_err(|e| mlua::Error::RuntimeError(format!("vbap_new: {e}")))?;
     Ok(LuaVbap {
         panner: Arc::new(panner),
@@ -776,7 +776,7 @@ impl BackendFactory for ScriptFactory {
         // the same speaker order as the script's gains, so its output lines up.
         // Resolution is irrelevant (gains are computed directly from the
         // triangulation); `None` if the geometry can't be triangulated.
-        let panner = VbapPanner::new(&azimuth_elevation, 5, 5, 0.0)
+        let panner = VbapPanner::new(&azimuth_elevation, 5, 5, 0.0, Default::default())
             .ok()
             .map(Arc::new);
 
@@ -943,7 +943,9 @@ mod tests {
     }
 
     fn panner_for(az_el: &[[f32; 2]]) -> Option<Arc<VbapPanner>> {
-        VbapPanner::new(az_el, 5, 5, 0.0).ok().map(Arc::new)
+        VbapPanner::new(az_el, 5, 5, 0.0, Default::default())
+            .ok()
+            .map(Arc::new)
     }
 
     #[test]
