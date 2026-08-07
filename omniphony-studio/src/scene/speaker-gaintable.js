@@ -27,8 +27,17 @@ import { invoke } from '@tauri-apps/api/core';
 import { app } from '../state.js';
 
 // speaker index → decoded table; speaker index → last version we hold for it.
+// The global energy field is cached under GLOBAL_ENERGY_INDEX like any speaker.
 const tables = new Map();
 const versions = new Map();
+
+/**
+ * Subscription target for the all-speaker energy field (`√Σ gᵢ²` per cell),
+ * mirroring `renderer::band_gaintable::GLOBAL_ENERGY_INDEX`. A client holds one
+ * target at a time, so the global heatmap takes precedence over the per-speaker
+ * one while it is on.
+ */
+export const GLOBAL_ENERGY_INDEX = -1;
 
 const consumers = new Set();
 let heartbeatTimer = null;
@@ -39,11 +48,16 @@ function currentSpeaker() {
   return Number.isInteger(s) && s >= 0 ? s : 0;
 }
 
+/** Which field the renderer should ship: the global energy one, or a speaker. */
+function currentTarget() {
+  return app.globalEnergyHeatmapEnabled ? GLOBAL_ENERGY_INDEX : currentSpeaker();
+}
+
 function sendSubscribe() {
-  const speaker = currentSpeaker();
+  const target = currentTarget();
   invoke('subscribe_speaker_gaintable', {
-    haveVersion: versions.get(speaker) | 0,
-    speakerIndex: speaker,
+    haveVersion: versions.get(target) | 0,
+    speakerIndex: target,
   }).catch(() => {});
 }
 
@@ -79,7 +93,7 @@ export function releaseGainTable(id) {
   }
 }
 
-/** Re-subscribe immediately for the (possibly changed) selected speaker. */
+/** Re-subscribe immediately for the (possibly changed) target. */
 export function refreshGaintableSubscription() {
   if (consumers.size > 0) sendSubscribe();
 }
@@ -101,7 +115,8 @@ export function setSpeakerGainTable(payload) {
   const ny = Number(payload.yCount) | 0;
   const nz = Number(payload.zCount) | 0;
   const nb = Number(payload.bandCount) | 0;
-  const speakerIndex = Number(payload.speakerIndex) | 0;
+  // Signed: GLOBAL_ENERGY_INDEX keys the global field, not speaker 0.
+  const speakerIndex = Math.trunc(Number(payload.speakerIndex)) || 0;
   const bandMeta = Array.isArray(payload.bands) ? payload.bands : [];
   if (nx < 1 || ny < 1 || nz < 1 || nb < 1) {
     return;
@@ -138,4 +153,9 @@ export function setSpeakerGainTable(payload) {
 
 export function getSpeakerGainTable() {
   return tables.get(currentSpeaker()) ?? null;
+}
+
+/** The all-speaker energy field, or `null` until it has been received. */
+export function getGlobalEnergyTable() {
+  return tables.get(GLOBAL_ENERGY_INDEX) ?? null;
 }

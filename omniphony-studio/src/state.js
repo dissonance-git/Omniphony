@@ -460,6 +460,15 @@ export const app = {
   // "all bands" composite (effective-render still uses the numeric index).
   speakerHeatmapBandIndex: 0,
   speakerHeatmapAllBands: false,
+  // Global energy heatmap: total energy over ALL speakers per grid cell, drawn
+  // as a deviation from unit energy (see scene/global-energy-volume.js).
+  // Transparent at 0 dB, red above, blue below. Shares the gain-table transport
+  // with the per-speaker heatmap and takes over its subscription while on.
+  globalEnergyHeatmapEnabled: false,
+  // Saturation of the diverging dB scale: ±this many dB maps to full opacity.
+  globalEnergyHeatmapScaleDb: 6,
+  // Crossover band shown by the global heatmap (single band, like the per-speaker one).
+  globalEnergyHeatmapBandIndex: 0,
   // Object energy field (client-side theoretical field, ray-marched 3D volume).
   objectEnergyHeatmapEnabled: false,
   // Colour gradient: 'heatmap' | 'blueWhite' | 'whiteRed' | 'red'.

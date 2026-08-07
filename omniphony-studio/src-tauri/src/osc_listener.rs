@@ -1559,10 +1559,11 @@ fn decode_band_gaintable(bytes: &[u8], version: u32) -> Option<serde_json::Value
     let ny = dim("y_count")?;
     let nz = dim("z_count")?;
     let nb = dim("band_count")?;
+    // Signed: -1 (GLOBAL_ENERGY_INDEX) marks the all-speaker energy field, and
+    // an unsigned read would silently fold it onto speaker 0.
     let speaker = metadata
         .get("speaker_index")
-        .and_then(|x| x.as_u64())
-        .map(|x| x as usize)
+        .and_then(|x| x.as_i64())
         .unwrap_or(0);
 
     // Band frequency edges → {lowHz, highHz|null}.

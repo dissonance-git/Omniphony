@@ -5,8 +5,8 @@ import { rebuildTrailGeometry, createTrailRenderable } from '../trails.js';
 import { scene } from '../scene/setup.js';
 import { applySpeakerLevel, updateSourceDecorations, updateSourceSelectionStyles, applyObjectsVisibility } from '../sources.js';
 import { refreshOverlayLists, updateSpeakerVisualsFromState, refreshSpeakerOrientations } from '../speakers.js';
-import { syncSpeakerHeatmapBandSelect } from '../scene/speaker-band-select.js';
-import { acquireGainTable, releaseGainTable } from '../scene/speaker-gaintable.js';
+import { syncSpeakerHeatmapBandSelect, syncGlobalEnergyBandSelect } from '../scene/speaker-band-select.js';
+import { acquireGainTable, releaseGainTable, refreshGaintableSubscription } from '../scene/speaker-gaintable.js';
 import { refreshObjectEnergyVolume } from '../scene/object-energy-volume.js';
 import { clampVolumeGamma, colormapIndex } from '../scene/object-energy-shared.js';
 import {
@@ -20,6 +20,7 @@ import { registerGradientEditor, setGradientEditorOnChange } from '../scene/grad
 import { invoke } from '@tauri-apps/api/core';
 
 const GAINTABLE_CONSUMER_SOLO = 'speakerSoloVolume';
+const GAINTABLE_CONSUMER_GLOBAL = 'globalEnergyVolume';
 
 export function setupTrailsAndDisplayListeners() {
   const trailToggleEl = document.getElementById('trailToggle');
@@ -344,6 +345,51 @@ export function setupTrailsAndDisplayListeners() {
       app.speakerHeatmapVolumeColormap = speakerHeatmapVolumeColormapEl.value;
       app.lastSpeakerSoloVolumeAt = 0; // rebuild on the next tick
       updateGradientEditorVisibility();
+      persistEffectiveRenderPrefs();
+    });
+  }
+
+  const globalEnergyHeatmapToggleEl = document.getElementById('globalEnergyHeatmapToggle');
+  if (globalEnergyHeatmapToggleEl) {
+    globalEnergyHeatmapToggleEl.checked = app.globalEnergyHeatmapEnabled;
+    // Honour a persisted-on state at startup, like the per-speaker heatmap.
+    if (app.globalEnergyHeatmapEnabled) acquireGainTable(GAINTABLE_CONSUMER_GLOBAL);
+    globalEnergyHeatmapToggleEl.addEventListener('change', () => {
+      app.globalEnergyHeatmapEnabled = globalEnergyHeatmapToggleEl.checked;
+      app.lastGlobalEnergyVolumeAt = 0; // rebuild on the next tick
+      if (app.globalEnergyHeatmapEnabled) {
+        acquireGainTable(GAINTABLE_CONSUMER_GLOBAL);
+      } else {
+        releaseGainTable(GAINTABLE_CONSUMER_GLOBAL);
+      }
+      // The subscription target changes with the toggle (one target per client),
+      // so re-subscribe even when another consumer keeps the table alive.
+      refreshGaintableSubscription();
+      persistEffectiveRenderPrefs();
+    });
+  }
+
+  const globalEnergyHeatmapScaleEl = document.getElementById('globalEnergyHeatmapScale');
+  if (globalEnergyHeatmapScaleEl) {
+    globalEnergyHeatmapScaleEl.value = String(app.globalEnergyHeatmapScaleDb);
+    globalEnergyHeatmapScaleEl.addEventListener('change', () => {
+      const raw = Number(globalEnergyHeatmapScaleEl.value);
+      const next = Number.isFinite(raw) ? Math.max(1, Math.min(40, Math.round(raw))) : 6;
+      app.globalEnergyHeatmapScaleDb = next;
+      globalEnergyHeatmapScaleEl.value = String(next);
+      app.lastGlobalEnergyVolumeAt = 0;
+      persistEffectiveRenderPrefs();
+    });
+  }
+
+  const globalEnergyHeatmapBandSelectEl = document.getElementById('globalEnergyHeatmapBandSelect');
+  if (globalEnergyHeatmapBandSelectEl) {
+    syncGlobalEnergyBandSelect();
+    globalEnergyHeatmapBandSelectEl.addEventListener('change', () => {
+      const next = Number(globalEnergyHeatmapBandSelectEl.value);
+      app.globalEnergyHeatmapBandIndex = Math.max(0, Math.round(Number.isFinite(next) ? next : 0));
+      app.lastGlobalEnergyVolumeAt = 0;
+      syncGlobalEnergyBandSelect();
       persistEffectiveRenderPrefs();
     });
   }

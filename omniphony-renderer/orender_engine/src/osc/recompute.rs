@@ -163,7 +163,7 @@ pub(crate) fn trigger_layout_recompute(
                         for (addr, client_version, speaker) in subscribers {
                             let speaker = speaker.unwrap_or(0);
                             if let Some((version, bytes)) =
-                                gaintable_cache_clone.bytes_for_speaker(&ctx, speaker)
+                                gaintable_cache_clone.bytes_for_target(&ctx, speaker)
                             {
                                 if client_version != Some(version) {
                                     for update in gaintable_chunk_broadcasts(&bytes, None) {

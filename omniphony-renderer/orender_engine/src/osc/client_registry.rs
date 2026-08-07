@@ -18,9 +18,11 @@ pub(crate) struct OscClientState {
     /// Version (hash) of the gain table last pushed to this client, so a rebuild
     /// or a re-subscribe carrying the same version skips re-sending the data.
     pub(crate) gaintable_version: Option<u32>,
-    /// Speaker index this client wants the gain table for (the heatmap shows one
-    /// speaker; pushes are serialized per speaker). `None` until first subscribe.
-    pub(crate) gaintable_speaker: Option<usize>,
+    /// What this client wants the gain table for: a speaker index, or
+    /// [`renderer::band_gaintable::GLOBAL_ENERGY_INDEX`] for the all-speaker
+    /// energy field. Pushes are serialized per target. `None` until first
+    /// subscribe.
+    pub(crate) gaintable_speaker: Option<i64>,
 }
 
 pub(crate) struct OscClientRegistry {
@@ -162,15 +164,16 @@ impl OscClientRegistry {
     }
 
     /// Record which speaker a client wants the gain table for.
-    pub(crate) fn set_gaintable_speaker(&self, addr: SocketAddr, speaker: usize) {
+    pub(crate) fn set_gaintable_speaker(&self, addr: SocketAddr, speaker: i64) {
         let mut clients = self.clients.lock().unwrap();
         if let Some(entry) = clients.get_mut(&addr) {
             entry.gaintable_speaker = Some(speaker);
         }
     }
 
-    /// The speaker a client is subscribed for, if any.
-    pub(crate) fn gaintable_speaker(&self, addr: SocketAddr) -> Option<usize> {
+    /// The target a client is subscribed for (speaker index, or
+    /// `GLOBAL_ENERGY_INDEX`), if any.
+    pub(crate) fn gaintable_speaker(&self, addr: SocketAddr) -> Option<i64> {
         self.clients
             .lock()
             .unwrap()
@@ -178,10 +181,10 @@ impl OscClientRegistry {
             .and_then(|c| c.gaintable_speaker)
     }
 
-    /// Live gain-table subscribers as `(addr, last_pushed_version, speaker)`.
+    /// Live gain-table subscribers as `(addr, last_pushed_version, target)`.
     /// Permanent clients always count; timed clients only while within the
     /// heartbeat window.
-    pub(crate) fn gaintable_subscribers(&self) -> Vec<(SocketAddr, Option<u32>, Option<usize>)> {
+    pub(crate) fn gaintable_subscribers(&self) -> Vec<(SocketAddr, Option<u32>, Option<i64>)> {
         let clients = self.clients.lock().unwrap();
         let now = Instant::now();
         clients

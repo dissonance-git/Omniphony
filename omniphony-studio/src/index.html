@@ -387,6 +387,21 @@
                   </div>
                 </div>
                 <div style="margin-top:0.3rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
+                  <div style="font-size:12px;font-weight:600;opacity:0.85" data-i18n="heatmap.global">Total energy</div>
+                  <div class="inline-toggle" style="margin-top:0">
+                    <div data-i18n="heatmap.globalEnergy" data-help-i18n="help.heatmap.globalEnergy">Energy deviation</div>
+                    <input id="globalEnergyHeatmapToggle" type="checkbox" />
+                  </div>
+                  <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
+                    <label for="globalEnergyHeatmapScale" style="font-size:12px;white-space:nowrap" data-i18n="heatmap.globalEnergy.scale" data-help-i18n="help.heatmap.globalEnergyScale">Scale (±dB)</label>
+                    <input id="globalEnergyHeatmapScale" class="delay-input" type="number" min="1" max="40" step="1" value="6" style="flex:1;min-width:0" />
+                  </div>
+                  <div class="control-row" style="margin-top:0;grid-template-columns:auto 1fr;gap:0.3rem">
+                    <label for="globalEnergyHeatmapBandSelect" style="font-size:12px;white-space:nowrap" data-help-i18n="help.heatmap.crossoverBand">Crossover band</label>
+                    <select id="globalEnergyHeatmapBandSelect" style="flex:1;min-width:0"></select>
+                  </div>
+                </div>
+                <div style="margin-top:0.3rem;margin-left:1rem;padding:0.3rem 0.4rem;background:rgba(255,255,255,0.03);border-radius:6px;display:grid;gap:0.18rem">
                   <div style="font-size:12px;font-weight:600;opacity:0.85" data-i18n="heatmap.objects">Objects</div>
                   <div class="inline-toggle" style="margin-top:0">
                     <div data-i18n="heatmap.objectEnergy" data-help-i18n="help.heatmap.objectEnergy">Objects energy field</div>
