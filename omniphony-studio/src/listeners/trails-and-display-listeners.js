@@ -10,6 +10,7 @@ import { acquireGainTable, releaseGainTable, refreshGaintableSubscription } from
 import { refreshObjectEnergyVolume } from '../scene/object-energy-volume.js';
 import { clampVolumeGamma, colormapIndex } from '../scene/object-energy-shared.js';
 import {
+  onOverlayState,
   getMpvOverlayStatus,
   setMpvOverlayEnabled,
   setMpvOverlayHeatmapEnabled,
@@ -350,6 +351,24 @@ export function setupTrailsAndDisplayListeners() {
   }
 
   const globalEnergyHeatmapToggleEl = document.getElementById('globalEnergyHeatmapToggle');
+  // The engine owns the overlay display prefs and republishes them on every
+  // change, including an mpv keybind Studio never sees. Re-render the switches
+  // from that state so the UI cannot claim something the overlay isn't doing.
+  onOverlayState(() => {
+    const trailEl = document.getElementById('trailToggle');
+    if (trailEl) trailEl.checked = app.trailsEnabled;
+    const showObjectsEl = document.getElementById('showObjectsToggle');
+    if (showObjectsEl) showObjectsEl.checked = app.objectsVisible !== false;
+    const labelsEl = document.getElementById('objectLabelsToggle');
+    if (labelsEl) labelsEl.checked = app.objectLabelsEnabled;
+    const heatmapEl = document.getElementById('objectEnergyHeatmapToggle');
+    if (heatmapEl) heatmapEl.checked = app.objectEnergyHeatmapEnabled;
+    const trailModeEl = document.getElementById('trailModeSelect');
+    if (trailModeEl) trailModeEl.value = app.trailRenderMode;
+    applyObjectsVisibility();
+    refreshObjectEnergyHeatmapNow();
+  });
+
   if (globalEnergyHeatmapToggleEl) {
     globalEnergyHeatmapToggleEl.checked = app.globalEnergyHeatmapEnabled;
     // Honour a persisted-on state at startup, like the per-speaker heatmap.

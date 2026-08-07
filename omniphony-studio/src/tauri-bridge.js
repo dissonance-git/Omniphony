@@ -60,6 +60,7 @@ import {
 } from './controls/vbap.js';
 import { invoke } from '@tauri-apps/api/core';
 import { setSpeakerGainTable } from './scene/speaker-gaintable.js';
+import { applyOverlayState } from './mpvOverlay.js';
 import { updateAudioFormatDisplay, rebuildObjectGeneratorControls, rebuildPhantomControls } from './controls/audio.js';
 import { reflectBoundOptions } from './options-binder.js';
 import { updateInputControlUI } from './controls/input.js';
@@ -201,6 +202,12 @@ export function setupTauriBridge() {
   // `speaker_gaintable:uptodate` (subscribe ack when our version already matches)
   // is intentionally not handled: it fires on every 5 s heartbeat and carries no
   // action for the client.
+
+  // The engine republishes the overlay display prefs whenever they change —
+  // including from an mpv keybind, which Studio has no other way of seeing.
+  listen('overlay:state', ({ payload }) => {
+    applyOverlayState(payload);
+  });
 
   listen('source:gains', ({ payload }) => {
     updateSourceGains(payload.id, payload.gains);

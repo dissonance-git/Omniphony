@@ -223,6 +223,9 @@ pub enum OscEvent {
     StateHeadPose { w: f32, x: f32, y: f32, z: f32 },
     #[serde(rename = "state:clip")]
     StateClip { speaker: i32 },
+    /// Overlay display preferences (JSON), republished by the engine whenever
+    /// they change — including from an mpv keybind, which Studio cannot see.
+    StateOverlay { json: String },
     #[serde(rename = "state:audio")]
     StateAudio { value: String },
     #[serde(rename = "state:layout")]
@@ -691,6 +694,12 @@ fn parse_omniphony_state(parts: &[&str], args: &[f64], raw_args: &[OscType]) -> 
             x: to_number(args[1])? as f32,
             y: to_number(args[2])? as f32,
             z: to_number(args[3])? as f32,
+        }),
+        (3, "overlay") => Some(OscEvent::StateOverlay {
+            json: match raw_args.first() {
+                Some(OscType::String(v)) => v.clone(),
+                _ => return None,
+            },
         }),
         (3, "clip") => Some(OscEvent::StateClip {
             speaker: match raw_args.first() {

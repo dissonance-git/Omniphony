@@ -2241,6 +2241,12 @@ fn handle_event(ev: OscEvent, app: &AppHandle, state: &Arc<Mutex<AppState>>) {
                 Some(("clip:detected", serde_json::json!({ "speaker": speaker }))),
                 removed_ids,
             ),
+            OscEvent::StateOverlay { json } => (
+                serde_json::from_str::<serde_json::Value>(&json)
+                    .ok()
+                    .map(|v| ("overlay:state", v)),
+                removed_ids,
+            ),
             OscEvent::StateHeadPose { w, x, y, z } => (
                 // Fast path for the 3D head: no AppState mutation, just a
                 // coalesced event straight to the webview (latest pose wins).
