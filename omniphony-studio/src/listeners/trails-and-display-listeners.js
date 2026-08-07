@@ -5,7 +5,7 @@ import { rebuildTrailGeometry, createTrailRenderable } from '../trails.js';
 import { scene } from '../scene/setup.js';
 import { applySpeakerLevel, updateSourceDecorations, updateSourceSelectionStyles, applyObjectsVisibility } from '../sources.js';
 import { refreshOverlayLists, updateSpeakerVisualsFromState, refreshSpeakerOrientations } from '../speakers.js';
-import { syncSpeakerHeatmapBandSelect, syncGlobalEnergyBandSelect } from '../scene/speaker-band-select.js';
+import { syncCrossoverBandSelects } from '../scene/speaker-band-select.js';
 import { acquireGainTable, releaseGainTable, refreshGaintableSubscription } from '../scene/speaker-gaintable.js';
 import { refreshObjectEnergyVolume } from '../scene/object-energy-volume.js';
 import { clampVolumeGamma, colormapIndex } from '../scene/object-energy-shared.js';
@@ -384,18 +384,18 @@ export function setupTrailsAndDisplayListeners() {
 
   const globalEnergyHeatmapBandSelectEl = document.getElementById('globalEnergyHeatmapBandSelect');
   if (globalEnergyHeatmapBandSelectEl) {
-    syncGlobalEnergyBandSelect();
+    syncCrossoverBandSelects();
     globalEnergyHeatmapBandSelectEl.addEventListener('change', () => {
       const next = Number(globalEnergyHeatmapBandSelectEl.value);
       app.globalEnergyHeatmapBandIndex = Math.max(0, Math.round(Number.isFinite(next) ? next : 0));
       app.lastGlobalEnergyVolumeAt = 0;
-      syncGlobalEnergyBandSelect();
+      syncCrossoverBandSelects();
       persistEffectiveRenderPrefs();
     });
   }
 
   if (speakerHeatmapBandSelectEl) {
-    syncSpeakerHeatmapBandSelect();
+    syncCrossoverBandSelects();
     speakerHeatmapBandSelectEl.addEventListener('change', () => {
       const value = speakerHeatmapBandSelectEl.value;
       if (value === 'all') {
@@ -406,7 +406,7 @@ export function setupTrailsAndDisplayListeners() {
         app.speakerHeatmapBandIndex = Math.max(0, Math.round(Number.isFinite(nextBandIndex) ? nextBandIndex : 0));
       }
       app.lastSpeakerSoloVolumeAt = 0; // rebuild the heatmap on the next tick
-      syncSpeakerHeatmapBandSelect();
+      syncCrossoverBandSelects();
       refreshOverlayLists();
       refreshEffectiveRenderVisibility();
       persistEffectiveRenderPrefs();

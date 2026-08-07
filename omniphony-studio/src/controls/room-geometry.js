@@ -19,7 +19,7 @@ import { rebuildTrailGeometry } from '../trails.js';
 import { renderSpeakerEditor } from '../speakers.js';
 import { emitOverlayLayoutChanged } from '../ui/layout/overlay-layout-state.js';
 import { inDisplayPanel, inRoomGeometryPanel } from '../ui/panel-roots.js';
-import { syncSpeakerHeatmapBandSelect } from '../scene/speaker-band-select.js';
+import { syncCrossoverBandSelects } from '../scene/speaker-band-select.js';
 import { createSmallLabelSprite, setLabelSpriteText } from '../scene/labels.js';
 
 const TRAIL_PREFS_STORAGE_KEY = 'spatialviz.trail_prefs';
@@ -226,7 +226,7 @@ export function applyEffectiveRenderPrefsToUi() {
   if (speakerHeatmapVolumeColormapEl) {
     speakerHeatmapVolumeColormapEl.value = app.speakerHeatmapVolumeColormap;
   }
-  syncSpeakerHeatmapBandSelect();
+  syncCrossoverBandSelects();
   if (speakerHeatmapBandSelectEl) {
     speakerHeatmapBandSelectEl.value = app.speakerHeatmapAllBands
       ? 'all'

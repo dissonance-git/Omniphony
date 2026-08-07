@@ -78,7 +78,7 @@ import { t } from './i18n.js';
 import { applyInitState } from './init.js';
 import { setHeadPoseQuat } from './scene/head-pose.js';
 import { setInputSectionOpen } from './modals.js';
-import { syncSpeakerHeatmapBandSelect } from './scene/speaker-band-select.js';
+import { syncCrossoverBandSelects } from './scene/speaker-band-select.js';
 
 // Apply one coalesced high-frequency event. The Rust side batches positions and
 // meters (one `app.emit` per object/speaker per frame grew WebView2 memory
@@ -320,7 +320,7 @@ export function setupTauriBridge() {
     if (!speaker) return;
     const fl = payload.freq_low;
     speaker.freqLow = fl != null && fl > 0 ? fl : null;
-    syncSpeakerHeatmapBandSelect();
+    syncCrossoverBandSelects();
     if (app.selectedSpeakerIndex === index) renderSpeakerEditor();
   });
 
@@ -331,7 +331,7 @@ export function setupTauriBridge() {
     if (!speaker) return;
     const fh = payload.freq_high;
     speaker.freqHigh = fh != null && fh > 0 ? fh : null;
-    syncSpeakerHeatmapBandSelect();
+    syncCrossoverBandSelects();
     if (app.selectedSpeakerIndex === index) renderSpeakerEditor();
   });
 
