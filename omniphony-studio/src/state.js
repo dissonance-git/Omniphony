@@ -517,6 +517,7 @@ export const app = {
   // per-speaker heatmap volume (which renders the selected speaker's gain field
   // from the local table as gain² — see speaker-solo-volume.js).
   lastSpeakerSoloVolumeAt: 0,
+  lastGlobalEnergyVolumeAt: 0,
   speakerSize: 0.08,
   effectiveRenderEnabled: false,
   // Display-only master switch: when false, objects + their labels + trails are
