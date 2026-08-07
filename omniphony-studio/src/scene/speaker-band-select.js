@@ -57,3 +57,49 @@ export function syncSpeakerHeatmapBandSelect() {
     : String(visibleIndex);
   return labels;
 }
+
+/**
+ * Refresh EVERY crossover-band selector after a layout/band change.
+ *
+ * Call this rather than a single selector's sync: the band list is derived from
+ * the speaker layout, so a caller that refreshes one and not the other leaves a
+ * stale dropdown — which is exactly how the global heatmap's selector stopped
+ * following new bands. One entry point means a future selector is picked up by
+ * every existing call site for free.
+ */
+export function syncCrossoverBandSelects() {
+  const labels = syncSpeakerHeatmapBandSelect();
+  syncGlobalEnergyBandSelect();
+  return labels;
+}
+
+/**
+ * Same options for the global energy heatmap, minus the all-bands entry: that
+ * composite blends band *colours*, which a diverging dB scale has no room for.
+ */
+export function syncGlobalEnergyBandSelect() {
+  const selectEl = document.getElementById('globalEnergyHeatmapBandSelect');
+  const labels = computeCrossoverBandLabels(app.currentLayoutSpeakers, {
+    includeSingleBand: true,
+    singleBandLabel: 'Full band',
+  }) || ['Full band'];
+  const maxIndex = Math.max(0, labels.length - 1);
+  const desired = Math.max(0, Math.round(Number(app.globalEnergyHeatmapBandIndex) || 0));
+  app.globalEnergyHeatmapBandIndex = Math.min(maxIndex, desired);
+  if (!selectEl) return labels;
+
+  const existing = Array.from(selectEl.options).map((option) => option.value);
+  const needsRebuild = existing.length !== labels.length
+    || existing.some((value, index) => value !== String(index));
+  if (needsRebuild) {
+    selectEl.replaceChildren();
+    labels.forEach((label, index) => {
+      const option = document.createElement('option');
+      option.value = String(index);
+      option.textContent = label;
+      selectEl.appendChild(option);
+    });
+  }
+  selectEl.value = String(app.globalEnergyHeatmapBandIndex);
+  return labels;
+}

@@ -26,6 +26,7 @@ import { updateHeadPose } from './scene/head-pose.js';
 import './scene/axes.js';
 import { refreshObjectEnergyVolume } from './scene/object-energy-volume.js';
 import { refreshSpeakerSoloVolume } from './scene/speaker-solo-volume.js';
+import { refreshGlobalEnergyVolume } from './scene/global-energy-volume.js';
 
 // ── Domain modules (imported for side-effects & to register into state) ─────
 import {
@@ -324,6 +325,7 @@ function animate() {
   decayMeters(now);
   refreshObjectEnergyVolume(now);
   refreshSpeakerSoloVolume(now);
+  refreshGlobalEnergyVolume(now);
   enforceObjectsVisibilityIfHidden();
 
   sourceOutlines.forEach((outline) => {

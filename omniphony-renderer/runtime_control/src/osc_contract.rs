@@ -156,6 +156,11 @@ pub const CONTROL_VIRTUAL_BED: &str = "/omniphony/control/virtual_bed";
 /// (`synthetic_objects`, `object_generator`, `phantom_extract`,
 /// `surround_placement`, `output_channel_mapping`) are legacy aliases of this.
 pub const CONTROL_OPTION: &str = "/omniphony/control/option";
+/// Overlay display preferences as JSON, republished whenever they change —
+/// including when an mpv keybind flips one through the FFI toggles. The overlay
+/// is a process-global singleton with two writers, so a client must read this
+/// rather than trust its own mirror.
+pub const STATE_OVERLAY: &str = "/omniphony/state/overlay";
 pub const CONTROL_OVERLAY_LABELS: &str = "/omniphony/control/overlay/labels";
 pub const CONTROL_OVERLAY_OBJECTS: &str = "/omniphony/control/overlay/objects";
 pub const CONTROL_OVERLAY_TAG: &str = "/omniphony/control/overlay/tag";
@@ -397,6 +402,7 @@ pub const ALL_STATE: &[&str] = &[
     STATE_BACKEND_FILE_LIST,
     STATE_CAPABILITIES,
     STATE_CLIP,
+    STATE_OVERLAY,
     STATE_CONFIG_SAVED,
     STATE_CONFIG_SAVE_ERROR,
     STATE_CROSSOVER_TIME_MS,
