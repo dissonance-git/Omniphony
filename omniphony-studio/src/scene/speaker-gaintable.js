@@ -1,9 +1,11 @@
 /**
  * Shared store + subscription for the renderer's per-band speaker gain table.
  *
- * The heatmap only shows ONE speaker, so we subscribe per speaker: the renderer
- * keeps the full table cached and ships just the selected speaker's per-band
- * field (one value per cell per crossover band). It arrives as a base64 binary
+ * A display shows ONE field, so we subscribe per field: the renderer keeps the
+ * full table cached and ships just that field's per-band values (one value per
+ * cell per crossover band) — a speaker's slice, or the all-speaker energy sum.
+ * Several displays can be up at once, so the subscription is per *consumer*:
+ * every field on screen is subscribed for, and stays refreshed. It arrives as a base64 binary
  * blob (`dataB64`) which we slice into Float32Array views — no per-number JSON
  * parsing. Each speaker's decoded table is kept in a per-speaker cache:
  *   { nx, ny, nz, speakerIndex, bands: [{ lowHz, highHz|null, gains: Float32Array }],
@@ -16,10 +18,13 @@
  * replies `uptodate` instead of re-transferring. A fresh speaker (version 0) is
  * fetched once. Topology rebuilds bump the version, so a stale cache is refreshed.
  *
- * Pub/sub: displays call `acquireGainTable(id)`; the first subscribes (carrying
- * the selected speaker + that speaker's cached version), arms a 5 s heartbeat, and
- * re-subscribes on speaker change (`refreshGaintableSubscription`). Last release →
- * unsubscribe (the per-speaker cache is kept).
+ * Pub/sub: displays call `acquireGainTable(id)`; each acquire subscribes for that
+ * consumer's field (carrying the version we hold for it) and arms a 5 s
+ * heartbeat, which doubles as the repair path — it re-declares the held version
+ * per target, so a transfer lost in flight is refetched instead of leaving a
+ * display stale. Speaker changes re-subscribe via `refreshGaintableSubscription`.
+ * Releasing a consumer drops ITS cached field, so re-enabling refetches rather
+ * than painting what was current when it was last shown.
  */
 
 import { invoke } from '@tauri-apps/api/core';
@@ -33,13 +38,19 @@ const versions = new Map();
 
 /**
  * Subscription target for the all-speaker energy field (`√Σ gᵢ²` per cell),
- * mirroring `renderer::band_gaintable::GLOBAL_ENERGY_INDEX`. A client holds one
- * target at a time, so the global heatmap takes precedence over the per-speaker
- * one while it is on.
+ * mirroring `renderer::band_gaintable::GLOBAL_ENERGY_INDEX`.
  */
 export const GLOBAL_ENERGY_INDEX = -1;
 
-const consumers = new Set();
+/**
+ * Active consumers, mapped to the field each one needs.
+ *
+ * A map, not a set: every displayed field must be subscribed for. Deriving a
+ * single target from the app state instead meant enabling one heatmap silently
+ * starved the other — it kept rendering its cached field, which the renderer
+ * had stopped refreshing, so it went stale without any sign.
+ */
+const consumers = new Map();
 let heartbeatTimer = null;
 const HEARTBEAT_MS = 5000;
 
@@ -48,22 +59,37 @@ function currentSpeaker() {
   return Number.isInteger(s) && s >= 0 ? s : 0;
 }
 
-/** Which field the renderer should ship: the global energy one, or a speaker. */
-function currentTarget() {
-  return app.globalEnergyHeatmapEnabled ? GLOBAL_ENERGY_INDEX : currentSpeaker();
+/** Target resolvers per consumer id, evaluated at each subscribe. */
+const TARGET_OF = {
+  speakerSoloVolume: () => currentSpeaker(),
+  globalEnergyVolume: () => GLOBAL_ENERGY_INDEX,
+};
+
+function targetsInUse() {
+  const targets = new Set();
+  for (const id of consumers.keys()) {
+    const resolve = TARGET_OF[id];
+    if (resolve) targets.add(resolve());
+  }
+  return targets;
 }
 
+/** Subscribe for every field currently displayed, each with the version we hold. */
 function sendSubscribe() {
-  const target = currentTarget();
-  invoke('subscribe_speaker_gaintable', {
-    haveVersion: versions.get(target) | 0,
-    speakerIndex: target,
-  }).catch(() => {});
+  for (const target of targetsInUse()) {
+    invoke('subscribe_speaker_gaintable', {
+      haveVersion: versions.get(target) | 0,
+      speakerIndex: target,
+    }).catch(() => {});
+  }
 }
 
 function startHeartbeat() {
   if (heartbeatTimer !== null) return;
   heartbeatTimer = setInterval(() => {
+    // The heartbeat is also the repair path: it re-declares the version we
+    // actually hold for each target, so a transfer lost in flight is refetched
+    // instead of leaving a display stale forever.
     if (consumers.size > 0) sendSubscribe();
   }, HEARTBEAT_MS);
 }
@@ -74,26 +100,33 @@ function stopHeartbeat() {
   heartbeatTimer = null;
 }
 
-/** Register a consumer that needs the gain table. First one subscribes. */
+/** Register a consumer that needs the gain table, and subscribe for its field. */
 export function acquireGainTable(id) {
   const wasEmpty = consumers.size === 0;
-  consumers.add(id);
-  if (wasEmpty) {
-    sendSubscribe();
-    startHeartbeat();
-  }
+  consumers.set(id, true);
+  sendSubscribe();
+  if (wasEmpty) startHeartbeat();
 }
 
-/** Drop a consumer. When none remain, unsubscribe (the cache is kept). */
+/**
+ * Drop a consumer. Its cached field is discarded: re-enabling the display must
+ * refetch rather than paint whatever was current when it was last shown.
+ */
 export function releaseGainTable(id) {
   if (!consumers.delete(id)) return;
+  const resolve = TARGET_OF[id];
+  if (resolve && !targetsInUse().has(resolve())) {
+    const target = resolve();
+    tables.delete(target);
+    versions.delete(target);
+  }
   if (consumers.size === 0) {
     stopHeartbeat();
     invoke('unsubscribe_speaker_gaintable').catch(() => {});
   }
 }
 
-/** Re-subscribe immediately for the (possibly changed) target. */
+/** Re-subscribe immediately for every displayed field. */
 export function refreshGaintableSubscription() {
   if (consumers.size > 0) sendSubscribe();
 }

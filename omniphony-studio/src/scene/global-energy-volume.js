@@ -17,6 +17,9 @@
  * 1`): the alpha already means "fraction of the dB scale", so letting the
  * volume core self-normalise would make a 2 dB spread look like a 20 dB one.
  *
+ * Runs alongside the per-speaker heatmap: both fields are subscribed for
+ * independently, so showing this one does not stop the other from refreshing.
+ *
  * Driven by `globalEnergyHeatmapEnabled` + `globalEnergyHeatmapScaleDb`.
  */
 

@@ -326,7 +326,9 @@ pub(crate) fn handle_control_message(
         // subscribe flag sticks and the 5 s heartbeat keeps it alive.
         clients.register(client);
         clients.set_gaintable(client, true);
-        clients.set_gaintable_speaker(client, speaker);
+        // Additive: a client showing several heatmaps subscribes once per
+        // target, and each must keep receiving pushes.
+        clients.add_gaintable_target(client, speaker);
         push_gaintable_subscribe(
             socket,
             clients,
@@ -342,6 +344,9 @@ pub(crate) fn handle_control_message(
     if addr == osc_contract::CONTROL_DEBUG_SPEAKER_GAINTABLE_UNSUBSCRIBE {
         let client = resolve_register_addr(src, &[]);
         clients.set_gaintable(client, false);
+        // Drop the targets too: the next subscribe declares what it wants, and
+        // keeping them would push fields nobody is displaying any more.
+        clients.clear_gaintable_targets(client);
         return;
     }
 
@@ -356,8 +361,13 @@ pub(crate) fn handle_control_message(
             let missing: Vec<u32> = ints.collect();
             if !missing.is_empty() {
                 let client = resolve_register_addr(src, &[]);
-                let speaker = clients.gaintable_speaker(client).unwrap_or(0);
-                if let Some((_v, bytes)) = gaintable_cache.bytes_for_target(&runtime_ctx, speaker) {
+                // Resolve the target from the version the client is missing
+                // chunks for, so a NACK is answered with the right field even
+                // when several transfers are in flight.
+                let target = clients
+                    .gaintable_target_for_version(client, version)
+                    .unwrap_or(0);
+                if let Some((_v, bytes)) = gaintable_cache.bytes_for_target(&runtime_ctx, target) {
                     for update in gaintable_chunk_broadcasts(&bytes, Some((version, missing))) {
                         send_update_to_client(socket, client, &update);
                     }
@@ -1024,7 +1034,7 @@ fn push_gaintable_subscribe(
                 for update in gaintable_chunk_broadcasts(&bytes, None) {
                     send_update_to_client(socket, client, &update);
                 }
-                clients.set_gaintable_version(client, version);
+                clients.set_gaintable_version(client, speaker, version);
             }
         }
         None => send_update_to_client(
