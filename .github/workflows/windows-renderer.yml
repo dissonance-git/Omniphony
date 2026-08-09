@@ -50,6 +50,9 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Test DSP measurement harness
+        run: cargo test --locked -p dsp_fixtures
+
       - name: Test renderer core
         run: cargo test --locked -p renderer
 
