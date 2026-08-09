@@ -571,21 +571,34 @@ impl BinauralRenderer {
                         .sqrt()
                         .max(MIN_DISTANCE_M);
                     // Relative to the direct path so the direct sound keeps
-                    // zero added latency (A/V sync unchanged).
+                    // zero common propagation latency (A/V sync unchanged).
                     let rel_delay_s = (d_img - dist_m).max(0.0) / c_sound;
-                    // Head-relative direction → broadband ILD pan (no HRIR
-                    // conv per reflection: one tap + one multiply per ear).
+                    // Head-relative image direction. The cheap reflection bank
+                    // carries both broadband ILD and analytic ITD, while the
+                    // direct object retains full HRIR convolution.
                     let ih = head_pose.rotate([img[0] as f64, img[1] as f64, img[2] as f64]);
-                    let inorm = ((ih[0] * ih[0] + ih[1] * ih[1] + ih[2] * ih[2]) as f32)
-                        .sqrt()
-                        .max(1e-6);
-                    let lat = (ih[0] as f32 / inorm).clamp(-1.0, 1.0);
+                    let ix = ih[0] as f32;
+                    let iy = ih[1] as f32;
+                    let iz = ih[2] as f32;
+                    let inorm = (ix * ix + iy * iy + iz * iz).sqrt().max(1e-6);
+                    let lat = (ix / inorm).clamp(-1.0, 1.0);
+                    let img_az = ix.atan2(iy);
+                    let img_horiz = (ix * ix + iy * iy).sqrt();
+                    let img_el = iz.atan2(img_horiz);
+                    let (refl_itd_l, refl_itd_r) =
+                        itd::ear_delays_seconds(img_az, img_el, head_radius_m);
                     const SHADOW: f32 = 0.5;
                     let g_r = ((1.0 + SHADOW * lat) / (1.0 + SHADOW)).sqrt();
                     let g_l = ((1.0 - SHADOW * lat) / (1.0 + SHADOW)).sqrt();
                     let g_dist = (REF_DISTANCE_M / d_img).clamp(0.0, MAX_DISTANCE_GAIN);
                     let g = reflections.level.clamp(0.0, 1.0) * g_dist;
-                    bank.set_targets(i, rel_delay_s, g * g_l, g * g_r);
+                    bank.set_targets_binaural(
+                        i,
+                        rel_delay_s + refl_itd_l,
+                        rel_delay_s + refl_itd_r,
+                        g * g_l,
+                        g * g_r,
+                    );
                 }
             } else if dsp.refl.is_some() {
                 // Drop the bank when disabled — the ring is the big allocation.
