@@ -41,9 +41,9 @@ pub struct StereoBinEstimate {
     pub directness: f32,
     /// Complementary field-like evidence in [0, 1].
     pub diffuseness: f32,
-    /// Simple shared/mid magnitude proxy.
+    /// Magnitude of the true complex mid signal, |(L + R) / 2|.
     pub mid_magnitude: f32,
-    /// Simple L/R-difference magnitude proxy.
+    /// Magnitude of the true complex side signal, |(L - R) / 2|.
     pub side_magnitude: f32,
     /// Quadrature magnitude of the stereo pair.
     pub total_magnitude: f32,
@@ -94,6 +94,11 @@ pub fn wrapped_phase_delta(left_phase: f32, right_phase: f32) -> f32 {
     delta
 }
 
+#[inline]
+fn polar_to_cartesian(magnitude: f32, phase: f32) -> (f32, f32) {
+    (magnitude * phase.cos(), magnitude * phase.sin())
+}
+
 /// Estimate source-like versus diffuse evidence for one stereo frequency bin.
 ///
 /// The key property is that both of these can support directness:
@@ -139,14 +144,23 @@ pub fn estimate_bin(
         directness = 1.0 - (1.0 - directness).powf(1.0 + separation * 4.0);
     }
 
+    // M/S must be formed from the complex bins, not from scalar magnitudes.
+    // Otherwise equal-amplitude antiphase material incorrectly looks all-mid.
+    let (left_re, left_im) = polar_to_cartesian(left, evidence.left_phase);
+    let (right_re, right_im) = polar_to_cartesian(right, evidence.right_phase);
+    let mid_magnitude =
+        0.5 * (left_re + right_re).hypot(left_im + right_im);
+    let side_magnitude =
+        0.5 * (left_re - right_re).hypot(left_im - right_im);
+
     StereoBinEstimate {
         pan,
         phase_coherence,
         pan_intensity,
         directness,
         diffuseness: 1.0 - directness,
-        mid_magnitude: 0.5 * sum,
-        side_magnitude: 0.5 * (left - right).abs(),
+        mid_magnitude,
+        side_magnitude,
         total_magnitude: left.hypot(right),
     }
 }
@@ -156,10 +170,16 @@ pub fn estimate_bin(
 /// Unlike the earlier block-fixed EMA experiment, this tracker derives its
 /// update coefficient from elapsed time and a time constant. Its behaviour is
 /// therefore stable when FFT size, hop size, or sample rate changes.
+///
+/// A newly observed component is intentionally *not* considered stable merely
+/// because its first observation agrees with itself. `observed_ms` supplies a
+/// separate persistence/maturity term, so one-frame excursions cannot receive
+/// full object-like support on arrival.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StereoEvidenceTracker {
     directness: f32,
     pan: f32,
+    observed_ms: f32,
     initialized: bool,
 }
 
@@ -168,6 +188,7 @@ impl Default for StereoEvidenceTracker {
         Self {
             directness: 0.0,
             pan: 0.0,
+            observed_ms: 0.0,
             initialized: false,
         }
     }
@@ -186,16 +207,24 @@ impl StereoEvidenceTracker {
         self.pan
     }
 
+    pub fn observed_ms(&self) -> f32 {
+        self.observed_ms
+    }
+
     /// Update the persistent state.
     ///
     /// `elapsed_ms` is the time since the previous estimate for this bin/band.
-    /// `time_constant_ms` describes how quickly the state should follow change.
+    /// `time_constant_ms` describes both the smoothing horizon and, for this
+    /// lightweight pre-scene tracker, the maturity horizon for object evidence.
+    /// A later scene layer may split those into independently learned values.
     pub fn update(
         &mut self,
         estimate: StereoBinEstimate,
         elapsed_ms: f32,
         time_constant_ms: f32,
     ) -> TrackedStereoEvidence {
+        let elapsed_ms = elapsed_ms.max(0.0);
+
         if !self.initialized {
             self.directness = estimate.directness;
             self.pan = estimate.pan;
@@ -206,14 +235,20 @@ impl StereoEvidenceTracker {
             self.pan += alpha * (estimate.pan - self.pan);
         }
 
+        self.observed_ms += elapsed_ms;
+
         let pan_deviation = (estimate.pan - self.pan).abs();
-        let stability = (1.0 - 4.0 * pan_deviation).clamp(0.0, 1.0);
+        let agreement = (1.0 - 4.0 * pan_deviation).clamp(0.0, 1.0);
+        let persistence = persistence_weight(self.observed_ms, time_constant_ms);
+        let stability = agreement * persistence;
 
         TrackedStereoEvidence {
             directness: self.directness.clamp(0.0, 1.0),
             pan: self.pan.clamp(-1.0, 1.0),
             instantaneous_pan: estimate.pan,
             pan_deviation,
+            agreement,
+            persistence,
             stability,
         }
     }
@@ -225,8 +260,11 @@ pub struct TrackedStereoEvidence {
     pub pan: f32,
     pub instantaneous_pan: f32,
     pub pan_deviation: f32,
-    /// 1 when instantaneous pan agrees with persistent pan; approaches 0 as a
-    /// transient deviates from the tracked trajectory.
+    /// Instantaneous agreement with the tracked trajectory, independent of age.
+    pub agreement: f32,
+    /// Evidence that the candidate has existed long enough to be trusted.
+    pub persistence: f32,
+    /// Conservative product of trajectory agreement and persistence.
     pub stability: f32,
 }
 
@@ -238,6 +276,16 @@ pub fn ema_alpha(elapsed_ms: f32, time_constant_ms: f32) -> f32 {
         return 1.0;
     }
     (1.0 - (-elapsed_ms / time_constant_ms).exp()).clamp(0.0, 1.0)
+}
+
+pub fn persistence_weight(observed_ms: f32, time_constant_ms: f32) -> f32 {
+    if observed_ms <= 0.0 {
+        return 0.0;
+    }
+    if time_constant_ms <= 0.0 {
+        return 1.0;
+    }
+    (1.0 - (-observed_ms / time_constant_ms).exp()).clamp(0.0, 1.0)
 }
 
 /// Conservative score for evidence that a lateral component behaves like a
@@ -279,11 +327,13 @@ mod tests {
     }
 
     #[test]
-    fn centered_in_phase_material_is_direct() {
+    fn centered_in_phase_material_is_direct_and_mid_dominant() {
         let v = estimate_bin(e(1.0, 1.0, 0.2, 0.2), StereoInferenceParams::default());
         assert!(v.pan.abs() < 1.0e-6);
         assert!(v.phase_coherence > 0.999);
         assert!(v.directness > 0.999);
+        assert!((v.mid_magnitude - 1.0).abs() < 1.0e-5);
+        assert!(v.side_magnitude < 1.0e-5);
     }
 
     #[test]
@@ -295,11 +345,13 @@ mod tests {
     }
 
     #[test]
-    fn balanced_antiphase_material_is_diffuse_evidence() {
+    fn balanced_antiphase_material_is_diffuse_and_side_dominant() {
         let v = estimate_bin(e(1.0, 1.0, 0.0, PI), StereoInferenceParams::default());
         assert!(v.phase_coherence < -0.999);
         assert!(v.directness < 0.001);
         assert!(v.diffuseness > 0.999);
+        assert!(v.mid_magnitude < 1.0e-5);
+        assert!((v.side_magnitude - 1.0).abs() < 1.0e-5);
     }
 
     #[test]
@@ -324,36 +376,71 @@ mod tests {
 
         // One 100 ms update should closely match ten 10 ms updates.
         let one = a.update(estimate, 100.0, 200.0);
-        let mut many = TrackedStereoEvidence {
-            directness: 0.0,
-            pan: 0.0,
-            instantaneous_pan: 0.0,
-            pan_deviation: 0.0,
-            stability: 1.0,
-        };
-        for _ in 0..10 {
+        let mut many = b.update(estimate, 10.0, 200.0);
+        for _ in 1..10 {
             many = b.update(estimate, 10.0, 200.0);
         }
 
         assert!((one.pan - many.pan).abs() < 1.0e-5);
         assert!((one.directness - many.directness).abs() < 1.0e-5);
+        assert!((one.persistence - many.persistence).abs() < 1.0e-5);
     }
 
     #[test]
-    fn stable_lateral_score_rejects_unstable_transient() {
-        let stable = TrackedStereoEvidence {
-            directness: 1.0,
+    fn new_lateral_candidate_is_not_immediately_stable() {
+        let estimate = StereoBinEstimate {
             pan: 0.9,
-            instantaneous_pan: 0.9,
-            pan_deviation: 0.0,
-            stability: 1.0,
+            directness: 1.0,
+            ..StereoBinEstimate::default()
         };
-        let unstable = TrackedStereoEvidence {
-            stability: 0.0,
-            ..stable
-        };
+        let mut tracker = StereoEvidenceTracker::default();
+        let first = tracker.update(estimate, 10.0, 200.0);
 
-        assert!(stable_lateral_object_score(stable, 1.0, 1.0) > 0.4);
-        assert_eq!(stable_lateral_object_score(unstable, 1.0, 1.0), 0.0);
+        assert!(first.agreement > 0.999);
+        assert!(first.persistence < 0.06);
+        assert!(first.stability < 0.06);
+        assert!(stable_lateral_object_score(first, 1.0, 1.0) < 0.05);
+    }
+
+    #[test]
+    fn sustained_lateral_candidate_accumulates_object_support() {
+        let estimate = StereoBinEstimate {
+            pan: 0.9,
+            directness: 1.0,
+            ..StereoBinEstimate::default()
+        };
+        let mut tracker = StereoEvidenceTracker::default();
+        let mut tracked = tracker.update(estimate, 10.0, 200.0);
+        for _ in 1..40 {
+            tracked = tracker.update(estimate, 10.0, 200.0);
+        }
+
+        assert!(tracked.persistence > 0.86);
+        assert!(tracked.stability > 0.86);
+        assert!(stable_lateral_object_score(tracked, 1.0, 1.0) > 0.35);
+    }
+
+    #[test]
+    fn pan_excursion_breaks_trajectory_agreement() {
+        let stable = StereoBinEstimate {
+            pan: 0.85,
+            directness: 1.0,
+            ..StereoBinEstimate::default()
+        };
+        let excursion = StereoBinEstimate {
+            pan: -0.85,
+            directness: 1.0,
+            ..StereoBinEstimate::default()
+        };
+        let mut tracker = StereoEvidenceTracker::default();
+        for _ in 0..40 {
+            tracker.update(stable, 10.0, 200.0);
+        }
+        let tracked = tracker.update(excursion, 10.0, 200.0);
+
+        assert!(tracked.pan_deviation > 1.0);
+        assert_eq!(tracked.agreement, 0.0);
+        assert_eq!(tracked.stability, 0.0);
+        assert_eq!(stable_lateral_object_score(tracked, 1.0, 1.0), 0.0);
     }
 }
