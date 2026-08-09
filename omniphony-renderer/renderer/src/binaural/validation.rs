@@ -78,33 +78,18 @@ fn itd_magnitude_tracks_the_model() {
     }
 }
 
-/// **Deferred: `measured_lag` is not deterministic under test parallelism.**
+/// This gate used to be ignored because identical `measured_lag` calls changed
+/// under parallel test load. The renderer itself was not proven nondeterministic:
+/// the fixture requested `HrirSource::Synthetic` from a renderer born with the
+/// default SAF KEMAR grid, and HRIR source changes intentionally rebuild on a
+/// worker thread. Rendering 64 tiny blocks as fast as possible was incorrectly
+/// treated as enough *wall-clock* time for that worker to finish. Under load,
+/// capture could begin on different HRIR grids.
 ///
-/// Reproduced in a full `cargo test --release --workspace` run — not in 30
-/// runs of this module alone, so it needs the rest of the suite loading the
-/// machine. The evidence is unambiguous and is recorded here because it is the
-/// starting point for whoever fixes it: in **one and the same run**, two tests
-/// called `measured_lag` with identical arguments and got different answers.
-///
-/// ```text
-/// itd_magnitude_tracks_the_model (passed):
-///   az=  0.0 -> +0.000    az=+30.0 -> -12.836    az=-30.0 -> +12.836
-/// itd_is_antisymmetric_about_the_median_plane (failed, same run):
-///   az=  0.0 -> +0.025    az=+30.0 -> -13.460    az=-30.0 -> +12.435
-/// ```
-///
-/// A source dead ahead must give exactly 0; one test got 0.000 and the other
-/// 0.025. So the render itself differs between threads, and no tolerance
-/// adjustment is the right fix — the nondeterminism is.
-///
-/// An earlier hypothesis blamed `ensure_denormals_flushed` leaving threads
-/// without FTZ/DAZ. That guard is a `thread_local!` and is correct for any
-/// thread entering `render_frame`. It does **not** cover rayon workers, which
-/// the renderer uses during construction (`live_params.rs`, `render_backend.rs`
-/// `into_par_iter`) and which never call it — that is the most promising lead,
-/// but it is a lead, not a finding: nobody has shown the binaural path reads
-/// anything those workers produce.
-#[ignore = "measured_lag is not deterministic under test parallelism: the same call returned -12.836 and -13.460 in one run, and az=0 gave 0.000 and 0.025. Tracked deferral, see the doc comment and docs/dsp-validation-report.md"]
+/// `dsp_fixtures::scene::render_single_object_binaural` now issues the async
+/// request, gives the control-plane rebuild a bounded settling interval, and
+/// has its own repeated-render determinism regression. Antisymmetry is therefore
+/// an active gate again instead of a scheduler-dependent deferral.
 #[test]
 fn itd_is_antisymmetric_about_the_median_plane() {
     let centre = measured_lag(0.0);
