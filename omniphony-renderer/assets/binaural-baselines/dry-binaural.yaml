@@ -1,0 +1,24 @@
+# Frozen dry binaural control.
+#
+# Same generic HRTF, scale, and air-absorption policy as baseline-room.yaml,
+# with both room contributions disabled. Use it to isolate what early
+# reflections and the late field are actually adding.
+#
+# Static listener by design: no head-tracking source is configured here.
+render:
+  binaural:
+    output_mode: binaural
+    hrir_source: saf
+    unit_scale_m: 3.0
+    air_absorption: true
+    reflections:
+      enabled: false
+      room_width_m: 4.0
+      room_depth_m: 5.0
+      room_height_m: 2.7
+      level: 0.4
+    reverb:
+      enabled: false
+      level: 0.2
+      rt60_s: 0.3
+      predelay_ms: 20
