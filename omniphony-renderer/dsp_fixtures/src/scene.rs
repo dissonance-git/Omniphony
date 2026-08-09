@@ -403,15 +403,25 @@ pub fn render_blocks_partial_metadata(
 ///
 /// The first `PRIME_BLOCKS` blocks are discarded: the 20 ms gain slew and the
 /// position ramp must settle before the lag measurement is meaningful.
+///
+/// HRIR source changes are asynchronous in production so grid construction and
+/// SOFA I/O never block the audio thread. A test fixture cannot treat "64 audio
+/// blocks rendered as fast as possible" as 53 ms of wall-clock time: under
+/// parallel CI the rebuild worker may not have run at all yet. The first prime
+/// block therefore issues the request, then the fixture yields a bounded
+/// control-plane settling interval before continuing. This removes scheduler
+/// timing from the captured PCM while preserving the production async path.
 pub fn render_single_object_binaural(
     azimuth_deg: f32,
     blocks: usize,
     hrir_source: HrirSource,
 ) -> (Vec<f32>, Vec<f32>) {
     const PRIME_BLOCKS: usize = 64;
+    const HRIR_REBUILD_SETTLE_MS: u64 = 100;
 
     let theta = (azimuth_deg as f64).to_radians();
     let position = [theta.sin(), theta.cos(), 0.0];
+    let source_change = hrir_source != HrirSource::SafKemar;
 
     let mut r = build_renderer_binaural(
         SpeakerLayout::preset("7.1.4").expect("known preset"),
@@ -444,6 +454,12 @@ pub fn render_single_object_binaural(
             .expect("prime binaural ITD render");
         buf = f.samples;
         buf.clear();
+
+        // The first frame is what calls BinauralRenderer::ensure_source and
+        // enqueues the rebuild. Wait only after that request exists.
+        if block == 0 && source_change {
+            std::thread::sleep(std::time::Duration::from_millis(HRIR_REBUILD_SETTLE_MS));
+        }
     }
 
     let mut left = Vec::with_capacity(blocks * BLOCK_SAMPLES);
@@ -466,4 +482,17 @@ pub fn render_single_object_binaural(
         buf.clear();
     }
     (left, right)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repeated_synthetic_binaural_fixture_is_deterministic() {
+        let a = render_single_object_binaural(37.0, 16, HrirSource::Synthetic);
+        let b = render_single_object_binaural(37.0, 16, HrirSource::Synthetic);
+        assert_eq!(a.0, b.0, "left channel changed across identical renders");
+        assert_eq!(a.1, b.1, "right channel changed across identical renders");
+    }
 }
