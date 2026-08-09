@@ -1,0 +1,122 @@
+name: Windows renderer
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-renderer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Windows x64 renderer
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: omniphony-renderer
+
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild / MSVC
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Setup Rust 1.87
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.87.0
+          components: rustfmt
+          targets: x86_64-pc-windows-msvc
+
+      - name: Locate libclang
+        run: |
+          $roots = @(
+            'C:\Program Files\LLVM',
+            'C:\Program Files (x86)\LLVM'
+          )
+          $libclang = $null
+          foreach ($root in $roots) {
+            if (Test-Path $root) {
+              $libclang = Get-ChildItem $root -Recurse -Filter libclang.dll -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+              if ($libclang) { break }
+            }
+          }
+          if (-not $libclang) {
+            throw 'libclang.dll was not found on the Windows runner'
+          }
+          "LIBCLANG_PATH=$($libclang.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "LIBCLANG_PATH=$($libclang.DirectoryName)"
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: omniphony-renderer -> target
+          cache-on-failure: true
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Compile tests
+        run: cargo test --locked --workspace --features asio --no-run
+
+      - name: Build release renderer
+        run: cargo build --locked --profile release-deploy --features asio -p omniphony-renderer -p reference_bridge -p orender_ffi
+
+      - name: Smoke-test CLI
+        run: |
+          $exe = 'target\release-deploy\orender.exe'
+          if (!(Test-Path $exe)) { throw "Expected renderer not found: $exe" }
+          & $exe --help | Out-Host
+          & $exe --version | Out-Host
+
+      - name: Collect artifacts
+        run: |
+          $dist = Join-Path $PWD 'dist\windows-x64'
+          New-Item -ItemType Directory -Path $dist -Force | Out-Null
+
+          $candidates = @(
+            'target\release-deploy\orender.exe',
+            'target\release-deploy\reference_bridge.dll',
+            'target\release-deploy\orender.dll'
+          )
+
+          foreach ($file in $candidates) {
+            if (Test-Path $file) {
+              Copy-Item $file $dist -Force
+            }
+          }
+
+          if (!(Test-Path (Join-Path $dist 'orender.exe'))) {
+            throw 'orender.exe was not collected'
+          }
+
+          Get-ChildItem $dist -File | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          } | Set-Content (Join-Path $dist 'SHA256SUMS.txt')
+
+          Get-ChildItem $dist | Format-Table Name, Length
+
+      - name: Upload Windows renderer
+        uses: actions/upload-artifact@v4
+        with:
+          name: omniphony-windows-x64-${{ github.sha }}
+          path: omniphony-renderer/dist/windows-x64/
+          if-no-files-found: error
+          retention-days: 14
