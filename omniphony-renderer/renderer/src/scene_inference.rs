@@ -134,7 +134,12 @@ pub fn infer_scene_evidence(input: SceneEvidenceInput) -> SceneCandidateEvidence
         * (1.0 - 0.65 * field_support))
         .clamp(0.0, 1.0);
 
-    let specificity = if reassignment_safety > 0.50
+    // The upstream object-support score intentionally maps a reference-level
+    // component to roughly half-scale before lateral/persistence penalties. A
+    // >0.5 gate would therefore make Specific unreachable for ordinary
+    // reference-level material. 0.30 remains conservative while allowing a
+    // mature, strongly lateral, source-like component to become eligible.
+    let specificity = if reassignment_safety > 0.30
         && matches!(kind, SceneEvidenceKind::LateralObjectCandidate)
     {
         SpatialSpecificity::Specific
@@ -162,7 +167,9 @@ pub fn infer_scene_evidence(input: SceneEvidenceInput) -> SceneCandidateEvidence
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stereo_inference::{StereoEvidenceTracker, StereoInferenceParams, StereoBinEvidence, estimate_bin};
+    use crate::stereo_inference::{
+        StereoBinEvidence, StereoEvidenceTracker, StereoInferenceParams, estimate_bin,
+    };
     use std::f32::consts::PI;
 
     fn estimate(l: f32, r: f32, lp: f32, rp: f32) -> StereoBinEstimate {
@@ -227,7 +234,7 @@ mod tests {
         });
         assert_eq!(out.kind, SceneEvidenceKind::LateralObjectCandidate);
         assert_eq!(out.specificity, SpatialSpecificity::Specific);
-        assert!(out.reassignment_safety > 0.5);
+        assert!(out.reassignment_safety > 0.30);
     }
 
     #[test]
