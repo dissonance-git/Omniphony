@@ -1,20 +1,21 @@
 //! First-order shoebox early reflections for the binaural stage.
 //!
-//! Externalization aid: an anechoic HRTF render almost always sounds
-//! "inside the head" regardless of calibration — the missing cue is room
-//! acoustics. This module adds the six first-order image sources of a
-//! shoebox room (listener at the room centre, world-fixed walls): each
-//! reflection is a delayed, attenuated, broadband-ILD-panned copy of the
-//! channel signal. No per-reflection HRIR convolution — per reflection and
-//! ear the steady-state cost is one smoothed fractional ring-buffer read
-//! and one multiply, which keeps the whole bank cheap enough for many
-//! channels on constrained hardware.
+//! Externalization aid: an anechoic HRTF render often remains perceptually
+//! close to the head because it lacks a coherent environment. This module adds
+//! the six first-order image sources of a shoebox room (listener at the room
+//! centre, world-fixed walls): each reflection is a delayed, attenuated copy of
+//! the channel signal with independent left/right arrival times and gains.
 //!
-//! The direct path keeps zero propagation delay (A/V sync unchanged);
+//! The bank deliberately does not run a full HRIR convolution per reflection.
+//! It is a lightweight early-field layer: directional ITD + broadband ILD +
+//! propagation delay. More expensive spectral wall/HRTF treatment can be added
+//! later behind the same scene boundary if listening tests justify it.
+//!
+//! The direct path keeps zero common propagation delay (A/V sync unchanged);
 //! reflection delays are *relative* to the direct path
-//! (`(d_image − d_direct) / c ≥ 0`). The direct/reflected energy ratio then
-//! falls naturally with source distance, which is exactly the distance cue
-//! we are after.
+//! (`(d_image − d_direct) / c ≥ 0`) plus each reflection direction's per-ear
+//! ITD. The direct/reflected timing and binaural structure therefore change with
+//! source and image direction without turning the room into generic reverb.
 
 /// Speed of sound (m/s), matching `itd.rs`.
 const SPEED_OF_SOUND: f32 = 343.0;
@@ -111,22 +112,40 @@ impl ReflectionBank {
         }
     }
 
-    /// Update one reflection's targets: relative delay (s) and per-ear gains.
-    /// Called once per block per reflection.
+    /// Backward-compatible target update with the same delay at both ears.
+    /// New binaural callers should prefer [`Self::set_targets_binaural`].
     pub fn set_targets(&mut self, idx: usize, delay_s: f32, gain_l: f32, gain_r: f32) {
+        self.set_targets_binaural(idx, delay_s, delay_s, gain_l, gain_r);
+    }
+
+    /// Update one reflection's per-ear targets.
+    ///
+    /// `delay_l_s` and `delay_r_s` include the common image-source propagation
+    /// detour plus the reflection direction's interaural delay. Keeping those
+    /// delays separate lets the cheap tap bank carry a real binaural timing cue
+    /// rather than only an ILD pan.
+    pub fn set_targets_binaural(
+        &mut self,
+        idx: usize,
+        delay_l_s: f32,
+        delay_r_s: f32,
+        gain_l: f32,
+        gain_r: f32,
+    ) {
         let max = (self.ring.len() - 2) as f32;
-        let d = (delay_s * self.sample_rate as f32).clamp(0.0, max);
-        for (tap, gain) in [
-            (&mut self.taps_l[idx], gain_l),
-            (&mut self.taps_r[idx], gain_r),
+        let d_l = (delay_l_s * self.sample_rate as f32).clamp(0.0, max);
+        let d_r = (delay_r_s * self.sample_rate as f32).clamp(0.0, max);
+        for (tap, delay, gain) in [
+            (&mut self.taps_l[idx], d_l, gain_l),
+            (&mut self.taps_r[idx], d_r, gain_r),
         ] {
-            tap.delay_target = d;
+            tap.delay_target = delay;
             tap.gain_target = gain;
             // While the tap is (near) silent a delay jump is inaudible — snap
             // instead of sweeping, so a fresh tap doesn't chirp its way from
             // delay 0 to the target while tracking the live signal.
             if tap.gain.abs() < 1e-4 {
-                tap.delay = d;
+                tap.delay = delay;
             }
         }
     }
@@ -235,6 +254,31 @@ mod tests {
                 assert!(l.abs() < 1e-3, "leak at {i}: {l}");
             }
         }
+    }
+
+    #[test]
+    fn binaural_targets_can_arrive_at_different_ear_times() {
+        let mut bank = ReflectionBank::new(48_000);
+        bank.set_targets_binaural(
+            0,
+            10.0 / 48_000.0,
+            14.0 / 48_000.0,
+            1.0,
+            1.0,
+        );
+        for _ in 0..4_000 {
+            bank.process(0.0);
+        }
+
+        let mut outs = Vec::new();
+        outs.push(bank.process(1.0));
+        for _ in 0..20 {
+            outs.push(bank.process(0.0));
+        }
+        assert!((outs[10].0 - 1.0).abs() < 1e-3, "left arrival={:?}", outs[10]);
+        assert!(outs[10].1.abs() < 1e-3, "right arrived too early={:?}", outs[10]);
+        assert!((outs[14].1 - 1.0).abs() < 1e-3, "right arrival={:?}", outs[14]);
+        assert!(outs[14].0.abs() < 1e-3, "left leaked at right arrival={:?}", outs[14]);
     }
 
     #[test]
