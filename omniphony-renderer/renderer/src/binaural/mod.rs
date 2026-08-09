@@ -218,6 +218,18 @@ impl ChannelDsp {
     }
 }
 
+/// Tagged result from the asynchronous HRIR worker.
+///
+/// A build can be expensive enough that a newer user request arrives while an
+/// older grid is still being constructed. The audio thread must therefore know
+/// which source produced a finished grid so it can reject stale completions
+/// rather than briefly installing the wrong HRTF during rapid calibration/A-B
+/// switching.
+struct BuiltHrirSet {
+    source: HrirSource,
+    set: std::sync::Arc<HrirSet>,
+}
+
 /// Per-frame live parameters for [`BinauralRenderer::render_frame`], grouped
 /// so the call site stays readable as the stage grows.
 pub struct BinauralFrameParams {
@@ -237,8 +249,9 @@ pub struct BinauralRenderer {
     /// HRIR source last *requested* (the active grid may briefly lag it while
     /// the worker builds — see [`Self::ensure_source`]).
     source: HrirSource,
-    /// Finished grids from the rebuild worker, awaiting the audio-thread swap.
-    incoming: std::sync::Arc<arc_swap::ArcSwapOption<HrirSet>>,
+    /// Finished, source-tagged grids from the rebuild worker, awaiting the
+    /// audio-thread swap. Stale results are discarded rather than installed.
+    incoming: std::sync::Arc<arc_swap::ArcSwapOption<BuiltHrirSet>>,
     /// Requests to the long-lived rebuild worker. Dropping the renderer drops
     /// the sender, which terminates the worker.
     rebuild_tx: std::sync::mpsc::Sender<HrirSource>,
@@ -256,12 +269,13 @@ pub struct BinauralRenderer {
 impl BinauralRenderer {
     pub fn new(sample_rate: u32) -> Self {
         let source = HrirSource::default();
-        let incoming: std::sync::Arc<arc_swap::ArcSwapOption<HrirSet>> =
+        let incoming: std::sync::Arc<arc_swap::ArcSwapOption<BuiltHrirSet>> =
             std::sync::Arc::new(arc_swap::ArcSwapOption::empty());
         // Long-lived rebuild worker: grid builds (allocations, provider
         // renders, SOFA file I/O) must never run on the audio thread. The
         // worker drains request bursts to the latest one, builds, and
-        // publishes into `incoming` for the audio thread to swap in.
+        // publishes a source-tagged result into `incoming` for the audio thread
+        // to accept only if that source is still current.
         let (rebuild_tx, rebuild_rx) = std::sync::mpsc::channel::<HrirSource>();
         {
             let slot = std::sync::Arc::clone(&incoming);
@@ -272,8 +286,11 @@ impl BinauralRenderer {
                         while let Ok(newer) = rebuild_rx.try_recv() {
                             req = newer;
                         }
-                        let set = Self::build_hrir(&req, sample_rate);
-                        slot.store(Some(std::sync::Arc::new(set)));
+                        let set = std::sync::Arc::new(Self::build_hrir(&req, sample_rate));
+                        slot.store(Some(std::sync::Arc::new(BuiltHrirSet {
+                            source: req,
+                            set,
+                        })));
                     }
                 })
                 .expect("spawn binaural HRIR rebuild worker");
@@ -371,16 +388,28 @@ impl BinauralRenderer {
     /// an actual change it only pushes a request to the rebuild worker — the
     /// grid build (allocations, provider renders, SOFA file I/O) never runs
     /// here (issue #153). Frames keep rendering with the previous grid until
-    /// the worker's result lands.
+    /// the worker's matching result lands.
     pub fn ensure_source(&mut self, source: &HrirSource) {
-        if let Some(set) = self.incoming.swap(None) {
-            self.hrir = set;
-        }
+        // Update the desired identity before consuming a completed build. This
+        // ensures that a result for B cannot be installed on the same frame the
+        // caller has already moved on to C.
         if &self.source != source {
             self.source = source.clone();
             // `send` allocates one queue node — rare (a user-initiated source
             // change), unlike the megabytes+I/O of the build it replaces.
             let _ = self.rebuild_tx.send(source.clone());
+        }
+
+        if let Some(built) = self.incoming.swap(None) {
+            if built.source == self.source {
+                self.hrir = std::sync::Arc::clone(&built.set);
+            } else {
+                log::debug!(
+                    "binaural: discarding stale HRIR rebuild for '{}' while '{}' is requested",
+                    built.source.as_str(),
+                    self.source.as_str()
+                );
+            }
         }
     }
 
@@ -683,6 +712,47 @@ mod tests {
             r.ensure_source(&HrirSource::Synthetic);
         }
         assert!(render(&mut r) > 1e-9, "render broken after grid swap");
+    }
+
+    #[test]
+    fn stale_completed_hrir_grid_is_not_installed() {
+        let mut r = BinauralRenderer::new(48_000);
+        let initial_grid = r.hrir_grid_id();
+
+        // Simulate that Synthetic is the latest requested source while a slow
+        // older SAF build completes afterward. The result is deliberately
+        // injected into the private mailbox so this test does not depend on OS
+        // thread scheduling or provider build speed.
+        r.source = HrirSource::Synthetic;
+        let stale_set = std::sync::Arc::new(HrirSet::synthetic(48_000));
+        r.incoming.store(Some(std::sync::Arc::new(BuiltHrirSet {
+            source: HrirSource::SafKemar,
+            set: stale_set,
+        })));
+
+        r.ensure_source(&HrirSource::Synthetic);
+        assert_eq!(
+            r.hrir_grid_id(),
+            initial_grid,
+            "stale HRIR completion replaced the active grid"
+        );
+    }
+
+    #[test]
+    fn matching_completed_hrir_grid_is_installed() {
+        let mut r = BinauralRenderer::new(48_000);
+        let initial_grid = r.hrir_grid_id();
+        r.source = HrirSource::Synthetic;
+        let matching_set = std::sync::Arc::new(HrirSet::synthetic(48_000));
+        let matching_grid = std::sync::Arc::as_ptr(&matching_set) as usize;
+        r.incoming.store(Some(std::sync::Arc::new(BuiltHrirSet {
+            source: HrirSource::Synthetic,
+            set: matching_set,
+        })));
+
+        r.ensure_source(&HrirSource::Synthetic);
+        assert_ne!(r.hrir_grid_id(), initial_grid);
+        assert_eq!(r.hrir_grid_id(), matching_grid);
     }
 
     #[test]
