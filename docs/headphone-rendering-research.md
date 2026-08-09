@@ -1,12 +1,14 @@
-# Headphone Rendering Research
+# Headphone Rendering and Machine Hearing Research
 
-> Research and engineering direction for headphone playback in `dissonancehelix/Omniphony`.
+> Current research and engineering direction for headphone playback, auditory scene understanding, and perceptual evaluation in `dissonancehelix/Omniphony`.
 >
-> **Goal:** make the standard Omniphony headphone renderer capable of presenting ordinary audio as a stable, externalized, spatially coherent acoustic scene while preserving musical identity, clarity, timbre, transients, dynamics, and source intent.
+> **Primary product goal:** make standard Omniphony headphone playback present ordinary audio as a stable, externalized, spatially coherent acoustic scene while preserving musical identity, clarity, timbre, transients, dynamics, and mix hierarchy.
+>
+> **Broader research goal:** use the same project to build progressively stronger machine hearing: a system that organizes sound more like a human listener does, then uses what it learns about hearing to improve rendering, while rendering experiments in turn provide new evidence about hearing.
 
-This is not a branded listening mode and is not intended to remain a separate product path. It is the research surface for improving **base Omniphony**. A technique that survives controlled tests should graduate into the normal binaural renderer or the normal upstream scene-analysis path. Experimental names, presets, and parallel renderers should disappear once the underlying behavior is proven.
+This is not a branded listening mode and is not intended to remain a separate product path. Successful research should graduate into **base Omniphony**. Experimental names, presets, parallel renderers, and research-only switches should disappear when the underlying method is proven.
 
-The long-term product target is simple from the listener's perspective:
+The long-term listener-facing experience should be simple:
 
 ```text
 application / player / game
@@ -18,57 +20,94 @@ standard headphone rendering
        headphones
 ```
 
-The user should not need to understand HRTFs, Ambisonics, early-reflection geometry, auditory scene analysis, or headphone compensation. Complexity belongs inside the engine.
+The user should not need to understand HRTFs, Ambisonics, early-reflection geometry, auditory scene analysis, machine-learning models, source separation, headphone compensation, codec plumbing, or Windows routing. Complexity belongs inside the engine.
 
 ---
 
-## 1. Core thesis
+## 1. Current project thesis
 
-Conventional stereo headphone playback is a severe representational bottleneck. A recording may contain evidence about foreground and background, source grouping, source width, direct and diffuse energy, reverberant structure, motion, mix hierarchy, temporal identity, and apparent distance, but ordinary playback presents that organization primarily as two ear-coupled signals.
+Conventional stereo headphone playback is a severe representational bottleneck. A recording may contain evidence about foreground and background, auditory grouping, source width, direct and diffuse energy, reverberant structure, motion, mix hierarchy, temporal identity, and apparent distance, but ordinary playback presents that organization primarily as two ear-coupled signals.
 
-The research question is whether Omniphony can re-expand the surviving evidence into a coherent three-dimensional percept without damaging the source.
+The immediate audio question is:
 
-A useful conceptual model is a **latent spatial scene**:
+> **How much perceptually meaningful acoustic structure can Omniphony recover or construct from the evidence that survives in an ordinary recording, without damaging the recording itself?**
+
+The broader machine-hearing question is:
+
+> **Can the system progressively learn to organize, track, compare, and interpret sound using perceptual structures that correspond more closely to human hearing than clip labels, isolated FFT bins, or disposable per-frame estimates?**
+
+These questions reinforce each other:
 
 ```text
-performances / tracks / rooms / effects / mix hierarchy
-                         ↓
-                  stereo projection
-                         ↓
-                       L / R
-
-playback reconstruction:
-
-                       L / R
-                         ↓
-             auditory organization
-                         ↓
-          confidence-aware scene model
-                         ↓
-              binaural acoustics
-                         ↓
-                    headphones
+better understanding of hearing
+          ↓
+better scene inference and rendering
+          ↓
+better controlled listening experiments
+          ↓
+better evidence about what hearing requires
+          ↓
+better understanding of hearing
 ```
 
-The latent scene is not claimed to be a uniquely recoverable historical object. Stereo does not tell us the original three-dimensional coordinates of every musical element. The task is therefore constrained reconstruction:
+This feedback loop is now a central project purpose.
 
-1. preserve structure that is explicitly available;
-2. infer structure where the signal supports it;
-3. represent uncertainty instead of inventing false precision;
-4. use conservative spatial authoring where multiple interpretations remain possible.
-
-The eventual experience should feel less like sound emitted by virtual loudspeakers and more like a musical event occupying acoustic space.
+Music remains the primary practical target because most daily listening is stereo music and because music is an unusually demanding hearing test: tiny errors in grouping, timing, transients, pitch structure, timbre, source identity, hierarchy, phase, and spatial continuity become audible quickly. The hearing architecture, however, should not be music-exclusive. A mature system should be able to organize speech, environmental sound, games, films, broadcasts, machinery, animals, weather, and other acoustic scenes through the same lower-level perceptual principles.
 
 ---
 
-## 2. Successful research graduates into core
+## 2. The object, the model, and the render must remain distinct
+
+A governing law is:
+
+> **The map must not replace the thing. It should make more of the thing reachable.**
+
+For audio this becomes:
+
+```text
+SOURCE AUDIO
+= the exact acoustic object available to us
+
+MACHINE-HEARING MODEL
+= an interpretation of what appears to be happening in that audio
+
+SCENE MODEL
+= a confidence-aware representation of sources, fields, room, relations, and time
+
+RENDER
+= a transformation that presents that model to two human ears
+```
+
+Therefore:
+
+```text
+evidence ≠ model ≠ render
+```
+
+The original decoded waveform remains the musical/acoustic authority whenever practical. Machine-learning systems may estimate masks, source likelihoods, object identities, spatial descriptors, room descriptors, embeddings, or control metadata without automatically replacing the corresponding waveform with a synthesized stem.
+
+This is especially important for music. Source separation is useful evidence, but a separated estimate is not automatically a fidelity-safe substitute for material in the master. Phase errors, contamination, musical bleed, transient damage, and model hallucination remain possible.
+
+A preferred long-term pattern is:
+
+```text
+original audio ───────────────────────────────► final transformation
+      │                                               ▲
+      └► machine hearing ► scene hypothesis ► control ┘
+```
+
+Use generated/reconstructed audio only where the evidence shows that waveform replacement is necessary and perceptually safe.
+
+---
+
+## 3. Successful research graduates into core
 
 The research path exists to change Omniphony itself.
 
 ```text
 current Omniphony
       ↓
-controlled renderer / perception experiments
+controlled renderer / hearing experiments
       ↓
 objective + listening validation
       ↓
@@ -77,25 +116,167 @@ surviving method
 base Omniphony behavior
 ```
 
-Do not preserve an "experimental premium mode" merely because a technique began as an experiment. If directional early reflections are demonstrably better, they should become the normal early-reflection implementation. If a scene representation is demonstrably better, it should become the normal scene representation.
+Do not preserve an experimental premium mode merely because a technique began as an experiment. If directional early reflections are demonstrably better, they should become the normal early-reflection implementation. If a scene representation is demonstrably better, it should become the normal scene representation. If an auditory model consistently improves inference, it should become normal upstream intelligence.
 
-The same applies in the other direction: a candidate that does not survive matched, repeatable tests should be removed or retained only as a diagnostic control.
+The reverse also applies: a candidate that does not survive matched, repeatable tests should be removed or retained only as a diagnostic control.
 
 ---
 
-## 3. Non-negotiable constraints
+## 4. Listener contract and transition law
 
-### 3.1 Clarity-preserving dimensionality
+The project is being developed for a listener who already has a preferred foobar2000 DSP + HeSuVi playback chain. That working setup is not to be dismantled merely to create a test environment.
+
+The migration must be earned.
+
+```text
+CURRENT PLAYBACK
+foobar DSPs + HeSuVi
+        │
+        │ remains available and unchanged
+        ▼
+OMNIPHONY DEVELOPMENT
+        │
+        ├► deterministic/offline tests
+        ├► artificial-listener tests
+        ├► known-scene tests
+        └► optional listening comparison
+        │
+        ▼
+Omniphony becomes independently stable and clearly better
+        │
+        ▼
+redundant pieces of the old chain are bypassed one by one
+        │
+        ▼
+Omniphony becomes the normal playback path
+```
+
+Do not require a cold-turkey migration.
+
+Do not make the listener act as the build engineer. The user's high-value role is:
+
+```text
+guide
+→ choose direction
+→ recognize important perceptual differences
+→ reject bad results
+→ listen when a human perceptual judgment is needed
+```
+
+The project should automate installation, codec handling, fixture rendering, measurement, candidate bookkeeping, and reproducibility as far as practical.
+
+### 4.1 First-install bar
+
+The first time the user installs an experimental Omniphony listening build, it should already have a reasonable expectation of producing a **large audible improvement** over stock/basic playback. Do not ask the user to replace or reconfigure the working chain merely to hear an internal engineering baseline.
+
+Internal controls can remain available to automation and developers. User-facing builds should bundle enough surviving improvements to make the installation worthwhile.
+
+### 4.2 Normal playback, not drag-and-drop ritual
+
+Drag-and-drop rendering may exist as a developer/debug path, but it is not the intended listening workflow.
+
+Near-term preferred integration:
+
+```text
+foobar / normal playback
+        ↓
+Omniphony optional parallel or switchable path
+        ↓
+headphones
+```
+
+Long-term preferred integration:
+
+```text
+Windows audio
+→ Omniphony
+→ physical output
+```
+
+The mature experience should approach:
+
+```text
+install once
+select headphones/output once
+play audio normally
+```
+
+---
+
+## 5. Input representation law
+
+All source types should ultimately enter a canonical scene representation with provenance describing what is known versus inferred.
+
+```text
+explicit authored objects / ADM / S-ADM / PMD / similar metadata
+              ↓
+native Ambisonics / HOA
+              ↓
+discrete surround channels
+              ↓
+structured source layers / stems / sequencer information
+              ↓
+ordinary stereo
+              ↓
+mono
+```
+
+Available source structure increases upward. Required inference increases downward.
+
+The rule is:
+
+> **Preserve truth; infer only absence.**
+
+Do not collapse a rich source to stereo and then attempt to rediscover structure that was already provided.
+
+Ordinary stereo is not a compatibility afterthought. It is the primary everyday machine-hearing problem because it is where the most important structure is missing.
+
+---
+
+## 6. Codec and container boundary
+
+The user should be able to play the existing music library directly. Most of that library may be Opus, including high-quality ~192 kbps stereo Opus.
+
+The architecture should treat codec/container handling as a boundary concern rather than a hearing concern.
+
+Preferred division:
+
+```text
+FFmpeg / ffprobe
+→ identify container, codec, sample rate, channel count, channel layout
+→ decode to PCM without user intervention
+
+Omniphony hearing / scene layer
+→ understand the decoded acoustic content
+
+Omniphony renderer
+→ present the scene to the ears
+```
+
+User-facing input should eventually include whatever normal audio formats the bundled decoder supports, for example Opus/Ogg/WebM, FLAC, AAC/M4A, MP3, WAV, and other common formats.
+
+For controlled comparisons, decode a source once and feed every candidate the same PCM. This makes any codec loss upstream common to all variants.
+
+Generated test outputs should preferably be lossless (for example FLAC or float PCM) so evaluation does not add another lossy encode when listening for small changes in timbre, transients, phase, spatial stability, or coloration.
+
+Do not require the user to manually convert Opus to WAV.
+
+---
+
+## 7. Non-negotiable perceptual constraints
+
+### 7.1 Clarity-preserving dimensionality
 
 Increase spatial dimensionality while keeping blur near zero.
 
 ```text
 maximize:
   externalization
-  azimuth / rear discrimination
+  front / side / rear discrimination
   radial depth
   elevation
   apparent source extent
+  apparent source width
   listener envelopment
   room scale
   source separation
@@ -111,128 +292,129 @@ subject to bounded change in:
   spectral balance
   phase / group delay
   source identity
+  musical hierarchy
   fatigue
 ```
 
-No amount of spatial scale compensates for softened attacks, watery cymbals, wandering vocals, unstable bass, or obvious comb coloration.
+No amount of spatial scale compensates for softened attacks, watery cymbals, wandering vocals, unstable bass, collapsed center energy, or obvious comb coloration.
 
-### 3.2 Cue agreement
+A central formulation is:
 
-A believable source is not just a coordinate. Direction, distance, apparent width, direct/reverberant ratio, early reflections, spectral cues, and room response should describe the same acoustic event.
+> **A source can become more physically present without becoming less precise, while the environment can become vastly more enveloping without swallowing the source.**
 
-Contradictory cues produce an effect. Consistent cues produce a scene.
+### 7.2 Cue agreement
 
-### 3.3 Spatial specificity follows confidence
+A believable source is not just a coordinate. Direction, distance, apparent width, direct/reverberant ratio, early reflections, spectral cues, room response, extent, and temporal behavior should describe the same acoustic event.
+
+Contradictory cues create an effect. Consistent cues create a scene.
+
+### 7.3 Spatial specificity follows confidence
 
 ```text
 high confidence   → precise persistent direct object
-medium confidence → bounded spatial region / larger extent
+medium confidence → bounded region / larger extent
 low confidence    → diffuse or ambient field
 no evidence       → do not invent unnecessary precision
 ```
 
-### 3.4 Spatial persistence
+### 7.4 Spatial persistence
 
-Object identity and position should not be recomputed as a new universe every analysis frame. Maintain a scene hypothesis and change it only when new evidence is strong enough.
+Object identity and position should not be recomputed as a new universe every analysis frame. Maintain hypotheses and change them only when new evidence is strong enough.
 
-### 3.5 One binaural transform
+### 7.5 Dimensional independence
 
-Controlled tests terminate at Omniphony's binaural stereo output. Do not feed that result through Windows Spatial Audio, HeSuVi, another HRTF virtualizer, or a game-side headphone HRTF during evaluation.
+Do not collapse all spatial quality into one `spaciousness` variable. Direction, distance, width, height, source extent, room scale, envelopment, externalization, and stability can change independently.
 
-Double virtualization is an invalid comparison condition.
+### 7.6 One binaural transform in controlled tests
+
+For scientific renderer comparisons, terminate at Omniphony's binaural stereo output. Do not feed that controlled result through HeSuVi, Windows Spatial Audio, another HRTF virtualizer, or a game-side binaural renderer.
+
+However, **Omniphony + HeSuVi is a valid reference condition when the explicit research question is what additional perceptual cue HeSuVi is contributing.** Do not confuse that comparison with a clean renderer validation.
 
 ---
 
-## 4. Perceptual dimensions must remain independent
-
-Spatial reproduction is not one scalar called "spaciousness". At minimum, distinguish:
-
-- localization / angular precision;
-- externalization;
-- auditory distance;
-- elevation;
-- apparent source width (ASW);
-- listener envelopment (LEV);
-- source extent;
-- room presence / scale;
-- direct-source clarity;
-- diffuse-field continuity.
-
-### 4.1 Apparent source width is not listener envelopment
+## 8. Apparent source width and listener envelopment are separate
 
 Room-acoustics and precedence-effect research distinguishes at least two important spatial-impression components.
 
-**Apparent source width (ASW)** is the perceived width of the source image that remains fused with the direct sound.
+**Apparent source width (ASW)** is the perceived width/body of a source image that remains fused with the direct source.
 
-**Listener envelopment (LEV)** is the sense of surrounding room or sound-field energy that is perceptually distinct from the direct source image.
-
-This distinction is load-bearing for headphone rendering.
+**Listener envelopment (LEV)** is the sense of surrounding room or field energy that is perceptually distinct from the direct source image.
 
 ```text
 direct source
-   + fused early directional energy
++ fused early directional structure
           ↓
-     source width / body
+source body / apparent source width
 
-later + distributed room energy
+later + distributed field energy
           ↓
-      envelopment / room
+listener envelopment / room
 ```
 
 Do not enlarge every source in order to make the room larger. Do not collapse the room onto the source in order to make the source wider.
 
-### 4.2 Precedence-effect boundary
+### 8.1 Precedence-effect boundary
 
-Early reflections can strengthen source width, room evidence, and externalization while the first-arriving source retains localization dominance. The exact fusion/echo boundary depends on signal content, level, direction, repetition, adaptation, and delay, so it must not be encoded as one universal millisecond threshold.
+Early reflections can strengthen source body, room evidence, and externalization while the first arrival retains localization dominance. Fusion/echo behavior depends on signal content, level, direction, repetition, adaptation, and delay, so it must not be encoded as one universal millisecond threshold.
 
-The renderer should treat reflection timing and level as psychoacoustic variables, not merely geometric outputs.
+### 8.2 Preserve temporal envelopes
 
-### 4.3 Preserve temporal envelopes
+Directional reflected energy should increase useful spatial evidence while preserving onset and amplitude-envelope integrity.
 
-Research on concert-hall perception indicates that wideband early reflections that preserve the source's temporal envelope can contribute to clear, open sound, whereas reflections that damage that envelope can weaken clarity and produce muddiness.
+Reject candidates that create:
 
-For Omniphony this creates an explicit acceptance criterion for early-reflection work:
+- audible doubling;
+- softened attacks;
+- obvious comb coloration;
+- unstable source identity;
+- reverberant haze masquerading as size.
 
-- increase useful spatial evidence;
-- preserve onset and amplitude-envelope integrity;
-- avoid audible doubling;
-- avoid frequency-selective comb coloration that changes source identity.
+### 8.3 Interaural correlation is a diagnostic, not a target knob
 
-### 4.4 Interaural correlation is a diagnostic, not a target knob
-
-Interaural cross-correlation / coherence is strongly related to spatial impression, but different percepts depend on it differently. ASW can be related to band-limited interaural correlation, while LEV also depends on the spatial distribution of late energy, including front/back/vertical distribution.
-
-Therefore the engine should measure interaural coherence by band, but should not maximize decorrelation blindly.
+Measure interaural coherence/correlation by band where useful, but do not blindly maximize decorrelation. ASW and LEV depend on different combinations of interaural and spatial energy structure.
 
 ---
 
-## 5. Preserve truth; infer only absence
+## 9. Canonical hearing and scene architecture
 
-Long-term, all source types should enter a canonical scene representation with provenance describing what is known versus inferred.
+The exact Rust API remains intentionally unfrozen. Conceptually, the machine-hearing system should progress from acoustic evidence toward increasingly semantic hypotheses without forcing semantic labels too early.
 
 ```text
-explicit authored objects / ADM / PMD
-              ↓
-native Ambisonics / HOA
-              ↓
-discrete surround channels
-              ↓
-structured source layers
-              ↓
-ordinary stereo
-              ↓
-mono
+                           SOUND
+                             │
+                             ▼
+                   PERCEPTUAL FRONT END
+       spectral / temporal / binaural / envelope cues
+                             │
+                             ▼
+                    AUDITORY ORGANIZATION
+             grouping, boundaries, continuity
+                             │
+              ┌──────────────┼──────────────┐
+              ▼              ▼              ▼
+           OBJECTS         FIELDS         EVENTS
+              │              │              │
+              └──────────────┼──────────────┘
+                             ▼
+                        PERSISTENCE
+                 what remains the same?
+                             │
+                             ▼
+                         RELATIONS
+            foreground / background / room / group
+                             │
+                             ▼
+                          CONTEXT
+              semantic priors when confidence allows
+                             │
+                             ▼
+                   CONFIDENCE-AWARE SCENE
 ```
 
-Available source structure increases upward. Required inference increases downward.
+Semantic naming should not be required before perceptual grouping. A system should be able to hear one coherent auditory object without first knowing whether it is an oboe, voice, engine, bird, or synthesizer.
 
-For the current stage, **ordinary stereo music and native surround/object content are the primary paths**. Native structured VGM/SPC/sequencer integration is a later expansion. Those systems are useful now as architectural examples of music before flattening, not as implementation scope for the core headphone renderer.
-
----
-
-## 6. Canonical scene direction
-
-The exact Rust API remains intentionally unfrozen, but the signal model should distinguish at least three roles:
+A mature scene model should distinguish at least:
 
 ```text
                      SCENE
@@ -247,27 +429,148 @@ The exact Rust API remains intentionally unfrozen, but the signal model should d
     sharp attacks     enveloping   environment
           │            │            │
           └────────────┼────────────┘
-                       ↓
+                       ▼
                  binaural output
 ```
 
 The three roles are perceptually different and do not need to share one rendering algorithm.
 
-### Direct sources
+---
 
-Localization-critical material should use the highest-precision practical binaural path. Discrete per-source HRIR remains the reference for high-confidence sources.
+## 10. Human-like hearing requires time at several scales
 
-### Ambient field
+Do not make important scene decisions at audio-block or FFT-frame cadence merely because those are convenient computational units.
 
-Diffuse, broad, or low-confidence material should not be fabricated into point sources. Third-order HOA (16 ACN/SN3D channels) is the leading first field representation to test, not a permanently fixed order.
+A useful hierarchy is:
 
-### Room field
+```text
+sample / frame time
+→ waveform and acoustic cues
 
-Room response is localization and externalization evidence, not decorative reverb. The early field remains source-linked and directionally informative. After a perceptual/acoustic mixing region, energy becomes increasingly diffuse and supports room presence and envelopment.
+auditory-event time
+→ onsets, attacks, decays, local grouping
+
+musical / behavioral time
+→ beats, phrases, words, gestures, repeated events
+
+scene time
+→ persistent identities, sections, environments, relationships
+```
+
+For music, structure analysis can provide meaningful boundaries such as beat, downbeat, phrase, verse, chorus, bridge, solo, breakdown, and return.
+
+Spatial persistence should respect musical form. A guitar or vocal that returns after a section should not randomly reappear in a different location without evidence. This creates **spatial musical memory**.
+
+For non-music scenes, analogous persistence can track speakers, moving vehicles, repeating machines, room ambience, footsteps, weather, animals, and other sources across time.
 
 ---
 
-## 7. Why Omniphony is the base
+## 11. Music-specific machine hearing
+
+Music is the primary proving ground, but the hearing representation should not equate a musical object with a source-separation stem.
+
+```text
+stem
+= a model category such as vocals / drums / bass / other
+
+auditory object
+= a persistent perceptual entity or group that the listener can track
+```
+
+One instrument can create several perceptual objects. Several instruments can fuse into one perceptual object or field.
+
+Useful evidence includes:
+
+- source-separation probabilities/masks;
+- harmonicity;
+- onset synchrony;
+- common fate;
+- pitch/timbre similarity;
+- stereo level, phase, delay, and coherence;
+- transient ownership;
+- decay/directness;
+- beat/bar/section structure;
+- production/mix hierarchy;
+- temporal continuity;
+- learned audio embeddings.
+
+### 11.1 The mix itself is evidence
+
+A stereo master contains production decisions about prominence, panning, width, masking, reverb, compression, grouping, and section-by-section hierarchy.
+
+The hearing system should attempt to preserve relationships such as:
+
+```text
+lead vocal intentionally dominant
+pad intentionally diffuse
+guitar intentionally broad
+percussion transient-critical
+reverb shared by several sources
+chorus intentionally expands
+verse intentionally contracts
+```
+
+Do not optimize toward maximum spatial separation if the music intentionally blends.
+
+### 11.2 Separation as evidence, not automatic replacement
+
+Demucs/Open-Unmix-style systems, Wiener filtering, and related tools are valuable because they can estimate where different source classes or components exist. Their reconstructed stems should not automatically replace the master.
+
+Prefer:
+
+```text
+source evidence
++ original mixture
+→ scene-control metadata
+→ conservative transformation
+```
+
+until a replacement waveform proves perceptually superior.
+
+---
+
+## 12. General machine-hearing direction
+
+The project should be capable of growing beyond music without creating a separate hearing architecture for each domain.
+
+Representative future acoustic scenes include:
+
+```text
+conversation
+street / city
+forest
+storm
+football broadcast
+movie
+video game
+machinery
+animals
+crowded room
+home environment
+```
+
+The shared questions are:
+
+```text
+what coherent things are present?
+what belongs together?
+what is foreground versus background?
+what persists?
+what moved?
+what changed?
+what is direct versus reverberant?
+what is a point-like source versus a field?
+what is the room/environment doing?
+what is uncertain?
+```
+
+Modern general audio representations such as BEATs and HEAR-style embedding benchmarks are useful sources of semantic/contextual evidence. Two!Ears is a particularly relevant architectural precedent because it combines bottom-up auditory processing with higher-level hypotheses and top-down knowledge. Clarity/Cadenza work is useful for perceptual prediction, intelligibility, hearing models, and objective audio-quality methodology.
+
+These systems are references and candidate components, not automatic dependencies.
+
+---
+
+## 13. Why Omniphony is the rendering base
 
 Current Omniphony already provides useful foundations:
 
@@ -279,17 +582,135 @@ Current Omniphony already provides useful foundations:
 - shared stereo FDN late reverberation;
 - distance scaling and air absorption;
 - real-time Rust rendering;
-- Windows ASIO output;
 - deterministic non-realtime file output;
 - decoder bridge ABI;
 - OSC state/control and 3D Studio supervision;
-- a self-contained multichannel test asset.
+- a self-contained multichannel/7.1.4 reference asset;
+- Windows ASIO path in the current upstream architecture.
 
-The immediate job is to raise the native binaural-renderer ceiling before implementing a complex stereo scene frontend.
+As of this research snapshot, the fork contains upstream commit `c48808f509ab5b56525e1df1765ff81146bc4e4b`, so the current research documentation is based on the recent upstream code rather than an older detached foundation.
+
+The immediate acoustic job remains raising the native binaural-renderer ceiling before allowing complex stereo inference to hide renderer weaknesses.
 
 ---
 
-## 8. Reproducible controls
+## 14. Stock Omniphony demo as a calibration anchor
+
+The stock/native multichannel demonstration is important evidence because it shows that Omniphony can already create a convincing external spatial bubble when sufficient scene structure is supplied.
+
+That reframes the research problem.
+
+Instead of only asking:
+
+> Can Omniphony make spatial headphone audio?
+
+ask:
+
+> **How much of a convincing known spatial scene can the hearing system recover after that scene is collapsed to stereo?**
+
+A powerful controlled experiment is:
+
+```text
+KNOWN NATIVE SCENE
+       │
+       ├► direct Omniphony binaural render ──────────► reference percept
+       │
+       └► controlled stereo downmix
+                ↓
+          machine hearing
+                ↓
+        reconstructed scene
+                ↓
+        same Omniphony renderer
+                ↓
+          reconstructed percept
+```
+
+Now the original native scene supplies ground truth for source geometry and structure without requiring the listener to annotate every detail.
+
+This should become a core training/evaluation family for stereo reconstruction.
+
+---
+
+## 15. HeSuVi as a perceptual reference, not the target architecture
+
+A local HeSuVi package was inspected as a reference because the current listening setup uses HeSuVi and a DTS Virtual:X-derived HRIR and because Omniphony's stock binaural demo sounds strongly bubble-like both with HeSuVi disabled and with HeSuVi added afterward.
+
+The uploaded HeSuVi configuration shows a useful distinction: the active spatial effect is not simply headphone EQ or a generic crossfeed.
+
+In the inspected setup:
+
+- `cfact.txt` disables the optional crossfeed block (`usecf=false`);
+- channel gain is neutral;
+- the per-channel EQ include files are effectively inactive/no-op in this snapshot;
+- `master.txt` applies a simple 0.90 output scale;
+- stereo input is expanded into virtual center/side/rear channels with signed mixtures;
+- those virtual channels are remapped into ear-specific convolution paths;
+- the selected 48 kHz convolution file is `DTSVirtualX-for-speakers.wav`;
+- that filter bank contains 14 channels and 1024 float samples per channel at 48 kHz.
+
+The stereo matrix in the inspected configuration is approximately:
+
+```text
+C  =  0.20 L + 0.20 R
+RL =  0.30 L - 0.20 R
+RR = -0.20 L + 0.30 R
+SL =  0.45 L - 0.25 R
+SR = -0.25 L + 0.45 R
+```
+
+A following remap keeps most direct L/R energy in front while feeding portions of the synthetic side/rear field into the virtual surround paths before the 14-channel convolution and final binaural sum.
+
+Simple inspection of the selected HRIR bank shows direction-dependent peak timing and post-peak energy across ear paths. This is consistent with the bank carrying distinct ear/direction cues rather than acting as one global stereo effect. It does **not** establish which proprietary internal design choices are responsible for the user's preference.
+
+### 15.1 What to learn from HeSuVi
+
+HeSuVi gives us several useful research hypotheses:
+
+1. A virtual-speaker field plus ear-specific filters can create substantial perceived volume even from stereo.
+2. Cross-ear timing/spectral structure can add externalization and side/rear differentiation.
+3. Signed/difference components can expose lateral/diffuse information, but they can also create phase artifacts and should not become the permanent scene model by default.
+4. The perceptual value of HeSuVi should be decomposed into measurable cues rather than copied as a black box.
+5. A large library of virtualizer HRIRs/headphone corrections is useful as an offline comparison corpus where licensing permits, but Omniphony should not depend on redistributing proprietary filters.
+
+### 15.2 Differential HeSuVi experiment
+
+A useful reference comparison is:
+
+```text
+Omniphony
+vs
+Omniphony + current HeSuVi chain
+```
+
+Measure what changes in:
+
+- interaural coherence by band;
+- cross-ear delay/group delay;
+- spectral balance;
+- side/rear energy;
+- apparent width;
+- externalization;
+- room/envelopment proxies;
+- transient integrity.
+
+Then ask what audible benefit remains after loudness matching.
+
+If a cue consistently improves the experience, reproduce that cue **inside Omniphony through the cleanest perceptually correct mechanism available**, rather than requiring permanent double virtualization.
+
+The desired endpoint is:
+
+```text
+Omniphony
+→ complete scene + binaural + headphone translation
+→ headphones
+```
+
+with HeSuVi no longer needed because its useful perceptual contribution has been understood and absorbed.
+
+---
+
+## 16. Reproducible controls
 
 Stable binaural controls live in:
 
@@ -297,39 +718,43 @@ Stable binaural controls live in:
 omniphony-renderer/assets/binaural-baselines/
 ```
 
-The baseline configs must continue to exercise only already-established renderer behavior. Experimental algorithms receive explicit flags/configs and must not silently modify the control.
+The baseline configs must continue to exercise already-established renderer behavior only. Experimental algorithms receive explicit flags/configs and must not silently modify the control.
 
 For every meaningful candidate retain:
 
-- exact source asset;
+- exact source asset/hash;
+- source codec/container metadata where relevant;
+- exact decoded PCM conditions;
 - exact config;
 - sample rate / block size;
 - renderer commit;
+- hearing-model version;
 - HRTF source;
 - output gain;
 - objective measurements;
-- listening notes.
+- listening result;
+- failure reason if rejected.
 
-Offline and real-time paths should execute the same DSP whenever practical. VISR's research architecture is a useful precedent: the same components can be exercised in deterministic offline simulations and real-time audio, avoiding separate reference and production implementations.
+Offline and real-time paths should execute the same DSP whenever practical.
 
 ---
 
-## 9. Immediate renderer research frontier
+## 17. Immediate renderer research frontier
 
 ### R1. Directional early reflections
 
-Current Omniphony computes correct first-order image-source positions and relative delays, then renders each reflection as a broadband ILD-panned copy. The spatial geometry contains more directional information than the ear signals currently receive.
+Current Omniphony computes first-order image-source positions and relative delays, then renders each reflection with a much simpler directional treatment than the direct binaural source path. The geometry contains more directional information than the ear signals currently receive.
 
-Test at least:
+Test:
 
-1. each important image rendered through an interpolated HRIR;
+1. important early images rendered through interpolated HRIRs;
 2. early images encoded into an HOA field and binauralized once;
-3. hybrid rendering, precise HRTF for strongest/earliest images and field rendering for weaker/dense images.
+3. a hybrid path using precise HRTF for strongest/earliest images and field rendering for weaker/dense images.
 
 Measure and listen for:
 
 - externalization;
-- source width without loss of source identity;
+- source width/body without lost identity;
 - room geometry;
 - front/back stability;
 - transient-envelope error;
@@ -337,39 +762,34 @@ Measure and listen for:
 - interaural coherence by band;
 - CPU cost.
 
+This remains the first bounded DSP experiment.
+
 ### R2. HRTF geometry and interpolation
 
-Current HRIR interpolation uses a regular azimuth/elevation grid with separate analytic ITD, which is a useful design strength because time-aligned filters interpolate without moving bulk interaural delay through the FIR coefficients.
+Compare current grid behavior against:
 
-Compare:
-
-- current grid;
-- denser grid;
+- denser grids;
 - full lower-hemisphere coverage;
 - spherical-neighbor interpolation;
 - SOFA native-grid interpolation;
-- diffuse-field equalization / direction-independent normalization alternatives.
+- normalization/equalization alternatives.
 
 No grid-resolution control belongs in the normal UI.
 
 ### R3. Hybrid direct-source / field binauralization
 
-Mature renderers expose a useful trade-off: unique per-source HRIR filtering maximizes point-source clarity, while Ambisonic binaural paths can efficiently represent larger source counts and diffuse fields.
-
-Do not force one choice globally.
-
 ```text
-high-confidence direct source → direct HRTF
-broad / diffuse material      → HOA field
+high-confidence direct source → precise direct HRTF
+broad / diffuse material      → HOA / field representation
 early room events             → directional or hybrid
 late room energy              → diffuse field
 ```
 
+Do not force one renderer type onto every perceptual role.
+
 ### R4. HOA perceptual optimization
 
-Use conventional ACN/SN3D semantics at internal boundaries. Compare basic decoding against psychoacoustically motivated alternatives such as max-rE, diffuse-field equalization, and MagLS-style methods where licensing and implementation permit.
-
-Direct-HRTF rendering remains the localization/timbre control.
+Use conventional ACN/SN3D semantics at internal boundaries. Compare basic decoding against psychoacoustically motivated methods such as max-rE, diffuse-field equalization, and MagLS-style approaches where implementation and licensing permit.
 
 ### R5. Radial depth and near field
 
@@ -380,149 +800,99 @@ Distance must remain independent from simple gain reduction. Evaluate direct/rev
 Retain the current FDN as a baseline. Candidate improvements include:
 
 - frequency-dependent decay;
-- room-size-dependent mixing behavior;
-- more controlled interaural coherence;
+- room-size-dependent mixing;
+- controlled interaural coherence;
 - explicit transition from directional early events to diffuse late energy;
 - spatially distributed late energy rather than stereo decorrelation alone;
-- measured BRIR and BinauralSDM comparisons;
-- expensive learned room models as offline oracles.
+- measured BRIR/BinauralSDM comparison;
+- expensive learned or simulated room models as offline oracles.
 
-IEM's FDN implementation is a useful reference rather than a drop-in dependency: it supports large multichannel networks, Walsh-Hadamard feedback mixing, per-line delays, and frequency-dependent feedback via shelving filters. These are useful ideas for testing richer late fields.
+### R7. ASW / LEV independence
 
-### R7. Source width and envelopment controls
-
-Add objective and perceptual experiments that vary these independently.
-
-Candidate measurements:
-
-- band-limited interaural coherence;
-- lateral/front/rear/vertical energy distribution;
-- early-to-late energy ratio;
-- direct-envelope similarity after reflected-energy addition;
-- source centroid variance;
-- apparent-source-width ratings;
-- listener-envelopment ratings.
+Add experiments that vary apparent source width and listener envelopment independently.
 
 A candidate that increases LEV by smearing direct sources fails.
 
 ---
 
-## 10. Stereo auditory scene frontend comes later
+## 18. Artificial listener and QESTRAL-style evaluation
 
-Do not return to hard `FFT bin → speaker` routing.
+Objective models are not a replacement for listening. They are a way to reject obvious regressions, compare thousands of variants, and make perceptual changes inspectable before asking for human attention.
 
-The frontend should form persistent auditory-region hypotheses using evidence such as:
+QESTRAL is especially relevant because it explicitly models spatial-reproduction attributes such as location, width, and envelopment through an artificial-listener approach.
 
-- harmonicity;
-- onset synchrony;
-- common changes in frequency/intensity;
-- pitch/timbre similarity;
-- stereo level, phase, delay and coherence;
-- transient ownership;
-- decay/directness;
-- temporal predictability;
-- continuity over multiple time scales.
-
-A possible internal state:
+Build the evaluator as a family of models rather than one magic score:
 
 ```text
-AuditoryRegion {
-    confidence
-    continuity
-    onset_coherence
-    harmonic_coherence
-    common_fate
-    directness
-    diffuseness
-
-    azimuth
-    elevation
-    distance
-    extent
-
-    age
-    persistence
-    movement_confidence
-    room_coupling
-}
+                 RENDERED BINAURAL AUDIO
+                          │
+          ┌───────────────┼────────────────┐
+          ▼               ▼                ▼
+     PHYSICAL CUES     AUDITORY MODEL    SCENE METRICS
+     ITD / ILD         filterbanks       localization
+     coherence         masking           source width
+     spectrum          binaural cues     envelopment
+     DRR               loudness          stability
+     transients        coloration        depth
+     early/late                          room structure
 ```
 
-This represents a perceptual hypothesis, not a claim of recovering physical stems.
+Candidate diagnostics include:
 
-Two!Ears is a useful conceptual reference because it explicitly combines classical signal-driven auditory processing with higher-level/top-down knowledge in an active-listening model. The lesson is architectural: future scene inference may require both bottom-up evidence and contextual priors, while provenance/confidence must distinguish them.
+- short-time ILD;
+- ITD/group-delay behavior;
+- interaural coherence by band;
+- direct/reverberant ratio;
+- early-reflection timing/energy;
+- transient-envelope error;
+- magnitude-response deviation;
+- left/right energy bias;
+- RMS/integrated loudness;
+- true peak/headroom;
+- estimated localization;
+- ASW proxies/models;
+- LEV/envelopment proxies/models;
+- source stability;
+- deterministic fixture hashes;
+- real-time CPU/callback timing.
 
----
-
-## 11. Learned spatial intelligence
-
-Learned approaches remain serious candidates, especially for scene interpretation.
-
-Possible roles:
-
-```text
-offline oracle
-      ↓
-metadata teacher
-      ↓
-optional runtime scene estimator
-```
-
-Prefer preserving the original musical waveform where possible. A learned model may generate masks, source/field confidence, direction, extent, depth, or ambient structure while deterministic Omniphony DSP performs final binaural rendering.
-
-Full generated replacement waveforms remain experimental until they survive transient, vocal, cymbal, bass, phase, timbre, hallucination, latency, generalization, and licensing tests.
-
----
-
-## 12. HRTF and headphone translation
-
-Personalization is a ceiling-raiser, not a prerequisite.
-
-Keep two layers conceptually separate:
+A future prefilter loop:
 
 ```text
-canonical binaural scene
+candidate renderer / hearing model
           ↓
-headphone-specific translation / correction
+known fixtures
           ↓
-physical headphone
+artificial-listener metrics
+          ↓
+reject obvious regressions
+          ↓
+retain informative candidates
+          ↓
+human matched-loudness listening
 ```
 
-Research lanes include:
-
-- user SOFA HRTFs;
-- perceptual HRTF matching;
-- anthropometric / ear-image estimates;
-- individualized headphone equalization;
-- left/right mismatch correction;
-- generic model-specific headphone profiles.
-
-A generic default must still be excellent.
-
-For research tooling, `pyfar`, `sofar`, and `spharpy` are useful independent analysis references: general acoustic-signal/coordinate processing, AES69 SOFA validation and manipulation, and spherical-harmonic mathematics respectively. They belong in the research environment, not necessarily the real-time Rust dependency graph.
+The final perceptual tribunal remains human listening.
 
 ---
 
-## 13. Evaluation
+## 19. Human listening should be sparse, blinded, and high-value
 
-### Loudness matching
+The user should not maintain spreadsheets of ratings for every build.
 
-A candidate may not win because it is louder. Record integrated level, peak/headroom, and gain changes.
+When human judgment is needed, automate the experiment and ask only high-information questions.
 
-### Acclimation + removal
+Useful protocol:
 
-For important candidates:
+- loudness-match candidates;
+- randomize labels/order;
+- include occasional duplicate/identity controls;
+- preserve source and build metadata automatically;
+- ask which presentation the listener would keep using;
+- ask for optional short perceptual tags/comments;
+- use acclimation + removal for major candidates.
 
-1. level-match;
-2. listen long enough for the candidate scene to normalize;
-3. switch to the control;
-4. note what spatial dimensions disappeared;
-5. return to candidate and inspect any clarity/timbre penalty.
-
-Desired removal result: acoustic volume, depth, height, externalization, or envelopment collapses while the dry source does not suddenly become obviously cleaner.
-
-### Score dimensions separately
-
-Do not use one generic "immersive" score. Record at least:
+Score dimensions separately when needed:
 
 ```text
 front externalization
@@ -545,105 +915,188 @@ fatigue
 bypass-collapse strength
 ```
 
-### Objective diagnostics
+Desired removal result:
 
-Where practical compute:
-
-- short-time ILD;
-- ITD / group-delay behavior;
-- interaural coherence by frequency band;
-- direct/reverberant ratio;
-- early reflection timing and energy;
-- source-centroid / position variance;
-- transient-envelope error;
-- magnitude-response deviation;
-- left/right energy bias;
-- RMS/integrated level;
-- true peak/headroom;
-- deterministic output hashes for fixtures;
-- real-time CPU and callback timing.
-
-Objective metrics are guardrails, not substitutes for listening.
+> acoustic volume, depth, height, externalization, or envelopment collapses while the dry/reference source does not suddenly become obviously cleaner or more stable.
 
 ---
 
-## 14. External research references and boundaries
+## 20. Research references and their roles
 
-Use external projects to extract methods and controls, not to assemble a dependency collage.
+Use external projects to extract methods, controls, and independent hypotheses, not to assemble a dependency collage.
 
-Especially useful references currently include:
+### Spatial / binaural / room
 
 - Omniphony upstream architecture;
 - Spatial Audio Framework / SPARTA;
-- OpenAL Soft;
-- Google Open Binaural Renderer;
-- libspatialaudio;
 - IEM Plug-in Suite;
 - VISR / Binaural Synthesis Toolkit;
 - BinauralSDM;
+- OpenAL Soft;
+- Google Open Binaural Renderer;
+- libspatialaudio;
 - libmysofa;
 - pyfar / sofar / spharpy;
-- Two!Ears;
-- measured BRIR/HRTF databases;
-- modern learned stereo-to-spatial and room-acoustic models.
+- pyroomacoustics;
+- measured HRTF/BRIR databases.
 
-Check license compatibility before importing code or data. A useful algorithmic idea does not imply that its implementation belongs in the production binary.
+### Auditory modeling / general hearing
+
+- QESTRAL/artificial-listener work;
+- Two!Ears;
+- BEATs/acoustic-token representations;
+- HEAR benchmark/evaluation approach;
+- Clarity/Cadenza perceptual and hearing-model tooling;
+- established binaural auditory models.
+
+### Music understanding
+
+- Essentia;
+- madmom;
+- All-In-One music structure analysis;
+- Open-Unmix;
+- Demucs as separation evidence/reference;
+- Norbert/generalized Wiener filtering;
+- learned stereo-to-spatial models such as Ambisonizer-style systems;
+- research on reverse-engineering mix graphs and direct remixing.
+
+A useful algorithm does not imply that its code/data belongs in the production binary. Check license compatibility before importing anything.
 
 ---
 
-## 15. Anti-patterns
+## 21. Anti-patterns and boundaries
 
 Reject or heavily penalize candidates that depend primarily on:
 
 - loudness increase;
 - bass boost;
-- generic reverb as a spatial substitute;
-- polarity tricks / anti-phase synthetic rears;
+- generic reverb as a substitute for scene structure;
+- blind anti-phase/synthetic rear generation as the final architecture;
 - hard per-bin speaker assignment;
 - rapid scene churn;
 - indiscriminate decorrelation;
 - duplicating content into rear/height channels with EQ/reverb only;
-- per-track manual tuning;
+- mandatory per-track manual tuning;
 - proprietary HRIR redistribution;
-- double binauralization;
-- resurrecting the abandoned Spatial DSP renderer.
+- permanent double binauralization;
+- resurrecting the abandoned Spatial DSP renderer wholesale;
+- AI-generated replacement audio when metadata/control would preserve the original more faithfully;
+- semantic labels treated as if they were auditory objects;
+- optimizing one aggregate spatial score at the expense of independent perceptual dimensions.
 
 Do not delete upstream head-tracking support, but static listening remains the primary target for this research.
 
+Do not claim that the system already hears exactly like a human. The research target is progressively stronger **human-perceptually aligned machine hearing**, with explicit tests showing which parts are and are not human-like.
+
 ---
 
-## 16. Development order
+## 22. Development order
 
 ```text
-0. reproducible baseline and offline comparison
-1. native binaural renderer ceiling
+0. preserve reproducible stock/native controls
+1. raise native binaural renderer ceiling
    - directional early reflections
    - HRTF interpolation / coverage
    - radial depth / near field
    - early→late room transition
    - direct vs field rendering
-2. conservative stereo direct/ambient decomposition
-3. persistent auditory-region scene model
-4. learned scene intelligence experiments
-5. automatic standard playback behavior
-6. surround/game precision and latency validation
-7. Windows-wide capture/output integration
-8. headphone translation / personalization
-9. optional structured-source expansions such as VGM
+2. build automated artificial-listener / regression harness
+3. package codec/container handling so normal Opus and other files require no manual conversion
+4. provide optional low-friction listening integration while current foobar + HeSuVi remains intact
+5. conservative stereo direct / ambient / reverberant decomposition
+6. persistent auditory-object / field scene model
+7. music-time structure and mix-hierarchy integration
+8. learned scene-intelligence experiments
+9. general-machine-hearing expansion and benchmarks
+10. automatic standard playback behavior
+11. surround/game precision and latency validation
+12. Windows-wide capture/output integration
+13. headphone translation / personalization
+14. optional structured-source expansions such as VGM
 ```
 
-The research can loop backward whenever evidence exposes a weaker lower layer.
+This is not a waterfall. Evidence can force the project backward whenever a weaker lower layer is discovered.
 
 ---
 
-## 17. Current first falsifiable experiment
+## 23. Current first falsifiable acoustic experiment
 
 **Directional early reflections.**
 
-Keep the current image-source positions, relative delays, room dimensions, HRTF source, late field, source content, and overall gain as controlled as possible. Change only how the early reflected directions reach the ears.
+Keep current image-source positions, relative delays, room dimensions, HRTF source, late field, source content, and overall gain as controlled as practical. Change only how reflected directions reach the ears.
 
-Compare the current broadband-ILD reflection renderer against direction-dependent binaural alternatives.
+Compare the current simpler early-reflection directional treatment against direction-dependent binaural alternatives.
 
-Advance only if the candidate produces a repeatable increase in externalization, room geometry, source body, or distance **without** measurable/listenable damage to localization, transient envelope, timbre, bass stability, or headroom.
+Advance only if the candidate produces a repeatable increase in externalization, room geometry, source body, or distance **without** measurable/listenable damage to localization, transient envelope, timbre, bass stability, headroom, or musical hierarchy.
 
-That is the first acoustic step because it improves the renderer itself before any stereo scene inference can obscure the result.
+This remains first because it improves the renderer itself before stereo inference can obscure the result.
+
+---
+
+## 24. Current first user-facing milestone
+
+Do not ship the listener a laboratory.
+
+The first meaningful personal listening build should:
+
+- coexist with the current foobar + HeSuVi chain;
+- not require removing current DSP configuration;
+- support normal high-quality Opus library input without manual conversion;
+- use bundled/automatic codec handling where practical;
+- expose a very small enable/bypass or route switch;
+- contain enough proven renderer improvements to sound meaningfully better than a trivial baseline on first setup;
+- log its own exact version/configuration for later comparison;
+- fail safely back to the current playback route;
+- avoid requiring ASIO SDK/compiler/toolchain installation by the listener;
+- eventually be buildable as a downloadable Windows artifact rather than a local Rust development ritual.
+
+The target experience is not:
+
+```text
+convert file
+edit YAML
+run terminal
+label renders
+maintain spreadsheet
+```
+
+It is closer to:
+
+```text
+install
+select Omniphony when ready
+listen normally
+```
+
+The user should be able to wean off the existing stack only after Omniphony proves stable and superior.
+
+---
+
+## 25. Current durable project laws
+
+1. **Research graduates into core.**
+2. **Preserve the acoustic object; the model should expose it, not replace it unnecessarily.**
+3. **Preserve truth; infer only absence.**
+4. **Clarity-preserving dimensionality.**
+5. **Object integrity.**
+6. **Dimensional independence.**
+7. **Spatial persistence.**
+8. **Cue agreement.**
+9. **Spatial specificity follows confidence.**
+10. **ASW/source body and LEV/environment are independent perceptual axes.**
+11. **Directional early structure must preserve temporal-envelope fidelity.**
+12. **Direct sources, ambient fields, and room fields are different perceptual jobs.**
+13. **Offline and real-time paths should share DSP.**
+14. **Objective/artificial-listener models assist triage; human listening remains final.**
+15. **Music is the primary everyday proving ground, not the boundary of the hearing architecture.**
+16. **A stem is evidence; an auditory object is a perceptual hypothesis.**
+17. **Semantic intelligence comes after lower-level auditory organization, not before it.**
+18. **The mix itself is evidence and should not be casually remastered away.**
+19. **Native multichannel/object structure should be preserved rather than rediscovered.**
+20. **Codec/container complexity belongs below the user interface.**
+21. **HeSuVi is a useful perceptual reference and transition aid, not the permanent target architecture.**
+22. **The existing listener setup remains intact until Omniphony earns replacement.**
+23. **The first user-facing install should produce a meaningful improvement, not merely expose a developer baseline.**
+24. **Better hearing should improve rendering; better rendering experiments should improve the hearing model.**
+
+The project should ultimately become a single coherent system in which machine hearing, scene representation, binaural acoustics, headphone translation, perceptual measurement, and human correction continually make one another better.
