@@ -23,7 +23,7 @@ use crate::stereo_inference::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SceneEvidenceKind {
-    /// Coherent center or low-frequency foundation that should remain authoritative.
+    /// Coherent center or source-like low-frequency foundation that should remain authoritative.
     FrontalAnchor,
     /// Persistent, source-like lateral evidence that may support a discrete object.
     LateralObjectCandidate,
@@ -61,7 +61,10 @@ pub struct SceneCandidateEvidence {
     pub side_fraction: f32,
     pub object_support: f32,
     pub field_support: f32,
+    /// Pure frequency prior used to discourage aggressive low-frequency movement.
     pub bass_anchor: f32,
+    /// Evidence that low-frequency energy behaves like a coherent musical foundation.
+    pub foundation_support: f32,
     /// Product-policy evidence that spatial reassignment may be safe.
     /// This is explicitly not evidence that the source belongs behind the listener.
     pub reassignment_safety: f32,
@@ -69,9 +72,13 @@ pub struct SceneCandidateEvidence {
 
 /// Smooth low-frequency protection law.
 ///
-/// Below ~80 Hz the groove/fundamental floor is strongly anchored. Between
-/// 80–220 Hz the protection fades continuously. Above 220 Hz this particular
-/// safeguard contributes nothing; other mix-hierarchy safeguards may still do so.
+/// Below ~80 Hz the groove/fundamental floor is strongly protected from
+/// aggressive spatial reassignment. Between 80–220 Hz the protection fades
+/// continuously. Above 220 Hz this particular prior contributes nothing.
+///
+/// This value is **not an object classifier**. Diffuse low-frequency room or
+/// texture energy can have a high bass-protection value without becoming a
+/// `FrontalAnchor`.
 pub fn bass_anchor_weight(frequency_hz: f32) -> f32 {
     if !frequency_hz.is_finite() || frequency_hz <= 0.0 {
         return 1.0;
@@ -116,7 +123,16 @@ pub fn infer_scene_evidence(input: SceneEvidenceInput) -> SceneCandidateEvidence
         * tracked.directness
         * tracked.persistence;
 
-    let kind = if bass_anchor > 0.70 || coherent_center > 0.62 {
+    // Frequency alone cannot establish musical role. Low-frequency energy only
+    // becomes foundation evidence when it is also persistent, source-like and
+    // not better explained as a diffuse field.
+    let foundation_support = (bass_anchor
+        * tracked.directness
+        * tracked.persistence
+        * (1.0 - field_support))
+        .clamp(0.0, 1.0);
+
+    let kind = if coherent_center > 0.62 || foundation_support > 0.55 {
         SceneEvidenceKind::FrontalAnchor
     } else if field_support > 0.55 && field_support > object_support * 1.15 {
         SceneEvidenceKind::DiffuseField
@@ -126,8 +142,11 @@ pub fn infer_scene_evidence(input: SceneEvidenceInput) -> SceneCandidateEvidence
         SceneEvidenceKind::BroadSource
     };
 
-    // Spatial reassignment must pay a penalty for bass/foundation content and
-    // for field-like evidence. It rewards persistent, lateral, direct evidence.
+    // Spatial reassignment must pay a penalty for low-frequency/foundation
+    // content and for field-like evidence. It rewards persistent, lateral,
+    // direct evidence. The bass penalty applies even when low-frequency energy
+    // is diffuse: "do not smear the low end" is a presentation safeguard, not
+    // a claim that every bass component is one frontal object.
     let reassignment_safety = (object_support
         * lateral_strength
         * (1.0 - bass_anchor)
@@ -160,6 +179,7 @@ pub fn infer_scene_evidence(input: SceneEvidenceInput) -> SceneCandidateEvidence
         object_support,
         field_support,
         bass_anchor,
+        foundation_support,
         reassignment_safety,
     }
 }
@@ -208,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn low_bass_stays_anchored_even_when_lateral() {
+    fn source_like_low_bass_stays_a_foundation_even_when_lateral() {
         let e = estimate(1.0, 0.0, 0.0, 2.0);
         let out = infer_scene_evidence(SceneEvidenceInput {
             frequency_hz: 55.0,
@@ -219,6 +239,23 @@ mod tests {
         });
         assert_eq!(out.kind, SceneEvidenceKind::FrontalAnchor);
         assert!(out.bass_anchor > 0.99);
+        assert!(out.foundation_support > 0.90);
+        assert!(out.reassignment_safety < 0.01);
+    }
+
+    #[test]
+    fn diffuse_low_frequency_energy_is_not_mislabeled_as_a_foundation() {
+        let e = estimate(1.0, 1.0, 0.0, PI);
+        let out = infer_scene_evidence(SceneEvidenceInput {
+            frequency_hz: 55.0,
+            estimate: e,
+            tracked: mature(e),
+            magnitude: 1.0,
+            reference_magnitude: 1.0,
+        });
+        assert_eq!(out.kind, SceneEvidenceKind::DiffuseField);
+        assert!(out.bass_anchor > 0.99);
+        assert!(out.foundation_support < 0.01);
         assert!(out.reassignment_safety < 0.01);
     }
 
