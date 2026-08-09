@@ -1,20 +1,16 @@
-//! End-to-end interaural time difference.
+//! End-to-end interaural time difference and measured-HRIR timing contracts.
 //!
-//! This deliberately does **not** compare `itd::ear_delays_seconds` against
-//! Woodworth's formula — `itd.rs` *implements* Woodworth, so such a test would
-//! be circular and would prove nothing. Instead it measures the lag between the
-//! left and right channels of an actual binaural render, which exercises the
-//! delay lines, the convolver, the interpolation and the head-pose rotation as
-//! a chain.
+//! The engine deliberately separates two things that are easy to conflate:
 //!
-//! Three properties, because per-ear HRIR group delay biases any raw comparison
-//! against the model:
+//! - **bulk/direct-arrival ITD**, supplied by `itd::ear_delays_seconds`;
+//! - **direction-dependent HRTF spectral phase**, retained in each ear filter.
 //!
-//! 1. **Antisymmetry** — `lag(+az) = −lag(−az)`, and `lag(0°) ≈ 0`. Structural,
-//!    so it is immune to that bias.
-//! 2. **Monotonicity** — |lag| grows from 0° toward 90°.
-//! 3. **Magnitude** — within ±3 samples of the model, the tolerance absorbing
-//!    the group delay.
+//! A measured HRIR pair can therefore have a non-zero cross-correlation lag
+//! after its direct arrivals have been aligned. Cross-correlation finds the lag
+//! that makes two *spectrally different filters* resemble one another best; it
+//! is not a direct measurement of residual bulk propagation delay.
+//!
+//! The validation below keeps those questions separate.
 
 use dsp_fixtures::analysis::estimate_lag_samples;
 use dsp_fixtures::scene::{HrirSource, render_single_object_binaural};
@@ -34,26 +30,19 @@ const AZIMUTHS: [f32; 7] = [0.0, 30.0, -30.0, 60.0, -60.0, 90.0, -90.0];
 /// source on the right (positive azimuth) yields a negative value.
 fn measured_lag(azimuth_deg: f32) -> f32 {
     // The synthetic provider is symmetric and time-aligned by construction, so
-    // these tests measure the *engine's* ITD rather than the bundled KEMAR
-    // set's own left/right asymmetry. See
-    // `hrir_providers_return_time_aligned_pairs` for the test that holds a
-    // provider to the time-alignment contract.
+    // these tests measure the *engine's* analytic ITD path rather than phase
+    // structure in a measured HRTF data set.
     let (left, right) = render_single_object_binaural(azimuth_deg, BLOCKS, HrirSource::Synthetic);
     estimate_lag_samples(&left, &right, MAX_LAG)
 }
 
 /// Model lag in samples, matching the sign convention of [`measured_lag`].
-///
-/// `ear_delays_seconds` returns `(left_delay, right_delay)`, both ≥ 0, with the
-/// far ear carrying the delay. `right_delay − left_delay` is therefore positive
-/// when the right ear is the far one, which is the same convention as the
-/// cross-correlation estimate.
 fn model_lag(azimuth_deg: f32) -> f32 {
     let (l, r) = ear_delays_seconds((azimuth_deg).to_radians(), 0.0, DEFAULT_HEAD_RADIUS_M);
     (r - l) * SAMPLE_RATE
 }
 
-/// Absorbs per-ear HRIR group delay, which is not part of the Woodworth model.
+/// Absorbs tiny convolution / interpolation measurement error.
 const MAGNITUDE_TOLERANCE_SAMPLES: f32 = 3.0;
 
 /// Antisymmetry is structural, so the bound is tight.
@@ -153,70 +142,67 @@ fn itd_magnitude_tracks_the_model_wide() {
     }
 }
 
-/// A time-aligned HRIR pair carries no bulk interaural delay of its own; ±1
-/// sample allows for interpolation and measurement slop.
-const TIME_ALIGNMENT_TOLERANCE_SAMPLES: f32 = 1.0;
+/// Detect a direct-arrival onset without asking the two ears to have the same
+/// spectral phase. The threshold mirrors the measured-HRIR preprocessing idea
+/// but is intentionally implemented independently in the validation module.
+fn direct_arrival_index(ir: &[f32]) -> Option<usize> {
+    let peak = ir.iter().map(|x| x.abs()).fold(0.0f32, f32::max);
+    if peak <= 1.0e-9 {
+        return None;
+    }
+    let threshold = peak * 0.10;
+    ir.iter().position(|x| x.abs() >= threshold)
+}
 
-/// [`HrirProvider`](super::hrir::HrirProvider) documents that implementors
-/// "must return time-aligned FIRs (no bulk interaural delay) for safe
-/// interpolation". The engine relies on that in two places: it adds its own
-/// Woodworth ITD as a separate per-ear delay, and [`HrirSet`] blends the three
-/// nearest measurements. Blending FIRs that are not time-aligned combs their
-/// shared content instead of interpolating it.
+/// Measured HRTFs may retain different spectral phase/group delay in the two
+/// ears. What must be absent before Omniphony adds analytic Woodworth ITD is a
+/// *bulk direct-arrival offset*.
 ///
-/// This asserts the contract rather than assuming it. It is the invariant whose
-/// violation made the bundled measured set look like an engine defect: the set's
-/// own left/right asymmetry showed up in end-to-end ITD measurements and was
-/// initially misread as the renderer mis-placing sources.
+/// The previous version of this test used left/right cross-correlation and
+/// therefore called legitimate spectral phase a residual ITD. Steam Audio is a
+/// useful reference for the distinction: its HRTF database keeps full phase
+/// information and tracks per-ear peak delays separately instead of defining
+/// time alignment as a zero cross-correlation lag.
+///
+/// `MeasuredHrirData` onset-aligns every ear before spatial interpolation. This
+/// test probes the resulting regular grid and verifies that the first meaningful
+/// arrival remains aligned after interpolation, while allowing the later filter
+/// shape to differ freely between ears.
 #[test]
-#[ignore = "SAF KEMAR violates it: intrinsic interaural lag is unresolvable at az=-90 and reaches -6.998 samples at az=+90, against a ±1 sample contract; the set is also left/right asymmetric (-1.103 at +30 vs -0.168 at -30) — tracked deferral, see docs/dsp-validation-report.md"]
-fn hrir_providers_return_time_aligned_pairs() {
+fn measured_hrir_direct_arrivals_are_time_aligned() {
     use super::hrir::{HRIR_LEN, HrirPair, HrirSet};
     use super::measured::MeasuredHrirData;
-    use dsp_fixtures::analysis::estimate_lag_checked;
 
     let set = HrirSet::new(&MeasuredHrirData::saf_kemar(), 48_000);
     let mut pair = HrirPair {
         left: [0.0; HRIR_LEN],
         right: [0.0; HRIR_LEN],
     };
-    let mut worst = (0.0f32, 0.0f32);
-    let mut unresolvable = Vec::new();
 
-    for az_i in -6..=6 {
-        let az = az_i as f32 * 30.0;
-        set.at(az, 0.0, &mut pair);
-        match estimate_lag_checked(&pair.left, &pair.right, 40) {
-            Ok(lag) => {
-                println!(
-                    "[measure] hrir_time_alignment az={az:+6.1}: intrinsic lag {lag:+.3} samples"
-                );
-                if lag.abs() > worst.1.abs() {
-                    worst = (az, lag);
-                }
+    let mut worst = (0.0f32, 0.0f32, 0isize);
+    for az_i in -12..=12 {
+        let az = az_i as f32 * 15.0;
+        for el in [-30.0f32, 0.0, 30.0, 60.0] {
+            set.at(az, el, &mut pair);
+            let l = direct_arrival_index(&pair.left)
+                .unwrap_or_else(|| panic!("no left direct arrival at az={az} el={el}"));
+            let r = direct_arrival_index(&pair.right)
+                .unwrap_or_else(|| panic!("no right direct arrival at az={az} el={el}"));
+            let delta = l as isize - r as isize;
+            if delta.abs() > worst.2.abs() {
+                worst = (az, el, delta);
             }
-            // An unresolvable pair cannot be shown to satisfy the contract
-            // either — record it rather than quietly treating it as a pass.
-            Err(e) => {
-                println!("[measure] hrir_time_alignment az={az:+6.1}: unresolvable — {e}");
-                unresolvable.push(az);
-            }
+            assert!(
+                delta.abs() <= 1,
+                "measured HRIR direct arrivals differ by {delta} samples at \
+                 az={az:+.1}° el={el:+.1}° (left onset {l}, right onset {r}); \
+                 analytic ITD is added separately, so bulk arrival offsets must \
+                 be removed before interpolation"
+            );
         }
     }
-
-    assert!(
-        unresolvable.is_empty(),
-        "intrinsic interaural lag could not be resolved at azimuths {unresolvable:?}, \
-         so the time-alignment contract cannot be verified there"
-    );
-    assert!(
-        worst.1.abs() <= TIME_ALIGNMENT_TOLERANCE_SAMPLES,
-        "HRIR pair at az={:.1}° carries {:+.3} samples of intrinsic interaural \
-         delay, exceeding the ±{TIME_ALIGNMENT_TOLERANCE_SAMPLES} sample \
-         time-alignment contract. The engine adds Woodworth ITD on top of this, \
-         and HrirSet blends neighbouring measurements — both assume the pair is \
-         time-aligned.",
-        worst.0,
-        worst.1
+    println!(
+        "[measure] measured HRIR direct-arrival alignment: worst {} sample(s) at az={:+.1}° el={:+.1}°",
+        worst.2, worst.0, worst.1
     );
 }
