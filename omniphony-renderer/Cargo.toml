@@ -7,8 +7,8 @@ name = "omniphony-renderer"
 version = "0.2.5"
 edition = "2024"
 license = "GPL-3.0-or-later"
-description = "Omniphony Renderer: bridge-driven spatial audio decoding and rendering"
-repository = "https://github.com/mgth/Omniphony"
+description = "Omniphony: Windows-first stereo-to-binaural music scene renderer"
+repository = "https://github.com/dissonance-git/Omniphony"
 build = "build.rs"
 authors = ["Rainbaby"]
 rust-version = "1.87.0"
@@ -90,7 +90,10 @@ default = []
 # Usage: cargo build --features saf_vbap
 saf_vbap = ["renderer/saf_vbap"]
 
-# Legacy compatibility alias. Windows ASIO support is compiled by default on Windows.
+# Compatibility flag retained while the inherited audio-output feature layout
+# is being simplified. Windows currently compiles the ASIO CPAL backend by
+# platform; the Windows CI build still passes this flag explicitly so future
+# feature-gating can become real without changing the build contract.
 asio = []
 
 # Legacy compatibility alias. PipeWire support is compiled by default on Linux.
