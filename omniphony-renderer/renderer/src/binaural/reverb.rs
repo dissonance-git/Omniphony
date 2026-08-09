@@ -18,24 +18,28 @@
 //!   network's common mode (the all-ones Householder eigenvector, which the
 //!   mixer preserves) reaches neither ear unevenly, and the two returns are
 //!   decorrelated with equal broadband energy.
-//! - The line lengths are slowly modulated (staggered sub-Hz LFOs, ~±0.05 %
-//!   pitch). A sparse 8-line FDN has a comb-like per-tap response: a
-//!   sustained tone parks on one tap's peak and the other's notch and reads
-//!   as a hard L/R bias (measured −7.7 dB on a 440+660 Hz signal).
-//!   Modulation sweeps each mode so tones time-average the combs; it also
-//!   densifies the tail (less metallic ringing).
+//! - The line lengths are slowly modulated (staggered sub-Hz LFOs). A sparse
+//!   8-line FDN has a comb-like per-tap response: a sustained tone parks on one
+//!   tap's peak and the other's notch and reads as a hard L/R bias (measured
+//!   −7.7 dB on a 440+660 Hz signal). Modulation sweeps each mode so tones
+//!   time-average the combs; it also densifies the tail (less metallic ringing).
 //! - Below `COHERENCE_XOVER_HZ` both ears receive the shared mid of the two
 //!   returns: a physical diffuse field is interaurally coherent at low
 //!   frequency (IC ≈ sinc(2πfd/c) ≈ 0.85 at 150 Hz for a human head), and
-//!   modulation is too slow relative to the comb spacing down there to
-//!   average tones out. Above the crossover the decorrelated returns pass
-//!   as-is, preserving envelopment.
+//!   modulation is too slow relative to the comb spacing down there to average
+//!   tones out. Above the crossover the decorrelated returns pass as-is,
+//!   preserving envelopment.
 //!
-//! In a real room the reverberant field level is roughly independent of
-//! source distance. The direct object level is authored (Atmos) and never
-//! 1/d-attenuated here, so instead the caller raises the per-source reverb
-//! send with distance (near-field roll-in): the DRR falls with distance
-//! without ever touching the direct object level.
+//! In a real room the reverberant field level is roughly independent of source
+//! distance. The direct object level is authored (Atmos) and never
+//! 1/d-attenuated here, so instead the caller raises the per-source reverb send
+//! with distance (near-field roll-in): the DRR falls with distance without ever
+//! touching the direct object level.
+//!
+//! Timing is expressed in samples, not host calls. The modulation scheduler
+//! carries its phase, slew and remaining segment length across `process_block`
+//! boundaries, and zero pre-delay is genuinely zero. Changing an audio backend's
+//! block size must not change the room that Omniphony renders.
 
 use crate::crossover::filter::{
     BiquadCoeffs, BiquadState, biquad, butterworth2_hp, butterworth2_lp,
@@ -67,14 +71,13 @@ const DAMPING: f32 = 0.35;
 /// deviation is depth·2π·rate/sr ≈ 0.4 % (~7 cents) on the fastest line.
 const MOD_DEPTH_48K: f32 = 24.0;
 
-/// Per-line modulation rates in Hz, mutually detuned so no two lines
-/// breathe in step.
+/// Per-line modulation rates in Hz, mutually detuned so no two lines breathe
+/// in step.
 const MOD_RATES_HZ: [f32; N] = [0.31, 0.41, 0.53, 0.67, 0.79, 0.97, 1.13, 1.31];
 
-/// Modulation targets are recomputed every this many samples and slewed
-/// linearly in between, making the tail independent of the caller's block
-/// size (a 128-sample update at the fastest LFO moves the delay by well
-/// under a tenth of a sample).
+/// Modulation targets are recomputed every this many **processed samples** and
+/// slewed linearly in between. The scheduler survives arbitrary caller block
+/// boundaries.
 const MOD_UPDATE: usize = 128;
 
 /// Crossover of the interaural-coherence shaping (Hz): shared mid below,
@@ -93,6 +96,10 @@ pub struct Fdn {
     mod_phase: [f32; N],
     /// Current (slewed) modulated delay per line, in samples.
     cur_delay: [f32; N],
+    /// Per-sample delay increment for the current modulation segment.
+    mod_step: [f32; N],
+    /// Samples remaining before the next modulation target is generated.
+    mod_samples_left: usize,
     /// Interaural-coherence crossover: LR4 low-pass (shared mid path) and
     /// LR4 high-pass (per-return paths) share these per-section coefficients.
     xover_lp: BiquadCoeffs,
@@ -101,6 +108,7 @@ pub struct Fdn {
     xover_state: [BiquadState; 6],
     predelay: Vec<f32>,
     pre_pos: usize,
+    /// Active integer pre-delay in samples. Zero means true zero delay.
     pre_len: usize,
     sample_rate: u32,
     rt60_cached: f32,
@@ -134,12 +142,14 @@ impl Fdn {
             fb_gain: [0.5; N],
             mod_phase,
             cur_delay: base_len,
+            mod_step: [0.0; N],
+            mod_samples_left: 0,
             xover_lp: butterworth2_lp(COHERENCE_XOVER_HZ, sample_rate),
             xover_hp: butterworth2_hp(COHERENCE_XOVER_HZ, sample_rate),
             xover_state: Default::default(),
             predelay: vec![0.0; pre_cap],
             pre_pos: 0,
-            pre_len: 1,
+            pre_len: 0,
             sample_rate,
             rt60_cached: 0.0,
         }
@@ -157,8 +167,26 @@ impl Fdn {
                 self.fb_gain[i] = 10.0f32.powf(exp);
             }
         }
-        let len = (predelay_ms.clamp(0.0, 100.0) * self.sample_rate as f32 / 1000.0) as usize;
-        self.pre_len = len.clamp(1, self.predelay.len() - 1);
+        let len =
+            (predelay_ms.clamp(0.0, 100.0) * self.sample_rate as f32 / 1000.0) as usize;
+        self.pre_len = len.min(self.predelay.len() - 1);
+    }
+
+    /// Start the next fixed-length modulation segment. This is called by sample
+    /// count, never by `process_block` count, so a 40-sample live block and a
+    /// 1024-sample offline block traverse the same delay trajectory.
+    #[inline]
+    fn begin_modulation_segment(&mut self) {
+        let sr = self.sample_rate as f32;
+        let depth = MOD_DEPTH_48K * sr / 48_000.0;
+        for i in 0..N {
+            self.mod_phase[i] = (self.mod_phase[i]
+                + std::f32::consts::TAU * MOD_RATES_HZ[i] * MOD_UPDATE as f32 / sr)
+                % std::f32::consts::TAU;
+            let target = self.base_len[i] + depth * self.mod_phase[i].sin();
+            self.mod_step[i] = (target - self.cur_delay[i]) / MOD_UPDATE as f32;
+        }
+        self.mod_samples_left = MOD_UPDATE;
     }
 
     /// Process one block: read `bus` (mono send sum, one sample per frame) and
@@ -167,89 +195,84 @@ impl Fdn {
         debug_assert!(out.len() >= bus.len() * 2);
         // Normalise the output taps (N lines, ±1 signs) and fold the level in.
         let out_gain = level / (N as f32).sqrt();
-        let sr = self.sample_rate as f32;
-        let depth = MOD_DEPTH_48K * sr / 48_000.0;
         let (xover_lp, xover_hp) = (self.xover_lp, self.xover_hp);
 
-        let mut offset = 0usize;
-        for chunk in bus.chunks(MOD_UPDATE) {
-            // Advance the line LFOs to the end of this chunk and slew each
-            // delay linearly toward its new target across the chunk.
-            let mut d_step = [0.0f32; N];
-            for i in 0..N {
-                self.mod_phase[i] = (self.mod_phase[i]
-                    + std::f32::consts::TAU * MOD_RATES_HZ[i] * chunk.len() as f32 / sr)
-                    % std::f32::consts::TAU;
-                let target = self.base_len[i] + depth * self.mod_phase[i].sin();
-                d_step[i] = (target - self.cur_delay[i]) / chunk.len() as f32;
+        for (s, &input) in bus.iter().enumerate() {
+            if self.mod_samples_left == 0 {
+                self.begin_modulation_segment();
             }
 
-            for (s, &input) in chunk.iter().enumerate() {
-                // Pre-delay (integer, fixed per block).
+            // A zero setting must be a true zero pre-delay. Keep writing the
+            // history ring even in bypass so changing the parameter live does
+            // not start from an empty buffer.
+            let x = if self.pre_len == 0 {
+                input
+            } else {
                 let read =
                     (self.pre_pos + self.predelay.len() - self.pre_len) % self.predelay.len();
-                let x = self.predelay[read];
-                self.predelay[self.pre_pos] = input;
-                self.pre_pos = (self.pre_pos + 1) % self.predelay.len();
+                self.predelay[read]
+            };
+            self.predelay[self.pre_pos] = input;
+            self.pre_pos = (self.pre_pos + 1) % self.predelay.len();
 
-                // Read all line outputs at their (modulated) fractional delay.
-                let mut o = [0.0f32; N];
-                let mut sum = 0.0f32;
-                for i in 0..N {
-                    self.cur_delay[i] += d_step[i];
-                    let d = self.cur_delay[i];
-                    let cap = self.lines[i].len();
-                    let di = d as usize;
-                    let frac = d - di as f32;
-                    let r0 = (self.pos[i] + cap - di) % cap;
-                    let r1 = if r0 == 0 { cap - 1 } else { r0 - 1 };
-                    let line = &self.lines[i];
-                    o[i] = line[r0] * (1.0 - frac) + line[r1] * frac;
-                    sum += o[i];
-                }
-
-                // Output taps, then interaural-coherence shaping: shared mid
-                // below the crossover, decorrelated returns above.
-                let mut l = 0.0f32;
-                let mut r = 0.0f32;
-                for i in 0..N {
-                    l += SIGNS_L[i] * o[i];
-                    r += SIGNS_R[i] * o[i];
-                }
-                let mid = (l + r) * std::f32::consts::FRAC_1_SQRT_2;
-                let lo = biquad(
-                    biquad(mid, xover_lp, &mut self.xover_state[0]),
-                    xover_lp,
-                    &mut self.xover_state[1],
-                );
-                let hl = biquad(
-                    biquad(l, xover_hp, &mut self.xover_state[2]),
-                    xover_hp,
-                    &mut self.xover_state[3],
-                );
-                let hr = biquad(
-                    biquad(r, xover_hp, &mut self.xover_state[4]),
-                    xover_hp,
-                    &mut self.xover_state[5],
-                );
-                let oidx = (offset + s) * 2;
-                out[oidx] += (lo + hl) * out_gain;
-                out[oidx + 1] += (lo + hr) * out_gain;
-
-                // Householder feedback: H·o = o − (2/N)·Σo, then damping + gain,
-                // plus the (sign-alternated) input injection.
-                let k = 2.0 / N as f32 * sum;
-                for i in 0..N {
-                    let fb = o[i] - k;
-                    // One-pole low-pass in the loop: HF dies faster than RT60.
-                    self.damp_state[i] += (fb - self.damp_state[i]) * (1.0 - DAMPING);
-                    let inject = if i % 2 == 0 { x } else { -x };
-                    let cap = self.lines[i].len();
-                    self.lines[i][self.pos[i]] = self.damp_state[i] * self.fb_gain[i] + inject;
-                    self.pos[i] = (self.pos[i] + 1) % cap;
-                }
+            // Read all line outputs at their persistent, sample-time modulated
+            // fractional delay.
+            let mut o = [0.0f32; N];
+            let mut sum = 0.0f32;
+            for i in 0..N {
+                self.cur_delay[i] += self.mod_step[i];
+                let d = self.cur_delay[i];
+                let cap = self.lines[i].len();
+                let di = d as usize;
+                let frac = d - di as f32;
+                let r0 = (self.pos[i] + cap - di) % cap;
+                let r1 = if r0 == 0 { cap - 1 } else { r0 - 1 };
+                let line = &self.lines[i];
+                o[i] = line[r0] * (1.0 - frac) + line[r1] * frac;
+                sum += o[i];
             }
-            offset += chunk.len();
+            self.mod_samples_left -= 1;
+
+            // Output taps, then interaural-coherence shaping: shared mid below
+            // the crossover, decorrelated returns above.
+            let mut l = 0.0f32;
+            let mut r = 0.0f32;
+            for i in 0..N {
+                l += SIGNS_L[i] * o[i];
+                r += SIGNS_R[i] * o[i];
+            }
+            let mid = (l + r) * std::f32::consts::FRAC_1_SQRT_2;
+            let lo = biquad(
+                biquad(mid, xover_lp, &mut self.xover_state[0]),
+                xover_lp,
+                &mut self.xover_state[1],
+            );
+            let hl = biquad(
+                biquad(l, xover_hp, &mut self.xover_state[2]),
+                xover_hp,
+                &mut self.xover_state[3],
+            );
+            let hr = biquad(
+                biquad(r, xover_hp, &mut self.xover_state[4]),
+                xover_hp,
+                &mut self.xover_state[5],
+            );
+            let oidx = s * 2;
+            out[oidx] += (lo + hl) * out_gain;
+            out[oidx + 1] += (lo + hr) * out_gain;
+
+            // Householder feedback: H·o = o − (2/N)·Σo, then damping + gain,
+            // plus the (sign-alternated) input injection.
+            let k = 2.0 / N as f32 * sum;
+            for i in 0..N {
+                let fb = o[i] - k;
+                // One-pole low-pass in the loop: HF dies faster than RT60.
+                self.damp_state[i] += (fb - self.damp_state[i]) * (1.0 - DAMPING);
+                let inject = if i % 2 == 0 { x } else { -x };
+                let cap = self.lines[i].len();
+                self.lines[i][self.pos[i]] = self.damp_state[i] * self.fb_gain[i] + inject;
+                self.pos[i] = (self.pos[i] + 1) % cap;
+            }
         }
     }
 }
@@ -284,6 +307,24 @@ mod tests {
             out.iter().step_by(2).copied().collect(),
             out.iter().skip(1).step_by(2).copied().collect(),
         )
+    }
+
+    fn render_partitioned(bus: &[f32], rt60: f32, predelay_ms: f32, block: usize) -> Vec<f32> {
+        assert!(block > 0);
+        let mut fdn = Fdn::new(48_000);
+        fdn.set_params(rt60, predelay_ms);
+        let mut out = vec![0.0f32; bus.len() * 2];
+        let mut start = 0usize;
+        while start < bus.len() {
+            let end = (start + block).min(bus.len());
+            fdn.process_block(
+                &bus[start..end],
+                1.0,
+                &mut out[start * 2..end * 2],
+            );
+            start = end;
+        }
+        out
     }
 
     fn rms(x: &[f32]) -> f32 {
@@ -335,6 +376,26 @@ mod tests {
                 .sum();
             assert_eq!(d, 0.0, "{name} must be orthogonal to the injection");
         }
+    }
+
+    #[test]
+    fn zero_predelay_is_really_zero() {
+        let mut fdn = Fdn::new(48_000);
+        fdn.set_params(0.4, 0.0);
+        assert_eq!(fdn.pre_len, 0, "0 ms predelay must not become one sample");
+    }
+
+    #[test]
+    fn output_is_independent_of_caller_block_size() {
+        let bus = noise(12_345);
+        let whole = render_partitioned(&bus, 0.45, 7.0, bus.len());
+        let live_40 = render_partitioned(&bus, 0.45, 7.0, 40);
+        let offline_1024 = render_partitioned(&bus, 0.45, 7.0, 1024);
+        assert_eq!(whole, live_40, "40-sample blocks changed the FDN trajectory");
+        assert_eq!(
+            whole, offline_1024,
+            "1024-sample blocks changed the FDN trajectory"
+        );
     }
 
     #[test]
