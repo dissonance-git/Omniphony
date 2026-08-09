@@ -68,11 +68,12 @@ impl Default for StereoBinEstimate {
 /// renderer policy.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StereoInferenceParams {
-    /// Positive values make source-like evidence more decisive. Negative values
-    /// make classification more conservative. Range is clamped to [-1, 1].
+    /// Positive values bias ambiguous evidence toward source-like; negative
+    /// values make classification more conservative. Range is clamped to [-1, 1].
     pub focus: f32,
-    /// Additional separation pressure in [0, 1]. This exaggerates the gap
-    /// between source-like and field-like evidence while retaining continuity.
+    /// Symmetric contrast around 0.5 in [0, 1]. Higher values push already
+    /// source-like evidence toward 1 and already field-like evidence toward 0
+    /// without changing the neutral midpoint.
     pub object_separation: f32,
 }
 
@@ -97,6 +98,24 @@ pub fn wrapped_phase_delta(left_phase: f32, right_phase: f32) -> f32 {
 #[inline]
 fn polar_to_cartesian(magnitude: f32, phase: f32) -> (f32, f32) {
     (magnitude * phase.cos(), magnitude * phase.sin())
+}
+
+/// Increase certainty symmetrically around 0.5 without changing the direction
+/// of the evidence.
+///
+/// `amount = 0` is identity. As `amount` approaches 1, values below 0.5 move
+/// toward 0, values above 0.5 move toward 1, and exactly 0.5 remains 0.5.
+pub fn symmetric_separation(value: f32, amount: f32) -> f32 {
+    let value = value.clamp(0.0, 1.0);
+    let amount = amount.clamp(0.0, 1.0);
+    if amount <= 0.0 || value == 0.0 || value == 0.5 || value == 1.0 {
+        return value;
+    }
+
+    let signed = value * 2.0 - 1.0;
+    let exponent = 1.0 / (1.0 + amount * 4.0);
+    let expanded = signed.signum() * signed.abs().powf(exponent);
+    ((expanded + 1.0) * 0.5).clamp(0.0, 1.0)
 }
 
 /// Estimate source-like versus diffuse evidence for one stereo frequency bin.
@@ -139,19 +158,14 @@ pub fn estimate_bin(
         directness = directness.powf(1.0 + (-focus) * 3.0);
     }
 
-    let separation = params.object_separation.clamp(0.0, 1.0);
-    if separation > 0.0 {
-        directness = 1.0 - (1.0 - directness).powf(1.0 + separation * 4.0);
-    }
+    directness = symmetric_separation(directness, params.object_separation);
 
     // M/S must be formed from the complex bins, not from scalar magnitudes.
     // Otherwise equal-amplitude antiphase material incorrectly looks all-mid.
     let (left_re, left_im) = polar_to_cartesian(left, evidence.left_phase);
     let (right_re, right_im) = polar_to_cartesian(right, evidence.right_phase);
-    let mid_magnitude =
-        0.5 * (left_re + right_re).hypot(left_im + right_im);
-    let side_magnitude =
-        0.5 * (left_re - right_re).hypot(left_im - right_im);
+    let mid_magnitude = 0.5 * (left_re + right_re).hypot(left_im + right_im);
+    let side_magnitude = 0.5 * (left_re - right_re).hypot(left_im - right_im);
 
     StereoBinEstimate {
         pan,
@@ -352,6 +366,19 @@ mod tests {
         assert!(v.diffuseness > 0.999);
         assert!(v.mid_magnitude < 1.0e-5);
         assert!((v.side_magnitude - 1.0).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn object_separation_increases_contrast_without_biasing_the_midpoint() {
+        assert_eq!(symmetric_separation(0.5, 1.0), 0.5);
+        assert_eq!(symmetric_separation(0.0, 1.0), 0.0);
+        assert_eq!(symmetric_separation(1.0, 1.0), 1.0);
+
+        let field_like = symmetric_separation(0.25, 0.75);
+        let object_like = symmetric_separation(0.75, 0.75);
+        assert!(field_like < 0.25);
+        assert!(object_like > 0.75);
+        assert!((field_like + object_like - 1.0).abs() < 1.0e-6);
     }
 
     #[test]
