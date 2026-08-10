@@ -1,0 +1,11 @@
+[package]
+name = "audio_contract"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88.0"
+license = "GPL-3.0-or-later"
+description = "OS-neutral PCM timeline contract for Omniphony host adapters"
+repository = "https://github.com/dissonance-git/Omniphony"
+publish = false
+
+[dependencies]
