@@ -1,5 +1,0 @@
-# makepkg build artifacts
-src/
-pkg/
-*.tar.*
-*.log
