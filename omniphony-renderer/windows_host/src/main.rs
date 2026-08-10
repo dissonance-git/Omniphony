@@ -38,6 +38,22 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(target_os = "windows")]
 fn run_windows_probe() -> anyhow::Result<()> {
+    let args: Vec<_> = std::env::args_os().collect();
+
+    // CI can exercise the *packaged* bridge + config + layout + renderer without
+    // requiring a cloud runner to expose a physical WASAPI endpoint. Keep this
+    // branch before CPAL host/device discovery so render validation is genuinely
+    // independent of Windows audio hardware.
+    if args.iter().any(|arg| arg == "--render-reference-only") {
+        println!("Omniphony for Headphones packaged reference validation");
+        let rendered = render_reference_scene()?;
+        println!(
+            "packaged protected reference validated: {} stereo frames",
+            rendered.len() / 2
+        );
+        return Ok(());
+    }
+
     let host = cpal::default_host();
 
     println!("Omniphony for Headphones native Windows audio host");
@@ -62,8 +78,6 @@ fn run_windows_probe() -> anyhow::Result<()> {
             .unwrap_or_else(|_| "<unavailable device name>".to_string());
         println!("  {name}");
     }
-
-    let args: Vec<_> = std::env::args_os().collect();
 
     if args.iter().any(|arg| arg == "--probe-loopback") {
         println!("probing self-excluding system loopback capture...");
@@ -297,7 +311,7 @@ fn require_file(path: &Path, label: &str) -> anyhow::Result<()> {
 }
 
 #[cfg(target_os = "windows")]
-fn run_reference_demo(device: &cpal::Device) -> anyhow::Result<()> {
+fn render_reference_scene() -> anyhow::Result<Vec<f32>> {
     const REFERENCE_SAMPLE_RATE: u32 = 48_000;
     const REFERENCE_CHANNELS: u32 = 2;
     const INPUT_CHUNK_BYTES: usize = 64 * 1024;
@@ -351,14 +365,37 @@ fn run_reference_demo(device: &cpal::Device) -> anyhow::Result<()> {
         bail!("protected reference renderer produced a partial stereo frame");
     }
 
-    let frame_count = rendered.len() / REFERENCE_CHANNELS as usize;
-    println!(
-        "reference render complete: {:.2}s stereo @ {} Hz",
-        frame_count as f64 / f64::from(REFERENCE_SAMPLE_RATE),
-        REFERENCE_SAMPLE_RATE
-    );
-    println!("playing reference over native WASAPI...");
+    let mut peak = 0.0f32;
+    let mut square_sum = 0.0f64;
+    for &sample in &rendered {
+        if !sample.is_finite() {
+            bail!("protected reference renderer produced a non-finite sample");
+        }
+        peak = peak.max(sample.abs());
+        square_sum += f64::from(sample) * f64::from(sample);
+    }
+    if peak <= 1.0e-7 {
+        bail!("protected reference renderer produced only silence");
+    }
 
+    let frame_count = rendered.len() / REFERENCE_CHANNELS as usize;
+    let rms = (square_sum / rendered.len() as f64).sqrt();
+    println!(
+        "reference render complete: {:.2}s stereo @ {} Hz | peak {:.6} | rms {:.6}",
+        frame_count as f64 / f64::from(REFERENCE_SAMPLE_RATE),
+        REFERENCE_SAMPLE_RATE,
+        peak,
+        rms
+    );
+    Ok(rendered)
+}
+
+#[cfg(target_os = "windows")]
+fn run_reference_demo(device: &cpal::Device) -> anyhow::Result<()> {
+    const REFERENCE_SAMPLE_RATE: u32 = 48_000;
+
+    let rendered = render_reference_scene()?;
+    println!("playing reference over native WASAPI...");
     play_stereo_f32(device, rendered, REFERENCE_SAMPLE_RATE)?;
     println!("protected Omniphony reference playback complete");
     Ok(())
