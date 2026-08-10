@@ -165,16 +165,59 @@ jobs:
           echo                  OMNIPHONY FOR HEADPHONES
           echo ============================================================
           echo.
-          echo Starting the crude live Windows baseline...
+          echo Crude live Windows baseline
+          echo.
+
+          if not "%~1"=="" goto launch_passthrough
+
+          echo Available Windows audio devices:
+          echo ------------------------------------------------------------
+          omniphony_live.exe --list-devices
+          echo ------------------------------------------------------------
+          echo.
+          echo Omniphony needs the RECORDING/capture side of the virtual cable.
+          echo Type any unique part of that INPUT device name below.
+          echo Example: CABLE Output
+          echo.
+          set /p "omniphony_input=Input device substring: "
+          if not defined omniphony_input goto no_input
+          echo.
+          echo Leave output blank to use the normal Windows default output.
+          echo Or type a unique part such as FiiO.
+          set /p "omniphony_output=Output device substring [default]: "
           echo.
           echo While running:
           echo   ENTER      toggle Omniphony ON / OFF
           echo   q + ENTER  quit
           echo.
-          echo If startup fails, this window stays open so the actual
-          echo device/configuration error can be read instead of disappearing.
+          if defined omniphony_output (
+            omniphony_live.exe --input "%omniphony_input%" --output "%omniphony_output%"
+          ) else (
+            omniphony_live.exe --input "%omniphony_input%"
+          )
+          goto worker_finished
+
+          :launch_passthrough
+          echo Starting with supplied command-line options...
+          echo.
+          echo While running:
+          echo   ENTER      toggle Omniphony ON / OFF
+          echo   q + ENTER  quit
           echo.
           omniphony_live.exe %*
+          goto worker_finished
+
+          :no_input
+          echo.
+          echo No input was selected. Nothing was started.
+          echo If the WASAPI input list above is empty, Windows is not exposing
+          echo a capture endpoint to Omniphony yet. Check that the recording side
+          echo of Hi-Fi Cable is enabled, then run this launcher again.
+          echo.
+          pause
+          exit /b 2
+
+          :worker_finished
           set "omniphony_exit=%ERRORLEVEL%"
           if "%omniphony_exit%"=="0" exit /b 0
           echo.
@@ -220,8 +263,9 @@ jobs:
 
               START-OMNIPHONY.cmd
 
-          The wrapper stays visible if the worker exits with an error. That turns
-          an apparently non-opening EXE into a readable device/configuration error.
+          The launcher lists WASAPI devices and asks for the recording/capture side
+          of the virtual cable by a unique name substring. This avoids depending on
+          Windows having a default microphone/capture endpoint.
 
           Controls while the worker is running:
 
@@ -229,30 +273,24 @@ jobs:
               q + ENTER   quit
 
           Omniphony starts ON. The shell is intentionally the entire UI for this
-          baseline; the renderer remains a separate native process, following the
-          same supervision principle as upstream Omniphony Studio without pulling
-          the full Tauri frontend into this test build.
-
-          To see the exact WASAPI device names first, double-click:
-
-              LIST-DEVICES.cmd
+          baseline; the renderer remains a separate native process.
 
           IMPORTANT FOR AN EXISTING HeSuVi SETUP
 
           1. Keep Hi-Fi Cable installed. It is only temporary scaffolding here.
           2. Keep foobar's existing 5.1 upmix enabled for the first baseline. That
              gives Omniphony real front/center/side channel positions immediately,
-             without waiting for our future stereo interpretation layer.
+             without waiting for any future stereo interpretation layer.
           3. Disable/bypass HeSuVi / Equalizer APO processing on the cable while
              testing Omniphony, otherwise the captured signal may already contain
              HeSuVi processing.
           4. Close ASIO Bridge or anything else exclusively consuming the cable.
           5. Point foobar's output at the Hi-Fi Cable playback endpoint.
-          6. Point Windows default output at the FiiO/headphones.
+          6. Use FiiO/headphones as the Windows output, or select it in the shell.
 
           Advanced launch from a terminal, using unique device-name substrings:
 
-              .\omniphony_live.exe --input "Hi-Fi Cable" --output "FiiO"
+              .\omniphony_live.exe --input "CABLE Output" --output "FiiO"
 
           The host accepts canonical stereo, 5.1, 7.1, and 7.1.4 channel widths.
           ON preserves those channel positions through Omniphony. OFF is only a
