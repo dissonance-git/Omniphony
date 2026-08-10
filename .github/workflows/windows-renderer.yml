@@ -233,6 +233,23 @@ jobs:
 
           Get-ChildItem $dist -Recurse | Format-Table FullName, Length
 
+      # The hosted runner may have no usable audio endpoint, but it can still
+      # execute the exact packaged decoder bridge + config + layout + binaural
+      # renderer. This catches missing DLL/assets and Windows-only dynamic-load
+      # failures before the artifact reaches a real listener.
+      - name: Validate packaged protected reference render
+        run: |
+          Push-Location 'dist\windows-x64'
+          try {
+            .\windows_host.exe --render-reference-only
+            if ($LASTEXITCODE -ne 0) {
+              throw "packaged reference validation exited with code $LASTEXITCODE"
+            }
+          }
+          finally {
+            Pop-Location
+          }
+
       - name: Upload Windows renderer engine
         uses: actions/upload-artifact@v6
         with:
