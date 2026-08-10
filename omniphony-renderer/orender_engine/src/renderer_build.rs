@@ -368,22 +368,16 @@ pub fn build_spatial_renderer(
     };
 
     log::info!("VBAP spatial rendering enabled");
-    // Raw configured backend id; resolved against the enum aliases *and* the
-    // registry below (so a registered out-of-tree backend id is selectable too).
+    // Raw configured backend id; resolved against built-in aliases and the
+    // renderer's own backend registry.
     let configured_backend_cfg = render_cfg.and_then(|cfg| cfg.render_backend.as_deref());
     let configured_evaluation = render_cfg
         .and_then(|cfg| cfg.render_evaluation_mode.as_deref())
         .and_then(LiveEvaluationMode::from_str);
     {
         let control = renderer.renderer_control();
-        // Register the demonstration backend so `backend_id = "example"` resolves.
-        control.register_backend(Box::new(example_backend::ExampleFactory));
-        // User-scriptable (Lua) backend; selecting `backend_id = "script"` routes
-        // a rebuild through it, reading its `.lua` path from the param store.
-        control.register_backend(Box::new(script_backend::ScriptFactory));
-        // Resolved after registration so any registered backend (not just the
-        // historical concrete ones) is accepted as a hybrid inner model; a nested
-        // hybrid or an unregistered id falls back to the default.
+        // Resolve hybrid legs against the renderer registry. The fork no longer
+        // registers demonstration or user-scriptable backends at startup.
         let hybrid_cfg = render_cfg.map(|cfg| {
             let defaults = renderer::live_params::HybridLiveParams::default();
             let valid_inner = |id: &str| id != "hybrid" && control.has_backend(id);
@@ -415,7 +409,8 @@ pub fn build_spatial_renderer(
             }
         });
         // Resolve the configured backend id: built-in ids/aliases first (e.g.
-        // "distance" -> experimental_distance), then any registered backend id.
+        // "distance" -> experimental_distance), then any backend already
+        // registered by the renderer itself.
         let configured_backend = configured_backend_cfg.and_then(|raw| {
             canonical_builtin_backend_id(raw)
                 .map(|id| id.to_string())
