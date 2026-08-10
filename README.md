@@ -218,9 +218,11 @@ WASAPI / CoreAudio / PipeWire / AAudio / Core Audio / file block
 
 Gain, movement, HRTF changes, room changes and scene transitions should live in sample/time coordinates rather than inheriting arbitrary host-buffer boundaries.
 
-This is an active test/fix area. The current binaural path still contains callback-quantized gain and position handoff that the speaker path handles more precisely.
+The metadata/mute gain handoff now consumes a continuous sample-time segment in the binaural stage, and `dsp_fixtures::binaural_block_size` contains a mandatory 40/240/960-sample callback-invariance gate for that trajectory.
 
-A deterministic reproducer lives in `dsp_fixtures::binaural_block_size`.
+**Position/HRTF movement remains the active defect.** The parent renderer still publishes one position at the beginning of a caller block and advances the canonical ramp afterward. A separate ignored reproducer isolates that remaining staircase so the motion repair cannot hide behind the already-fixed gain path.
+
+The target is one canonical scene trajectory whose audible result is invariant to host partitioning.
 
 ---
 
@@ -301,6 +303,7 @@ Fork-specific corrections already include:
 - measured-HRIR direct-arrival validation;
 - per-ear early-reflection delays and directional ITD;
 - sample-time-invariant FDN modulation;
+- sample-time binaural metadata-gain consumption;
 - true zero predelay;
 - reusable null/RMS/crest/DC/level fidelity metrics.
 
@@ -322,9 +325,24 @@ The local heuristics are scaffolding. The mature product should consume increasi
 
 The renderer knows increasingly much about *how* to render a scene. The elite-engineer layer that decides *what this song should do* is still early.
 
-### 4. Sample-accurate binaural trajectories
+A critical negative constraint is already known:
 
-The binaural handoff still quantizes more state to caller blocks than the speaker path. Gain and movement must become callback-size invariant while `ChannelState` remains the single trajectory authority.
+```text
+musical importance / independence
+≠ raw activity
+≠ more notes
+≠ wider pitch range
+≠ more spectral change
+≠ more energy
+```
+
+Early Helix exact-passage work found that obvious low-level activity proxies did not generally implement an authored distinction such as a bass line carrying its own melody. That means Omniphony must not spatially promote material simply because it is busy or numerically novel. Presentation eventually needs role and relation evidence from libaural, with uncertainty, rather than a DSP-excitement score.
+
+### 4. Sample-time binaural movement
+
+Metadata gain now has a callback-size invariance gate. Position/HRTF movement does not yet.
+
+The parent renderer must publish an actual canonical position trajectory segment rather than one block-start position. The binaural stage should consume that trajectory on the audio timeline without inventing a second motion authority.
 
 ### 5. Source extent
 
@@ -495,18 +513,19 @@ From this checkpoint, new influences should be researched **because an experimen
 ## Near-term order
 
 ```text
-1. make CI genuinely green and meaningful
-2. convert binaural gain block-size reproducer into a passing invariance gate
-3. fix sample-time binaural motion
-4. preserve source extent in headphones
-5. implement/test BroadSource
-6. implement/test DiffuseField
-7. wire ordinary stereo into persistent realtime scene state
-8. integrate early libaural heard state
-9. build first music-aware presentation policy
-10. establish clean native Windows capture/output shell
-11. listening + fidelity optimization
-12. port thin host shells to other operating systems once the core earns it
+completed  CI/compiler lane is meaningful and green on the established baseline
+completed  binaural metadata gain has a callback-size invariance gate
+
+1. fix sample-time binaural motion
+2. preserve source extent in headphones
+3. implement/test BroadSource
+4. implement/test DiffuseField
+5. wire ordinary stereo into persistent realtime scene state
+6. integrate early libaural heard state
+7. build first music-aware presentation policy
+8. establish clean native Windows capture/output shell
+9. listening + fidelity optimization
+10. port thin host shells to other operating systems once the core earns it
 ```
 
 The final product metaphor remains simple:
