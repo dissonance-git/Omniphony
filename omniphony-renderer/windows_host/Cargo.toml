@@ -1,0 +1,15 @@
+[package]
+name = "windows_host"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Thin native Windows audio host for Omniphony; WASAPI-first and independent of the optional ASIO route"
+
+[dependencies]
+anyhow = "1"
+
+[target.'cfg(windows)'.dependencies]
+# CPAL's normal Windows host is WASAPI. Deliberately do not enable the optional
+# `asio` feature here: the product-default Windows shell must compile and run
+# without the separately licensed Steinberg SDK or specialist drivers.
+cpal = "0.15.3"
