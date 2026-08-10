@@ -98,7 +98,7 @@ fn set_running_ui(hwnd: HWND, enabled: bool) {
         if enabled {
             "Audio engine running - Omniphony enabled"
         } else {
-            "Audio engine running - bypass comparison"
+            "Audio engine running - clean bypass comparison"
         },
     );
 }
@@ -110,7 +110,17 @@ fn set_failed_ui(hwnd: HWND, detail: &str) {
 }
 
 #[cfg(target_os = "windows")]
-fn spawn_worker(hwnd: HWND) -> anyhow::Result<()> {
+fn show_start_error(hwnd: HWND, err: &anyhow::Error) {
+    set_failed_ui(hwnd, "Audio engine failed to start - see omniphony.log");
+    let body = wide(&format!("Could not start the Omniphony audio engine.\n\n{err:#}"));
+    let title = wide("Omniphony for Headphones");
+    unsafe {
+        MessageBoxW(hwnd, body.as_ptr(), title.as_ptr(), MB_OK | MB_ICONERROR);
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn spawn_worker(hwnd: HWND, enabled: bool) -> anyhow::Result<()> {
     let exe = std::env::current_exe().context("failed to resolve Omniphony.exe path")?;
     let root = exe.parent().context("Omniphony.exe has no parent directory")?;
     let worker = root.join("omniphony_worker.exe");
@@ -121,18 +131,23 @@ fn spawn_worker(hwnd: HWND) -> anyhow::Result<()> {
     let log_path = root.join("omniphony.log");
     let log = OpenOptions::new()
         .create(true)
-        .write(true)
-        .truncate(true)
+        .append(true)
         .open(&log_path)
-        .with_context(|| format!("failed to create {}", log_path.display()))?;
+        .with_context(|| format!("failed to open {}", log_path.display()))?;
     let log_err = log.try_clone().context("failed to clone Omniphony log handle")?;
 
-    let mut child = Command::new(&worker)
+    let mut command = Command::new(&worker);
+    command
         .current_dir(root)
         .stdin(Stdio::piped())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(log_err))
-        .creation_flags(CREATE_NO_WINDOW)
+        .creation_flags(CREATE_NO_WINDOW);
+    if !enabled {
+        command.arg("--start-off");
+    }
+
+    let mut child = command
         .spawn()
         .with_context(|| format!("failed to launch {}", worker.display()))?;
     let stdin = child.stdin.take().context("audio worker stdin was not piped")?;
@@ -141,46 +156,72 @@ fn spawn_worker(hwnd: HWND) -> anyhow::Result<()> {
         let mut app = state().lock().expect("Omniphony app state poisoned");
         app.child = Some(child);
         app.stdin = Some(stdin);
-        app.enabled = true;
+        app.enabled = enabled;
     }
 
-    set_running_ui(hwnd, true);
+    set_running_ui(hwnd, enabled);
     Ok(())
 }
 
 #[cfg(target_os = "windows")]
+fn stop_worker() {
+    let (mut child, mut stdin) = {
+        let mut app = state().lock().expect("Omniphony app state poisoned");
+        (app.child.take(), app.stdin.take())
+    };
+
+    if let Some(stdin) = stdin.as_mut() {
+        let _ = stdin.write_all(b"q\n");
+        let _ = stdin.flush();
+    }
+
+    if let Some(child) = child.as_mut() {
+        for _ in 0..10 {
+            match child.try_wait() {
+                Ok(Some(_)) => return,
+                Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+                Err(_) => break,
+            }
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn toggle_or_restart(hwnd: HWND) {
-    let running = {
+    let (running, enabled) = {
         let app = state().lock().expect("Omniphony app state poisoned");
-        app.child.is_some()
+        (app.child.is_some(), app.enabled)
     };
 
     if !running {
-        if let Err(err) = spawn_worker(hwnd) {
-            set_failed_ui(hwnd, "Audio engine failed to start - see omniphony.log");
-            let body = wide(&format!("Could not start the Omniphony audio engine.\n\n{err:#}"));
-            let title = wide("Omniphony for Headphones");
-            unsafe {
-                MessageBoxW(hwnd, body.as_ptr(), title.as_ptr(), MB_OK | MB_ICONERROR);
-            }
+        if let Err(err) = spawn_worker(hwnd, true) {
+            show_start_error(hwnd, &err);
         }
         return;
     }
 
-    let next = {
-        let mut app = state().lock().expect("Omniphony app state poisoned");
-        let Some(stdin) = app.stdin.as_mut() else {
-            set_failed_ui(hwnd, "Audio engine control channel is unavailable");
-            return;
-        };
-        if stdin.write_all(b"\n").and_then(|_| stdin.flush()).is_err() {
-            set_failed_ui(hwnd, "Audio engine stopped - click RESTART");
-            return;
-        }
-        app.enabled = !app.enabled;
-        app.enabled
-    };
-    set_running_ui(hwnd, next);
+    let next = !enabled;
+    set_control_text(
+        hwnd,
+        ID_STATUS,
+        if next {
+            "Restarting clean route - enabling Omniphony..."
+        } else {
+            "Restarting clean route - bypassing Omniphony..."
+        },
+    );
+
+    // Prototype safety rule: destroy the old output/capture queues completely
+    // before changing wet/dry selection. This intentionally permits a short gap
+    // so no already-queued wet block can leak after OFF. A later implementation
+    // can replace this with sample-aligned paired wet/dry buffers at output time.
+    stop_worker();
+
+    if let Err(err) = spawn_worker(hwnd, next) {
+        show_start_error(hwnd, &err);
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -220,27 +261,7 @@ fn poll_worker(hwnd: HWND) {
 
 #[cfg(target_os = "windows")]
 fn shutdown_worker() {
-    let (mut child, mut stdin) = {
-        let mut app = state().lock().expect("Omniphony app state poisoned");
-        (app.child.take(), app.stdin.take())
-    };
-
-    if let Some(stdin) = stdin.as_mut() {
-        let _ = stdin.write_all(b"q\n");
-        let _ = stdin.flush();
-    }
-
-    if let Some(child) = child.as_mut() {
-        for _ in 0..10 {
-            match child.try_wait() {
-                Ok(Some(_)) => return,
-                Ok(None) => std::thread::sleep(Duration::from_millis(20)),
-                Err(_) => break,
-            }
-        }
-        let _ = child.kill();
-        let _ = child.wait();
-    }
+    stop_worker();
 }
 
 #[cfg(target_os = "windows")]
@@ -344,13 +365,8 @@ unsafe extern "system" fn window_proc(
                 SetTimer(hwnd, TIMER_ID, 500, None);
             }
 
-            if let Err(err) = spawn_worker(hwnd) {
-                set_failed_ui(hwnd, "Audio engine failed to start - see omniphony.log");
-                let body = wide(&format!("Could not start the Omniphony audio engine.\n\n{err:#}"));
-                let title = wide("Omniphony for Headphones");
-                unsafe {
-                    MessageBoxW(hwnd, body.as_ptr(), title.as_ptr(), MB_OK | MB_ICONERROR);
-                }
+            if let Err(err) = spawn_worker(hwnd, true) {
+                show_start_error(hwnd, &err);
             }
             0
         }
