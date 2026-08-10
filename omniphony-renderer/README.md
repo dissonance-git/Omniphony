@@ -63,6 +63,8 @@ It should remain independent enough that a broken ruler cannot silently certify 
 
 Realtime output/timing infrastructure. Windows is the product target.
 
+The inherited Windows implementation currently hard-wires CPAL's ASIO feature. That is transitional: a clean normal-system Windows route should become the default, with ASIO optional.
+
 ### `audio_input`
 
 Inherited input/control infrastructure. Much of the current Linux/PipeWire and fixed-channel behavior is transitional and will be reduced as the Windows stereo capture path becomes explicit.
@@ -78,6 +80,8 @@ Headless renderer construction and engine glue. This still carries inherited gen
 ### `orender_ffi`
 
 Embedding boundary. Retained while it provides a useful engine/test integration surface; it is no longer a separately released cross-platform product.
+
+It deliberately excludes the host-audio layer, which makes it useful as the clean Windows CI engine boundary while the Windows system-audio shell is being simplified.
 
 ### `reference_bridge`
 
@@ -118,16 +122,20 @@ It separates:
 ```text
 portable renderer core
 Windows renderer core
-Windows x64 listening artifact
+Windows x64 renderer-engine artifact
 ```
+
+The Windows artifact packages the cpal-free headless engine/FFI and reference bridge. That gives the renderer a real compiler/test/package gate without requiring the separately licensed Steinberg ASIO SDK.
 
 There is intentionally no longer a Studio, Linux packaging, macOS product, or cross-platform library-release workflow in this fork.
 
-### Windows listening build
+### Windows listening shell
 
-The current development build still supports the inherited ASIO route where the required SDK/toolchain is available. This is useful for low-latency listening and audiophile interfaces, but it is not assumed to be the final system-wide Windows capture/output architecture.
+The inherited full executable still supports an ASIO-oriented route where the required SDK/toolchain is available. That is useful for low-latency specialist listening, but it is not assumed to be the final system-wide Windows capture/output architecture.
 
-See [`BUILDING_WINDOWS.md`](BUILDING_WINDOWS.md) for inherited setup details while Windows integration is being simplified.
+The next host-audio refactor should make a normal Windows system backend the clean default and make ASIO opt-in.
+
+See [`BUILDING_WINDOWS.md`](BUILDING_WINDOWS.md) only as inherited setup reference while Windows integration is being simplified.
 
 ---
 
@@ -280,6 +288,8 @@ example_backend + script_backend
 → bridge-first normal ingestion assumptions
 → cross-platform host compatibility no longer used
 ```
+
+See [`../docs/CONTRACTION_LEDGER.md`](../docs/CONTRACTION_LEDGER.md).
 
 Do not remove the reference bridge or known-scene geometry simply because they are not final product UX. They remain valuable controlled truth.
 
