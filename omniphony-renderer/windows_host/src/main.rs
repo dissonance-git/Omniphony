@@ -4,6 +4,8 @@ mod capture;
 #[cfg(target_os = "windows")]
 use anyhow::{bail, Context};
 #[cfg(target_os = "windows")]
+use bridge_api::RInputTransport;
+#[cfg(target_os = "windows")]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 #[cfg(target_os = "windows")]
 use omniphony_realtime::{
@@ -11,7 +13,16 @@ use omniphony_realtime::{
     OmniphonyRealtimeConfig, OmniphonyRealtimeProcessor,
 };
 #[cfg(target_os = "windows")]
-use std::time::Duration;
+use orender_engine::Engine;
+#[cfg(target_os = "windows")]
+use std::path::{Path, PathBuf};
+#[cfg(target_os = "windows")]
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+#[cfg(target_os = "windows")]
+use std::time::{Duration, Instant};
 
 fn main() -> anyhow::Result<()> {
     #[cfg(target_os = "windows")]
@@ -31,7 +42,7 @@ fn run_windows_probe() -> anyhow::Result<()> {
 
     println!("Omniphony for Headphones native Windows audio host");
     println!("backend: WASAPI (CPAL default Windows host)");
-    println!("mode: native transport prototype; protected renderer integration follows");
+    println!("prototype: native transport + protected upstream binaural reference");
 
     let default_output = host.default_output_device();
     match default_output.as_ref() {
@@ -62,10 +73,21 @@ fn run_windows_probe() -> anyhow::Result<()> {
     }
 
     if args.iter().any(|arg| arg == "--smoke-output") {
-        let device = default_output.context("Windows has no default output device")?;
-        run_output_smoke(&device)?;
+        let device = default_output
+            .as_ref()
+            .context("Windows has no default output device")?;
+        run_output_smoke(device)?;
     } else {
         println!("output smoke: not activated (pass --smoke-output to hear the native path)");
+    }
+
+    if args.iter().any(|arg| arg == "--reference-demo") {
+        let device = default_output.context("Windows has no default output device")?;
+        run_reference_demo(&device)?;
+    } else {
+        println!(
+            "reference demo: not activated (pass --reference-demo to hear protected Omniphony)"
+        );
     }
 
     Ok(())
@@ -135,22 +157,22 @@ fn run_output_smoke(device: &cpal::Device) -> anyhow::Result<()> {
     println!("  signal: 440 Hz, low level, 2 seconds");
 
     match sample_format {
-        cpal::SampleFormat::I8 => run_typed_output::<i8>(device, &config, SMOKE_DURATION),
-        cpal::SampleFormat::I16 => run_typed_output::<i16>(device, &config, SMOKE_DURATION),
-        cpal::SampleFormat::I32 => run_typed_output::<i32>(device, &config, SMOKE_DURATION),
-        cpal::SampleFormat::I64 => run_typed_output::<i64>(device, &config, SMOKE_DURATION),
-        cpal::SampleFormat::U8 => run_typed_output::<u8>(device, &config, SMOKE_DURATION),
-        cpal::SampleFormat::U16 => run_typed_output::<u16>(device, &config, SMOKE_DURATION),
-        cpal::SampleFormat::U32 => run_typed_output::<u32>(device, &config, SMOKE_DURATION),
-        cpal::SampleFormat::U64 => run_typed_output::<u64>(device, &config, SMOKE_DURATION),
-        cpal::SampleFormat::F32 => run_typed_output::<f32>(device, &config, SMOKE_DURATION),
-        cpal::SampleFormat::F64 => run_typed_output::<f64>(device, &config, SMOKE_DURATION),
+        cpal::SampleFormat::I8 => run_typed_tone_output::<i8>(device, &config, SMOKE_DURATION),
+        cpal::SampleFormat::I16 => run_typed_tone_output::<i16>(device, &config, SMOKE_DURATION),
+        cpal::SampleFormat::I32 => run_typed_tone_output::<i32>(device, &config, SMOKE_DURATION),
+        cpal::SampleFormat::I64 => run_typed_tone_output::<i64>(device, &config, SMOKE_DURATION),
+        cpal::SampleFormat::U8 => run_typed_tone_output::<u8>(device, &config, SMOKE_DURATION),
+        cpal::SampleFormat::U16 => run_typed_tone_output::<u16>(device, &config, SMOKE_DURATION),
+        cpal::SampleFormat::U32 => run_typed_tone_output::<u32>(device, &config, SMOKE_DURATION),
+        cpal::SampleFormat::U64 => run_typed_tone_output::<u64>(device, &config, SMOKE_DURATION),
+        cpal::SampleFormat::F32 => run_typed_tone_output::<f32>(device, &config, SMOKE_DURATION),
+        cpal::SampleFormat::F64 => run_typed_tone_output::<f64>(device, &config, SMOKE_DURATION),
         other => bail!("unsupported default WASAPI sample format: {other:?}"),
     }
 }
 
 #[cfg(target_os = "windows")]
-fn run_typed_output<T>(
+fn run_typed_tone_output<T>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
     duration: Duration,
@@ -222,5 +244,265 @@ where
     drop(stream);
 
     println!("native output smoke test complete");
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+struct ReferenceBundle {
+    bridge: PathBuf,
+    config: PathBuf,
+    layout: PathBuf,
+    wav: PathBuf,
+}
+
+#[cfg(target_os = "windows")]
+impl ReferenceBundle {
+    fn beside_executable() -> anyhow::Result<Self> {
+        let exe = std::env::current_exe().context("failed to resolve windows_host executable path")?;
+        let root = exe
+            .parent()
+            .context("windows_host executable has no parent directory")?;
+        let reference = root.join("reference-demo");
+        let bundle = Self {
+            bridge: root.join("reference_bridge.dll"),
+            config: reference.join("upstream-demo-reference.yaml"),
+            layout: reference.join("7.1.4.yaml"),
+            wav: reference.join("spatial-demo.wav"),
+        };
+        bundle.validate()?;
+        Ok(bundle)
+    }
+
+    fn validate(&self) -> anyhow::Result<()> {
+        require_file(&self.bridge, "reference decoder bridge")?;
+        require_file(&self.config, "protected upstream binaural config")?;
+        require_file(&self.layout, "7.1.4 reference layout")?;
+        require_file(&self.wav, "rotating reference WAV")?;
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn require_file(path: &Path, label: &str) -> anyhow::Result<()> {
+    if !path.is_file() {
+        bail!("missing {label}: {}", path.display());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn run_reference_demo(device: &cpal::Device) -> anyhow::Result<()> {
+    const REFERENCE_SAMPLE_RATE: u32 = 48_000;
+    const REFERENCE_CHANNELS: u32 = 2;
+    const INPUT_CHUNK_BYTES: usize = 64 * 1024;
+
+    let bundle = ReferenceBundle::beside_executable()?;
+    println!("rendering protected Omniphony reference scene...");
+    println!("  bridge: {}", bundle.bridge.display());
+    println!("  config: {}", bundle.config.display());
+    println!("  layout: {}", bundle.layout.display());
+    println!("  source: {}", bundle.wav.display());
+
+    let mut engine = Engine::from_paths(
+        Some(&bundle.config),
+        Some(&bundle.layout),
+        Some(&bundle.bridge),
+        None,
+        REFERENCE_SAMPLE_RATE,
+    )
+    .context("failed to construct protected Omniphony reference engine")?;
+
+    if engine.channel_count() != REFERENCE_CHANNELS {
+        bail!(
+            "protected reference expected binaural stereo but engine reports {} channels",
+            engine.channel_count()
+        );
+    }
+
+    let input = std::fs::read(&bundle.wav)
+        .with_context(|| format!("failed to read {}", bundle.wav.display()))?;
+    let mut rendered = Vec::<f32>::new();
+
+    for chunk in input.chunks(INPUT_CHUNK_BYTES) {
+        let blocks = engine
+            .process(chunk, RInputTransport::Raw, 0)
+            .context("reference bridge/renderer failed while processing demo WAV")?;
+        for block in blocks {
+            if block.n_channels != REFERENCE_CHANNELS {
+                bail!(
+                    "renderer changed output width inside reference demo: {} channels",
+                    block.n_channels
+                );
+            }
+            rendered.extend_from_slice(&block.samples);
+        }
+    }
+
+    if rendered.is_empty() {
+        bail!("protected reference renderer produced no audio");
+    }
+    if rendered.len() % REFERENCE_CHANNELS as usize != 0 {
+        bail!("protected reference renderer produced a partial stereo frame");
+    }
+
+    let frame_count = rendered.len() / REFERENCE_CHANNELS as usize;
+    println!(
+        "reference render complete: {:.2}s stereo @ {} Hz",
+        frame_count as f64 / f64::from(REFERENCE_SAMPLE_RATE),
+        REFERENCE_SAMPLE_RATE
+    );
+    println!("playing reference over native WASAPI...");
+
+    play_stereo_f32(device, rendered, REFERENCE_SAMPLE_RATE)?;
+    println!("protected Omniphony reference playback complete");
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn choose_stereo_output_config(
+    device: &cpal::Device,
+    sample_rate_hz: u32,
+) -> anyhow::Result<(cpal::SampleFormat, cpal::StreamConfig)> {
+    let supported = device
+        .supported_output_configs()
+        .context("failed to enumerate WASAPI output formats")?;
+
+    let best = supported
+        .filter(|range| {
+            range.channels() >= 2
+                && range.min_sample_rate().0 <= sample_rate_hz
+                && range.max_sample_rate().0 >= sample_rate_hz
+        })
+        .min_by_key(|range| {
+            let format_rank = match range.sample_format() {
+                cpal::SampleFormat::F32 => 0u8,
+                cpal::SampleFormat::F64 => 1,
+                cpal::SampleFormat::I32 | cpal::SampleFormat::U32 => 2,
+                cpal::SampleFormat::I24 | cpal::SampleFormat::U24 => 3,
+                cpal::SampleFormat::I16 | cpal::SampleFormat::U16 => 4,
+                _ => 5,
+            };
+            (range.channels(), format_rank)
+        })
+        .with_context(|| format!("default WASAPI device has no >=2ch {sample_rate_hz} Hz output"))?;
+
+    let sample_format = best.sample_format();
+    let config = best.with_sample_rate(cpal::SampleRate(sample_rate_hz)).config();
+    Ok((sample_format, config))
+}
+
+#[cfg(target_os = "windows")]
+fn play_stereo_f32(
+    device: &cpal::Device,
+    rendered: Vec<f32>,
+    sample_rate_hz: u32,
+) -> anyhow::Result<()> {
+    let (sample_format, config) = choose_stereo_output_config(device, sample_rate_hz)?;
+    let device_name = device
+        .name()
+        .unwrap_or_else(|_| "<unavailable device name>".to_string());
+    println!("  device: {device_name}");
+    println!("  stream: {} Hz / {}ch / {sample_format:?}", config.sample_rate.0, config.channels);
+    println!("  renderer payload: stereo f32");
+    println!("  realtime seam: omniphony_realtime identity");
+
+    match sample_format {
+        cpal::SampleFormat::I8 => run_typed_stereo_output::<i8>(device, &config, rendered),
+        cpal::SampleFormat::I16 => run_typed_stereo_output::<i16>(device, &config, rendered),
+        cpal::SampleFormat::I32 => run_typed_stereo_output::<i32>(device, &config, rendered),
+        cpal::SampleFormat::I64 => run_typed_stereo_output::<i64>(device, &config, rendered),
+        cpal::SampleFormat::U8 => run_typed_stereo_output::<u8>(device, &config, rendered),
+        cpal::SampleFormat::U16 => run_typed_stereo_output::<u16>(device, &config, rendered),
+        cpal::SampleFormat::U32 => run_typed_stereo_output::<u32>(device, &config, rendered),
+        cpal::SampleFormat::U64 => run_typed_stereo_output::<u64>(device, &config, rendered),
+        cpal::SampleFormat::F32 => run_typed_stereo_output::<f32>(device, &config, rendered),
+        cpal::SampleFormat::F64 => run_typed_stereo_output::<f64>(device, &config, rendered),
+        other => bail!("unsupported WASAPI sample format for reference demo: {other:?}"),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn run_typed_stereo_output<T>(
+    device: &cpal::Device,
+    config: &cpal::StreamConfig,
+    rendered: Vec<f32>,
+) -> anyhow::Result<()>
+where
+    T: cpal::Sample + cpal::SizedSample + cpal::FromSample<f32>,
+{
+    let device_channels = usize::from(config.channels);
+    if device_channels < 2 {
+        bail!("reference playback requires at least two output channels");
+    }
+    if rendered.len() % 2 != 0 {
+        bail!("reference playback received a partial stereo frame");
+    }
+
+    let total_frames = rendered.len() / 2;
+    let expected_duration = Duration::from_secs_f64(
+        total_frames as f64 / f64::from(config.sample_rate.0),
+    );
+    let done = Arc::new(AtomicBool::new(false));
+    let done_for_callback = Arc::clone(&done);
+    let mut cursor = 0usize;
+    let mut scratch = Vec::<f32>::new();
+    let mut processor = RealtimeProcessorHandle::new(config.sample_rate.0, 2)?;
+    let mut reported_processing_error = false;
+
+    let err_fn = |err| eprintln!("WASAPI reference output stream error: {err}");
+    let stream = device
+        .build_output_stream(
+            config,
+            move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
+                let frames = data.len() / device_channels;
+                scratch.resize(frames * 2, 0.0);
+
+                for frame in scratch.chunks_exact_mut(2) {
+                    if cursor < total_frames {
+                        frame[0] = rendered[cursor * 2];
+                        frame[1] = rendered[cursor * 2 + 1];
+                        cursor += 1;
+                    } else {
+                        frame.fill(0.0);
+                    }
+                }
+
+                if let Err(err) = processor.process_in_place(&mut scratch, frames) {
+                    scratch.fill(0.0);
+                    if !reported_processing_error {
+                        eprintln!("native realtime seam failed; silencing output: {err:#}");
+                        reported_processing_error = true;
+                    }
+                }
+
+                let zero = T::from_sample(0.0f32);
+                for (frame_index, output_frame) in data.chunks_exact_mut(device_channels).enumerate() {
+                    output_frame.fill(zero);
+                    output_frame[0] = T::from_sample(scratch[frame_index * 2]);
+                    output_frame[1] = T::from_sample(scratch[frame_index * 2 + 1]);
+                }
+
+                if cursor >= total_frames {
+                    done_for_callback.store(true, Ordering::Release);
+                }
+            },
+            err_fn,
+            None,
+        )
+        .context("failed to create WASAPI stream for protected reference")?;
+
+    stream
+        .play()
+        .context("failed to start protected reference WASAPI stream")?;
+
+    let deadline = Instant::now() + expected_duration + Duration::from_secs(5);
+    while !done.load(Ordering::Acquire) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    if !done.load(Ordering::Acquire) {
+        bail!("WASAPI reference playback did not complete before safety deadline");
+    }
+    std::thread::sleep(Duration::from_millis(100));
+    drop(stream);
     Ok(())
 }
