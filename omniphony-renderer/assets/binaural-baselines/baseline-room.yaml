@@ -1,8 +1,8 @@
-# Frozen binaural room baseline.
+# Frozen fork room-assisted comparison.
 #
-# This intentionally preserves the current room-assisted demo tuning so future
-# renderer experiments have a stable level-matched control. It is NOT final
-# product tuning and should not silently change when experimental algorithms do.
+# This preserves the fork's current 3 m + early-reflection + short-FDN tuning
+# for controlled A/B work. It is NOT the upstream perceptual ancestor and must
+# not silently replace `upstream-demo-reference.yaml` as the product floor.
 #
 # Static listener by design: no head-tracking source is configured here.
 render:
