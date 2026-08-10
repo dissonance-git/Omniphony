@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-only"
 description = "Reference decoder bridge: presents a multichannel WAV/PCM file as a channel bed for the Omniphony renderer (no proprietary decoder, no external player)"
-repository = "https://github.com/dissonance-git/Omniphony"
+repository = "https://github.com/dissonance-git/Omniphony-Headphones"
 
 # cdylib: the loadable .so/.dll/.dylib bridge plugin.
 # rlib: lets the unit tests and the demo generator example link the crate.
