@@ -150,6 +150,7 @@ jobs:
 
           Copy-Item 'target\release-deploy\reference_bridge.dll' $dist -Force
           Copy-Item 'target\release-deploy\omniphony_live.exe' $dist -Force
+          Copy-Item 'target\release-deploy\omniphony_worker.exe' $dist -Force
           Copy-Item 'target\release-deploy\omniphony_app.exe' (Join-Path $dist 'Omniphony.exe') -Force
           Copy-Item 'assets\binaural-baselines\upstream-demo-reference.yaml' (Join-Path $reference 'upstream-demo-reference.yaml') -Force
           Copy-Item '..\layouts\7.1.4.yaml' (Join-Path $reference '7.1.4.yaml') -Force
@@ -172,7 +173,7 @@ jobs:
               Omniphony.exe
 
           The console launcher is no longer the normal interface. Omniphony.exe is a
-          small native Windows shell that supervises the hidden audio worker.
+          small native Windows shell that supervises a hidden audio worker.
 
           CURRENT UI
 
@@ -207,8 +208,8 @@ jobs:
           5. Leave the FiiO connected. The worker automatically prefers an output
              whose name contains "FiiO".
 
-          The process-loopback worker initializes COM MTA before any CPAL/WASAPI
-          device discovery. This specifically avoids the previous Windows error:
+          Omniphony.exe launches omniphony_worker.exe. The dedicated worker initializes
+          COM MTA before entering the existing live audio implementation. This avoids:
 
               Cannot change thread mode after it is set. (0x80010106)
 
@@ -230,6 +231,7 @@ jobs:
 
           foreach ($required in @(
             'Omniphony.exe',
+            'omniphony_worker.exe',
             'omniphony_live.exe',
             'reference_bridge.dll',
             'LIST-DEVICES.cmd',
