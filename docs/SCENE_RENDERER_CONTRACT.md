@@ -105,6 +105,8 @@ It currently exposes:
 - trajectory agreement;
 - conservative stability.
 
+`object_separation` is now symmetric around the neutral midpoint rather than silently biasing every uncertain bin toward object-like/direct.
+
 `renderer::scene_inference` is the first policy-light synthesis layer.
 
 It currently emits:
@@ -114,10 +116,13 @@ It currently emits:
 - `BroadSource`;
 - `DiffuseField`;
 - spatial specificity;
-- bass-anchor strength;
+- bass-protection strength;
+- coherent-foundation support;
 - field support;
 - object support;
 - `reassignment_safety`.
+
+Low-frequency protection is deliberately separate from object identity. A diffuse low-frequency field can be protected from aggressive movement without being mislabeled as a coherent bass object.
 
 `reassignment_safety` is **not** rear evidence.
 
@@ -129,11 +134,11 @@ Future libaural cues may change the classification or confidence without destroy
 
 Do not buy spatial size by dissolving the timing and weight of the groove floor.
 
-The current scene-evidence stage uses a smooth bass-anchor prior:
+The current scene-evidence stage uses a smooth low-frequency protection prior:
 
 ```text
 ≤ 80 Hz
-→ strongly anchored
+→ strongly protected
 
 80–220 Hz
 → continuously decreasing protection
@@ -141,6 +146,8 @@ The current scene-evidence stage uses a smooth bass-anchor prior:
 ≥ 220 Hz
 → this specific bass prior contributes no protection
 ```
+
+Frequency alone does not establish `FrontalAnchor` identity. The current `foundation_support` additionally requires persistent direct/source-like evidence and is suppressed by field-like evidence.
 
 This curve is a product prior, not a universal law of hearing.
 
@@ -164,11 +171,21 @@ The inherited Omniphony binaural path already follows this direction with per-in
 
 Moving spatial objects should not jump between discrete HRTF directions.
 
-The current `HrirSet` already uses bilinear azimuth/elevation interpolation. Preserve that property across future HRTF providers.
+The current `HrirSet` already uses directional interpolation. Preserve smooth filter evolution across future HRTF providers.
 
 ### Custom HRTFs are first-class
 
 SOFA/personalized datasets should remain swappable without rewriting scene logic.
+
+The asynchronous HRTF rebuild path now tags completed grids with the request that produced them and rejects stale late completions. Rapid future calibration/A-B switching therefore cannot install an obsolete HRTF merely because its worker finished later.
+
+### Bulk arrival delay and spectral phase are different
+
+Measured HRIR preprocessing must remove bulk/direct-arrival offsets when analytic ITD is applied separately, while retaining direction-dependent HRTF spectral phase.
+
+A left/right cross-correlation peak at zero is **not** the correct time-alignment contract for two spectrally different ear filters.
+
+The active validation gate now checks direct-arrival alignment rather than forcing the measured HRTF toward identical ear phase histories.
 
 ### Source rendering and environment rendering are different
 
@@ -184,7 +201,63 @@ This is a candidate architecture decision to test, not an immediate dependency o
 
 ---
 
-## 6. Lessons assimilated from Dolby PMD / immersive metadata
+## 6. Current room / externalization path
+
+The current binaural room path is intentionally split:
+
+```text
+DIRECT OBJECT
+→ analytic per-ear ITD
+→ interpolated HRIR convolution
+
+EARLY ROOM
+→ six first-order image sources
+→ relative geometric propagation delay
+→ per-reflection directional ITD
+→ broadband ILD
+
+LATE ROOM FIELD
+→ shared send bus
+→ 8-line FDN
+→ frequency-dependent interaural-coherence shaping
+→ stereo tail
+```
+
+This is much closer to a useful externalization architecture than one generic reverb effect.
+
+### Early reflections
+
+The reflection bank now carries independent left/right arrival times. Each image source uses its own head-relative azimuth/elevation and the same analytic ear-delay model as the direct path.
+
+The cheap early layer still does **not** run a complete HRTF convolution for every reflection. That is intentional until listening tests show the extra CPU buys enough externalization/front-back/elevation value.
+
+### Late field
+
+The FDN uses:
+
+- mutually orthogonal zero-sum output tap patterns;
+- slow mutually detuned delay modulation;
+- high-frequency damping;
+- low-frequency shared/coherent return;
+- higher-frequency decorrelated return;
+- distance-related send rather than destructive direct-level attenuation.
+
+Its internal timing is now sample-based rather than host-block-based:
+
+```text
+0 ms predelay
+→ actually zero
+
+modulation update horizon
+→ persists across process_block calls
+→ same room trajectory for 40-sample, 1024-sample, or whole-buffer processing
+```
+
+Block size is not allowed to change the simulated room.
+
+---
+
+## 7. Lessons assimilated from Dolby PMD / immersive metadata
 
 Dolby's open PMD tooling reinforces a useful separation:
 
@@ -210,7 +283,7 @@ A renderer may alter the presentation without claiming the source waveform itsel
 
 ---
 
-## 7. Lessons assimilated from MPEG-I acoustic-scene tooling
+## 8. Lessons assimilated from MPEG-I acoustic-scene tooling
 
 Room rendering should eventually make acoustic properties explicit rather than hiding them in a generic `wet` knob.
 
@@ -228,11 +301,25 @@ They do not decide whether a guitar, voice or percussion event is one auditory o
 
 ---
 
-## 8. Fidelity gates inspired by Dolby SATS
+## 9. Fidelity gates inspired by Dolby SATS
 
 Subjective immersion alone cannot pass a build.
 
-Omniphony should develop automatable WAV-based gates for at least:
+The shared DSP-fixture layer now exposes known-answer measurements for:
+
+- strict peak residual/null level;
+- RMS residual;
+- peak dBFS;
+- RMS dBFS;
+- crest factor;
+- DC offset;
+- matched RMS-level delta;
+- FFT/frequency-response analysis;
+- lag/ITD analysis with ambiguity detection.
+
+The Windows renderer-core CI lane now runs the measurement fixture crate's own tests before renderer tests, so a broken ruler cannot silently certify the DSP being measured.
+
+Further automatable WAV-based gates should cover:
 
 ```text
 bypass identity
@@ -266,7 +353,7 @@ Human listening remains necessary for:
 
 ---
 
-## 9. Two independent validation lanes
+## 10. Two independent validation lanes
 
 A stereo-inference failure must not be confused with a binaural-renderer failure.
 
@@ -304,7 +391,7 @@ Only after both lanes work should the end-to-end system be judged as one product
 
 ---
 
-## 10. Confidence → spatial behavior
+## 11. Confidence → spatial behavior
 
 The renderer should become more specific only as evidence improves.
 
@@ -325,7 +412,110 @@ Musical role and fidelity guards can veto a geometrically dramatic placement.
 
 ---
 
-## 11. North-star failure test
+## 12. Current implementation defects / missing bridges
+
+These are concrete implementation gaps, not speculative wishlist items.
+
+### A. Stereo inference is not yet in the realtime audio path
+
+`stereo_inference` and `scene_inference` are real tested renderer modules, but ordinary two-channel playback is not yet feeding FFT/band evidence through them into live object/field state.
+
+Do not claim end-to-end stereo → objects yet.
+
+### B. Binaural object gain slew is still block-quantized
+
+`ChannelState::slew_gain` produces a sample-accurate `(start, per_sample_step)` pair for the speaker path. The binaural branch currently advances the same state but passes only the block-end gain into `BinauralRenderer`, which applies that value to the whole block.
+
+Consequences:
+
+```text
+40-sample live blocks
+→ fine staircase
+
+large offline/device blocks
+→ much coarser gain transition
+```
+
+This should be fixed by carrying the gain ramp into the binaural per-sample loop, while keeping `ChannelState` as the single gain-state authority so speaker ↔ headphone switching cannot drift.
+
+Do not create a second independent gain envelope inside `BinauralRenderer`.
+
+### C. Binaural rendering currently collapses object extent to a point
+
+The inherited speaker/VBAP path preserves object `size` and can convert spatial extent into spread. The binaural branch currently forwards position and gain but not the object's ramped size/extent.
+
+Therefore a future `BroadSource` cannot yet be rendered as a true broad source in headphone mode.
+
+The fix should reuse the existing object-size state rather than invent a parallel width parameter.
+
+### D. `DiffuseField` has no first-class spherical direct renderer yet
+
+The current FDN is a **room field**, not a substitute for diffuse musical content.
+
+A texture classified as `DiffuseField` still needs an internal spherical/extended representation, likely Ambisonic or an experimentally equivalent field basis, before binaural decoding.
+
+Do not fake this by assigning random point objects around the listener.
+
+### E. Realtime performance remains report-only
+
+The inherited worst-case block-time test intentionally reports p99.9 but does not assert because raw wall-clock timing changes dramatically under CI contention. Upstream documented same-scene timings ranging from ~4 % of the block budget when idle to >100 % under synthetic host load.
+
+Do not invent a fixed threshold.
+
+A real gate needs a same-run calibration/control workload or another load-normalized metric before performance can become pass/fail.
+
+### F. CI result is not yet observable through the current connector
+
+The workflow is configured to run formatter checks, DSP-fixture tests, renderer-core tests and the Windows ASIO/listening build, but the available GitHub connector currently exposes no push-run status/check record for these commits.
+
+Until an actual run result is observed, the current checkpoint is:
+
+```text
+code committed
++ diffs audited
++ tests added
+≠ verified green CI
+```
+
+This is also why the large physical upstream-deletion/contraction pass remains intentionally paused.
+
+---
+
+## 13. Contraction gate
+
+Do not begin broad inherited-code deletion merely because the new architecture is clearer.
+
+Required order:
+
+```text
+current renderer-core checkpoint
+→ green compiler/tests
+→ green Windows listening artifact
+→ freeze baseline
+→ map retained dependency graph
+→ remove one upstream product layer
+→ compile/test
+→ repeat
+```
+
+Keep:
+
+- the mature binaural/HRTF substrate;
+- known-scene speaker/VBAP machinery needed for calibration or shared renderer internals;
+- room/reflection code that survives listening/measurement tests;
+- deterministic DSP fixtures;
+- Windows audio integration needed by the final product.
+
+Remove only after proof of irrelevance:
+
+- broad Studio/UI product surfaces;
+- mpv-oriented distribution surfaces not needed by the final Windows listener;
+- unrelated cross-platform packaging;
+- compatibility machinery whose retained dependency graph is empty.
+
+---
+
+## 14. North-star failure test
 
 Matched-loudness bypass remains the product-level test:
 
