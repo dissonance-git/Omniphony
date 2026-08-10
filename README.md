@@ -1,4 +1,4 @@
-# Omniphony
+# Omniphony for Headphones
 
 > **Private master project plan and canonical re-entry surface.**
 >
@@ -6,7 +6,7 @@
 >
 > If chat context disappears, a connector fails, research sprawls, or a later refactor starts optimizing the wrong thing, recover the project from this file and the current Git history before inventing a new direction.
 
-Omniphony is a fork of [`mgth/Omniphony`](https://github.com/mgth/Omniphony) being turned into a **native Windows headphone spatial-audio system for ordinary music**.
+Omniphony for Headphones is a fork of [`mgth/Omniphony`](https://github.com/mgth/Omniphony) being turned into a **native Windows headphone spatial-audio system for ordinary music**.
 
 The reason the fork exists is simple and must not be abstracted away:
 
@@ -159,6 +159,8 @@ ASIO sample rate:  48,000 Hz
 ```
 
 The foobar upmix itself uses six active channels inside that multichannel transport.
+
+ASIO is part of the current incumbent because it is an effective specialist bridge through the Hi-Fi Cable/HeSuVi stack. That does **not** make ASIO the required product-default route for Omniphony for Headphones.
 
 ## 2.3 HeSuVi / Equalizer APO virtualization
 
@@ -454,10 +456,17 @@ Rear placement may be a valid presentation decision without being described as r
 
 The broad research pass was useful and is not being thrown away.
 
+Durable findings are parked in `docs/INFLUENCE_LEDGER.md`, with Windows-specific endpoint/API findings in `docs/WINDOWS_INTEGRATION_RESEARCH.md`. Research that is not promoted into current code is still retained there so later work can recover it without repeating the same GitHub dives.
+
 Influences include:
 
 - Steam Audio;
+- Resonance Audio;
+- Meta XR Audio SDK samples;
+- Cavern;
+- CamillaDSP / `wasapi-rs` and related HEnquist audio work;
 - Dolby open-source work;
+- Microsoft Core Audio / Spatial Sound documentation;
 - SPARTA / IEM / Ambisonic tooling;
 - ImmersiveFlow and learned spatial-audio work;
 - HRTF/BRIR research;
@@ -603,14 +612,29 @@ Workspace crate:
 omniphony-renderer/windows_host/
 ```
 
-Current purpose: thin Windows transport probe, not a second renderer.
+Current purpose: thin Windows product/transport prototype, not a second renderer.
 
 It currently provides/proves:
 
 - CPAL default Windows host output-device discovery;
 - normal Windows build without enabling CPAL's optional ASIO feature;
 - manual self-excluding WASAPI process-loopback activation probe;
+- explicit `--smoke-output` native-output test through the bit-exact realtime PCM seam;
+- explicit `--reference-demo` path that renders the bundled upstream 7.1.4 reference through the protected Omniphony binaural engine and plays the resulting stereo over native WASAPI;
 - packaging in the Windows artifact workflow.
+
+The P0 prototype is deliberately bounded:
+
+```text
+bundled 7.1.4 reference WAV
+→ reference_bridge
+→ protected Omniphony binaural renderer
+→ stereo PCM
+→ realtime_ffi identity seam
+→ native WASAPI output
+```
+
+This is the first listening object, not the final daily route.
 
 Important limitation:
 
@@ -653,19 +677,20 @@ input PCM
 → identical PCM
 ```
 
-before real DSP is connected behind the boundary.
+before the persistent realtime renderer is connected behind the boundary.
 
 The ABI has tests and CI/package integration in the committed W1 batch.
 
 ## 12.3 What does NOT exist yet
 
-Do not infer these from the scaffolding:
+Do not infer these from the scaffolding or P0:
 
 - no completed transparent system-wide Omniphony route yet;
 - no chosen production APO yet;
 - no finished virtual render endpoint yet;
 - loopback capture is not the final route;
-- the protected renderer is not yet fully wired behind `realtime_ffi` for the native daily path;
+- P0 renders the controlled reference through the real engine and then plays it through the identity seam, but the protected renderer is **not yet the persistent callback-time processor behind `realtime_ffi` for ordinary daily PCM**;
+- no arbitrary-stereo music product path has been judged yet;
 - no claim yet that native Omniphony has replaced the incumbent.
 
 ---
@@ -726,7 +751,7 @@ Risks/costs:
 
 ## C. ASIO specialist route
 
-ASIO remains useful for the current FiiO setup and possibly other specialist hardware.
+ASIO remains useful for specialist hardware/workflows and as a compatibility/reference route.
 
 It is not sufficient as the ordinary system-wide solution by itself.
 
@@ -740,7 +765,9 @@ optional specialist route
 → ASIO
 ```
 
-See `docs/WINDOWS_AUDIO_ROUTE.md` for the detailed decision gates.
+Microsoft Spatial Sound's public app APIs are also useful as a future **input semantic** for static beds/dynamic objects, but current reviewed documentation does not establish a simple public registration API for making an arbitrary renderer appear beside Sonic/Atmos/DTS in the Spatial Sound dropdown. Keep that product dream separate from what is currently proven implementable.
+
+See `docs/WINDOWS_AUDIO_ROUTE.md` and `docs/WINDOWS_INTEGRATION_RESEARCH.md` for the detailed decision gates and parked platform findings.
 
 ---
 
@@ -1000,7 +1027,7 @@ The failure at `6e9ccf7d` was caused by Unix absolute-path assumptions in render
 
 Treat that incident as closed unless a new run regresses.
 
-W1 Windows-native progress immediately after that checkpoint includes:
+W1 Windows-native progress after that checkpoint includes:
 
 ```text
 077f15ac  add WASAPI-first native host crate
@@ -1014,13 +1041,20 @@ fb1cc719  define single-path routing / APO decision gates
 c87a4a8d  add realtime PCM FFI crate
 30534230  define bit-exact realtime PCM boundary
 fd77a7bc  publish C header
- ee9d2b5b register realtime PCM FFI workspace member
+ee9d2b5b  register realtime PCM FFI workspace member
 17ca30d5  test/package realtime PCM ABI
+97688264  fix Windows COM HRESULT conversion for loopback host
+bcaff271  add audible realtime WASAPI output smoke path
+f56b5e54  play protected Omniphony reference over WASAPI
+35719439  align P0 code with CPAL 0.15 sample formats
+a78d4316  preserve external audio influence ledger
+77df8f04  park Core Audio / endpoint integration findings
+ad98ec33  package first audible Windows reference prototype
 ```
 
-Those commits are durable progress.
+These commits are durable progress.
 
-Do not claim from this README alone that every later W1 workflow run has been manually verified green. The confirmed green statement above specifically closes the earlier renderer/backend-path incident.
+The connector used for this project does not expose push-triggered Actions runs through its commit-run wrapper, so a newly pushed P0 run must not be described as green until its result is actually observed. The earlier verified-green statement above specifically closes the renderer/backend-path incident.
 
 ---
 
@@ -1041,25 +1075,38 @@ Already built:
 ```text
 windows_host
 realtime_ffi identity seam
-Windows output-device probe
+Windows output-device discovery
 self-excluding loopback diagnostic probe
+native WASAPI output smoke mode
+protected upstream-reference render/playback mode
+self-contained P0 Actions artifact packaging
 single-path route decision document
 CI/artifact integration for host/ABI scaffolding
 ```
 
-Next concrete steps:
+Current P0 acceptance sequence:
 
 ```text
-1. prove normal Windows output through realtime_ffi identity
-2. connect protected Omniphony renderer behind realtime_ffi
-3. compare realtime output against controlled offline/reference render
-4. prototype smallest viable single-path APO boundary
-5. compare with minimal virtual-endpoint route if needed
-6. choose transport from latency/reliability/installability evidence
-7. establish fast incumbent ↔ Omniphony A/B
+1. Actions compiles/packages current main
+2. run windows_host.exe --smoke-output on the intended endpoint
+3. run windows_host.exe --reference-demo
+4. confirm the protected reference is audible, stable and recognizably Omniphony
+5. compare against the hosted upstream perceptual ancestor
 ```
 
-No new DSP should be required merely to prove this route.
+Then the next concrete engineering steps are:
+
+```text
+1. move from controlled offline reference render + native playback to persistent realtime rendering behind the same host seam
+2. prove callback/stream output matches controlled reference semantics
+3. add the simplest ordinary-stereo music input path without experimental DSP
+4. establish fast incumbent ↔ Omniphony A/B
+5. prototype the smallest viable single-path system route
+6. compare APO / virtual-endpoint approaches only as needed
+7. harden WASAPI transport from evidence; direct wasapi-rs is a parked candidate
+```
+
+No new external DSP should be required merely to prove this route.
 
 ## R1 · Fix actual renderer weaknesses exposed by W1/A-B
 
@@ -1197,6 +1244,8 @@ Supporting docs own narrower technical contracts.
 Important current docs:
 
 - `docs/WINDOWS_AUDIO_ROUTE.md` — single-path Windows route, APO vs virtual endpoint and transport ladder;
+- `docs/WINDOWS_INTEGRATION_RESEARCH.md` — parked Microsoft Core Audio/Spatial Sound, endpoint/APO and driver-integration findings;
+- `docs/INFLUENCE_LEDGER.md` — durable external GitHub/research findings, including adopted-vs-parked status so source dives do not evaporate with chat context;
 - `docs/headphone-rendering-research.md` — practical renderer experiments and Windows listening plan;
 - `docs/SCENE_RENDERER_CONTRACT.md` — evidence/scene/rendering distinctions and current renderer gaps;
 - `docs/REALTIME_CONTROL_CONTRACT.md` — sample-time/realtime correctness without taking over roadmap priority;
@@ -1253,8 +1302,10 @@ Start with:
 1. this README;
 2. recent commits on `main`;
 3. `docs/WINDOWS_AUDIO_ROUTE.md` for the live native-host frontier;
-4. the protected binaural baselines;
-5. the real incumbent snapshot in this file.
+4. `docs/INFLUENCE_LEDGER.md` when recovering external research/influences;
+5. `docs/WINDOWS_INTEGRATION_RESEARCH.md` for system-route/Spatial Sound/APO questions;
+6. the protected binaural baselines;
+7. the real incumbent snapshot in this file.
 
 The durable hierarchy is:
 
@@ -1268,4 +1319,4 @@ The durable hierarchy is:
 7. never trade the music for the effect
 ```
 
-That is Omniphony.
+That is Omniphony for Headphones.
