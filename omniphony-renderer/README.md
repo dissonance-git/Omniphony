@@ -1,166 +1,313 @@
 # omniphony-renderer
 
-![omniphony-renderer preview](omniphony-renderer.png)
+`omniphony-renderer` is the realtime engine inside the independent Omniphony fork.
 
-`omniphony-renderer` is the realtime decode and spatial rendering engine of the Omniphony suite.
+Its product role is now deliberately narrow:
 
-The main executable is `orender`.
-
-It loads a bridge plugin at runtime, decodes the input stream, and can then:
-
-- stream decoded audio to realtime backends
-- output through `pipewire` on Linux or `asio` on Windows
-- emit OSC metadata and metering under the `/omniphony/...` namespace
-- render objects to speaker feeds with VBAP
-
-The repository also contains the supporting runtime stack:
-
-- `renderer`: VBAP engine, speaker layouts, OSC output, runtime config
-- `audio_output`: PipeWire and ASIO backends
-- `spdif`: IEC61937 / S/PDIF parsing helpers
-- `bridge_api`: ABI-stable interface for external bridge plugins
-- `reference_bridge`: a reference WAV/PCM bridge that powers the bundled demo
-- `sys`: platform integration, including Windows service support
-
-## Status
-
-`omniphony-renderer` is still an engineering build. The CLI, rendering path, config system and platform backends are usable, but the project should still be treated as alpha.
-
-## Build
-
-Rust `1.87.0` or newer is required.
-
-Minimal build:
-
-```bash
-cargo build --release
+```text
+Windows stereo PCM
+→ realtime evidence / persistent auditory scene
+→ direct objects + broad sources + fields
+→ binaural rendering
+→ calibrated stereo headphone output
 ```
 
-Linux with PipeWire output:
+The workspace still contains inherited speaker, bridge and cross-platform machinery where it remains useful for deterministic calibration, comparison, or a load-bearing dependency. That temporary presence does **not** define product scope.
 
-```bash
-cargo build --release --features pipewire
+For fork policy and the product overview, start at [`../README.md`](../README.md) and [`../docs/FORK_POLICY.md`](../docs/FORK_POLICY.md).
+
+---
+
+## Runtime priorities
+
+The engine is being optimized around:
+
+- ordinary stereo music as the normal source;
+- Windows 10/11 x64 first;
+- stable realtime processing;
+- sample-accurate state independent of callback block size;
+- persistent scene evidence rather than transient-chasing upmix rules;
+- direct-object, broad-source and diffuse-field presentation;
+- binaural HRTF/ITD rendering;
+- early reflections and late room field;
+- listener/headphone calibration;
+- strong matched-loudness bypass fidelity;
+- deterministic file/known-scene validation.
+
+The final user should not need to understand speaker layouts, bridge ABIs, OSC registries, or renderer backends to listen to music.
+
+---
+
+## Important crates
+
+### `renderer`
+
+The core DSP and scene renderer.
+
+Current fork-specific work lives here, including:
+
+- `stereo_inference`;
+- `scene_inference`;
+- binaural HRTF/ITD;
+- early reflections;
+- late FDN field;
+- speaker/VBAP machinery retained as known-scene truth and shared renderer substrate.
+
+### `dsp_fixtures`
+
+Deterministic measurement and regression infrastructure.
+
+It should remain independent enough that a broken ruler cannot silently certify broken DSP.
+
+### `audio_output`
+
+Realtime output/timing infrastructure. Windows is the product target.
+
+### `audio_input`
+
+Inherited input/control infrastructure. Much of the current Linux/PipeWire and fixed-channel behavior is transitional and will be reduced as the Windows stereo capture path becomes explicit.
+
+### `host_audio`
+
+Host audio integration shared by the current engine surfaces.
+
+### `orender_engine`
+
+Headless renderer construction and engine glue. This still carries inherited generic backend/config compatibility that is being contracted.
+
+### `orender_ffi`
+
+Embedding boundary. Retained while it provides a useful engine/test integration surface; it is no longer a separately released cross-platform product.
+
+### `reference_bridge`
+
+**Keep as a laboratory instrument.**
+
+It provides deterministic known-channel / known-scene input for renderer tests. It is not the intended normal stereo-music ingestion architecture.
+
+### `bridge_api`, `spdif`, `runtime_control`, `sys`
+
+Inherited support crates with mixed status. Some remain load-bearing today; some contain transport/UI-era semantics that should disappear as dependencies are simplified.
+
+### `example_backend`, `script_backend`
+
+Inherited extensibility demonstrations. They are not part of the target product and are scheduled for removal once their engine registration edges are removed atomically.
+
+---
+
+## Build and test
+
+The workspace currently requires Rust `1.87.0`.
+
+From this directory:
+
+```sh
+cargo fmt --all -- --check
+cargo test -p dsp_fixtures
+cargo test -p renderer
 ```
 
-Linux or Windows with runtime VBAP table generation:
+The authoritative repository workflow is:
 
-```bash
-export SAF_ROOT="/path/to/Spatial_Audio_Framework"
-cargo build --release --features saf_vbap
+```text
+../.github/workflows/windows-renderer.yml
 ```
 
-Windows with ASIO output:
+It separates:
 
-```bash
-set CPAL_ASIO_DIR=C:\path\to\asio_sdk
-cargo build --release --features asio
+```text
+portable renderer core
+Windows renderer core
+Windows x64 listening artifact
 ```
 
-See [BUILD.md](BUILD.md) and [BUILDING_WINDOWS.md](BUILDING_WINDOWS.md) for the full dependency setup.
+There is intentionally no longer a Studio, Linux packaging, macOS product, or cross-platform library-release workflow in this fork.
 
-## Runtime Model
+### Windows listening build
 
-`omniphony-renderer` does not hardcode a single container or codec frontend in the binary itself. Decoding is delegated to a bridge plugin loaded at runtime.
+The current development build still supports the inherited ASIO route where the required SDK/toolchain is available. This is useful for low-latency listening and audiophile interfaces, but it is not assumed to be the final system-wide Windows capture/output architecture.
 
-Bridge lookup order:
+See [`BUILDING_WINDOWS.md`](BUILDING_WINDOWS.md) for inherited setup details while Windows integration is being simplified.
 
-1. `--bridge-path <FILE>`
-2. `render.bridge_path` in the config file
-3. first `lib*_bridge.so`, `lib*_bridge.dll` or `lib*_bridge.dylib` found next to the executable
+---
 
-Without a bridge plugin, `orender` will not start.
+## Binaural path
 
-The repo ships a **reference bridge** (`reference_bridge/`, built as
-`libreference_bridge.so`) that reads a plain multichannel WAV. It powers the
-one-command demo — `./scripts/demo.sh`, see [QUICKSTART.md](QUICKSTART.md) — and is
-the smallest example for writing your own bridge ([BRIDGE_API.md](BRIDGE_API.md)).
+The headphone path is independent from the speaker/VBAP output presentation.
 
-## Commands
+At a high level:
 
-`orender` currently exposes these commands:
-
-- default command: render an input stream to a realtime backend
-- `generate-vbap`: generate a binary VBAP table from a speaker layout
-- `list-asio-devices`: list available ASIO output devices on Windows builds
-
-Inspect the exact CLI supported by your build with:
-
-```bash
-orender --help
+```text
+source position / scene state
+→ listener-relative direction
+→ interpolated HRTF
+→ analytic per-ear ITD
+→ stateful convolution
+→ directional early room
+→ late room field
+→ stereo
 ```
 
-## Typical Usage
+Important current properties:
 
-The quickest check is `./scripts/demo.sh` (see [QUICKSTART.md](QUICKSTART.md)).
-The examples below use the bundled demo clip + the reference bridge so each one is
-runnable as-is; swap in your own input and bridge the same way.
+- measured and parametric HRTF providers;
+- optional SOFA source support;
+- direction interpolation;
+- old/new filter output crossfade for movement;
+- asynchronous HRTF rebuild away from the audio thread;
+- request-tagged rebuild completion so stale HRTFs cannot win late;
+- analytic ITD separated from measured-HRTF direct-arrival timing;
+- per-ear ITD on early image-source reflections;
+- frequency-dependent interaural coherence in the late field;
+- FDN modulation driven by processed sample count rather than callback count;
+- true zero-predelay behavior.
 
-```bash
-# Decode from stdin
-cat assets/demo/spatial-demo.wav | orender - --bridge-path target/release/libreference_bridge.so
+See [`BINAURAL.md`](BINAURAL.md) for implementation details, but treat any remaining Studio/cross-platform instructions there as inherited documentation until that file is contracted too.
 
-# Linux realtime output via PipeWire
-orender assets/demo/spatial-demo.wav \
-  --bridge-path target/release/libreference_bridge.so \
-  --output-backend pipewire
+---
 
-# Enable VBAP rendering and OSC output
-orender assets/demo/spatial-demo.wav \
-  --bridge-path target/release/libreference_bridge.so \
-  --enable-vbap \
-  --speaker-layout ../layouts/7.1.4.yaml \
-  --osc \
-  --osc-host 127.0.0.1 \
-  --osc-port 9000
+## Stereo scene inference
 
-# Select a non-VBAP render backend and its parameters (CLI parity with Studio/OSC)
-orender assets/demo/spatial-demo.wav \
-  --bridge-path target/release/libreference_bridge.so \
-  --enable-vbap \
-  --render-backend hybrid \
-  --hybrid-external-backend vbap --hybrid-internal-backend barycenter \
-  --hybrid-metric chebyshev \
-  --distance-model-metric chebyshev \
-  --size-to-spread-mode mean
+`renderer::stereo_inference` currently exposes inspectable low-level evidence such as:
+
+- L/R pan/asymmetry;
+- phase coherence;
+- directness / diffuseness;
+- true complex mid and side magnitude;
+- time-constant persistence;
+- trajectory agreement and stability.
+
+`renderer::scene_inference` adds conservative scene evidence:
+
+- frontal/foundation anchor support;
+- lateral object-candidate support;
+- broad-source evidence;
+- diffuse-field evidence;
+- spatial specificity;
+- reassignment safety.
+
+These modules are **not yet a complete realtime stereo→scene pipeline**. They are the tested beginning of it.
+
+Rear placement remains a presentation choice constrained by evidence, not fake recovered metadata.
+
+---
+
+## Known scene versus inferred scene
+
+Keep two validation lanes independent.
+
+### Known scene → binaural
+
+Use the reference bridge, fixed layouts and authored fixtures to answer:
+
+> If the renderer receives the correct source geometry, does it produce a convincing and faithful headphone scene?
+
+### Stereo → scene hypothesis
+
+Hold rendering constant and answer:
+
+> Does the stereo analysis discover stable, musically useful organization without damaging or hallucinating hierarchy?
+
+Do not debug both problems at once.
+
+---
+
+## Fidelity contract
+
+Every perceptual improvement should be accompanied by evidence about what it cost.
+
+Current reusable measurements include:
+
+- strict peak residual/null level;
+- RMS residual;
+- peak and RMS level;
+- crest factor;
+- DC offset;
+- matched RMS-level delta;
+- FFT/frequency-response analysis;
+- interaural lag/ITD analysis.
+
+Additional important gates include:
+
+- transient preservation;
+- clipping/headroom;
+- block/chunk-size invariance;
+- movement continuity;
+- bass timing and weight;
+- profile-switch continuity.
+
+Human listening remains necessary for externalization, front/back, elevation, depth, envelopment, stability, fatigue and musical hierarchy.
+
+---
+
+## Listener/headphone calibration
+
+Calibration is now an explicit future layer rather than an HRTF afterthought.
+
+Keep distinct:
+
+```text
+listener HRTF
+headphone response
+driver ↔ ear interaction
+room/presentation target
+low-frequency integration
+safety headroom
 ```
 
-The render backend (`--render-backend vbap|barycenter|experimental_distance|hybrid`),
-its per-backend parameters (`--barycenter-localize`, `--hybrid-*`,
-`--experimental-distance-*`), the distance metrics (`--distance-model-metric`,
-`--distance-diffuse-metric`), `--size-to-spread-mode` and the adaptive-resampling
-PI tuning (`--adaptive-resampling-*`) are all exposable on the CLI as well as via
-OSC/Studio. See `docs/option-surface-parity.fr.md` for the full per-surface
-parity matrix. Run `orender render --help` for the complete flag list.
+See [`../docs/HEADPHONE_CALIBRATION.md`](../docs/HEADPHONE_CALIBRATION.md).
 
-## Binaural Headphone Output
+---
 
-Besides the speaker/VBAP path, the renderer has an independent binaural stage
-for headphones: objects and beds are rendered straight to stereo through a
-measured HRTF (embedded KEMAR, or a SOFA file), with ITD, shoebox early
-reflections for externalization, and live head tracking over OSC (e.g. the
-Sensors2OSC Android app — use its *Game Rotation Vector* sensor). Enable it
-with `render.binaural.output_mode: binaural` in the config, then drive
-everything live from the Studio panel or OSC.
+## Current contraction boundary
 
-See [BINAURAL.md](BINAURAL.md) for setup, tuning tips and the full control
-surface.
+Safe removals already made at repository level include:
 
-## Configuration
+- Omniphony Studio;
+- Linux/Arch packaging;
+- mpv product documentation;
+- old Studio/WebGL investigation material;
+- obsolete suite workflows and release jobs.
 
-Global and render settings are loaded from a YAML config file.
+The next crate-level removals must follow dependency edges rather than aesthetics.
 
-Default path:
+Likely order:
 
-- Linux: `~/.config/omniphony/config.yaml`
-- Windows: `%ProgramData%\\omniphony\\config.yaml` (machine-wide, so the user-mode renderer and a service share one file)
+```text
+example_backend + script_backend
+→ generic contributor-backend glue no longer required
+→ PipeWire/IEC61937/SPDIF product path
+→ bridge-first normal ingestion assumptions
+→ cross-platform host compatibility no longer used
+```
 
-You can point to another file with `--config`, and persist the current effective settings with `--save-config`.
+Do not remove the reference bridge or known-scene geometry simply because they are not final product UX. They remain valuable controlled truth.
 
-## Repository Pointers
+---
 
-- [BUILD.md](BUILD.md): build profiles and feature flags
-- [BINAURAL.md](BINAURAL.md): binaural headphone output, head tracking, tuning
-- [OSC_PROTOCOL.md](OSC_PROTOCOL.md): OSC message surface
-- [QUICKSTART.md](QUICKSTART.md): local bring-up notes
-- [../layouts/README.md](../layouts/README.md): speaker layout format
-- [BRIDGE_API.md](BRIDGE_API.md): runtime bridge ABI
+## North-star rule
+
+The purpose of the engine is not to maximize a spatial-effect score.
+
+It is to make ordinary headphone playback feel lower-dimensional when bypassed **without bypass restoring music that Omniphony damaged**.
+
+That means:
+
+```text
+more dimension
++
+more externalization
++
+more stable auditory world
+
+must coexist with
+
+clarity
+transients
+bass precision
+timbre
+dynamics
+hierarchy
+```
+
+If those trade against each other, the renderer has more work to do.
