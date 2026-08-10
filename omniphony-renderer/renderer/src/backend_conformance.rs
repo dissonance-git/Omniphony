@@ -224,12 +224,12 @@ pub fn check(model: &dyn GainModel, opts: &ConformanceOptions) -> ConformanceRep
                 if opts.require_non_negative && g < 0.0 {
                     failures.push(format!("negative gain {g} for speaker {i} at {position:?}"));
                 }
-                if let Some(cap) = opts.max_gain {
-                    if g > cap {
-                        failures.push(format!(
-                            "gain {g} for speaker {i} at {position:?} exceeds max_gain {cap}"
-                        ));
-                    }
+                if let Some(cap) = opts.max_gain
+                    && g > cap
+                {
+                    failures.push(format!(
+                        "gain {g} for speaker {i} at {position:?} exceeds max_gain {cap}"
+                    ));
                 }
             }
         }
@@ -242,43 +242,44 @@ pub fn check(model: &dyn GainModel, opts: &ConformanceOptions) -> ConformanceRep
                 any_audible = true;
             }
         }
-        if let Some((lo, hi)) = opts.energy_bounds {
-            if e.is_finite() && (e < lo || e > hi) {
-                failures.push(format!(
-                    "energy {e:.4} at {position:?} outside declared bounds [{lo}, {hi}]"
-                ));
-            }
+        if let Some((lo, hi)) = opts.energy_bounds
+            && e.is_finite()
+            && (e < lo || e > hi)
+        {
+            failures.push(format!(
+                "energy {e:.4} at {position:?} outside declared bounds [{lo}, {hi}]"
+            ));
         }
 
         let from_origin =
             (position[0] * position[0] + position[1] * position[1] + position[2] * position[2])
                 .sqrt();
-        if let Some(c) = opts.continuity {
-            if from_origin >= c.skip_radius {
-                for axis in 0..3 {
-                    let mut neighbour = position;
-                    // Step toward the interior so the neighbour stays in range.
-                    neighbour[axis] += if position[axis] > 0.0 {
-                        -c.step
-                    } else {
-                        c.step
-                    };
-                    if let Ok(other) = gains_at(neighbour) {
-                        if other.len() == gains.len() {
-                            let l2: f32 = gains
-                                .iter()
-                                .zip(&other)
-                                .map(|(a, b)| (a - b) * (a - b))
-                                .sum::<f32>()
-                                .sqrt();
-                            max_l2 = max_l2.max(l2);
-                            if l2 > c.max_l2_per_step {
-                                failures.push(format!(
-                                    "discontinuity: gain vector changed by L2 {l2:.4} for a {:.3} step \
-                                     on axis {axis} near {position:?} (max {})",
-                                    c.step, c.max_l2_per_step
-                                ));
-                            }
+        if let Some(c) = opts.continuity
+            && from_origin >= c.skip_radius
+        {
+            for axis in 0..3 {
+                let mut neighbour = position;
+                // Step toward the interior so the neighbour stays in range.
+                neighbour[axis] += if position[axis] > 0.0 {
+                    -c.step
+                } else {
+                    c.step
+                };
+                if let Ok(other) = gains_at(neighbour) {
+                    if other.len() == gains.len() {
+                        let l2: f32 = gains
+                            .iter()
+                            .zip(&other)
+                            .map(|(a, b)| (a - b) * (a - b))
+                            .sum::<f32>()
+                            .sqrt();
+                        max_l2 = max_l2.max(l2);
+                        if l2 > c.max_l2_per_step {
+                            failures.push(format!(
+                                "discontinuity: gain vector changed by L2 {l2:.4} for a {:.3} step \
+                                 on axis {axis} near {position:?} (max {})",
+                                c.step, c.max_l2_per_step
+                            ));
                         }
                     }
                 }
