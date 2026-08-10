@@ -11,6 +11,7 @@ members = [
     "orender_engine",
     "orender_ffi",
     "host_audio",
+    "windows_host",
     "reference_bridge",
     "dsp_fixtures",
 ]
