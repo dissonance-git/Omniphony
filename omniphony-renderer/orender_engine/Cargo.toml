@@ -3,15 +3,15 @@ name = "orender_engine"
 version = "0.2.3"
 edition = "2024"
 license = "GPL-3.0-or-later"
-description = "Headless decode→render engine for the orender spatial audio renderer (host-agnostic, no audio I/O)"
-repository = "https://github.com/mgth/Omniphony"
+description = "Headless decode→render engine for the Omniphony spatial audio renderer (host-agnostic, no audio I/O)"
+repository = "https://github.com/dissonance-git/Omniphony"
 
 [dependencies]
 renderer = { version = "0.2.4", path = "../renderer" }
 # Demonstration render backend, registered at startup to prove the open backend
-# frontier end-to-end. A real deployment would register/discover backends here.
+# frontier end-to-end. Transitional in this fork; see docs/CONTRACTION_LEDGER.md.
 example_backend = { path = "../example_backend" }
-# User-scriptable (Lua) render backend, registered at startup.
+# User-scriptable (Lua) backend. Transitional in this fork and scheduled for removal.
 script_backend = { path = "../script_backend" }
 bridge_api = { version = "0.3.0", path = "../bridge_api" }
 runtime_control = { version = "0.2.4", path = "../runtime_control" }
@@ -25,7 +25,7 @@ log = "0.4"
 rosc = "0.11"
 serde_json = "1.0"
 # Real-input FFT for the DirAC diffuse→height object generator (pure Rust, no
-# system deps — safe for the liborender cdylib). Already in the workspace lock.
+# system deps — safe for the liborender cdylib).
 realfft = "3.5"
 
 [features]
