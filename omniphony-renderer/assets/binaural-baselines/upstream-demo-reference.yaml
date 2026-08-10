@@ -1,0 +1,19 @@
+# Upstream perceptual-reference configuration.
+#
+# The Omniphony website describes its headphone demo as the stock engine using
+# KEMAR HRTF with early reflections enabled. Keep this control deliberately
+# minimal: inherit stock renderer defaults and opt into only the behavior the
+# published demo description names.
+#
+# This is a perceptual ancestor/control, not a claim of byte identity with the
+# hosted demo audio because the website does not pin the exact rendering commit.
+# New DSP, libaural-informed policy, late reverb, scene inference, calibration,
+# and other fork experiments must use separate configs when compared against it.
+render:
+  binaural:
+    output_mode: binaural
+    hrir_source: saf
+    reflections:
+      enabled: true
+    reverb:
+      enabled: false
