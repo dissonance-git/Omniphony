@@ -1,0 +1,37 @@
+# Preserved-master stereo support-field prototype.
+#
+# Unlike stereo-music-prototype.yaml, this config is NOT asked to render the
+# finished stereo master. The Windows listening worker keeps the original L/R
+# samples authoritative and feeds only a derived, bass-protected side field
+# through this Omniphony binaural scene.
+#
+# The first experiment is intentionally dry: no early reflections, no late
+# reverb, no air absorption. If this creates useful outside-the-head structure,
+# room cues can be added later as an independent variable.
+render:
+  virtual_bed:
+    radius_m: 1.0
+    speakers:
+      - name: "L"
+        coord_mode: "cartesian"
+        x: -1.0
+        y: -0.35
+        z: 0.15
+        spatialize: true
+        delay_ms: 0
+      - name: "R"
+        coord_mode: "cartesian"
+        x: 1.0
+        y: -0.35
+        z: 0.15
+        spatialize: true
+        delay_ms: 0
+  binaural:
+    output_mode: binaural
+    hrir_source: saf
+    unit_scale_m: 3.0
+    reflections:
+      enabled: false
+    reverb:
+      enabled: false
+    air_absorption: false
