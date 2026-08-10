@@ -1,144 +1,194 @@
 # Omniphony fork policy
 
-This repository is now an **independent product/research fork** of `mgth/Omniphony`.
+This repository is an independent development fork of `mgth/Omniphony`.
 
-The original project remains a major technical source and the ancestry/attribution remains permanent, but upstream no longer defines this repository's product surface, folder structure, compatibility promises, or development priorities.
+The original project remains the permanent ancestry/attribution source and an important source of renderer mechanisms and fixes. It does not define this fork's roadmap.
+
+The root `README.md` is the canonical product plan.
+
+The key fork rule is:
+
+> **Independence from upstream product structure does not mean independence from the upstream sound that made the fork worth building.**
 
 ```text
 mgth/Omniphony
-source / peer / upstream history
+technical ancestor + perceptual foundation
         │
-        │ selective mechanisms and fixes
+        │ selective fixes / mechanisms
         ▼
 dissonance-git/Omniphony
-Windows stereo-music → auditory scene → binaural product
+native Windows headphone product
         │
-        │ general fixes proven here
+        │ proven portable/general fixes
         ▼
 possible upstream contribution
 ```
 
-## Direction of travel
+---
 
-The fork optimizes for one narrow listener-facing goal:
+## 1. Direction of travel
 
-> ordinary Windows stereo music should become a stable, externalized, full-sphere headphone scene while preserving the recording's musical identity and fidelity.
+The current product goal is narrow:
 
-Code that does not serve that goal, a required Windows integration path, or a valuable deterministic calibration/validation fixture does not have permanent residency merely because it exists upstream.
+> ordinary Windows audio should reach headphones through Omniphony with a stable, externalized, convincing 360° presentation that preserves or improves the already-good upstream character and eventually replaces the listener's HeSuVi-based chain.
 
-Upstream history is the archive. This tree should become the product.
+The fork is not obligated to preserve upstream Studio, packaging, speaker-authoring or distribution surfaces.
+
+It **is** obligated to preserve useful renderer behavior until a replacement proves better.
 
 ---
 
-## Pulling from upstream
+## 2. Upstream perceptual ancestry
 
-Upstream work is treated like any other high-quality influence:
+The hosted upstream headphone demo is a perceptual ancestor for this fork.
+
+The local approximation lives at:
 
 ```text
-inspect
-→ identify exact mechanism
-→ test relevance to our product
-→ port/cherry-pick/reimplement the smallest useful part
-→ validate locally
+omniphony-renderer/assets/binaural-baselines/upstream-demo-reference.yaml
 ```
 
-Do not merge broad upstream product changes merely to keep histories visually similar.
+Do not interpret "independent fork" as permission to silently redefine the sound floor.
+
+A fork-specific renderer change graduates only after controlled comparison against the protected reference and relevant real listening.
+
+---
+
+## 3. Pulling from upstream
+
+Use this flow:
+
+```text
+inspect upstream change
+→ identify exact mechanism
+→ check whether it is already present here
+→ ask whether it serves this Windows headphone product
+→ import only the smallest useful missing part
+→ validate locally
+```
 
 High-value upstream candidates include:
 
 - binaural/HRTF correctness fixes;
 - realtime-safety fixes;
 - renderer math fixes;
-- deterministic DSP test improvements;
-- Windows audio fixes relevant to our route;
-- performance improvements with compatible semantics;
-- reusable scene/geometry machinery that supports our calibration or rendering needs.
+- deterministic DSP-test improvements;
+- Windows audio fixes relevant to the native route;
+- performance improvements that preserve semantics;
+- scene/geometry machinery useful for calibration or controlled rendering;
+- optional spatial mechanisms that can be isolated and A/B tested.
 
-Low-priority upstream surfaces include:
+Low-priority current surfaces include:
 
-- Omniphony Studio UI/product work;
+- Omniphony Studio product work;
 - mpv distribution integration;
-- Linux packaging;
-- general speaker-authoring UX;
-- generic plugin/backend demonstrations;
-- compatibility code for product paths this fork has intentionally removed.
+- Linux packaging/product assumptions;
+- generic speaker-authoring UX;
+- macOS/mobile packaging;
+- generic plugin/backend demonstrations with no current owner.
+
+Do not merge broad upstream changes merely to keep histories visually similar.
 
 ---
 
-## Sending fixes upstream
+## 4. Recent active-branch sweep
 
-Do not use upstream as this fork's test branch.
+The August 2026 sweep established that several apparently interesting upstream active branches had already effectively landed in this fork:
 
-A fix should first:
+- `feat/spectral-3d-phantom`: important implementation file already byte-identical;
+- `feat/diffuse-mirror-axes`: important implementation file already byte-identical;
+- `feat/workflow-runtime-isolation`: core runtime-isolation implementation already byte-identical;
+- `ci/skip-unchanged-integration-build`: contains useful workflow ideas, but its Studio/integration-release product is not currently needed;
+- `feat/release-0.4.2` / `release`: no hidden ahead-of-main Windows DSP payload found during the sweep;
+- macOS signing work: not part of the current milestone.
 
-1. solve a real problem in this fork;
-2. have a regression test or other reproducible evidence where practical;
-3. survive our renderer/fidelity validation;
-4. be separated from fork-specific product assumptions;
+Do not repeatedly rediscover or re-merge these branches unless upstream changes.
+
+---
+
+## 5. Sending fixes upstream
+
+Do not use upstream as this fork's experiment branch.
+
+A candidate upstream fix should first:
+
+1. solve a real problem here;
+2. have reproducible evidence where practical;
+3. survive renderer/fidelity validation;
+4. be separable from fork-specific product assumptions;
 5. improve upstream Omniphony on its own terms.
 
-Only then should we consider sending the general portion back.
-
-This creates a reciprocal relationship without forcing the fork to remain structurally compatible:
+Then the general portion may be suitable to send upstream.
 
 ```text
-upstream gives us mature machinery
-→ fork experiments aggressively
-→ fork proves general improvements
-→ portable fixes may flow back upstream
+upstream gives mature machinery
+→ fork tests in a concrete Windows product
+→ general improvement is proven
+→ portable fix may flow back
 ```
 
 ---
 
-## Deletion policy
+## 6. Deletion policy
 
-Because upstream preserves the broad suite, this fork should prefer deletion over indefinite local archiving when a subsystem has no current owner.
+Prefer deletion over indefinite local archiving when a subsystem has no current owner, but do not contract for aesthetics.
 
-Keep code only if at least one is true:
+Keep code if at least one is true:
 
-- it is required by the Windows listening product;
-- it is part of the realtime renderer path;
-- it is required to infer the stereo auditory scene;
-- it is a deterministic known-scene / file-render test fixture;
-- it is required for HRTF/headphone calibration;
-- it provides a clearly useful research comparison that cannot cheaply live outside runtime scope.
+- required by native Windows listening;
+- part of the retained realtime renderer;
+- required for ordinary stereo inference currently in use;
+- required for deterministic known-scene/file-render validation;
+- required for HRTF/headphone calibration;
+- required to reproduce an audible regression or preserve a protected baseline;
+- an isolated experiment answering a current concrete question.
 
 Otherwise:
 
 ```text
 remove from fork
-→ cite upstream/source in influence ledger if useful
-→ recover later from Git history/upstream only if evidence changes
+→ preserve ancestry in Git/upstream/ledger
+→ recover later only if evidence changes
 ```
 
-The fork should become easier to understand after every contraction pass.
+Deletion that reduces observability or removes a useful A/B control is negative progress.
 
 ---
 
-## Product architecture target
+## 7. Current product architecture
+
+Current target:
 
 ```text
 Windows system/player stereo PCM
         ↓
-realtime multiresolution analysis
+Windows host input
         ↓
-libaural-informed persistent scene evidence
+existing Omniphony renderer foundation
++ bounded local scene/evidence as needed
         ↓
-anchors / direct objects / broad sources / diffuse fields
+validated optional improvements
         ↓
-Omniphony binaural renderer
+binaural stereo output
         ↓
-listener HRTF / room / headphone calibration
-        ↓
-stereo output device
+Windows output device
 ```
 
-The runtime should remain small. Rich calibration, HRTF conversion, corpus generation, symbolic-music fixtures and expensive analysis belong in offline/control tooling whenever possible.
+`libaural` is optional future evidence infrastructure, not a mandatory architecture stage.
+
+Cross-platform shells are deferred. Keep the engine boundary clean enough that future ports remain possible, but do not spend current project time implementing them.
 
 ---
 
-## Attribution
+## 8. Attribution
 
 Independence does not erase ancestry.
 
-The original Git history, GPL licensing, `NOTICE.md`, and explicit credit to `mgth/Omniphony` must remain. Removing obsolete upstream product surfaces is repository contraction, not removal of authorship credit.
+Preserve:
+
+- original Git history;
+- GPL licensing;
+- `NOTICE.md`;
+- explicit credit to `mgth/Omniphony` and upstream authorship.
+
+Removing obsolete upstream product surfaces is scope contraction, not removal of authorship credit.
