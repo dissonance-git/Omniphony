@@ -1,518 +1,713 @@
 # External influence ledger
 
-This file is the durable memory of external projects, documentation, listening systems, and implementation patterns mined while building **Omniphony for Headphones**.
+This file is the durable memory of external projects, documentation, listening systems, papers, and implementation patterns mined while building **Omniphony for Headphones**.
 
-It is intentionally **not** a second roadmap. `README.md` remains the product authority. This ledger exists so useful findings do not disappear when chat context is compacted or research moves on.
+It is intentionally **not** a second roadmap. `README.md` owns product direction. This ledger exists so useful mechanisms survive chat compaction even when they are not immediately promoted into code.
 
 ## Promotion rule
-
-External work enters the product only through this sequence:
 
 ```text
 source / influence
 → concrete mechanism or lesson
-→ relevance to an observed product need
+→ relevance to an observed weakness
 → bounded experiment
 → objective validation + listening
-→ adopt only if it preserves or beats the protected Omniphony baseline
+→ retain / narrow / reject
 ```
 
-A useful idea can remain parked here indefinitely. Parking is not rejection.
+Parking is not rejection.
 
-The protected upstream Omniphony binaural character remains the product floor.
+The upstream Omniphony renderer remains the spatial foundation. External work should normally improve how we feed, preserve, validate, or selectively extend that core rather than vote to replace it.
 
 ---
 
-## Upstream Omniphony documentation
+# 1. Upstream Omniphony
 
-Sources reviewed:
+Sources:
 
+- https://github.com/mgth/Omniphony
 - https://omniphony.mgth.fr/
-- https://omniphony.mgth.fr/docs/getting-started/
-- https://omniphony.mgth.fr/docs/using-studio/
-- https://omniphony.mgth.fr/docs/speaker-layout/
-- https://omniphony.mgth.fr/docs/binaural/
-- https://omniphony.mgth.fr/docs/playback-mpv-omniphony/
-- https://omniphony.mgth.fr/docs/osc-protocol/
-- https://omniphony.mgth.fr/docs/custom-backends/
+- upstream `BINAURAL.md`
+- upstream bundled `assets/demo/demo.yaml`
 
 Durable conclusions:
 
 - The renderer is the inheritance. Studio is supervision/control, not the audio engine.
-- Binaural is a separate output stage and bypasses the speaker/VBAP output chain.
-- The stock headphone path is approximately:
+- Binaural output is an independent path that bypasses the speaker/VBAP output chain.
+- Upstream owns the load-bearing HRTF/HRIR, ITD, geometry, object/bed, reflection, room, head-pose and binaural machinery.
+- Bridges are the intended decode/format seam.
+- Known spatial content is already a strong fit for the upstream engine.
+- Upstream's actual bundled headphone demo is materially different from the fork's earlier approximate reference.
+
+Upstream bundled demo settings include approximately:
 
 ```text
-position
-→ head-pose rotation
-→ azimuth/elevation/distance
-→ air absorption
-→ distance gain
-→ per-ear timing
-→ HRIR convolution
-→ early reflections
-→ optional shared late tail
-→ stereo headphones
+SAF/KEMAR HRTF
+unit_scale_m = 3.0
+early reflections enabled, level 0.4
+short late reverb enabled, level 0.2
+RT60 = 0.3 s
 ```
 
-- The bundled reference demo is the cleanest first listening oracle: rotating 7.1.4 reference material through the real binaural stage.
-- Room cues are perceptually important for externalization, but richer room processing is not automatically better.
-- Plain channel beds and object audio are already distinct concepts upstream.
-- Channel-bed spatialization, phantom extraction, and height synthesis are useful upstream mechanisms to test later rather than reinvent blindly.
-- Bridges are the intended format boundary. The renderer should not absorb every decoder.
-- Custom render backends are bounded algorithm seams, not a reason to rewrite the engine.
-- ASIO is an optional Windows path in upstream builds, not a requirement for the renderer itself.
+Important correction:
 
-Immediate use:
+- those settings are a **known-spatial demo control**, not automatically an ideal preset for finished stereo music;
+- ordinary stereo music exposed a different problem: preserving the authored master while adding spatial support.
 
-- P0 should exercise the bundled reference bridge + protected binaural reference over native Windows playback.
+Current product law:
 
-Parked:
-
-- expose only a tiny subset of upstream expert controls in a future consumer UI;
-- head tracking;
-- SOFA browsing/personalized HRTFs;
-- live OSC diagnostics;
-- richer bed synthesis once ordinary stereo and system routing are stable.
+> When possible, feed upstream Omniphony better source/presentation material rather than replacing its renderer.
 
 ---
 
-## Current HeSuVi / Equalizer APO incumbent
+# 2. Current HeSuVi / Equalizer APO incumbent
 
-This is the practical system Omniphony for Headphones must eventually replace, not an architecture to clone.
-
-Known current chain:
+Reference chain:
 
 ```text
 foobar2000
-→ SoX resampling
+→ SoX
 → Skip Silence (alternative)
 → Vocal Exciter
 → Reverb
 → stereo→5.1/side upmix
 → Advanced Limiter
-→ VB-Audio / Hi-Fi Cable multichannel route
+→ Hi-Fi Cable
 → Equalizer APO + HeSuVi
 → DTS Virtual:X for speakers HRIR
-→ VB-Audio ASIO Bridge
-→ FiiO ASIO Driver
-→ FiiO K7
+→ ASIO Bridge
+→ FiiO
 → Dan Clark Noire X
 ```
 
-Known transport/reference facts:
+Useful lessons:
 
-- 8-channel virtual transport;
-- 48 kHz;
-- 24-bit;
-- 512-sample ASIO buffer;
-- final hardware output is stereo;
-- ASIO is being used because it is an effective way to bridge the existing Hi-Fi Cable/HeSuVi stack, not because the future product should require ASIO.
+- large coherent acoustic volume matters;
+- rear structure can be compelling when stable;
+- bass weight/timing and center authority matter;
+- complicated internals are acceptable, complicated user ritual is not;
+- end-to-end success means eventually making this incumbent unnecessary;
+- its virtual-speaker architecture is an influence/reference, not a blueprint.
 
-Known perceptual lessons:
+Migration law:
 
-- large coherent acoustic volume is desirable;
-- rear presentation is valuable only when stable;
-- bass weight/timing and center authority are important;
-- complicated internal machinery is acceptable, complicated user ritual is not;
-- FreeSurround-style flattening/collapse is a negative reference;
-- end-to-end A/B must be against this real incumbent, not only dry stereo.
-
-Future HeSuVi-directory mining should append concrete configuration/HRIR/channel-layout findings here when the files are available individually.
+```text
+keep installed
+→ disable competing stage
+→ test Omniphony replacement
+→ remove only after earned
+```
 
 ---
 
-## Valve Steam Audio
+# 3. Stereo Convolution DSP / 2x2 convolution matrix
+
+Relevant lineage:
+
+- foobar Stereo Convolution DSP (`foo_dsp_stereoconv`)
+- Hydrogenaudio component documentation
+- general multichannel FIR/convolution literature
+
+Core mathematical lesson:
+
+A stereo convolver can be represented as a 2x2 transfer matrix:
+
+```text
+yL = L * HLL + R * HRL
+yR = L * HLR + R * HRR
+```
+
+This is more relevant to Omniphony than a single opaque wet convolution because it exposes separate responsibilities:
+
+```text
+HLL / HRR
+→ diagonal / identity-bearing transfer
+
+HLR / HRL
+→ cross-ear / interaural support
+```
+
+Useful Omniphony interpretation:
+
+```text
+H(z) = I + S(z)
+```
+
+where the identity term can explicitly preserve the finished stereo master while the added matrix supplies only spatial support that earns itself.
+
+This does **not** mean the final implementation must literally be one fixed 2x2 FIR matrix.
+
+What survives as a design law:
+
+> The original stereo solution can remain structurally present instead of being deleted and recreated as two virtual speakers.
+
+Immediate relevance:
+
+- current generic full-wet L/R HRTF rendering was heard as tinny, bass-light and less spatial than dry stereo;
+- a preserved-direct + spatial-support architecture is therefore the next bounded experiment.
+
+Status:
+
+- **promoted as an architectural experiment**, not yet a frozen production algorithm.
+
+---
+
+# 4. MathAudio Headphone EQ / crossfeed lineage
+
+Sources:
+
+- https://mathaudio.com/headphone-eq.htm
+- https://mathaudio.com/download.htm
+
+Useful ideas:
+
+- headphone correction and spatial presentation should remain separate responsibilities;
+- headphone stereo lacks the natural opposite-ear leakage present with loudspeakers;
+- bounded crossfeed/interaural coupling can therefore be perceptually useful;
+- left and right correction can be considered independently;
+- a consumer UI can expose sophisticated DSP while remaining simple to operate.
+
+Important boundary:
+
+- do **not** blindly add strong crossfeed to Omniphony;
+- crossfeed can narrow stereo, and the current dry stereo reference was already heard as having more useful width/rear definition than the failed wet path;
+- any cross-ear term must be frequency-, timing-, and listening-test-aware.
+
+Potential use:
+
+- think of controlled cross-ear support as an off-diagonal transfer term;
+- keep headphone compensation separate from the world/presentation renderer;
+- test crossfeed only as one mechanism inside a larger protected-master architecture.
+
+Status:
+
+- **design influence only**.
+
+---
+
+# 5. MathAudio Room EQ
+
+Sources:
+
+- https://mathaudio.com/room-eq.htm
+- https://mathaudio.com/why-room-eq.htm
+
+Useful lessons:
+
+- do not blindly invert every measured imperfection;
+- deep notches and ill-conditioned inverse corrections should be bounded;
+- pre-ringing and transient behavior matter perceptually;
+- correction strength should be constrained by audible benefit rather than mathematical completeness.
+
+Useful general law:
+
+> **Measurable invertibility is not permission to perform the inversion.**
+
+Important rejection:
+
+- MathAudio's broad anti-FIR framing is **not adopted**;
+- modern binaural/auralization literature and open renderers successfully use FIR and partitioned convolution;
+- the real concern is bad phase design, long inappropriate kernels, switching artifacts, latency and poorly constrained correction.
+
+Status:
+
+- **bounded correction philosophy retained; anti-FIR generalization rejected**.
+
+---
+
+# 6. Partitioned convolution literature
+
+## Frank Wefers, 2015
+
+**Partitioned convolution algorithms for real-time auralization**
+
+Relevant conclusions:
+
+- straightforward long time-domain FIR processing becomes expensive for realtime auralization;
+- partitioned fast convolution is a standard solution;
+- uniform, non-uniform and unpartitioned approaches have different latency/compute tradeoffs;
+- multichannel and time-varying filtering are first-class requirements in spatial audio.
+
+Product implication:
+
+```text
+short early partitions
+→ low latency
+
+larger late partitions
+→ cheap long response
+```
+
+Non-uniform partitioning is a strong future candidate if Omniphony develops longer direct/ambient/room filters.
+
+Do not introduce it until current short upstream HRIR processing actually needs replacement or augmentation.
+
+---
+
+# 7. HiFi-LoFi/FFTConvolver
+
+Source:
+
+- https://github.com/HiFi-LoFi/FFTConvolver
+
+Useful implementation reference:
+
+- compact C++ realtime FFT convolution;
+- uniform partitioned convolution;
+- non-uniform / two-stage partitioning branch;
+- useful source for studying low-latency front partitions plus cheaper long tails.
+
+Status:
+
+- **parked implementation reference**.
+
+No transplant until a measured product requirement exists.
+
+---
+
+# 8. 3D Tune-In Toolkit
+
+Sources:
+
+- paper: **3D Tune-In Toolkit: An open-source library for real-time binaural spatialisation**
+- PLoS ONE, 2019
+- DOI / article: https://doi.org/10.1371/journal.pone.0211899
+- project lineage: https://github.com/3DTune-In/3dti_AudioToolkit
+
+Highly relevant architectural lesson:
+
+```text
+ANECHOIC / DIRECT PATH
+source
+→ HRIR
+→ ITD
+→ near-field corrections
+
+separate from
+
+REVERBERANT / ENVIRONMENT PATH
+field representation
+→ room / BRIR processing
+```
+
+The paper also emphasizes:
+
+- ITD handled separately from HRIR interpolation;
+- careful avoidance of audible gain/filter-transition artifacts;
+- room/reverb computed as a distinct stage;
+- realtime convolution as infrastructure, not an audible effect by itself.
+
+This independently supports the current Omniphony direction:
+
+> direct identity and environmental support should not be one inseparable wet effect.
+
+Status:
+
+- **high-value architectural influence**.
+
+---
+
+# 9. Google Open Binaural Renderer (OBR)
+
+Source:
+
+- https://github.com/google/obr
+
+Useful structural lesson:
+
+OBR distinguishes filter roles such as:
+
+```text
+Direct
+Ambient
+Reverberant
+```
+
+with substantially different response lengths in its published configuration/examples.
+
+Durable lesson:
+
+```text
+DIRECT
+short / precise / identity-bearing
+
+AMBIENT + REVERBERANT
+may use longer temporal support
+```
+
+Do not copy tap counts literally. Preserve the asymmetry of responsibilities.
+
+Status:
+
+- **high-value design influence**.
+
+---
+
+# 10. Preferred headphone response can depend on content type
+
+Paper:
+
+**On the Differences in Preferred Headphone Response for Spatial and Stereo Content**
+
+Authors: Isaac Engel, D. Alon, Kevin Scheumann, Jeff Crukley, Ravish Mehra
+Journal of the Audio Engineering Society, 2022.
+
+Useful result:
+
+- listeners in the reported tests preferred different headphone responses for conventional stereo content versus spatial/binaural content;
+- this reinforces that a finished stereo master and authored spatial source are not identical reproduction problems.
+
+Omniphony implication:
+
+```text
+finished stereo
+→ preserve its established presentation expectations
+
+rich spatial source
+→ solve accurate binaural reproduction of known geometry
+```
+
+This does not require separate products. It requires source-aware presentation boundaries.
+
+Status:
+
+- **supports source-truth / stereo-authority law**.
+
+---
+
+# 11. FIR phase / pre-ringing literature
+
+Relevant papers reviewed include:
+
+- **Optimization of Phase Correction for Finite Impulse Response Filters**, Johann Gaus, JAES, 2026;
+- **Evaluation of headphone phase equalization on sound reproduction**, Li et al., Applied Acoustics, 2019;
+- **Perceptual Study and Auditory Analysis on Digital Crossover Filters**, Korhola & Karjalainen, JAES, 2008.
+
+Durable lessons:
+
+- FIR phase correction can create pre-ringing/time-domain coloration when designed without perceptual constraints;
+- phase/group-delay behavior can influence clarity and transient perception;
+- crossover/filter evaluation must include temporal artifacts, not only magnitude response.
+
+Future validation dimensions:
+
+```text
+magnitude error
+phase / group-delay error
+pre-response
+ringing
+transient smear
+stereo-width error
+interchannel mismatch
+```
+
+Status:
+
+- **validation influence**, not permission to add long correction filters now.
+
+---
+
+# 12. Valve Steam Audio
 
 Source:
 
 - https://github.com/ValveSoftware/steam-audio
 
-Useful mechanisms / validation targets:
+Useful mechanisms / tests:
 
 - stateful per-source binaural processing;
 - HRTF interpolation quality/performance tradeoff;
-- custom SOFA HRTFs;
-- explicit separation of direct sound, reflections, transmission/occlusion, and late environmental response;
-- SIMD-aware runtime optimization;
-- fixed PCM/audio-buffer contracts;
-- Ambisonics as a compact representation for diffuse/full-sphere sound fields;
-- mature engine integration patterns for Unity/Unreal/FMOD/Wwise.
+- SOFA HRTFs;
+- separation of direct sound, reflections and late environment;
+- Ambisonics for diffuse/full-sphere fields;
+- SIMD-aware realtime engineering;
+- mature Unity/Unreal/FMOD/Wwise host boundaries.
 
-Immediate status:
+Status:
 
-- **parked**. Do not graft Steam Audio into P0.
+- benchmark / influence only.
 
-Potential future experiments:
-
-- compare Omniphony moving-source interpolation against Steam Audio-style bilinear HRTF interpolation behaviour;
-- benchmark SIMD/convolution hot paths if profiling proves they matter;
-- test an Ambisonic intermediate only for diffuse-field problems that the current renderer cannot solve cleanly;
-- use Steam Audio environmental semantics as a test taxonomy, not as ownership of our room model.
+Do not graft Steam Audio over Omniphony.
 
 ---
 
-## Resonance Audio
+# 13. Resonance Audio
 
 Source:
 
 - https://github.com/resonance-audio/resonance-audio
 
+Useful lessons:
+
+- per-source binaural state;
+- smooth HRTF transitions;
+- Ambisonic field representation;
+- room simulation separable from direct binaural rendering;
+- thin host adapters around a stable engine.
+
 Status:
 
-- archived project; engineering literature/reference, not a dependency target.
-
-Useful findings:
-
-- stateful binaural processing per source;
-- custom SOFA HRTFs;
-- smooth interpolation is essential for moving wide-band sources;
-- Ambisonics can represent both point-source mixtures and diffuse sound fields;
-- geometrical-acoustics tooling and scene-derived reverberation are separable from the core binaural renderer;
-- DAW/game integrations reinforce the value of a stable engine boundary plus thin host adapters.
-
-Parked:
-
-- Ambisonic field representation;
-- personalized HRTF experiments;
-- geometrical-acoustic room estimation.
+- archived reference, not dependency target.
 
 ---
 
-## Meta XR Audio SDK samples
+# 14. Meta XR Audio SDK samples
 
 Sources:
 
 - https://github.com/oculus-samples/Unity-MetaXRAudioSDK
 - https://github.com/oculus-samples/Unreal-MetaXRAudioSDK
 
-Useful contribution is primarily a **perceptual test taxonomy**:
+Primary value is a perceptual test taxonomy:
 
 - room acoustics;
 - source directivity;
-- HRTF intensity / spatialization amount;
-- engine-specific integration demonstrations.
+- HRTF/spatialization amount;
+- host integration behavior.
 
-Immediate status:
+Status:
 
-- parked; no Meta SDK dependency or transplant.
-
-Future use:
-
-- build isolated listening fixtures for directivity, room contribution, and spatialization-strength behaviour when those dimensions become tunable in Omniphony for Headphones.
+- parked.
 
 ---
 
-## Cavern
+# 15. Cavern
 
 Source:
 
 - https://github.com/VoidXH/Cavern
 
-Why it matters:
+Relevant convergence:
 
-Cavern independently converges on several mature-product goals close to ours:
+- headphone direction + distance rendering;
+- channel/object formats;
+- surround→3D upconversion;
+- calibration/measurement;
+- low-latency operation;
+- listener/source abstractions.
 
-- direction + distance headphone virtualization;
-- immersive/object formats;
-- realtime regular-surround→3D upconversion;
-- room correction/calibration;
-- low-latency operation at very small block sizes;
-- measurement tooling;
-- explicit listener/source abstractions.
+Use as a benchmark for how one product unifies many source types without forcing the listener to manage them manually.
 
-Immediate status:
-
-- benchmark/influence only. Do not replace Omniphony's binaural renderer with Cavern.
-
-Parked future comparisons:
-
-- surround→3D upconversion behaviour;
-- distance virtualization;
-- tiny-buffer stability;
-- measurement/calibration workflows;
-- how one product unifies object, channel, and headphone paths without forcing users to reason about them.
-
-License note:
-
-- inspect Cavern's current license carefully before copying any implementation. Prefer concepts/tests unless a specific code reuse decision is explicitly reviewed.
+Do not replace Omniphony with Cavern.
 
 ---
 
-## Dolby Laboratories public repositories
+# 16. Dolby public repositories
 
-Organization:
+Sources:
 
 - https://github.com/orgs/DolbyLaboratories/repositories
-
-Most relevant reviewed repository:
-
 - https://github.com/DolbyLaboratories/gst-home-audio
 
-Useful architectural lesson:
-
-Dolby's public GStreamer work separates stages cleanly:
+Useful architecture:
 
 ```text
-parse/decode
-→ object rendering / flexible rendering
+parse / decode
+→ object / flexible rendering
 → perceptual post-processing
 → output
 ```
 
-It also exposes channel-layout negotiation and object/channel distinctions.
+Also useful:
 
-Important boundary:
+- layout negotiation;
+- object/channel distinction;
+- rich source truth preserved until render.
 
-- core Dolby rendering/processing libraries used by these plugins are proprietary; there is no open Atmos-for-Headphones implementation here to transplant.
+Boundary:
 
-Immediate status:
+- proprietary Dolby render libraries are not open implementation sources.
 
-- architecture/protocol reference only.
+Status:
 
-Parked:
-
-- channel-mask/layout negotiation ideas;
-- decoder→object-renderer→post-process separation;
-- testing against common immersive layouts;
-- consumer UX observations from Dolby products, without cloning proprietary processing.
+- protocol/architecture influence only.
 
 ---
 
-## CamillaDSP
+# 17. CamillaDSP
 
 Source:
 
 - https://github.com/HEnquist/camilladsp
 
-This is one of the most relevant Windows/realtime engineering references found.
-
-Current architecture lesson:
+Important host architecture lessons:
 
 ```text
-capture thread
-→ bounded/message-queue handoff
-→ processing thread
-→ bounded/message-queue handoff
-→ playback thread
+capture
+→ bounded handoff
+→ processing
+→ bounded handoff
+→ playback
 
-+ supervisor/control thread
++ supervisor/control
 ```
 
-Useful Windows mechanisms:
+Useful Windows/realtime mechanisms:
 
-- direct `wasapi-rs` backend;
-- shared and exclusive WASAPI;
-- event-driven and polling modes;
-- explicit sample-format negotiation;
-- device-period-aware buffering;
-- loopback capture;
-- device disconnect / format-change handling;
-- capture/playback clock-drift management;
-- optional resampling/rate adjustment;
-- optional ASIO feature kept separate from the ordinary Windows build;
-- realtime thread-priority promotion;
-- prebuilt Windows binaries whose default backend is WASAPI.
+- `wasapi-rs`;
+- event-driven/polling modes;
+- explicit format negotiation;
+- reconnect/format handling;
+- capture/playback clock management;
+- optional resampling;
+- optional ASIO kept outside the ordinary Windows route;
+- realtime thread priority.
 
-Immediate product lesson:
+Status:
 
-- P0 may use CPAL to prove sound quickly, but **direct `wasapi-rs` is the preferred P1 hardening candidate** once we need deterministic event-driven behaviour, device/session notifications, recovery, and explicit format control.
-
-Do not copy CamillaDSP's whole architecture. Adopt only what our measured transport needs.
-
-Parked:
-
-- supervisor/recovery state machine;
-- adaptive rate control if capture and playback clocks diverge in a future virtual-device topology;
-- direct WASAPI event loop;
-- realtime thread priority;
-- reload/reconfigure patterns;
-- mature device enumeration and error reporting.
+- high-value host engineering influence.
 
 ---
 
-## wasapi-rs
+# 18. wasapi-rs
 
 Source:
 
 - https://github.com/HEnquist/wasapi-rs
 
-Already used in `windows_host` for process-loopback probing.
+Already adopted for Windows process-loopback capture.
 
-Relevant supported capabilities:
+Useful capabilities:
 
-- playback and capture;
-- shared and exclusive modes;
-- event-driven and polled buffering;
-- loopback capture;
-- volume/session/device-disconnect notifications;
-- application-specific capture.
+- render/capture;
+- shared/exclusive;
+- event/poll modes;
+- application loopback;
+- session/device notifications.
 
-The examples provide small canonical implementations of:
+Boundary:
 
-- shared-mode event-driven playback;
-- exclusive playback;
-- loopback capture;
-- device enumeration;
-- per-application capture.
-
-Promotion status:
-
-- process-loopback probe: **already adopted for diagnostics**;
-- direct render/playback loop: **parked for P1 hardening** after P0 is audible;
-- application capture: **parked** as a possible development/testing route, not a final system-wide interception strategy.
+- host plumbing only;
+- portable Omniphony DSP must remain unaware of Windows APIs.
 
 ---
 
-## HEnquist audio ecosystem
+# 19. HEnquist audio ecosystem
 
-Profile/repositories reviewed:
+Sources include:
 
-- https://github.com/HEnquist?tab=repositories
-- `camilladsp`
-- `wasapi-rs`
-- `audio_thread_priority`
-- `audioadapter-rs`
-- `cpal-listdevices`
-- related audio buffer/sample utilities
+- `camilladsp`;
+- `wasapi-rs`;
+- `audio_thread_priority`;
+- `audioadapter-rs`.
 
 Useful themes:
 
 - isolate device plumbing from DSP;
-- make buffer topology explicit;
-- wrap different memory layouts behind narrow interfaces;
-- treat realtime thread priority as an explicit host concern;
-- keep platform APIs thin enough that DSP remains portable;
-- use dedicated small crates for infrastructure rather than contaminating DSP code.
-
-Immediate status:
-
-- conceptual reinforcement only except existing `wasapi-rs` use.
-
-Parked:
-
-- `audio_thread_priority` or equivalent if profiling/glitch testing shows scheduler pressure;
-- buffer-adapter ideas if renderer/host copies become measurable;
-- more direct device-enumeration patterns for eventual UI.
+- explicit buffer topology;
+- realtime priority as a host concern;
+- small infrastructure crates instead of platform contamination in DSP.
 
 ---
 
-## ASIO2WASAPI
+# 20. ASIO2WASAPI
 
 Source:
 
 - https://github.com/levmin/ASIO2WASAPI
 
-Role for this project:
+Useful as an interoperability reference proving that ASIO compatibility can remain a boundary concern rather than define the core.
 
-- interoperability/reference for translating between ASIO-oriented software expectations and normal Windows WASAPI devices;
-- evidence that ASIO compatibility can remain a boundary concern rather than dictate the core renderer architecture.
+Status:
 
-Immediate status:
-
-- parked. P0 stays ordinary WASAPI-first.
-
-Future use:
-
-- revisit when publishing and deciding how much specialist ASIO compatibility the consumer package should expose;
-- compare its device/buffer/format adaptation assumptions against our eventual optional ASIO host.
+- parked until specialist-route work.
 
 ---
 
-## Product-level findings that survived the final pass
+# 21. Product-level findings that survive this research pass
 
-These are now considered durable design constraints unless later evidence overturns them.
-
-### 1. Renderer and host remain separate
+## A. Upstream renderer stays the heart
 
 ```text
-input/decoder/bridge
-→ Omniphony scene + binaural renderer
-→ narrow PCM boundary
-→ Windows host
+better source/presentation
+→ upstream Omniphony
+→ binaural output
 ```
 
-### 2. Ordinary Windows first, specialist routes second
+Prefer this to replacing the renderer.
+
+## B. Finished stereo must remain structurally present
+
+Generic full-wet virtual-speaker treatment failed the first clean music listening tests.
+
+The next architecture is:
 
 ```text
-WASAPI shared/default path
-→ expected normal user route
-
-ASIO
-→ optional specialist/reference route
+protected stereo identity
++
+small Omniphony-derived support field
 ```
 
-### 3. Environment is not one effect
-
-Keep separable:
+## C. Direct and environment are separate
 
 ```text
-direct localization
-source extent/directivity
-early reflections
-late diffuse field
-distance/air cues
+direct identity
+≠ ambient field
+≠ early reflection
+≠ late room
 ```
 
-A giant room effect must never become the substitute for spatial structure.
+## D. Convolution is a tool, not a sound signature
 
-### 4. Movement quality matters
+Partition it correctly, constrain phase, transition kernels safely, and test temporal artifacts.
 
-Moving sources are a stress test for:
+## E. Crossfeed is a mechanism, not a product mode
 
-- HRTF interpolation;
-- filter transitions;
-- callback-size invariance;
-- head tracking;
-- source-position smoothing.
+It may help restore natural interaural coupling but can also narrow stereo. Test it in bounded frequency/timing contexts.
 
-### 5. Buffer size must not change the intended auditory world
+## F. Bass/foundation gets a veto
 
-Host callback size is transport. Perceptual timing semantics belong on the sample timeline.
+Spatial processing may not remove the low-frequency pressure/groove foundation and then repair it with EQ.
 
-### 6. Realtime reliability belongs in the host boundary
+## G. Richer source truth reduces inference
 
-Eventually test:
+Native 7.1/object/height sources should go more directly into Omniphony than stereo does.
 
-- device removal/reconnect;
-- sleep/resume;
-- format changes;
-- shared-mode contention;
-- default-device switching;
-- underrun/overrun recovery;
-- scheduler pressure;
-- capture/playback clock drift if separate devices are ever involved.
+## H. Multiple source layouts coexist
 
-### 7. The user-facing product should collapse complexity
+Stereo music and a surround game are separate logical streams, not one global Windows channel mode.
 
-The eventual target remains:
+## I. Platform host and core stay separate
+
+Windows solves Windows routing. Omniphony solves sound.
+
+## J. The UI collapses complexity
 
 ```text
 install
-→ choose/detect headphones/output
-→ enable
-→ forget it is there
+→ ON
+→ play
 ```
-
-Advanced controls may exist later, but the default should already be excellent for as many listeners and headphones as practical.
 
 ---
 
-## Research freeze for first audible prototype
+# 22. Immediate experiment promoted by this pass
 
-For the first runnable Windows artifact, do **not** add new external DSP mechanisms.
-
-P0 scope:
+The next bounded listening prototype should test:
 
 ```text
-bundled upstream reference scene
-→ reference bridge
-→ protected Omniphony binaural configuration
-→ stereo PCM
-→ existing realtime identity seam
-→ native Windows WASAPI output
+ORIGINAL STEREO MASTER
+        │
+        ├──────────────→ protected direct output
+        │
+        └→ conservative field extraction
+             ↓
+           upstream Omniphony binaural machinery
+             ↓
+           low-level spatial support
+        │
+        └──────────────→ combine
+                         ↓
+                      headphones
 ```
 
-Then listen.
+Constraints:
 
-Only after this path builds and is heard do we promote additional transport or DSP work.
+- bass/foundation protected;
+- no default late reverb;
+- no requirement that the whole master pass through an HRTF;
+- support field must be removable without revealing that the music itself was damaged;
+- first implementation may remain host-side so it can be rejected cheaply;
+- if it wins listening tests, move the mechanism into the portable presentation layer.
+
+This experiment supersedes the assumption that ordinary stereo should simply be treated as a two-channel spatial bed.
