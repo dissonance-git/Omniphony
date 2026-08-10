@@ -21,6 +21,10 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   RUST_TOOLCHAIN: 1.87.0
+  # GitHub-hosted runners switched JavaScript actions to Node 24 by default in
+  # June 2026. Keep this explicit so a future legacy action cannot silently
+  # reintroduce a Node 20 dependency into the fork workflow.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   portable-core:
@@ -33,7 +37,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        # checkout v5 is the Node 24 line. v4 targets the deprecated Node 20
+        # runtime and began producing deprecation failures/warnings on 2026
+        # GitHub-hosted runners.
+        uses: actions/checkout@v5
 
       - name: Install pinned Rust toolchain
         shell: bash
@@ -63,7 +70,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Diagnose Windows runner
         run: |
@@ -101,7 +108,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install pinned Rust toolchain
         run: |
@@ -150,7 +157,8 @@ jobs:
           Get-ChildItem $dist | Format-Table Name, Length
 
       - name: Upload Windows renderer engine
-        uses: actions/upload-artifact@v4
+        # upload-artifact v6 is the Node 24-native line. v4 is Node 20-era.
+        uses: actions/upload-artifact@v6
         with:
           name: omniphony-renderer-engine-windows-x64-${{ github.sha }}
           path: omniphony-renderer/dist/windows-x64/
