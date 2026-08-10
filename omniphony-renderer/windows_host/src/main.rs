@@ -2,15 +2,15 @@
 mod capture;
 
 #[cfg(target_os = "windows")]
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 #[cfg(target_os = "windows")]
 use bridge_api::RInputTransport;
 #[cfg(target_os = "windows")]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 #[cfg(target_os = "windows")]
 use omniphony_realtime::{
-    omniphony_realtime_create, omniphony_realtime_destroy, omniphony_realtime_process_f32,
-    OmniphonyRealtimeConfig, OmniphonyRealtimeProcessor,
+    OmniphonyRealtimeConfig, OmniphonyRealtimeProcessor, omniphony_realtime_create,
+    omniphony_realtime_destroy, omniphony_realtime_process_f32,
 };
 #[cfg(target_os = "windows")]
 use orender_engine::Engine;
@@ -119,7 +119,12 @@ impl RealtimeProcessorHandle {
 
     fn process_in_place(&mut self, samples: &mut [f32], frames: usize) -> anyhow::Result<()> {
         let rc = unsafe {
-            omniphony_realtime_process_f32(self.ptr, samples.as_ptr(), samples.as_mut_ptr(), frames)
+            omniphony_realtime_process_f32(
+                self.ptr,
+                samples.as_ptr(),
+                samples.as_mut_ptr(),
+                frames,
+            )
         };
         if rc != 0 {
             bail!("realtime PCM processor returned error {rc}");
@@ -258,7 +263,8 @@ struct ReferenceBundle {
 #[cfg(target_os = "windows")]
 impl ReferenceBundle {
     fn beside_executable() -> anyhow::Result<Self> {
-        let exe = std::env::current_exe().context("failed to resolve windows_host executable path")?;
+        let exe =
+            std::env::current_exe().context("failed to resolve windows_host executable path")?;
         let root = exe
             .parent()
             .context("windows_host executable has no parent directory")?;
@@ -378,9 +384,10 @@ fn choose_stereo_output_config(
                 cpal::SampleFormat::F32 => 0u8,
                 cpal::SampleFormat::F64 => 1,
                 cpal::SampleFormat::I32 | cpal::SampleFormat::U32 => 2,
-                cpal::SampleFormat::I24 | cpal::SampleFormat::U24 => 3,
-                cpal::SampleFormat::I16 | cpal::SampleFormat::U16 => 4,
-                _ => 5,
+                cpal::SampleFormat::I16 | cpal::SampleFormat::U16 => 3,
+                cpal::SampleFormat::I8 | cpal::SampleFormat::U8 => 4,
+                cpal::SampleFormat::I64 | cpal::SampleFormat::U64 => 5,
+                _ => 6,
             };
             (range.channels(), format_rank)
         })
@@ -402,7 +409,10 @@ fn play_stereo_f32(
         .name()
         .unwrap_or_else(|_| "<unavailable device name>".to_string());
     println!("  device: {device_name}");
-    println!("  stream: {} Hz / {}ch / {sample_format:?}", config.sample_rate.0, config.channels);
+    println!(
+        "  stream: {} Hz / {}ch / {sample_format:?}",
+        config.sample_rate.0, config.channels
+    );
     println!("  renderer payload: stereo f32");
     println!("  realtime seam: omniphony_realtime identity");
 
@@ -439,9 +449,8 @@ where
     }
 
     let total_frames = rendered.len() / 2;
-    let expected_duration = Duration::from_secs_f64(
-        total_frames as f64 / f64::from(config.sample_rate.0),
-    );
+    let expected_duration =
+        Duration::from_secs_f64(total_frames as f64 / f64::from(config.sample_rate.0));
     let done = Arc::new(AtomicBool::new(false));
     let done_for_callback = Arc::clone(&done);
     let mut cursor = 0usize;
@@ -476,7 +485,9 @@ where
                 }
 
                 let zero = T::from_sample(0.0f32);
-                for (frame_index, output_frame) in data.chunks_exact_mut(device_channels).enumerate() {
+                for (frame_index, output_frame) in
+                    data.chunks_exact_mut(device_channels).enumerate()
+                {
                     output_frame.fill(zero);
                     output_frame[0] = T::from_sample(scratch[frame_index * 2]);
                     output_frame[1] = T::from_sample(scratch[frame_index * 2 + 1]);
