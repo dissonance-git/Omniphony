@@ -14,9 +14,15 @@ anyhow = "1"
 # without the separately licensed Steinberg SDK or specialist drivers.
 cpal = "0.15.3"
 
-# The native host exercises the same narrow PCM seam intended for a future APO
-# or virtual endpoint. P0 keeps that seam bit-exact; the protected Omniphony
-# renderer is connected behind it only after native output itself is proven.
+# P0 uses the headless upstream decode->render engine directly for the protected
+# reference scene. This keeps the listening prototype on the real Omniphony
+# binaural path while the Windows host owns only transport/playback.
+orender_engine = { path = "../orender_engine" }
+bridge_api = { path = "../bridge_api" }
+
+# The native host also exercises the narrow PCM seam intended for a future APO
+# or virtual endpoint. Its first implementation remains bit-exact identity so
+# host transport can be tested independently from renderer behaviour.
 realtime_ffi = { path = "../realtime_ffi" }
 
 # Direct WASAPI access is used for Windows process-loopback capture. This is
