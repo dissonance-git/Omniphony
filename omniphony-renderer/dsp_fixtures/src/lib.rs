@@ -9,6 +9,7 @@
 //! generation between those consumers is how they silently drift apart.
 
 pub mod analysis;
+pub mod binaural_block_size;
 pub mod dirs;
 pub mod golden;
 pub mod residual;
