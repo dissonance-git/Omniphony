@@ -1,209 +1,441 @@
-# Binaural Headphone Output
+# Binaural renderer
 
-The renderer has an independent **binaural output stage** for headphones: when
-selected, the whole VBAP / crossover / speaker chain is bypassed and every
-input channel (beds and objects) is rendered straight to 2-channel stereo
-through an HRTF, with interaural time difference (ITD), shoebox early
-reflections and live head tracking.
+Omniphony's headphone path is an independent render path, not a speaker downmix.
 
-Per channel, per block:
+For a spatialized source, the current conceptual chain is:
 
-```
-position → rotate(head pose) → (azimuth, elevation, distance)
-         → air-absorption low-pass (cutoff falls with distance)
-         → 1/d gain → per-ear ITD delay → per-ear HRIR convolution
-         → + 6 first-order shoebox reflections (delay + ILD pan per ear)
-         → + shared late-reverb tail (stereo FDN, distance-driven DRR)
-         → mix into [L, R]
+```text
+scene position
+→ listener/head-relative direction
+→ interpolated HRTF/HRIR
+→ analytic per-ear ITD
+→ stateful convolution
+→ optional directional early reflections
+→ optional late room field
+→ stereo L/R
 ```
 
-Measured cost: ~0.09 ms per 40-sample block for a 16-channel Atmos stream
-(~11 % of the realtime budget), reflections included.
+The target is not merely correct left/right panning. It is a stable externalized auditory world that can support front, rear, lateral, height, depth, broad-source and field impressions without sacrificing the recording's fidelity.
 
-One exception: a bed mapped to a **`spatialize: false` speaker** (the LFE)
-keeps its direct-routing intent. Sub-bass carries no usable direction, so the
-channel skips the whole pipeline above and feeds **both ears equally at
-constant power** (−3 dB each), dry and full-range — no HRIR, no ITD, no
-reverb send, and head rotation has no effect on it. Level is unity overall
-(no +10 dB LFE convention), matching the speaker path's untouched one-hot
-routing.
+This document describes the **current fork behavior and invariants**. It intentionally omits deleted Studio/mpv product instructions from upstream.
 
-## Enabling it
+---
 
-Set the output mode in `~/.config/omniphony/config.yaml`:
+## 1. Direct path
 
-```yaml
-render:
-  binaural:
-    output_mode: binaural      # "speaker" (default) restores the VBAP path
-    unit_scale_m: 1.0
-    hrir_source: saf
-    head_tracking:
-      osc_address: /gamerotationvector
-      format: auto
+For each spatialized input channel, Omniphony derives listener-relative:
+
+```text
+azimuth
+elevation
+distance
 ```
 
-> **mpv host**: `ad_orender` fixes the channel count when the decoder
-> initialises, so the binaural mode must be **active at boot** (in the config)
-> — toggling it during playback changes the render but not the negotiated
-> channel layout. Restart mpv after switching modes.
+The direct path then uses:
 
-Everything below is also live-tunable from the **Binaural / Headphones** panel
-in Studio and over OSC (addresses listed at the end).
-
-## Configuration reference (`render.binaural`)
-
-| Key | Default | Meaning |
-|---|---|---|
-| `output_mode` | `speaker` | `binaural` enables the headphone stage |
-| `unit_scale_m` | `1.0` | metres per ADM unit — isotropic distance scale (the anisotropic `room_ratio` is deliberately not used here) |
-| `head_radius_m` | `0.0875` | effective head radius (half the inter-ear distance) for the Woodworth ITD model; fit it to the listener (clamped 0.05–0.15) |
-| `hrir_source` | `saf` | `saf`/`kemar` (embedded measured KEMAR), `synthetic` (analytic head shadow), `sofa` (personalised set, needs the `sofa` build feature) |
-| `hrtf_sofa_path` | — | SOFA file used when `hrir_source: sofa` |
-| `head_tracking.osc_address` | — | OSC address carrying the orientation (empty disables tracking) |
-| `head_tracking.format` | `auto` | `auto` / `quat` / `rotvec` / `euler` |
-| `reflections.enabled` | `false` | shoebox early reflections (externalization) |
-| `reflections.room_width_m` | `4.0` | room extent, x (clamped 1–20 m) |
-| `reflections.room_depth_m` | `5.0` | room extent, y |
-| `reflections.room_height_m` | `2.7` | room extent, z |
-| `reflections.level` | `0.5` | per-reflection wall gain (0–1) |
-| `reverb.enabled` | `false` | late-reverb tail (stereo FDN) |
-| `reverb.level` | `0.25` | reverb return level (0–1) |
-| `reverb.rt60_s` | `0.35` | broadband decay time (s) — living-room-ish, not a hall |
-| `reverb.predelay_ms` | `20` | gap between direct sound and tail start |
-| `air_absorption` | `true` | distance low-pass on the direct path (HF dies with distance — true outdoors too) |
-
-## Head tracking
-
-Any app or device that sends an orientation over OSC works; the address and
-format are free. The reference setup is the Android app **Sensors2OSC** with
-the phone strapped to the headband:
-
-1. In Sensors2OSC, enable the **Game Rotation Vector** sensor — *not* the
-   plain Rotation Vector. The standard sensor fuses the magnetometer, whose
-   filtering adds 20–50 ms of latency and drifts near magnets (headphone
-   drivers qualify). Game Rotation Vector is gyro+accelerometer only and
-   tracks with no perceptible lag.
-2. Point it at the renderer's OSC port (default `9000`) and set
-   `head_tracking.osc_address: /gamerotationvector` (`format: auto` handles
-   the 4/5-float quaternion payload).
-3. If the renderer sees nothing while `tcpdump` does, check the host
-   firewall: incoming UDP on the OSC port must be allowed.
-4. Put the headphones on, look at the screen, press **Recenter** (Studio
-   panel or `/omniphony/control/head/recenter`). That direction becomes
-   "front".
-5. If the scene rotates the wrong way, toggle **Invert rotation**.
-
-`smoothing` (0–0.99, default 0.2) trades a little latency for pose stability;
-with Game Rotation Vector you can usually lower it.
-
-### Other sources
-
-The setup above uses a phone, but any OSC orientation source works. For the
-**Waves Nx Head Tracker** (Bluetooth LE, Linux/BlueZ) there is a small Rust
-CLI — **[`nxosc`](https://github.com/mgth/nx-tracker-osc)** — that decodes the
-tracker and emits the same `/gamerotationvector` feed, so it drops straight
-into the steps above in place of Sensors2OSC:
-
-```sh
-nxosc run --profile omniphony --osc-address /gamerotationvector --osc-target 127.0.0.1:9000
+```text
+interpolated per-ear HRIR
++
+analytic per-ear ITD
++
+continuous convolution state
 ```
 
-Keep `head_tracking.osc_address: /gamerotationvector` and `format: auto`.
-`nxosc` also has a `--profile scenerotator` mode to drive an IEM SceneRotator
-directly instead.
+### Authored level is preserved
 
-## Usage tips
+The direct binaural path does **not** apply a generic inverse-distance `1/d` attenuation law to object level.
 
-- **The room is YOUR room, not the scene's.** The reflections and the reverb
-  tail model the *listening* room — a constant, small, dry space, exactly like
-  the room around a loudspeaker setup. The mix's own acoustics (outdoor
-  ambience, cathedral reverb…) are in the content and pass through untouched;
-  the brain factors the constant listening-room signature out, and
-  externalization actually works best when that signature plausibly matches
-  the room you are sitting in. So: keep RT60 short and the levels modest, and
-  set the room dimensions roughly to your actual room.
-- **Externalization / "inside the head" feeling**: driven by the
-  direct-to-reverberant ratio. The late tail (`reverb.*`) does most of the
-  work, the early reflections add the room's geometry. Adjust **Reverb
-  level** and **Reflection level** by ear — too high colours dialogue and
-  sounds echoey, too low collapses back into the head.
-- **Distance**: past ~1 m the brain judges distance mostly from the
-  direct/reverb ratio, not loudness. The reverberant field is
-  distance-independent (like a real room) while the direct falls as 1/d, so
-  raising `unit_scale_m` makes far objects genuinely *sound* far. Air
-  absorption adds the matching "far sounds dull" high-frequency roll-off
-  (bypassed within 3 m, ~14 kHz cutoff at 10 m, ~5 kHz at 30 m).
-- **Scale**: `unit_scale_m` sets how far "1 ADM unit" is in metres. At the
-  default 1.0 the far wall of the mix is one metre from your nose — try 3–4
-  for a room-sized stage.
-- **ITD fit**: `head_radius_m` defaults to a KEMAR-ish 8.75 cm. If
-  localisation feels smeared, measure ear-to-ear width and set half of it.
-- **HRTF**: the embedded measured KEMAR (`saf`) is the best generic default —
-  but generic HRTFs rarely deliver elevation: the up/down cues are spectral
-  notches carved by *your* pinna, the most individual part of spatial
-  hearing. If elevation feels flat or the image sits too high, go HRTF
-  shopping: the **Browse…** button next to the HRTF select opens the
-  sofacoustics.org database (HUTUBS has 96 measured subjects under
-  `database/hutubs/` — try the `*_HRIRs_measured.sofa` files of a dozen
-  subjects and keep the best match). A click downloads and activates the
-  file live. `synthetic` is the no-measured-HRTF baseline (analytic head
-  shadow, no pinna colouration) — useful as an A/B reference.
-  SOFA support is compiled into liborender by default (`sofa` feature).
-- **Head-tracking reaction latency under mpv**: rendered audio waits in mpv's
-  output queue, so rotation is only audible once that queue drains. Set
-  `audio-buffer=0.05` in `mpv.conf` (default is 0.2 s) to cut the dominant
-  term. The Studio 3D head has its own low-latency pose channel and is not
-  affected by the audio buffer.
-- The output is plain stereo FL/FR — no special player-side configuration
-  beyond a stereo sink.
+That is deliberate.
 
-## HRTF data licensing
+For authored/spatial material, source/object gain is already meaningful state. Distance is used to drive **distance cues**, not to silently rewrite the mix's direct level.
 
-The SOFA *format* is an open AES standard; the *data* is not uniformly
-licensed — sofacoustics.org aggregates databases that each keep their own
-terms (HUTUBS is CC BY 4.0; some Aachen/ITA sets are CC BY-NC-SA; some files
-carry no license at all). Accordingly:
+Current distance-related cues include:
 
-- Omniphony never redistributes SOFA data: the browser downloads straight
-  from sofacoustics.org to your machine, on demand, with a local cache (the
-  app is just a user agent, like a web browser).
-- Each file's embedded `GLOBAL:License` / `AuthorContact` / `Organization`
-  attributes are read after download and shown in the browser (local list and
-  post-download status); non-commercial or missing licenses are flagged in
-  amber. A missing license legally means all rights reserved — contact the
-  author before anything beyond private listening.
-- The only bundled HRTF data is the embedded SAF KEMAR set (ISC license).
-- If you redistribute downloaded files yourself, the file's own license
-  applies to you — prefer CC BY / CC0 databases (e.g. HUTUBS).
+- air absorption;
+- room/reflection geometry;
+- late-field send relationship.
 
-## OSC control surface
+This invariant has a regression test: with room, reverb and air absorption disabled, the same front source at different distances must retain the same direct broadband level.
 
-| Address | Args | Meaning |
-|---|---|---|
-| `/omniphony/control/output_mode` | `s: speaker\|binaural` | select the output stage |
-| `/omniphony/control/binaural/hrir_source` | `s: synthetic\|saf\|sofa:<path>` | HRIR set |
-| `/omniphony/control/binaural/unit_scale` | `f` (m/unit) | distance scale |
-| `/omniphony/control/binaural/head_radius` | `f` (m) | ITD head radius |
-| `/omniphony/control/binaural/reflections/enabled` | `i\|f` (bool) | reflections on/off |
-| `/omniphony/control/binaural/reflections/level` | `f` (0–1) | reflection gain |
-| `/omniphony/control/binaural/reflections/room_width` | `f` (m) | room x |
-| `/omniphony/control/binaural/reflections/room_depth` | `f` (m) | room y |
-| `/omniphony/control/binaural/reflections/room_height` | `f` (m) | room z |
-| `/omniphony/control/binaural/reverb/enabled` | `i\|f` (bool) | late tail on/off |
-| `/omniphony/control/binaural/reverb/level` | `f` (0–1) | reverb return level |
-| `/omniphony/control/binaural/reverb/rt60` | `f` (s) | decay time |
-| `/omniphony/control/binaural/reverb/predelay` | `f` (ms) | pre-delay |
-| `/omniphony/control/binaural/air_absorption` | `i\|f` (bool) | distance HF roll-off |
-| `/omniphony/control/head/orientation` | `fff` (euler) | set pose directly |
-| `/omniphony/control/head/quat` | `ffff` | set pose directly |
-| `/omniphony/control/head/recenter` | — | current orientation becomes "front" |
-| `/omniphony/control/head/tracking/address` | `s` | tracking OSC address ("" disables) |
-| `/omniphony/control/head/tracking/format` | `s` | `auto\|quat\|rotvec\|euler` |
-| `/omniphony/control/head/tracking/smoothing` | `f` (0–0.99) | pose smoothing |
-| `/omniphony/control/head/tracking/invert` | `i` (bool) | mirror the rotation |
+---
 
-State broadcast: the `binaural` object inside `/omniphony/state/renderer`
-(10 Hz when the pose moves), plus a dedicated lightweight
-`/omniphony/state/head_pose` (`ffff` = w x y z, ~30 Hz) for low-latency pose
-consumers such as the Studio 3D head.
+## 2. HRTF / HRIR providers
+
+Current conceptual provider families include:
+
+- embedded measured SAF KEMAR;
+- synthetic analytic baseline;
+- parametric pinna model;
+- PRTF structural model;
+- optional SOFA data.
+
+The provider is a rendering/calibration input. It does not define auditory-object identity.
+
+### Direction interpolation
+
+`HrirSet` interpolates across directional samples rather than snapping a moving source between isolated measurements.
+
+The important acceptance property is smooth filter evolution with direction.
+
+For irregular future HRTF datasets, native triangulated-sphere interpolation is a candidate to compare against the current regularized-grid approach. It must win measured continuity/error tests before replacing the current path.
+
+---
+
+## 3. Bulk arrival timing versus HRTF spectral phase
+
+Omniphony separates:
+
+```text
+bulk / direct-arrival interaural delay
+```
+
+from
+
+```text
+direction-dependent HRTF spectral phase
+```
+
+This distinction is load-bearing.
+
+Measured left/right HRIRs can retain different spectral/group-delay structure even after the first meaningful arrival is aligned. A non-zero left/right cross-correlation lag is therefore **not automatically residual bulk ITD**.
+
+The measured-HRIR validation contract is:
+
+> direct arrivals must be aligned closely enough that Omniphony can add analytic ITD separately without double-counting bulk propagation delay.
+
+It is **not**:
+
+> force two spectrally different ear filters to have a zero cross-correlation lag.
+
+The active validation test checks direct-arrival alignment rather than flattening legitimate HRTF phase structure.
+
+---
+
+## 4. Analytic ITD
+
+The direct path uses an analytic head model to derive left/right delay from source direction and effective head radius.
+
+The model is validated end-to-end using a symmetric synthetic HRTF provider so measured HRTF asymmetry cannot masquerade as an engine ITD bug.
+
+Current tests cover:
+
+- centre source ≈ zero ITD;
+- antisymmetry around the median plane;
+- growing absolute ITD toward the interaural axis;
+- approximate agreement with the analytic model.
+
+ITD validation should remain independent from HRTF-choice validation.
+
+---
+
+## 5. Moving HRTFs
+
+Changing source direction changes the HRIR kernel.
+
+A geometrically smooth trajectory can still click, buzz or comb if filter state changes discontinuously.
+
+The current `EarConvolver` therefore retains signal history and crossfades old/new filter outputs during kernel changes rather than simply dropping in a new FIR.
+
+Mid-transition retargeting is also handled as state rather than forcing a discontinuous restart.
+
+This property must survive any future move to FFT/partitioned convolution.
+
+---
+
+## 6. Asynchronous HRTF switching
+
+Building or loading a new HRTF grid may allocate, resample, parse SOFA data or otherwise perform control-plane work that does not belong on the realtime audio thread.
+
+Current design:
+
+```text
+user/control request
+→ background HRTF build
+→ source-tagged completed grid
+→ audio thread accepts only if tag still matches latest request
+→ atomic active-grid swap
+```
+
+The source tag matters because a slow obsolete build can finish after a newer request.
+
+Without request identity:
+
+```text
+request B
+request C
+B finishes late
+→ B could incorrectly become active
+```
+
+The current renderer rejects that stale completion.
+
+Profile/calibration switching should reuse the same law.
+
+---
+
+## 7. Early room
+
+The early room currently uses six first-order shoebox image sources.
+
+Each reflection carries:
+
+```text
+relative geometric propagation delay
++
+directional per-ear ITD
++
+broadband interaural level difference
+```
+
+The common propagation delay is relative to the direct path, so early-room rendering does not add a blanket latency to the direct object.
+
+### Why the reflection ITD matters
+
+The older path gave reflected energy left/right level differences but identical arrival times at both ears.
+
+That created an incomplete binaural room shell.
+
+The current reflection bank has independent left/right delay taps and derives each reflection's ITD from the reflected image direction using the same analytic ear-delay model as the direct path.
+
+### What early reflections do not yet do
+
+Each reflection does **not** currently receive a full separate HRTF convolution.
+
+That is intentional.
+
+The current layer is a cheap directional externalization cue:
+
+```text
+geometry + propagation delay + ITD + ILD
+```
+
+A full reflection HRTF path should be added only if controlled listening/measurement shows enough improvement to justify the CPU cost.
+
+---
+
+## 8. Late room field
+
+Late reverberation is represented separately from direct objects and early reflections.
+
+Current FDN properties include:
+
+- eight delay lines;
+- mutually orthogonal / zero-sum ear output patterns;
+- high-frequency damping in the feedback path;
+- slow mutually detuned delay modulation;
+- low-frequency interaural coherence shaping;
+- higher-frequency decorrelated returns;
+- adjustable RT60;
+- adjustable predelay;
+- distance-related send behavior.
+
+This is a **presentation room field**.
+
+It is not the same thing as a musical `DiffuseField` inferred from the source recording.
+
+```text
+room field
+≠ diffuse musical content
+```
+
+The latter still needs a first-class spherical/extended direct-render representation.
+
+---
+
+## 9. Sample-time invariance
+
+Host callback boundaries are transport artifacts, not acoustic events.
+
+The same continuous signal should not produce a different room merely because one backend calls the renderer with 40 samples and another with 1024.
+
+The FDN therefore carries its modulation scheduler across `process_block` boundaries.
+
+Its modulation target horizon is measured in processed samples rather than “once per caller block.”
+
+A regression test renders the same signal with several block partitions and requires identical output.
+
+### Zero predelay
+
+`predelay_ms = 0` is also a true zero-delay state.
+
+The older implementation silently clamped zero to one sample. That behavior was removed.
+
+---
+
+## 10. Air absorption
+
+When enabled, distance can drive a high-frequency rolloff representing propagation loss in air.
+
+This is a cue layer, not a direct-level law.
+
+It should remain independently bypassable so distance perception and coloration can be tested separately.
+
+---
+
+## 11. Non-spatialized low-frequency/direct channels
+
+Inherited authored scenes can mark a channel as direct/non-spatialized, commonly for LFE behavior.
+
+That path bypasses HRTF/ITD/room spatialization and feeds the ears symmetrically at constant power.
+
+For the future stereo-music inference path, low-frequency handling should evolve from a channel-format exception into the more general scene law already emerging in `scene_inference`:
+
+```text
+low-frequency content receives strong protection from aggressive reassignment
+```
+
+but
+
+```text
+low frequency alone does not prove one coherent frontal object
+```
+
+Diffuse low-frequency energy and coherent groove/foundation evidence must stay distinguishable.
+
+---
+
+## 12. Current missing binaural bridges
+
+### Sample-accurate gain trajectory
+
+The inherited `ChannelState` can generate sample-accurate gain ramps, but the current binaural handoff still effectively applies too much state at block granularity.
+
+Fix requirement:
+
+```text
+one authoritative ChannelState gain trajectory
+→ consumed per sample by binaural path
+```
+
+Do not create a second independent binaural gain state machine.
+
+### Sample-accurate position trajectory
+
+The same issue exists for object motion: the current binaural path receives a block-level position state and then smooths HRTF changes.
+
+Filter crossfading prevents discontinuities, but it does not substitute for the authored/source trajectory itself.
+
+The next hot-path refactor should carry the actual position ramp into binaural processing.
+
+### Broad-source extent
+
+The inherited scene model already contains object size/extent, but the headphone path currently collapses too much of that state to a point.
+
+`BroadSource` therefore needs a binaural rendering strategy that consumes the existing extent state rather than inventing a parallel width knob.
+
+### Musical diffuse field
+
+The room FDN is not the direct renderer for `DiffuseField` content.
+
+A spherical field basis, likely Ambisonic or experimentally equivalent, is a candidate internal representation.
+
+---
+
+## 13. Listener/headphone calibration
+
+HRTF selection is only one layer of reproduction calibration.
+
+The mature architecture should keep separate:
+
+```text
+listener HRTF
+headphone response
+driver ↔ ear interaction
+room / BRIR target
+low-frequency integration
+safety headroom
+```
+
+See [`../docs/HEADPHONE_CALIBRATION.md`](../docs/HEADPHONE_CALIBRATION.md).
+
+A better headphone should expose more of the scene and recording, not more DSP artifacts.
+
+---
+
+## 14. Convolution strategy
+
+The current short direct HRIR path does not automatically benefit from FFT convolution.
+
+For longer BRIRs, headphone filters or more complex reflection responses, benchmark:
+
+```text
+direct FIR
+uniform partitioned FFT
+head/tail two-stage FFT
+```
+
+A useful candidate architecture for long responses is:
+
+```text
+short perceptually critical head
+→ tiny low-latency partitions
+
+long room/filter tail
+→ larger efficient partitions
+```
+
+Any replacement must preserve:
+
+- realtime safety;
+- arbitrary host-buffer handling;
+- reset/discontinuity semantics;
+- moving-filter continuity;
+- sample-time invariance.
+
+---
+
+## 15. Validation lanes
+
+### Known scene → binaural
+
+Use deterministic authored positions to measure renderer behavior without stereo-inference uncertainty.
+
+Key tests:
+
+- ITD sign/magnitude/antisymmetry;
+- HRTF interpolation continuity;
+- moving-filter continuity;
+- direct-level distance invariance;
+- early-reflection delay/ear timing;
+- FDN decay/coherence;
+- block-size invariance;
+- clipping/headroom;
+- spectral coloration;
+- front/back/elevation listening.
+
+### Stereo scene → binaural
+
+Only after the known-scene renderer is trustworthy should scene-inference errors be mixed into end-to-end listening judgments.
+
+---
+
+## 16. Realtime rule
+
+The audio thread must not become the calibration thread.
+
+Keep off the realtime path:
+
+- SOFA file I/O;
+- large HRTF/grid construction;
+- headphone-profile optimization;
+- corpus/model inference that is not explicitly budgeted for realtime;
+- large allocation;
+- unbounded logging;
+- blocking locks.
+
+Build state elsewhere and publish bounded immutable/realtime-safe state to the renderer.
+
+---
+
+## 17. Product acceptance rule
+
+The binaural renderer passes when it can make the headphones feel less like the apparent acoustic source **without** making bypass restore:
+
+- clarity;
+- transient precision;
+- bass definition;
+- timbral naturalness;
+- dynamics;
+- musical hierarchy.
+
+Externalization bought with smear is not externalization worth shipping.
