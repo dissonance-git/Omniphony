@@ -153,6 +153,7 @@ jobs:
           Copy-Item 'target\release-deploy\omniphony_worker.exe' $dist -Force
           Copy-Item 'target\release-deploy\omniphony_app.exe' (Join-Path $dist 'Omniphony.exe') -Force
           Copy-Item 'assets\binaural-baselines\upstream-demo-reference.yaml' (Join-Path $reference 'upstream-demo-reference.yaml') -Force
+          Copy-Item 'assets\binaural-baselines\stereo-music-prototype.yaml' (Join-Path $reference 'stereo-music-prototype.yaml') -Force
           Copy-Item '..\layouts\7.1.4.yaml' (Join-Path $reference '7.1.4.yaml') -Force
 
           @'
@@ -172,8 +173,8 @@ jobs:
 
               Omniphony.exe
 
-          The app supervises a hidden audio worker. No microphone/input-device picker
-          is part of normal use.
+          The normal prototype is now STEREO-MUSIC FIRST. The app supervises a
+          hidden audio worker; no microphone/input-device picker is part of normal use.
 
           CURRENT UI
 
@@ -183,24 +184,22 @@ jobs:
 
           PROTOTYPE ON/OFF BEHAVIOR
 
-          For this build, clicking ON/OFF intentionally restarts the hidden worker in
-          the requested state. A short interruption is expected. This is deliberate:
-          destroying the old worker also destroys its old capture/output queues, so an
-          already-queued wet block cannot leak after OFF.
-
-          A later polished implementation can replace this with sample-aligned paired
-          wet/dry buffers near the physical output while preserving renderer state.
+          Clicking ON/OFF intentionally restarts the hidden worker in the requested
+          state. A short interruption is expected. Destroying the old worker also
+          destroys its old capture/output queues, so queued wet audio cannot leak
+          after OFF. A polished implementation can later make this sample-aligned.
 
           If the hidden worker fails, the app stays open and writes diagnostics to:
 
               omniphony.log
 
-          CURRENT TEMPORARY AUDIO ROUTE
+          CURRENT TEMPORARY MUSIC ROUTE
 
               foobar / Windows applications
                 -> existing Hi-Fi Cable render endpoint
                 -> self-excluding Windows process loopback
-                -> protected Omniphony binaural renderer
+                -> request 48 kHz 2ch first even if the temporary endpoint is 7.1
+                -> stereo-music Omniphony presentation
                 -> automatically preferred FiiO physical output
                 -> headphones
 
@@ -212,60 +211,38 @@ jobs:
           but do not leave an old route physically forwarding to the FiiO while
           Omniphony is also sending to the FiiO.
 
-          For a trustworthy comparison:
+          FOR THE CURRENT STEREO-MUSIC TEST
 
-          1. Keep Hi-Fi Cable installed and keep Windows/foobar routed to it.
-          2. Disable/bypass HeSuVi / Equalizer APO virtualization on that cable.
-          3. STOP/BYPASS ASIO Bridge or any other old path that independently forwards
-             the cable to the FiiO. Do not uninstall it yet.
-          4. Leave the FiiO connected. Omniphony automatically prefers a device whose
-             name contains "FiiO".
-          5. Confirm Omniphony is the only audible path reaching the FiiO.
+          1. Keep Hi-Fi Cable installed and Windows/foobar routed to it.
+          2. Disable/bypass HeSuVi / Equalizer APO virtualization.
+          3. STOP/BYPASS ASIO Bridge or any old route independently forwarding to FiiO.
+          4. Disable foobar's 5.1 upmix. Feed ordinary stereo music.
+          5. Leave the FiiO connected; Omniphony automatically prefers it.
 
-          NEXT CLEAN STEREO BASELINE
+          The music preset is deliberately NOT the upstream 7.1.4 demo preset.
+          It currently uses:
 
-          Ordinary stereo music is the primary product use case. For the first fair
-          sound-quality test, use a song you know extremely well and temporarily turn
-          off foobar's 5.1 upmix. Prefer a simple stereo chain so the test asks:
+              stereo capture first
+              wider front-side L/R presentation
+              SAF/KEMAR HRTF
+              very light early reflections (0.12)
+              no late reverb
+              no distance air-absorption
 
-              stereo recording
-                -> Omniphony
-                -> FiiO
-                -> headphones
+          upstream-demo-reference.yaml remains bundled as a known-spatial regression
+          control. It is no longer the normal live-music runtime preset.
 
-          Keep the old DSP/plugins installed. The point is to deactivate stages, not
-          dismantle the incumbent before Omniphony has earned the replacement.
-
-          Once stereo is clean, later tests are:
-
-              native surround alone
-              stereo music + native surround application simultaneously
-
-          The long-term core treats channel layout per logical stream, not as one
-          global mode. A stereo song and a surround game should coexist.
-
-          FIRST LIVE-LISTEN NOTE
-
-          The first arbitrary-audio test played successfully but sounded tinny,
-          hallway-like and less bubble-like, with a small echo after OFF. Because the
-          old forwarding chain had not been fully disabled and the old prototype could
-          also leave wet data queued, that listen is transport-contaminated evidence,
-          not a renderer-quality verdict.
-
-          Omniphony.exe launches omniphony_worker.exe. The dedicated worker initializes
-          COM MTA before entering the live audio implementation, avoiding the earlier:
-
-              Cannot change thread mode after it is set. (0x80010106)
-
-          Windows 7.1 channel-mask order is corrected before the bridge:
-
-              Windows:   L R C LFE Lb Rb Ls Rs
-              Omniphony: L R C LFE Ls Rs Lb Rb
-
-          Diagnostic escape hatch only:
+          Diagnostic escape hatches only:
 
               LIST-DEVICES.cmd
               omniphony_live.exe --output "FiiO"
+              omniphony_live.exe --rich-bed
+
+          --rich-bed preserves the earlier 8/6-channel-first loopback path for plumbing
+          tests. It is NOT the final mixed-source architecture. The intended future
+          platform host keeps stereo music and native surround/object sources as
+          independent logical streams rather than forcing the whole OS mix through one
+          global channel layout.
 
           PRODUCT ARCHITECTURE
 
@@ -275,8 +252,6 @@ jobs:
                 -> binaural stereo output
 
           Windows is the first host, not part of the portable renderer identity.
-          Future platform work should replace/adapt the host layer rather than fork a
-          Windows-shaped audio core.
           '@ | Set-Content (Join-Path $dist 'LIVE-README.txt')
 
           foreach ($required in @(
@@ -286,6 +261,7 @@ jobs:
             'reference_bridge.dll',
             'LIST-DEVICES.cmd',
             'reference-demo\upstream-demo-reference.yaml',
+            'reference-demo\stereo-music-prototype.yaml',
             'reference-demo\7.1.4.yaml',
             'LIVE-README.txt'
           )) {
