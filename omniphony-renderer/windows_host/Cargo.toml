@@ -29,3 +29,12 @@ realtime_ffi = { path = "../realtime_ffi" }
 # intentionally host plumbing only; the portable renderer remains unaware of
 # Windows audio-session APIs.
 wasapi = "0.23.0"
+
+# The first real product shell is intentionally tiny native Win32. It supervises
+# the audio worker without making UI code part of the realtime renderer.
+windows-sys = { version = ">=0.59, <=0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }
