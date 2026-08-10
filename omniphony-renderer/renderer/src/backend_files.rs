@@ -124,33 +124,47 @@ mod tests {
     use super::*;
 
     fn cfg() -> PathBuf {
-        PathBuf::from("/etc/omniphony")
+        if cfg!(windows) {
+            PathBuf::from(r"C:\omniphony")
+        } else {
+            PathBuf::from("/etc/omniphony")
+        }
+    }
+
+    fn absolute_file() -> PathBuf {
+        if cfg!(windows) {
+            PathBuf::from(r"C:\Users\me\foo.lua")
+        } else {
+            PathBuf::from("/home/me/foo.lua")
+        }
+    }
+
+    fn stored_file(name: &str) -> PathBuf {
+        cfg().join(STORE_DIRNAME).join("script").join(name)
     }
 
     #[test]
     fn absolute_handle_is_literal_when_allowed() {
-        let p = resolve(Some(&cfg()), "script", "/home/me/foo.lua", true).unwrap();
-        assert_eq!(p, PathBuf::from("/home/me/foo.lua"));
+        let absolute = absolute_file();
+        let handle = absolute.to_string_lossy();
+        let p = resolve(Some(&cfg()), "script", handle.as_ref(), true).unwrap();
+        assert_eq!(p, absolute);
     }
 
     #[test]
     fn absolute_handle_falls_back_to_store_basename_for_remote() {
         // A remote peer may not address an absolute path: it is reduced to its
         // basename inside the managed store.
-        let p = resolve(Some(&cfg()), "script", "/home/me/foo.lua", false).unwrap();
-        assert_eq!(
-            p,
-            PathBuf::from("/etc/omniphony/backend-files/script/foo.lua")
-        );
+        let absolute = absolute_file();
+        let handle = absolute.to_string_lossy();
+        let p = resolve(Some(&cfg()), "script", handle.as_ref(), false).unwrap();
+        assert_eq!(p, stored_file("foo.lua"));
     }
 
     #[test]
     fn bare_name_resolves_into_the_store() {
         let p = resolve(Some(&cfg()), "script", "panner.lua", true).unwrap();
-        assert_eq!(
-            p,
-            PathBuf::from("/etc/omniphony/backend-files/script/panner.lua")
-        );
+        assert_eq!(p, stored_file("panner.lua"));
     }
 
     #[test]
@@ -161,18 +175,17 @@ mod tests {
         // A store-relative handle that sanitises to a basename can never escape
         // the store dir.
         let p = resolve(Some(&cfg()), "script", "../secret.lua", false).unwrap();
-        assert_eq!(
-            p,
-            PathBuf::from("/etc/omniphony/backend-files/script/secret.lua")
-        );
+        assert_eq!(p, stored_file("secret.lua"));
         assert!(resolve(Some(&cfg()), "script", "   ", true).is_none());
     }
 
     #[test]
     fn store_relative_needs_a_config_dir() {
         assert!(resolve(None, "script", "panner.lua", true).is_none());
-        // ...but an absolute handle still resolves without one.
-        assert!(resolve(None, "script", "/abs/panner.lua", true).is_some());
+        // ...but a host-native absolute handle still resolves without one.
+        let absolute = absolute_file();
+        let handle = absolute.to_string_lossy();
+        assert!(resolve(None, "script", handle.as_ref(), true).is_some());
     }
 
     #[test]
@@ -187,10 +200,8 @@ mod tests {
             backend == "script" && key == "path"
         });
         let script = &out["script"];
-        assert_eq!(
-            script["path"].as_str(),
-            Some("/etc/omniphony/backend-files/script/panner.lua")
-        );
+        let expected = stored_file("panner.lua").to_string_lossy().into_owned();
+        assert_eq!(script["path"].as_str(), Some(expected.as_str()));
         // Non-file params are untouched.
         assert_eq!(script["falloff"].as_f32(), Some(0.1));
     }
