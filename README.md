@@ -1,216 +1,254 @@
 # Omniphony
 
-**Windows-first real-time music enhancement: stereo library → libaural-informed remix decisions → full-sphere binaural headphones.**
+**Portable real-time music enhancement: ordinary music → libaural-informed presentation → full-sphere binaural headphones.**
 
-Omniphony is an independent research/product fork of [`mgth/Omniphony`](https://github.com/mgth/Omniphony), rebuilt around one deliberately narrow product idea:
+Omniphony is an independent research/product fork of [`mgth/Omniphony`](https://github.com/mgth/Omniphony).
 
-> **Make ordinary music playback feel as though an elite mix / mastering / immersive-audio engineer were personally adapting each song for the listener in real time, with very low latency, into a coherent 360° headphone world while preserving the recording's musical identity and intent.**
+Its north star is deliberately ambitious:
 
-The target is not a generic upmixer.
+> **Make ordinary headphone playback feel as though a world-class mix / mastering / immersive-audio engineer were adapting each song for the listener in real time, with very low latency, into a coherent 360° listening world while preserving the recording.**
 
-It is not:
+Windows is the **current development and listening-validation platform**. It is not the product boundary.
+
+The intended mature system should support thin native shells on Windows, macOS, Linux, Android and iOS around one portable hearing/presentation/rendering core.
+
+---
+
+## What Omniphony is trying to do
+
+Not this:
 
 ```text
 stereo
-→ wider stereo
-→ some rear reverb
+→ make it wider
+→ add rear reverb
 → headphones
 ```
 
-The intended long-term behavior is closer to:
+Closer to this:
 
 ```text
-ordinary stereo song
-        ↓
+ordinary song
+      ↓
 libaural hears what the music is doing
-        ↓
-Omniphony interprets how that specific recording can safely expand
-        ↓
-anchors / direct objects / broad sources / diffuse musical fields / room
-        ↓
-artistically conservative real-time immersive remix decisions
-        ↓
-full-sphere binaural renderer
-        ↓
-listener HRTF + room cues + headphone calibration
-        ↓
+      ↓
+Omniphony decides what must be protected,
+what can gain separation,
+and what can safely expand into space
+      ↓
+anchors / direct objects / broad sources /
+diffuse musical fields / room
+      ↓
+full-sphere binaural rendering
+      ↓
+listener + headphone calibration
+      ↓
 headphones
 ```
 
-The analogy is a world-class engineer, not an automatic effect preset.
+The metaphor is an engineer, not an effect preset.
 
-A great engineer does not make every element maximally wide or dramatic. They understand what the song is doing, protect what carries the music, create separation where it helps, preserve punch and intimacy when they matter, and use space deliberately.
+A good engineer does not maximize width everywhere. They protect the center of gravity, groove, intimacy, punch, transient shape, tonal identity and musical hierarchy while using space deliberately.
 
-Omniphony aims to automate that kind of *presentation intelligence* continuously during normal playback.
+Omniphony tries to automate that kind of **presentation intelligence** continuously during ordinary playback.
 
-It cannot literally recover an artist's private intention or missing multitrack session. The practical target is **artistically faithful inference from the audible recording**: make the enhanced presentation feel purpose-built for the song rather than imposed on it.
+It cannot recover a missing multitrack session or an artist's private intention. The practical target is artistically faithful inference from the audible recording: the enhanced presentation should feel purpose-built for the song rather than imposed on it.
 
-The product should eventually feel almost boring operationally:
+---
+
+## Product experience
+
+The eventual UX should be boring:
 
 ```text
-install once
-choose / calibrate headphones once
-play music normally
+install
+→ choose / detect headphones
+→ calibrate or select profile
+→ play music normally
 ```
 
-No exporting stems. No manually authoring scenes. No per-song setup ritual.
+No stem export.
+No manually authored scene.
+No per-song ritual.
+No requirement that the listener understand the internal renderer.
 
 The intelligence belongs in the playback path.
 
 ---
 
-## North star
+## North-star listening test
 
-One song should make the ambition obvious.
+After acclimation and at matched loudness, bypass should make ordinary headphone playback feel **dimensionally collapsed**.
 
-After acclimation and at matched loudness, bypass should make ordinary headphone playback feel **dimensionally collapsed**, as though the same recording suddenly lost a spatial layer of information and presentation.
+But bypass must never restore something Omniphony damaged.
 
-But bypass must **not** restore something Omniphony damaged.
-
-Non-negotiable preservation targets:
+Non-negotiable preservation targets include:
 
 - clarity;
 - transient shape;
 - bass timing and weight;
 - timbre;
 - vocal/instrument identity;
-- stereo relationships that are musically important;
 - microdynamics and macrodynamics;
 - rhythmic precision;
+- stereo relationships that matter musically;
 - musical hierarchy;
 - emotional focus;
 - recording character.
 
-A giant 360° sphere with smeared music is a failure.
+A giant spatial bubble with smeared music is a failure.
 
-A technically impressive rendering that makes the singer less convincing is a failure.
+A renderer that sounds spectacular but weakens the singer is a failure.
 
-A spatial effect that works on one genre and fights another is a failure.
+A presentation that needs the song to fight the DSP is a failure.
 
-The ideal result should feel less like "DSP was added" and more like **the song had always been mixed for this listening space**.
+> **Never buy dimension by damaging the music.**
 
 ---
 
-## What libaural contributes
+## libaural relationship
 
-[`libaural`](https://github.com/dissonance-git/libaural) owns the general artificial-hearing problem.
+[`libaural`](https://github.com/dissonance-git/libaural) is the parent artificial-hearing project.
 
-Its job is not specifically to spatialize music. Its job is to let an AI hear digital audio in a functionally human-like way.
+Its mission is broader than spatial audio:
+
+> **Give an AI a functional sense of hearing from ordinary digital audio.**
+
+Omniphony is one consumer of that hearing.
 
 ```text
 song
-  ↓
+ ↓
 libaural
 "what am I hearing?"
-  ↓
-perceptual + musical state
-  ↓
+ ↓
+auditory + musical state
+ ↓
 Omniphony
-"how can this particular music be enhanced spatially without betraying it?"
+"how should this recording be presented over headphones?"
 ```
 
-That means Omniphony can eventually make decisions from richer information than raw panning and spectral energy alone.
-
-Potentially useful libaural hearing state includes:
+Potentially useful hearing state includes:
 
 - what sounds and musical layers are present;
 - what belongs together;
-- what is foreground or background;
+- foreground / background relations;
 - pitch, timbre, rhythm and musical role;
-- masking and audibility;
+- audibility and masking;
 - source continuity;
 - transient ownership;
-- broad versus compact material;
-- direct versus room-like energy;
+- compact versus broad material;
+- direct versus diffuse/room-like energy;
 - recurrence and section structure;
-- expectation and musical change;
+- musical expectation/change;
 - spatial evidence;
-- confidence and ambiguity.
+- uncertainty.
 
-These are hearing capabilities, not Omniphony's product ontology.
+These are hearing capabilities, not hard-coded commands to move something behind the listener.
 
-Omniphony owns the presentation decision.
+A libaural observation is evidence for a presentation decision.
 
-A rendering trick does not become a law of hearing merely because it sounds good here.
-
-A libaural observation does not automatically mean "move this behind the listener." It becomes one input to a music-aware mix decision.
+A successful Omniphony rendering trick does not automatically become a law of hearing.
 
 ---
 
-## The real-time engineer model
+## Portable architecture
 
-A useful mental model for Omniphony is:
+Windows is where the system is being proven today.
+
+The core should not know which operating system delivered its samples.
 
 ```text
-LISTEN
-what is this song doing right now?
+PLATFORM INPUT
+system / app / player / file / stream
         ↓
-PROTECT
-what must not be destabilized?
+========================================================
+PORTABLE CORE
+
+sample timeline
+→ libaural hearing input
+→ music-aware presentation policy
+→ persistent scene
+→ binaural / field / room renderer
+→ listener + headphone calibration
+
+========================================================
         ↓
-SEPARATE
-what can gain clarity from spatial distinction?
-        ↓
-EXPAND
-what can occupy depth, height, rear space or broader extent?
-        ↓
-BIND
-what should remain perceptually connected?
-        ↓
-RENDER
-how should that decision reach this listener's two ears?
-        ↓
-CHECK
-was punch / tone / hierarchy / timing / loudness damaged?
+PLATFORM OUTPUT
+native device / host / plugin
 ```
 
-The important word is **specific**.
+Platform adapters own things such as:
 
-The same rule should not be applied equally to every song, every section, every source, or every moment.
+- system/app capture;
+- virtual endpoints or drivers when necessary;
+- device enumeration;
+- sample-format negotiation;
+- shared/exclusive modes;
+- permissions and service lifecycle;
+- OS-native low-latency APIs;
+- installer/signing details;
+- mobile audio-session/focus behavior.
 
-A dry intimate vocal may need authority and proximity.
+The portable core owns things such as:
 
-A wide shoegaze texture may benefit from becoming a large surrounding field.
+- auditory/scene contracts;
+- music-aware presentation policy;
+- sample-time trajectories;
+- HRTF/binaural rendering;
+- direct/broad/diffuse/room distinctions;
+- headphone/listener calibration;
+- deterministic fidelity tests.
 
-A hard-panned guitar may support a stable direct object.
-
-A bass line may need to remain a physical floor even while higher harmonics participate in a larger scene.
-
-A tiny production detail may deserve rear or height placement if doing so reveals it without changing the song's center of gravity.
-
-A dense climax may need *less* spatial aggression than a sparse verse because preserving hierarchy matters more than filling every direction.
-
-That is why libaural matters to the product: better hearing should permit better mixing decisions.
+See [`docs/PLATFORM_PORTABILITY.md`](docs/PLATFORM_PORTABILITY.md).
 
 ---
 
-## Scene semantics
+## Time is not a callback
 
-Omniphony currently keeps several useful spatial presentation entities distinct.
+One of the project's strongest engineering laws is:
 
-These are renderer concepts, not claims that every recording literally contains authored objects with these labels.
+> **Changing host callback size must not change the intended auditory world.**
+
+```text
+WASAPI / CoreAudio / PipeWire / AAudio / Core Audio / file block
+                              ↓
+                    one logical sample timeline
+```
+
+Gain, movement, HRTF changes, room changes and scene transitions should live in sample/time coordinates rather than inheriting arbitrary host-buffer boundaries.
+
+This is an active test/fix area. The current binaural path still contains callback-quantized gain and position handoff that the speaker path handles more precisely.
+
+A deterministic reproducer lives in `dsp_fixtures::binaural_block_size`.
+
+---
+
+## Scene vocabulary
+
+These are **presentation entities**, not claims that stereo masters secretly contain authored object metadata.
 
 ### `FrontalAnchor`
 
-Musically authoritative material whose relocation would destabilize the presentation, such as a coherent center or source-like low-frequency foundation.
+Material whose movement would destabilize the song's center of gravity.
 
 ### `DirectObject`
 
-Persistent source-like material that can support a spatially specific presentation.
+Persistent compact/source-like material that can support spatially specific presentation.
 
 ### `BroadSource`
 
-Coherent material with meaningful extent, or content for which a single point is too specific.
+Coherent material with meaningful spatial extent.
 
 ### `DiffuseField`
 
-Musical/ambient material better presented as a directional distribution than as a point source.
+Musical or ambient material better represented as a directional distribution than a point.
 
 ### `RoomField`
 
-Presentation-environment energy: early reflections and late reverberant field.
+Presentation-environment energy such as early reflections and late reverberation.
 
-The distinction is load-bearing:
+Load-bearing distinction:
 
 ```text
 DIRECT OBJECT
@@ -219,338 +257,265 @@ DIRECT OBJECT
 ≠ ROOM FIELD
 ```
 
-Rear objects and rear reverberation are also different things.
-
-Stereo usually does **not** contain literal rear-position ground truth, so Omniphony separates:
+And:
 
 ```text
-acoustic / auditory evidence
-from
-music interpretation
-from
-presentation choice
+rear direct object
+≠ rear reflection
+≠ diffuse rear field
 ```
 
-A convincing rear direct element can be a valid immersive mix decision without pretending that the original master contained hidden rear metadata.
-
----
-
-## Current renderer foundation
-
-The fork retains the strongest parts of the original Omniphony renderer instead of rewriting them for aesthetic cleanliness.
-
-Current useful substrate includes:
-
-- stateful per-channel binaural DSP;
-- analytic ITD;
-- interpolated HRTF/HRIR rendering;
-- SAF KEMAR, parametric and SOFA-capable HRTF providers;
-- safe moving-filter crossfades;
-- object position/size state;
-- VBAP and known speaker layouts for calibration truth;
-- early image-source reflections;
-- late FDN room field;
-- deterministic DSP fixtures;
-- file/reference rendering paths;
-- Windows audio/output infrastructure.
-
-Recent fork-specific corrections include:
-
-- true complex M/S stereo evidence;
-- time-constant-based persistence;
-- symmetric object/field evidence separation;
-- bass protection separated from object identity;
-- explicit scene candidate evidence;
-- deterministic async HRTF source switching;
-- measured-HRIR direct-arrival validation rather than invalid zero-cross-correlation assumptions;
-- source-tagged async HRIR rebuilds so stale builds cannot win late;
-- per-ear ITD for early image-source reflections;
-- sample-time-invariant FDN modulation;
-- true zero-predelay behavior;
-- reusable fidelity metrics for null/RMS/crest/DC/level comparisons.
+Stereo usually does not identify a literal hidden rear source. Rear placement can still be a valid immersive presentation choice when the hearing/music state supports it.
 
 See [`docs/SCENE_RENDERER_CONTRACT.md`](docs/SCENE_RENDERER_CONTRACT.md).
 
 ---
 
+## Current renderer foundation
+
+The fork keeps mature upstream machinery that still serves the product instead of rewriting it for aesthetic cleanliness.
+
+Useful retained substrate includes:
+
+- stateful per-channel binaural DSP;
+- analytic ITD;
+- interpolated HRTF/HRIR rendering;
+- embedded SAF KEMAR, parametric and SOFA-capable providers;
+- continuous moving-filter crossfades;
+- object position/size state;
+- known-scene VBAP/layout machinery for calibration and regression truth;
+- early image-source reflections;
+- late FDN room field;
+- deterministic DSP fixtures;
+- headless engine/FFI surfaces.
+
+Fork-specific corrections already include:
+
+- true complex M/S stereo evidence;
+- persistence-aware stereo evidence;
+- symmetric object/field evidence separation;
+- bass protection separated from object identity;
+- conservative scene-evidence inference;
+- deterministic async HRTF source switching;
+- stale HRIR rebuild rejection;
+- measured-HRIR direct-arrival validation;
+- per-ear early-reflection delays and directional ITD;
+- sample-time-invariant FDN modulation;
+- true zero predelay;
+- reusable null/RMS/crest/DC/level fidelity metrics.
+
+---
+
 ## Current missing bridges
 
-The architecture is clearer than the end-to-end product. Important gaps remain explicit.
+The architecture is ahead of the finished product.
 
-### libaural is not yet the live hearing source
+### 1. Real stereo → persistent heard scene
 
-The current fork has local stereo evidence and scene-inference code, but the mature product should increasingly consume richer libaural hearing state instead of growing an independent duplicate machine-hearing stack inside Omniphony.
+Local stereo/scene evidence modules exist, but normal two-channel playback is not yet producing a complete persistent object/field world in the realtime path.
 
-Current local heuristics are practical scaffolding and test instruments.
+### 2. libaural → Omniphony
 
-### Stereo inference is not yet the live scene source
+The local heuristics are scaffolding. The mature product should consume increasingly rich libaural hearing state instead of growing a second independent hearing stack.
 
-`renderer::stereo_inference` and `renderer::scene_inference` are real code, but ordinary two-channel playback is not yet driving a complete persistent object/field scene in realtime.
+### 3. Music-aware presentation policy
 
-### Music-aware presentation policy is still primitive
+The renderer knows increasingly much about *how* to render a scene. The elite-engineer layer that decides *what this song should do* is still early.
 
-The renderer can increasingly describe spatial possibilities, but the "elite engineer" layer is still largely missing.
+### 4. Sample-accurate binaural trajectories
 
-It eventually needs to combine:
+The binaural handoff still quantizes more state to caller blocks than the speaker path. Gain and movement must become callback-size invariant while `ChannelState` remains the single trajectory authority.
 
-```text
-libaural hearing
-+
-musical hierarchy
-+
-spatial opportunity
-+
-fidelity risk
-+
-listener calibration
-+
-short and long temporal context
-```
+### 5. Source extent
 
-into conservative presentation decisions.
+The inherited scene state already carries object size. The binaural path still collapses too much of it to a point.
 
-### Binaural motion/gain still needs sample-accurate trajectory plumbing
+### 6. First-class `BroadSource`
 
-The inherited speaker path carries sample-accurate ramps more completely than the current binaural handoff. Position and gain continuity should be made host-block-size invariant without creating a second competing state machine.
+A coherent wide source needs an actual headphone rendering strategy, not just a wider point-source parameter.
 
-### Broad-source extent is not yet fully preserved in headphone rendering
+### 7. First-class `DiffuseField`
 
-The inherited scene state contains object size/extent, but binaural rendering currently collapses too much of that information to a point.
+The FDN is a room field. It is not a substitute for diffuse musical content. A spherical/Ambisonic or experimentally equivalent field basis is a major candidate.
 
-### `DiffuseField` needs a first-class spherical renderer
+### 8. Listener/headphone calibration
 
-The late FDN is a **room field**, not a substitute for diffuse musical content. A spherical/Ambisonic or experimentally equivalent field basis is a strong candidate.
-
-### Listener/headphone calibration is still early
-
-SOFA/HRTF support exists, but the mature product should distinguish:
+Keep these layers separate until experiments justify combining them:
 
 ```text
 listener HRTF
 headphone response
-headphone-driver ↔ pinna interaction
-room / BRIR target
+driver ↔ ear interaction
+BRIR / room target
 low-frequency integration
 safety headroom
 ```
 
-See [`docs/HEADPHONE_CALIBRATION.md`](docs/HEADPHONE_CALIBRATION.md), [`docs/FORK_POLICY.md`](docs/FORK_POLICY.md), and the libaural influence ledger.
+See [`docs/HEADPHONE_CALIBRATION.md`](docs/HEADPHONE_CALIBRATION.md).
 
-### The Windows product audio shell is still transitional
+### 9. Platform shells
 
-The inherited Windows host currently hard-wires CPAL's ASIO feature, which makes the full executable depend on separately licensed Steinberg SDK material.
+Windows capture/output is the first implementation target. It should become one thin host around the same portable core.
 
-That is not the intended default architecture for a normal install-once Windows music product.
+ASIO may remain an optional specialist route, not a mandatory architecture dependency.
 
-Current direction:
+---
+
+## Validation lanes
+
+Keep failures attributable by testing independent layers.
+
+### A. Compiler + deterministic DSP
 
 ```text
-renderer engine
-→ proven independently in CI
-
-Windows system/player capture + normal output route
-→ explicit product layer still to be simplified
-
-ASIO
-→ optional low-latency/audiophile route, not mandatory build infrastructure
+compile
+→ unit tests
+→ deterministic fixtures
+→ null/fidelity tests
+→ callback-size invariance
 ```
 
----
-
-## Repository scope
-
-This fork is physically removing inherited suite surfaces rather than maintaining them for structural parity.
-
-### Keep
-
-- `omniphony-renderer/` — realtime renderer and transitional Windows host path;
-- `layouts/` — known-scene calibration geometry;
-- deterministic assets/fixtures needed for regression tests;
-- `docs/` — current fork contracts, validation reports and research decisions;
-- `.github/workflows/` — reproducible renderer-engine validation.
-
-### Removed from this fork
-
-The original upstream remains the archive/source for these surfaces:
-
-- Omniphony Studio;
-- Arch packaging;
-- mpv-oriented product documentation;
-- JACK service helper scripts;
-- old Studio/WebGL/Three.js debugging notes;
-- Linux/PipeWire-specific product plans and investigation diaries;
-- obsolete upstream refactor plans that no longer describe this product;
-- upstream Studio/cross-platform release workflows;
-- demonstration backend crate;
-- Lua/scriptable backend crate.
-
-More contraction happens dependency-first. See [`docs/CONTRACTION_LEDGER.md`](docs/CONTRACTION_LEDGER.md).
-
----
-
-## Upstream relationship
-
-`mgth/Omniphony` is a **source / peer / ancestor**, not the canonical product tree.
+### B. Known scene → headphones
 
 ```text
-upstream mechanism or fix
-→ inspect
-→ take only what serves this fork
-→ validate locally
-→ improve further
-→ optionally send a general fix back upstream
-```
-
-We do not keep broad structural parity for its own sake.
-
-General fixes should be offered upstream only after they are proven here and separated from fork-specific assumptions.
-
-Full policy: [`docs/FORK_POLICY.md`](docs/FORK_POLICY.md).
-
-Attribution remains permanent. The fork keeps the original Git history and GPL licensing. See [`NOTICE.md`](NOTICE.md).
-
----
-
-## External influence policy
-
-GitHub projects are treated as mechanism sources, not templates to absorb wholesale.
-
-Current major influence families include:
-
-- Steam Audio / SPARTA / IEM / OpenAL Soft for spatial rendering laws;
-- Dolby open tooling for signal/object/presentation boundaries and objective audio validation;
-- RoomAcoustiCpp and measured BRIR work for room/externalization structure;
-- ASH Toolset for listener + headphone + BRIR calibration layering;
-- HeSuVi and HRIR conversion projects as large behavioral/reference corpora;
-- `fft-convolver` for allocation-free partitioned realtime convolution;
-- Airwave for set-and-forget, per-device system-wide product behavior;
-- MidiTok/Symusic and game/chip synthesis tooling for controlled musical ground truth;
-- Microsoft Windows Audio repositories for diagnostics and low-latency platform contracts.
-
-The durable influence ledger lives in libaural so chat compaction is not project memory.
-
----
-
-## Validation strategy
-
-There are three acceptance lanes.
-
-### Hearing
-
-Can libaural expose perceptual and musical state that tracks useful human listening behavior?
-
-This is primarily a libaural research problem.
-
-### Known scene → headphones
-
-Hold source geometry constant and test:
-
-```text
-known objects / beds
-→ HRTF + ITD
-→ broad/field rendering
-→ early room + late field
-→ headphones
+known geometry
+→ HRTF / ITD
+→ extent / fields
+→ early room / late room
+→ binaural output
 ```
 
 This isolates renderer quality.
 
-### Music → immersive presentation
+### C. Artificial hearing
 
-Hold renderer behavior understood and test:
+libaural uses controlled fixtures and perturbations to test pitch, masking, grouping, temporal organization, space, music cognition and eventually an AI-facing heard-state interface.
+
+### D. Music → immersive presentation
 
 ```text
 song
 → hearing
-→ mix / presentation policy
-→ immersive scene
+→ presentation decision
+→ scene
+→ render
+→ objective fidelity checks
+→ human listening
 ```
 
-This isolates whether Omniphony is making musically intelligent choices rather than merely dramatic ones.
-
-Only after these work independently should end-to-end listening decide product quality.
-
-Objective fidelity measurements include:
-
-- bypass/null residual;
-- peak and RMS level;
-- crest factor;
-- DC offset;
-- frequency response;
-- lag/ITD;
-- dynamic/transient preservation;
-- clipping/headroom.
-
-Human listening remains required for:
-
-- externalization;
-- front/back discrimination;
-- elevation plausibility;
-- source stability;
-- envelopment;
-- image depth;
-- fatigue;
-- musical hierarchy;
-- emotional focus;
-- whether the enhancement feels native to the song rather than imposed;
-- preference.
+This isolates whether the product is making musically intelligent choices rather than merely dramatic ones.
 
 ---
 
-## Build / CI
+## Current CI
 
-The authoritative repository workflow is:
+The surviving workflow is:
 
 ```text
 .github/workflows/windows-renderer.yml
 ```
 
-It separates:
+It currently checks:
 
 ```text
 portable renderer core
 Windows renderer core
-Windows x64 renderer-engine artifact
+Windows x64 headless renderer-engine artifact
 ```
 
-The renderer-engine artifact intentionally excludes the host audio layer, so it can prove/package the actual engine without depending on the separately licensed ASIO SDK.
+The headless artifact intentionally excludes the transitional host-audio/ASIO layer so the renderer itself can be compiled and tested without the separately licensed Steinberg SDK.
 
-The old inherited CI/release workflows were removed because they built deleted Studio, Linux/PipeWire, macOS and cross-platform release products.
-
-The workflow also resolves dependencies normally because this repository does not track `omniphony-renderer/Cargo.lock`.
-
-A full listening executable returns to CI when the fork's Windows audio shell has a clean normal-system default route. ASIO may remain an optional specialist backend.
+Windows remains the first live-listening platform after the portable engine is stable.
 
 ---
 
-## Near-term development order
+## Fork relationship
+
+`mgth/Omniphony` remains the ancestor, attribution source and an ongoing source of mechanisms/fixes.
+
+It is no longer the canonical product tree.
 
 ```text
-1. keep CI/compiler signal trustworthy
-2. finish sample-accurate binaural trajectory/gain plumbing
-3. preserve source extent into binaural rendering
-4. implement first-class broad/diffuse musical-field rendering
-5. wire ordinary stereo into persistent realtime scene state
-6. define the first music-aware presentation-policy layer
-7. progressively replace local hearing heuristics with libaural capabilities
-8. build listener/headphone calibration stack
-9. establish normal Windows system/player capture + output route
-10. make ASIO optional rather than mandatory
-11. continue deleting inherited surfaces with no remaining owner
-12. listening + fidelity optimization across real music
+upstream idea/fix
+→ inspect
+→ adopt only if useful here
+→ validate locally
+→ improve
+→ optionally return a portable/general fix upstream
 ```
 
-The product goal remains intentionally unreasonable:
+This fork does not preserve broad suite structure merely to make upstream merging easy.
 
-> **Make ordinary headphone playback feel like the lower-dimensional version after Omniphony is bypassed.**
+See [`docs/FORK_POLICY.md`](docs/FORK_POLICY.md) and [`NOTICE.md`](NOTICE.md).
 
-The product metaphor is:
+---
+
+## Contraction
+
+Already removed from this fork include:
+
+- Omniphony Studio;
+- Arch/Linux packaging surfaces unrelated to the portable core;
+- JACK helper/service shell;
+- mpv-oriented product documentation;
+- old Studio/WebGL/Three.js archaeology;
+- obsolete upstream refactor diaries;
+- inherited Studio/release workflows;
+- demonstration backend crate;
+- Lua/script backend crate.
+
+Known-scene fixtures, layouts and renderer machinery remain when they are useful laboratory instruments even if they are not part of final listener UX.
+
+Further deletion is dependency-first, not aesthetic.
+
+See [`docs/CONTRACTION_LEDGER.md`](docs/CONTRACTION_LEDGER.md).
+
+---
+
+## External influences
+
+External repositories are mechanism sources, benchmarks and possible dependencies, not architecture votes.
+
+The broad exploratory influence phase is now intentionally frozen.
+
+Current families include:
+
+- spatial rendering: Steam Audio, SPARTA/IEM, OpenAL Soft, Dolby tooling, room/BRIR work;
+- listener/headphone calibration: ASH, AutoEq, HeSuVi/HRIR corpora;
+- realtime DSP: fft-convolver, KFR, Faust, Glicol and related references;
+- artificial hearing/music cognition: classical MIR, auditory models, learned audio models, symbolic music systems and controlled music generators;
+- platform transport: OS-native audio references such as Microsoft SysVAD for Windows-specific experiments.
+
+The durable influence ledger lives in libaural.
+
+From this checkpoint, new influences should be researched **because an experiment exposes a missing capability**, not because the list can always become longer.
+
+---
+
+## Near-term order
+
+```text
+1. make CI genuinely green and meaningful
+2. convert binaural gain block-size reproducer into a passing invariance gate
+3. fix sample-time binaural motion
+4. preserve source extent in headphones
+5. implement/test BroadSource
+6. implement/test DiffuseField
+7. wire ordinary stereo into persistent realtime scene state
+8. integrate early libaural heard state
+9. build first music-aware presentation policy
+10. establish clean native Windows capture/output shell
+11. listening + fidelity optimization
+12. port thin host shells to other operating systems once the core earns it
+```
+
+The final product metaphor remains simple:
 
 > **A world-class immersive mix engineer for every song, every time it plays.**
 
-And the engineering law that keeps that metaphor honest is:
+And the final engineering constraint is even simpler:
 
-> **Never buy dimension by damaging the music.**
+> **The better Omniphony gets, the less the listener should notice Omniphony itself.**
 
 ---
 
