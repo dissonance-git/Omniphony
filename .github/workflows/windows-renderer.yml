@@ -19,7 +19,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  RUST_TOOLCHAIN: 1.87.0
+  RUST_TOOLCHAIN: 1.88.0
   # Hosted runners use Node 24 by default as of June 2026. Keep the opt-in
   # explicit as a guard against accidentally adding an older JS action later.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
