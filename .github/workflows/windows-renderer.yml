@@ -61,9 +61,6 @@ jobs:
       - name: Test DSP measurement harness
         run: cargo test -p dsp_fixtures
 
-      # This inherited test assumes the HRIR worker cannot finish before the
-      # requesting thread observes the old pointer. That is scheduler timing,
-      # not a renderer invariant; deterministic matching/stale tests remain.
       - name: Test renderer core
         run: >-
           cargo test -p renderer --
@@ -154,6 +151,7 @@ jobs:
           Copy-Item 'target\release-deploy\omniphony_app.exe' (Join-Path $dist 'Omniphony.exe') -Force
           Copy-Item 'assets\binaural-baselines\upstream-demo-reference.yaml' (Join-Path $reference 'upstream-demo-reference.yaml') -Force
           Copy-Item 'assets\binaural-baselines\stereo-music-prototype.yaml' (Join-Path $reference 'stereo-music-prototype.yaml') -Force
+          Copy-Item 'assets\binaural-baselines\stereo-field-prototype.yaml' (Join-Path $reference 'stereo-field-prototype.yaml') -Force
           Copy-Item '..\layouts\7.1.4.yaml' (Join-Path $reference '7.1.4.yaml') -Force
 
           @'
@@ -167,89 +165,76 @@ jobs:
           '@ | Set-Content (Join-Path $dist 'LIST-DEVICES.cmd') -Encoding ascii
 
           @'
-          Omniphony for Headphones - native app prototype
+          Omniphony for Headphones - preserved-master stereo prototype
 
           OPEN THIS:
 
               Omniphony.exe
 
-          The normal prototype is now STEREO-MUSIC FIRST. The app supervises a
-          hidden audio worker; no microphone/input-device picker is part of normal use.
+          CURRENT PRODUCT EXPERIMENT
 
-          CURRENT UI
+          Ordinary stereo is no longer replaced by two fully HRTF-rendered virtual
+          speakers. The authored stereo master remains the direct signal.
 
-              ON / OFF      Omniphony versus dry comparison
-              Quit          stop the worker and close the app
-              status line   running / switching / failed state
+              captured stereo master
+                    |\
+                    | \-> side evidence (L-R)/2
+                    |      -> high-pass around 220 Hz
+                    |      -> rear/side Omniphony support scene
+                    |      -> upstream HRTF/ITD binaural renderer
+                    |      -> low-level support field (~14%)
+                    |
+                    +-----> latency-aligned untouched direct stereo
+                                   |
+                                   + support field
+                                   v
+                              headphones
 
-          PROTOTYPE ON/OFF BEHAVIOR
+          The direct stereo is buffered to match the Omniphony support-field latency
+          before the two paths are combined. This is important: mixing an undelayed
+          master with a delayed spatial copy would itself create comb filtering.
 
-          Clicking ON/OFF intentionally restarts the hidden worker in the requested
-          state. A short interruption is expected. Destroying the old worker also
-          destroys its old capture/output queues, so queued wet audio cannot leak
-          after OFF. A polished implementation can later make this sample-aligned.
+          The support field gets a veto at clipping. The original master is not scaled
+          down merely to make room for the effect.
 
-          If the hidden worker fails, the app stays open and writes diagnostics to:
+          The support scene deliberately uses:
 
-              omniphony.log
-
-          CURRENT TEMPORARY MUSIC ROUTE
-
-              foobar / Windows applications
-                -> existing Hi-Fi Cable render endpoint
-                -> self-excluding Windows process loopback
-                -> request 48 kHz 2ch first even if the temporary endpoint is 7.1
-                -> stereo-music Omniphony presentation
-                -> automatically preferred FiiO physical output
-                -> headphones
-
-          This is migration scaffolding, not the final platform route.
-
-          IMPORTANT: ONE PHYSICAL PATH ONLY
-
-          Keep the existing HeSuVi / Hi-Fi / ASIO software INSTALLED for reversibility,
-          but do not leave an old route physically forwarding to the FiiO while
-          Omniphony is also sending to the FiiO.
-
-          FOR THE CURRENT STEREO-MUSIC TEST
-
-          1. Keep Hi-Fi Cable installed and Windows/foobar routed to it.
-          2. Disable/bypass HeSuVi / Equalizer APO virtualization.
-          3. STOP/BYPASS ASIO Bridge or any old route independently forwarding to FiiO.
-          4. Disable foobar's 5.1 upmix. Feed ordinary stereo music.
-          5. Leave the FiiO connected; Omniphony automatically prefers it.
-
-          The music preset is deliberately NOT the upstream 7.1.4 demo preset.
-          It currently uses:
-
-              stereo capture first
-              wider front-side L/R presentation
-              SAF/KEMAR HRTF
-              very light early reflections (0.12)
+              SAF/KEMAR upstream Omniphony HRTF path
+              rear/side virtual support positions
+              no early reflections
               no late reverb
-              no distance air-absorption
+              no distance air absorption
 
-          upstream-demo-reference.yaml remains bundled as a known-spatial regression
-          control. It is no longer the normal live-music runtime preset.
+          This is a bounded architecture test, not the final spatial strength.
 
-          Diagnostic escape hatches only:
+          ON / OFF
 
-              LIST-DEVICES.cmd
-              omniphony_live.exe --output "FiiO"
-              omniphony_live.exe --rich-bed
+          Clicking ON/OFF restarts the hidden worker. A short gap is intentional so
+          the previous capture/output/convolution queues cannot leak into the new A/B.
 
-          --rich-bed preserves the earlier 8/6-channel-first loopback path for plumbing
-          tests. It is NOT the final mixed-source architecture. The intended future
-          platform host keeps stereo music and native surround/object sources as
-          independent logical streams rather than forcing the whole OS mix through one
-          global channel layout.
+          OFF is the clean captured 2-channel master.
+
+          MIGRATION TEST SETUP
+
+          Keep your existing HeSuVi / Hi-Fi / ASIO stack INSTALLED.
+
+          For trustworthy listening:
+
+          1. Keep Hi-Fi Cable installed and keep normal Windows/foobar output routed to it.
+          2. Disable HeSuVi / old virtualization.
+          3. Stop ASIO Bridge or any other route independently forwarding to FiiO.
+          4. Disable foobar's 5.1 upmix and feed ordinary stereo.
+          5. Run Omniphony.exe. It automatically prefers the physical FiiO endpoint.
+
+          The old full-wet stereo prototype and upstream demo configs remain bundled as
+          regression/reference material. omniphony_live.exe remains a diagnostic tool.
 
           PRODUCT ARCHITECTURE
 
-              Omniphony.exe / platform shell
-                -> platform worker / audio adapter
-                -> portable Omniphony core
-                -> binaural stereo output
+              platform shell / host
+                    -> portable source presentation
+                    -> upstream Omniphony spatial/binaural core
+                    -> 2-channel physical headphones
 
           Windows is the first host, not part of the portable renderer identity.
           '@ | Set-Content (Join-Path $dist 'LIVE-README.txt')
@@ -262,6 +247,7 @@ jobs:
             'LIST-DEVICES.cmd',
             'reference-demo\upstream-demo-reference.yaml',
             'reference-demo\stereo-music-prototype.yaml',
+            'reference-demo\stereo-field-prototype.yaml',
             'reference-demo\7.1.4.yaml',
             'LIVE-README.txt'
           )) {
