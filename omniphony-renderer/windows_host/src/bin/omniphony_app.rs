@@ -26,12 +26,12 @@ use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    BS_PUSHBUTTON, COLOR_WINDOW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW,
-    DefWindowProcW, DestroyWindow, DispatchMessageW, GetDlgItem, GetMessageW, IDC_ARROW,
-    LoadCursorW, MB_ICONERROR, MB_OK, MSG, MessageBoxW, PostQuitMessage, RegisterClassW,
-    SW_SHOW, SetTimer, SetWindowTextW, ShowWindow, TranslateMessage, UpdateWindow, WM_CLOSE,
-    WM_COMMAND, WM_CREATE, WM_DESTROY, WM_TIMER, WNDCLASSW, WS_CAPTION, WS_CHILD,
-    WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+    BS_PUSHBUTTON, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW,
+    DestroyWindow, DispatchMessageW, GetDlgItem, GetMessageW, IDC_ARROW, LoadCursorW,
+    MB_ICONERROR, MB_OK, MSG, MessageBoxW, PostQuitMessage, RegisterClassW, SW_SHOW, SetTimer,
+    SetWindowTextW, ShowWindow, TranslateMessage, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_DESTROY,
+    WM_TIMER, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU,
+    WS_TABSTOP, WS_VISIBLE,
 };
 
 #[cfg(target_os = "windows")]
@@ -408,7 +408,7 @@ fn run_windows_app() -> anyhow::Result<()> {
     class.lpfnWndProc = Some(window_proc);
     class.hInstance = instance;
     class.hCursor = unsafe { LoadCursorW(std::ptr::null_mut(), IDC_ARROW) };
-    class.hbrBackground = (COLOR_WINDOW as usize + 1) as _;
+    class.hbrBackground = std::ptr::null_mut();
     class.lpszClassName = class_name.as_ptr();
 
     if unsafe { RegisterClassW(&class) } == 0 {
@@ -437,7 +437,6 @@ fn run_windows_app() -> anyhow::Result<()> {
 
     unsafe {
         ShowWindow(hwnd, SW_SHOW);
-        UpdateWindow(hwnd);
     }
 
     let mut message: MSG = unsafe { std::mem::zeroed() };
