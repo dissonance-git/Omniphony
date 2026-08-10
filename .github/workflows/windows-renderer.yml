@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 # Only the newest commit on a branch is relevant during rapid iteration. Cancel
-# superseded runs so a burst of documentation/repository cleanup does not leave
-# stale Windows builds queued behind the current product head.
+# superseded runs so a burst of development commits does not leave stale Windows
+# builds queued behind the current product head.
 concurrency:
   group: omniphony-renderer-${{ github.ref }}
   cancel-in-progress: true
@@ -21,8 +21,6 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   RUST_TOOLCHAIN: 1.88.0
-  # Hosted runners use Node 24 by default as of June 2026. Keep the opt-in
-  # explicit as a guard against accidentally adding an older JS action later.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
@@ -46,10 +44,6 @@ jobs:
           rustc --version --verbose
           cargo --version
 
-      # The original spatial-dsp CI was build-first: formatting was never allowed
-      # to prevent the compiler from telling us whether the product actually
-      # builds. Normalize the runner worktree so rustfmt drift cannot mask a real
-      # Rust/test failure. Source-format cleanup can be committed independently.
       - name: Normalize Rust formatting for CI
         run: cargo fmt --all
 
@@ -125,10 +119,7 @@ jobs:
       - name: Test renderer core
         run: cargo test -p renderer
 
-      # This is the product-default Windows transport lane. It intentionally
-      # compiles CPAL without the optional ASIO feature so ordinary Windows
-      # builds do not require the Steinberg SDK or specialist drivers.
-      - name: Check native Windows WASAPI host
+      - name: Check native Windows WASAPI host and listener
         run: cargo check -p windows_host
 
   windows-engine-artifact:
@@ -155,18 +146,13 @@ jobs:
       - name: Normalize Rust formatting for CI
         run: cargo fmt --all
 
-      # `orender_ffi` / `orender_engine` deliberately do not depend on the host
-      # audio layer. That lets CI validate and package the renderer engine without
-      # requiring Steinberg's separately licensed ASIO SDK. `windows_host` is a
-      # separate WASAPI-first diagnostic/product-shell seed, while `realtime_ffi`
-      # is the tiny PCM boundary a future APO or virtual endpoint can call.
       - name: Test headless engine boundary
         run: cargo test -p orender_engine -p orender_ffi -p reference_bridge
 
-      - name: Build release engine and Windows host boundaries
+      - name: Build release engine and Windows listening boundaries
         run: cargo build --profile release-deploy -p orender_ffi -p reference_bridge -p realtime_ffi -p windows_host
 
-      - name: Collect first audible Windows prototype
+      - name: Collect Windows listening prototype
         run: |
           $dist = Join-Path $PWD 'dist\windows-x64'
           $reference = Join-Path $dist 'reference-demo'
@@ -177,6 +163,7 @@ jobs:
             'target\release-deploy\reference_bridge.dll',
             'target\release-deploy\omniphony_realtime.dll',
             'target\release-deploy\windows_host.exe',
+            'target\release-deploy\omniphony_listen.exe',
             'orender_ffi\include\orender.h',
             'realtime_ffi\include\omniphony_realtime.h'
           )
@@ -192,36 +179,44 @@ jobs:
           Copy-Item 'assets\demo\spatial-demo.wav' (Join-Path $reference 'spatial-demo.wav') -Force
 
           @'
-          Omniphony for Headphones — internal P0 listening prototype
+          Omniphony for Headphones — internal P0.1 listening prototype
 
           This is not an installer or a system-wide audio replacement yet.
 
-          1. Set the Windows default output device to the headphones/DAC you want to test.
-          2. Keep volume conservative for the first run.
-          3. Open PowerShell in this folder.
-          4. Electrical/native-output check:
-               .\windows_host.exe --smoke-output
-             This should play a quiet 440 Hz tone for about two seconds.
-          5. Protected Omniphony reference:
-               .\windows_host.exe --reference-demo
-             This renders the bundled rotating 7.1.4 reference through the protected
-             Omniphony binaural configuration and plays the stereo result through WASAPI.
+          Set the Windows default output device to the headphones/DAC you want to test
+          and keep volume conservative on first playback.
 
-          Do not judge arbitrary stereo-music transformation from this build. P0 proves
-          native Windows transport + the inherited Omniphony binaural renderer first.
-          '@ | Set-Content (Join-Path $dist 'P0-README.txt')
+          Native output check:
+              .\windows_host.exe --smoke-output
+
+          Bundled protected reference:
+              .\windows_host.exe --reference-demo
+
+          Real source material:
+              .\omniphony_listen.exe "C:\path\to\test.wav"
+
+          The real-material listener currently accepts uncompressed WAV material handled
+          by reference_bridge. Stereo is conservatively treated as an L/R channel bed;
+          it is NOT yet the future intelligent full-sphere stereo presentation. True
+          5.1/7.1/7.1.4 WAV material already carries richer channel-position truth and is
+          especially useful for testing the renderer.
+
+          This prototype renders the complete input file before playback. Continuous
+          bounded realtime file/system streaming is the next transport step.
+          '@ | Set-Content (Join-Path $dist 'LISTEN-README.txt')
 
           foreach ($required in @(
             'orender.dll',
             'reference_bridge.dll',
             'omniphony_realtime.dll',
             'windows_host.exe',
+            'omniphony_listen.exe',
             'reference-demo\upstream-demo-reference.yaml',
             'reference-demo\7.1.4.yaml',
             'reference-demo\spatial-demo.wav'
           )) {
             if (!(Test-Path (Join-Path $dist $required))) {
-              throw "required P0 artifact was not collected: $required"
+              throw "required listening artifact was not collected: $required"
             }
           }
 
@@ -233,10 +228,6 @@ jobs:
 
           Get-ChildItem $dist -Recurse | Format-Table FullName, Length
 
-      # The hosted runner may have no usable audio endpoint, but it can still
-      # execute the exact packaged decoder bridge + config + layout + binaural
-      # renderer. This catches missing DLL/assets and Windows-only dynamic-load
-      # failures before the artifact reaches a real listener.
       - name: Validate packaged protected reference render
         run: |
           Push-Location 'dist\windows-x64'
@@ -250,10 +241,23 @@ jobs:
             Pop-Location
           }
 
+      - name: Validate packaged real-material render path
+        run: |
+          Push-Location 'dist\windows-x64'
+          try {
+            .\omniphony_listen.exe --render-only .\reference-demo\spatial-demo.wav
+            if ($LASTEXITCODE -ne 0) {
+              throw "packaged file-listener validation exited with code $LASTEXITCODE"
+            }
+          }
+          finally {
+            Pop-Location
+          }
+
       - name: Upload Windows renderer engine
         uses: actions/upload-artifact@v6
         with:
-          name: omniphony-headphones-p0-windows-x64-${{ github.sha }}
+          name: omniphony-headphones-p0-1-windows-x64-${{ github.sha }}
           path: omniphony-renderer/dist/windows-x64/
           if-no-files-found: error
           retention-days: 14
