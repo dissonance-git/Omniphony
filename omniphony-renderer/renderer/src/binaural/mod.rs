@@ -218,6 +218,20 @@ impl ChannelDsp {
     }
 }
 
+impl ChannelDsp {
+    fn reset_runtime_state(&mut self) {
+        self.delay_l.reset_runtime_state();
+        self.delay_r.reset_runtime_state();
+        self.conv_l.reset_runtime_state();
+        self.conv_r.reset_runtime_state();
+        if let Some(bank) = self.refl.as_mut() {
+            bank.reset_runtime_state();
+        }
+        self.air_state = 0.0;
+        self.air_coeff = 0.0;
+    }
+}
+
 /// Tagged result from the asynchronous HRIR worker.
 ///
 /// A build can be expensive enough that a newer user request arrives while an
@@ -293,10 +307,7 @@ impl BinauralRenderer {
                             req = newer;
                         }
                         let set = std::sync::Arc::new(Self::build_hrir(&req, sample_rate));
-                        slot.store(Some(std::sync::Arc::new(BuiltHrirSet {
-                            source: req,
-                            set,
-                        })));
+                        slot.store(Some(std::sync::Arc::new(BuiltHrirSet { source: req, set })));
                     }
                 })
                 .expect("spawn binaural HRIR rebuild worker");
@@ -318,6 +329,22 @@ impl BinauralRenderer {
             fdn: None,
             reverb_bus: Vec::new(),
         }
+    }
+
+    /// Reset one discontinuous audio stream while preserving expensive immutable
+    /// configuration: the selected HRIR grid and rebuild worker remain alive,
+    /// while every sample-history state is cleared in place.
+    pub fn reset_runtime_state(&mut self) {
+        for channel in &mut self.channels {
+            if let Some(dsp) = channel.as_mut() {
+                dsp.reset_runtime_state();
+            }
+        }
+        self.channel_gain_boundary.fill(0.0);
+        if let Some(fdn) = self.fdn.as_mut() {
+            fdn.reset_runtime_state();
+        }
+        self.reverb_bus.fill(0.0);
     }
 
     /// Identity of the active HRIR grid (tests observe the async swap with it).

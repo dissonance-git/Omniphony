@@ -167,9 +167,24 @@ impl Fdn {
                 self.fb_gain[i] = 10.0f32.powf(exp);
             }
         }
-        let len =
-            (predelay_ms.clamp(0.0, 100.0) * self.sample_rate as f32 / 1000.0) as usize;
+        let len = (predelay_ms.clamp(0.0, 100.0) * self.sample_rate as f32 / 1000.0) as usize;
         self.pre_len = len.min(self.predelay.len() - 1);
+    }
+
+    /// Reset stored acoustic history at a discontinuous stream boundary while
+    /// retaining all delay-line allocations and the currently configured room.
+    pub fn reset_runtime_state(&mut self) {
+        for line in &mut self.lines {
+            line.fill(0.0);
+        }
+        self.pos = [0; N];
+        self.damp_state = [0.0; N];
+        self.cur_delay = self.base_len;
+        self.mod_step = [0.0; N];
+        self.mod_samples_left = 0;
+        self.xover_state = Default::default();
+        self.predelay.fill(0.0);
+        self.pre_pos = 0;
     }
 
     /// Start the next fixed-length modulation segment. This is called by sample
@@ -317,11 +332,7 @@ mod tests {
         let mut start = 0usize;
         while start < bus.len() {
             let end = (start + block).min(bus.len());
-            fdn.process_block(
-                &bus[start..end],
-                1.0,
-                &mut out[start * 2..end * 2],
-            );
+            fdn.process_block(&bus[start..end], 1.0, &mut out[start * 2..end * 2]);
             start = end;
         }
         out
@@ -391,7 +402,10 @@ mod tests {
         let whole = render_partitioned(&bus, 0.45, 7.0, bus.len());
         let live_40 = render_partitioned(&bus, 0.45, 7.0, 40);
         let offline_1024 = render_partitioned(&bus, 0.45, 7.0, 1024);
-        assert_eq!(whole, live_40, "40-sample blocks changed the FDN trajectory");
+        assert_eq!(
+            whole, live_40,
+            "40-sample blocks changed the FDN trajectory"
+        );
         assert_eq!(
             whole, offline_1024,
             "1024-sample blocks changed the FDN trajectory"

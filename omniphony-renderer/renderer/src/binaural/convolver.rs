@@ -96,6 +96,19 @@ impl EarConvolver {
         self.fade_len = fade_len as u32;
     }
 
+    /// Reset stream-lifetime FIR history without reallocating. The next HRIR
+    /// installation is treated as the first transfer function of the new stream,
+    /// so it installs immediately rather than crossfading from stale geometry.
+    pub fn reset_runtime_state(&mut self) {
+        self.hist.fill(0.0);
+        self.pos = 0;
+        self.coeffs.fill(0.0);
+        self.prev_coeffs.fill(0.0);
+        self.initialized = false;
+        self.fade_pos = 0;
+        self.fade_len = 0;
+    }
+
     /// Push one input sample and return the filtered output.
     #[inline]
     pub fn process(&mut self, x: f32) -> f32 {

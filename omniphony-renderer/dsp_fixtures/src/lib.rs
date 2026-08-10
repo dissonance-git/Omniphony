@@ -15,3 +15,4 @@ pub mod dirs;
 pub mod golden;
 pub mod residual;
 pub mod scene;
+pub mod stream_reset;

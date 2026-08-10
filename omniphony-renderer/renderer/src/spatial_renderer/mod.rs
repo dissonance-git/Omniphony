@@ -404,6 +404,11 @@ impl SpatialRenderer {
     }
 
     pub fn reset_runtime_state(&self) {
+        // Dialogue normalization belongs to the old stream unless the new one
+        // explicitly publishes its own value. Keep session-level master/auto-gain
+        // policy, but return per-stream loudness correction to neutral immediately.
+        self.loudness_gain
+            .store(1.0f32.to_bits(), std::sync::atomic::Ordering::Relaxed);
         self.reset_requested
             .store(true, std::sync::atomic::Ordering::Release);
         self.first_render
@@ -544,7 +549,24 @@ impl SpatialRenderer {
             .reset_requested
             .swap(false, std::sync::atomic::Ordering::Acquire)
         {
-            self.channel_states.clear();
+            // A new logical stream owns a new audio history. Preserve allocated
+            // storage/configuration, but clear every state that can contain old
+            // samples or an old trajectory. This keeps reset bounded and avoids
+            // allocator work in the realtime callback.
+            for state in &mut self.channel_states {
+                state.reset_runtime_state();
+            }
+            for delay in &mut self.delay_lines {
+                delay.reset_runtime_state();
+            }
+            for slot in &mut self.crossover_filter_states {
+                if let Some(states) = slot.as_mut() {
+                    for state in states {
+                        *state = BiquadState::default();
+                    }
+                }
+            }
+            self.binaural.reset_runtime_state();
         }
 
         // ── 0. Independent binaural (headphone) path ─────────────────────────

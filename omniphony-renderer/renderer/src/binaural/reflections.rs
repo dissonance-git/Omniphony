@@ -158,6 +158,14 @@ impl ReflectionBank {
         }
     }
 
+    /// Reset one logical stream while retaining the preallocated reflection ring.
+    pub fn reset_runtime_state(&mut self) {
+        self.ring.fill(0.0);
+        self.write_pos = 0;
+        self.taps_l = Default::default();
+        self.taps_r = Default::default();
+    }
+
     /// Write one input sample and return the summed (left, right) reflection
     /// contribution.
     #[inline]
@@ -259,13 +267,7 @@ mod tests {
     #[test]
     fn binaural_targets_can_arrive_at_different_ear_times() {
         let mut bank = ReflectionBank::new(48_000);
-        bank.set_targets_binaural(
-            0,
-            10.0 / 48_000.0,
-            14.0 / 48_000.0,
-            1.0,
-            1.0,
-        );
+        bank.set_targets_binaural(0, 10.0 / 48_000.0, 14.0 / 48_000.0, 1.0, 1.0);
         for _ in 0..4_000 {
             bank.process(0.0);
         }
@@ -275,10 +277,26 @@ mod tests {
         for _ in 0..20 {
             outs.push(bank.process(0.0));
         }
-        assert!((outs[10].0 - 1.0).abs() < 1e-3, "left arrival={:?}", outs[10]);
-        assert!(outs[10].1.abs() < 1e-3, "right arrived too early={:?}", outs[10]);
-        assert!((outs[14].1 - 1.0).abs() < 1e-3, "right arrival={:?}", outs[14]);
-        assert!(outs[14].0.abs() < 1e-3, "left leaked at right arrival={:?}", outs[14]);
+        assert!(
+            (outs[10].0 - 1.0).abs() < 1e-3,
+            "left arrival={:?}",
+            outs[10]
+        );
+        assert!(
+            outs[10].1.abs() < 1e-3,
+            "right arrived too early={:?}",
+            outs[10]
+        );
+        assert!(
+            (outs[14].1 - 1.0).abs() < 1e-3,
+            "right arrival={:?}",
+            outs[14]
+        );
+        assert!(
+            outs[14].0.abs() < 1e-3,
+            "left leaked at right arrival={:?}",
+            outs[14]
+        );
     }
 
     #[test]

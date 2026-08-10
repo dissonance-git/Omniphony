@@ -59,6 +59,16 @@ impl DelayLine {
         self.target == 0.0 && self.current == 0.0
     }
 
+    /// Reset stream-lifetime history in place. Capacity is retained so a
+    /// decoder seek/track restart cannot leak old delayed samples into the new
+    /// stream and does not allocate or free on the realtime thread.
+    pub fn reset_runtime_state(&mut self) {
+        self.buf.fill(0.0);
+        self.write_pos = 0;
+        self.current = 0.0;
+        self.target = 0.0;
+    }
+
     /// Process one sample through the delay line.
     ///
     /// Write `input` into the buffer, ramp the read pointer one step toward the
