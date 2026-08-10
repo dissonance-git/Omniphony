@@ -5,8 +5,8 @@ version = "0.4.3"
 # bodies stay implicitly unsafe — simpler for a thin C ABI shim.
 edition = "2021"
 license = "GPL-3.0-or-later"
-description = "C ABI for the orender spatial audio renderer (produces liborender.so)"
-repository = "https://github.com/mgth/Omniphony"
+description = "C ABI for the Omniphony headless renderer engine"
+repository = "https://github.com/dissonance-git/Omniphony"
 
 [lib]
 # Produces liborender.so / orender.dll
@@ -27,9 +27,8 @@ env_logger = "0.11"
 bridge_api = { version = "0.3.0", path = "../bridge_api" }
 
 [features]
-# SOFA (personalised HRTF) support, on by default: liborender is the desktop
-# artifact and the pure-Rust reader adds no system dependency. Embedded
-# builds can use --no-default-features.
+# SOFA (personalised HRTF) support, on by default for the headless engine
+# artifact; embedded builds can use --no-default-features.
 default = ["sofa"]
 sofa = ["orender_engine/sofa"]
 
