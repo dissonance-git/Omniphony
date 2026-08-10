@@ -142,15 +142,18 @@ fn itd_magnitude_tracks_the_model_wide() {
     }
 }
 
-/// Detect a direct-arrival onset without asking the two ears to have the same
-/// spectral phase. The threshold mirrors the measured-HRIR preprocessing idea
-/// but is intentionally implemented independently in the validation module.
+/// Detect the bulk direct-arrival anchor using the same declared amplitude
+/// criterion as measured-HRIR preprocessing. This does not make the test
+/// tautological: preprocessing aligns scattered measurements, while this gate
+/// probes the *interpolated regular HRTF grid*. A different threshold (the old
+/// validator used 10% while preprocessing used 15%) can relabel low-level
+/// pre-ringing as an earlier arrival in one ear and manufacture a false ITD.
 fn direct_arrival_index(ir: &[f32]) -> Option<usize> {
     let peak = ir.iter().map(|x| x.abs()).fold(0.0f32, f32::max);
     if peak <= 1.0e-9 {
         return None;
     }
-    let threshold = peak * 0.10;
+    let threshold = peak * super::measured::ONSET_FRAC;
     ir.iter().position(|x| x.abs() >= threshold)
 }
 

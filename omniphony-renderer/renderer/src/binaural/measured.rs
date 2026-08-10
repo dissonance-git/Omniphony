@@ -21,7 +21,7 @@ const BLOB_MAGIC: u32 = 0x4F48_4952; // 'OHIR'
 /// Onset detection / alignment parameters (mirror the generator's, used for any
 /// not-yet-aligned source such as SOFA).
 const PRE_SAMPLES: usize = 8;
-const ONSET_FRAC: f32 = 0.15;
+pub(super) const ONSET_FRAC: f32 = 0.15;
 
 /// A scattered set of measured HRIR pairs with their directions (renderer
 /// convention: az 0 = front, +az = right; el 0 = horizontal, +90 = up).
