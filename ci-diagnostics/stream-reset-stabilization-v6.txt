@@ -1,6 +1,6 @@
 Omniphony guarded stream-reset stabilization
-base_sha=72a823c23a5a756736cb5b2c7c37e80252a3c4cd
-failed_stage=dsp_fixtures
+base_sha=e1b6b736f0df58395931ea9a498a27d2fede4307
+failed_stage=renderer_tests
 rust_toolchain=1.88.0
 
 ===== patch.log (last 240 lines) =====
@@ -33,107 +33,107 @@ created stream reset end-to-end fixture
       Adding windows v0.54.0 (available: v0.62.2)
       Adding windows-service v0.7.0 (available: v0.8.1)
  Downloading crates ...
-  Downloaded adler2 v2.0.1
-  Downloaded anstyle-parse v1.0.0
-  Downloaded anstyle-query v1.1.5
-  Downloaded equivalent v1.0.2
+  Downloaded autocfg v1.5.1
+  Downloaded defmt v1.1.1
+  Downloaded num-complex v0.4.6
+  Downloaded regex v1.13.1
+  Downloaded crossbeam-epoch v0.9.20
   Downloaded zmij v1.0.23
-  Downloaded abi_stable_shared v0.11.0
-  Downloaded anstyle v1.0.14
-  Downloaded anstream v1.0.0
-  Downloaded itoa v1.0.18
-  Downloaded tstr_proc_macros v0.2.2
-  Downloaded colorchoice v1.0.5
-  Downloaded is_terminal_polyfill v1.70.2
-  Downloaded env_filter v2.0.0
+  Downloaded anstyle-parse v1.0.0
+  Downloaded serde_yaml_ng v0.10.0
+  Downloaded crossbeam-deque v0.8.7
+  Downloaded crc32fast v1.5.0
+  Downloaded libloading v0.7.4
+  Downloaded paste v1.0.15
+  Downloaded rustc_version v0.4.1
+  Downloaded semver v1.0.28
+  Downloaded scopeguard v1.2.0
+  Downloaded typed-arena v2.0.2
   Downloaded rustc-hash v1.1.0
   Downloaded primal-check v0.3.4
-  Downloaded defmt-parser v1.0.0
-  Downloaded scopeguard v1.2.0
-  Downloaded transpose v0.2.3
+  Downloaded simd-adler32 v0.3.10
   Downloaded utf8parse v0.2.2
-  Downloaded rustc_version v0.4.1
-  Downloaded cfg-if v1.0.4
-  Downloaded lock_api v0.4.14
-  Downloaded bitflags v1.3.2
+  Downloaded prettyplease v0.2.37
+  Downloaded either v1.17.0
+  Downloaded anyhow v1.0.104
+  Downloaded equivalent v1.0.2
+  Downloaded shlex v1.3.0
+  Downloaded quote v1.0.47
+  Downloaded repr_offset v0.2.2
+  Downloaded strength_reduce v0.2.4
+  Downloaded tstr v0.2.4
   Downloaded thiserror-impl v2.0.20
-  Downloaded typed-arena v2.0.2
-  Downloaded autocfg v1.5.1
   Downloaded thiserror v2.0.20
-  Downloaded smallvec v1.15.2
-  Downloaded parking_lot_core v0.9.12
-  Downloaded crc32fast v1.5.0
-  Downloaded generational-arena v0.2.9
-  Downloaded crossbeam-utils v0.8.22
-  Downloaded proc-macro2 v1.0.107
-  Downloaded serde_derive v1.0.229
-  Downloaded core_extensions_proc_macros v1.5.4
-  Downloaded const_panic v0.2.15
-  Downloaded unsafe-libyaml v0.2.11
-  Downloaded typewit v1.15.2
-  Downloaded flate2 v1.1.9
-  Downloaded serde v1.0.229
-  Downloaded nom v7.1.3
-  Downloaded indexmap v2.14.0
-  Downloaded regex v1.13.1
-  Downloaded jiff-core v0.1.0
-  Downloaded serde_json v1.0.151
-  Downloaded hashbrown v0.17.1
-  Downloaded rayon v1.12.0
-  Downloaded itertools v0.13.0
-  Downloaded bindgen v0.70.1
-  Downloaded syn v1.0.109
-  Downloaded syn v2.0.119
-  Downloaded abi_stable v0.11.3
-  Downloaded aho-corasick v1.1.5
-  Downloaded syn v3.0.3
-  Downloaded rustfft v6.4.1
-  Downloaded regex-syntax v0.8.11
-  Downloaded memchr v2.8.3
-  Downloaded crossbeam-channel v0.5.16
-  Downloaded core_extensions v1.5.4
-  Downloaded serde_core v1.0.229
-  Downloaded minimal-lexical v0.2.1
-  Downloaded log v0.4.33
-  Downloaded arc-swap v1.9.2
+  Downloaded rustversion v1.0.23
   Downloaded unicode-ident v1.0.24
-  Downloaded serde_yaml_ng v0.10.0
+  Downloaded serde v1.0.229
+  Downloaded typewit v1.15.2
+  Downloaded unsafe-libyaml v0.2.11
+  Downloaded serde_derive v1.0.229
+  Downloaded memchr v2.8.3
+  Downloaded flate2 v1.1.9
+  Downloaded crossbeam-channel v0.5.16
+  Downloaded nom v7.1.3
+  Downloaded core_extensions v1.5.4
+  Downloaded serde_json v1.0.151
+  Downloaded bindgen v0.70.1
+  Downloaded itertools v0.13.0
+  Downloaded rayon v1.12.0
+  Downloaded hashbrown v0.17.1
+  Downloaded minimal-lexical v0.2.1
+  Downloaded jiff-core v0.1.0
+  Downloaded smallvec v1.15.2
+  Downloaded syn v1.0.109
+  Downloaded syn v3.0.3
+  Downloaded syn v2.0.119
+  Downloaded rustfft v6.4.1
+  Downloaded serde_core v1.0.229
+  Downloaded regex-syntax v0.8.11
   Downloaded ryu v1.0.23
   Downloaded rayon-core v1.13.0
-  Downloaded regex-automata v0.4.18
-  Downloaded prettyplease v0.2.37
+  Downloaded indexmap v2.14.0
+  Downloaded proc-macro2 v1.0.107
+  Downloaded log v0.4.33
   Downloaded miniz_oxide v0.8.9
-  Downloaded bitflags v2.13.1
-  Downloaded jiff v0.2.35
-  Downloaded num-traits v0.2.19
-  Downloaded parking_lot v0.12.5
+  Downloaded crossbeam-utils v0.8.22
   Downloaded clang-sys v1.9.1
-  Downloaded crossbeam-epoch v0.9.20
-  Downloaded anyhow v1.0.104
-  Downloaded abi_stable_derive v0.11.3
-  Downloaded libc v0.2.189
-  Downloaded semver v1.0.28
-  Downloaded repr_offset v0.2.2
-  Downloaded quote v1.0.47
-  Downloaded glob v0.3.4
-  Downloaded defmt v1.1.1
-  Downloaded num-integer v0.1.46
-  Downloaded as_derive_utils v0.11.0
-  Downloaded tstr v0.2.4
-  Downloaded strength_reduce v0.2.4
-  Downloaded simd-adler32 v0.3.10
-  Downloaded shlex v1.3.0
-  Downloaded realfft v3.5.0
-  Downloaded paste v1.0.15
+  Downloaded parking_lot_core v0.9.12
+  Downloaded parking_lot v0.12.5
   Downloaded libloading v0.8.9
-  Downloaded libloading v0.7.4
-  Downloaded either v1.17.0
+  Downloaded glob v0.3.4
+  Downloaded realfft v3.5.0
+  Downloaded regex-automata v0.4.18
+  Downloaded jiff v0.2.35
+  Downloaded aho-corasick v1.1.5
+  Downloaded is_terminal_polyfill v1.70.2
+  Downloaded transpose v0.2.3
+  Downloaded arc-swap v1.9.2
+  Downloaded lock_api v0.4.14
+  Downloaded colorchoice v1.0.5
+  Downloaded num-traits v0.2.19
+  Downloaded defmt-parser v1.0.0
+  Downloaded itoa v1.0.18
+  Downloaded env_filter v2.0.0
+  Downloaded num-integer v0.1.46
+  Downloaded generational-arena v0.2.9
+  Downloaded core_extensions_proc_macros v1.5.4
+  Downloaded libc v0.2.189
   Downloaded cexpr v0.6.0
-  Downloaded rustversion v1.0.23
-  Downloaded num-complex v0.4.6
   Downloaded env_logger v0.11.11
   Downloaded defmt-macros v1.1.1
-  Downloaded crossbeam-deque v0.8.7
+  Downloaded anstream v1.0.0
+  Downloaded anstyle v1.0.14
+  Downloaded adler2 v2.0.1
+  Downloaded bitflags v1.3.2
+  Downloaded abi_stable_shared v0.11.0
+  Downloaded const_panic v0.2.15
+  Downloaded cfg-if v1.0.4
+  Downloaded as_derive_utils v0.11.0
+  Downloaded abi_stable v0.11.3
+  Downloaded anstyle-query v1.1.5
+  Downloaded tstr_proc_macros v0.2.2
+  Downloaded abi_stable_derive v0.11.3
+  Downloaded bitflags v2.13.1
    Compiling proc-macro2 v1.0.107
    Compiling unicode-ident v1.0.24
    Compiling quote v1.0.47
@@ -142,40 +142,40 @@ created stream reset end-to-end fixture
    Compiling crossbeam-utils v0.8.22
    Compiling serde_core v1.0.229
    Compiling autocfg v1.5.1
+   Compiling libc v0.2.189
    Compiling num-traits v0.2.19
    Compiling glob v0.3.4
-   Compiling libc v0.2.189
    Compiling syn v3.0.3
-   Compiling clang-sys v1.9.1
-   Compiling zmij v1.0.23
-   Compiling syn v1.0.109
    Compiling serde v1.0.229
+   Compiling clang-sys v1.9.1
    Compiling prettyplease v0.2.37
+   Compiling syn v1.0.109
+   Compiling zmij v1.0.23
    Compiling aho-corasick v1.1.5
-   Compiling either v1.17.0
-   Compiling anyhow v1.0.104
-   Compiling itoa v1.0.18
-   Compiling regex-syntax v0.8.11
    Compiling serde_json v1.0.151
-   Compiling serde_derive v1.0.229
-   Compiling core_extensions v1.5.4
    Compiling minimal-lexical v0.2.1
+   Compiling regex-syntax v0.8.11
    Compiling crossbeam-epoch v0.9.20
+   Compiling serde_derive v1.0.229
    Compiling parking_lot_core v0.9.12
+   Compiling itoa v1.0.18
+   Compiling either v1.17.0
+   Compiling core_extensions v1.5.4
+   Compiling anyhow v1.0.104
    Compiling regex-automata v0.4.18
    Compiling nom v7.1.3
    Compiling syn v2.0.119
    Compiling libloading v0.8.9
-   Compiling paste v1.0.15
-   Compiling scopeguard v1.2.0
-   Compiling core_extensions_proc_macros v1.5.4
    Compiling smallvec v1.15.2
-   Compiling utf8parse v0.2.2
-   Compiling bindgen v0.70.1
-   Compiling tstr_proc_macros v0.2.2
+   Compiling scopeguard v1.2.0
    Compiling crossbeam-deque v0.8.7
-   Compiling anstyle-parse v1.0.0
+   Compiling core_extensions_proc_macros v1.5.4
+   Compiling tstr_proc_macros v0.2.2
+   Compiling utf8parse v0.2.2
+   Compiling paste v1.0.15
+   Compiling bindgen v0.70.1
    Compiling tstr v0.2.4
+   Compiling anstyle-parse v1.0.0
    Compiling lock_api v0.4.14
    Compiling as_derive_utils v0.11.0
    Compiling regex v1.13.1
@@ -183,65 +183,74 @@ created stream reset end-to-end fixture
    Compiling abi_stable_shared v0.11.0
    Compiling itertools v0.13.0
    Compiling num-integer v0.1.46
-   Compiling rayon-core v1.13.0
-   Compiling anstyle v1.0.14
-   Compiling anstyle-query v1.1.5
-   Compiling rustc-hash v1.1.0
-   Compiling jiff-core v0.1.0
-   Compiling shlex v1.3.0
-   Compiling bitflags v2.13.1
    Compiling crc32fast v1.5.0
+   Compiling typewit v1.15.2
    Compiling colorchoice v1.0.5
+   Compiling jiff-core v0.1.0
+   Compiling anstyle v1.0.14
+   Compiling typed-arena v2.0.2
+   Compiling bitflags v2.13.1
+   Compiling anstyle-query v1.1.5
+   Compiling log v0.4.33
+   Compiling shlex v1.3.0
    Compiling rustversion v1.0.23
    Compiling is_terminal_polyfill v1.70.2
-   Compiling typewit v1.15.2
-   Compiling log v0.4.33
-   Compiling typed-arena v2.0.2
-   Compiling abi_stable_derive v0.11.3
+   Compiling rayon-core v1.13.0
+   Compiling rustc-hash v1.1.0
+   Compiling anstream v1.0.0
    Compiling env_filter v2.0.0
    Compiling jiff v0.2.35
+   Compiling abi_stable_derive v0.11.3
    Compiling const_panic v0.2.15
-   Compiling anstream v1.0.0
    Compiling parking_lot v0.12.5
    Compiling repr_offset v0.2.2
    Compiling crossbeam-channel v0.5.16
    Compiling libloading v0.7.4
    Compiling generational-arena v0.2.9
    Compiling strength_reduce v0.2.4
-   Compiling hashbrown v0.17.1
+   Compiling adler2 v2.0.1
    Compiling equivalent v1.0.2
    Compiling simd-adler32 v0.3.10
-   Compiling adler2 v2.0.1
-   Compiling miniz_oxide v0.8.9
+   Compiling hashbrown v0.17.1
    Compiling indexmap v2.14.0
+   Compiling miniz_oxide v0.8.9
    Compiling transpose v0.2.3
    Compiling env_logger v0.11.11
    Compiling primal-check v0.3.4
-   Compiling abi_stable v0.11.3
    Compiling num-complex v0.4.6
+   Compiling ryu v1.0.23
    Compiling unsafe-libyaml v0.2.11
    Compiling renderer v0.2.4 (/home/runner/work/Omniphony/Omniphony/omniphony-renderer/renderer)
-   Compiling ryu v1.0.23
-   Compiling rustfft v6.4.1
    Compiling arc-swap v1.9.2
-   Compiling serde_yaml_ng v0.10.0
+   Compiling abi_stable v0.11.3
+   Compiling rustfft v6.4.1
    Compiling rayon v1.12.0
+   Compiling serde_yaml_ng v0.10.0
    Compiling flate2 v1.1.9
    Compiling sys v0.1.0 (/home/runner/work/Omniphony/Omniphony/omniphony-renderer/sys)
    Compiling realfft v3.5.0
    Compiling bridge_api v0.3.0 (/home/runner/work/Omniphony/Omniphony/omniphony-renderer/bridge_api)
    Compiling dsp_fixtures v0.1.0 (/home/runner/work/Omniphony/Omniphony/omniphony-renderer/dsp_fixtures)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 45.16s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 48.07s
      Running unittests src/lib.rs (target/debug/deps/dsp_fixtures-3c80d91ebdaaf61e)
 
 running 1 test
 binaural gain callback invariance: 40-vs-240=-138.47 dBFS, 40-vs-960=-144.49 dBFS
 test binaural_block_size::binaural_gain_is_invariant_to_host_block_size ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.13s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.12s
 
 
 ===== dsp.log (last 240 lines) =====
+   Compiling dsp_fixtures v0.1.0 (/home/runner/work/Omniphony/Omniphony/omniphony-renderer/dsp_fixtures)
+warning: unused import: `crate::residual::peak_residual_dbfs`
+ --> dsp_fixtures/src/binaural_block_size.rs:8:5
+  |
+8 | use crate::residual::peak_residual_dbfs;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
 warning: unused import: `SAMPLE_RATE`
  --> dsp_fixtures/src/binaural_block_size.rs:9:20
   |
@@ -395,21 +404,21 @@ warning: function `render_click_train` is never used
    |    ^^^^^^^^^^^^^^^^^^
 
 warning: function `stereo_energy` is never used
-  --> dsp_fixtures/src/binaural_groove_fidelity.rs:96:4
-   |
-96 | fn stereo_energy(output: &[f32], sample: usize) -> f32 {
-   |    ^^^^^^^^^^^^^
+   --> dsp_fixtures/src/binaural_groove_fidelity.rs:104:4
+    |
+104 | fn stereo_energy(output: &[f32], sample: usize) -> f32 {
+    |    ^^^^^^^^^^^^^
 
 warning: function `detected_peaks` is never used
-   --> dsp_fixtures/src/binaural_groove_fidelity.rs:102:4
+   --> dsp_fixtures/src/binaural_groove_fidelity.rs:110:4
     |
-102 | fn detected_peaks(output: &[f32], expected: &[usize]) -> Vec<usize> {
+110 | fn detected_peaks(output: &[f32], expected: &[usize]) -> Vec<usize> {
     |    ^^^^^^^^^^^^^^
 
 warning: function `assert_timing_preserved` is never used
-   --> dsp_fixtures/src/binaural_groove_fidelity.rs:122:4
+   --> dsp_fixtures/src/binaural_groove_fidelity.rs:130:4
     |
-122 | fn assert_timing_preserved(offbeat_phase: f64, block_samples: usize) {
+130 | fn assert_timing_preserved(offbeat_phase: f64, block_samples: usize) {
     |    ^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: function `object_event` is never used
@@ -419,16 +428,16 @@ warning: function `object_event` is never used
    |    ^^^^^^^^^^^^
 
 warning: `dsp_fixtures` (lib) generated 30 warnings (run `cargo fix --lib -p dsp_fixtures` to apply 5 suggestions)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.23s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.58s
      Running unittests src/lib.rs (target/debug/deps/dsp_fixtures-3c80d91ebdaaf61e)
 
 running 33 tests
 test analysis::tests::bin_frequencies_span_dc_to_nyquist ... ok
-test analysis::tests::lag_sign_is_negative_when_left_is_delayed ... ok
 test analysis::tests::magnitude_response_reports_a_known_gain ... ok
 test analysis::tests::identical_channels_have_zero_lag ... ok
-test analysis::tests::recovers_an_integer_lag ... ok
+test analysis::tests::lag_sign_is_negative_when_left_is_delayed ... ok
 test analysis::tests::recovers_a_fractional_lag ... ok
+test analysis::tests::recovers_an_integer_lag ... ok
 test analysis::tests::unit_impulse_is_flat_at_zero_db ... ok
 test binaural_block_size::known_defect_binaural_position_is_block_quantized ... ignored, known defect: binaural position/HRTF trajectory is still quantized to callback boundaries
 test analysis::tests::aperiodic_excitation_is_accepted ... ok
@@ -452,36 +461,267 @@ test residual::tests::peak_dbfs_reads_full_scale_as_zero ... ok
 test residual::tests::rms_dbfs_has_known_values ... ok
 test residual::tests::rms_level_delta_tracks_known_gain ... ok
 test residual::tests::worst_deviation_locates_frame_and_channel ... ok
-binaural groove fidelity: requested phase=0.620, heard phase=0.627907, max relative event error=510 sample(s), callback=240
-
-thread 'binaural_groove_fidelity::swung_microtiming_survives_stationary_binaural_render' panicked at dsp_fixtures/src/binaural_groove_fidelity.rs:147:5:
-stationary binaural rendering changed relative event timing by 510 samples
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-test binaural_groove_fidelity::swung_microtiming_survives_stationary_binaural_render ... FAILED
-binaural groove fidelity: requested phase=0.500, heard phase=0.510404, max relative event error=510 sample(s), callback=240
-
-thread 'binaural_groove_fidelity::straight_groove_timing_survives_stationary_binaural_render' panicked at dsp_fixtures/src/binaural_groove_fidelity.rs:147:5:
-stationary binaural rendering changed relative event timing by 510 samples
-test binaural_groove_fidelity::straight_groove_timing_survives_stationary_binaural_render ... FAILED
-binaural groove fidelity: requested phase=0.500, heard phase=0.510404, max relative event error=510 sample(s), callback=40
-
-thread 'binaural_groove_fidelity::groove_timing_is_not_a_host_callback_artifact' panicked at dsp_fixtures/src/binaural_groove_fidelity.rs:147:5:
-stationary binaural rendering changed relative event timing by 510 samples
-test binaural_groove_fidelity::groove_timing_is_not_a_host_callback_artifact ... FAILED
+binaural groove fidelity: requested phase=0.620, heard phase=0.620000, max relative event error=0 sample(s), callback=240
+test binaural_groove_fidelity::swung_microtiming_survives_stationary_binaural_render ... ok
+binaural groove fidelity: requested phase=0.500, heard phase=0.500000, max relative event error=0 sample(s), callback=240
+test binaural_groove_fidelity::straight_groove_timing_survives_stationary_binaural_render ... ok
 post-reset stale-history peak=0.000000000
 test stream_reset::stream_reset_clears_previous_binaural_audio_history ... ok
+binaural groove fidelity: requested phase=0.500, heard phase=0.500000, max relative event error=0 sample(s), callback=40
 test scene::tests::repeated_synthetic_binaural_fixture_is_deterministic ... ok
+binaural groove fidelity: requested phase=0.500, heard phase=0.500000, max relative event error=0 sample(s), callback=960
+test binaural_groove_fidelity::groove_timing_is_not_a_host_callback_artifact ... ok
+
+test result: ok. 32 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.71s
+
+   Doc-tests dsp_fixtures
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+===== renderer.log (last 240 lines) =====
+test binaural::prtf::tests::prtf_depends_on_elevation ... ok
+test binaural::prtf::tests::prtf_depth_zero_matches_synthetic ... ok
+test binaural::prtf::tests::prtf_freq_scale_shifts_response ... ok
+test binaural::prtf::tests::prtf_full_colours_the_spectrum ... ok
+test binaural::prtf::tests::prtf_output_is_finite ... ok
+test binaural::reflections::tests::bank_delays_and_attenuates ... ok
+test binaural::reflections::tests::binaural_targets_can_arrive_at_different_ear_times ... ok
+test binaural::reflections::tests::centered_source_images_sit_one_room_dimension_away ... ok
+test binaural::reflections::tests::gain_changes_are_smoothed ... ok
+test binaural::reflections::tests::outside_source_is_clamped_inside ... ok
+test binaural::hrir::tests::all_sources_share_the_reference_level ... ok
+test binaural::measured::tests::resample_is_noop_at_native_rate ... ok
+test binaural::reverb::tests::impulse_produces_a_decaying_tail ... ok
+test binaural::reverb::tests::output_is_independent_of_caller_block_size ... ok
+test binaural::reverb::tests::output_tap_sign_vectors_kill_common_mode_and_are_orthogonal ... ok
+test binaural::reverb::tests::rt60_controls_decay_speed ... ok
+test binaural::reverb::tests::coherence_is_high_at_low_freq_and_low_at_high_freq ... ok
+test binaural::reverb::tests::zero_predelay_is_really_zero ... ok
+test binaural::reverb::tests::left_and_right_returns_have_equal_energy ... ok
+test binaural::tests::direct_level_is_distance_invariant ... ok
+test binaural::tests::air_absorption_dulls_distant_sources ... ok
+test binaural::measured::tests::saf_resampled_to_441_differs_and_preserves_energy ... ok
+test binaural::tests::front_source_is_balanced ... ok
+test binaural::tests::hrir_source_switch_lands_asynchronously_without_blocking_render ... ok
+test binaural::tests::left_source_is_louder_in_left_channel ... ok
+test binaural::tests::matching_completed_hrir_grid_is_installed ... ok
+test binaural::tests::muted_channel_is_silent ... ok
+test binaural::tests::right_source_is_louder_in_right_channel ... ok
+test binaural::tests::stale_completed_hrir_grid_is_not_installed ... ok
+test binaural::tracking::tests::auto_picks_quat_for_four_floats_rotvec_for_three ... ok
+test binaural::tracking::tests::parse_euler_and_quat ... ok
+test binaural::tracking::tests::recenter_makes_current_orientation_forward ... ok
+test binaural::tracking::tests::rotvec_recovers_unit_quaternion ... ok
+test binaural::tracking::tests::smoothing_moves_only_partway ... ok
+test binaural::tests::reflections_add_delayed_energy ... ok
+test binaural::reverb::tests::sustained_tones_stay_balanced ... ok
+test binaural::tests::reverb_adds_a_long_tail ... ok
+test binaural::validation::measured_hrir_direct_arrivals_are_time_aligned ... FAILED
+test config::config_dir_override_tests::a_pinned_runtime_namespace_moves_the_config_out_of_the_shared_location ... ok
+test config::tests::backend_params_round_trip ... ok
+test config::tests::corrupt_sidecar_is_deleted_and_base_config_used ... ok
+test config::tests::empty_backend_params_are_not_serialised ... ok
+test config::tests::fresh_sidecar_is_consumed_once_and_cached ... ok
+test config::tests::head_tracking_reference_quat_round_trips_and_omits_when_absent ... ok
+test config::tests::rewritten_sidecar_wins_over_cached_overlay ... ok
+test config::tests::room_legacy_without_metres_is_noop ... ok
+test config::tests::room_metres_normalize_to_ratios_and_radius ... ok
+test config::tests::save_round_trip_preserves_unknown_fields ... ok
+test config::tests::stale_sidecar_is_deleted_without_being_applied ... ok
+test config::tests::unknown_fields_survive_round_trip_at_top_level ... ok
+test config_fields::tests::cli_and_live_writers_agree ... ok
+test config_fields::tests::float_field_uses_tolerance ... ok
+test config_fields::tests::get_round_trips_through_store ... ok
+test config_fields::tests::interpolation_default_is_on_and_false_persists ... ok
+test config_fields::tests::store_default_clears_to_none ... ok
+test config_fields::tests::store_non_default_sets_some ... ok
+test config_fields::tests::string_field_skips_default_and_accepts_str_or_string ... ok
+test crossover::bands::tests::freq_high_only_limits_upper_bands ... ok
+test crossover::bands::tests::freq_low_only_keeps_overlap_routing ... ok
+test crossover::bands::tests::mixed_cutoffs_follow_containment_logic ... ok
+test crossover::bands::tests::returns_single_band_without_cutoffs ... ok
+test crossover::bands::tests::spatialized_lfe_with_freq_high_owns_the_low_band ... ok
+test crossover::filter::tests::lr4_highpass_frequency_response ... ok
+test crossover::filter::tests::lr4_lowpass_frequency_response ... ok
+test crossover::filter::tests::three_band_sum_is_magnitude_flat ... ok
+test crossover::filter::tests::two_band_sum_is_magnitude_flat ... ok
+test crossover::validation::lr4_reconstruction_is_magnitude_flat ... ok
+test delay_line::tests::fractional_delay_just_above_write_pos_does_not_panic ... ok
+test metering::tests::a_band_count_change_restarts_the_channel_sums ... ok
+test metering::tests::a_channel_that_stops_reporting_bands_is_dropped_from_the_snapshot ... ok
+test metering::tests::band_rms_uses_the_same_interval_mean_as_the_full_band_meter ... ok
+test metering::tests::master_peak_is_loudest_speaker_and_survives_over_0_dbfs ... ok
+test options::tests::enum_defaults_are_listed_in_their_values ... ok
+test options::tests::keys_are_unique_snake_case_and_flags_sane ... ok
+test options::tests::schema_json_parses_and_covers_every_spec ... ok
+test render_backend::barycenter_backend::tests::barycenter_backend_hits_exact_speaker ... ok
+test render_backend::barycenter_backend::tests::barycenter_backend_localize_biases_toward_near_speakers ... ok
+test render_backend::barycenter_backend::tests::barycenter_backend_normalizes_energy ... ok
+test render_backend::barycenter_backend::tests::barycenter_backend_reconstructs_interior_target ... ok
+test render_backend::cartesian_lookup_bench::inv_step_vs_search ... ignored, microbenchmark, run explicitly: cargo test -p renderer --release cartesian_lookup_bench -- --ignored --nocapture
+test render_backend::degenerate_vbap_backend::tests::antipodal_speakers_do_not_nan ... ok
+test render_backend::degenerate_vbap_backend::tests::constant_power_across_the_arc ... ok
+test render_backend::degenerate_vbap_backend::tests::distance_is_ignored ... ok
+test render_backend::degenerate_vbap_backend::tests::midpoint_is_balanced_constant_power ... ok
+test render_backend::degenerate_vbap_backend::tests::object_on_speaker_direction_is_full_on_that_speaker ... ok
+test render_backend::degenerate_vbap_backend::tests::omni_speaker_always_gets_a_share ... ok
+test render_backend::degenerate_vbap_backend::tests::out_of_arc_collapses_to_nearest ... ok
+test render_backend::degenerate_vbap_backend::tests::single_speaker_is_unity_everywhere ... ok
+test render_backend::degenerate_vbap_backend::tests::three_collinear_speakers_pan_along_the_arc ... ok
+test render_backend::distance_attenuation::tests::attenuation_applies_to_a_non_vbap_backend ... ok
+test render_backend::distance_attenuation::tests::capabilities_advertise_distance_model ... ok
+test render_backend::distance_attenuation::tests::chebyshev_metric_uses_max_norm ... ok
+test render_backend::distance_attenuation::tests::none_model_is_a_noop ... ok
+test render_backend::distance_diffuse::tests::an_identity_axis_set_leaves_the_gains_untouched ... ok
+test render_backend::distance_diffuse::tests::capabilities_advertise_distance_diffuse ... ok
+test render_backend::distance_diffuse::tests::disabled_is_a_noop ... ok
+test render_backend::distance_diffuse::tests::enabled_preserves_direct_energy_on_a_non_vbap_backend ... ok
+test render_backend::distance_diffuse::tests::every_axis_combination_selects_its_own_mirror ... ok
+test render_backend::distance_diffuse::tests::no_flipped_axis_skips_the_mirror_evaluation_entirely ... ok
+test render_backend::distance_diffuse::tests::the_default_axes_reproduce_the_historical_horizontal_antipode ... ok
+test render_backend::hybrid_backend::tests::blend_renormalises_energy ... ok
+test render_backend::hybrid_backend::tests::build_precomputed_cartesian_with_vbap_inner_completes ... ok
+test render_backend::hybrid_backend::tests::constant_one_curve_matches_external ... ok
+test render_backend::hybrid_backend::tests::constant_zero_curve_matches_internal ... ok
+test render_backend::hybrid_backend::tests::curve_eval_clamps_and_interpolates ... ok
+test render_backend::hybrid_backend::tests::curve_smoothing_cuts_corners_and_keeps_endpoints ... ok
+test render_backend::hybrid_backend::tests::horizontal_segment_yields_horizontal_tangent_when_smoothed ... ok
+test render_backend::polar_lut_tests::azimuth_seam_wraps_like_reference ... ok
+test binaural::validation::itd_magnitude_grows_toward_the_interaural_axis ... ok
+test render_backend::size_interval_tests::cartesian_endpoints_match_frozen_tables ... ok
+test render_backend::size_interval_tests::cartesian_midpoint_is_blend_of_endpoints ... ok
+test render_backend::size_interval_tests::cartesian_without_neg_cells_clamps_below_horizon_requests ... ok
+test render_backend::size_interval_tests::intervals_zero_freezes_object_size ... ok
+test render_backend::size_interval_tests::polar_endpoints_match_frozen_tables ... ok
+test render_backend::size_to_spread::tests::from_str_roundtrips ... ok
+test render_backend::size_to_spread::tests::max_picks_dominant_axis ... ok
+test render_backend::size_to_spread::tests::mean_averages_all_axes ... ok
+test render_backend::size_to_spread::tests::projection_collapses_along_axis_when_size_lies_on_axis ... ok
+test render_backend::size_to_spread::tests::projection_falls_back_to_max_at_origin ... ok
+test render_backend::size_to_spread::tests::projection_preserves_perpendicular_extent ... ok
+test render_backend::size_to_spread::tests::zero_size_yields_zero_spread ... ok
+test runtime_env::tests::a_port_from_the_environment_becomes_the_default ... ok
+test runtime_env::tests::an_empty_value_is_ignored_rather_than_failing ... ok
+test runtime_env::tests::an_unparsable_port_falls_back_instead_of_panicking ... ok
+test runtime_env::tests::an_unset_variable_leaves_the_built_in_default ... ok
+test runtime_env::tests::paths_are_taken_verbatim_once_trimmed ... ok
+test scene_inference::tests::balanced_antiphase_material_is_a_diffuse_field ... ok
+test scene_inference::tests::bass_anchor_transition_is_continuous_and_bounded ... ok
+test scene_inference::tests::centered_coherent_material_remains_a_frontal_anchor ... ok
+test scene_inference::tests::diffuse_low_frequency_energy_is_not_mislabeled_as_a_foundation ... ok
+test scene_inference::tests::first_frame_lateral_event_is_not_promoted_to_an_object ... ok
+test scene_inference::tests::mature_high_frequency_lateral_material_can_be_specific ... ok
+test scene_inference::tests::source_like_low_bass_stays_a_foundation_even_when_lateral ... ok
+test render_backend::polar_lut_tests::polar_lut_matches_reference ... ok
+test binaural::validation::itd_is_antisymmetric_about_the_median_plane ... ok
+test binaural::validation::itd_magnitude_tracks_the_model ... ok
+test spatial_renderer::golden_tests::null_partial_metadata ... ok
+test spatial_renderer::golden_tests::null_speaker_714_32obj ... ok
+test spatial_renderer::golden_tests::null_binaural_kemar ... FAILED
+test spatial_renderer::tests::all_four_ramp_modes_render_distinctly ... ok
+test spatial_renderer::tests::back_floor_position_renders_on_layout_without_back_speakers ... ok
+test spatial_renderer::tests::binaural_ear_mute_uses_first_speaker_slots ... ok
+test spatial_renderer::tests::binaural_lfe_bed_feeds_both_ears_equally_and_dry ... ok
+test spatial_renderer::tests::binaural_clipping_flags_ear_and_auto_gain_reduces_master ... ok
+test spatial_renderer::tests::binaural_object_ramp_advances_and_lateralizes ... ok
+test spatial_renderer::tests::binaural_output_follows_master_gain ... ok
+test spatial_renderer::tests::render_thread_flushes_denormals ... ok
+test spatial_renderer::tests::eval_mode_change_reuses_geometry ... ok
+test spatial_renderer::tests::spatialized_lfe_alone_in_low_band_routes_object_bass ... ok
+test spatial_renderer::tests::unified_crossover_matches_per_band ... ok
+test spatial_renderer::golden_tests::null_crossover_bands ... ok
+test spatial_renderer::tests::unified_table_with_two_speaker_fallback_band ... ok
+test spatial_renderer::tests::virtual_bed_mixes_direct_and_virtualized_channels ... ok
+test spatial_vbap::distance::mirror_axes_tests::display_round_trips_through_parsing ... ok
+test spatial_vbap::distance::mirror_axes_tests::flip_count_names_the_symmetry ... ok
+test spatial_vbap::distance::mirror_axes_tests::only_the_empty_set_is_the_identity ... ok
+test spatial_vbap::distance::mirror_axes_tests::parsing_accepts_any_order_and_the_usual_separators ... ok
+test spatial_vbap::distance::mirror_axes_tests::parsing_maps_an_absent_selection_to_no_flip ... ok
+test spatial_vbap::distance::mirror_axes_tests::parsing_rejects_letters_that_are_not_axes ... ok
+test spatial_vbap::distance::mirror_axes_tests::the_default_is_the_historical_half_turn_about_the_vertical_axis ... ok
+test spatial_vbap::distance::mirror_axes_tests::the_origin_inversion_negates_all_three_coordinates ... ok
+test spatial_vbap::panner::native_backend::tests::test_blend_power_is_configurable ... ok
+test spatial_vbap::panner::native_backend::tests::test_coplanar_layout_still_falls_back_to_dummy_poles ... ok
+test spatial_vbap::panner::native_backend::tests::test_coplanar_speakers_position_aware ... ok
+test spatial_vbap::panner::native_backend::tests::test_energy_conservation_at_pole ... ok
+test spatial_vbap::panner::native_backend::tests::test_fade_mode_reproduces_original_decay ... ok
+test spatial_vbap::panner::native_backend::tests::test_real_height_speakers_do_not_force_dummy_poles ... ok
+test spatial_vbap::panner::native_backend::tests::test_vertical_z_axis_no_silence ... ok
+test spatial_vbap::panner::native_backend::tests::test_virtual_poles_closes_uncovered_nadir_only ... ok
+test spatial_vbap::panner::native_backend::tests::test_virtual_poles_diffuse_and_continuous_at_nadir ... ok
+test spatial_vbap::panner::native_backend::tests::test_virtual_poles_full_energy_at_poles ... ok
+test spatial_vbap::panner::native_backend::tests::test_z_sweep_continuity ... ok
+test spatial_vbap::panner::native_validation::vbap_conserves_energy_over_the_sphere ... ok
+test spatial_vbap::panner::native_validation::vbap_gains_are_continuous_across_triplet_boundaries ... ok
+test spatial_vbap::panner::tests::test_adm_coordinates_normalization ... ok
+test spatial_vbap::panner::tests::test_adm_to_spherical_cardinal_directions ... ok
+test spatial_vbap::panner::tests::test_adm_to_spherical_diagonal_positions ... ok
+test spatial_vbap::panner::tests::test_adm_to_spherical_elevated_positions ... ok
+test spatial_vbap::panner::tests::test_edge_cases ... ok
+test spatial_vbap::panner::tests::test_spherical_to_adm_roundtrip ... ok
+test spatial_vbap::panner::tests::test_yaml_speaker_order ... ok
+test speaker_layout::integration_tests::preset_7_1_4_matches_bundled_yaml ... ok
+test speaker_layout::integration_tests::test_load_5_1_yaml ... ok
+test speaker_layout::integration_tests::test_load_7_1_4_yaml ... ok
+test speaker_layout::integration_tests::test_load_9_1_6_yaml ... ok
+test speaker_layout::tests::label_mapping_accepts_every_legacy_alias ... ok
+test speaker_layout::tests::label_mapping_first_matching_speaker_wins ... ok
+test speaker_layout::tests::test_7_1_4_layout ... ok
+test speaker_layout::tests::test_layout_validation ... ok
+test speaker_layout::tests::test_positions_extraction ... ok
+test speaker_layout::tests::test_preset_layouts ... ok
+test speaker_layout::tests::test_speaker_creation ... ok
+test speaker_layout::tests::test_speaker_names ... ok
+test speaker_layout::tests::test_speaker_validation ... ok
+test stereo_inference::tests::balanced_antiphase_material_is_diffuse_and_side_dominant ... ok
+test stereo_inference::tests::centered_in_phase_material_is_direct_and_mid_dominant ... ok
+test stereo_inference::tests::hard_panned_material_is_not_misclassified_by_missing_channel_phase ... ok
+test stereo_inference::tests::new_lateral_candidate_is_not_immediately_stable ... ok
+test stereo_inference::tests::object_separation_increases_contrast_without_biasing_the_midpoint ... ok
+test stereo_inference::tests::pan_excursion_breaks_trajectory_agreement ... ok
+test stereo_inference::tests::sustained_lateral_candidate_accumulates_object_support ... ok
+test stereo_inference::tests::time_constant_tracker_is_independent_of_block_shape ... ok
+test spatial_renderer::tests::test_renderer_creation ... ok
+test spatial_renderer::golden_tests::reset_runtime_state_erases_the_previous_stream ... ok
+test spatial_renderer::tests::unified_polar_matches_per_band ... ok
 
 failures:
 
+---- binaural::validation::measured_hrir_direct_arrivals_are_time_aligned stdout ----
+
+thread 'binaural::validation::measured_hrir_direct_arrivals_are_time_aligned' panicked at renderer/src/binaural/validation.rs:195:13:
+measured HRIR direct arrivals differ by -2 samples at az=-165.0° el=+0.0° (left onset 7, right onset 9); analytic ITD is added separately, so bulk arrival offsets must be removed before interpolation
+
+---- spatial_renderer::golden_tests::null_binaural_kemar stdout ----
+
+thread 'spatial_renderer::golden_tests::null_binaural_kemar' panicked at dsp_fixtures/src/golden.rs:193:9:
+binaural_kemar: null test failed.
+  peak residual -24.8 dBFS (gate -100.0)
+  rms residual  -44.6 dBFS
+  worst at frame 9 channel 1, delta 0.057543904
+  first diverging samples:
+    frame      0 ch  0: golden +0.213068590 render +0.183416769
+    frame      0 ch  1: golden -0.051619623 render -0.048622571
+    frame      1 ch  0: golden +0.088730060 render +0.077291243
+    frame      1 ch  1: golden -0.005449044 render +0.000227770
+    frame      2 ch  0: golden -0.141566470 render -0.122521192
+    frame      2 ch  1: golden -0.032179181 render -0.024957113
+    frame      3 ch  0: golden -0.126965389 render -0.111458078
+    frame      3 ch  1: golden +0.143213287 render +0.139946043
+  render dumped to /home/runner/work/Omniphony/Omniphony/omniphony-renderer/dsp_fixtures/goldens/binaural_kemar.actual.f32
+  If this change is intended: OMNIPHONY_BLESS_GOLDENS=1 cargo test -p renderer and quote the printed residual in the PR.
+
+
 failures:
-    binaural_groove_fidelity::groove_timing_is_not_a_host_callback_artifact
-    binaural_groove_fidelity::straight_groove_timing_survives_stationary_binaural_render
-    binaural_groove_fidelity::swung_microtiming_survives_stationary_binaural_render
+    binaural::validation::measured_hrir_direct_arrivals_are_time_aligned
+    spatial_renderer::golden_tests::null_binaural_kemar
 
-test result: FAILED. 29 passed; 3 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.56s
+test result: FAILED. 272 passed; 2 failed; 1 ignored; 0 measured; 0 filtered out; finished in 14.89s
 
-error: test failed, to rerun pass `-p dsp_fixtures --lib`
+error: test failed, to rerun pass `-p renderer --lib`
 
 ===== fetch.log (last 240 lines) =====
 From https://github.com/dissonance-git/Omniphony
