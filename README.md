@@ -1,159 +1,115 @@
 # Omniphony
 
-**Omniphony is a Windows-first stereo music enhancer and binaural spatial renderer.**
+**Windows-first stereo music → persistent auditory scene → binaural headphones.**
 
-The practical goal of this fork is deliberately narrow:
+Omniphony is an independent research/product fork of [`mgth/Omniphony`](https://github.com/mgth/Omniphony), rebuilt around one deliberately narrow goal:
 
-> **Take ordinary stereo music and present it over headphones as a stable, externalized, convincing full 360° auditory scene without sacrificing musical identity, clarity, timbre, bass relationships, transients, dynamics, or mix hierarchy.**
+> Take ordinary stereo music and present it over headphones as a stable, externalized, convincing full-sphere auditory scene without sacrificing musical identity, clarity, timbre, bass relationships, transients, dynamics, or mix hierarchy.
 
-This is not intended to be "stereo + wider crossfeed + room reverb." The target scene can contain direct auditory objects in front, beside, above/below where supportable, and **behind the listener**, alongside broad objects and diffuse room/ambient fields.
-
-Rear auditory objects and rear reverberation are different things.
+The intended experience is not “stereo + widening + reverb.”
 
 ```text
 ordinary stereo music
         ↓
-signal-derived + libaural-informed scene inference
+realtime acoustic evidence
         ↓
-persistent auditory objects / broad sources / fields
+libaural-informed persistent scene hypotheses
         ↓
-Omniphony binaural scene renderer
+anchors / direct objects / broad sources / diffuse fields
+        ↓
+Omniphony binaural renderer
+        ↓
+listener HRTF + room cues + headphone calibration
         ↓
 headphones
-        ↓
-full 360° acoustic presentation
 ```
 
-The mature user experience should be boring in the best possible way:
+The long-term product should feel almost boring operationally:
 
 ```text
 install once
-choose the output/headphones once
+choose / calibrate headphones once
 play music normally
 ```
 
-No drag-and-drop ritual is intended for normal listening.
+The interesting part should happen in the sound, not in the setup ritual.
 
 ---
 
-## Origin and attribution
+## North star
 
-This repository is a fork and research/product refactor built on the original **[mgth/Omniphony](https://github.com/mgth/Omniphony)** project.
+After acclimation, matched-loudness bypass should make ordinary headphone playback feel **dimensionally collapsed**.
 
-The upstream project supplied the foundational spatial renderer, binaural/HRTF path, object and speaker-scene machinery, audio I/O, bridge architecture, room/reflection work, and a large amount of engineering that this fork did not originate.
-
-The fork keeps the original Git history and GPL-3.0-or-later licensing. See [`NOTICE.md`](NOTICE.md) for the project boundary and attribution statement.
-
-The direction of this fork is different from upstream: instead of remaining a broad spatial-audio suite, it is being reduced around a specific Windows headphone-music product and used as the first practical testbed for [`libaural`](https://github.com/dissonance-git/libaural).
-
-The name **Omniphony** is retained for now because the original renderer is still the substrate. The product may receive a different name later if the code and identity diverge far enough from upstream.
-
----
-
-# What this fork is trying to build
-
-## Listener-facing target
-
-For ordinary stereo music:
-
-```text
-                 FRONT
-
-          direct object
-      object           object
-
-  broad source       direct source
-
-LEFT        LISTENER        RIGHT
-
-       field       object
-
-            object
-            BEHIND
-
-                 REAR
-```
-
-The system should be able to represent and render:
-
-- stable frontal lead objects;
-- lateral objects;
-- **direct rear objects when the evidence supports them**;
-- broad/extended auditory objects;
-- diffuse ambience and room fields;
-- depth and distance relationships;
-- height/elevation cues when defensible;
-- persistent object identity through time;
-- a stable bass/groove floor;
-- musical hierarchy rather than arbitrary surround spectacle.
-
-The headphones should gradually stop feeling like the apparent source of the sound.
-
-## What it must preserve
-
-Spatial enlargement is a failure if it buys dimension by damaging the recording.
+But bypass must **not** restore anything Omniphony damaged.
 
 Non-negotiable preservation targets:
 
-```text
-clarity
-transient shape
-bass timing and weight
-timbre
-vocal/instrument identity
-stereo relationships
-microdynamics
-macrodynamics
-mix hierarchy
-rhythmic precision
-musical continuity
-```
+- clarity;
+- transient shape;
+- bass timing and weight;
+- timbre;
+- vocal/instrument identity;
+- stereo relationships;
+- microdynamics and macrodynamics;
+- rhythmic precision;
+- musical hierarchy.
 
-The north-star listening test is matched-loudness bypass:
-
-> After acclimation, bypassing Omniphony should make ordinary playback feel dimensionally collapsed, **without bypass restoring clarity, punch, timbre, bass definition, or transient precision that Omniphony damaged.**
+A huge sphere with smeared music is a failure.
 
 ---
 
-# Rear objects are not reverb
+## Scene semantics
 
-A major product requirement is that the 360° field is not faked solely by sending decorrelated/reverberant energy behind the listener.
+Omniphony keeps several spatial entities distinct.
 
-These are separate scene entities:
+### `FrontalAnchor`
+
+Musically authoritative material whose relocation would destabilize the mix, such as a coherent center or persistent low-frequency foundation.
+
+### `DirectObject`
+
+Persistent source-like evidence strong enough to support a spatially specific presentation.
+
+### `BroadSource`
+
+A coherent source with meaningful extent, or material for which a single point is too specific.
+
+### `DiffuseField`
+
+Field-like musical/ambient energy better represented as a directional distribution than a point source.
+
+### `RoomField`
+
+Presentation-environment energy: early reflections and late reverberant field.
+
+The distinction is load-bearing:
 
 ```text
-DIRECT / OBJECT-LIKE REAR SOUND
-source identity
-+ persistent trajectory
-+ rear spatial state
-+ appropriate binaural cues
-
-DIFFUSE REAR FIELD
-ambience / room / decorrelated field
-+ broad directional distribution
-+ early/late acoustic response
+DIRECT OBJECT
+≠ BROAD SOURCE
+≠ DIFFUSE FIELD
+≠ ROOM FIELD
 ```
 
-A backing vocal, percussion element, effect, texture, guitar, synth, or other secondary stream may become a real rear-lateral auditory object if doing so is supported by the scene evidence and does not destroy the original musical hierarchy.
+Rear objects and rear reverberation are also different things.
 
-Low-confidence evidence should produce conservative spatial behavior rather than arbitrary object placement.
+Stereo usually does **not** contain literal rear-position ground truth, so Omniphony separates:
 
 ```text
-high confidence
-→ spatially specific
-
-medium confidence
-→ broader / safer placement
-
-low confidence
-→ preserve mixture / field
+acoustic evidence
+from
+scene hypothesis
+from
+presentation choice
 ```
+
+A convincing rear object can be a valid presentation decision without pretending that the original recording contained recoverable rear metadata.
 
 ---
 
-# Relationship to libaural
+## libaural relationship
 
-Omniphony is the first practical consumer and testbed for **libaural**, the separate parent auditory-intelligence project.
+[`libaural`](https://github.com/dissonance-git/libaural) owns the general machine-hearing problem.
 
 ```text
 libaural
@@ -165,267 +121,287 @@ Omniphony
 "how should that scene reach two ears?"
 ```
 
-libaural owns the general research problem:
+libaural research includes:
 
 - cochlear/peripheral representations;
 - multiresolution spectrotemporal analysis;
-- temporal coherence and grouping;
-- pitch formation;
-- timbre/identity constancy;
+- grouping and temporal coherence;
+- pitch and timbre constancy;
 - onset binding;
 - masking and audibility;
-- attention;
-- auditory memory;
-- predictive processing;
-- persistent auditory objects;
-- uncertainty and competing hypotheses;
-- general and music-specific auditory understanding.
+- auditory memory and prediction;
+- persistent object identity;
+- competing scene hypotheses and uncertainty;
+- controlled symbolic/synthesis truth for experiments.
 
-Omniphony owns the practical rendering problem:
+Omniphony owns:
 
-- Windows playback integration;
-- realtime scene transformation;
+- Windows audio integration;
+- realtime stereo evidence;
+- practical scene presentation policy;
 - binaural HRTF/ITD rendering;
-- direct and diffuse spatial presentation;
-- early reflections and room/depth cues;
-- headphone translation;
-- latency/stability;
-- product defaults;
-- human listening validation.
+- direct/broad/diffuse rendering;
+- early reflections and late room fields;
+- listener/headphone calibration;
+- latency and realtime safety;
+- listening validation and product defaults.
 
-A rendering trick does not become a libaural law merely because it sounds good here. A general hearing mechanism can graduate upward after controlled evidence.
+A rendering trick does not become a law of hearing merely because it sounds good here.
 
 ---
 
-# Spatial DSP inheritance
+## Current renderer foundation
 
-The earlier [`dissonance-git/spatial-dsp`](https://github.com/dissonance-git/spatial-dsp) foobar2000 experiment is being mined for useful behavior, not copied as the final architecture.
+The fork retains the strongest parts of the original Omniphony renderer instead of rewriting them for aesthetic cleanliness.
 
-That project demonstrated several practical ideas worth carrying forward:
+Current useful substrate includes:
 
-- direct-vs-diffuse analysis from stereo phase and level relationships;
-- treating hard-panned dry energy as source-like instead of falsely diffuse;
-- coherent-center preservation;
-- side-difference evidence;
-- temporal memory so spatial state does not chase transients;
-- stable lateral object evidence;
-- bass anchoring;
-- independent source/body and ambient/rear energy;
-- decorrelation as an acoustic cue rather than as the definition of space;
-- exaggerated 360° presentation that can still retain a frontal/bass anchor.
+- stateful per-channel binaural DSP;
+- analytic ITD;
+- interpolated HRTF/HRIR rendering;
+- SAF KEMAR, parametric and SOFA-capable HRTF providers;
+- safe moving-filter crossfades;
+- object position/size state;
+- VBAP and known speaker layouts for calibration truth;
+- early image-source reflections;
+- late FDN room field;
+- deterministic DSP fixtures;
+- file/reference rendering paths;
+- Windows audio/output infrastructure.
 
-Omniphony should implement the useful ideas directly inside its scene and binaural renderer rather than reproduce the old chain:
+Recent fork-specific corrections include:
+
+- true complex M/S stereo evidence;
+- time-constant-based persistence;
+- symmetric object/field evidence separation;
+- bass protection separated from object identity;
+- explicit scene candidate evidence;
+- deterministic async HRTF source switching;
+- measured-HRIR direct-arrival validation rather than invalid zero-cross-correlation assumptions;
+- source-tagged async HRIR rebuilds so stale builds cannot win late;
+- per-ear ITD for early image-source reflections;
+- sample-time-invariant FDN modulation;
+- true zero-predelay behavior;
+- reusable fidelity metrics for null/RMS/crest/DC/level comparisons.
+
+See [`docs/SCENE_RENDERER_CONTRACT.md`](docs/SCENE_RENDERER_CONTRACT.md).
+
+---
+
+## Current missing bridges
+
+The architecture is clearer than the end-to-end product. Important gaps remain explicit.
+
+### Stereo inference is not yet the live scene source
+
+`renderer::stereo_inference` and `renderer::scene_inference` are real code, but ordinary two-channel playback is not yet driving a complete persistent object/field scene in realtime.
+
+### Binaural motion/gain still needs sample-accurate trajectory plumbing
+
+The inherited speaker path carries sample-accurate ramps more completely than the current binaural handoff. Position and gain continuity should be made host-block-size invariant without creating a second competing state machine.
+
+### Broad-source extent is not yet fully preserved in headphone rendering
+
+The inherited scene state contains object size/extent, but binaural rendering currently collapses too much of that information to a point.
+
+### `DiffuseField` needs a first-class spherical renderer
+
+The late FDN is a **room field**, not a substitute for diffuse musical content. A spherical/Ambisonic or experimentally equivalent field basis is a strong candidate.
+
+### Listener/headphone calibration is still early
+
+SOFA/HRTF support exists, but the mature product should distinguish:
 
 ```text
-stereo
-→ pseudo 7.1 bed
-→ HeSuVi HRTF
+listener HRTF
+headphone response
+headphone-driver ↔ pinna interaction
+room / BRIR target
+low-frequency integration
+safety headroom
 ```
 
-The intended endpoint is:
+See [`docs/FORK_POLICY.md`](docs/FORK_POLICY.md) and the libaural influence ledger.
+
+---
+
+## Repository scope
+
+This fork has begun physically removing inherited suite surfaces.
+
+### Keep
+
+- `omniphony-renderer/` — realtime renderer and Windows listening path;
+- `layouts/` — known-scene calibration geometry;
+- deterministic assets/fixtures needed for regression tests;
+- `docs/` — current fork contracts, validation reports and research decisions;
+- `.github/workflows/` — reproducible build/test pipeline.
+
+### Removed from this fork
+
+The original upstream remains the archive/source for these surfaces:
+
+- Omniphony Studio;
+- Arch packaging;
+- mpv-oriented product documentation;
+- JACK service helper scripts;
+- old Studio/WebGL/Three.js debugging notes;
+- Linux/PipeWire-specific product plans and investigation diaries;
+- obsolete upstream refactor plans that no longer describe this product.
+
+More contraction will happen only when dependencies are understood well enough that deletion improves clarity without destroying useful renderer/test machinery.
+
+---
+
+## Upstream relationship
+
+`mgth/Omniphony` is now treated as a **source / peer / ancestor**, not the canonical product tree.
 
 ```text
-stereo
-→ scene inference
-→ Omniphony binaural rendering
+upstream mechanism or fix
+→ inspect
+→ take only what serves this fork
+→ validate locally
+→ improve further
+→ optionally send a general fix back upstream
+```
+
+We do not keep broad structural parity for its own sake.
+
+General fixes should be offered upstream only after they are proven here and separated from fork-specific assumptions.
+
+Full policy: [`docs/FORK_POLICY.md`](docs/FORK_POLICY.md).
+
+Attribution remains permanent. The fork keeps the original Git history and GPL licensing. See [`NOTICE.md`](NOTICE.md).
+
+---
+
+## External influence policy
+
+GitHub projects are treated as mechanism sources, not templates to absorb wholesale.
+
+Current major influence families include:
+
+- Steam Audio / SPARTA / IEM / OpenAL Soft for spatial rendering laws;
+- Dolby open tooling for signal/object/presentation boundaries and objective audio validation;
+- RoomAcoustiCpp and measured BRIR work for room/externalization structure;
+- ASH Toolset for listener + headphone + BRIR calibration layering;
+- HeSuVi and HRIR conversion projects as large behavioral/reference corpora;
+- `fft-convolver` for allocation-free partitioned realtime convolution;
+- Airwave for set-and-forget, per-device system-wide product behavior;
+- MidiTok/Symusic and game/chip synthesis tooling for controlled musical ground truth;
+- Microsoft Windows Audio repositories for diagnostics and low-latency platform contracts.
+
+The durable influence ledger lives in libaural so chat compaction is not project memory.
+
+---
+
+## Validation strategy
+
+There are two independent acceptance lanes.
+
+### Known scene → headphones
+
+Hold source geometry constant and test:
+
+```text
+known objects / beds
+→ HRTF + ITD
+→ broad/field rendering
+→ early room + late field
 → headphones
 ```
 
-The first clean Rust inference primitive ported from that work lives in `renderer::stereo_inference`.
+This isolates renderer quality.
 
-See [`docs/SPATIAL_DSP_MIGRATION.md`](docs/SPATIAL_DSP_MIGRATION.md).
+### Stereo → inferred scene
 
----
-
-# Current renderer substrate
-
-The inherited Omniphony renderer already contains valuable machinery we should reuse rather than rewrite casually:
-
-- object/spatial scene representation;
-- VBAP and speaker geometry;
-- binaural HRTF + ITD rendering;
-- early reflections and room processing;
-- distance/spread logic;
-- realtime/offline rendering paths;
-- Windows audio-output support;
-- reference bridge and file paths useful for deterministic tests;
-- runtime control and measurement infrastructure.
-
-The fork is being reduced around the pieces that help the Windows music product.
-
-Some inherited upstream subsystems may remain temporarily while dependency and CI tests establish whether they are load-bearing. Their presence in the tree does **not** mean they remain product scope.
-
----
-
-# Scope
-
-## In scope
-
-- Windows 10/11 x64 first;
-- ordinary stereo music as the primary source;
-- common decoded audio formats through normal playback integration;
-- realtime headphone output;
-- deterministic file rendering for tests;
-- full-sphere binaural presentation;
-- direct rear objects as well as diffuse rear space;
-- room/depth/externalization;
-- HRTF work and eventual headphone compensation/personalization;
-- scene inference using signal-derived and libaural-derived evidence;
-- simple enable/bypass comparison during migration;
-- automatic build artifacts through GitHub Actions;
-- strong regression and listening controls.
-
-## Not current product scope
-
-These may survive temporarily as inherited infrastructure, fixtures, or research tools, but they are not what this fork is trying to ship:
-
-- a general speaker-layout authoring suite;
-- a cross-platform desktop visualization product;
-- an mpv distribution;
-- a universal ADM production environment;
-- a generic Ambisonics workstation;
-- a plugin ecosystem for arbitrary decoder formats;
-- requiring head tracking for the core effect;
-- exposing dozens of DSP controls to the normal listener;
-- reproducing HeSuVi internally as a fixed matrix trick;
-- solving all of AI hearing inside this repository.
-
-Ambisonics, HOA, VBAP, SAF, HRTFs, neural acoustic fields and related techniques are tools. None of them is the product identity.
-
----
-
-# Transition from the current listening chain
-
-Development must coexist with the established working playback chain until Omniphony earns replacement.
+Hold binaural rendering fixed and test:
 
 ```text
-current foobar DSP + HeSuVi chain
-        │
-        │ remains available
-        ▼
-Omniphony develops beside it
-        ↓
-simple enable / bypass / alternate route
-        ↓
-normal music listening
-        ↓
-Omniphony proves stability + quality
-        ↓
-old components become redundant one by one
-        ↓
-eventual path:
-Windows / player
-→ Omniphony
-→ audio device
-→ headphones
+stereo master
+→ acoustic evidence
+→ grouping / persistence / musical role
+→ scene hypothesis
 ```
 
-The first user-facing listening build should already contain enough high-confidence improvements to be worth installing. Engineering baselines can be tested automatically and offline.
+This isolates machine-hearing/scene inference quality.
+
+Only after both work independently should end-to-end listening decide product quality.
+
+Objective fidelity measurements include:
+
+- bypass/null residual;
+- peak and RMS level;
+- crest factor;
+- DC offset;
+- frequency response;
+- lag/ITD;
+- dynamic/transient preservation;
+- clipping/headroom.
+
+Human listening remains required for:
+
+- externalization;
+- front/back discrimination;
+- elevation plausibility;
+- source stability;
+- envelopment;
+- image depth;
+- fatigue;
+- musical hierarchy;
+- preference.
 
 ---
 
-# Development order
+## Build / CI
 
-## 0. Make the fork reproducibly buildable
-
-- clean Windows CI;
-- downloadable x64 artifact;
-- deterministic file-output path;
-- frozen regression fixtures;
-- preserve a known-good control.
-
-## 1. Improve the inherited binaural renderer
-
-Priority areas:
-
-- directional early reflections rather than broadband pan approximations;
-- HRTF interpolation/coverage;
-- direct-vs-diffuse rendering paths;
-- source body vs listener envelopment;
-- radial depth / externalization;
-- cue consistency;
-- no transient smear or comb coloration.
-
-## 2. Stereo scene inference
-
-Start with inspectable evidence:
-
-- phase coherence;
-- channel asymmetry/pan intensity;
-- M/S relationships;
-- temporal persistence;
-- spectral/modulation evidence;
-- onset/transient stability;
-- directness/diffuseness;
-- broad vs object-like behavior.
-
-Then consume increasingly mature libaural scene state.
-
-## 3. First practical Windows listening build
-
-- ordinary playback path;
-- simple enable/bypass;
-- sensible automatic defaults;
-- first-run improvement should be obvious enough to justify testing;
-- no drag-and-drop requirement.
-
-## 4. Wean the old chain
-
-Only remove an existing component from normal use after Omniphony demonstrably replaces the cue/function the listener values.
-
-## 5. Broader Windows integration
-
-- always-on system route if justified;
-- game/surround support as secondary use;
-- richer authored source formats;
-- headphone translation/personalization.
-
----
-
-# Build
-
-The fork now has a Windows x64 GitHub Actions path at:
+The repository workflow is:
 
 ```text
 .github/workflows/windows-renderer.yml
 ```
 
-It builds the Rust renderer with the MSVC toolchain and ASIO support, smoke-tests the CLI, generates SHA-256 hashes, and uploads the Windows binaries as an Actions artifact.
-
-For local development, the current renderer workspace remains under:
+It now separates:
 
 ```text
-omniphony-renderer/
+portable renderer core
+Windows renderer core
+Windows x64 listening artifact
 ```
 
-See the inherited build documentation there while the Windows-first docs are being simplified.
+The diagnostic workflow intentionally avoids third-party Rust/cache setup actions while the fork is being contracted, uses a pinned Rust toolchain through `rustup`, and does not cancel earlier refactor runs before their failure stage becomes visible.
+
+The Windows artifact remains a development/listening build, not yet the final system-wide product installer.
 
 ---
 
-# Repository refactor status
-
-This fork is currently in a **scope-contraction refactor**.
-
-The immediate rule is:
-
-> Keep inherited code when it is useful to the Windows stereo→binaural product, a deterministic test, or a clearly load-bearing dependency. Remove or archive the rest once CI proves it is safe to do so.
-
-This avoids throwing away excellent upstream engineering merely because its original application was broader than this fork.
-
-The research that used to live partly inside this repository is being split correctly:
+## Near-term development order
 
 ```text
-GENERAL AI HEARING RESEARCH
-→ libaural
-
-WINDOWS MUSIC / 360° BINAURAL PRODUCT
-→ Omniphony
+1. keep CI/compiler signal trustworthy
+2. finish sample-accurate binaural trajectory/gain plumbing
+3. preserve source extent into binaural rendering
+4. implement first-class broad/diffuse field rendering
+5. wire stereo evidence into persistent realtime scene state
+6. build listener/headphone calibration stack
+7. establish normal Windows system/player capture route
+8. continue deleting inherited surfaces with no remaining owner
+9. listening + fidelity optimization
 ```
 
-See [`docs/headphone-rendering-research.md`](docs/headphone-rendering-research.md) for the practical renderer plan.
+The product goal remains intentionally unreasonable:
+
+> Make ordinary headphone playback feel like the lower-dimensional version after Omniphony is bypassed.
+
+The engineering rule that keeps that goal useful is simpler:
+
+> Never buy dimension by damaging the music.
 
 ---
 
-# License
+## License and origin
 
-GPL-3.0-or-later, inherited from the original Omniphony project. See [`LICENSE`](LICENSE) and [`NOTICE.md`](NOTICE.md).
+GPL-3.0-or-later, inherited from the original Omniphony project.
+
+See [`LICENSE`](LICENSE), [`NOTICE.md`](NOTICE.md), and [`docs/FORK_POLICY.md`](docs/FORK_POLICY.md).
