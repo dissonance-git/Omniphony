@@ -75,13 +75,18 @@ impl DynamicLogger {
 
     fn emit_external_record(&self, level: Level, target: &str, message: &str) {
         if self.accepts(level) {
-            let args = format_args!("{message}");
-            let record = Record::builder()
-                .args(args)
-                .level(level)
-                .target(target)
-                .build();
-            self.inner.log(&record);
+            // `format_args!` with interpolation cannot safely be stored and then
+            // borrowed by a Record in a later statement: its temporary argument
+            // array would already be gone. Build the short-lived Record directly
+            // inside the log call so every borrowed formatting value remains alive
+            // for the complete emission expression.
+            self.inner.log(
+                &Record::builder()
+                    .args(format_args!("{message}"))
+                    .level(level)
+                    .target(target)
+                    .build(),
+            );
         }
         self.push_external_record(level, target, message);
     }
