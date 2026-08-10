@@ -11,7 +11,7 @@ description = "Omniphony: portable stereo-to-binaural music scene renderer, curr
 repository = "https://github.com/dissonance-git/Omniphony"
 build = "build.rs"
 authors = ["Rainbaby"]
-rust-version = "1.87.0"
+rust-version = "1.88.0"
 
 [[bin]]
 name = "orender"
