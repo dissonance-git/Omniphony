@@ -1,0 +1,489 @@
+Omniphony guarded stream-reset stabilization
+base_sha=72a823c23a5a756736cb5b2c7c37e80252a3c4cd
+failed_stage=dsp_fixtures
+rust_toolchain=1.88.0
+
+===== patch.log (last 240 lines) =====
+patched DelayLine in-place reset
+patched EarConvolver in-place reset
+patched ReflectionBank in-place reset
+patched FDN in-place reset
+patched ChannelState in-place reset
+patched ChannelDsp in-place reset
+patched BinauralRenderer stream reset
+patched whole-renderer stream reset
+patched per-stream loudness reset
+created stream reset end-to-end fixture
+
+===== fmt.log (last 240 lines) =====
+
+===== gain.log (last 240 lines) =====
+    Updating git repository `https://github.com/mgth/sofar`
+    Updating git submodule `https://github.com/hoene/libmysofa.git`
+    Updating crates.io index
+     Locking 294 packages to latest compatible versions
+      Adding bindgen v0.70.1 (available: v0.72.1)
+      Adding cbindgen v0.27.0 (available: v0.29.4)
+      Adding cpal v0.15.3 (available: v0.18.1)
+      Adding criterion v0.5.1 (available: v0.8.2)
+      Adding libloading v0.8.9 (available: v0.9.0)
+      Adding pipewire v0.9.2 (available: v0.10.0)
+      Adding rubato v0.14.1 (available: v4.0.0)
+      Adding vergen-gitcl v1.0.8 (available: v9.1.0)
+      Adding windows v0.54.0 (available: v0.62.2)
+      Adding windows-service v0.7.0 (available: v0.8.1)
+ Downloading crates ...
+  Downloaded adler2 v2.0.1
+  Downloaded anstyle-parse v1.0.0
+  Downloaded anstyle-query v1.1.5
+  Downloaded equivalent v1.0.2
+  Downloaded zmij v1.0.23
+  Downloaded abi_stable_shared v0.11.0
+  Downloaded anstyle v1.0.14
+  Downloaded anstream v1.0.0
+  Downloaded itoa v1.0.18
+  Downloaded tstr_proc_macros v0.2.2
+  Downloaded colorchoice v1.0.5
+  Downloaded is_terminal_polyfill v1.70.2
+  Downloaded env_filter v2.0.0
+  Downloaded rustc-hash v1.1.0
+  Downloaded primal-check v0.3.4
+  Downloaded defmt-parser v1.0.0
+  Downloaded scopeguard v1.2.0
+  Downloaded transpose v0.2.3
+  Downloaded utf8parse v0.2.2
+  Downloaded rustc_version v0.4.1
+  Downloaded cfg-if v1.0.4
+  Downloaded lock_api v0.4.14
+  Downloaded bitflags v1.3.2
+  Downloaded thiserror-impl v2.0.20
+  Downloaded typed-arena v2.0.2
+  Downloaded autocfg v1.5.1
+  Downloaded thiserror v2.0.20
+  Downloaded smallvec v1.15.2
+  Downloaded parking_lot_core v0.9.12
+  Downloaded crc32fast v1.5.0
+  Downloaded generational-arena v0.2.9
+  Downloaded crossbeam-utils v0.8.22
+  Downloaded proc-macro2 v1.0.107
+  Downloaded serde_derive v1.0.229
+  Downloaded core_extensions_proc_macros v1.5.4
+  Downloaded const_panic v0.2.15
+  Downloaded unsafe-libyaml v0.2.11
+  Downloaded typewit v1.15.2
+  Downloaded flate2 v1.1.9
+  Downloaded serde v1.0.229
+  Downloaded nom v7.1.3
+  Downloaded indexmap v2.14.0
+  Downloaded regex v1.13.1
+  Downloaded jiff-core v0.1.0
+  Downloaded serde_json v1.0.151
+  Downloaded hashbrown v0.17.1
+  Downloaded rayon v1.12.0
+  Downloaded itertools v0.13.0
+  Downloaded bindgen v0.70.1
+  Downloaded syn v1.0.109
+  Downloaded syn v2.0.119
+  Downloaded abi_stable v0.11.3
+  Downloaded aho-corasick v1.1.5
+  Downloaded syn v3.0.3
+  Downloaded rustfft v6.4.1
+  Downloaded regex-syntax v0.8.11
+  Downloaded memchr v2.8.3
+  Downloaded crossbeam-channel v0.5.16
+  Downloaded core_extensions v1.5.4
+  Downloaded serde_core v1.0.229
+  Downloaded minimal-lexical v0.2.1
+  Downloaded log v0.4.33
+  Downloaded arc-swap v1.9.2
+  Downloaded unicode-ident v1.0.24
+  Downloaded serde_yaml_ng v0.10.0
+  Downloaded ryu v1.0.23
+  Downloaded rayon-core v1.13.0
+  Downloaded regex-automata v0.4.18
+  Downloaded prettyplease v0.2.37
+  Downloaded miniz_oxide v0.8.9
+  Downloaded bitflags v2.13.1
+  Downloaded jiff v0.2.35
+  Downloaded num-traits v0.2.19
+  Downloaded parking_lot v0.12.5
+  Downloaded clang-sys v1.9.1
+  Downloaded crossbeam-epoch v0.9.20
+  Downloaded anyhow v1.0.104
+  Downloaded abi_stable_derive v0.11.3
+  Downloaded libc v0.2.189
+  Downloaded semver v1.0.28
+  Downloaded repr_offset v0.2.2
+  Downloaded quote v1.0.47
+  Downloaded glob v0.3.4
+  Downloaded defmt v1.1.1
+  Downloaded num-integer v0.1.46
+  Downloaded as_derive_utils v0.11.0
+  Downloaded tstr v0.2.4
+  Downloaded strength_reduce v0.2.4
+  Downloaded simd-adler32 v0.3.10
+  Downloaded shlex v1.3.0
+  Downloaded realfft v3.5.0
+  Downloaded paste v1.0.15
+  Downloaded libloading v0.8.9
+  Downloaded libloading v0.7.4
+  Downloaded either v1.17.0
+  Downloaded cexpr v0.6.0
+  Downloaded rustversion v1.0.23
+  Downloaded num-complex v0.4.6
+  Downloaded env_logger v0.11.11
+  Downloaded defmt-macros v1.1.1
+  Downloaded crossbeam-deque v0.8.7
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling memchr v2.8.3
+   Compiling cfg-if v1.0.4
+   Compiling crossbeam-utils v0.8.22
+   Compiling serde_core v1.0.229
+   Compiling autocfg v1.5.1
+   Compiling num-traits v0.2.19
+   Compiling glob v0.3.4
+   Compiling libc v0.2.189
+   Compiling syn v3.0.3
+   Compiling clang-sys v1.9.1
+   Compiling zmij v1.0.23
+   Compiling syn v1.0.109
+   Compiling serde v1.0.229
+   Compiling prettyplease v0.2.37
+   Compiling aho-corasick v1.1.5
+   Compiling either v1.17.0
+   Compiling anyhow v1.0.104
+   Compiling itoa v1.0.18
+   Compiling regex-syntax v0.8.11
+   Compiling serde_json v1.0.151
+   Compiling serde_derive v1.0.229
+   Compiling core_extensions v1.5.4
+   Compiling minimal-lexical v0.2.1
+   Compiling crossbeam-epoch v0.9.20
+   Compiling parking_lot_core v0.9.12
+   Compiling regex-automata v0.4.18
+   Compiling nom v7.1.3
+   Compiling syn v2.0.119
+   Compiling libloading v0.8.9
+   Compiling paste v1.0.15
+   Compiling scopeguard v1.2.0
+   Compiling core_extensions_proc_macros v1.5.4
+   Compiling smallvec v1.15.2
+   Compiling utf8parse v0.2.2
+   Compiling bindgen v0.70.1
+   Compiling tstr_proc_macros v0.2.2
+   Compiling crossbeam-deque v0.8.7
+   Compiling anstyle-parse v1.0.0
+   Compiling tstr v0.2.4
+   Compiling lock_api v0.4.14
+   Compiling as_derive_utils v0.11.0
+   Compiling regex v1.13.1
+   Compiling cexpr v0.6.0
+   Compiling abi_stable_shared v0.11.0
+   Compiling itertools v0.13.0
+   Compiling num-integer v0.1.46
+   Compiling rayon-core v1.13.0
+   Compiling anstyle v1.0.14
+   Compiling anstyle-query v1.1.5
+   Compiling rustc-hash v1.1.0
+   Compiling jiff-core v0.1.0
+   Compiling shlex v1.3.0
+   Compiling bitflags v2.13.1
+   Compiling crc32fast v1.5.0
+   Compiling colorchoice v1.0.5
+   Compiling rustversion v1.0.23
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling typewit v1.15.2
+   Compiling log v0.4.33
+   Compiling typed-arena v2.0.2
+   Compiling abi_stable_derive v0.11.3
+   Compiling env_filter v2.0.0
+   Compiling jiff v0.2.35
+   Compiling const_panic v0.2.15
+   Compiling anstream v1.0.0
+   Compiling parking_lot v0.12.5
+   Compiling repr_offset v0.2.2
+   Compiling crossbeam-channel v0.5.16
+   Compiling libloading v0.7.4
+   Compiling generational-arena v0.2.9
+   Compiling strength_reduce v0.2.4
+   Compiling hashbrown v0.17.1
+   Compiling equivalent v1.0.2
+   Compiling simd-adler32 v0.3.10
+   Compiling adler2 v2.0.1
+   Compiling miniz_oxide v0.8.9
+   Compiling indexmap v2.14.0
+   Compiling transpose v0.2.3
+   Compiling env_logger v0.11.11
+   Compiling primal-check v0.3.4
+   Compiling abi_stable v0.11.3
+   Compiling num-complex v0.4.6
+   Compiling unsafe-libyaml v0.2.11
+   Compiling renderer v0.2.4 (/home/runner/work/Omniphony/Omniphony/omniphony-renderer/renderer)
+   Compiling ryu v1.0.23
+   Compiling rustfft v6.4.1
+   Compiling arc-swap v1.9.2
+   Compiling serde_yaml_ng v0.10.0
+   Compiling rayon v1.12.0
+   Compiling flate2 v1.1.9
+   Compiling sys v0.1.0 (/home/runner/work/Omniphony/Omniphony/omniphony-renderer/sys)
+   Compiling realfft v3.5.0
+   Compiling bridge_api v0.3.0 (/home/runner/work/Omniphony/Omniphony/omniphony-renderer/bridge_api)
+   Compiling dsp_fixtures v0.1.0 (/home/runner/work/Omniphony/Omniphony/omniphony-renderer/dsp_fixtures)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 45.16s
+     Running unittests src/lib.rs (target/debug/deps/dsp_fixtures-3c80d91ebdaaf61e)
+
+running 1 test
+binaural gain callback invariance: 40-vs-240=-138.47 dBFS, 40-vs-960=-144.49 dBFS
+test binaural_block_size::binaural_gain_is_invariant_to_host_block_size ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.13s
+
+
+===== dsp.log (last 240 lines) =====
+warning: unused import: `SAMPLE_RATE`
+ --> dsp_fixtures/src/binaural_block_size.rs:9:20
+  |
+9 | use crate::scene::{SAMPLE_RATE, build_renderer_binaural, pseudo};
+  |                    ^^^^^^^^^^^
+
+warning: unused imports: `SAMPLE_RATE`, `build_renderer_binaural`, and `pseudo`
+ --> dsp_fixtures/src/stream_reset.rs:8:20
+  |
+8 | use crate::scene::{SAMPLE_RATE, build_renderer_binaural, pseudo};
+  |                    ^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^
+
+warning: unused imports: `OutputMode` and `RampMode`
+ --> dsp_fixtures/src/stream_reset.rs:9:29
+  |
+9 | use renderer::live_params::{OutputMode, RampMode};
+  |                             ^^^^^^^^^^  ^^^^^^^^
+
+warning: unused import: `renderer::speaker_layout::SpeakerLayout`
+  --> dsp_fixtures/src/stream_reset.rs:11:5
+   |
+11 | use renderer::speaker_layout::SpeakerLayout;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `TOTAL_SAMPLES` is never used
+  --> dsp_fixtures/src/binaural_block_size.rs:14:7
+   |
+14 | const TOTAL_SAMPLES: usize = 960; // 20 ms at 48 kHz = GAIN_SLEW_SECS.
+   |       ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: constant `PRIME_BLOCK_SAMPLES` is never used
+  --> dsp_fixtures/src/binaural_block_size.rs:15:7
+   |
+15 | const PRIME_BLOCK_SAMPLES: usize = 40;
+   |       ^^^^^^^^^^^^^^^^^^^
+
+warning: constant `PRIME_SAMPLES` is never used
+  --> dsp_fixtures/src/binaural_block_size.rs:19:7
+   |
+19 | const PRIME_SAMPLES: usize = 1_280;
+   |       ^^^^^^^^^^^^^
+
+warning: constant `POSITION` is never used
+  --> dsp_fixtures/src/binaural_block_size.rs:20:7
+   |
+20 | const POSITION: [f64; 3] = [0.0, 1.0, 0.0]; // fixed front-centre object.
+   |       ^^^^^^^^
+
+warning: constant `MOTION_TARGET` is never used
+  --> dsp_fixtures/src/binaural_block_size.rs:21:7
+   |
+21 | const MOTION_TARGET: [f64; 3] = [1.0, 0.0, 0.0]; // full right.
+   |       ^^^^^^^^^^^^^
+
+warning: function `event` is never used
+  --> dsp_fixtures/src/binaural_block_size.rs:23:4
+   |
+23 | fn event(position: [f64; 3], gain_db: Option<i8>, ramp_length: u32) -> SpatialChannelEvent {
+   |    ^^^^^
+
+warning: function `fixed_event` is never used
+  --> dsp_fixtures/src/binaural_block_size.rs:35:4
+   |
+35 | fn fixed_event(gain_db: i8) -> SpatialChannelEvent {
+   |    ^^^^^^^^^^^
+
+warning: function `build_binaural_renderer` is never used
+  --> dsp_fixtures/src/binaural_block_size.rs:39:4
+   |
+39 | fn build_binaural_renderer() -> SpatialRenderer {
+   |    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `prime_renderer` is never used
+  --> dsp_fixtures/src/binaural_block_size.rs:57:4
+   |
+57 | fn prime_renderer(initial: &SpatialChannelEvent) -> SpatialRenderer {
+   |    ^^^^^^^^^^^^^^
+
+warning: function `renderer_primed_at_silence` is never used
+  --> dsp_fixtures/src/binaural_block_size.rs:79:4
+   |
+79 | fn renderer_primed_at_silence() -> SpatialRenderer {
+   |    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `renderer_primed_audible_at_front` is never used
+  --> dsp_fixtures/src/binaural_block_size.rs:83:4
+   |
+83 | fn renderer_primed_audible_at_front() -> SpatialRenderer {
+   |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `render_gain_step` is never used
+  --> dsp_fixtures/src/binaural_block_size.rs:87:4
+   |
+87 | fn render_gain_step(block_samples: usize) -> Vec<f32> {
+   |    ^^^^^^^^^^^^^^^^
+
+warning: function `render_position_motion` is never used
+   --> dsp_fixtures/src/binaural_block_size.rs:118:4
+    |
+118 | fn render_position_motion(block_samples: usize) -> Vec<f32> {
+    |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `PRIME_SAMPLES` is never used
+  --> dsp_fixtures/src/binaural_groove_fidelity.rs:14:7
+   |
+14 | const PRIME_SAMPLES: usize = 1_280;
+   |       ^^^^^^^^^^^^^
+
+warning: constant `PRIME_BLOCK` is never used
+  --> dsp_fixtures/src/binaural_groove_fidelity.rs:15:7
+   |
+15 | const PRIME_BLOCK: usize = 40;
+   |       ^^^^^^^^^^^
+
+warning: constant `BEAT_SAMPLES` is never used
+  --> dsp_fixtures/src/binaural_groove_fidelity.rs:16:7
+   |
+16 | const BEAT_SAMPLES: usize = SAMPLE_RATE as usize / 2; // 120 BPM.
+   |       ^^^^^^^^^^^^
+
+warning: constant `BEATS` is never used
+  --> dsp_fixtures/src/binaural_groove_fidelity.rs:17:7
+   |
+17 | const BEATS: usize = 4;
+   |       ^^^^^
+
+warning: constant `SEARCH_TAIL` is never used
+  --> dsp_fixtures/src/binaural_groove_fidelity.rs:18:7
+   |
+18 | const SEARCH_TAIL: usize = 512;
+   |       ^^^^^^^^^^^
+
+warning: function `front_event` is never used
+  --> dsp_fixtures/src/binaural_groove_fidelity.rs:20:4
+   |
+20 | fn front_event() -> SpatialChannelEvent {
+   |    ^^^^^^^^^^^
+
+warning: function `event_samples` is never used
+  --> dsp_fixtures/src/binaural_groove_fidelity.rs:32:4
+   |
+32 | fn event_samples(offbeat_phase: f64) -> Vec<usize> {
+   |    ^^^^^^^^^^^^^
+
+warning: function `render_click_train` is never used
+  --> dsp_fixtures/src/binaural_groove_fidelity.rs:42:4
+   |
+42 | fn render_click_train(offbeat_phase: f64, block_samples: usize) -> (Vec<f32>, Vec<usize>) {
+   |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `stereo_energy` is never used
+  --> dsp_fixtures/src/binaural_groove_fidelity.rs:96:4
+   |
+96 | fn stereo_energy(output: &[f32], sample: usize) -> f32 {
+   |    ^^^^^^^^^^^^^
+
+warning: function `detected_peaks` is never used
+   --> dsp_fixtures/src/binaural_groove_fidelity.rs:102:4
+    |
+102 | fn detected_peaks(output: &[f32], expected: &[usize]) -> Vec<usize> {
+    |    ^^^^^^^^^^^^^^
+
+warning: function `assert_timing_preserved` is never used
+   --> dsp_fixtures/src/binaural_groove_fidelity.rs:122:4
+    |
+122 | fn assert_timing_preserved(offbeat_phase: f64, block_samples: usize) {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `object_event` is never used
+  --> dsp_fixtures/src/stream_reset.rs:13:4
+   |
+13 | fn object_event() -> SpatialChannelEvent {
+   |    ^^^^^^^^^^^^
+
+warning: `dsp_fixtures` (lib) generated 30 warnings (run `cargo fix --lib -p dsp_fixtures` to apply 5 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.23s
+     Running unittests src/lib.rs (target/debug/deps/dsp_fixtures-3c80d91ebdaaf61e)
+
+running 33 tests
+test analysis::tests::bin_frequencies_span_dc_to_nyquist ... ok
+test analysis::tests::lag_sign_is_negative_when_left_is_delayed ... ok
+test analysis::tests::magnitude_response_reports_a_known_gain ... ok
+test analysis::tests::identical_channels_have_zero_lag ... ok
+test analysis::tests::recovers_an_integer_lag ... ok
+test analysis::tests::recovers_a_fractional_lag ... ok
+test analysis::tests::unit_impulse_is_flat_at_zero_db ... ok
+test binaural_block_size::known_defect_binaural_position_is_block_quantized ... ignored, known defect: binaural position/HRTF trajectory is still quantized to callback boundaries
+test analysis::tests::aperiodic_excitation_is_accepted ... ok
+test analysis::tests::periodic_excitation_is_reported_as_ambiguous ... ok
+binaural gain callback invariance: 40-vs-240=-138.47 dBFS, 40-vs-960=-144.49 dBFS
+test binaural_block_size::binaural_gain_is_invariant_to_host_block_size ... ok
+test dirs::tests::fibonacci_covers_both_hemispheres ... ok
+test dirs::tests::fibonacci_directions_are_in_range ... ok
+test dirs::tests::fibonacci_has_no_duplicate_directions ... ok
+test dirs::tests::fibonacci_returns_the_requested_count ... ok
+test dirs::tests::horizontal_ring_is_flat_and_closed ... ok
+test dirs::tests::meridian_spans_pole_to_pole ... ok
+test golden::tests::missing_golden_is_an_error_not_a_panic ... ok
+test golden::tests::roundtrip_preserves_samples_exactly ... ok
+test residual::tests::constant_offset_gives_the_analytic_value ... ok
+test residual::tests::crest_factor_detects_peak_to_average_structure ... ok
+test residual::tests::dc_offset_reports_signed_mean ... ok
+test residual::tests::fidelity_summary_is_consistent_with_components ... ok
+test residual::tests::identical_signals_have_negative_infinite_residual ... ok
+test residual::tests::peak_dbfs_reads_full_scale_as_zero ... ok
+test residual::tests::rms_dbfs_has_known_values ... ok
+test residual::tests::rms_level_delta_tracks_known_gain ... ok
+test residual::tests::worst_deviation_locates_frame_and_channel ... ok
+binaural groove fidelity: requested phase=0.620, heard phase=0.627907, max relative event error=510 sample(s), callback=240
+
+thread 'binaural_groove_fidelity::swung_microtiming_survives_stationary_binaural_render' panicked at dsp_fixtures/src/binaural_groove_fidelity.rs:147:5:
+stationary binaural rendering changed relative event timing by 510 samples
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test binaural_groove_fidelity::swung_microtiming_survives_stationary_binaural_render ... FAILED
+binaural groove fidelity: requested phase=0.500, heard phase=0.510404, max relative event error=510 sample(s), callback=240
+
+thread 'binaural_groove_fidelity::straight_groove_timing_survives_stationary_binaural_render' panicked at dsp_fixtures/src/binaural_groove_fidelity.rs:147:5:
+stationary binaural rendering changed relative event timing by 510 samples
+test binaural_groove_fidelity::straight_groove_timing_survives_stationary_binaural_render ... FAILED
+binaural groove fidelity: requested phase=0.500, heard phase=0.510404, max relative event error=510 sample(s), callback=40
+
+thread 'binaural_groove_fidelity::groove_timing_is_not_a_host_callback_artifact' panicked at dsp_fixtures/src/binaural_groove_fidelity.rs:147:5:
+stationary binaural rendering changed relative event timing by 510 samples
+test binaural_groove_fidelity::groove_timing_is_not_a_host_callback_artifact ... FAILED
+post-reset stale-history peak=0.000000000
+test stream_reset::stream_reset_clears_previous_binaural_audio_history ... ok
+test scene::tests::repeated_synthetic_binaural_fixture_is_deterministic ... ok
+
+failures:
+
+failures:
+    binaural_groove_fidelity::groove_timing_is_not_a_host_callback_artifact
+    binaural_groove_fidelity::straight_groove_timing_survives_stationary_binaural_render
+    binaural_groove_fidelity::swung_microtiming_survives_stationary_binaural_render
+
+test result: FAILED. 29 passed; 3 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+error: test failed, to rerun pass `-p dsp_fixtures --lib`
+
+===== fetch.log (last 240 lines) =====
+From https://github.com/dissonance-git/Omniphony
+ * branch            main       -> FETCH_HEAD
+
