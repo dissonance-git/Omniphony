@@ -1,0 +1,146 @@
+name: One-shot stream reset stabilization v4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/oneshot-stream-reset-stabilization-v4.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: oneshot-stream-reset-stabilization-v4
+  cancel-in-progress: false
+
+env:
+  RUST_TOOLCHAIN: 1.88.0
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  patch-test-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact triggering main
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install pinned Rust
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt
+          rustup override set "$RUST_TOOLCHAIN"
+          rustc --version --verbose
+          cargo --version
+
+      - name: Patch, test, and publish one bounded result
+        shell: bash
+        run: |
+          set +e
+          base_sha=$(git rev-parse HEAD)
+          failed_stage=""
+          mkdir -p /tmp/omniphony-stabilize
+
+          python - <<'PY' > /tmp/omniphony-stabilize/patch.log 2>&1
+          from pathlib import Path
+          import textwrap
+
+          source = Path(".github/workflows/oneshot-stream-reset-stabilization-v2.yml").read_text(encoding="utf-8")
+          step = "      - name: Apply bounded stream-lifetime reset patch\n"
+          start = source.index(step)
+          run_marker = "        run: |\n"
+          start = source.index(run_marker, start) + len(run_marker)
+          end = source.index("\n      - name: Format patched Rust", start)
+          program = textwrap.dedent(source[start:end])
+          compile(program, "v2-stream-reset-patch", "exec")
+          exec(program, {"__name__": "__main__"})
+          PY
+          rc=$?
+          if [ $rc -ne 0 ]; then failed_stage="apply_patch"; fi
+
+          if [ -z "$failed_stage" ]; then
+            (cd omniphony-renderer && cargo fmt --all) > /tmp/omniphony-stabilize/fmt.log 2>&1
+            rc=$?
+            if [ $rc -ne 0 ]; then failed_stage="cargo_fmt"; fi
+          fi
+
+          if [ -z "$failed_stage" ]; then
+            (cd omniphony-renderer && cargo test -p dsp_fixtures binaural_gain_is_invariant_to_host_block_size -- --nocapture) > /tmp/omniphony-stabilize/gain.log 2>&1
+            rc=$?
+            if [ $rc -ne 0 ]; then failed_stage="binaural_gain_callback_invariance"; fi
+          fi
+
+          if [ -z "$failed_stage" ]; then
+            (cd omniphony-renderer && cargo test -p dsp_fixtures -- --nocapture) > /tmp/omniphony-stabilize/dsp.log 2>&1
+            rc=$?
+            if [ $rc -ne 0 ]; then failed_stage="dsp_fixtures"; fi
+          fi
+
+          if [ -z "$failed_stage" ]; then
+            (cd omniphony-renderer && cargo test -p renderer) > /tmp/omniphony-stabilize/renderer.log 2>&1
+            rc=$?
+            if [ $rc -ne 0 ]; then failed_stage="renderer_tests"; fi
+          fi
+
+          if [ -z "$failed_stage" ]; then
+            git diff --check > /tmp/omniphony-stabilize/diff.log 2>&1
+            rc=$?
+            if [ $rc -ne 0 ]; then failed_stage="git_diff_check"; fi
+          fi
+
+          git fetch origin main > /tmp/omniphony-stabilize/fetch.log 2>&1
+          remote_sha=$(git rev-parse origin/main)
+          if [ "$remote_sha" != "$base_sha" ]; then
+            failed_stage="stale_head_${base_sha}_to_${remote_sha}"
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [ -z "$failed_stage" ]; then
+            git add \
+              omniphony-renderer/renderer/src/delay_line.rs \
+              omniphony-renderer/renderer/src/binaural/convolver.rs \
+              omniphony-renderer/renderer/src/binaural/reflections.rs \
+              omniphony-renderer/renderer/src/binaural/reverb.rs \
+              omniphony-renderer/renderer/src/binaural/mod.rs \
+              omniphony-renderer/renderer/src/spatial_renderer/components.rs \
+              omniphony-renderer/renderer/src/spatial_renderer/mod.rs \
+              omniphony-renderer/dsp_fixtures/src/lib.rs \
+              omniphony-renderer/dsp_fixtures/src/stream_reset.rs
+            if git diff --cached --quiet; then
+              failed_stage="no_stabilization_patch_produced"
+            else
+              git commit -m "fix(rt): reset stream-lifetime DSP state in place"
+              git push origin HEAD:main
+              exit $?
+            fi
+          fi
+
+          # Failure path: commit only a bounded diagnostic, never the unverified
+          # realtime source changes. Restore the tree first so the diagnostic is
+          # the sole content change.
+          git reset --hard "$base_sha"
+          mkdir -p ci-diagnostics
+          report=ci-diagnostics/stream-reset-stabilization-v4.txt
+          {
+            echo "Omniphony guarded stream-reset stabilization"
+            echo "base_sha=$base_sha"
+            echo "failed_stage=$failed_stage"
+            echo "rust_toolchain=$RUST_TOOLCHAIN"
+            echo
+            for log in patch fmt gain dsp renderer diff fetch; do
+              path="/tmp/omniphony-stabilize/${log}.log"
+              if [ -f "$path" ]; then
+                echo "===== ${log}.log (last 160 lines) ====="
+                tail -n 160 "$path"
+                echo
+              fi
+            done
+          } > "$report"
+          git add "$report"
+          git commit -m "ci: record stream-reset stabilization failure"
+          git push origin HEAD:main
+          exit 1
