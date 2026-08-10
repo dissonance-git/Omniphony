@@ -13,3 +13,8 @@ anyhow = "1"
 # `asio` feature here: the product-default Windows shell must compile and run
 # without the separately licensed Steinberg SDK or specialist drivers.
 cpal = "0.15.3"
+
+# Direct WASAPI access is used for Windows process-loopback capture. This is
+# intentionally host plumbing only; the portable renderer remains unaware of
+# Windows audio-session APIs.
+wasapi = "0.23.0"
