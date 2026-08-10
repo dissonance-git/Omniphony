@@ -2,19 +2,24 @@
 
 `omniphony-renderer` is the realtime engine inside the independent Omniphony fork.
 
-Its product role is now deliberately narrow:
+Its role is portable even though Windows is the current development/listening host:
 
 ```text
-Windows stereo PCM
+ordinary PCM / trusted scene input
 → realtime evidence / persistent auditory scene
 → direct objects + broad sources + fields
 → binaural rendering
-→ calibrated stereo headphone output
+→ listener/headphone calibration
+→ stereo headphone output
 ```
 
-The workspace still contains inherited speaker, bridge and cross-platform machinery where it remains useful for deterministic calibration, comparison, or a load-bearing dependency. That temporary presence does **not** define product scope.
+The workspace still contains inherited speaker, bridge and host-specific machinery where it remains useful for deterministic calibration, comparison, or a load-bearing dependency. That temporary presence does **not** define the mature product boundary.
 
-For fork policy and the product overview, start at [`../README.md`](../README.md) and [`../docs/FORK_POLICY.md`](../docs/FORK_POLICY.md).
+For the product overview, portability boundary and fork policy, start at:
+
+- [`../README.md`](../README.md)
+- [`../docs/PLATFORM_PORTABILITY.md`](../docs/PLATFORM_PORTABILITY.md)
+- [`../docs/FORK_POLICY.md`](../docs/FORK_POLICY.md)
 
 ---
 
@@ -22,91 +27,158 @@ For fork policy and the product overview, start at [`../README.md`](../README.md
 
 The engine is being optimized around:
 
-- ordinary stereo music as the normal source;
-- Windows 10/11 x64 first;
+- ordinary stereo music as the normal consumer source;
+- one portable audio/sample timeline independent of host callback size;
 - stable realtime processing;
-- sample-accurate state independent of callback block size;
 - persistent scene evidence rather than transient-chasing upmix rules;
 - direct-object, broad-source and diffuse-field presentation;
 - binaural HRTF/ITD rendering;
 - early reflections and late room field;
 - listener/headphone calibration;
 - strong matched-loudness bypass fidelity;
-- deterministic file/known-scene validation.
+- deterministic file/known-scene validation;
+- thin OS-specific capture/output shells around the same core.
 
-The final user should not need to understand speaker layouts, bridge ABIs, OSC registries, or renderer backends to listen to music.
+Windows 10/11 x64 is the **current live integration and critical-listening environment**. It is not the permanent architecture.
+
+The final listener should not need to understand speaker layouts, bridge ABIs, OSC registries, renderer algorithms, virtual endpoints or host APIs to listen to music.
 
 ---
 
-## Important crates
+## Workspace ownership
 
 ### `renderer`
 
-The core DSP and scene renderer.
+**Portable core / KEEP.**
 
-Current fork-specific work lives here, including:
+Current work includes:
 
 - `stereo_inference`;
 - `scene_inference`;
 - binaural HRTF/ITD;
 - early reflections;
-- late FDN field;
-- speaker/VBAP machinery retained as known-scene truth and shared renderer substrate.
+- late FDN room field;
+- speaker/VBAP machinery retained as known-scene truth and shared comparison substrate.
 
 ### `dsp_fixtures`
+
+**Portable test ruler / KEEP.**
 
 Deterministic measurement and regression infrastructure.
 
 It should remain independent enough that a broken ruler cannot silently certify broken DSP.
 
-### `audio_output`
+Current/future responsibilities include:
 
-Realtime output/timing infrastructure. Windows is the product target.
-
-The inherited Windows implementation currently hard-wires CPAL's ASIO feature. That is transitional: a clean normal-system Windows route should become the default, with ASIO optional.
-
-### `audio_input`
-
-Inherited input/control infrastructure. Much of the current Linux/PipeWire and fixed-channel behavior is transitional and will be reduced as the Windows stereo capture path becomes explicit.
-
-### `host_audio`
-
-Host audio integration shared by the current engine surfaces.
+- null/residual metrics;
+- ITD/ILD checks;
+- known scenes;
+- block-size invariance;
+- movement/gain continuity;
+- performance calibration.
 
 ### `orender_engine`
 
-Headless renderer construction and engine glue. This still carries inherited generic backend/config compatibility that is being contracted.
+**Headless portable engine boundary / KEEP, narrow over time.**
+
+Useful because it constructs and drives the renderer without owning OS audio I/O.
+
+Inherited generic backend/config compatibility can contract while preserving the headless boundary itself.
 
 ### `orender_ffi`
 
-Embedding boundary. Retained while it provides a useful engine/test integration surface; it is no longer a separately released cross-platform product.
+**Embedding boundary / KEEP while useful.**
 
-It deliberately excludes the host-audio layer, which makes it useful as the clean Windows CI engine boundary while the Windows system-audio shell is being simplified.
+The C ABI is useful for headless validation and future native/platform shells. It is not treated as a separate product for its own sake.
 
 ### `reference_bridge`
 
-**Keep as a laboratory instrument.**
+**Known-scene laboratory instrument / KEEP.**
 
-It provides deterministic known-channel / known-scene input for renderer tests. It is not the intended normal stereo-music ingestion architecture.
+Provides deterministic known-channel / known-scene input. It is not normal consumer stereo ingestion.
 
-### `bridge_api`, `spdif`, `runtime_control`, `sys`
+### `bridge_api`
 
-Inherited support crates with mixed status. Some remain load-bearing today; some contain transport/UI-era semantics that should disappear as dependencies are simplified.
+**Transitional lab/runtime boundary.**
+
+Still load-bearing for the reference bridge and inherited rich-input paths. The useful known-scene contract should eventually be separated from obsolete generic decoder-plugin assumptions.
+
+### `host_audio`
+
+**Platform-shell boundary / KEEP conceptually, replace internals as needed.**
+
+This is the correct architectural location for device/capture/output work because `renderer` and `orender_engine` should not own OS audio policy.
+
+### `audio_output`
+
+**Platform implementation / TRANSITIONAL.**
+
+Current inherited hosts include Linux/PipeWire and CPAL routes. Windows currently hard-wires CPAL's ASIO feature, which is not the desired normal consumer default.
+
+Target:
+
+```text
+portable output contract
+→ Windows adapter
+→ macOS adapter
+→ Linux adapter
+→ Android adapter
+→ iOS adapter
+```
+
+ASIO may remain an optional specialist Windows route.
+
+### `audio_input`
+
+**Platform implementation / REPLACE THEN CUT.**
+
+Despite its generic name, the current public model is inherited transport-specific machinery centered on:
+
+```text
+Bridge / PipeWire / PipeWireBridge
+PipeWire / ASIO backend labels
+fixed 7.1 mapping
+IEC61937 bridge clocks/pacing
+```
+
+Do not expand this enum surface to every future operating system.
+
+Replace it with a small neutral PCM/time/reset/source-metadata contract, migrate host callers, then delete the obsolete transport topology.
+
+### `spdif`
+
+**REPLACE THEN CUT.**
+
+Owns inherited IEC61937/S/PDIF bitstream parsing used by the legacy Linux bridge path. Ordinary PCM music ingestion does not need it.
+
+### `runtime_control`
+
+**KEEP / TRANSITIONAL SURFACE.**
+
+Timed state publication remains useful. Studio/OSC/backend-era assumptions can shrink.
+
+### `sys`
+
+**KEEP SMALL.**
+
+Shared operational/platform helpers only. Do not let product/scene semantics accumulate here.
 
 ### `example_backend`, `script_backend`
 
-Inherited extensibility demonstrations. They are not part of the target product and are scheduled for removal once their engine registration edges are removed atomically.
+**REMOVED.**
+
+Their registrations, dependency edges, workspace membership and crate trees are already gone.
 
 ---
 
 ## Build and test
 
-The workspace currently requires Rust `1.87.0`.
+The workspace currently requires Rust **`1.88.0`**.
 
 From this directory:
 
 ```sh
-cargo fmt --all -- --check
+cargo fmt --all
 cargo test -p dsp_fixtures
 cargo test -p renderer
 ```
@@ -117,36 +189,65 @@ The authoritative repository workflow is:
 ../.github/workflows/windows-renderer.yml
 ```
 
-It separates:
+It currently separates:
 
 ```text
 portable renderer core
 Windows renderer core
-Windows x64 renderer-engine artifact
+Windows x64 headless renderer-engine artifact
 ```
 
-The Windows artifact packages the cpal-free headless engine/FFI and reference bridge. That gives the renderer a real compiler/test/package gate without requiring the separately licensed Steinberg ASIO SDK.
+The headless artifact packages engine/FFI/reference-test surfaces without requiring the transitional host-audio layer or separately licensed Steinberg ASIO SDK.
 
-There is intentionally no longer a Studio, Linux packaging, macOS product, or cross-platform library-release workflow in this fork.
+Windows is therefore the first native integration gate **around** the portable renderer, not the renderer's identity.
 
-### Windows listening shell
+---
 
-The inherited full executable still supports an ASIO-oriented route where the required SDK/toolchain is available. That is useful for low-latency specialist listening, but it is not assumed to be the final system-wide Windows capture/output architecture.
+## Realtime time law
 
-The next host-audio refactor should make a normal Windows system backend the clean default and make ASIO opt-in.
+Audible state belongs to one logical sample timeline.
 
-See [`BUILDING_WINDOWS.md`](BUILDING_WINDOWS.md) only as inherited setup reference while Windows integration is being simplified.
+```text
+WASAPI callback
+CoreAudio callback
+PipeWire callback
+AAudio/Oboe callback
+Core Audio callback
+file-render chunk
+plugin host block
+        ↓
+    same timeline
+```
+
+Changing caller block size must not change:
+
+- gain trajectory;
+- object motion;
+- HRTF trajectory;
+- room transitions;
+- scene transitions;
+- inferred auditory organization.
+
+The speaker path already preserves more of this trajectory information than the current binaural handoff.
+
+A deterministic known-defect reproducer now lives in:
+
+```text
+dsp_fixtures::binaural_block_size
+```
+
+It holds source position/HRTF/PCM constant and changes only callback partition while exercising the 20 ms metadata-gain slew.
+
+After the hot-path fix it must become a mandatory positive equivalence gate.
 
 ---
 
 ## Binaural path
 
-The headphone path is independent from the speaker/VBAP output presentation.
-
 At a high level:
 
 ```text
-source position / scene state
+source / scene state
 → listener-relative direction
 → interpolated HRTF
 → analytic per-ear ITD
@@ -159,7 +260,7 @@ source position / scene state
 Important current properties:
 
 - measured and parametric HRTF providers;
-- optional SOFA source support;
+- optional SOFA support;
 - direction interpolation;
 - old/new filter output crossfade for movement;
 - asynchronous HRTF rebuild away from the audio thread;
@@ -170,22 +271,58 @@ Important current properties:
 - FDN modulation driven by processed sample count rather than callback count;
 - true zero-predelay behavior.
 
-See [`BINAURAL.md`](BINAURAL.md) for implementation details, but treat any remaining Studio/cross-platform instructions there as inherited documentation until that file is contracted too.
+See [`BINAURAL.md`](BINAURAL.md).
+
+---
+
+## Current binaural defects / next renderer gates
+
+### Gain is still callback-quantized
+
+`ChannelState::slew_gain` already produces a sample ramp, but the binaural handoff currently reduces it to one block-end scalar before `BinauralRenderer` consumes the block.
+
+Fix requirement:
+
+```text
+same PCM + same gain timeline
+40 / 240 / 960 sample caller partitions
+→ same binaural output within calibrated numerical tolerance
+```
+
+Do not create a second independent gain state machine inside `BinauralRenderer`; `ChannelState` remains the authority.
+
+### Position/motion is still callback-quantized
+
+Object position is similarly advanced to a callback endpoint before the binaural renderer sees it. HRTF crossfades smooth the resulting staircase but do not restore the authored sample trajectory.
+
+Motion gets a separate regression fixture after gain so the two defects remain attributable.
+
+### Extent is not yet preserved in headphones
+
+Scene/object size exists in inherited state and speaker/VBAP machinery. The binaural branch still collapses too much of it to a point.
+
+### `BroadSource` still needs a real renderer
+
+Reuse the existing size/extent state rather than inventing a duplicate width ontology.
+
+### `DiffuseField` still needs a first-class musical field basis
+
+The FDN is **room** energy, not a renderer for diffuse musical content. A spherical/Ambisonic or experimentally equivalent field representation remains a major candidate.
 
 ---
 
 ## Stereo scene inference
 
-`renderer::stereo_inference` currently exposes inspectable low-level evidence such as:
+`renderer::stereo_inference` currently exposes inspectable evidence including:
 
 - L/R pan/asymmetry;
-- phase coherence;
+- phase alignment/coherence proxy;
 - directness / diffuseness;
 - true complex mid and side magnitude;
 - time-constant persistence;
 - trajectory agreement and stability.
 
-`renderer::scene_inference` adds conservative scene evidence:
+`renderer::scene_inference` adds conservative presentation evidence:
 
 - frontal/foundation anchor support;
 - lateral object-candidate support;
@@ -194,29 +331,29 @@ See [`BINAURAL.md`](BINAURAL.md) for implementation details, but treat any remai
 - spatial specificity;
 - reassignment safety.
 
-These modules are **not yet a complete realtime stereo→scene pipeline**. They are the tested beginning of it.
+These modules are **not yet a complete realtime stereo → persistent scene path**.
 
-Rear placement remains a presentation choice constrained by evidence, not fake recovered metadata.
+Rear placement remains an Omniphony presentation choice constrained by hearing/music state, not a claim that stereo contained hidden authored rear coordinates.
 
 ---
 
 ## Known scene versus inferred scene
 
-Keep two validation lanes independent.
+Keep the two validation problems independent.
 
 ### Known scene → binaural
 
-Use the reference bridge, fixed layouts and authored fixtures to answer:
+Use reference bridge/layout/authored fixtures to ask:
 
-> If the renderer receives the correct source geometry, does it produce a convincing and faithful headphone scene?
+> If the renderer receives correct geometry/state, does it produce a faithful and convincing headphone scene?
 
-### Stereo → scene hypothesis
+### Stereo → heard scene / presentation opportunity
 
-Hold rendering constant and answer:
+Hold rendering understood and ask:
 
-> Does the stereo analysis discover stable, musically useful organization without damaging or hallucinating hierarchy?
+> Does analysis discover stable, musically useful organization without hallucinating hierarchy or source truth?
 
-Do not debug both problems at once.
+Do not debug inference and renderer physics simultaneously when one can be isolated.
 
 ---
 
@@ -226,39 +363,47 @@ Every perceptual improvement should be accompanied by evidence about what it cos
 
 Current reusable measurements include:
 
-- strict peak residual/null level;
+- peak residual/null;
 - RMS residual;
-- peak and RMS level;
+- peak/RMS level;
 - crest factor;
 - DC offset;
-- matched RMS-level delta;
+- matched level delta;
 - FFT/frequency-response analysis;
-- interaural lag/ITD analysis.
+- interaural lag/ITD.
 
-Additional important gates include:
+Additional gates include:
 
 - transient preservation;
 - clipping/headroom;
-- block/chunk-size invariance;
+- callback/chunk-size invariance;
 - movement continuity;
 - bass timing and weight;
 - profile-switch continuity.
 
-Human listening remains necessary for externalization, front/back, elevation, depth, envelopment, stability, fatigue and musical hierarchy.
+Human listening remains necessary for:
+
+- externalization;
+- front/back;
+- elevation;
+- depth;
+- envelopment;
+- source stability;
+- fatigue;
+- musical hierarchy;
+- whether the enhancement sounds native to the song rather than imposed.
 
 ---
 
 ## Listener/headphone calibration
 
-Calibration is now an explicit future layer rather than an HRTF afterthought.
-
-Keep distinct:
+Keep distinct until evidence justifies combining them:
 
 ```text
 listener HRTF
 headphone response
 driver ↔ ear interaction
-room/presentation target
+room / presentation target
 low-frequency integration
 safety headroom
 ```
@@ -267,57 +412,58 @@ See [`../docs/HEADPHONE_CALIBRATION.md`](../docs/HEADPHONE_CALIBRATION.md).
 
 ---
 
-## Current contraction boundary
+## Contraction boundary
 
-Safe removals already made at repository level include:
+Already physically removed:
 
 - Omniphony Studio;
-- Linux/Arch packaging;
+- inherited product packaging/helper shells outside the current architecture;
 - mpv product documentation;
-- old Studio/WebGL investigation material;
-- obsolete suite workflows and release jobs.
+- old Studio/WebGL archaeology;
+- obsolete suite workflows/release jobs;
+- demonstration backend crate;
+- Lua/script backend crate.
 
-The next crate-level removals must follow dependency edges rather than aesthetics.
-
-Likely order:
+Current deeper order:
 
 ```text
-example_backend + script_backend
-→ generic contributor-backend glue no longer required
-→ PipeWire/IEC61937/SPDIF product path
-→ bridge-first normal ingestion assumptions
-→ cross-platform host compatibility no longer used
+narrow generic contributor/plugin backend support
+→ define neutral platform PCM input contract
+→ migrate host callers
+→ remove legacy PipeWire/IEC61937/SPDIF ingest topology
+→ separate known-scene reference input from generic runtime plugin assumptions
+→ add thin native platform shells only around the same tested core
 ```
 
-See [`../docs/CONTRACTION_LEDGER.md`](../docs/CONTRACTION_LEDGER.md).
+The internal renderer-algorithm registry itself currently remains useful for comparing built-in VBAP/barycenter/distance/hybrid laws. Do not delete useful laboratory variation merely because the old external plugin UX disappeared.
 
-Do not remove the reference bridge or known-scene geometry simply because they are not final product UX. They remain valuable controlled truth.
+See [`../docs/CONTRACTION_LEDGER.md`](../docs/CONTRACTION_LEDGER.md).
 
 ---
 
 ## North-star rule
 
-The purpose of the engine is not to maximize a spatial-effect score.
+The engine is not trying to maximize a spatial-effect score.
 
-It is to make ordinary headphone playback feel lower-dimensional when bypassed **without bypass restoring music that Omniphony damaged**.
-
-That means:
+The target is:
 
 ```text
 more dimension
-+
-more externalization
-+
-more stable auditory world
++ more externalization
++ more stable auditory world
 
-must coexist with
+while preserving
 
 clarity
 transients
 bass precision
 timbre
 dynamics
+groove
 hierarchy
+recording character
 ```
 
-If those trade against each other, the renderer has more work to do.
+After acclimation, bypass should make ordinary headphone playback feel lower-dimensional.
+
+Bypass must **not** restore music that Omniphony damaged.
