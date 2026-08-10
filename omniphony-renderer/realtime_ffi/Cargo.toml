@@ -1,0 +1,12 @@
+[package]
+name = "realtime_ffi"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Tiny PCM realtime ABI between native audio hosts and the portable Omniphony renderer"
+
+[lib]
+name = "omniphony_realtime"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
