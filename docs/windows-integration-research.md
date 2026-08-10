@@ -1,6 +1,6 @@
 # Windows integration research
 
-This is a parked technical room for **Omniphony for Headphones**. `README.md` remains the product authority and `docs/INFLUENCE_LEDGER.md` remains the broad external-research index.
+This is a parked technical room for **Omniphony for Headphones**. `README.md` remains the product authority and `docs/influence-ledger.md` remains the broad external-research index.
 
 The purpose of this file is to preserve Windows-specific integration findings without allowing driver/APO research to delay the first audible prototype.
 
@@ -16,7 +16,7 @@ Practical third-party endpoint/driver reference:
 
 - https://github.com/shibajee/realtek-uad-dts-mod
 
-Related implementation references are retained in `docs/INFLUENCE_LEDGER.md`, especially CamillaDSP and `wasapi-rs`.
+Related implementation references are retained in `docs/influence-ledger.md`, especially CamillaDSP and `wasapi-rs`.
 
 ---
 
@@ -33,27 +33,21 @@ The public application-facing model supports:
 - Windows system mixing with non-spatial applications;
 - output-format abstraction: the application can submit spatial intent without implementing separate paths for Windows Sonic, Dolby Atmos for Headphones, DTS Headphone:X, speakers, or home theater.
 
-`ISpatialAudioObject` represents either:
-
-- a static object tied to one of the defined channel locations; or
-- a dynamic object that can be positioned and moved in 3-D space.
+`ISpatialAudioObject` represents either a static object tied to one of the defined channel locations or a dynamic object that can be positioned and moved in 3-D space.
 
 ### Important distinction for Omniphony
 
 `ISpatialAudioClient` is primarily an **input/sink API into the spatial renderer Windows has selected**.
-
-Conceptually:
 
 ```text
 GAME / APP
 → static bed and/or dynamic audio objects
 → ISpatialAudioClient
 → user-selected Windows spatial renderer
-   (Sonic / Atmos / DTS / etc.)
 → endpoint
 ```
 
-This is useful for understanding spatial source semantics and for future interoperability, but it is not evidence of a simple public API that lets an ordinary application register its own renderer as another entry in Windows' Spatial Sound dropdown.
+This is useful for understanding spatial source semantics and future interoperability, but it is not evidence of a simple public API that lets an ordinary application register its own renderer as another entry in Windows' Spatial Sound dropdown.
 
 Therefore do not conflate:
 
@@ -73,13 +67,9 @@ They are separate engineering problems.
 
 ## Useful Windows spatial semantics for future input support
 
-Microsoft documents three common renderer integration styles:
+Microsoft documents common renderer integration styles around static spatial channel beds, direct/stereo endpoint content combined with a spatial bus, and dynamic objects for selected voices/submixes.
 
-1. **Static spatial channel bed** such as 7.1.4.
-2. **Existing direct/stereo endpoint plus a spatial bus**, when some content should remain direct-to-ears while other content is spatialized.
-3. **Dynamic objects for selected voices/submixes**, with prioritization needed when object budgets are finite.
-
-This is valuable for Omniphony because its mature input model should eventually distinguish:
+This is valuable because the mature Omniphony input model should eventually distinguish:
 
 ```text
 stereo music
@@ -90,12 +80,7 @@ true dynamic objects
 
 without flattening them into one generic multichannel stream.
 
-The Microsoft guidance also reinforces a useful separation of responsibilities. Spatial Sound concentrates on positioning on an idealized sphere, while engines may still own other cues such as:
-
-- distance attenuation/filtering;
-- Doppler;
-- occlusion/obstruction;
-- environmental reverberation.
+The Microsoft guidance also reinforces a useful separation of responsibilities. Spatial positioning does not automatically own distance attenuation/filtering, Doppler, occlusion/obstruction, or environmental reverberation.
 
 That agrees with the current Omniphony architecture: HRTF positioning, room cues, distance cues, source extent, and scene inference should remain distinguishable mechanisms.
 
@@ -131,14 +116,7 @@ The UX requirement is stable even if the underlying mechanism changes.
 
 The `realtek-uad-dts-mod` project is not an implementation source for Omniphony. It is useful operational evidence.
 
-Its installation flow demonstrates that seamless commercial endpoint enhancement can involve a tightly coupled bundle of:
-
-- audio driver package;
-- Windows driver-signing policy;
-- endpoint-associated processing components;
-- companion UWP applications;
-- vendor-specific DTS processing packages;
-- reboot/install lifecycle.
+Its installation flow demonstrates that seamless commercial endpoint enhancement can involve a tightly coupled bundle of audio driver packages, Windows driver-signing policy, endpoint-associated processing components, companion applications, vendor-specific processing packages, and reboot/install lifecycle.
 
 The project instructs users to disable driver-signature enforcement for its modified package. **Omniphony for Headphones must not normalize that as acceptable consumer installation.** A public release should use supported Windows deployment/signing paths.
 
@@ -149,17 +127,15 @@ seamless user experience
 ≠ simple implementation
 ```
 
-The product may eventually hide substantial endpoint/APO/driver plumbing behind one enable switch, but P0 should not absorb that deployment complexity.
+The product may eventually hide substantial endpoint/APO/driver plumbing behind one enable switch, but the first prototype should not absorb that deployment complexity.
 
 ---
 
 ## Immediate versus parked
 
-### Immediate / P0
+### P0
 
-No architecture change from this research.
-
-Continue:
+The first P0 artifact has compiled and packaged successfully. Its controlled path remains:
 
 ```text
 upstream reference scene
@@ -168,7 +144,7 @@ upstream reference scene
 → native WASAPI playback
 ```
 
-P0 exists to prove the real renderer can be heard through the native Windows path.
+Physical endpoint/listening validation remains the part CI cannot prove.
 
 ### P1 transport hardening
 

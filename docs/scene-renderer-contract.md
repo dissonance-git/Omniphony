@@ -73,9 +73,7 @@ stable stereo evidence
 recovered rear metadata
 ```
 
-Rear placement can still be a useful immersive presentation decision.
-
-It must be described as presentation, not forensic recovery.
+Rear placement can still be a useful immersive presentation decision. It must be described as presentation, not forensic recovery.
 
 ---
 
@@ -85,7 +83,7 @@ Keep the renderer vocabulary small and typed.
 
 ### `FrontalAnchor`
 
-Material whose relocation would destabilize the recording's center of gravity, groove floor or musical focus.
+Material whose relocation would destabilize the recording's center of gravity, groove floor, or musical focus.
 
 ### `DirectObject`
 
@@ -158,19 +156,17 @@ Current low-frequency safeguards are product priors, not universal psychoacousti
 
 Use them conservatively to protect foundation behavior while better musical evidence develops.
 
-Frequency alone must not imply object identity.
-
-A diffuse low-frequency field may deserve protection without being mislabeled as a compact bass object.
+Frequency alone must not imply object identity. A diffuse low-frequency field may deserve protection without being mislabeled as a compact bass object.
 
 ---
 
 ## 6. Rendering laws retained from research
 
-Several ideas from Steam Audio, Dolby tooling, Ambisonic systems and other research remain useful because they clarify renderer jobs.
+Several ideas from Steam Audio, Dolby tooling, Ambisonic systems, upstream Omniphony, and other research remain useful because they clarify renderer jobs.
 
 ### Stateful rendering per source
 
-HRTF convolution, delay history and movement smoothing need persistent state.
+HRTF convolution, delay history, and movement smoothing need persistent state.
 
 ### Interpolated HRTFs
 
@@ -178,7 +174,7 @@ Movement should not jump between discrete HRIR directions.
 
 ### HRTF providers remain swappable
 
-Measured generic, parametric and SOFA/custom sources can be changed without rewriting scene semantics.
+Measured generic, parametric, and SOFA/custom sources can be changed without rewriting scene semantics.
 
 ### Bulk arrival delay and HRTF spectral phase are distinct
 
@@ -186,7 +182,7 @@ When analytic ITD is applied separately, measured HRIR preprocessing must not er
 
 ### Source rendering and environment rendering are distinct
 
-Distance, air absorption, reflections, occlusion/transmission and room energy do not become source identity.
+Distance, air absorption, reflections, occlusion/transmission, and room energy do not become source identity.
 
 ### Fields may need distributed/spherical representation
 
@@ -216,9 +212,7 @@ This is better than one generic `spaciousness` or `wet` control because the perc
 
 The fork has already improved several pieces of this machinery, including directional early-reflection timing and sample-time-oriented FDN behavior.
 
-The existence of those improvements does not promote `baseline-room.yaml` above the upstream demo reference.
-
-Late room remains optional presentation behavior.
+The existence of those improvements does not promote `baseline-room.yaml` above the upstream demo reference. Late room remains optional presentation behavior.
 
 ---
 
@@ -234,9 +228,7 @@ known scene / layout
 → headphones
 ```
 
-asks:
-
-> If Omniphony is told the scene, does it render it convincingly?
+asks whether Omniphony renders a supplied scene convincingly.
 
 ### Inference lane
 
@@ -246,9 +238,7 @@ controlled stereo
 → scene hypothesis
 ```
 
-asks:
-
-> Did Omniphony infer useful organization without inventing unsupported specificity?
+asks whether Omniphony inferred useful organization without inventing unsupported specificity.
 
 ### Product lane
 
@@ -258,9 +248,7 @@ ordinary music
 ↔ current HeSuVi incumbent
 ```
 
-asks:
-
-> Would the listener actually prefer the new product?
+asks whether the listener would actually prefer the new product.
 
 Do not collapse these lanes into one score.
 
@@ -281,9 +269,7 @@ high confidence
 → greater permission for specific stable placement
 ```
 
-Confidence does not authorize spectacle.
-
-Musical/fidelity guards can veto a geometrically dramatic placement.
+Confidence does not authorize spectacle. Musical/fidelity guards can veto a geometrically dramatic placement.
 
 ---
 
@@ -304,15 +290,11 @@ At the August 2026 checkpoint, useful retained/fork behavior includes:
 - deterministic DSP/fidelity fixtures;
 - optional upstream spectral-phantom and distance-diffuse mechanisms already present in the fork.
 
-The Windows renderer/core Actions path after the August host-native test repair was visually verified green by the repository owner on 2026-08-10.
-
-Do not keep old language saying that checkpoint is still waiting for CI proof.
+The P0 Windows prototype subsequently compiled and packaged successfully on 2026-08-10. That proves the controlled reference/build lane, not arbitrary-stereo scene inference.
 
 ---
 
 ## 11. Current gaps that still matter
-
-These are real gaps, but the root README decides when they outrank Windows host work.
 
 ### A. Ordinary stereo is not yet a complete persistent realtime scene
 
@@ -322,9 +304,7 @@ Do not claim end-to-end stereo object recovery.
 
 ### B. Position/HRTF movement still needs one authoritative sample-time trajectory
 
-The gain/callback-invariance work and green CI do **not** prove that all movement is sample-time invariant.
-
-The known separate concern is position/HRTF publication that can still be shaped by block-start updates.
+Current gain/callback-invariance work does **not** prove that all movement is sample-time invariant.
 
 When this is fixed, prefer:
 
@@ -343,38 +323,19 @@ Do not fake extent by indiscriminate decorrelation.
 
 ### D. `DiffuseField` is not a first-class musical field renderer yet
 
-The FDN is a room field.
-
-It is not automatically the correct representation for diffuse musical content.
+The FDN is a room field. It is not automatically the correct representation for diffuse musical content.
 
 If a distributed musical field is needed, test a real spherical/extended basis separately.
 
 ### E. Realtime performance needs meaningful controls
 
-Raw wall-clock CI timing is too sensitive to host contention for a naive fixed threshold.
+Raw wall-clock CI timing is too sensitive to host contention for a naive fixed threshold. Use same-run controls or another normalized metric before turning performance reports into hard pass/fail gates.
 
-Use same-run controls or another normalized metric before turning performance reports into hard pass/fail gates.
+### F. Native Windows transport is active product work
 
-### F. Native Windows transport is now in progress
+The host now includes native output smoke/reference modes and packaged render validation. Loopback remains diagnostic because it copies rather than intercepts the system mix.
 
-Current host work includes:
-
-```text
-windows_host
-→ normal Windows output-device probe
-→ self-excluding process-loopback diagnostic probe
-
-realtime_ffi
-→ bit-exact interleaved-f32 PCM boundary
-→ C ABI/header
-→ CI/package coverage
-```
-
-Loopback remains diagnostic because it copies rather than intercepts the system mix.
-
-The next transport problem is single-path integration, likely by evaluating endpoint APO and virtual-endpoint strategies.
-
-See `docs/WINDOWS_AUDIO_ROUTE.md`.
+See `docs/windows-audio-route.md`.
 
 ---
 
@@ -396,20 +357,7 @@ Useful objective axes include:
 - profile/renderer state-switch continuity;
 - clipping/headroom.
 
-Human listening remains necessary for:
-
-- externalization;
-- front/back discrimination;
-- elevation;
-- image stability;
-- source body/extent;
-- listener envelopment;
-- radial depth;
-- room naturalness;
-- timbral/direct-source solidity;
-- bass/groove integrity;
-- fatigue;
-- preference.
+Human listening remains necessary for externalization, front/back discrimination, elevation, image stability, source body/extent, listener envelopment, radial depth, room naturalness, timbral/direct-source solidity, bass/groove integrity, fatigue, and preference.
 
 The desired bypass result is dimensional collapse, not restored fidelity.
 
@@ -430,9 +378,7 @@ controlled test / real listening exposes weakness
 → keep only if earned
 ```
 
-Steam Audio, Dolby, Ambisonics, libaural and learned models remain excellent sources when a concrete problem calls for them.
-
-They do not outrank the protected sound merely by being sophisticated.
+External engines, Ambisonics, libaural, and learned models remain excellent sources when a concrete problem calls for them. They do not outrank the protected sound merely by being sophisticated.
 
 ---
 
@@ -440,17 +386,6 @@ They do not outrank the protected sound merely by being sophisticated.
 
 At matched loudness, Omniphony should eventually make bypass feel spatially collapsed.
 
-But bypass must not restore:
+But bypass must not restore clarity, punch, timbre, transient precision, bass definition, dynamics, center authority, or musical hierarchy.
 
-- clarity;
-- punch;
-- timbre;
-- transient precision;
-- bass definition;
-- dynamics;
-- center authority;
-- musical hierarchy.
-
-The scene is there to strengthen the headphone world.
-
-The recording remains more important than the scene model.
+The scene is there to strengthen the headphone world. The recording remains more important than the scene model.
