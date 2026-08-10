@@ -176,29 +176,19 @@ Platform integration remains needed. Linux/systemd/cross-platform code can shrin
 
 ### `example_backend`
 
-**CUT NEXT.**
+**REMOVED.**
 
-Upstream demonstration crate proving arbitrary backend extensibility. No headphone-product owner.
+The upstream demonstration crate, engine registration and workspace/dependency edges were removed atomically in dependency-safe order. Its purpose was to demonstrate arbitrary contributor backend extensibility, not to serve the headphone product.
 
-Known edges:
-
-```text
-workspace member
-orender_engine dependency
-orender_engine/src/renderer_build.rs registration
-```
-
-Removal should be atomic with those edges.
+Recover from upstream/Git history only if a future external-backend SDK becomes a real product requirement.
 
 ### `script_backend`
 
-**CUT NEXT.**
+**REMOVED.**
 
-Lua/user-programmable backend is an upstream extensibility product, not a target listener feature.
+The Lua/user-programmable backend, engine registration and workspace/dependency edges were removed atomically. Arbitrary user backend scripting has no owner in the target listener product and unnecessarily pulled an embedded scripting runtime into the workspace.
 
-Known edges are the same shape as `example_backend`.
-
-Do not expose arbitrary user DSP/backend scripting merely because the inherited engine can.
+Recover from upstream/Git history only if future evidence establishes a product need.
 
 ---
 
@@ -238,16 +228,19 @@ Branding has no renderer dependency. Replace/remove independently when the produ
 
 Do not attempt all of these in one commit.
 
-### Cut 1 — backend demos
+### Cut 1 — backend demos — COMPLETE
+
+Completed in dependency-safe order:
 
 ```text
-remove registration lines
+remove runtime registrations
 → remove engine dependencies
 → remove workspace members
 → delete example_backend/
 → delete script_backend/
-→ compile/test
 ```
+
+Compiler/CI confirmation remains a separate gate; physical dependency edges and crate files are gone.
 
 ### Cut 2 — generic backend product surface
 
