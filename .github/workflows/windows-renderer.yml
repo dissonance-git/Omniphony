@@ -172,14 +172,24 @@ jobs:
 
               Omniphony.exe
 
-          The console launcher is no longer the normal interface. Omniphony.exe is a
-          small native Windows shell that supervises a hidden audio worker.
+          The app supervises a hidden audio worker. No microphone/input-device picker
+          is part of normal use.
 
           CURRENT UI
 
-              ON / OFF      wet Omniphony versus crude bypass comparison
+              ON / OFF      Omniphony versus dry comparison
               Quit          stop the worker and close the app
-              status line   reports running / stopped / failed state
+              status line   running / switching / failed state
+
+          PROTOTYPE ON/OFF BEHAVIOR
+
+          For this build, clicking ON/OFF intentionally restarts the hidden worker in
+          the requested state. A short interruption is expected. This is deliberate:
+          destroying the old worker also destroys its old capture/output queues, so an
+          already-queued wet block cannot leak after OFF.
+
+          A later polished implementation can replace this with sample-aligned paired
+          wet/dry buffers near the physical output while preserving renderer state.
 
           If the hidden worker fails, the app stays open and writes diagnostics to:
 
@@ -188,28 +198,62 @@ jobs:
           CURRENT TEMPORARY AUDIO ROUTE
 
               foobar / Windows applications
-                -> current Hi-Fi Cable render endpoint
-                   (dry signal does not reach the physical headphones)
+                -> existing Hi-Fi Cable render endpoint
                 -> self-excluding Windows process loopback
                 -> protected Omniphony binaural renderer
                 -> automatically preferred FiiO physical output
                 -> headphones
 
-          There is no microphone/capture-device selection.
+          This is migration scaffolding, not the final platform route.
 
-          FOR THE CURRENT PRIVATE LISTENING BASELINE
+          IMPORTANT: ONE PHYSICAL PATH ONLY
 
-          1. Keep Windows / foobar output on the existing Hi-Fi Cable endpoint.
-          2. Disable/bypass HeSuVi / Equalizer APO virtualization on that cable while
-             testing Omniphony.
-          3. Close ASIO Bridge or anything else that would independently forward the
-             cable to the FiiO and create a second audible path.
-          4. Keep foobar's existing Upmix to 5.1/side enabled for the first comparison.
-          5. Leave the FiiO connected. The worker automatically prefers an output
-             whose name contains "FiiO".
+          Keep the existing HeSuVi / Hi-Fi / ASIO software INSTALLED for reversibility,
+          but do not leave an old route physically forwarding to the FiiO while
+          Omniphony is also sending to the FiiO.
+
+          For a trustworthy comparison:
+
+          1. Keep Hi-Fi Cable installed and keep Windows/foobar routed to it.
+          2. Disable/bypass HeSuVi / Equalizer APO virtualization on that cable.
+          3. STOP/BYPASS ASIO Bridge or any other old path that independently forwards
+             the cable to the FiiO. Do not uninstall it yet.
+          4. Leave the FiiO connected. Omniphony automatically prefers a device whose
+             name contains "FiiO".
+          5. Confirm Omniphony is the only audible path reaching the FiiO.
+
+          NEXT CLEAN STEREO BASELINE
+
+          Ordinary stereo music is the primary product use case. For the first fair
+          sound-quality test, use a song you know extremely well and temporarily turn
+          off foobar's 5.1 upmix. Prefer a simple stereo chain so the test asks:
+
+              stereo recording
+                -> Omniphony
+                -> FiiO
+                -> headphones
+
+          Keep the old DSP/plugins installed. The point is to deactivate stages, not
+          dismantle the incumbent before Omniphony has earned the replacement.
+
+          Once stereo is clean, later tests are:
+
+              native surround alone
+              stereo music + native surround application simultaneously
+
+          The long-term core treats channel layout per logical stream, not as one
+          global mode. A stereo song and a surround game should coexist.
+
+          FIRST LIVE-LISTEN NOTE
+
+          The first arbitrary-audio test played successfully but sounded tinny,
+          hallway-like and less bubble-like, with a small echo after OFF. Because the
+          old forwarding chain had not been fully disabled and the old prototype could
+          also leave wet data queued, that listen is transport-contaminated evidence,
+          not a renderer-quality verdict.
 
           Omniphony.exe launches omniphony_worker.exe. The dedicated worker initializes
-          COM MTA before entering the existing live audio implementation. This avoids:
+          COM MTA before entering the live audio implementation, avoiding the earlier:
 
               Cannot change thread mode after it is set. (0x80010106)
 
@@ -223,10 +267,16 @@ jobs:
               LIST-DEVICES.cmd
               omniphony_live.exe --output "FiiO"
 
-          This is now the product-shell skeleton rather than a disposable console UI.
-          Later work can replace the temporary loopback/cable route, add tray/startup
-          behavior, saved settings and polish without changing the basic app -> audio
-          worker -> renderer ownership boundary.
+          PRODUCT ARCHITECTURE
+
+              Omniphony.exe / platform shell
+                -> platform worker / audio adapter
+                -> portable Omniphony core
+                -> binaural stereo output
+
+          Windows is the first host, not part of the portable renderer identity.
+          Future platform work should replace/adapt the host layer rather than fork a
+          Windows-shaped audio core.
           '@ | Set-Content (Join-Path $dist 'LIVE-README.txt')
 
           foreach ($required in @(
