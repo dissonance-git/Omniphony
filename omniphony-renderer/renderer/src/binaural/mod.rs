@@ -258,6 +258,12 @@ pub struct BinauralRenderer {
     /// Per-input-channel DSP state, indexed directly by channel (sparse tail is
     /// fine; reset when the channel count shrinks).
     channels: Vec<Option<ChannelDsp>>,
+    /// Metadata/mute gain at the sample boundary immediately after the previous
+    /// callback, per input channel. `SpatialRenderer::slew_gain` remains the one
+    /// authority for the slew rate; this state merely reconstructs the linear
+    /// segment between successive boundary values so callback size cannot turn
+    /// the audible gain trajectory into a staircase.
+    channel_gain_boundary: Vec<f32>,
     /// Reusable HRIR scratch so `at()` writes in place (no per-channel alloc).
     hrir_scratch: HrirPair,
     /// Shared late-reverb tail; allocated lazily while enabled.
@@ -304,6 +310,7 @@ impl BinauralRenderer {
             incoming,
             rebuild_tx,
             channels: Vec::new(),
+            channel_gain_boundary: Vec::new(),
             hrir_scratch: HrirPair {
                 left: [0.0; HRIR_LEN],
                 right: [0.0; HRIR_LEN],
@@ -416,7 +423,10 @@ impl BinauralRenderer {
     /// Render one frame to interleaved stereo.
     ///
     /// - `chan_pos[c]`: world (ADM) position of input channel `c`.
-    /// - `chan_gain[c]`: linear gain for channel `c` (object mute/gain folded in).
+    /// - `chan_gain[c]`: linear metadata/mute gain at the sample boundary after
+    ///   this frame. The previous boundary is retained internally and the gain
+    ///   is interpolated per sample between them; host callback boundaries are
+    ///   therefore transport details rather than audible gain steps.
     /// - `chan_direct[c]`: `true` for channels that keep their direct-routing
     ///   intent (beds mapped to a `spatialize: false` speaker — the LFE): fed
     ///   to both ears equally, bypassing HRIR/ITD/air/reflections/reverb.
@@ -449,6 +459,9 @@ impl BinauralRenderer {
         if self.channels.len() < input_channel_count {
             self.channels.resize_with(input_channel_count, || None);
         }
+        if self.channel_gain_boundary.len() < input_channel_count {
+            self.channel_gain_boundary.resize(input_channel_count, 0.0);
+        }
 
         // Late-reverb bus: per-channel sends accumulate here; the shared FDN
         // turns the mono sum into a decorrelated stereo tail after the loop.
@@ -463,8 +476,11 @@ impl BinauralRenderer {
         }
 
         for c in 0..input_channel_count {
-            let gain = chan_gain.get(c).copied().unwrap_or(0.0);
-            if gain == 0.0 {
+            let gain_end = chan_gain.get(c).copied().unwrap_or(0.0);
+            let gain_start = self.channel_gain_boundary[c];
+            self.channel_gain_boundary[c] = gain_end;
+            let gain_step = (gain_end - gain_start) / sample_length as f32;
+            if gain_start == 0.0 && gain_end == 0.0 {
                 // Keep an existing reflection bank fading out so a muted
                 // channel does not freeze its taps at full gain.
                 if let Some(Some(dsp)) = self.channels.get_mut(c) {
@@ -489,6 +505,7 @@ impl BinauralRenderer {
                     dsp.refl = None;
                 }
                 for s in 0..sample_length {
+                    let gain = gain_start + gain_step * s as f32;
                     let v = input_pcm[s * input_channel_count + c]
                         * gain
                         * std::f32::consts::FRAC_1_SQRT_2;
@@ -607,6 +624,11 @@ impl BinauralRenderer {
 
             let air = dsp.air_coeff;
             for s in 0..sample_length {
+                // Reconstruct the exact linear gain segment between the previous
+                // and current sample-boundary values supplied by SpatialRenderer.
+                // This is the same `start + step * sample_idx` convention as the
+                // speaker path, so callback shape cannot quantize metadata gain.
+                let gain = gain_start + gain_step * s as f32;
                 // `raw` carries the object/metadata gain only; the direct path
                 // adds its distance gain, the reflection taps theirs. The air
                 // low-pass applies to the propagated wave, so it feeds the
@@ -666,16 +688,45 @@ mod tests {
         }
     }
 
+    /// Bring a direct `BinauralRenderer` test channel to unity at a sample
+    /// boundary using silence. Production callers normally arrive through
+    /// `SpatialRenderer`, which has already slewed the boundary values. Impulse
+    /// tests need this priming so sample zero probes HRIR/room behavior rather
+    /// than the intentional stream-start gain ramp.
+    fn prime_unit_gain(
+        r: &mut BinauralRenderer,
+        n: usize,
+        params: &BinauralFrameParams,
+        pos: &[[f64; 3]],
+    ) {
+        let input_channels = pos.len();
+        let silence = vec![0.0f32; n * input_channels];
+        let gains = vec![1.0f32; input_channels];
+        let mut out = vec![0.0f32; n * 2];
+        r.render_frame(
+            &silence,
+            input_channels,
+            n,
+            params,
+            pos,
+            &gains,
+            &[],
+            &mut out,
+        );
+    }
+
     fn render_single(pos: [f64; 3]) -> (f32, f32) {
         let mut r = BinauralRenderer::new(48_000);
         let n = 512;
+        let params = dry_params();
+        prime_unit_gain(&mut r, n, &params, &[pos]);
         // Single impulse: per-ear output energy then equals the (delay-preserved)
         // HRIR energy — a broadband probe that doesn't over-weight the Nyquist bin
         // the way an alternating ±1 input would on a measured HRIR.
         let mut input = vec![0.0f32; n];
         input[0] = 1.0;
         let mut out = vec![0.0f32; n * 2];
-        r.render_frame(&input, 1, n, &dry_params(), &[pos], &[1.0], &[], &mut out);
+        r.render_frame(&input, 1, n, &params, &[pos], &[1.0], &[], &mut out);
         let mut el = 0.0f32;
         let mut er = 0.0f32;
         for s in 0..n {
@@ -701,9 +752,11 @@ mod tests {
         let mut input = vec![0.0f32; n];
         input[0] = 1.0;
         let pos = [[0.5, 1.0, 0.0]];
+        let params = dry_params();
+        prime_unit_gain(&mut r, n, &params, &pos);
         let render = |r: &mut BinauralRenderer| -> f32 {
             let mut out = vec![0.0f32; n * 2];
-            r.render_frame(&input, 1, n, &dry_params(), &pos, &[1.0], &[], &mut out);
+            r.render_frame(&input, 1, n, &params, &pos, &[1.0], &[], &mut out);
             out.iter().map(|x| x * x).sum()
         };
 
@@ -793,9 +846,11 @@ mod tests {
         let pos = [[0.0, 2.0, 0.0]];
         let tail = |out: &[f32]| -> f32 { out[250 * 2..].iter().map(|x| x * x).sum::<f32>() };
 
-        let mut dry = vec![0.0f32; n * 2];
+        let dry = dry_params();
+        let mut dry_out = vec![0.0f32; n * 2];
         let mut r = BinauralRenderer::new(48_000);
-        r.render_frame(&input, 1, n, &dry_params(), &pos, &[1.0], &[], &mut dry);
+        prime_unit_gain(&mut r, n, &dry, &pos);
+        r.render_frame(&input, 1, n, &dry, &pos, &[1.0], &[], &mut dry_out);
 
         let wet_params = BinauralFrameParams {
             reflections: BinauralReflections {
@@ -807,9 +862,10 @@ mod tests {
         };
         let mut wet = vec![0.0f32; n * 2];
         let mut r = BinauralRenderer::new(48_000);
+        prime_unit_gain(&mut r, n, &wet_params, &pos);
         r.render_frame(&input, 1, n, &wet_params, &pos, &[1.0], &[], &mut wet);
 
-        assert!(tail(&dry) < 1e-9, "dry render must have no late energy");
+        assert!(tail(&dry_out) < 1e-9, "dry render must have no late energy");
         assert!(
             tail(&wet) > 1e-6,
             "reflections produced no late energy: {}",
@@ -826,10 +882,12 @@ mod tests {
         // Energy far past both the HRIR tail and the early-reflection window.
         let tail = |out: &[f32]| -> f32 { out[4_000 * 2..].iter().map(|x| x * x).sum() };
 
-        let mut dry = vec![0.0f32; n * 2];
+        let dry = dry_params();
+        let mut dry_out = vec![0.0f32; n * 2];
         let mut r = BinauralRenderer::new(48_000);
-        r.render_frame(&input, 1, n, &dry_params(), &pos, &[1.0], &[], &mut dry);
-        assert!(tail(&dry) < 1e-9, "dry render must have no tail");
+        prime_unit_gain(&mut r, n, &dry, &pos);
+        r.render_frame(&input, 1, n, &dry, &pos, &[1.0], &[], &mut dry_out);
+        assert!(tail(&dry_out) < 1e-9, "dry render must have no tail");
 
         let wet_params = BinauralFrameParams {
             reverb: BinauralReverb {
@@ -842,6 +900,7 @@ mod tests {
         };
         let mut wet = vec![0.0f32; n * 2];
         let mut r = BinauralRenderer::new(48_000);
+        prime_unit_gain(&mut r, n, &wet_params, &pos);
         r.render_frame(&input, 1, n, &wet_params, &pos, &[1.0], &[], &mut wet);
         assert!(tail(&wet) > 1e-7, "no reverb tail: {}", tail(&wet));
     }
@@ -859,18 +918,11 @@ mod tests {
                 air_absorption: true,
                 ..dry_params()
             };
+            let pos = [[0.0, dist, 0.0]];
             let mut out = vec![0.0f32; n * 2];
             let mut r = BinauralRenderer::new(48_000);
-            r.render_frame(
-                &input,
-                1,
-                n,
-                &params,
-                &[[0.0, dist, 0.0]],
-                &[1.0],
-                &[],
-                &mut out,
-            );
+            prime_unit_gain(&mut r, n, &params, &pos);
+            r.render_frame(&input, 1, n, &params, &pos, &[1.0], &[], &mut out);
             // Direct path no longer applies a 1/d gain, so the broadband level is
             // distance-independent; the only near/far difference is the
             // air-absorption HF roll-off under test.
