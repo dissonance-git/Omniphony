@@ -5,6 +5,8 @@ use bridge_api::RInputTransport;
 #[cfg(target_os = "windows")]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 #[cfg(target_os = "windows")]
+use cpal::Sample;
+#[cfg(target_os = "windows")]
 use orender_engine::Engine;
 #[cfg(target_os = "windows")]
 use std::path::{Path, PathBuf};
