@@ -118,6 +118,12 @@ jobs:
       - name: Test renderer core
         run: cargo test -p renderer
 
+      # This is the product-default Windows transport lane. It intentionally
+      # compiles CPAL without the optional ASIO feature so ordinary Windows
+      # builds do not require the Steinberg SDK or specialist drivers.
+      - name: Check native Windows WASAPI host
+        run: cargo check -p windows_host
+
   windows-engine-artifact:
     name: Windows x64 renderer engine artifact
     runs-on: windows-latest
