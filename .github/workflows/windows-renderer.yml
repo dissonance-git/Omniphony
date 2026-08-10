@@ -10,11 +10,12 @@ on:
 permissions:
   contents: read
 
-# Keep diagnostic runs alive while the fork is moving quickly. Once the
-# workflow is routinely green we can re-enable cancellation to save runner time.
+# Only the newest commit on a branch is relevant during rapid iteration. Cancel
+# superseded runs so a burst of documentation/repository cleanup does not leave
+# stale Windows builds queued behind the current product head.
 concurrency:
   group: omniphony-renderer-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
