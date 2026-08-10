@@ -12,6 +12,11 @@ use renderer::spatial_renderer::{SpatialChannelEvent, SpatialRenderer};
 use renderer::speaker_layout::SpeakerLayout;
 
 const TOTAL_SAMPLES: usize = 960; // 20 ms at 48 kHz = GAIN_SLEW_SECS.
+const PRIME_BLOCK_SAMPLES: usize = 40;
+// Prime beyond one complete 20 ms gain slew, not merely beyond a few host
+// callbacks. This is intentionally expressed in samples because callback count
+// is exactly the quantity under test.
+const PRIME_SAMPLES: usize = 1_280;
 const POSITION: [f64; 3] = [0.0, 1.0, 0.0]; // fixed front-centre object.
 
 fn fixed_event(gain_db: i8) -> SpatialChannelEvent {
@@ -42,14 +47,16 @@ fn renderer_primed_at_silence() -> SpatialRenderer {
         // in this reproducer, and the object never moves after priming.
     }
 
-    // Settle position/HRTF state while metadata gain is silent. Using the same
-    // 40-sample priming sequence for every compared renderer removes HRTF
-    // construction/crossfade history from the variable under test.
+    // Settle position/HRTF state and, crucially, the entire 20 ms metadata-gain
+    // slew while gain is silent. Every compared renderer receives the exact same
+    // 40-sample priming sequence so construction/crossfade history is controlled.
+    assert_eq!(PRIME_SAMPLES % PRIME_BLOCK_SAMPLES, 0);
+    assert!(PRIME_SAMPLES > TOTAL_SAMPLES);
     let silent = fixed_event(-128);
     let mut reuse = Vec::new();
-    for block in 0..16 {
-        let pcm: Vec<f32> = (0..40)
-            .map(|sample| pseudo((block * 40 + sample) as u64) * 0.25)
+    for block_start in (0..PRIME_SAMPLES).step_by(PRIME_BLOCK_SAMPLES) {
+        let pcm: Vec<f32> = (0..PRIME_BLOCK_SAMPLES)
+            .map(|sample| pseudo((block_start + sample) as u64) * 0.25)
             .collect();
         let frame = renderer
             .render_frame(&pcm, 1, std::slice::from_ref(&silent), reuse, false)
@@ -75,7 +82,7 @@ fn render_gain_step(block_samples: usize) -> Vec<f32> {
         let pcm: Vec<f32> = (0..block_samples)
             .map(|sample| pseudo((10_000 + block_start + sample) as u64) * 0.25)
             .collect();
-        let events = if block_start == 0 {
+        let events: &[SpatialChannelEvent] = if block_start == 0 {
             std::slice::from_ref(&step)
         } else {
             &[]
@@ -134,8 +141,8 @@ fn known_defect_binaural_gain_is_block_quantized() {
         "the known block-quantized gain defect no longer reproduces; convert this into the positive invariance gate"
     );
 
-    // Guard the fixture itself: the gain slew is exactly 20 ms at the declared
-    // 48 kHz test rate, so the logical experiment duration tracks the product
-    // contract rather than an accidental constant.
+    // Guard the fixture itself: the measured gain transition is exactly 20 ms
+    // at the declared 48 kHz rate and priming lasts strictly longer than it.
     assert_eq!(TOTAL_SAMPLES, (SAMPLE_RATE as f32 * 0.020) as usize);
+    assert!(PRIME_SAMPLES > TOTAL_SAMPLES);
 }
