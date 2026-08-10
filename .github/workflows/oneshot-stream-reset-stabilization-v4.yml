@@ -45,7 +45,6 @@ jobs:
 
           python - <<'PY' > /tmp/omniphony-stabilize/patch.log 2>&1
           from pathlib import Path
-          import textwrap
 
           source = Path(".github/workflows/oneshot-stream-reset-stabilization-v2.yml").read_text(encoding="utf-8")
           step = "      - name: Apply bounded stream-lifetime reset patch\n"
@@ -53,7 +52,11 @@ jobs:
           run_marker = "        run: |\n"
           start = source.index(run_marker, start) + len(run_marker)
           end = source.index("\n      - name: Format patched Rust", start)
-          program = textwrap.dedent(source[start:end])
+          lines = source[start:end].splitlines()
+          program = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in lines
+          )
           compile(program, "v2-stream-reset-patch", "exec")
           exec(program, {"__name__": "__main__"})
           PY
