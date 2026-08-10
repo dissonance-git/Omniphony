@@ -14,6 +14,11 @@ anyhow = "1"
 # without the separately licensed Steinberg SDK or specialist drivers.
 cpal = "0.15.3"
 
+# The native host exercises the same narrow PCM seam intended for a future APO
+# or virtual endpoint. P0 keeps that seam bit-exact; the protected Omniphony
+# renderer is connected behind it only after native output itself is proven.
+realtime_ffi = { path = "../realtime_ffi" }
+
 # Direct WASAPI access is used for Windows process-loopback capture. This is
 # intentionally host plumbing only; the portable renderer remains unaware of
 # Windows audio-session APIs.
