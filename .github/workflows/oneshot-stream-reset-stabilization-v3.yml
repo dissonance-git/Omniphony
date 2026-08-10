@@ -1,0 +1,100 @@
+name: One-shot stream reset stabilization v3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/oneshot-stream-reset-stabilization-v3.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: oneshot-stream-reset-stabilization-v3
+  cancel-in-progress: false
+
+env:
+  RUST_TOOLCHAIN: 1.88.0
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  patch-test-and-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact triggering main
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install pinned Rust
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt
+          rustup override set "$RUST_TOOLCHAIN"
+          rustc --version --verbose
+          cargo --version
+
+      - name: Reuse reviewed v2 stabilization patch
+        shell: python
+        run: |
+          from pathlib import Path
+          import textwrap
+
+          source = Path(".github/workflows/oneshot-stream-reset-stabilization-v2.yml").read_text(encoding="utf-8")
+          step = "      - name: Apply bounded stream-lifetime reset patch\n"
+          start = source.index(step)
+          run_marker = "        run: |\n"
+          start = source.index(run_marker, start) + len(run_marker)
+          end = source.index("\n      - name: Format patched Rust", start)
+          program = textwrap.dedent(source[start:end])
+          compile(program, "v2-stream-reset-patch", "exec")
+          exec(program, {"__name__": "__main__"})
+
+      - name: Format patched Rust
+        working-directory: omniphony-renderer
+        run: cargo fmt --all
+
+      - name: Prove existing gain callback invariant
+        working-directory: omniphony-renderer
+        run: cargo test -p dsp_fixtures binaural_gain_is_invariant_to_host_block_size -- --nocapture
+
+      - name: Test DSP measurement and always-on fixtures
+        working-directory: omniphony-renderer
+        run: cargo test -p dsp_fixtures -- --nocapture
+
+      - name: Test renderer core
+        working-directory: omniphony-renderer
+        run: cargo test -p renderer
+
+      - name: Validate patch cleanliness
+        run: |
+          git diff --check
+          git diff --stat
+
+      - name: Commit only after tests pass and head is still current
+        shell: bash
+        run: |
+          base_sha=$(git rev-parse HEAD)
+          git fetch origin main
+          remote_sha=$(git rev-parse origin/main)
+          if [ "$remote_sha" != "$base_sha" ]; then
+            echo "main advanced from $base_sha to $remote_sha; refusing to push a stale realtime patch"
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            omniphony-renderer/renderer/src/delay_line.rs \
+            omniphony-renderer/renderer/src/binaural/convolver.rs \
+            omniphony-renderer/renderer/src/binaural/reflections.rs \
+            omniphony-renderer/renderer/src/binaural/reverb.rs \
+            omniphony-renderer/renderer/src/binaural/mod.rs \
+            omniphony-renderer/renderer/src/spatial_renderer/components.rs \
+            omniphony-renderer/renderer/src/spatial_renderer/mod.rs \
+            omniphony-renderer/dsp_fixtures/src/lib.rs \
+            omniphony-renderer/dsp_fixtures/src/stream_reset.rs
+          git diff --cached --quiet && { echo "no stabilization patch produced"; exit 1; }
+          git commit -m "fix(rt): reset stream-lifetime DSP state in place"
+          git push origin HEAD:main
