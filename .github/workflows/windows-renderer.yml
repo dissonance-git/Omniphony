@@ -150,14 +150,13 @@ jobs:
 
       # `orender_ffi` / `orender_engine` deliberately do not depend on the host
       # audio layer. That lets CI validate and package the renderer engine without
-      # requiring Steinberg's separately licensed ASIO SDK. The final Windows
-      # listening shell gets its own gate once normal system audio is the default
-      # route and ASIO is genuinely optional.
+      # requiring Steinberg's separately licensed ASIO SDK. `windows_host` is a
+      # separate WASAPI-first diagnostic/product-shell seed with the same rule.
       - name: Test headless engine boundary
         run: cargo test -p orender_engine -p orender_ffi -p reference_bridge
 
-      - name: Build release engine
-        run: cargo build --profile release-deploy -p orender_ffi -p reference_bridge
+      - name: Build release engine and Windows transport probe
+        run: cargo build --profile release-deploy -p orender_ffi -p reference_bridge -p windows_host
 
       - name: Collect engine artifacts
         run: |
@@ -167,6 +166,7 @@ jobs:
           $candidates = @(
             'target\release-deploy\orender.dll',
             'target\release-deploy\reference_bridge.dll',
+            'target\release-deploy\windows_host.exe',
             'orender_ffi\include\orender.h'
           )
 
@@ -178,6 +178,9 @@ jobs:
 
           if (!(Test-Path (Join-Path $dist 'orender.dll'))) {
             throw 'orender.dll was not collected'
+          }
+          if (!(Test-Path (Join-Path $dist 'windows_host.exe'))) {
+            throw 'windows_host.exe was not collected'
           }
 
           Get-ChildItem $dist -File | ForEach-Object {
