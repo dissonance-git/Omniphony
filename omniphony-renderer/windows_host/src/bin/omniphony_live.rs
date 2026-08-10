@@ -88,6 +88,14 @@ fn run() -> anyhow::Result<()> {
     const PLAYBACK_QUEUE_BLOCKS: usize = 16;
 
     let args = parse_args()?;
+
+    // Process loopback requires MTA. Do this before CPAL/WASAPI device discovery
+    // touches COM on the thread, otherwise Windows can reject the later apartment
+    // change with RPC_E_CHANGED_MODE (0x80010106).
+    initialize_mta()
+        .ok()
+        .context("failed to initialize COM MTA before Windows audio setup")?;
+
     let host = cpal::default_host();
     if args.list_devices {
         print_devices(&host)?;
@@ -226,10 +234,6 @@ struct LoopbackCapture {
 impl LoopbackCapture {
     fn open(sample_rate_hz: u32) -> anyhow::Result<Self> {
         const BUFFER_DURATION_HNS: i64 = 200_000; // 20 ms in 100 ns units.
-
-        initialize_mta()
-            .ok()
-            .context("failed to initialize COM MTA for Windows process loopback")?;
 
         let mode = StreamMode::PollingShared {
             autoconvert: true,
@@ -570,7 +574,7 @@ fn streaming_f32_wav_header(channels: u16, sample_rate_hz: u32) -> Vec<u8> {
     wav.extend_from_slice(b"WAVE");
     wav.extend_from_slice(b"fmt ");
     wav.extend_from_slice(&16u32.to_le_bytes());
-    wav.extend_from_slice(&3u16.to_le_bytes());
+    wav.extend_from_slice(&3u16.to_le_bytes()); // IEEE float
     wav.extend_from_slice(&channels.to_le_bytes());
     wav.extend_from_slice(&sample_rate_hz.to_le_bytes());
     wav.extend_from_slice(&byte_rate.to_le_bytes());
