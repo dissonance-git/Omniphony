@@ -9,11 +9,15 @@ const PROBE_BUFFER_DURATION_HNS: i64 = 200_000; // 20 ms in 100 ns units.
 ///
 /// The target process is this host itself and `include_tree = false` maps to
 /// `PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE` in `wasapi-rs`.
-/// Consequently the capture stream hears the rest of the system mix while
-/// excluding Omniphony and any child processes from its own capture. That is the
-/// key property that lets a later realtime build render to the same physical
-/// headphones without immediately capturing its own output and forming a
-/// feedback loop.
+/// Consequently the capture stream can hear the rest of the system mix while
+/// excluding Omniphony and any child processes from its own capture. That avoids
+/// an immediate capture -> render -> capture feedback loop.
+///
+/// Important: process loopback is a COPY of the system mix, not an intercept.
+/// The original dry audio still reaches its render endpoint. Therefore this is
+/// only a transport/diagnostic primitive, not the final transparent HeSuVi
+/// replacement route. The product path still needs an in-place APO or a routed
+/// virtual endpoint so the listener receives only the Omniphony-rendered signal.
 ///
 /// This function is deliberately only an activation/format probe. It does not
 /// start the stream or consume samples yet, so adding it cannot change the
