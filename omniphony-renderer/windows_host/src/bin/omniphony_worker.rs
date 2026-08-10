@@ -1,21 +1,18 @@
 #[cfg(target_os = "windows")]
-mod live_impl {
-    include!("omniphony_live.rs");
-
-    pub fn entry() -> anyhow::Result<()> {
-        main()
-    }
-}
+#[path = "../music_worker.rs"]
+mod music_worker;
 
 fn main() -> anyhow::Result<()> {
     #[cfg(target_os = "windows")]
     {
         use anyhow::Context;
 
+        // Process-loopback activation requires an MTA. Claim it before CPAL or
+        // any other Windows audio API touches COM on this thread.
         wasapi::initialize_mta()
             .ok()
             .context("failed to initialize COM MTA before Windows audio startup")?;
-        return live_impl::entry();
+        return music_worker::run();
     }
 
     #[cfg(not(target_os = "windows"))]
