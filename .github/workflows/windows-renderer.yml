@@ -61,10 +61,9 @@ jobs:
       - name: Test DSP measurement harness
         run: cargo test -p dsp_fixtures
 
-      # This one legacy test assumes the HRIR worker cannot finish before the
-      # requesting thread observes the old pointer. That is a scheduler-speed
-      # assumption, not a renderer invariant; fast runners can legitimately beat
-      # it. The deterministic matching/stale-completion tests remain enabled.
+      # This inherited test assumes the HRIR worker cannot finish before the
+      # requesting thread observes the old pointer. That is scheduler timing,
+      # not a renderer invariant; deterministic matching/stale tests remain.
       - name: Test renderer core
         run: >-
           cargo test -p renderer --
@@ -110,8 +109,6 @@ jobs:
             $global:LASTEXITCODE = 0
           }
 
-      # Renderer semantics are exercised by portable-core. Windows owns the
-      # actual capture/output host compilation here.
       - name: Check all native Windows host binaries
         run: cargo check -p windows_host --bins
 
@@ -165,59 +162,17 @@ jobs:
           echo                  OMNIPHONY FOR HEADPHONES
           echo ============================================================
           echo.
-          echo Crude live Windows baseline
+          echo Live Windows listening baseline
           echo.
-
-          if not "%~1"=="" goto launch_passthrough
-
-          echo Available Windows audio devices:
-          echo ------------------------------------------------------------
-          omniphony_live.exe --list-devices
-          echo ------------------------------------------------------------
-          echo.
-          echo Omniphony needs the RECORDING/capture side of the virtual cable.
-          echo Type any unique part of that INPUT device name below.
-          echo Example: CABLE Output
-          echo.
-          set /p "omniphony_input=Input device substring: "
-          if not defined omniphony_input goto no_input
-          echo.
-          echo Leave output blank to use the normal Windows default output.
-          echo Or type a unique part such as FiiO.
-          set /p "omniphony_output=Output device substring [default]: "
-          echo.
-          echo While running:
-          echo   ENTER      toggle Omniphony ON / OFF
-          echo   q + ENTER  quit
-          echo.
-          if defined omniphony_output (
-            omniphony_live.exe --input "%omniphony_input%" --output "%omniphony_output%"
-          ) else (
-            omniphony_live.exe --input "%omniphony_input%"
-          )
-          goto worker_finished
-
-          :launch_passthrough
-          echo Starting with supplied command-line options...
+          echo No input device selection is required.
+          echo Omniphony captures Windows audio through self-excluding process loopback
+          echo and automatically prefers the physical FiiO output.
           echo.
           echo While running:
           echo   ENTER      toggle Omniphony ON / OFF
           echo   q + ENTER  quit
           echo.
           omniphony_live.exe %*
-          goto worker_finished
-
-          :no_input
-          echo.
-          echo No input was selected. Nothing was started.
-          echo If the WASAPI input list above is empty, Windows is not exposing
-          echo a capture endpoint to Omniphony yet. Check that the recording side
-          echo of Hi-Fi Cable is enabled, then run this launcher again.
-          echo.
-          pause
-          exit /b 2
-
-          :worker_finished
           set "omniphony_exit=%ERRORLEVEL%"
           if "%omniphony_exit%"=="0" exit /b 0
           echo.
@@ -241,21 +196,21 @@ jobs:
           '@ | Set-Content (Join-Path $dist 'LIST-DEVICES.cmd') -Encoding ascii
 
           @'
-          Omniphony for Headphones - crude live Windows baseline
+          Omniphony for Headphones - live Windows baseline
 
-          Goal: hear arbitrary player audio through the existing Omniphony binaural
-          renderer now. This is deliberately NOT the finished product.
+          Goal: hear arbitrary Windows/player audio through the protected Omniphony
+          binaural renderer with almost no setup ritual.
 
-          The first useful comparison reuses the working front half of the current
-          foobar chain and replaces only HeSuVi's headphone renderer:
+          CURRENT TEMPORARY ROUTE
 
-              foobar
-                -> normal music DSP / SoX
-                -> existing Upmix to 5.1/side
-                -> clean Hi-Fi Cable
-                -> omniphony_live.exe
+              foobar / Windows applications
+                -> normal Windows render path
+                -> current Hi-Fi Cable endpoint
+                   (dry signal does not reach the physical headphones)
+                -> self-excluding WASAPI process loopback
                 -> Omniphony binaural renderer
-                -> FiiO / headphones
+                -> FiiO physical output
+                -> headphones
 
           EASIEST START
 
@@ -263,43 +218,42 @@ jobs:
 
               START-OMNIPHONY.cmd
 
-          The launcher lists WASAPI devices and asks for the recording/capture side
-          of the virtual cable by a unique name substring. This avoids depending on
-          Windows having a default microphone/capture endpoint.
+          There is no recording/microphone input selection. The host captures the
+          Windows mix using the modern process-loopback API and excludes its own
+          process tree so Omniphony output is not re-captured.
 
-          Controls while the worker is running:
+          Controls:
 
               ENTER       toggle Omniphony ON / OFF
               q + ENTER   quit
 
-          Omniphony starts ON. The shell is intentionally the entire UI for this
-          baseline; the renderer remains a separate native process.
+          Omniphony starts ON. OFF is a crude dry/downmixed comparison routed to the
+          same physical output.
 
-          IMPORTANT FOR AN EXISTING HeSuVi SETUP
+          FOR THE CURRENT PRIVATE LISTENING BASELINE
 
-          1. Keep Hi-Fi Cable installed. It is only temporary scaffolding here.
-          2. Keep foobar's existing 5.1 upmix enabled for the first baseline. That
-             gives Omniphony real front/center/side channel positions immediately,
-             without waiting for any future stereo interpretation layer.
-          3. Disable/bypass HeSuVi / Equalizer APO processing on the cable while
-             testing Omniphony, otherwise the captured signal may already contain
-             HeSuVi processing.
-          4. Close ASIO Bridge or anything else exclusively consuming the cable.
-          5. Point foobar's output at the Hi-Fi Cable playback endpoint.
-          6. Use FiiO/headphones as the Windows output, or select it in the shell.
+          1. Keep the Windows/default app output on the existing Hi-Fi Cable endpoint.
+          2. Disable/bypass HeSuVi / Equalizer APO processing on that cable while
+             testing Omniphony, so the captured mix is not already virtualized.
+          3. Close ASIO Bridge or anything else that would independently forward the
+             cable to the FiiO and create a second audible path.
+          4. Keep foobar's existing Upmix to 5.1/side enabled for the first comparison.
+             Omniphony requests 8-channel loopback first, then 6-channel, then stereo.
+          5. Leave the FiiO connected. The host auto-selects an output containing
+             "FiiO" so it does not ask every launch.
 
-          Advanced launch from a terminal, using unique device-name substrings:
+          Windows 7.1 channel-mask order is corrected before the bridge:
 
-              .\omniphony_live.exe --input "CABLE Output" --output "FiiO"
+              Windows:   L R C LFE Lb Rb Ls Rs
+              Omniphony: L R C LFE Ls Rs Lb Rb
 
-          The host accepts canonical stereo, 5.1, 7.1, and 7.1.4 channel widths.
-          ON preserves those channel positions through Omniphony. OFF is only a
-          crude comparison downmix for multichannel input; it is not intended to
-          reproduce the full existing HeSuVi chain.
+          Diagnostic escape hatch only:
 
-          There is intentionally no bundled listening demo and CI does not render
-          prerecorded audio anymore. Your Windows machine + arbitrary foobar
-          playback is the listening oracle for this baseline.
+              .\omniphony_live.exe --list-devices
+              .\omniphony_live.exe --output "FiiO"
+
+          No prerecorded listening demo is needed here. The real Windows machine and
+          arbitrary foobar playback are the listening oracle for this baseline.
           '@ | Set-Content (Join-Path $dist 'LIVE-README.txt')
 
           foreach ($required in @(
