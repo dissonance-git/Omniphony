@@ -1,4 +1,7 @@
 #[cfg(target_os = "windows")]
+mod capture;
+
+#[cfg(target_os = "windows")]
 use cpal::traits::{DeviceTrait, HostTrait};
 
 fn main() -> anyhow::Result<()> {
@@ -37,6 +40,13 @@ fn run_windows_probe() -> anyhow::Result<()> {
             .name()
             .unwrap_or_else(|_| "<unavailable device name>".to_string());
         println!("  {name}");
+    }
+
+    if std::env::args_os().any(|arg| arg == "--probe-loopback") {
+        println!("probing self-excluding system loopback capture...");
+        capture::probe_self_excluding_system_loopback()?;
+    } else {
+        println!("loopback capture: not activated (pass --probe-loopback to test it)");
     }
 
     Ok(())
