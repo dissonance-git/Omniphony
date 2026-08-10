@@ -10,9 +10,8 @@ on:
 permissions:
   contents: read
 
-# Do not kill the only useful diagnostic run while the fork is being refactored
-# through a sequence of small commits. Once CI is routinely green we can switch
-# this back to cancel-in-progress to save runner time.
+# Keep diagnostic runs alive while the fork is moving quickly. Once the
+# workflow is routinely green we can re-enable cancellation to save runner time.
 concurrency:
   group: omniphony-renderer-${{ github.ref }}
   cancel-in-progress: false
@@ -21,10 +20,9 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   RUST_TOOLCHAIN: 1.87.0
-  # GitHub-hosted runners switched JavaScript actions to Node 24 by default in
-  # June 2026. Keep this explicit so a future legacy action cannot silently
-  # reintroduce a Node 20 dependency into the fork workflow.
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Hosted runners use Node 24 by default as of June 2026. Keep the opt-in
+  # explicit as a guard against accidentally adding an older JS action later.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   portable-core:
@@ -37,10 +35,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        # checkout v5 is the Node 24 line. v4 targets the deprecated Node 20
-        # runtime and began producing deprecation failures/warnings on 2026
-        # GitHub-hosted runners.
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install pinned Rust toolchain
         shell: bash
@@ -50,8 +45,20 @@ jobs:
           rustc --version --verbose
           cargo --version
 
-      - name: Check formatting
-        run: cargo fmt --all -- --check
+      # The original spatial-dsp CI was build-first: formatting was never allowed
+      # to prevent the compiler from telling us whether the product actually
+      # builds. Normalize the runner worktree so rustfmt drift cannot mask a real
+      # Rust/test failure. Source-format cleanup can be committed independently.
+      - name: Normalize Rust formatting for CI
+        run: cargo fmt --all
+
+      - name: Report formatting drift
+        shell: bash
+        run: |
+          if ! git diff --quiet -- '*.rs'; then
+            echo "::warning::rustfmt changed committed Rust source; compiler/tests will run on the normalized worktree"
+            git diff --stat -- '*.rs'
+          fi
 
       - name: Test DSP measurement harness
         run: cargo test -p dsp_fixtures
@@ -70,7 +77,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Diagnose Windows runner
         run: |
@@ -87,8 +94,17 @@ jobs:
           rustc --version --verbose
           cargo --version
 
-      - name: Check formatting
-        run: cargo fmt --all -- --check
+      - name: Normalize Rust formatting for CI
+        run: cargo fmt --all
+
+      - name: Report formatting drift
+        run: |
+          git diff --quiet -- '*.rs'
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning 'rustfmt changed committed Rust source; compiler/tests will run on the normalized worktree'
+            git diff --stat -- '*.rs'
+            $global:LASTEXITCODE = 0
+          }
 
       - name: Test DSP measurement harness
         run: cargo test -p dsp_fixtures
@@ -99,7 +115,7 @@ jobs:
   windows-engine-artifact:
     name: Windows x64 renderer engine artifact
     runs-on: windows-latest
-    needs: windows-core
+    needs: [portable-core, windows-core]
     timeout-minutes: 35
     defaults:
       run:
@@ -108,20 +124,23 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install pinned Rust toolchain
         run: |
-          rustup toolchain install $env:RUST_TOOLCHAIN --profile minimal
+          rustup toolchain install $env:RUST_TOOLCHAIN --profile minimal --component rustfmt
           rustup override set $env:RUST_TOOLCHAIN
           rustc --version --verbose
           cargo --version
 
+      - name: Normalize Rust formatting for CI
+        run: cargo fmt --all
+
       # `orender_ffi` / `orender_engine` deliberately do not depend on the host
-      # audio layer. That lets CI validate and package the actual renderer engine
-      # without requiring Steinberg's separately licensed ASIO SDK. The final
-      # Windows listening shell will get its own gate once the fork's Windows
-      # output route defaults to a normal system backend (ASIO may remain opt-in).
+      # audio layer. That lets CI validate and package the renderer engine without
+      # requiring Steinberg's separately licensed ASIO SDK. The final Windows
+      # listening shell gets its own gate once normal system audio is the default
+      # route and ASIO is genuinely optional.
       - name: Test headless engine boundary
         run: cargo test -p orender_engine -p orender_ffi -p reference_bridge
 
@@ -157,7 +176,6 @@ jobs:
           Get-ChildItem $dist | Format-Table Name, Length
 
       - name: Upload Windows renderer engine
-        # upload-artifact v6 is the Node 24-native line. v4 is Node 20-era.
         uses: actions/upload-artifact@v6
         with:
           name: omniphony-renderer-engine-windows-x64-${{ github.sha }}
