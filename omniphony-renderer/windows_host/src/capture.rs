@@ -23,7 +23,9 @@ const PROBE_BUFFER_DURATION_HNS: i64 = 200_000; // 20 ms in 100 ns units.
 /// start the stream or consume samples yet, so adding it cannot change the
 /// renderer's audible path.
 pub fn probe_self_excluding_system_loopback() -> Result<()> {
-    initialize_mta().context("failed to initialize COM MTA for WASAPI loopback")?;
+    initialize_mta()
+        .ok()
+        .context("failed to initialize COM MTA for WASAPI loopback")?;
 
     let desired_format = WaveFormat::new(
         32,
