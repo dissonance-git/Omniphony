@@ -1,39 +1,57 @@
 # Music presentation contract
 
-Omniphony is not trying to turn every audible event into a spectacular spatial effect.
+This document defines **future adaptive-presentation rules** for Omniphony.
 
-Its product metaphor is stricter:
+It is subordinate to the root `README.md`.
 
-> **A world-class mix / mastering / immersive-audio engineer adapts the presentation of every song in real time while preserving what makes the recording work.**
+The native Windows product and the protected upstream Omniphony percept do **not** depend on completing this contract, on libaural, or on solving general artificial hearing first.
 
-libaural owns hearing.
+Current hierarchy:
 
-Omniphony owns presentation.
+```text
+existing Omniphony sound
+→ native Windows listening product
+→ measured/listened renderer improvements
+→ bounded stereo scene behavior
+→ optional richer adaptive presentation
+→ libaural-informed policy when it proves useful
+```
 
-This document defines the boundary between them.
+The purpose of this document is to keep future intelligence conservative and musically safe, not to make it a prerequisite for playback.
 
 ---
 
-## 1. Hearing state is not a placement command
+## 1. Product floor comes first
 
-The core separation is:
+Omniphony already has a useful binaural renderer.
+
+Any adaptive layer sits **above** that floor and must be bypassable for attribution.
 
 ```text
-source audio
-→ libaural hears
-→ typed auditory / musical state
-→ Omniphony presentation policy
-→ scene / trajectories / fields
-→ binaural renderer
+ordinary audio
+        ↓
+protected Omniphony rendering path
+        ↓
+useful product
+
+OPTIONAL
+        ↑
+adaptive scene/presentation decisions
 ```
 
-Therefore:
+If adaptive processing makes the protected path sound worse, the adaptive processing loses.
+
+---
+
+## 2. Hearing evidence is not a placement command
+
+Whether the evidence comes from local DSP, a future learned model, or `libaural`:
 
 ```text
 hearing evidence ≠ spatial command
 ```
 
-Examples of forbidden shortcuts:
+Forbidden shortcuts include:
 
 ```text
 "guitar"              → rear-left
@@ -43,214 +61,131 @@ Examples of forbidden shortcuts:
 "diffuse spectrum"    → reverb
 ```
 
-A hearing observation can constrain a decision. It does not make the decision by itself.
+Evidence constrains presentation. It does not authorize a canned effect by itself.
 
 ---
 
-## 2. The portable consumer projection
+## 3. libaural is optional evidence infrastructure
 
-Omniphony should eventually consume a **bounded projection of one libaural heard world**, not build a second independent artificial ear.
+`libaural` is a separate artificial-hearing research/framework project.
 
-The projection should be small enough for realtime presentation and rich enough to preserve the obligations Omniphony actually needs.
+It may later provide a bounded heard-state projection that improves Omniphony's choices.
 
-Candidate fields include:
+The product must not become structurally dependent on the full libaural research stack.
+
+Correct future relationship:
+
+```text
+local Omniphony evidence / scene state
+        │
+        ├→ sufficient for baseline product
+        │
+        └→ may be enriched by
+           bounded libaural state
+```
+
+Candidate optional fields could include:
 
 ```text
 sample/time identity
-entity / stream / field id
-current auditory role
-persistent history handle
+persistent entity / field id
 compact / broad / diffuse character
 audibility / masking
 foreground / background relation
 transient ownership
-pitch / rhythmic / musical-role summaries relevant to presentation
-position / extent / motion evidence when actually observed
+musical-role summaries
+position / extent / motion evidence
 stability / persistence
 uncertainty / competing hypotheses
-change events on the sample timeline
 ```
 
 The exact schema is not frozen.
 
-What is frozen is the principle:
-
-> **A smaller renderer projection may forget relations only when its declared presentation obligations do not require them. It may never replace omitted relations with invented specificity.**
-
-See libaural `docs/CONSUMER_PROJECTIONS.md` and `AUD-PROJ-001`.
+A smaller local mechanism may remain preferable when it is cheaper, more stable, easier to attribute, and sounds as good or better.
 
 ---
 
-## 3. Musical importance is not activity
+## 4. Musical importance is not activity
 
-Helix `MUSIC-041` tested obvious low-level proxies for an authored distinction such as a bass line carrying its own melody. More pitch motion, wider range, more transitions and related activity measures did not provide a general implementation of that distinction.
-
-The Omniphony consequence is deliberately conservative:
+Do not equate musical importance with:
 
 ```text
-musical importance / independence
-≠ raw activity
-≠ note count
-≠ pitch range
-≠ spectral change
-≠ energy
-≠ novelty score
+raw activity
+note count
+pitch range
+spectral change
+energy
+novelty score
 ```
-
-A source does not deserve more spatial prominence merely because it is busy.
 
 A quiet repeating figure may be structurally essential.
 
-A dense decorative texture may be musically backgrounded.
+A dense texture may be background.
 
-Presentation should increasingly depend on **role and relation**, with confidence, rather than a DSP excitement meter.
-
----
-
-## 4. Tempo is not groove
-
-libaural `AUD-RHYTHM-001` established a controlled representation obligation:
-
-```text
-tempo
-≠ within-beat timing
-≠ groove / microtiming
-```
-
-In the current fixture:
-
-- a straight offbeat relation survived large tempo, timbre and gain changes;
-- the same straight relation survived a 20 dB SNR perturbation;
-- moving the offbeat from beat phase 0.50 to 0.62 remained visible while tempo stayed at 120 BPM.
-
-This does not define human groove perception.
-
-It does establish an Omniphony protection law:
-
-> **Do not let spatial processing weaken or smear timing relations merely because BPM, transient energy or spectral content are preserved.**
-
-Fidelity tests for the mature product should therefore include timing/groove relations, not only RMS, peak, spectrum and static stereo image.
+A source should not receive more spatial prominence merely because it is numerically busy.
 
 ---
 
-## 5. Musical relation can survive large surface change
+## 5. Tempo is not groove
 
-libaural `AUD-MUSIC-005` provides a controlled arrangement-relative baseline.
+Preserving BPM is not enough if spatial processing smears within-beat timing or coupled rhythmic relationships.
 
-The same musical material remained strongly aligned through changes in:
+Protect:
 
-- tempo;
-- timbre;
-- chord voicing;
-- absolute key after transposition-aware comparison.
+- attack timing;
+- bass/drum lock;
+- microtiming;
+- transient ownership;
+- rhythmic precision.
 
-A deliberate two-beat musical alteration remained locally visible while the rest of the version stayed strongly related.
-
-The presentation consequence is important:
-
-```text
-musical identity / relation
-≠ exact waveform match
-```
-
-and:
-
-```text
-global relation
-can coexist with
-local meaningful change
-```
-
-Omniphony should eventually be able to preserve a song-level presentation logic while still reacting to local musical changes.
-
-It should not rebuild the whole spatial world merely because a chorus changes orchestration, nor freeze the scene so aggressively that a meaningful local transformation is ignored.
+This is part of the same product law as preserving the incumbent chain's strong physical bass/groove floor.
 
 ---
 
-## 6. Persistence is not permission to hallucinate ownership
-
-libaural's polyphonic tests now contain a useful ladder:
-
-```text
-AUD-MUSIC-002
-multiple simultaneous pitches are required
-
-AUD-MUSIC-003
-pitch order alone fails persistent voice ownership at a crossing
-
-AUD-MUSIC-004
-individual cues can collapse, conflict or become non-identifying
-
-AUD-FRONTIER-001
-one verified ambiguity benefits from retaining two bounded ownership hypotheses
-```
-
-Omniphony should not convert uncertain hearing into aggressive scene motion.
-
-For example:
-
-```text
-high-confidence persistent compact source
-→ precise/stable object presentation may be allowed
-
-ambiguous ownership but stable broad relation
-→ preserve or use broad/conservative presentation
-
-non-identifiable source allocation
-→ do not fabricate exact object decomposition
-```
-
-Uncertainty is therefore a presentation input.
-
----
-
-## 7. Confidence controls aggression, not truth
+## 6. Uncertainty controls aggression
 
 A useful policy shape is:
 
 ```text
 high confidence
-→ greater permission for specific presentation changes
+→ more permission for specific reversible presentation
 
 medium confidence
-→ broad / reversible / conservative changes
+→ broader / safer / slower changes
 
 low confidence
 → preserve authoritative mix relationships
 ```
 
-This does **not** mean confidence decides what is true.
+Confidence does not make an interpretation true.
 
-It controls how much Omniphony is allowed to bet the listener's recording on an interpretation.
+It controls how much of the listener's recording Omniphony is allowed to bet on that interpretation.
 
-A low-confidence state can still contain valuable observations.
-
-A high-confidence semantic label still does not authorize a fixed spatial effect.
+Do not turn uncertain source ownership into precise spatial fiction.
 
 ---
 
-## 8. Preserve the authoritative musical floor
+## 7. The mastered recording remains authoritative
 
-Unless evidence and validated policy justify otherwise, the original mastered recording remains the authority for:
+Unless a validated presentation rule earns otherwise, preserve:
 
-- centre of gravity;
+- center of gravity;
 - bass foundation;
 - groove;
 - transient ownership;
 - vocal/instrument focus;
 - dynamics;
 - tonal hierarchy;
-- important stereo relationships.
-
-Current scene inference already contains bass/foundation protection. The mature presentation layer should generalize this idea to musical structure rather than using frequency alone.
+- important stereo relationships;
+- recording character.
 
 A transformation that increases dimensionality while weakening the song fails.
 
 ---
 
-## 9. Presentation entities
+## 8. Presentation entities
 
-The renderer vocabulary remains:
+The renderer vocabulary remains useful:
 
 ```text
 FrontalAnchor
@@ -260,31 +195,9 @@ DiffuseField
 RoomField
 ```
 
-These are presentation entities, not claims that the stereo master contained authored object metadata.
+These are presentation entities, not claims that a stereo master contained authored object metadata.
 
-### FrontalAnchor
-
-A protected centre-of-gravity relationship.
-
-Typical evidence may include strong mix authority, musical focus, persistence and high cost of destabilization.
-
-### DirectObject
-
-Compact persistent material for which a specific spatial presentation is justified.
-
-### BroadSource
-
-Coherent source-like material whose extent is meaningful.
-
-### DiffuseField
-
-Musical/ambient material that is better represented as a directional distribution than a point.
-
-### RoomField
-
-Presentation-environment energy such as reflections and late reverberation.
-
-Critical distinction:
+Keep:
 
 ```text
 DirectObject
@@ -293,26 +206,7 @@ DirectObject
 ≠ RoomField
 ```
 
-The FDN is a `RoomField`, not a substitute for musical diffuseness.
-
----
-
-## 10. Rear presentation policy
-
-A stereo master generally does not identify literal authored rear-source coordinates.
-
-Therefore:
-
-```text
-stable stereo evidence
-≠ recovered rear metadata
-```
-
-But Omniphony is a presentation system, not a forensic reconstruction system.
-
-A rear direct object can be an artistically justified immersive **presentation choice** when the heard state and policy support it.
-
-The contract is:
+and:
 
 ```text
 rear direct object
@@ -320,34 +214,33 @@ rear direct object
 ≠ diffuse rear field
 ```
 
-and:
+A stereo master normally does not identify literal rear-source coordinates. Rear placement can still be a valid immersive presentation choice when evidence and listening justify it.
 
-> **Never describe a presentation decision as recovered source truth unless the source format actually supplied that truth.**
-
----
-
-## 11. Reversibility during uncertainty
-
-When hearing state is unstable or still resolving, prefer changes that are easy to undo perceptually.
-
-Examples:
-
-- preserve original image rather than commit to an unsupported point location;
-- use broad extent before precise rear placement;
-- change separation gradually rather than teleport an object;
-- retain scene-history hypotheses until later evidence resolves them;
-- crossfade profile/scene changes rather than replace state discontinuously.
-
-This is particularly important in realtime because the system hears the song while the listener hears the system hearing it.
+Never describe a presentation choice as recovered source truth unless the source format actually supplied that truth.
 
 ---
 
-## 12. Sample-time presentation
+## 9. Reversibility during uncertainty
 
-Musical policy decisions happen at musical timescales, but their audible application belongs to the audio timeline.
+Prefer changes that can be undone perceptually without a jarring scene collapse:
+
+- preserve original image before unsupported precise placement;
+- use broader extent before committing to exact rear location;
+- move gradually rather than teleport;
+- retain competing hypotheses when useful;
+- crossfade state/profile changes;
+- fall back to the protected baseline on model/control failure.
+
+The system should fail conservative, not theatrical.
+
+---
+
+## 10. Sample-time application
+
+Musical decisions may happen at phrase or section timescales, but audible application belongs to the audio timeline.
 
 ```text
-phrase / role / scene decision
+musical / scene decision
         ↓
 timed control event
         ↓
@@ -356,121 +249,79 @@ continuous sample-time trajectory
 renderer
 ```
 
-A callback is never a musical boundary simply because the host delivered a buffer there.
-
-The binaural metadata-gain path now has a callback-invariance gate. Position/HRTF movement remains the active trajectory defect until the parent renderer publishes a canonical sample-time position segment.
+A host callback is never a musical boundary merely because an API delivered a buffer there.
 
 ---
 
-## 13. Platform independence
+## 11. First adaptive prototype should be small
 
-Nothing in this policy should know whether the audio came from:
+Do not start with an AI that tries to remix every property of every source.
 
-- WASAPI;
-- CoreAudio;
-- PipeWire;
-- AAudio;
-- an iOS audio session;
-- a file decoder;
-- a plugin host;
-- another future transport.
+A useful first adaptive policy could be limited to:
 
-Platform shells move samples and device state.
+```text
+protect / preserve
+or
+allow modest separation / extent
+or
+allow a specific stable placement
+or
+allow diffuse-field treatment
+```
 
-The portable presentation core reasons about heard music and sample-time trajectories.
+Inputs can initially be local Omniphony evidence and confidence.
+
+Later, libaural may replace or enrich individual inputs only when tests show an advantage.
+
+Every additional artistic degree of freedom must earn itself independently.
 
 ---
 
-## 14. Validation ladder
+## 12. Validation order
 
-A future presentation rule should graduate through increasingly expensive evidence.
+A candidate presentation rule should graduate through increasingly expensive evidence:
 
 ```text
 candidate rule
-→ controlled synthetic fixture
+→ controlled fixture
 → negative control
 → fidelity metrics
-→ arrangement / perturbation test
-→ known-scene render test where applicable
-→ real music corpus / aligned versions
-→ matched-loudness human listening
+→ protected-renderer comparison
+→ real music
+→ matched-loudness listening
+→ incumbent-chain comparison
 → long-session regression
 ```
 
 No amount of structural elegance replaces listening.
 
-### Objective preservation gates
+Objective preservation checks should include where applicable:
 
-Current/future gates should include:
-
-- peak / clipping;
-- RMS / level;
+- clipping/headroom;
+- RMS/level;
 - crest factor;
 - DC;
-- residual/null where an invariant output is expected;
+- null/residual when invariance is expected;
 - transient timing;
 - low-frequency timing/coherence;
 - callback-size invariance;
 - HRTF direction cues;
-- profile/scene switch continuity.
+- scene/profile switch continuity.
 
-### Musical gates
-
-As libaural improves, add controlled measurements for:
-
-- beat-relative timing / groove;
-- persistent layer ownership;
-- local versus global musical change;
-- section/phrase continuity;
-- foreground/background hierarchy;
-- masking-aware audibility.
-
-### Human listening gates
-
-Ultimately ask whether the processing:
+Human listening asks whether the processing:
 
 - improves externalization and dimensionality;
-- retains centre authority when appropriate;
+- retains center authority;
 - keeps bass/groove locked;
 - avoids phasey/diffuse damage to direct material;
-- avoids listener fatigue;
+- avoids fatigue;
 - makes bypass feel flatter rather than cleaner.
 
 ---
 
-## 15. First policy prototype should be small
+## 13. Forbidden product laws
 
-Do not begin with an AI that attempts to remix every property of every source.
-
-A good first live policy can be intentionally bounded:
-
-```text
-INPUT
-persistent libaural entity/field hypotheses
-+ confidence
-+ masking/audibility
-+ broad musical-role/importance evidence
-+ groove/foundation protection
-
-OUTPUT
-protect / preserve
-or
-allow modest separation / extent
-or
-allow specific spatial placement
-or
-allow diffuse-field treatment
-```
-
-The first job is to make **better choices than static upmix heuristics without damaging the recording**.
-
-Every additional artistic degree of freedom must earn itself through listening and fidelity tests.
-
----
-
-## 16. Forbidden shortcuts
-
-Do not implement these as product laws:
+Do not encode these as general rules:
 
 ```text
 busy = important
@@ -478,12 +329,13 @@ loud = foreground
 quiet = background
 semantic label = scene role
 pitch register = persistent identity
-source separator stem = perceptual object
+separator stem = perceptual object
 wide stereo = rear source
 low coherence = room
 novelty = permission to move
 higher confidence = louder
 larger model = better hearing
+AI unavailable = product unavailable
 ```
 
 Each may sometimes correlate with something useful.
@@ -492,51 +344,48 @@ None is sufficient by itself.
 
 ---
 
-## 17. Current implementation frontier
+## 14. Current implementation frontier
 
-The renderer is ahead of the presentation policy in some areas and behind it in others.
+Do not treat the list below as the immediate roadmap. The root README owns priority.
 
-Already useful:
+Current presentation-related capabilities include:
 
 - conservative stereo evidence;
 - persistence/stability tracking;
 - bass/foundation safeguards;
-- explicit compact/broad/diffuse distinctions;
-- direct HRTF path;
-- RoomField reflections/FDN;
-- measured HRTF validation;
-- sample-time metadata gain;
+- compact/broad/diffuse distinctions;
+- direct HRTF rendering;
+- room reflections/FDN;
 - deterministic fidelity fixtures.
 
-Still required before the product metaphor becomes real:
+Future adaptive work may include:
 
-1. fix sample-time position/HRTF movement;
-2. propagate object extent to headphones;
-3. implement a genuine `BroadSource` renderer;
-4. implement musical `DiffuseField` separately from `RoomField`;
-5. wire ordinary stereo into persistent realtime heard-scene state;
-6. establish a stable bounded libaural→Omniphony projection;
-7. build and falsify the first music-aware presentation policy;
-8. test on real music at matched loudness;
-9. only then expand artistic freedom.
+- a small persistent realtime scene from ordinary stereo;
+- better source extent handling;
+- first-class broad/diffuse rendering where listening shows a need;
+- bounded optional libaural evidence;
+- music-aware policy with explicit preservation gates.
+
+But the next product milestone remains the coexisting native Windows listening lane, not completion of this list.
 
 ---
 
-## Frozen presentation laws
+## 15. Frozen presentation laws
 
-1. **Hearing evidence is not a placement command.**
-2. **Musical importance is not raw activity.**
-3. **Tempo and groove/microtiming are distinct.**
-4. **Global musical relation and local musical change may coexist.**
-5. **Uncertain source ownership must not become precise spatial fiction.**
-6. **Confidence controls presentation aggression, not truth.**
-7. **The mastered recording remains the authoritative fidelity floor.**
-8. **Direct object, broad source, diffuse musical field and room field remain distinct.**
-9. **Rear presentation choices must not be described as recovered metadata.**
-10. **Audible trajectories live in sample time, not host callback time.**
-11. **The presentation policy belongs to the portable core, not the OS shell.**
-12. **A new artistic degree of freedom must earn itself through evidence and listening.**
+1. **The protected Omniphony renderer is usable without adaptive hearing.**
+2. **Hearing evidence is not a placement command.**
+3. **libaural is optional evidence infrastructure, not the product owner.**
+4. **Musical importance is not raw activity.**
+5. **Tempo and groove/microtiming are distinct.**
+6. **Uncertain source ownership must not become precise spatial fiction.**
+7. **Confidence controls presentation aggression, not truth.**
+8. **The mastered recording remains the authoritative fidelity floor.**
+9. **Direct object, broad source, diffuse musical field and room field remain distinct.**
+10. **Rear presentation choices must not be described as recovered metadata.**
+11. **Audible trajectories live in sample time, not host callback time.**
+12. **A new artistic degree of freedom must earn itself through objective checks and listening.**
+13. **If adaptive presentation makes bypass sound cleaner, adaptive presentation loses.**
 
-The target remains simple:
+The target is not to make Omniphony seem intelligent.
 
-> **Make the song feel as though its presentation had been personally rebuilt for headphones by an extraordinary immersive engineer, while making Omniphony itself disappear.**
+The target is to make the music inhabit a stronger headphone world while the processing itself disappears.
