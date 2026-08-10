@@ -1,148 +1,309 @@
-# Contributing to Omniphony
+# Omniphony development rules
 
-Omniphony is an independent Windows-first stereo-music → auditory-scene → binaural fork of [`mgth/Omniphony`](https://github.com/mgth/Omniphony).
+This is a private development repository.
 
-The upstream project remains the technical ancestor and a major source of useful renderer work, but contributions here should serve this fork's narrower product rather than preserve the upstream suite or extension surface.
+Treat this file as working guidance for ChatGPT, Codex, local tooling, or anyone making changes later. It is not written as public contributor onboarding.
 
-Read [`docs/FORK_POLICY.md`](docs/FORK_POLICY.md) before making architectural changes.
+Read the root `README.md` first. The README owns project intent, current priority, baseline hierarchy and roadmap.
 
-## Product invariant
+Read `docs/FORK_POLICY.md` before broad upstream/refactor work.
 
-The listener-facing goal is:
+---
 
-> ordinary stereo music should become a stable, externalized, full-sphere headphone presentation without losing clarity, timbre, bass timing, transient precision, dynamics, stereo relationships, or musical hierarchy.
+## 1. Product invariant
 
-Spatial spectacle is not a substitute for fidelity.
+The current job is:
 
-## Repository priorities
+> **Turn the already-good upstream Omniphony renderer into a native Windows daily-listening replacement for the current HeSuVi pipeline, while preserving the sound that made the fork worth building.**
 
-The highest-value contribution areas are:
+Ordinary music is the primary target.
 
-- realtime stereo evidence and persistent scene inference;
-- libaural scene-state integration;
-- binaural HRTF/ITD correctness;
-- sample-accurate object motion and gain;
-- broad-source and diffuse-field rendering;
-- externalization / room cues;
-- listener and headphone calibration;
-- Windows capture/output integration;
-- realtime safety and bounded latency;
-- deterministic DSP validation;
-- objective fidelity measurement;
-- controlled listening fixtures.
+Spatial spectacle does not outrank fidelity.
 
-Do not add a large framework, plugin system, UI surface, codec path, or compatibility layer merely because upstream or another spatial-audio project has one.
+A new mechanism that makes the protected baseline sound worse is a regression even if the implementation is more sophisticated.
 
-## Current repository layout
+---
+
+## 2. Priority order
+
+Unless the root README is explicitly changed, work in this order:
+
+```text
+1. preserve / reproduce the upstream Omniphony perceptual floor
+2. build the coexisting native Windows listening lane
+3. make A/B against the real incumbent easy
+4. fix renderer weaknesses exposed by actual listening/tests
+5. improve ordinary-stereo scene behavior
+6. add adaptive/music-aware presentation only when useful
+7. use libaural as optional richer evidence when it earns itself
+8. consider other platforms only after Windows is worth porting
+```
+
+Do not reverse this ordering because a research direction is interesting.
+
+---
+
+## 3. Current real incumbent
+
+Development decisions should remember what the product must eventually replace:
+
+```text
+foobar DSP
+→ 5.1-side upmix
+→ VB-Audio multichannel / ASIO Bridge
+→ HeSuVi / DTS Virtual:X
+→ FiiO ASIO
+→ FiiO K7
+→ Dan Clark Noire X
+```
+
+The current chain remains usable during development.
+
+No cold-turkey migration.
+
+The incumbent is evidence about useful perception, not an implementation template to clone stage-for-stage.
+
+---
+
+## 4. Protected renderer reference
+
+Keep this control stable:
+
+```text
+omniphony-renderer/assets/binaural-baselines/upstream-demo-reference.yaml
+```
+
+It approximates the published upstream demo contract:
+
+```text
+stock-style Omniphony
++ SAF/KEMAR
++ early reflections
++ no fork-added late reverb
+```
+
+Do not overwrite the control to make an experiment look better.
+
+Use separate config/flags for experimental DSP.
+
+---
+
+## 5. Highest-value current work
+
+Current W1 work is Windows transport around the existing renderer.
+
+The repository already contains:
+
+```text
+windows_host
+→ WASAPI-first output-device probe
+→ self-excluding process-loopback diagnostic probe
+
+realtime_ffi
+→ small interleaved-f32 PCM C ABI
+→ first implementation is bit-exact identity
+→ CI/package coverage
+```
+
+The loopback route is diagnostic only because it copies rather than intercepts the system mix.
+
+Current next-value areas:
+
+- stable normal Windows output through the identity seam;
+- connect the protected renderer behind `realtime_ffi`;
+- prove native output matches controlled/offline renderer behavior;
+- prototype a true single-path route, especially endpoint APO versus minimal virtual endpoint;
+- preserve ASIO as a useful specialist/current-hardware route;
+- build fast incumbent ↔ Omniphony A/B.
+
+Renderer/scene work should move ahead of this only for a concrete regression or blocker.
+
+---
+
+## 6. Current repository shape
+
+Important workspace surfaces include:
 
 ```text
 omniphony-renderer/
-  renderer/           spatial + binaural DSP and scene evidence
-  dsp_fixtures/       deterministic measurement / regression tools
-  audio_output/       output and timing infrastructure
-  audio_input/        inherited input/control code being reduced toward the Windows product
-  host_audio/         host audio integration
-  orender_engine/     headless renderer construction / glue
-  orender_ffi/        embedding boundary
-  reference_bridge/   deterministic known-scene/file calibration source
-  bridge_api/         inherited/reference scene input boundary
-  runtime_control/    control/state plumbing still used by the engine
-  sys/                platform integration
-  spdif/              inherited transport code; not part of the long-term stereo product
-  example_backend/    inherited extension demo; scheduled for removal
-  script_backend/     inherited scriptable backend; scheduled for removal
+  renderer/           binaural/spatial DSP + current stereo evidence
+  dsp_fixtures/       deterministic measurements and regressions
+  windows_host/       thin Windows-native transport probe/frontier
+  realtime_ffi/       narrow PCM ABI for native host integration
+  host_audio/         host/engine integration boundary
+  audio_output/       inherited output/timing infrastructure, transitional
+  audio_input/        inherited input/transport infrastructure, transitional
+  orender_engine/     headless engine boundary
+  orender_ffi/        existing embedding boundary
+  reference_bridge/   deterministic known-scene/file laboratory input
+  bridge_api/         retained reference/runtime seam, transitional
+  runtime_control/    timed state/control infrastructure
+  sys/                platform/lifecycle support
+  spdif/              legacy encoded transport, replace-then-cut
 
 layouts/              known-scene calibration geometry
-docs/                 current fork contracts, validation and research decisions
-.github/workflows/     compiler/test/listening-artifact pipeline
+docs/                 technical contracts subordinate to README
+.github/workflows/     current validation / Windows artifacts
 ```
 
-Some inherited crates remain temporarily because removal must be dependency-aware. Their presence is not a promise of permanent product scope.
+Removed surfaces such as Studio, `example_backend`, `script_backend`, old suite packaging and obsolete release workflows are historical. Do not document them as if they still exist.
 
-## Build and test
+See `docs/CONTRACTION_LEDGER.md` for ownership/status.
 
-The workspace currently uses Rust `1.87.0`.
+---
 
-```sh
-cd omniphony-renderer
+## 7. Build/test truth
 
-cargo fmt --all -- --check
-cargo test --locked -p dsp_fixtures
-cargo test --locked -p renderer
-```
+The renderer workspace declares Rust `1.88.0` as its current minimum.
 
-The GitHub workflow also tests the core on Windows and builds a Windows x64 listening artifact.
+Do not assume a checked-in `Cargo.lock` exists for the workspace. Follow the current CI/workspace behavior rather than copying stale `--locked` commands from old docs.
 
-The workflow lives at:
+At minimum, changes should run the relevant formatter/compiler/tests for the surface changed.
+
+Important workflow:
 
 ```text
 .github/workflows/windows-renderer.yml
 ```
 
-## DSP changes
+The August 2026 host-native backend-path repair has been visually verified green by the repository owner.
 
-Changes to anything audible should answer two independent questions:
+New CI failures are evidence. Do not make CI green by weakening a perceptual/fidelity gate without understanding the failure.
+
+---
+
+## 8. Commit law
+
+Work directly on `main` unless the user explicitly asks for a branch/PR workflow.
+
+Prefer bounded commits that leave a durable re-entry trail.
+
+A useful sequence is:
 
 ```text
-Did the intended perceptual/spatial behavior improve?
-
-and
-
-What did the transformation cost in fidelity?
+one exact question
+→ smallest coherent change
+→ test/inspect
+→ commit
+→ next question
 ```
 
-Useful automatic measurements include:
+This matters because the GitHub connector/chat may fail or compact. Saved commits are the durable work surface.
 
-- strict null / residual level;
-- RMS and peak level;
+Avoid giant refactors that simultaneously alter:
+
+- renderer sound;
+- host transport;
+- scene inference;
+- calibration;
+- repository structure.
+
+When something breaks, the diff should make the responsible layer obvious.
+
+---
+
+## 9. Audible DSP changes
+
+Every audible change must answer two questions independently:
+
+```text
+What intended perceptual behavior improved?
+
+What did the change cost in fidelity or musical identity?
+```
+
+Useful objective checks include:
+
+- strict null/residual where identity is expected;
+- peak/RMS;
 - crest factor;
-- DC offset;
+- DC;
 - frequency response;
-- interaural lag / ITD;
-- block/chunk-size invariance;
-- transient and dynamic behavior;
-- clipping/headroom.
+- interaural lag/ITD;
+- transient timing;
+- bass timing/coherence;
+- callback-size invariance where applicable;
+- clipping/headroom;
+- state-switch continuity.
 
-Human listening remains required for externalization, front/back discrimination, elevation, image stability, depth, envelopment, fatigue, hierarchy and preference.
+Human listening remains required for:
 
-### Intentional golden changes
+- externalization;
+- front/back discrimination;
+- elevation;
+- side precision;
+- radial depth;
+- source extent;
+- image stability;
+- listener envelopment;
+- room naturalness;
+- direct-source solidity;
+- bass/groove integrity;
+- timbre;
+- fatigue;
+- preference.
 
-If an existing deterministic golden is intentionally changed, regenerate it only after the difference is understood and record the relevant measurement rather than blessing unexplained drift.
+At matched loudness, bypass should feel flatter, not cleaner.
 
-```sh
-cd omniphony-renderer
-OMNIPHONY_BLESS_GOLDENS=1 cargo test -p renderer -- --nocapture
+---
+
+## 10. Golden/reference changes
+
+Do not bless unexplained drift.
+
+If a deterministic golden/reference must intentionally change:
+
+```text
+identify reason
+→ measure difference
+→ verify perceptual/product intent
+→ keep old control where needed for A/B
+→ only then update golden
 ```
 
-See [`omniphony-renderer/dsp_fixtures/README.md`](omniphony-renderer/dsp_fixtures/README.md).
+The upstream-demo-style perceptual control has stronger protection than an ordinary implementation golden.
 
-## Realtime contract
+---
 
-Audio-thread work should be:
+## 11. Realtime law
 
+The audio path should be:
+
+- bounded;
+- nonblocking where practical;
 - allocation-free after initialization where practical;
-- lock-free or bounded/non-blocking on the realtime path;
-- independent of host callback partitioning;
-- deterministic for equivalent continuous input;
-- explicit about reset/discontinuity semantics;
+- explicit about resets/discontinuities;
+- deterministic for equivalent continuous input/state;
+- independent of arbitrary callback partitioning for semantic behavior;
 - measured rather than assumed fast.
 
-A host changing from 40 to 128 to 1024 samples per callback must not change the semantic scene, object trajectory, gain trajectory or room evolution.
+Keep off the realtime callback:
 
-Expensive calibration, SOFA conversion, corpus generation, symbolic analysis and model work belong off the audio thread.
+- filesystem access;
+- network access;
+- ordinary model inference;
+- large allocations;
+- SOFA parsing/import;
+- device enumeration;
+- UI calls;
+- blocking logs/mutex waits.
 
-## Scene semantics
+A normal Windows host route and ASIO route must not develop different renderer semantics.
 
-Keep these concepts separate:
+---
+
+## 12. Scene semantics
+
+Keep these distinct:
 
 ```text
 signal evidence
-≠ auditory object
+≠ auditory/presentation entity
 ≠ scene hypothesis
-≠ presentation choice
+≠ placement choice
 ```
 
-And:
+and:
 
 ```text
 DirectObject
@@ -151,71 +312,109 @@ DirectObject
 ≠ RoomField
 ```
 
-Do not infer literal rear recording metadata from ordinary stereo where none exists. Rear placement can be a presentation decision constrained by evidence and musical role.
+Ordinary stereo does not reveal literal rear object metadata.
 
-## Upstream Omniphony
+Rear placement may be a valid presentation decision when evidence and listening justify it.
 
-Treat `mgth/Omniphony` as a source/peer/ancestor.
+Do not let scene-model completeness become a prerequisite for the protected renderer or W1 Windows product.
 
-When useful upstream work appears:
+---
+
+## 13. libaural boundary
+
+`libaural` is a separate research/framework project and a possible future evidence provider.
+
+It is not the product owner and is not mandatory for Omniphony to run.
+
+Use it when a bounded capability demonstrably improves a presentation decision.
+
+Do not:
 
 ```text
-inspect exact mechanism
-→ take the smallest relevant change
-→ validate it in this fork
-→ adapt it to our product
+research result
+→ architecture rewrite
 ```
 
-Do not merge broad upstream changes solely to maintain structural parity.
-
-When this fork discovers a general renderer fix:
+Prefer:
 
 ```text
-prove it here
-→ isolate the general part from fork-specific policy
-→ offer it upstream if it improves upstream on its own terms
+specific audible/product weakness
+→ candidate libaural evidence/mechanism
+→ isolated experiment
+→ A/B
+→ keep only if earned
 ```
 
-This fork should improve itself before using upstream as the integration target.
+---
 
-## External projects
+## 14. Upstream Omniphony
 
-External repositories are mechanism sources, not dependency wish lists.
+Treat `mgth/Omniphony` as technical ancestor, perceptual foundation and continuing source of mechanisms/fixes.
 
-For a new influence, document:
+Use:
 
-1. the exact useful mechanism;
-2. whether it belongs to libaural, Omniphony runtime, Windows integration, calibration or testing;
-3. the smallest controlled experiment that can test it;
-4. licensing/attribution implications if code or data would be incorporated.
+```text
+inspect exact upstream change
+→ check whether already present
+→ take smallest relevant missing part
+→ validate locally
+```
 
-The durable influence ledger lives in `dissonance-git/libaural`.
+Do not merge broad upstream product work merely to keep history aligned.
 
-## Scope contraction
+Do not delete useful inherited renderer behavior merely because the final UX is narrower.
 
-Deletion is a valid improvement.
+When this fork proves a general fix, isolate the portable/general part before considering an upstream contribution.
 
-Keep inherited code when it is required by:
+---
 
-- the Windows listening product;
-- realtime renderer behavior;
-- stereo scene inference;
-- HRTF/headphone calibration;
-- deterministic known-scene validation;
-- a clearly load-bearing dependency.
+## 15. External research
 
-Otherwise prefer removing it from this fork and recovering it later from upstream/Git history if evidence changes.
+External projects are mechanism sources, benchmarks and experiment inputs, not dependency wish lists.
 
-Do not locally archive entire deleted products just to feel safe. Git already is the archive.
+Research should begin from a concrete question.
 
-## Pull requests and commits
+For a new influence, record mentally or durably as appropriate:
 
-- Target `main`.
-- Keep changes focused enough that a regression can be localized.
-- Add or strengthen a test when fixing a reproducible bug.
-- Avoid unexplained DSP constants; document the measurement or hypothesis they encode.
-- Keep comments and new docs in English.
-- Run formatting and relevant tests before submitting.
-- Do not add permanent compatibility machinery for a product surface this fork intentionally removed.
+1. exact mechanism that may help;
+2. exact weakness/question it addresses;
+3. smallest experiment that could falsify it;
+4. whether it belongs to renderer, Windows host, optional adaptive policy, calibration or test tooling;
+5. licensing/data implications if incorporated.
 
-Contributions are licensed under the inherited `GPL-3.0-or-later` license.
+Do not restart broad GitHub/literature mining without a missing capability to search for.
+
+---
+
+## 16. Contraction law
+
+Deletion is valid when it removes unowned inherited surface without losing:
+
+- current Windows capability;
+- protected sound;
+- renderer behavior;
+- regression observability;
+- known-scene truth;
+- calibration truth;
+- an active experimental control.
+
+Delete in dependency-safe order and test between cuts.
+
+Git/upstream is the archive. The working tree does not need to impersonate one.
+
+---
+
+## 17. Final working rule
+
+When uncertain what to do next, use this loop:
+
+```text
+make the native Windows path easier to hear
+→ compare it against the protected Omniphony control
+→ compare it against the real incumbent
+→ identify the next actual weakness
+→ research/fix only that weakness
+→ preserve everything that still wins
+```
+
+That is the development process.
