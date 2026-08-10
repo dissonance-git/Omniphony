@@ -10,6 +10,7 @@
 
 pub mod analysis;
 pub mod binaural_block_size;
+pub mod binaural_groove_fidelity;
 pub mod dirs;
 pub mod golden;
 pub mod residual;
