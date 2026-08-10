@@ -1,0 +1,16 @@
+Omniphony guarded stream-reset stabilization
+base_sha=28440200fc98ba8b10e1387a55e5627b226d4ef2
+failed_stage=apply_patch
+rust_toolchain=1.88.0
+
+===== patch.log (last 160 lines) =====
+Traceback (most recent call last):
+  File "<stdin>", line 11, in <module>
+  File "v2-stream-reset-patch", line 1
+    from pathlib import Path
+IndentationError: unexpected indent
+
+===== fetch.log (last 160 lines) =====
+From https://github.com/dissonance-git/Omniphony
+ * branch            main       -> FETCH_HEAD
+
