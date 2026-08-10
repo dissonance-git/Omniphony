@@ -1,43 +1,146 @@
 # Windows audio route
 
-Windows is the first live product target, but the renderer must stay independent of Windows transport details.
+This document owns the **Windows transport decision**, not the overall project plan. The root `README.md` owns product intent and priority.
 
-The immediate product requirement is stricter than “capture system audio”:
+The immediate requirement is stronger than “capture system audio”:
 
-> **Ordinary shared-mode playback must reach the listener exactly once, through Omniphony, without a simultaneous dry copy.**
+> **Ordinary Windows playback must reach the listener exactly once, through Omniphony, without a simultaneous dry copy, while the protected Omniphony renderer remains unchanged by transport work.**
 
-That requirement rules out treating WASAPI loopback capture by itself as the final HeSuVi replacement.
+This is the practical bridge from the current HeSuVi/VB-Audio chain to a native product.
 
-## Protected signal path
+---
 
-The sound-quality reference remains the upstream-demo-style binaural control in:
+## 1. Protected signal path
+
+The transport layer is not allowed to retune the sound in order to make integration easier.
+
+Primary renderer control:
 
 ```text
 omniphony-renderer/assets/binaural-baselines/upstream-demo-reference.yaml
 ```
 
-Windows work is transport work first. It must not silently alter HRTF, early-reflection, scene, gain, room or other renderer behavior while solving capture/output.
+Windows work must not silently change:
 
-## Current native probe
+- HRTF family;
+- early reflections;
+- late room state;
+- gain policy;
+- scene logic;
+- bass behavior;
+- renderer defaults that define the protected reference.
 
-`omniphony-renderer/windows_host` is a deliberately thin Windows-only host seed.
+Transport earns the right to carry Omniphony. It does not redefine Omniphony.
 
-It currently proves two independent primitives:
+---
 
-1. ordinary Windows output-device discovery through CPAL's default Windows host, compiled without the optional ASIO feature;
-2. modern WASAPI application-loopback activation in a self-excluding diagnostic mode.
+## 2. Current incumbent context
 
-The second primitive is useful for diagnostics and transport experiments, but it is not an intercept. Windows still sends the original mix to its render endpoint, so replaying the captured copy to the same headphones would create dry + processed playback.
-
-Therefore:
+The existing daily path remains available during development:
 
 ```text
-system loopback capture
-!=
-transparent system-wide replacement
+foobar DSP
+→ 5.1-side upmix
+→ VB-Audio multichannel / ASIO Bridge
+→ HeSuVi / DTS Virtual:X
+→ FiiO ASIO
+→ K7
+→ Noire X
 ```
 
-## Candidate A: endpoint APO
+The native route must coexist with this until it wins.
+
+Do not require uninstalling or breaking the incumbent to test a transport milestone.
+
+---
+
+## 3. Current native progress
+
+The Windows-native work already has two intentionally small layers.
+
+### `windows_host`
+
+`omniphony-renderer/windows_host` is a Windows-only transport probe.
+
+It currently proves:
+
+1. ordinary Windows output-device discovery through CPAL's default Windows host;
+2. compilation without enabling CPAL's optional ASIO feature;
+3. modern WASAPI application-loopback activation in a self-excluding diagnostic mode.
+
+The probe explicitly says renderer integration is a later step.
+
+### `realtime_ffi`
+
+`omniphony-renderer/realtime_ffi` is the narrow PCM seam between native Windows transport and the protected Omniphony renderer.
+
+Current ABI properties:
+
+```text
+interleaved f32 PCM
+sample rate + channel count at create time
+bounded process callback
+in-place or out-of-place processing
+explicit reset
+C ABI / published header
+```
+
+The first implementation is deliberately **bit-exact identity**.
+
+That is useful, not trivial: it gives the host boundary a deterministic oracle before real Omniphony DSP is connected behind it.
+
+```text
+Windows transport
+→ realtime_ffi identity
+→ exact same PCM
+```
+
+Only after that seam is stable should it become:
+
+```text
+Windows transport
+→ realtime_ffi
+→ protected Omniphony renderer
+→ binaural PCM
+```
+
+The realtime ABI has CI/package coverage from the August 2026 host-work batch.
+
+---
+
+## 4. Why loopback capture is diagnostic only
+
+The current process-loopback probe uses self-exclusion so Omniphony does not immediately recapture itself.
+
+That proves a useful Windows primitive, but loopback is a **copy** of the system mix, not an intercept.
+
+Windows still sends the original dry audio to the active render endpoint.
+
+Therefore replaying processed loopback to the same headphones would produce:
+
+```text
+dry system audio
++
+processed Omniphony copy
+```
+
+which is unacceptable.
+
+So:
+
+```text
+system/process loopback capture
+!=
+transparent HeSuVi replacement
+```
+
+Keep loopback for diagnostics, experiments, analysis, or development capture where its semantics are useful.
+
+Do not promote it to the final system-wide route unless another routing mechanism guarantees the dry path is not simultaneously audible.
+
+---
+
+# 5. Candidate A: endpoint/system-effect APO
 
 Conceptual route:
 
@@ -53,38 +156,42 @@ physical headphone endpoint
 
 Why it is attractive:
 
-- processes the stream in-place, so there is no second dry copy to suppress;
-- matches the “install, choose headphones, play normally” product goal;
-- keeps the normal Windows shared-mode route as the default;
-- resembles the class of integration already proven useful by Equalizer-APO/HeSuVi-style systems, while allowing Omniphony to own its renderer rather than merely convolving an HRIR.
+- in-place single-path processing;
+- no second dry copy to suppress;
+- ordinary apps can use the normal shared Windows endpoint;
+- closely matches the desired set-and-forget product experience;
+- resembles the integration class that made Equalizer APO / HeSuVi practical, while Omniphony would own the renderer rather than only an HRIR convolution stage.
 
-Why it is not yet chosen:
+Why it is not automatically the winner:
 
-- a modern APO is an in-process realtime COM component;
-- Windows 11 deployment uses the AudioProcessingObject driver-package/component model;
-- an APO must be associated with the relevant audio device rather than registered once globally for every unrelated driver;
-- the realtime callback cannot host heavy analysis, model inference, blocking I/O or arbitrary control-plane work;
-- installation, signing, endpoint association, crash containment and device-change behavior must be proven on the actual target machine.
+- modern APO deployment is Windows-driver/component territory;
+- endpoint association, installation and signing must be handled correctly;
+- an APO executes inside a sensitive realtime audio environment;
+- crash containment matters;
+- the realtime callback cannot host blocking I/O, general model inference, filesystem work, or heavyweight analysis;
+- the protected renderer may be too large to embed naively without a carefully bounded realtime projection.
 
-The intended split, if this route graduates, is:
+If this route graduates, the split should be roughly:
 
 ```text
-CONTROL / HEARING PROCESS
-UI
-libaural later
-profile/calibration construction
-slow musical context
-        ↓ bounded immutable state
+CONTROL PROCESS
+UI / settings / diagnostics
+profile construction
+optional future libaural/model work
+        ↓ bounded validated state
 
 REALTIME APO
-small deterministic state
-protected Omniphony render projection
-no blocking/model work
+small deterministic host seam
+protected Omniphony realtime projection
         ↓
 headphones
 ```
 
-## Candidate B: virtual render endpoint
+`libaural` is optional future control evidence, not an APO dependency.
+
+---
+
+# 6. Candidate B: virtual render endpoint
 
 Conceptual route:
 
@@ -95,62 +202,170 @@ Omniphony virtual render endpoint
     ↓
 Omniphony host process
     ↓
-portable renderer core
+realtime_ffi
+    ↓
+protected Omniphony renderer
     ↓
 WASAPI physical headphones
 ```
 
 Why it remains viable:
 
-- cleanly keeps the full renderer out of the Windows audio-engine process;
-- the existing Rust host/core boundary maps naturally onto it;
-- easier isolation for richer control-plane behavior;
-- explicit routing guarantees the listener receives only the processed copy.
+- explicit single-path routing;
+- keeps the full renderer out of the Windows audio-engine process;
+- maps naturally onto the Rust host/core boundary already being built;
+- easier isolation for richer control/diagnostic work;
+- `realtime_ffi` already provides the beginning of the process boundary.
 
 Costs:
 
-- requires a virtual audio driver/endpoint, with WDK, installation and signing work;
-- exposes another audio device to Windows and applications;
-- adds transport/buffering opportunities that must be measured;
-- seamless default-device switching and recovery become product responsibilities.
+- requires a virtual endpoint/driver solution;
+- WDK, installation and signing complexity;
+- adds a visible audio endpoint;
+- more buffering/clock-domain opportunities;
+- default-device switching/recovery become product responsibilities.
 
-Microsoft SysVAD is a reference architecture, not something to copy wholesale into the renderer.
+Microsoft SysVAD is a reference architecture for this class of work, not code to transplant wholesale into Omniphony.
 
-## Candidate C: ASIO
+---
 
-ASIO remains optional specialist output for interfaces that benefit from it.
+# 7. Candidate C: ASIO
 
-It is not the normal product route because it can require specialist drivers and the separately licensed Steinberg SDK at build time. It also does not solve ordinary system-wide interception by itself.
+ASIO remains valuable as a specialist route.
 
-## Decision gates
+The current listener already uses:
 
-Do not choose the Windows route because one architecture is cleaner on paper. Choose it by bounded product evidence.
+```text
+VB-Audio ASIO Bridge
+→ FiiO ASIO Driver
+→ FiiO K7
+```
 
-A route can graduate only if it proves:
+So ASIO is useful for development comparison and may remain valuable permanently.
 
-1. **single-path playback**: no audible or measurable dry + processed double path;
-2. **baseline preservation**: identical portable-renderer behavior for the same PCM/state input within documented numerical tolerance;
-3. **normal app coverage**: ordinary shared-mode Windows applications work without per-player configuration;
-4. **device behavior**: headphone/DAC changes, disappearance and recovery are deterministic;
-5. **latency**: measured end-to-end latency is low enough for normal music/video use without fragile tuning;
-6. **glitch safety**: underrun, restart, sleep/wake and format changes fail safely rather than blasting or hanging;
-7. **installer reality**: a clean Windows machine can install/remove/update the route reproducibly;
-8. **control separation**: UI/libaural/control work cannot block the realtime audio callback;
-9. **ASIO independence**: the ordinary Windows build does not require the ASIO SDK;
-10. **reversibility**: disabling/uninstalling Omniphony restores the normal endpoint cleanly.
+But ASIO alone does not solve normal system-wide interception, and the ordinary Windows product should not require the separately licensed Steinberg SDK or specialist drivers.
 
-## Current order of work
+Correct relationship:
+
+```text
+normal Windows route
+→ native shared/system integration
+
+specialist route
+→ ASIO where useful
+```
+
+Do not delete ASIO just because a normal route exists.
+
+Do not force ASIO on ordinary users because it works in the current incumbent.
+
+---
+
+# 8. Decision gates
+
+Do not choose APO or virtual endpoint because one diagram looks cleaner.
+
+A route graduates only if it proves:
+
+1. **single-path playback** — no audible/measurable dry + processed duplication;
+2. **baseline preservation** — same renderer behavior for the same PCM/state input within declared numerical tolerance;
+3. **normal app coverage** — ordinary shared-mode Windows apps work without per-player rituals;
+4. **coexistence** — development/testing does not require destroying the current HeSuVi route;
+5. **device behavior** — output changes, disappearance and recovery are deterministic;
+6. **latency** — low enough for ordinary music/video and secondary gaming use without fragile tuning;
+7. **glitch safety** — underrun, restart, sleep/wake and format changes fail safely;
+8. **installer reality** — clean install/remove/update is reproducible;
+9. **realtime separation** — UI/analysis/optional model work cannot block audio;
+10. **ASIO independence** — normal Windows build does not require Steinberg SDK;
+11. **reversibility** — disabling/uninstalling Omniphony restores the normal route cleanly;
+12. **A/B usability** — the listener can compare Omniphony against the incumbent without rebuilding the audio environment each time.
+
+---
+
+# 9. Transport acceptance ladder
+
+Keep implementation incremental and attributable.
+
+### T0 · Host probe — EXISTS
+
+```text
+Windows
+→ enumerate normal output devices
+→ optional self-excluding loopback activation probe
+```
+
+No renderer DSP involved.
+
+### T1 · Realtime identity seam — EXISTS
+
+```text
+PCM
+→ realtime_ffi
+→ bit-exact PCM
+```
+
+This is the contract oracle.
+
+### T2 · Native output smoke path
+
+```text
+test PCM / fixture
+→ realtime_ffi identity
+→ normal Windows output
+```
+
+Prove stable device playback without Omniphony DSP first.
+
+### T3 · Protected renderer behind seam
+
+```text
+controlled PCM / known scene
+→ realtime_ffi
+→ protected Omniphony renderer
+→ Windows output
+```
+
+Compare against offline/reference rendering to ensure transport did not change the engine.
+
+### T4 · Single-path ordinary app route
+
+Prototype the smallest practical APO and/or virtual-endpoint boundary.
+
+Do not accept loopback replay as success.
+
+### T5 · Incumbent coexistence A/B
+
+```text
+current HeSuVi chain
+↔
+Omniphony native route
+```
+
+Matched loudness and fast enough switching to make listening useful.
+
+### T6 · Product-route decision
+
+Choose APO, virtual endpoint, hybrid, or another route from measured reliability/latency/installability and real use.
+
+---
+
+# 10. Current order of work
+
+At this checkpoint:
 
 ```text
 1. keep upstream-demo perceptual control frozen
-2. keep Windows WASAPI probe compiling in CI
-3. package a runnable windows_host.exe diagnostic artifact
-4. prototype the smallest viable APO boundary
-5. compare APO deployment/latency/reliability with a minimal virtual-endpoint route
-6. choose transport
-7. feed ordinary stereo PCM through the protected Omniphony binaural path
-8. listen and measure before enabling any new DSP
-9. only then graduate optional libaural-informed improvements
+2. keep windows_host + realtime_ffi building in CI
+3. prove normal Windows output through the identity seam
+4. connect protected Omniphony renderer behind realtime_ffi
+5. verify realtime output matches controlled offline renderer behavior
+6. prototype the smallest viable single-path APO boundary
+7. compare against a minimal virtual-endpoint route if APO constraints are poor
+8. choose the transport from evidence
+9. establish incumbent ↔ Omniphony A/B
+10. only then pull forward new renderer/adaptive DSP that addresses an actual audible weakness
 ```
 
-The transport layer earns the right to carry Omniphony. It does not get to redefine what Omniphony sounds like.
+Research can inform any step when a concrete missing capability appears.
+
+Research does not replace this order merely because a more sophisticated architecture is imaginable.
