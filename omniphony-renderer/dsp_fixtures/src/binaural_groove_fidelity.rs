@@ -7,7 +7,7 @@
 //! timing between musical events.
 
 use crate::scene::{SAMPLE_RATE, build_renderer_binaural};
-use renderer::live_params::RampMode;
+use renderer::live_params::{OutputMode, RampMode};
 use renderer::spatial_renderer::SpatialChannelEvent;
 use renderer::speaker_layout::SpeakerLayout;
 
@@ -48,7 +48,15 @@ fn render_click_train(offbeat_phase: f64, block_samples: usize) -> (Vec<f32>, Ve
     {
         let control = renderer.renderer_control();
         control.set_requested_ramp_mode(RampMode::Sample);
-        control.live.write().ramp_mode = RampMode::Sample;
+        let mut live = control.live.write();
+        live.ramp_mode = RampMode::Sample;
+        // This fixture measures the headphone renderer itself. OutputMode defaults
+        // to SpeakerArray, so make the exercised path explicit instead of
+        // accidentally treating two channels of a multichannel speaker render as L/R.
+        live.binaural.output_mode = OutputMode::Binaural;
+        live.binaural.reflections.enabled = false;
+        live.binaural.reverb.enabled = false;
+        live.binaural.air_absorption = false;
     }
 
     // Settle metadata gain, position and the initial measured-HRTF kernel before
