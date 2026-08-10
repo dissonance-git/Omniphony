@@ -1,5 +1,6 @@
 name: One-shot baseline renderer repair
 
+# Rerun on top of the verified stream-lifetime reset foundation.
 on:
   push:
     branches: [main]
