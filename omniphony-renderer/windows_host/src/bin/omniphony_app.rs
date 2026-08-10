@@ -27,11 +27,11 @@ use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BS_PUSHBUTTON, COLOR_WINDOW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW,
-    DefWindowProcW, DestroyWindow, DispatchMessageW, EnableWindow, GetDlgItem, GetMessageW,
-    IDC_ARROW, LoadCursorW, MB_ICONERROR, MB_OK, MSG, MessageBoxW, PostQuitMessage,
-    RegisterClassW, SS_CENTER, SW_SHOW, SetTimer, SetWindowTextW, ShowWindow, TranslateMessage,
-    UpdateWindow, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_TIMER, WNDCLASSW,
-    WS_CAPTION, WS_CHILD, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+    DefWindowProcW, DestroyWindow, DispatchMessageW, GetDlgItem, GetMessageW, IDC_ARROW,
+    LoadCursorW, MB_ICONERROR, MB_OK, MSG, MessageBoxW, PostQuitMessage, RegisterClassW,
+    SW_SHOW, SetTimer, SetWindowTextW, ShowWindow, TranslateMessage, UpdateWindow, WM_CLOSE,
+    WM_COMMAND, WM_CREATE, WM_DESTROY, WM_TIMER, WNDCLASSW, WS_CAPTION, WS_CHILD,
+    WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
 };
 
 #[cfg(target_os = "windows")]
@@ -83,18 +83,8 @@ fn set_control_text(hwnd: HWND, id: i32, text: &str) {
     let text = wide(text);
     unsafe {
         let control = GetDlgItem(hwnd, id);
-        if control != 0 as _ {
+        if !control.is_null() {
             SetWindowTextW(control, text.as_ptr());
-        }
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn enable_control(hwnd: HWND, id: i32, enabled: bool) {
-    unsafe {
-        let control = GetDlgItem(hwnd, id);
-        if control != 0 as _ {
-            EnableWindow(control, i32::from(enabled));
         }
     }
 }
@@ -111,21 +101,19 @@ fn set_running_ui(hwnd: HWND, enabled: bool) {
             "Audio engine running - bypass comparison"
         },
     );
-    enable_control(hwnd, ID_TOGGLE, true);
 }
 
 #[cfg(target_os = "windows")]
 fn set_failed_ui(hwnd: HWND, detail: &str) {
     set_control_text(hwnd, ID_TOGGLE, "RESTART");
     set_control_text(hwnd, ID_STATUS, detail);
-    enable_control(hwnd, ID_TOGGLE, true);
 }
 
 #[cfg(target_os = "windows")]
 fn spawn_worker(hwnd: HWND) -> anyhow::Result<()> {
     let exe = std::env::current_exe().context("failed to resolve Omniphony.exe path")?;
     let root = exe.parent().context("Omniphony.exe has no parent directory")?;
-    let worker = root.join("omniphony_live.exe");
+    let worker = root.join("omniphony_worker.exe");
     if !worker.is_file() {
         bail!("missing audio worker: {}", worker.display());
     }
@@ -302,7 +290,7 @@ unsafe extern "system" fn window_proc(
                     hwnd,
                     "STATIC",
                     "Omniphony for Headphones",
-                    WS_CHILD | WS_VISIBLE | SS_CENTER,
+                    WS_CHILD | WS_VISIBLE,
                     30,
                     24,
                     360,
@@ -313,7 +301,7 @@ unsafe extern "system" fn window_proc(
                     hwnd,
                     "STATIC",
                     "Starting audio engine...",
-                    WS_CHILD | WS_VISIBLE | SS_CENTER,
+                    WS_CHILD | WS_VISIBLE,
                     30,
                     64,
                     360,
@@ -324,7 +312,7 @@ unsafe extern "system" fn window_proc(
                     hwnd,
                     "BUTTON",
                     "ON",
-                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON as u32,
                     125,
                     102,
                     170,
@@ -335,7 +323,7 @@ unsafe extern "system" fn window_proc(
                     hwnd,
                     "STATIC",
                     "Automatic route - physical FiiO preferred",
-                    WS_CHILD | WS_VISIBLE | SS_CENTER,
+                    WS_CHILD | WS_VISIBLE,
                     30,
                     174,
                     360,
@@ -346,7 +334,7 @@ unsafe extern "system" fn window_proc(
                     hwnd,
                     "BUTTON",
                     "Quit",
-                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON as u32,
                     160,
                     208,
                     100,
@@ -408,7 +396,7 @@ fn run_windows_app() -> anyhow::Result<()> {
     state();
 
     let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
-    if instance == 0 as _ {
+    if instance.is_null() {
         bail!("GetModuleHandleW failed");
     }
 
@@ -419,7 +407,7 @@ fn run_windows_app() -> anyhow::Result<()> {
     class.style = CS_HREDRAW | CS_VREDRAW;
     class.lpfnWndProc = Some(window_proc);
     class.hInstance = instance;
-    class.hCursor = unsafe { LoadCursorW(0 as _, IDC_ARROW) };
+    class.hCursor = unsafe { LoadCursorW(std::ptr::null_mut(), IDC_ARROW) };
     class.hbrBackground = (COLOR_WINDOW as usize + 1) as _;
     class.lpszClassName = class_name.as_ptr();
 
@@ -437,13 +425,13 @@ fn run_windows_app() -> anyhow::Result<()> {
             CW_USEDEFAULT,
             440,
             300,
-            0 as _,
-            0 as _,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
             instance,
             std::ptr::null(),
         )
     };
-    if hwnd == 0 as _ {
+    if hwnd.is_null() {
         bail!("CreateWindowExW failed");
     }
 
@@ -454,7 +442,7 @@ fn run_windows_app() -> anyhow::Result<()> {
 
     let mut message: MSG = unsafe { std::mem::zeroed() };
     loop {
-        let result = unsafe { GetMessageW(&mut message, 0 as _, 0, 0) };
+        let result = unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) };
         if result == -1 {
             bail!("GetMessageW failed");
         }
