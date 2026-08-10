@@ -221,21 +221,40 @@ low-frequency integration
 safety headroom
 ```
 
-See [`docs/FORK_POLICY.md`](docs/FORK_POLICY.md) and the libaural influence ledger.
+See [`docs/HEADPHONE_CALIBRATION.md`](docs/HEADPHONE_CALIBRATION.md), [`docs/FORK_POLICY.md`](docs/FORK_POLICY.md), and the libaural influence ledger.
+
+### The Windows product audio shell is still transitional
+
+The inherited Windows host currently hard-wires CPAL's ASIO feature, which makes the full executable depend on separately licensed Steinberg SDK material.
+
+That is not the intended default architecture for a normal install-once Windows music product.
+
+Current direction:
+
+```text
+renderer engine
+→ proven independently in CI
+
+Windows system/player capture + normal output route
+→ explicit product layer still to be simplified
+
+ASIO
+→ optional low-latency/audiophile route, not mandatory build infrastructure
+```
 
 ---
 
 ## Repository scope
 
-This fork has begun physically removing inherited suite surfaces.
+This fork is physically removing inherited suite surfaces rather than maintaining them for structural parity.
 
 ### Keep
 
-- `omniphony-renderer/` — realtime renderer and Windows listening path;
+- `omniphony-renderer/` — realtime renderer and transitional Windows host path;
 - `layouts/` — known-scene calibration geometry;
 - deterministic assets/fixtures needed for regression tests;
 - `docs/` — current fork contracts, validation reports and research decisions;
-- `.github/workflows/` — reproducible build/test pipeline.
+- `.github/workflows/` — reproducible renderer-engine validation.
 
 ### Removed from this fork
 
@@ -247,15 +266,16 @@ The original upstream remains the archive/source for these surfaces:
 - JACK service helper scripts;
 - old Studio/WebGL/Three.js debugging notes;
 - Linux/PipeWire-specific product plans and investigation diaries;
-- obsolete upstream refactor plans that no longer describe this product.
+- obsolete upstream refactor plans that no longer describe this product;
+- upstream Studio/cross-platform release workflows.
 
-More contraction will happen only when dependencies are understood well enough that deletion improves clarity without destroying useful renderer/test machinery.
+More contraction happens dependency-first. See [`docs/CONTRACTION_LEDGER.md`](docs/CONTRACTION_LEDGER.md).
 
 ---
 
 ## Upstream relationship
 
-`mgth/Omniphony` is now treated as a **source / peer / ancestor**, not the canonical product tree.
+`mgth/Omniphony` is a **source / peer / ancestor**, not the canonical product tree.
 
 ```text
 upstream mechanism or fix
@@ -356,7 +376,7 @@ Human listening remains required for:
 
 ## Build / CI
 
-The repository workflow is:
+The authoritative repository workflow is:
 
 ```text
 .github/workflows/windows-renderer.yml
@@ -367,12 +387,16 @@ It now separates:
 ```text
 portable renderer core
 Windows renderer core
-Windows x64 listening artifact
+Windows x64 renderer-engine artifact
 ```
 
-The diagnostic workflow intentionally avoids third-party Rust/cache setup actions while the fork is being contracted, uses a pinned Rust toolchain through `rustup`, and does not cancel earlier refactor runs before their failure stage becomes visible.
+The renderer-engine artifact intentionally excludes the host audio layer, so it can prove/package the actual engine without depending on the separately licensed ASIO SDK.
 
-The Windows artifact remains a development/listening build, not yet the final system-wide product installer.
+The old inherited CI/release workflows were removed because they built deleted Studio, Linux/PipeWire, macOS and cross-platform release products.
+
+The workflow also resolves dependencies normally because this repository does not track `omniphony-renderer/Cargo.lock`.
+
+A full listening executable returns to CI when the fork's Windows audio shell has a clean normal-system default route. ASIO may remain an optional specialist backend.
 
 ---
 
@@ -385,9 +409,10 @@ The Windows artifact remains a development/listening build, not yet the final sy
 4. implement first-class broad/diffuse field rendering
 5. wire stereo evidence into persistent realtime scene state
 6. build listener/headphone calibration stack
-7. establish normal Windows system/player capture route
-8. continue deleting inherited surfaces with no remaining owner
-9. listening + fidelity optimization
+7. establish normal Windows system/player capture + output route
+8. make ASIO optional rather than mandatory
+9. continue deleting inherited surfaces with no remaining owner
+10. listening + fidelity optimization
 ```
 
 The product goal remains intentionally unreasonable:
