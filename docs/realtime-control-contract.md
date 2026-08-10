@@ -1,89 +1,110 @@
 # Realtime control and sample-time contract
 
-This document defines realtime correctness for Omniphony. It is subordinate to the root `README.md` and must not become an infrastructure prerequisite ladder that delays the first useful Windows listening path.
+This document defines realtime correctness for Omniphony.
 
-The core law remains:
+It is subordinate to the root `README.md` and must not become an infrastructure ladder that delays useful listening.
 
-> **Omniphony's audible world must not be defined by a host callback, UI refresh interval, model-worker completion time, or device-buffer size.**
+Core law:
 
-The canonical time domain for audible renderer state is the audio sample timeline.
+> **Omniphony's audible world must not be defined by a host callback, UI refresh interval, platform buffer size, device name, model-worker completion time, or global channel mode.**
 
-Current product split:
+The canonical time domain for audible state is the audio sample timeline.
+
+---
+
+## 1. Portable realtime boundary
+
+Conceptual split:
 
 ```text
-WINDOWS / CONTROL SIDE
-UI and development controls
-configuration
-device management
+PLATFORM / CONTROL SIDE
+Windows / future macOS / future Linux host
+UI and settings
+device/session discovery
+platform routing
 HRTF/profile construction
 optional model/libaural workers
 file/network I/O
 logging
         ↓ bounded validated publication
 
-REALTIME AUDIO SIDE
-sample clock
-current scene/presentation state
+PORTABLE REALTIME SIDE
+logical input streams
+sample clocks / generations
+current presentation/scene state
 bounded trajectories
 binaural / room DSP
-output samples
+stereo output samples
 ```
 
-The realtime engine must remain independently useful with no AI/model worker attached.
+The realtime engine must remain independently useful with no GUI, network, libaural worker or platform-specific audio API attached.
 
 ---
 
-## 1. Realtime processor independence
+## 2. Stream-local format law
 
-The audio processor must be able to run correctly without:
+Channel layout belongs to a logical source stream.
 
-- a GUI;
-- a controller window;
-- a model server;
-- libaural;
-- network access;
-- filesystem access during processing;
-- a calibration database connection;
-- a logging consumer.
-
-Minimum running state:
+Conceptual contract:
 
 ```text
-current bounded configuration
-+ realtime DSP state
-+ bounded timed-event input
-+ audio buffers
+InputStreamState
+  stream_id
+  sample_rate_hz
+  channel_layout
+  stream_generation
+  absolute_sample_index
+  optional spatial/object metadata
 ```
 
-A future UI or hearing model is an observer/controller, not part of the renderer's existence.
+Valid simultaneous state may include:
+
+```text
+Stream A = stereo music
+Stream B = 7.1 game
+Stream C = mono voice
+```
+
+The renderer must not require one global:
+
+```text
+current_channel_mode = stereo | 5.1 | 7.1
+```
+
+Starting, stopping or changing one stream must not reinterpret unrelated streams.
+
+A platform host may temporarily provide an already-mixed bed. That limitation belongs to that host, not to the core contract.
 
 ---
 
-## 2. Canonical sample clock
+## 3. Canonical sample clocks
 
-Maintain a monotonic renderer sample position.
+Each independently meaningful stream needs monotonic timing.
 
 Conceptually:
 
 ```text
-RendererClock
+StreamClock
   sample_rate_hz
   absolute_sample_index
   stream_generation
 ```
 
+The renderer may also own a shared output/world timeline.
+
 `stream_generation` distinguishes real discontinuities such as:
 
-- new playback stream;
-- explicit seek/reset;
+- new source stream;
+- seek/reset;
 - sample-rate reinitialization;
-- device/engine restart where continuity cannot be preserved.
+- source-layout restart;
+- platform restart where continuity cannot be preserved.
 
 A different callback size is not a semantic discontinuity.
 
 ---
 
-## 3. Timed render events
+## 4. Timed render events
 
 Audible control changes need explicit time semantics.
 
@@ -91,6 +112,7 @@ Conceptual form:
 
 ```text
 TimedRenderEvent
+  stream_id?
   stream_generation
   absolute_sample_time?
   block_sample_offset?
@@ -99,10 +121,9 @@ TimedRenderEvent
   kind
   payload
   request_generation?
-  provenance?
 ```
 
-Possible event kinds:
+Possible kinds:
 
 ```text
 object_position_target
@@ -114,24 +135,24 @@ bypass
 presentation_profile_switch
 listener_profile_switch
 room_parameter_target
-scene_candidate_publish
+stream_start
+stream_stop
 stream_discontinuity
 ```
 
-An event says when an audible change becomes true, not when a UI or worker happened to send it.
+An event says when an audible change becomes true, not when a UI thread happened to send it.
 
 ---
 
-## 4. Block-local offsets are transport, not truth
+## 5. Callback partition invariance
 
-Normalize host-local offsets to the renderer timeline where practical.
-
-Equivalent source/control timing with different legal block partitions should render equivalently apart from explicitly documented buffering latency.
+Equivalent source/control timing with different legal block partitions should render equivalently apart from declared buffering latency.
 
 ```text
-same source
+same source streams
 + same timed events
-+ different callback partition
++ same semantic timeline
++ different legal callback partition
 → equivalent intended output within tolerance
 ```
 
@@ -139,9 +160,9 @@ This protects the sound from host implementation details.
 
 ---
 
-## 5. Targets versus trajectories
+## 6. Targets versus trajectories
 
-A target event and the audible path toward that target are different things.
+A target event and the audible path toward that target are different.
 
 ```text
 TARGET EVENT
@@ -151,22 +172,22 @@ TRAJECTORY POLICY
 how audible state gets there
 ```
 
-Examples of trajectory classes:
+Trajectory classes may include:
 
 ```text
-instantaneous semantic change
+instant semantic change
 sample ramp
 smooth motion
-crossfade state
+bounded crossfade
 ```
 
 Use instant changes only for genuinely discontinuous semantics.
 
 ---
 
-## 6. Gain continuity
+## 7. Gain / position / HRTF continuity
 
-Gain changes capable of clicks or modulation artifacts should be sample-ramped or analytically equivalent.
+Changes capable of clicks, zipper noise or unstable localization should be sample-ramped or analytically equivalent.
 
 Bad:
 
@@ -175,8 +196,6 @@ for each callback:
   gain += fixed_step
 ```
 
-because callback size changes the time constant.
-
 Good:
 
 ```text
@@ -184,39 +203,31 @@ elapsed_samples / sample_rate
 → time-domain interpolation
 ```
 
-Apply the same principle to:
+The same principle applies to:
 
-- object gain;
 - direct/field blend;
 - room send;
-- profile crossfades;
+- profile changes;
 - bypass;
 - HRTF transitions;
-- calibration transitions.
+- listener calibration;
+- object motion.
 
----
-
-## 7. Position and HRTF continuity
-
-The renderer already has stateful HRTF transition machinery. Position control should eventually expose an authoritative sample-time trajectory rather than forcing the HRTF stage to infer motion from arbitrary block-start updates.
-
-Desired chain:
+Desired position chain:
 
 ```text
-sample-time object trajectory
+sample-time trajectory
 → listener-relative trajectory
-→ HRTF target trajectory
+→ HRTF target
 → bounded filter transition
 → ears
 ```
-
-This remains a known renderer-correctness candidate, but it should be pulled forward according to audible/product need rather than treated as a reason to postpone the Windows host lane.
 
 ---
 
 ## 8. Control work is not realtime work
 
-Keep unpredictable/blocking work away from the audio callback:
+Keep unpredictable/blocking work away from realtime audio:
 
 - filesystem access;
 - network calls;
@@ -224,14 +235,13 @@ Keep unpredictable/blocking work away from the audio callback:
 - SOFA parsing;
 - HRTF import/resampling;
 - headphone-EQ optimization;
-- large FFT-plan construction;
-- heap-heavy graph construction;
-- device enumeration;
+- large graph construction;
+- device/session enumeration;
 - UI calls;
-- ordinary mutex waits;
-- blocking logging.
+- blocking logging;
+- unbounded allocation/queues.
 
-Workers may build immutable candidate state and publish a bounded reference to the realtime side.
+Workers may build immutable candidate state and publish a bounded reference inward.
 
 ---
 
@@ -257,7 +267,7 @@ KEEP LAST-KNOWN-GOOD AUDIBLE STATE
 report error outside realtime processing
 ```
 
-This generalizes the existing stale-HRIR-rebuild protection.
+This generalizes existing stale-HRIR protection.
 
 ---
 
@@ -269,7 +279,7 @@ A validated state may still require a bounded audible transition.
 candidate validated
 → atomically available
 → transition scheduled at sample T
-→ old/new coexist during bounded crossfade
+→ old/new coexist during bounded transition
 → retire old state
 ```
 
@@ -278,70 +288,95 @@ Useful for:
 - HRTF/profile changes;
 - room response;
 - convolution kernels;
-- bypass;
-- scene-topology changes.
+- scene topology;
+- listener profiles.
 
 ---
 
-## 11. Last-known-good law
+## 11. Bypass is an output-route decision
 
-A bad update should produce a diagnostic, not destroy the sounding world.
+Matched-loudness bypass is both a research instrument and a user feature.
 
-Examples:
+Hard law:
+
+> **OFF must not leak previously selected wet audio merely because it was queued earlier.**
+
+The current prototype selects wet/dry before a bounded playback queue. That means a toggle can leave stale wet blocks waiting to reach the physical output.
+
+That prototype behavior is explicitly not the final contract.
+
+Preferred architecture:
 
 ```text
-invalid SOFA
-→ old HRTF remains
-
-failed correction build
-→ old profile remains
-
-optional model timeout
-→ existing conservative presentation continues
-
-invalid room parameter
-→ reject instead of corrupting DSP state
+input frames
+  ├→ processed path
+  └→ latency-matched comparison path
+        ↓
+paired/aligned output state
+        ↓
+selection near physical output
+        ↓
+short validated transition
 ```
 
-The protected baseline is always more valuable than speculative broken state.
+Switching OFF must invalidate or bypass stale wet selection immediately enough that no perceptible wet tail remains solely because of queue history.
+
+Bypass should ultimately be:
+
+- artifact-free;
+- latency-aligned;
+- sample-time controllable;
+- loudness-fair;
+- free of wet queue leakage;
+- free of duplicate external forwarding;
+- capable of preserving useful DSP state so re-entry is not a fake reset comparison.
+
+For development, a brief gap is preferable to an ambiguous double/phase path.
 
 ---
 
-## 12. Deterministic event ordering
+## 12. Single physical output law
 
-Events at the same sample need explicit deterministic ordering.
+Realtime correctness extends beyond the core renderer.
 
-A useful conceptual order is:
+If two independent routes reach the same physical headphones:
 
 ```text
-1. stream/discontinuity
-2. topology/profile publication
-3. object/scene membership
-4. position/extent targets
-5. gain/blend targets
-6. presentation controls
+old dry/ASIO path
++
+Omniphony path
 ```
 
-Exact ordering can evolve, but thread scheduling must never decide audible output.
+then small timing differences can create comb filtering, echo and hallway-like coloration.
+
+That is not a valid A/B environment.
+
+The platform host/test harness must expose enough diagnostics to establish:
+
+```text
+one physical audible route
+```
+
+before subtle listening judgments are accepted.
 
 ---
 
-## 13. Bounded event transport
+## 13. Bounded event/PCM transport
 
 Realtime queues must be bounded.
 
 Useful overload classes:
 
 ### Latest-state-wins
-For dense continuous state such as pose updates.
+Dense continuous control such as pose updates.
 
 ### Must-deliver
-For semantic discontinuities/topology changes where dropping produces inconsistent state.
+Semantic discontinuities/topology changes.
 
 ### Coalescible targets
-For multiple future trajectory targets where intermediate stale updates can be reduced.
+Intermediate future targets that can be reduced safely.
 
-Diagnostics should expose counts such as:
+Diagnostics should eventually expose:
 
 ```text
 events_received
@@ -349,6 +384,9 @@ events_coalesced
 events_dropped
 late_events
 queue_high_watermark
+pcm_queue_high_watermark
+underruns
+overruns
 ```
 
 Silent overflow is unacceptable.
@@ -372,17 +410,17 @@ Head tracking, UI state and optional model evidence may use different policies.
 
 ---
 
-## 15. Optional model / libaural updates
+## 15. Optional libaural/model updates
 
-This section describes a future optional input, not a current dependency.
+This is a future optional input, not a dependency.
 
-A slower hearing/model result should carry the time interval it describes plus uncertainty/confidence. Omniphony decides whether it is still actionable.
+A slower hearing/model result should carry the interval it describes plus uncertainty/confidence.
 
 ```text
 result describes [t0, t1]
 arrives at t2
         ↓
-Omniphony asks
+Omniphony asks:
   is it still useful?
   does it change persistent state?
   should it affect a future trajectory?
@@ -391,13 +429,13 @@ Omniphony asks
 
 Never pretend an inference was known earlier merely because it describes earlier audio.
 
-If no model/libaural worker exists, the baseline renderer and local bounded scene path continue normally.
+If no model/libaural worker exists, baseline playback remains complete.
 
 ---
 
-## 16. UI and diagnostics cadence
+## 16. UI cadence independence
 
-UI/diagnostics may run at low cadence:
+UI/diagnostics may run at:
 
 ```text
 10 Hz
@@ -405,67 +443,44 @@ UI/diagnostics may run at low cadence:
 60 Hz
 ```
 
-without changing realtime semantics.
+or disappear entirely without changing realtime semantics.
 
-A slow or absent UI must not stall audio.
+The current `Omniphony.exe` / hidden worker split is consistent with this law.
 
-Heavy plots, model explanations and history queries stay off the realtime thread.
-
----
-
-## 17. Bypass contract
-
-Matched-loudness bypass is both a research instrument and eventual user feature.
-
-Bypass should be:
-
-- artifact-free;
-- latency-aligned where required;
-- sample-time controllable;
-- free from a loudness advantage;
-- capable of preserving useful DSP state so re-entry is not a fake reset comparison.
-
-Conceptually:
-
-```text
-processed latency-matched path
-raw latency-matched path
-        ↓
-short validated transition
-```
-
-The desired result is spatial collapse, not discovery that bypass restores fidelity.
+A slow GUI must not stall audio.
 
 ---
 
-## 18. Windows host independence
+## 17. Platform host independence
 
-The same engine semantics should survive:
+The same core semantics should survive:
 
 ```text
 file/reference fixture
-normal Windows system route
+Windows host
+future macOS host
+future Linux host
 ASIO specialist route
-future virtual endpoint if needed
+future virtual endpoint / native route
 unit/integration harness
 ```
 
-Windows host adapters translate their timing/device conventions into the engine contract.
+Platform adapters translate device/session/timing conventions into the core contract.
 
-The renderer must not grow one motion law for WASAPI and another for ASIO.
+Do not grow one motion law for WASAPI and another for another operating system.
 
-Other operating systems are outside the current roadmap.
+Windows is the current implementation priority, not the renderer ontology.
 
 ---
 
-## 19. Clock-domain ownership
+## 18. Clock-domain ownership
 
-If Windows capture and output use different hardware clocks, name them explicitly.
+If capture/input/output use different hardware or logical clocks, name them explicitly.
 
 Conceptually:
 
 ```text
-CaptureClock
+InputClock(s)
 RendererClock
 OutputClock
 ```
@@ -473,6 +488,7 @@ OutputClock
 Define:
 
 - master clock;
+- per-stream timestamp mapping;
 - drift measurement;
 - resampling location;
 - allowed correction rate;
@@ -480,86 +496,92 @@ Define:
 - hard-recovery behavior;
 - diagnostics.
 
-Inherited adaptive-resampling mechanisms may be useful, but do not preserve an old transport servo merely because it exists. Clock ownership should be understandable in the final Windows host path.
+Clock ownership should be understandable in each platform host.
 
 ---
 
-## 20. Core fixtures
-
-Useful regression fixtures include:
+## 19. Core regression fixtures
 
 ### RTC-001 · block partition invariance
-Same continuous input/events with several callback partitions.
+Same continuous input/events across several callback partitions.
 
 ### RTC-002 · timed gain event
-Gain change begins at the same absolute sample across legal host partitions.
+Gain change begins at the same absolute sample.
 
 ### RTC-003 · moving source trajectory
-Equivalent intended continuous motion across control/update partitions.
+Equivalent intended motion across control partitions.
 
 ### RTC-004 · stale async build
-A late older build cannot replace a newer accepted state.
+Older completion cannot replace newer accepted state.
 
 ### RTC-005 · failed candidate state
-Current audio remains alive after invalid HRTF/profile/room requests.
+Current audio remains alive after invalid state publication.
 
 ### RTC-006 · profile switch continuity
-Bounded deterministic artifact-free switch.
+Bounded deterministic switch.
 
-### RTC-007 · event queue pressure
-Bounded memory and declared coalescing/drop behavior.
+### RTC-007 · queue pressure
+Bounded memory and declared overload behavior.
 
 ### RTC-008 · late event
 Declared late-event policy is deterministic.
 
-### RTC-009 · bypass alignment
-No temporal jump/loudness trick during comparison.
+### RTC-009 · bypass queue cleanliness
+Toggle OFF does not emit previously queued wet-selected audio.
 
 ### RTC-010 · processor without controller
-Complete deterministic renderer with no UI/model attached.
+Complete renderer with no UI/model attached.
 
-Do not require every fixture to be solved before W1 native Windows listening unless the failure directly threatens that listening path or protected sound.
-
----
-
-## 21. Current implementation relevance
-
-The immediate product frontier is the Windows host lane described in the root README.
-
-This contract should guide that work without taking over its priority:
+### RTC-011 · concurrent layout independence
 
 ```text
-Windows audio transport
-→ one engine sample timeline
-→ existing renderer
-→ output
+stereo stream + 7.1 stream
 ```
 
-When scene/motion improvements are pulled forward, prefer one authoritative trajectory representation rather than independent motion state machines inside multiple DSP stages.
+can coexist without either changing the other's semantic layout.
 
-When optional libaural/adaptive work becomes live, feed it through the same bounded publication contract.
+### RTC-012 · stream lifecycle isolation
+Starting/stopping one source does not reset unrelated streams.
 
 ---
 
-## 22. Acceptance law
+## 20. Current implementation relevance
 
-A realtime renderer is correct when changing machinery around the same semantic event does not redefine the intended sound.
+Immediate frontier:
 
 ```text
+prove one physical Windows path
+→ clean bypass
+→ fair stereo music baseline
+→ surround baseline
+→ stereo + surround simultaneously
+```
+
+The first live Windows app already proved arbitrary audio transport.
+
+The next realtime correction is known: move wet/dry selection to a point where queued history cannot leak the old choice.
+
+---
+
+## 21. Acceptance law
+
+A realtime renderer is correct when machinery around the same semantic event does not redefine the intended sound.
+
+```text
+same logical streams
+same per-stream layouts
 same audio
 same semantic controls
-same sample timeline
+same sample timelines
 
-+ different legal callback partition
++ different legal callback partitions
 + different UI cadence
-+ different equivalent worker completion timing
-+ different Windows host route
++ different equivalent worker timing
++ different platform host
 
 → same intended auditory world
 ```
 
-The host supplies samples and timing opportunities.
+The host supplies samples, metadata and timing opportunities.
 
 It does not get to redesign the geometry of the music.
-
-And this contract does not get to redesign the project roadmap. The root README remains the authority.
