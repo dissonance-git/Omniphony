@@ -70,7 +70,7 @@ jobs:
           --skip binaural::tests::hrir_source_switch_lands_asynchronously_without_blocking_render
 
   windows-core:
-    name: Windows live host compile
+    name: Windows native app compile
     runs-on: windows-latest
     timeout-minutes: 25
     defaults:
@@ -113,7 +113,7 @@ jobs:
         run: cargo check -p windows_host --bins
 
   windows-live-artifact:
-    name: Windows x64 live listening baseline
+    name: Windows x64 Omniphony app prototype
     runs-on: windows-latest
     needs: [portable-core, windows-core]
     timeout-minutes: 35
@@ -139,10 +139,10 @@ jobs:
       - name: Test live bridge and headless engine boundaries
         run: cargo test -p reference_bridge -p orender_engine
 
-      - name: Build live Windows baseline
+      - name: Build native Windows prototype
         run: cargo build --profile release-deploy -p reference_bridge -p windows_host
 
-      - name: Collect live listening baseline
+      - name: Collect native Windows prototype
         run: |
           $dist = Join-Path $PWD 'dist\windows-x64'
           $reference = Join-Path $dist 'reference-demo'
@@ -150,6 +150,7 @@ jobs:
 
           Copy-Item 'target\release-deploy\reference_bridge.dll' $dist -Force
           Copy-Item 'target\release-deploy\omniphony_live.exe' $dist -Force
+          Copy-Item 'target\release-deploy\omniphony_app.exe' (Join-Path $dist 'Omniphony.exe') -Force
           Copy-Item 'assets\binaural-baselines\upstream-demo-reference.yaml' (Join-Path $reference 'upstream-demo-reference.yaml') -Force
           Copy-Item '..\layouts\7.1.4.yaml' (Join-Path $reference '7.1.4.yaml') -Force
 
@@ -157,90 +158,59 @@ jobs:
           @echo off
           setlocal
           cd /d "%~dp0"
-          title Omniphony for Headphones
-          echo ============================================================
-          echo                  OMNIPHONY FOR HEADPHONES
-          echo ============================================================
-          echo.
-          echo Live Windows listening baseline
-          echo.
-          echo No input device selection is required.
-          echo Omniphony captures Windows audio through self-excluding process loopback
-          echo and automatically prefers the physical FiiO output.
-          echo.
-          echo While running:
-          echo   ENTER      toggle Omniphony ON / OFF
-          echo   q + ENTER  quit
-          echo.
-          omniphony_live.exe %*
-          set "omniphony_exit=%ERRORLEVEL%"
-          if "%omniphony_exit%"=="0" exit /b 0
-          echo.
-          echo ============================================================
-          echo Omniphony exited with error code %omniphony_exit%.
-          echo Copy the error text above so the route can be fixed directly.
-          echo ============================================================
-          echo.
-          pause
-          exit /b %omniphony_exit%
-          '@ | Set-Content (Join-Path $dist 'START-OMNIPHONY.cmd') -Encoding ascii
-
-          @'
-          @echo off
-          setlocal
-          cd /d "%~dp0"
-          title Omniphony WASAPI Devices
+          title Omniphony WASAPI Diagnostics
           omniphony_live.exe --list-devices
           echo.
           pause
           '@ | Set-Content (Join-Path $dist 'LIST-DEVICES.cmd') -Encoding ascii
 
           @'
-          Omniphony for Headphones - live Windows baseline
+          Omniphony for Headphones - native app prototype
 
-          Goal: hear arbitrary Windows/player audio through the protected Omniphony
-          binaural renderer with almost no setup ritual.
+          OPEN THIS:
 
-          CURRENT TEMPORARY ROUTE
+              Omniphony.exe
+
+          The console launcher is no longer the normal interface. Omniphony.exe is a
+          small native Windows shell that supervises the hidden audio worker.
+
+          CURRENT UI
+
+              ON / OFF      wet Omniphony versus crude bypass comparison
+              Quit          stop the worker and close the app
+              status line   reports running / stopped / failed state
+
+          If the hidden worker fails, the app stays open and writes diagnostics to:
+
+              omniphony.log
+
+          CURRENT TEMPORARY AUDIO ROUTE
 
               foobar / Windows applications
-                -> normal Windows render path
-                -> current Hi-Fi Cable endpoint
+                -> current Hi-Fi Cable render endpoint
                    (dry signal does not reach the physical headphones)
-                -> self-excluding WASAPI process loopback
-                -> Omniphony binaural renderer
-                -> FiiO physical output
+                -> self-excluding Windows process loopback
+                -> protected Omniphony binaural renderer
+                -> automatically preferred FiiO physical output
                 -> headphones
 
-          EASIEST START
-
-          Double-click:
-
-              START-OMNIPHONY.cmd
-
-          There is no recording/microphone input selection. The host captures the
-          Windows mix using the modern process-loopback API and excludes its own
-          process tree so Omniphony output is not re-captured.
-
-          Controls:
-
-              ENTER       toggle Omniphony ON / OFF
-              q + ENTER   quit
-
-          Omniphony starts ON. OFF is a crude dry/downmixed comparison routed to the
-          same physical output.
+          There is no microphone/capture-device selection.
 
           FOR THE CURRENT PRIVATE LISTENING BASELINE
 
-          1. Keep the Windows/default app output on the existing Hi-Fi Cable endpoint.
-          2. Disable/bypass HeSuVi / Equalizer APO processing on that cable while
-             testing Omniphony, so the captured mix is not already virtualized.
+          1. Keep Windows / foobar output on the existing Hi-Fi Cable endpoint.
+          2. Disable/bypass HeSuVi / Equalizer APO virtualization on that cable while
+             testing Omniphony.
           3. Close ASIO Bridge or anything else that would independently forward the
              cable to the FiiO and create a second audible path.
           4. Keep foobar's existing Upmix to 5.1/side enabled for the first comparison.
-             Omniphony requests 8-channel loopback first, then 6-channel, then stereo.
-          5. Leave the FiiO connected. The host auto-selects an output containing
-             "FiiO" so it does not ask every launch.
+          5. Leave the FiiO connected. The worker automatically prefers an output
+             whose name contains "FiiO".
+
+          The process-loopback worker initializes COM MTA before any CPAL/WASAPI
+          device discovery. This specifically avoids the previous Windows error:
+
+              Cannot change thread mode after it is set. (0x80010106)
 
           Windows 7.1 channel-mask order is corrected before the bridge:
 
@@ -249,24 +219,26 @@ jobs:
 
           Diagnostic escape hatch only:
 
-              .\omniphony_live.exe --list-devices
-              .\omniphony_live.exe --output "FiiO"
+              LIST-DEVICES.cmd
+              omniphony_live.exe --output "FiiO"
 
-          No prerecorded listening demo is needed here. The real Windows machine and
-          arbitrary foobar playback are the listening oracle for this baseline.
+          This is now the product-shell skeleton rather than a disposable console UI.
+          Later work can replace the temporary loopback/cable route, add tray/startup
+          behavior, saved settings and polish without changing the basic app -> audio
+          worker -> renderer ownership boundary.
           '@ | Set-Content (Join-Path $dist 'LIVE-README.txt')
 
           foreach ($required in @(
-            'reference_bridge.dll',
+            'Omniphony.exe',
             'omniphony_live.exe',
-            'START-OMNIPHONY.cmd',
+            'reference_bridge.dll',
             'LIST-DEVICES.cmd',
             'reference-demo\upstream-demo-reference.yaml',
             'reference-demo\7.1.4.yaml',
             'LIVE-README.txt'
           )) {
             if (!(Test-Path (Join-Path $dist $required))) {
-              throw "required live baseline artifact was not collected: $required"
+              throw "required native prototype artifact was not collected: $required"
             }
           }
 
@@ -278,10 +250,10 @@ jobs:
 
           Get-ChildItem $dist -Recurse | Format-Table FullName, Length
 
-      - name: Upload live Windows baseline
+      - name: Upload native Windows prototype
         uses: actions/upload-artifact@v6
         with:
-          name: omniphony-headphones-live-baseline-windows-x64-${{ github.sha }}
+          name: omniphony-headphones-native-prototype-windows-x64-${{ github.sha }}
           path: omniphony-renderer/dist/windows-x64/
           if-no-files-found: error
           retention-days: 14
