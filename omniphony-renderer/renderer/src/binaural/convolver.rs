@@ -20,6 +20,10 @@ pub struct EarConvolver {
     hist: [f32; HRIR_LEN],
     pos: usize,
     coeffs: [f32; HRIR_LEN],
+    /// Whether a real transfer kernel has ever been installed. The first kernel
+    /// has no audible predecessor to crossfade from, so it is installed
+    /// immediately. Only subsequent changes require transfer-function continuity.
+    initialized: bool,
     /// Fade-out kernel of a running crossfade (valid while `fade_pos < fade_len`).
     prev_coeffs: [f32; HRIR_LEN],
     fade_pos: u32,
@@ -38,6 +42,7 @@ impl EarConvolver {
             hist: [0.0; HRIR_LEN],
             pos: 0,
             coeffs: [0.0; HRIR_LEN],
+            initialized: false,
             prev_coeffs: [0.0; HRIR_LEN],
             fade_pos: 0,
             fade_len: 0,
@@ -51,17 +56,25 @@ impl EarConvolver {
     #[inline]
     pub fn set_coeffs(&mut self, coeffs: &[f32; HRIR_LEN]) {
         self.coeffs.copy_from_slice(coeffs);
+        self.initialized = true;
         self.fade_pos = 0;
         self.fade_len = 0;
     }
 
     /// Replace the FIR kernel, crossfading from the current one over the next
-    /// `fade_len` processed samples. A no-op when the kernel is unchanged (a
-    /// static object under a static head — the common case — costs one array
-    /// compare and keeps the single dot product). Restarting mid-fade departs
-    /// from the currently *effective* (blended) kernel, so back-to-back
-    /// changes stay click-free too.
+    /// `fade_len` processed samples. The first kernel is installed immediately:
+    /// before it there is no audible transfer function whose continuity needs
+    /// preserving, and fading from the all-zero construction state would make
+    /// channel activation depend on the caller's block size. A later no-op when
+    /// the kernel is unchanged (a static object under a static head — the common
+    /// case) costs one array compare and keeps the single dot product. Restarting
+    /// mid-fade departs from the currently *effective* (blended) kernel, so
+    /// back-to-back changes stay click-free too.
     pub fn set_coeffs_smooth(&mut self, coeffs: &[f32; HRIR_LEN], fade_len: usize) {
+        if !self.initialized {
+            self.set_coeffs(coeffs);
+            return;
+        }
         if *coeffs == self.coeffs {
             return;
         }
@@ -156,6 +169,23 @@ mod tests {
             y = c.process(1.0);
         }
         assert!((y - 0.75).abs() < 1e-6);
+    }
+
+    /// Construction has no previous audible transfer function. Installing the
+    /// first HRIR through the smooth API must therefore be immediate and must
+    /// not inherit a host callback-dependent fade length.
+    #[test]
+    fn first_smooth_kernel_install_is_fade_length_invariant() {
+        let mut short = EarConvolver::new();
+        let mut long = EarConvolver::new();
+        let mut k = [0.0; HRIR_LEN];
+        k[0] = 1.0;
+
+        short.set_coeffs_smooth(&k, 40);
+        long.set_coeffs_smooth(&k, HRIR_LEN);
+
+        assert_eq!(short.process(1.0), 1.0);
+        assert_eq!(long.process(1.0), 1.0);
     }
 
     /// A kernel change must ramp the output linearly over the fade instead of
