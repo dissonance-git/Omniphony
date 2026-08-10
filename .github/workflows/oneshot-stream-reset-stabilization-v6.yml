@@ -1,5 +1,6 @@
 name: One-shot stream reset stabilization v6
 
+# Rerun after the groove-fidelity fixture was corrected to exercise the actual binaural path.
 on:
   push:
     branches: [main]
