@@ -34,6 +34,7 @@ wasapi = "0.23.0"
 # the audio worker without making UI code part of the realtime renderer.
 windows-sys = { version = ">=0.59, <=0.61", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
     "Win32_System_LibraryLoader",
     "Win32_System_Threading",
     "Win32_UI_WindowsAndMessaging",
