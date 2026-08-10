@@ -98,27 +98,17 @@ fn render_gain_step(block_samples: usize) -> Vec<f32> {
     output
 }
 
-/// This is intentionally a **known-defect reproducer**, not the desired gate.
+/// Metadata/mute gain belongs to the audio sample timeline, not the host's
+/// callback partition. The same 20 ms 0→unity slew must therefore render the
+/// same headphone waveform whether the caller supplies 40-, 240-, or 960-sample
+/// blocks.
 ///
-/// Current `SpatialRenderer` computes `(gain_start, gain_step)` correctly but
-/// stores only the block-end value in `binaural_gain_buf`. `BinauralRenderer`
-/// then multiplies every sample in that callback by the one scalar. A 40-sample
-/// callback therefore creates a fine staircase; a 240- or 960-sample callback
-/// creates a much coarser one.
-///
-/// Run manually while repairing the hot path:
-///
-/// ```text
-/// cargo test -p dsp_fixtures known_defect_binaural_gain_is_block_quantized -- --ignored --nocapture
-/// ```
-///
-/// Once the renderer consumes the `ChannelState` gain trajectory per sample,
-/// replace this assertion with the inverse portability gate (fine/coarse outputs
-/// equal within the calibrated binaural floating-point tolerance) and remove
-/// `#[ignore]`.
+/// `SpatialRenderer::ChannelState::slew_gain` remains the sole authority for the
+/// gain trajectory. It publishes the gain at each callback's ending sample
+/// boundary; `BinauralRenderer` retains the previous boundary and consumes the
+/// linear segment per sample instead of applying the endpoint to the whole block.
 #[test]
-#[ignore = "known defect: binaural gain is currently quantized to caller blocks; invert this into a live equivalence gate after the hot-path fix"]
-fn known_defect_binaural_gain_is_block_quantized() {
+fn binaural_gain_is_invariant_to_host_block_size() {
     let fine = render_gain_step(40);
     let medium = render_gain_step(240);
     let whole_slew = render_gain_step(TOTAL_SAMPLES);
@@ -129,16 +119,16 @@ fn known_defect_binaural_gain_is_block_quantized() {
     let fine_vs_medium = peak_residual_dbfs(&fine, &medium);
     let fine_vs_whole = peak_residual_dbfs(&fine, &whole_slew);
     eprintln!(
-        "known binaural gain block dependence: 40-vs-240={fine_vs_medium:.2} dBFS, 40-vs-960={fine_vs_whole:.2} dBFS"
+        "binaural gain callback invariance: 40-vs-240={fine_vs_medium:.2} dBFS, 40-vs-960={fine_vs_whole:.2} dBFS"
     );
 
-    // This is deliberately a defect-presence assertion. The difference should
-    // be enormous compared with the ~-100 dBFS cross-host binaural null floor.
-    // If it no longer is, the implementation improved and this reproducer must
-    // be converted into the positive equivalence gate described above.
+    // The renderer's already-established deterministic binaural null floor is
+    // around -100 dBFS. Keep a small margin for f32 endpoint accumulation across
+    // the fine partition while still making any audible staircase a hard failure.
+    const MAX_RESIDUAL_DBFS: f32 = -90.0;
     assert!(
-        fine_vs_medium > -60.0 || fine_vs_whole > -60.0,
-        "the known block-quantized gain defect no longer reproduces; convert this into the positive invariance gate"
+        fine_vs_medium <= MAX_RESIDUAL_DBFS && fine_vs_whole <= MAX_RESIDUAL_DBFS,
+        "binaural metadata gain depends on host callback size: 40-vs-240={fine_vs_medium:.2} dBFS, 40-vs-960={fine_vs_whole:.2} dBFS (required <= {MAX_RESIDUAL_DBFS:.1})"
     );
 
     // Guard the fixture itself: the measured gain transition is exactly 20 ms
