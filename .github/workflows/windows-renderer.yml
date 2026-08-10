@@ -49,10 +49,10 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Test DSP measurement harness
-        run: cargo test --locked -p dsp_fixtures
+        run: cargo test -p dsp_fixtures
 
       - name: Test renderer core
-        run: cargo test --locked -p renderer
+        run: cargo test -p renderer
 
   windows-core:
     name: Windows renderer core
@@ -90,10 +90,10 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Test DSP measurement harness
-        run: cargo test --locked -p dsp_fixtures
+        run: cargo test -p dsp_fixtures
 
       - name: Test renderer core
-        run: cargo test --locked -p renderer
+        run: cargo test -p renderer
 
   windows-listening-artifact:
     name: Windows x64 listening artifact
@@ -138,10 +138,10 @@ jobs:
           Write-Host "LIBCLANG_PATH=$($libclang.DirectoryName)"
 
       - name: Compile workspace tests
-        run: cargo test --locked --workspace --features asio --no-run
+        run: cargo test --workspace --features asio --no-run
 
       - name: Build release renderer
-        run: cargo build --locked --profile release-deploy --features asio -p omniphony-renderer -p reference_bridge -p orender_ffi
+        run: cargo build --profile release-deploy --features asio -p omniphony-renderer -p reference_bridge -p orender_ffi
 
       - name: Smoke-test CLI
         run: |
