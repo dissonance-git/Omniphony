@@ -157,6 +157,47 @@ jobs:
           Copy-Item '..\layouts\7.1.4.yaml' (Join-Path $reference '7.1.4.yaml') -Force
 
           @'
+          @echo off
+          setlocal
+          cd /d "%~dp0"
+          title Omniphony for Headphones
+          echo ============================================================
+          echo                  OMNIPHONY FOR HEADPHONES
+          echo ============================================================
+          echo.
+          echo Starting the crude live Windows baseline...
+          echo.
+          echo While running:
+          echo   ENTER      toggle Omniphony ON / OFF
+          echo   q + ENTER  quit
+          echo.
+          echo If startup fails, this window stays open so the actual
+          echo device/configuration error can be read instead of disappearing.
+          echo.
+          omniphony_live.exe %*
+          set "omniphony_exit=%ERRORLEVEL%"
+          if "%omniphony_exit%"=="0" exit /b 0
+          echo.
+          echo ============================================================
+          echo Omniphony exited with error code %omniphony_exit%.
+          echo Copy the error text above so the route can be fixed directly.
+          echo ============================================================
+          echo.
+          pause
+          exit /b %omniphony_exit%
+          '@ | Set-Content (Join-Path $dist 'START-OMNIPHONY.cmd') -Encoding ascii
+
+          @'
+          @echo off
+          setlocal
+          cd /d "%~dp0"
+          title Omniphony WASAPI Devices
+          omniphony_live.exe --list-devices
+          echo.
+          pause
+          '@ | Set-Content (Join-Path $dist 'LIST-DEVICES.cmd') -Encoding ascii
+
+          @'
           Omniphony for Headphones - crude live Windows baseline
 
           Goal: hear arbitrary player audio through the existing Omniphony binaural
@@ -173,6 +214,29 @@ jobs:
                 -> Omniphony binaural renderer
                 -> FiiO / headphones
 
+          EASIEST START
+
+          Double-click:
+
+              START-OMNIPHONY.cmd
+
+          The wrapper stays visible if the worker exits with an error. That turns
+          an apparently non-opening EXE into a readable device/configuration error.
+
+          Controls while the worker is running:
+
+              ENTER       toggle Omniphony ON / OFF
+              q + ENTER   quit
+
+          Omniphony starts ON. The shell is intentionally the entire UI for this
+          baseline; the renderer remains a separate native process, following the
+          same supervision principle as upstream Omniphony Studio without pulling
+          the full Tauri frontend into this test build.
+
+          To see the exact WASAPI device names first, double-click:
+
+              LIST-DEVICES.cmd
+
           IMPORTANT FOR AN EXISTING HeSuVi SETUP
 
           1. Keep Hi-Fi Cable installed. It is only temporary scaffolding here.
@@ -184,28 +248,11 @@ jobs:
              HeSuVi processing.
           4. Close ASIO Bridge or anything else exclusively consuming the cable.
           5. Point foobar's output at the Hi-Fi Cable playback endpoint.
-          6. Point Windows default output at the FiiO/headphones, or select it with
-             --output below.
+          6. Point Windows default output at the FiiO/headphones.
 
-          First list the exact WASAPI names:
-
-              .\omniphony_live.exe --list-devices
-
-          Then run. With no --input, the host tries to find Hi-Fi Cable by name.
-          With no --output, it uses the Windows default output:
-
-              .\omniphony_live.exe
-
-          Or choose devices explicitly by any unique substring:
+          Advanced launch from a terminal, using unique device-name substrings:
 
               .\omniphony_live.exe --input "Hi-Fi Cable" --output "FiiO"
-
-          Controls while it is running:
-
-              ENTER       toggle Omniphony ON / OFF
-              q + ENTER   quit
-
-          Omniphony starts ON. Use --start-off if you want the dry side first.
 
           The host accepts canonical stereo, 5.1, 7.1, and 7.1.4 channel widths.
           ON preserves those channel positions through Omniphony. OFF is only a
@@ -220,6 +267,8 @@ jobs:
           foreach ($required in @(
             'reference_bridge.dll',
             'omniphony_live.exe',
+            'START-OMNIPHONY.cmd',
+            'LIST-DEVICES.cmd',
             'reference-demo\upstream-demo-reference.yaml',
             'reference-demo\7.1.4.yaml',
             'LIVE-README.txt'
