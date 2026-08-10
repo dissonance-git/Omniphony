@@ -56,6 +56,34 @@ It cannot recover a missing multitrack session or an artist's private intention.
 
 ---
 
+## Preserve the good starting point
+
+This fork is not a rewrite contest.
+
+The upstream Omniphony renderer is the foundation because it already contains useful spatial-audio engineering and an existing listening baseline. Fork work should improve that foundation rather than replace proven behavior merely because a different architecture looks cleaner on paper.
+
+Therefore:
+
+```text
+new mechanism
+→ prove the old path is insufficient
+→ isolate the intended improvement
+→ preserve unrelated audible behavior
+→ objective regression checks
+→ matched-loudness listening
+→ only then become the new default
+```
+
+A technically sophisticated change that makes music sound worse is a regression.
+
+A cleaner abstraction that adds glitches is a regression.
+
+A more dramatic spatial image that weakens punch, tone, timing or musical focus is a regression.
+
+> **Enhancement means strict addition of useful perception, not exchanging one good property for another.**
+
+---
+
 ## Product experience
 
 The eventual UX should be boring:
@@ -103,6 +131,46 @@ A renderer that sounds spectacular but weakens the singer is a failure.
 A presentation that needs the song to fight the DSP is a failure.
 
 > **Never buy dimension by damaging the music.**
+
+---
+
+## Lightweight by design
+
+Power does not require permanent computational bulk.
+
+Omniphony should be built around the smallest mechanism that preserves the behavior currently required.
+
+```text
+CONTROL / HEARING PLANE
+rich analysis
+libaural research / models
+profile construction
+slow musical context
+        ↓ compact bounded publication
+
+REALTIME AUDIO PLANE
+sample clock
+small persistent scene state
+bounded trajectories
+binaural / field / room DSP
+        ↓
+headphones
+```
+
+Rules:
+
+- the audio thread never waits for AI reasoning;
+- heavy models are optional, asynchronous or slower-cadence unless measurement proves otherwise;
+- stable objects should be cheap;
+- unchanged HRTFs, profiles and graphs should be near no-op updates;
+- precompute/cache where that preserves semantics;
+- use per-sample work only for dimensions that actually need it;
+- prefer a fixed audio-time control quantum plus interpolation over host-callback-shaped updates;
+- publish complete validated state atomically and keep the last known-good state on failure;
+- a small realtime consumer projection is preferable to copying libaural's entire research state into the renderer;
+- every new dependency, thread, buffer and model must earn its place.
+
+The target is a renderer that feels unusually powerful **because it spends computation on the perceptually important coordinates**, not because it keeps every possible algorithm running all the time.
 
 ---
 
@@ -218,9 +286,13 @@ WASAPI / CoreAudio / PipeWire / AAudio / Core Audio / file block
 
 Gain, movement, HRTF changes, room changes and scene transitions should live in sample/time coordinates rather than inheriting arbitrary host-buffer boundaries.
 
-The metadata/mute gain handoff now consumes a continuous sample-time segment in the binaural stage, and `dsp_fixtures::binaural_block_size` contains a mandatory 40/240/960-sample callback-invariance gate for that trajectory.
+`dsp_fixtures::binaural_block_size` now contains a mandatory 40/240/960-sample callback-invariance gate for metadata/mute gain.
 
-**Position/HRTF movement remains the active defect.** The parent renderer still publishes one position at the beginning of a caller block and advances the canonical ramp afterward. A separate ignored reproducer isolates that remaining staircase so the motion repair cannot hide behind the already-fixed gain path.
+A saved Actions run at `a1a4a76` proved that the path was **not yet invariant**: the 40-vs-240 and 40-vs-960 outputs differed by roughly -39.28 dBFS while the gate requires at most -90 dBFS. The first identified hidden dependency was initial HRIR installation fading from an all-zero kernel for a callback-sized duration. The current candidate repair installs the first kernel immediately and preserves smooth crossfades only for later kernel changes.
+
+That repair is not considered complete until the mandatory callback-invariance gate passes in CI.
+
+**Position/HRTF movement is separately known to remain callback-quantized.** Its ignored reproducer stays isolated so the motion repair cannot hide behind gain initialization work.
 
 The target is one canonical scene trajectory whose audible result is invariant to host partitioning.
 
@@ -291,7 +363,7 @@ Useful retained substrate includes:
 - deterministic DSP fixtures;
 - headless engine/FFI surfaces.
 
-Fork-specific corrections already include:
+Fork-specific work already includes:
 
 - true complex M/S stereo evidence;
 - persistence-aware stereo evidence;
@@ -303,7 +375,7 @@ Fork-specific corrections already include:
 - measured-HRIR direct-arrival validation;
 - per-ear early-reflection delays and directional ITD;
 - sample-time-invariant FDN modulation;
-- sample-time binaural metadata-gain consumption;
+- a sample-time metadata-gain path with a mandatory callback-invariance reproducer still under repair;
 - true zero predelay;
 - reusable null/RMS/crest/DC/level fidelity metrics.
 
@@ -336,13 +408,17 @@ musical importance / independence
 ≠ more energy
 ```
 
-Early Helix exact-passage work found that obvious low-level activity proxies did not generally implement an authored distinction such as a bass line carrying its own melody. That means Omniphony must not spatially promote material simply because it is busy or numerically novel. Presentation eventually needs role and relation evidence from libaural, with uncertainty, rather than a DSP-excitement score.
+Early Helix exact-passage work found that obvious low-level activity proxies did not generally implement an authored distinction such as a bass line carrying its own melody. That means Omniphony must not spatially promote material simply because it is busy or numerically novel. Presentation increasingly needs role and relation evidence from libaural, with uncertainty, rather than a DSP-excitement score.
 
-### 4. Sample-time binaural movement
+See [`docs/MUSIC_PRESENTATION_CONTRACT.md`](docs/MUSIC_PRESENTATION_CONTRACT.md).
 
-Metadata gain now has a callback-size invariance gate. Position/HRTF movement does not yet.
+### 4. Sample-time binaural trajectories
 
-The parent renderer must publish an actual canonical position trajectory segment rather than one block-start position. The binaural stage should consume that trajectory on the audio timeline without inventing a second motion authority.
+Metadata gain has a mandatory callback-size gate, but the latest saved Actions evidence still has that gate red and the current first-HRIR repair must earn green status.
+
+Position/HRTF movement is a separate known defect. The parent renderer still publishes one block-start position rather than an actual canonical position trajectory segment.
+
+The binaural stage should consume the same authoritative sample-time trajectory used by the scene state. It must not invent a second motion authority.
 
 ### 5. Source extent
 
@@ -423,6 +499,42 @@ song
 
 This isolates whether the product is making musically intelligent choices rather than merely dramatic ones.
 
+### E. Starting-sound preservation
+
+Every major renderer change should retain a reference route that lets us compare against the useful upstream/fork baseline at matched loudness.
+
+Test both intended gains and unintended losses:
+
+```text
+externalization / width / depth / height
+AND
+clarity / punch / tone / timing / bass / dynamics / focus
+```
+
+If the new path improves one column by degrading the other, it has not graduated.
+
+### F. Competitive reference listening
+
+Dolby, DTS, Waves, HeSuVi-style virtualization/HRIR chains and other strong spatial-audio systems are useful external references.
+
+The project goal is to become a stronger general headphone presentation system than those prior approaches where the comparison is fair.
+
+That is an **aspiration and benchmark program**, not a current superiority claim.
+
+Compare dimensions separately:
+
+- front/back/elevation localization;
+- externalization;
+- depth and source extent;
+- direct-source solidity;
+- diffuse-field quality;
+- room naturalness;
+- bass and groove integrity;
+- transient and timbral preservation;
+- fatigue;
+- latency/glitch behavior;
+- performance on ordinary stereo music rather than only authored immersive content.
+
 ---
 
 ## Current CI
@@ -433,7 +545,7 @@ The surviving workflow is:
 .github/workflows/windows-renderer.yml
 ```
 
-It currently checks:
+It checks:
 
 ```text
 portable renderer core
@@ -442,6 +554,10 @@ Windows x64 headless renderer-engine artifact
 ```
 
 The headless artifact intentionally excludes the transitional host-audio/ASIO layer so the renderer itself can be compiled and tested without the separately licensed Steinberg SDK.
+
+The latest saved run supplied for this checkpoint (`31354955851`, commit `a1a4a76`) failed both Linux/portable and Windows core jobs on the same binaural callback-invariance test. The Windows artifact job was therefore skipped by dependency.
+
+That failure is treated as useful signal. CI must not be made green by weakening the -90 dBFS invariance requirement.
 
 Windows remains the first live-listening platform after the portable engine is stable.
 
@@ -464,6 +580,8 @@ upstream idea/fix
 
 This fork does not preserve broad suite structure merely to make upstream merging easy.
 
+It also does not delete useful upstream audio behavior simply because the product scope is narrower.
+
 See [`docs/FORK_POLICY.md`](docs/FORK_POLICY.md) and [`NOTICE.md`](NOTICE.md).
 
 ---
@@ -480,7 +598,8 @@ Already removed from this fork include:
 - obsolete upstream refactor diaries;
 - inherited Studio/release workflows;
 - demonstration backend crate;
-- Lua/script backend crate.
+- Lua/script backend crate;
+- an orphaned manual PI adaptive-resampling tuning procedure whose durable clock-domain laws already live in the realtime control contract.
 
 Known-scene fixtures, layouts and renderer machinery remain when they are useful laboratory instruments even if they are not part of final listener UX.
 
@@ -494,17 +613,19 @@ See [`docs/CONTRACTION_LEDGER.md`](docs/CONTRACTION_LEDGER.md).
 
 External repositories are mechanism sources, benchmarks and possible dependencies, not architecture votes.
 
-The broad exploratory influence phase is now intentionally frozen.
+The broad exploratory influence phase is now intentionally frozen unless a concrete experiment exposes a missing capability.
 
 Current families include:
 
 - spatial rendering: Steam Audio, SPARTA/IEM, OpenAL Soft, Dolby tooling, room/BRIR work;
 - listener/headphone calibration: ASH, AutoEq, HeSuVi/HRIR corpora;
 - realtime DSP: fft-convolver, KFR, Faust, Glicol and related references;
-- artificial hearing/music cognition: classical MIR, auditory models, learned audio models, symbolic music systems and controlled music generators;
+- artificial hearing/music cognition: psychoacoustic/auditory models, classical MIR, learned audio models, symbolic music systems and controlled music generators;
+- mature realtime systems: s&box audio snapshots, Ardour/LMMS/Zrythm host/automation patterns, and openDAW's small headless audio-engine discipline;
+- AI/research systems: Jukebox's hierarchical temporal representation as a conceptual influence and GABRIEL-style auditable qualitative evaluation outside realtime;
 - platform transport: OS-native audio references such as Microsoft SysVAD for Windows-specific experiments.
 
-The durable influence ledger lives in libaural.
+The durable human-hearing program and influence ledger live in libaural.
 
 From this checkpoint, new influences should be researched **because an experiment exposes a missing capability**, not because the list can always become longer.
 
@@ -513,19 +634,26 @@ From this checkpoint, new influences should be researched **because an experimen
 ## Near-term order
 
 ```text
-completed  CI/compiler lane is meaningful and green on the established baseline
-completed  binaural metadata gain has a callback-size invariance gate
-
-1. fix sample-time binaural motion
+0. make the binaural gain callback-invariance gate genuinely pass in CI
+1. fix sample-time binaural position/HRTF movement
 2. preserve source extent in headphones
 3. implement/test BroadSource
 4. implement/test DiffuseField
 5. wire ordinary stereo into persistent realtime scene state
-6. integrate early libaural heard state
-7. build first music-aware presentation policy
+6. integrate the bounded libaural→Omniphony heard-state projection
+7. build and falsify the first music-aware presentation policy
 8. establish clean native Windows capture/output shell
-9. listening + fidelity optimization
+9. matched-loudness listening + fidelity + competitive-reference optimization
 10. port thin host shells to other operating systems once the core earns it
+```
+
+At every step:
+
+```text
+simplest mechanism first
+→ measure
+→ listen
+→ keep only what earns its cost
 ```
 
 The final product metaphor remains simple:
