@@ -4,7 +4,7 @@ Omniphony is intended to become normal playback infrastructure: something a list
 
 The research surrounding it may be ambitious. The realtime product behavior must be boring.
 
-> **libaural may be experimental. Omniphony's realtime core may not be experimental in the way it behaves.**
+> **libaural may be experimental. Omniphony's shipped realtime behavior may not be experimental in the way it behaves.**
 
 This document defines the stability boundary that must be satisfied before new perceptual features are allowed to dominate development.
 
@@ -12,7 +12,7 @@ This document defines the stability boundary that must be satisfied before new p
 
 ## 1. Product identity
 
-Omniphony is not a research dashboard, a DAW, or a model-hosting experiment.
+Omniphony is not a research dashboard, a DAW, a model host, or a realtime AI mixing service.
 
 At the listener boundary it should behave like a next-generation descendant of always-on headphone virtualization / upmix systems:
 
@@ -24,75 +24,76 @@ ordinary playback
 
 The difference is the quality and intelligence of the transformation, not additional ritual.
 
-The user should not need to know whether the current scene decision came from:
+libaural, AI systems, auditory research, listening experiments and external models belong primarily to the **development process**. Their useful discoveries are validated, compressed and compiled into Omniphony as deterministic algorithms, policies, coefficients, classifiers, priors, tables or other bounded local mechanisms.
 
-- a simple stereo heuristic;
-- a persistent local scene state;
-- libaural;
-- a slower learned specialist;
-- a calibrated listener/headphone profile.
+The released player should not need a live LLM, network service or general AI reasoning loop to decide how the current song is mixed.
 
-Those are implementation details behind one reliable audio device/path.
+```text
+research / libaural / experiments / models
+                 ↓
+        validated discoveries
+                 ↓
+ algorithms + policies + parameters + assets
+                 ↓
+         compiled Omniphony release
+                 ↓
+      ordinary realtime playback
+```
+
+Research compounds across versions. Playback inherits the result as engineering.
 
 ---
 
 ## 2. The realtime core is sovereign
 
-The hard realtime renderer must remain able to process audio correctly when every optional subsystem is absent.
+The hard realtime renderer must remain self-contained for normal playback.
 
 ```text
-OPTIONAL / ASYNCHRONOUS
+DEVELOPMENT / RESEARCH TIME
 libaural
-learned models
-network
-UI
-research workers
-profile builders
-telemetry consumers
+LLMs
+learned specialists
+large offline analyses
+listening studies
+simulation / search
 
-        ↓ bounded validated publication only
+        ↓ validate + distill + compile
 
-ALWAYS-AVAILABLE REALTIME CORE
+SHIPPED OMNIPHONY
+bounded local signal analysis
+conservative scene inference
 sample timeline
-current conservative scene
-trajectories
+continuous trajectories
 binaural / field / room DSP
 headphone correction
 output
 ```
 
-If an optional subsystem stalls, crashes, returns late, produces invalid state, or disappears:
+Runtime workers may still exist for narrow engineering jobs such as preparing an HRTF/profile or other precomputable state off the audio thread. They are not an AI decision layer and do not continuously remix the music.
 
-```text
-KEEP PLAYING
-+
-keep last-known-good audible state
-+
-fall back conservatively when required
-```
-
-Never block audio waiting for intelligence.
+The audio callback never waits for intelligence. The intelligence has already been converted into the product.
 
 ---
 
-## 3. Baseline mode must sound good by itself
+## 3. Baseline mode must sound excellent by itself
 
-Before advanced libaural-driven presentation is required, Omniphony needs a stable conservative baseline that already earns being left enabled.
+Omniphony needs a stable conservative path that already earns being left enabled.
 
-That baseline should be comparable in product role to systems such as conventional headphone virtualization / surround upmixing, but should preserve the fork's stronger binaural foundation and music-fidelity rules.
+That baseline should be comparable in product role to conventional headphone virtualization / surround upmix systems, while preserving the fork's stronger binaural foundation and music-fidelity rules.
 
 Conceptually:
 
 ```text
-stereo evidence
-→ conservative stable scene
+stereo PCM
+→ bounded local auditory evidence
+→ conservative persistent scene
 → binaural renderer
 → optional room / calibration
 ```
 
-A missing semantic/music model must never turn the product off or make playback fragile.
+No external semantic/music model is required during playback.
 
-Advanced hearing should improve decisions above this floor.
+Future hearing research improves the code that performs these decisions in later builds. It does not become a dependency the current song has to wait for.
 
 ---
 
@@ -105,7 +106,7 @@ Forbidden in the final always-on path:
 - blocking mutex/RwLock acquisition;
 - filesystem access;
 - network access;
-- model inference that is not explicitly bounded realtime inference;
+- LLM or general AI inference;
 - device enumeration;
 - SOFA/profile parsing;
 - graph construction;
@@ -116,6 +117,8 @@ Forbidden in the final always-on path:
 - arbitrary callback-count-based control laws.
 
 Any current occurrence is technical debt to remove before always-on release.
+
+Local bounded analysis that is explicitly part of the compiled DSP/scene algorithm is allowed only when its cost and latency are measured and bounded like every other realtime component.
 
 ---
 
@@ -201,7 +204,7 @@ Keep expensive immutable state when valid:
 - current HRTF dataset;
 - listener/headphone profile;
 - precomputed tables;
-- worker threads;
+- narrow preparation workers;
 - reserved storage;
 - session-level user settings.
 
@@ -219,29 +222,27 @@ old stream ends
 
 ## 8. Failure containment
 
-### HRTF/profile build fails
+### HRTF/profile preparation fails
 
-Keep current working profile.
+Keep the current working profile/state.
 
-### libaural/model result invalid or late
+### Control message malformed
 
-Ignore/reject it; keep current conservative scene.
+Reject it on the control plane; audio continues.
 
-### control message malformed
+### Queue overload
 
-Reject on control plane; audio continues.
+Apply a declared coalescing/drop policy; never grow memory without bound.
 
-### queue overload
-
-Apply declared coalescing/drop policy; never grow memory without bound.
-
-### optional room/field processor fails validation
+### Optional room/field processor fails validation
 
 Disable/revert that optional layer rather than corrupt direct sound.
 
 ### NaN/non-finite state
 
-Contain before it reaches the output bus; record a diagnostic outside the callback.
+Contain it before it reaches the output bus; record a diagnostic outside the callback.
+
+There is intentionally no normal-playback failure mode called "AI unavailable" or "libaural result arrived late". Those systems are not live dependencies of the released audio path.
 
 ---
 
@@ -254,17 +255,15 @@ Track separately:
 ```text
 host/device buffering
 algorithmic lookahead
+local analysis latency
 FIR / convolution latency
 resampling latency
 control-state latency
-optional hearing/model latency
 ```
 
-The base realtime spatializer should not wait for slower hearing/music cognition.
+No network/model round trip belongs in that budget.
 
-Slower inference influences future presentation when it arrives.
-
-It does not retroactively stall present audio.
+If a future local analysis method cannot meet the realtime budget, it must be simplified, moved out of the critical path, precomputed where possible, or remain research until it can be distilled into something that can.
 
 ---
 
@@ -334,7 +333,7 @@ highly dynamic material
 dense masters
 sparse acoustic music
 rapid device/control changes
-optional worker failure / restart
+HRTF/profile preparation failure / restart
 ```
 
 Record:
@@ -346,7 +345,7 @@ Record:
 - non-finite samples;
 - clipping interventions;
 - state publication failures;
-- worker errors;
+- preparation-worker errors;
 - reset counts.
 
 Memory and CPU should reach bounded steady state rather than creep over time.
@@ -376,33 +375,44 @@ Only after the floor is boring should new scene intelligence become the dominant
 
 ## 14. Research integration rule
 
-New libaural/AI capability enters Omniphony through a bounded projection.
+New libaural/AI capability enters Omniphony **between releases**, not as a live mixer sitting in the playback graph.
 
 ```text
-research state
-→ validate
-→ compress to small presentation update
-→ timestamp
-→ publish
-→ realtime core accepts or rejects
+research observation
+→ hypothesis
+→ controlled experiments
+→ listening + objective validation
+→ identify the smallest useful mechanism
+→ compress into deterministic algorithm / policy / parameter / asset
+→ compile into Omniphony
+→ regression + fidelity + performance gates
+→ ship
 ```
 
-The core never receives an instruction equivalent to:
+A useful research result might eventually become things such as:
 
 ```text
-"wait while I understand the song"
+better stereo-evidence equations
+better confidence thresholds
+better grouping persistence
+better bass/front-anchor policy
+better broad/direct/field discrimination
+better HRTF interpolation
+better room behavior
+better headphone compensation
 ```
 
-It receives something more like:
+The runtime sees the resulting mechanism, not the research conversation that produced it.
+
+This is how the project compounds without making playback fragile:
 
 ```text
-object 3: confidence 0.91
-role: secondary melodic layer
-presentation allowance: broad lateral expansion
-valid from sample T forward
+more research
+→ stronger next release
+not
+more research
+→ more live dependencies
 ```
-
-If that update never arrives, playback is still correct and stable.
 
 ---
 
