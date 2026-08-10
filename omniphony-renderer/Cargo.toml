@@ -10,6 +10,7 @@ members = [
     "runtime_control",
     "orender_engine",
     "orender_ffi",
+    "realtime_ffi",
     "host_audio",
     "windows_host",
     "reference_bridge",
