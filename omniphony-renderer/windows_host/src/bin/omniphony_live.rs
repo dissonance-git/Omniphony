@@ -3,8 +3,6 @@ use anyhow::{Context, bail};
 #[cfg(target_os = "windows")]
 use bridge_api::RInputTransport;
 #[cfg(target_os = "windows")]
-use cpal::Sample;
-#[cfg(target_os = "windows")]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 #[cfg(target_os = "windows")]
 use orender_engine::Engine;
@@ -42,6 +40,7 @@ struct Args {
     output: Option<String>,
     list_devices: bool,
     start_off: bool,
+    rich_bed: bool,
 }
 
 #[cfg(target_os = "windows")]
@@ -63,16 +62,21 @@ fn parse_args() -> anyhow::Result<Args> {
             }
             "--list-devices" => parsed.list_devices = true,
             "--start-off" => parsed.start_off = true,
+            // Diagnostic escape hatch. The normal product prototype is stereo-first;
+            // richer per-source layouts belong to the future session-aware host rather
+            // than forcing the entire Windows mix into one global 7.1 bed.
+            "--rich-bed" => parsed.rich_bed = true,
             "-h" | "--help" => {
                 println!(
                     "Omniphony live Windows baseline\n\n\
                      Usage:\n  \
-                       omniphony_live.exe [--output <name>] [--start-off]\n  \
+                       omniphony_live.exe [--output <name>] [--start-off] [--rich-bed]\n  \
                        omniphony_live.exe --list-devices\n\n\
                      No recording/input device is required. Omniphony captures the Windows\n\
-                     mix through self-excluding WASAPI process loopback. With no --output,\n\
-                     the host prefers a FiiO output and otherwise uses a non-cable Windows\n\
-                     default output when one is available.\n"
+                     mix through self-excluding WASAPI process loopback. Normal playback is\n\
+                     stereo-first. --rich-bed keeps the old 8/6-channel-first diagnostic route.\n\
+                     With no --output, the host prefers a FiiO output and otherwise uses a\n\
+                     non-cable Windows default output when one is available.\n"
                 );
                 std::process::exit(0);
             }
@@ -108,7 +112,7 @@ fn run() -> anyhow::Result<()> {
         .unwrap_or_else(|_| "<unavailable output name>".to_string());
     let (output_format, output_config) = choose_output_config(&output_device, SAMPLE_RATE_HZ)?;
 
-    let mut loopback = LoopbackCapture::open(SAMPLE_RATE_HZ)?;
+    let mut loopback = LoopbackCapture::open(SAMPLE_RATE_HZ, args.rich_bed)?;
     let input_channels = loopback.channels();
 
     println!("Omniphony for Headphones - live Windows baseline");
@@ -119,7 +123,14 @@ fn run() -> anyhow::Result<()> {
         "           {} Hz / {}ch / {output_format:?}",
         output_config.sample_rate.0, output_config.channels
     );
-    println!("  renderer: protected Omniphony binaural path");
+    println!(
+        "  renderer: {}",
+        if args.rich_bed {
+            "rich-bed diagnostic through stereo-music prototype config"
+        } else {
+            "stereo-music Omniphony presentation"
+        }
+    );
     println!("  input device selection: none required");
 
     let bundle = Bundle::beside_executable()?;
@@ -232,7 +243,7 @@ struct LoopbackCapture {
 
 #[cfg(target_os = "windows")]
 impl LoopbackCapture {
-    fn open(sample_rate_hz: u32) -> anyhow::Result<Self> {
+    fn open(sample_rate_hz: u32, rich_bed: bool) -> anyhow::Result<Self> {
         const BUFFER_DURATION_HNS: i64 = 200_000; // 20 ms in 100 ns units.
 
         let mode = StreamMode::PollingShared {
@@ -241,10 +252,12 @@ impl LoopbackCapture {
         };
         let mut failures = Vec::<String>::new();
 
-        // Preserve the richest practical bed first. The current private Windows
-        // route is an 8-channel Hi-Fi Cable with a 5.1/side foobar bed inside it.
-        // Stereo remains a fallback for ordinary Windows sources.
-        for channels in [8usize, 6, 2] {
+        // Product default: ordinary stereo music is the dominant use case, so ask
+        // Windows for a true 2ch mix first even if the temporary Hi-Fi endpoint is
+        // still configured as virtual 7.1. The old 8/6-channel-first route remains
+        // available only as --rich-bed diagnostics until the host becomes session-aware.
+        let channel_order: &[usize] = if rich_bed { &[8, 6, 2] } else { &[2, 8, 6] };
+        for &channels in channel_order {
             let mask = make_channelmasks(channels).into_iter().next().unwrap_or(0);
             let format = WaveFormat::new(
                 32,
@@ -277,7 +290,7 @@ impl LoopbackCapture {
         }
 
         bail!(
-            "Windows process loopback rejected 8ch, 6ch and stereo 48 kHz float formats: {}",
+            "Windows process loopback rejected requested 48 kHz float formats: {}",
             failures.join("; ")
         )
     }
@@ -369,11 +382,11 @@ impl Bundle {
         let reference = root.join("reference-demo");
         let bundle = Self {
             bridge: root.join("reference_bridge.dll"),
-            config: reference.join("upstream-demo-reference.yaml"),
+            config: reference.join("stereo-music-prototype.yaml"),
             layout: reference.join("7.1.4.yaml"),
         };
         require_file(&bundle.bridge, "reference PCM bridge")?;
-        require_file(&bundle.config, "protected Omniphony binaural config")?;
+        require_file(&bundle.config, "stereo-music Omniphony config")?;
         require_file(&bundle.layout, "7.1.4 render layout")?;
         Ok(bundle)
     }
