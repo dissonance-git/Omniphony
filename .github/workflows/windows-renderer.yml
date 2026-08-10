@@ -35,8 +35,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Use rustup directly instead of a third-party setup action. This makes
-      # policy/marketplace restrictions impossible to confuse with Rust errors.
       - name: Install pinned Rust toolchain
         shell: bash
         run: |
@@ -74,10 +72,6 @@ jobs:
           Get-Command rustup -ErrorAction Stop | Format-List Source
           Get-Command cargo -ErrorAction Stop | Format-List Source
           Get-Command rustc -ErrorAction Stop | Format-List Source
-          if (Test-Path "$env:ProgramFiles\LLVM") {
-            Get-ChildItem "$env:ProgramFiles\LLVM\bin" -Filter 'libclang.dll' -ErrorAction SilentlyContinue |
-              Select-Object -First 1 | Format-List FullName
-          }
 
       - name: Install pinned Rust toolchain
         run: |
@@ -95,11 +89,11 @@ jobs:
       - name: Test renderer core
         run: cargo test -p renderer
 
-  windows-listening-artifact:
-    name: Windows x64 listening artifact
+  windows-engine-artifact:
+    name: Windows x64 renderer engine artifact
     runs-on: windows-latest
     needs: windows-core
-    timeout-minutes: 45
+    timeout-minutes: 35
     defaults:
       run:
         shell: pwsh
@@ -116,51 +110,26 @@ jobs:
           rustc --version --verbose
           cargo --version
 
-      - name: Locate libclang
-        run: |
-          $roots = @(
-            "$env:ProgramFiles\LLVM",
-            "${env:ProgramFiles(x86)}\LLVM"
-          )
-          $libclang = $null
-          foreach ($root in $roots) {
-            if ($root -and (Test-Path $root)) {
-              $libclang = Get-ChildItem $root -Recurse -Filter libclang.dll -ErrorAction SilentlyContinue |
-                Select-Object -First 1
-              if ($libclang) { break }
-            }
-          }
-          if (-not $libclang) {
-            throw 'libclang.dll was not found on the Windows runner'
-          }
-          "LIBCLANG_PATH=$($libclang.DirectoryName)" |
-            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "LIBCLANG_PATH=$($libclang.DirectoryName)"
+      # `orender_ffi` / `orender_engine` deliberately do not depend on the host
+      # audio layer. That lets CI validate and package the actual renderer engine
+      # without requiring Steinberg's separately licensed ASIO SDK. The final
+      # Windows listening shell will get its own gate once the fork's Windows
+      # output route defaults to a normal system backend (ASIO may remain opt-in).
+      - name: Test headless engine boundary
+        run: cargo test -p orender_engine -p orender_ffi -p reference_bridge
 
-      - name: Compile workspace tests
-        run: cargo test --workspace --features asio --no-run
+      - name: Build release engine
+        run: cargo build --profile release-deploy -p orender_ffi -p reference_bridge
 
-      - name: Build release renderer
-        run: cargo build --profile release-deploy --features asio -p omniphony-renderer -p reference_bridge -p orender_ffi
-
-      - name: Smoke-test CLI
-        run: |
-          $exe = 'target\release-deploy\orender.exe'
-          if (!(Test-Path $exe)) { throw "Expected renderer not found: $exe" }
-          & $exe --help | Out-Host
-          if ($LASTEXITCODE -ne 0) { throw "orender --help failed with $LASTEXITCODE" }
-          & $exe --version | Out-Host
-          if ($LASTEXITCODE -ne 0) { throw "orender --version failed with $LASTEXITCODE" }
-
-      - name: Collect artifacts
+      - name: Collect engine artifacts
         run: |
           $dist = Join-Path $PWD 'dist\windows-x64'
           New-Item -ItemType Directory -Path $dist -Force | Out-Null
 
           $candidates = @(
-            'target\release-deploy\orender.exe',
+            'target\release-deploy\orender.dll',
             'target\release-deploy\reference_bridge.dll',
-            'target\release-deploy\orender.dll'
+            'orender_ffi\include\orender.h'
           )
 
           foreach ($file in $candidates) {
@@ -169,8 +138,8 @@ jobs:
             }
           }
 
-          if (!(Test-Path (Join-Path $dist 'orender.exe'))) {
-            throw 'orender.exe was not collected'
+          if (!(Test-Path (Join-Path $dist 'orender.dll'))) {
+            throw 'orender.dll was not collected'
           }
 
           Get-ChildItem $dist -File | ForEach-Object {
@@ -180,10 +149,10 @@ jobs:
 
           Get-ChildItem $dist | Format-Table Name, Length
 
-      - name: Upload Windows renderer
+      - name: Upload Windows renderer engine
         uses: actions/upload-artifact@v4
         with:
-          name: omniphony-windows-x64-${{ github.sha }}
+          name: omniphony-renderer-engine-windows-x64-${{ github.sha }}
           path: omniphony-renderer/dist/windows-x64/
           if-no-files-found: error
           retention-days: 14
