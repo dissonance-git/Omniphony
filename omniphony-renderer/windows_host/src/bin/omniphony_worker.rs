@@ -3,7 +3,7 @@
 mod music_worker;
 
 #[cfg(target_os = "windows")]
-mod realtime_priority {
+pub(crate) mod realtime_priority {
     use std::ffi::c_void;
 
     #[link(name = "Avrt")]
@@ -13,13 +13,15 @@ mod realtime_priority {
         fn AvRevertMmThreadCharacteristics(handle: *mut c_void) -> i32;
     }
 
-    pub struct MmcssGuard(*mut c_void);
+    /// Store the opaque AVRT handle as an integer rather than a raw pointer so
+    /// the guard can safely move into CPAL's Send playback callback closure.
+    pub struct MmcssGuard(usize);
 
     impl Drop for MmcssGuard {
         fn drop(&mut self) {
-            if !self.0.is_null() {
+            if self.0 != 0 {
                 unsafe {
-                    let _ = AvRevertMmThreadCharacteristics(self.0);
+                    let _ = AvRevertMmThreadCharacteristics(self.0 as *mut c_void);
                 }
             }
         }
@@ -30,12 +32,12 @@ mod realtime_priority {
         wide.push(0);
         let mut task_index = 0u32;
         let handle = unsafe { AvSetMmThreadCharacteristicsW(wide.as_ptr(), &mut task_index) };
-        (!handle.is_null()).then_some(MmcssGuard(handle))
+        (!handle.is_null()).then_some(MmcssGuard(handle as usize))
     }
 
-    /// Protect the worker's capture/process/queue producer from background CPU
-    /// contention. Prefer the high-priority Pro Audio MMCSS task and fall back
-    /// to the more widely applicable Audio task if the former is unavailable.
+    /// Protect a realtime audio thread from background CPU contention. Prefer
+    /// the high-priority Pro Audio MMCSS task and fall back to the more widely
+    /// applicable Audio task if the former is unavailable.
     pub fn claim_realtime_audio() -> Option<MmcssGuard> {
         claim("Pro Audio").or_else(|| claim("Audio"))
     }
@@ -56,7 +58,8 @@ fn main() -> anyhow::Result<()> {
         // production. Under heavy background compute, ordinary scheduling can
         // starve it long enough for the realtime playback callback to underrun.
         // MMCSS gives the audio producer prioritized CPU access without changing
-        // any DSP behavior. The guard reverts the registration on shutdown.
+        // any DSP behavior. The playback callback independently claims MMCSS
+        // when CPAL starts that thread.
         let _mmcss = realtime_priority::claim_realtime_audio();
 
         return music_worker::run();
