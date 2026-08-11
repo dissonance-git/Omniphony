@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     mpsc::{Receiver, TryRecvError, sync_channel},
 };
 use std::time::{Duration, Instant};
@@ -18,7 +18,11 @@ use wasapi::{
 };
 
 const SAMPLE_RATE_HZ: u32 = 48_000;
-const PLAYBACK_QUEUE_BLOCKS: usize = 16;
+/// Burst cushion between the capture/DSP producer and WASAPI playback callback.
+/// Capture is realtime, so a larger bounded capacity does not intentionally add
+/// steady-state latency; it gives MMCSS a little more room to survive short CPU
+/// scheduling stalls from heavy background Helix/research workloads.
+const PLAYBACK_QUEUE_BLOCKS: usize = 32;
 const FIELD_SUPPORT_GAIN: f32 = 1.00;
 /// Fixed linear output headroom shared by ON and OFF.
 ///
@@ -165,6 +169,17 @@ fn print_meters(
     added.clear();
 }
 
+fn report_playback_underruns(counter: &AtomicU64) {
+    let frames = counter.swap(0, Ordering::Relaxed);
+    if frames == 0 {
+        return;
+    }
+    let duration_ms = frames as f64 * 1000.0 / SAMPLE_RATE_HZ as f64;
+    eprintln!(
+        "  realtime warning: WASAPI playback queue starved for {frames} frame(s) (~{duration_ms:.2} ms) in the last meter interval"
+    );
+}
+
 pub fn run() -> anyhow::Result<()> {
     let args = parse_args()?;
     let host = cpal::default_host();
@@ -180,7 +195,7 @@ pub fn run() -> anyhow::Result<()> {
     println!("  output:  {output_name}");
     println!("  direct:  captured stereo master remains authoritative");
     println!("  analysis: FFT magnitude + phase -> portable stereo/scene inference");
-    println!("  field:   220+ Hz broad/lateral/diffuse evidence -> overlapping 7.1.4 shell");
+    println!("  field:   160-320 Hz stereo-motion halo + 320+ Hz full 7.1.4 support");
     println!("  height:  vertical extent from already-spatial evidence");
     println!("  foundation: coherent pressure/body delta, no LFE/compression/saturation");
     println!(
@@ -191,7 +206,8 @@ pub fn run() -> anyhow::Result<()> {
         "  headroom: {:.1} dB fixed linear output gain, identical ON/OFF reference gain",
         20.0 * LINEAR_OUTPUT_GAIN.log10()
     );
-    println!("  acoustics: inherited Omniphony distance / reflections / short room / air cues");
+    println!("  acoustics: cascaded Omniphony virtual room / distance / HRTF / reflections / air cues");
+    println!("  realtime: producer + playback callback claim MMCSS; queue underruns are metered");
 
     let bundle = Bundle::beside_executable()?;
     let mut field_engine = Engine::from_paths(
@@ -219,12 +235,14 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     let quit = Arc::new(AtomicBool::new(false));
+    let playback_underrun_frames = Arc::new(AtomicU64::new(0));
     let (play_tx, play_rx) = sync_channel::<Vec<f32>>(PLAYBACK_QUEUE_BLOCKS);
     let playback_stream = build_playback_stream(
         &output_device,
         &output_config,
         output_format,
         play_rx,
+        Arc::clone(&playback_underrun_frames),
     )?;
     spawn_quit_control(Arc::clone(&quit));
     playback_stream
@@ -275,6 +293,7 @@ pub fn run() -> anyhow::Result<()> {
                     field.snapshot(),
                     true,
                 );
+                report_playback_underruns(&playback_underrun_frames);
                 last_meter_report = Instant::now();
             }
             continue;
@@ -355,6 +374,7 @@ pub fn run() -> anyhow::Result<()> {
                 field.snapshot(),
                 false,
             );
+            report_playback_underruns(&playback_underrun_frames);
             last_meter_report = Instant::now();
         }
     }
@@ -609,18 +629,19 @@ fn build_playback_stream(
     config: &cpal::StreamConfig,
     format: cpal::SampleFormat,
     rx: Receiver<Vec<f32>>,
+    underrun_frames: Arc<AtomicU64>,
 ) -> anyhow::Result<cpal::Stream> {
     match format {
-        cpal::SampleFormat::I8 => build_typed_playback::<i8>(device, config, rx),
-        cpal::SampleFormat::I16 => build_typed_playback::<i16>(device, config, rx),
-        cpal::SampleFormat::I32 => build_typed_playback::<i32>(device, config, rx),
-        cpal::SampleFormat::I64 => build_typed_playback::<i64>(device, config, rx),
-        cpal::SampleFormat::U8 => build_typed_playback::<u8>(device, config, rx),
-        cpal::SampleFormat::U16 => build_typed_playback::<u16>(device, config, rx),
-        cpal::SampleFormat::U32 => build_typed_playback::<u32>(device, config, rx),
-        cpal::SampleFormat::U64 => build_typed_playback::<u64>(device, config, rx),
-        cpal::SampleFormat::F32 => build_typed_playback::<f32>(device, config, rx),
-        cpal::SampleFormat::F64 => build_typed_playback::<f64>(device, config, rx),
+        cpal::SampleFormat::I8 => build_typed_playback::<i8>(device, config, rx, underrun_frames),
+        cpal::SampleFormat::I16 => build_typed_playback::<i16>(device, config, rx, underrun_frames),
+        cpal::SampleFormat::I32 => build_typed_playback::<i32>(device, config, rx, underrun_frames),
+        cpal::SampleFormat::I64 => build_typed_playback::<i64>(device, config, rx, underrun_frames),
+        cpal::SampleFormat::U8 => build_typed_playback::<u8>(device, config, rx, underrun_frames),
+        cpal::SampleFormat::U16 => build_typed_playback::<u16>(device, config, rx, underrun_frames),
+        cpal::SampleFormat::U32 => build_typed_playback::<u32>(device, config, rx, underrun_frames),
+        cpal::SampleFormat::U64 => build_typed_playback::<u64>(device, config, rx, underrun_frames),
+        cpal::SampleFormat::F32 => build_typed_playback::<f32>(device, config, rx, underrun_frames),
+        cpal::SampleFormat::F64 => build_typed_playback::<f64>(device, config, rx, underrun_frames),
         other => bail!("unsupported WASAPI output sample format: {other:?}"),
     }
 }
@@ -629,6 +650,7 @@ fn build_typed_playback<T>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
     rx: Receiver<Vec<f32>>,
+    underrun_frames: Arc<AtomicU64>,
 ) -> anyhow::Result<cpal::Stream>
 where
     T: cpal::Sample + cpal::SizedSample + cpal::FromSample<f32>,
@@ -636,13 +658,24 @@ where
     let channels = usize::from(config.channels);
     let mut current = Vec::<f32>::new();
     let mut cursor = 0usize;
+    let mut callback_mmcss = None;
     let err_fn = |err| eprintln!("WASAPI playback stream error: {err}");
     device
         .build_output_stream(
             config,
             move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
+                // CPAL invokes this closure on its own realtime playback thread;
+                // the producer thread's MMCSS registration does not cover it.
+                if callback_mmcss.is_none() {
+                    callback_mmcss = crate::realtime_priority::claim_realtime_audio();
+                }
                 for frame in data.chunks_exact_mut(channels) {
-                    let (left, right) = next_stereo_frame(&rx, &mut current, &mut cursor);
+                    let (left, right) = next_stereo_frame(
+                        &rx,
+                        &mut current,
+                        &mut cursor,
+                        &underrun_frames,
+                    );
                     frame[0] = T::from_sample(left);
                     frame[1] = T::from_sample(right);
                     for sample in &mut frame[2..] {
@@ -660,6 +693,7 @@ fn next_stereo_frame(
     rx: &Receiver<Vec<f32>>,
     current: &mut Vec<f32>,
     cursor: &mut usize,
+    underrun_frames: &AtomicU64,
 ) -> (f32, f32) {
     loop {
         if *cursor + 1 < current.len() {
@@ -672,7 +706,10 @@ fn next_stereo_frame(
                 *current = block;
                 *cursor = 0;
             }
-            Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => return (0.0, 0.0),
+            Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => {
+                underrun_frames.fetch_add(1, Ordering::Relaxed);
+                return (0.0, 0.0);
+            }
         }
     }
 }
