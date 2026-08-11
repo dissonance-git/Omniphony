@@ -2,17 +2,15 @@
 //!
 //! This is deliberately not a second headphone EQ and not a spatial bass path.
 //! The finished stereo master remains explicit. The processor emits only the
-//! additive delta needed to give the protected master a little more pressure,
-//! body and density before it is linearly combined with Omniphony's spatial
-//! support field.
+//! additive delta needed to give the protected master more pressure, body and
+//! density before it is linearly combined with Omniphony's spatial support.
 //!
 //! Design constraints:
 //! - no compression, limiting, saturation or dynamics-dependent gain;
 //! - no fake LFE and no HRTF rendering of the low-frequency foundation;
 //! - identical filter topology in left and right channels so stereo relations
 //!   remain intact;
-//! - modest minimum-phase IIR shaping only, with enough fixed downstream
-//!   headroom reserved by the host for the additive result.
+//! - minimum-phase IIR shaping only, with downstream headroom owned by the host.
 
 use std::f32::consts::PI;
 
@@ -30,11 +28,16 @@ pub struct MusicFoundationTuning {
 
 impl Default for MusicFoundationTuning {
     fn default() -> Self {
+        // Physical listening established a stronger invariant than the first
+        // conservative pass: Omniphony ON must never feel weaker than OFF in
+        // bass pressure, kick weight or drum body. Keep this coherent and
+        // non-spatial rather than trying to recover impact with fake LFE or
+        // extra room energy.
         Self {
-            low_shelf_db: 1.50,
-            body_db: 0.75,
-            density_db: 0.35,
-            presence_shelf_db: -0.45,
+            low_shelf_db: 2.30,
+            body_db: 1.20,
+            density_db: 0.50,
+            presence_shelf_db: -0.35,
         }
     }
 }
@@ -106,7 +109,6 @@ impl Biquad {
         let cos_w0 = w0.cos();
         let sin_w0 = w0.sin();
         let a = 10.0_f32.powf(gain_db / 40.0);
-        // RBJ shelf with slope S=1.
         let alpha = 0.5 * sin_w0 * (2.0_f32).sqrt();
         let two_sqrt_a_alpha = 2.0 * a.sqrt() * alpha;
         Self::from_coefficients(
@@ -129,7 +131,6 @@ impl Biquad {
         let cos_w0 = w0.cos();
         let sin_w0 = w0.sin();
         let a = 10.0_f32.powf(gain_db / 40.0);
-        // RBJ shelf with slope S=1.
         let alpha = 0.5 * sin_w0 * (2.0_f32).sqrt();
         let two_sqrt_a_alpha = 2.0 * a.sqrt() * alpha;
         Self::from_coefficients(
@@ -234,12 +235,21 @@ mod tests {
         let mut p = MusicFoundationProcessor::new(48_000);
         let delta = p.process_interleaved_delta(&input);
         let shaped: Vec<f32> = input.iter().zip(delta.iter()).map(|(a, b)| a + b).collect();
-        // Ignore startup settling. Both channels must remain exactly symmetric.
         let start = 4_096 * 2;
         assert!(rms(&shaped[start..]) > rms(&input[start..]));
         for frame in delta[start..].chunks_exact(2) {
             assert!((frame[0] - frame[1]).abs() < 1.0e-6);
         }
+    }
+
+    #[test]
+    fn default_foundation_adds_body_at_240_hz() {
+        let input = sine(240.0, 16_384);
+        let mut p = MusicFoundationProcessor::new(48_000);
+        let delta = p.process_interleaved_delta(&input);
+        let shaped: Vec<f32> = input.iter().zip(delta.iter()).map(|(a, b)| a + b).collect();
+        let start = 4_096 * 2;
+        assert!(rms(&shaped[start..]) > rms(&input[start..]) * 1.08);
     }
 
     #[test]
