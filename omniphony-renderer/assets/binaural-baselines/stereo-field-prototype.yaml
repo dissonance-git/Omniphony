@@ -1,26 +1,23 @@
-# Preserved-master stereo support-field prototype.
+# Protected-master stereo support-field prototype.
 #
-# Unlike stereo-music-prototype.yaml, this config is NOT asked to render the
-# finished stereo master. The Windows listening worker keeps the original L/R
-# samples authoritative and feeds only a derived, bass-protected side field
-# through this Omniphony binaural scene.
+# This config is NOT asked to render the finished stereo master. The Windows
+# listening worker keeps the original L/R samples authoritative and feeds only
+# a derived, bass-protected relational field through this Omniphony scene.
 #
-# The first preserved-master experiments established the important safety floor:
-# ON can remain effectively as clean as OFF without the former tinny/hallway
-# failure. The previous ~30% effective support produced at most a subtle lushness.
-# We no longer need tiny audibility steps, so this pass intentionally makes the
-# support field unmistakable while keeping every preservation mechanism intact.
+# Early experiments used a pure (L-R)/2 side field and then tried increasingly
+# large render.master_gain values. Listening established that the architecture
+# could remain transparent, but the side-only evidence stayed effectively
+# inaudible. The current worker therefore owns the support amount explicitly and
+# derives a richer center-reduced L/R field.
 #
-# The host-side support coefficient remains 0.14. +14 dB here is about a 5.0x
-# field increase, giving roughly a 70% effective contribution before the final
-# master-first headroom veto. This is a high-contrast listening experiment, not
-# a declaration that 70% is the final product strength.
+# Keep this renderer itself unity-gain so runtime meters are interpretable:
+# extracted evidence -> Omniphony render -> explicit host support coefficient.
 #
 # The support scene remains intentionally dry: no early reflections, no late
-# reverb, no air absorption. Any audible spatial change should therefore come
-# from the Omniphony-rendered field itself rather than an added room effect.
+# reverb, no air absorption. Audible spatial change should come from geometry /
+# HRTF / ITD rather than a room effect.
 render:
-  master_gain: 14.0
+  master_gain: 0.0
   virtual_bed:
     radius_m: 1.0
     speakers:
