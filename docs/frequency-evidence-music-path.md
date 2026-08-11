@@ -94,15 +94,15 @@ height is underdeveloped
 OFF still does not collapse the world as dramatically as desired
 ```
 
-A later P0.5 check on `Cosmic Cove Galaxy` also exposed a **tiny ON-only grain** that was not audible with Omniphony OFF. The rest of the presentation remained very clean. This is therefore treated as a narrow fidelity regression, not a reason to abandon the protected-master architecture.
+A later P0.5 check on `Cosmic Cove Galaxy` exposed a **tiny ON-only grain** that was not audible with Omniphony OFF. The rest of the presentation remained very clean. This is a narrow fidelity regression to remove, not a reason to weaken the spatial target.
 
-The leading implementation suspect was the host's sample-by-sample hard clipping of *support only* whenever the 100%-strength rendered field exceeded the dry master's remaining headroom. P0.6 keeps the master untouched but replaces that hard edge with a smooth support-only knee beginning at 85% of the available headroom. Ordinary support below the knee remains unchanged. This is a repair hypothesis until the same passage is physically rechecked.
+The first repair candidate is transport continuity rather than DSP strength. The Windows worker previously used a bounded playback queue that silently discarded a complete processed block whenever the queue was full. P0.6 now applies backpressure instead of dropping processed audio. This changes no shell coefficient, support gain, HRTF behavior or protected-master mix law. The same passage must be physically rechecked before treating the grain as solved.
 
-This means the next spatial problem is **shape**, not generic support loudness, while P0.6 must also prove that the tiny grain is gone.
+This means the next spatial problem is **shape**, not generic support loudness.
 
 ## Active P0.6: anterior + vertical expansion
 
-P0.6 keeps the same protected-master architecture, evidence analysis, bass veto and full derived-field host coefficient. It changes the geometry weighting of the derived shell and carries the support-mixer fidelity repair described above.
+P0.6 keeps the same protected-master architecture, evidence analysis, bass veto and **full 100% derived-field host coefficient**. Its spatial experiment remains the originally intended geometry weighting of the derived shell.
 
 The intended balance is:
 
@@ -135,7 +135,7 @@ height energy > 0
 LFE energy = 0
 ```
 
-The bass-foundation regression is expressed relative to direct-master energy rather than as a fixed accumulated support-energy number, so increasing the number or weighting of shell destinations cannot fail the test merely because the same tiny filter leakage is summed across more channels. At 60 Hz, support energy must remain below 0.2% of direct energy (about -27 dB by energy), and LFE remains exactly zero.
+The bass-foundation regression is now measured relative to direct-master energy instead of using a brittle accumulated-energy constant. This keeps the invariant focused on actual bass leakage rather than failing merely because the same tiny filter residue is distributed across a larger shell.
 
 These are structural tests, not claims about final perceptual balance.
 
@@ -197,7 +197,8 @@ WASAPI capture
 -> call portable MusicFieldProcessor
 -> feed derived field into Omniphony engine
 -> align protected master to renderer latency
--> combine with smooth support-only headroom protection
+-> combine
+-> queue continuously without silently dropping processed blocks
 -> physical playback
 ```
 
@@ -246,21 +247,16 @@ Rearward or vertical field placement remains a presentation decision, not a clai
 
 ## Protected-master mix law
 
-The direct master gets first claim on headroom and is never attenuated to make room for the effect.
+The direct master gets first claim on headroom.
 
 ```text
 wanted = rendered_support * support_gain
-available headroom = distance from direct sample toward wanted support polarity
-
-if wanted is below 85% of available headroom:
-    actual support = wanted
-else:
-    actual support = smooth asymptotic knee toward the remaining headroom
-
+available positive/negative headroom = distance from direct sample to +/-1
+actual support = clamp(wanted to remaining headroom)
 output = direct + actual support
 ```
 
-The soft knee acts only on the added support. It replaces P0.5's hard per-sample support clamp, which could create a very small nonlinear edge on dense mastered peaks at full derived-field strength.
+The master is not attenuated merely to make room for the spatial effect. P0.6 intentionally keeps this same mix law while the tiny P0.5 grain is first tested against the independent transport-continuity repair.
 
 ## Instrumentation
 
@@ -324,7 +320,7 @@ next: radial depth / tiny directional early reflections
 -> later, only if earned, restrained late-room support / distance-dependent air behavior
 ```
 
-If no, do not simply raise global support gain. Determine whether the failure is front-distance perception, HRTF geometry, insufficient upper continuity, evidence ownership, or a support-mix artifact.
+If no, do not simply raise global support gain. Determine whether the failure is front-distance perception, HRTF geometry, insufficient upper continuity, evidence ownership, or transport/mix behavior.
 
 ## Listening success criterion from here
 
