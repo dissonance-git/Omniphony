@@ -5,10 +5,21 @@
 # samples authoritative and feeds only a derived, bass-protected side field
 # through this Omniphony binaural scene.
 #
-# The first experiment is intentionally dry: no early reflections, no late
+# The first experiment proved that this architecture can be effectively
+# transparent at the old low support level: ON and OFF were reported as nearly
+# indistinguishable, with none of the former tinny/hallway failure. This pass
+# intentionally raises only the support-field gain so spatial audibility can be
+# tested without changing extraction, bass protection, alignment, or room cues.
+#
+# The host-side support coefficient remains conservative. +6.6 dB here is about
+# a 2.14x field increase, moving the effective contribution from roughly 14%
+# toward roughly 30% before the final master-first headroom veto.
+#
+# The support scene remains intentionally dry: no early reflections, no late
 # reverb, no air absorption. If this creates useful outside-the-head structure,
-# room cues can be added later as an independent variable.
+# richer field analysis can be added later as an independent variable.
 render:
+  master_gain: 6.6
   virtual_bed:
     radius_m: 1.0
     speakers:
