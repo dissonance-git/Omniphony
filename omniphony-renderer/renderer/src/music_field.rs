@@ -25,7 +25,7 @@ pub const MUSIC_FIELD_CHANNELS: usize = 12;
 const FFT_SIZE: usize = 1024;
 const TRACK_TIME_CONSTANT_MS: f32 = 140.0;
 const CROSSOVER_HZ: [f32; 3] = [220.0, 1_200.0, 5_000.0];
-const HEIGHT_PRIOR: [f32; 3] = [0.20, 0.42, 0.58];
+const HEIGHT_PRIOR: [f32; 3] = [0.24, 0.54, 0.72];
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MusicFieldSnapshot {
@@ -135,14 +135,14 @@ impl ChannelBandSplit {
 /// Output order is canonical 7.1.4:
 /// `L R C LFE Ls Rs Lb Rb Tfl Tfr Tbl Tbr`.
 ///
-/// The current shell deliberately overlaps evidence across neighbouring
-/// hemispheres instead of assigning every class to one speaker pair:
+/// The P0.6 shell deliberately overlaps evidence across neighbouring regions
+/// while biasing the added field toward the anterior and upper-front volume:
 ///
 /// - L/R carry broad front/front-side extent;
-/// - Ls/Rs carry the strongest lateral wrap;
-/// - Lb/Rb carry a restrained rear continuation, not the whole diffuse field;
-/// - Tfl/Tfr and Tbl/Tbr carry conservative vertical extent derived from the
-///   same broad/lateral/diffuse evidence.
+/// - Ls/Rs carry continuous lateral wrap;
+/// - Lb/Rb carry a restrained rear continuation;
+/// - Tfl/Tfr carry the dominant vertical extent;
+/// - Tbl/Tbr retain only enough energy to close the upper shell behind.
 ///
 /// C and LFE remain silent because center authority and low-frequency pressure
 /// belong to the untouched master. Height is a presentation permission, not a
@@ -233,28 +233,39 @@ impl MusicFieldProcessor {
                 let diffuse_l = side * control.diffuse;
                 let diffuse_r = -side * control.diffuse;
 
-                // Horizontal shell. Broad and lateral evidence intentionally
-                // overlap neighbouring regions so the percept is a wrap rather
-                // than isolated virtual speakers. Rear energy is restrained.
-                front_l += 0.86 * broad_l + 0.08 * lateral_l;
-                front_r += 0.86 * broad_r + 0.08 * lateral_r;
-                side_l += 0.22 * broad_l + 0.94 * lateral_l + 0.08 * diffuse_l;
-                side_r += 0.22 * broad_r + 0.94 * lateral_r + 0.08 * diffuse_r;
-                rear_l += 0.16 * lateral_l + 0.36 * diffuse_l;
-                rear_r += 0.16 * lateral_r + 0.36 * diffuse_r;
+                // P0.6 anterior reweighting. The current listening result says
+                // the clean field is real but behaves like a horizontal band
+                // that collapses inward and rearward. Preserve the strong side
+                // wrap, move diffuse continuation away from the rear, and give
+                // the front/front-side hemisphere more of the same evidence.
+                front_l += 0.98 * broad_l + 0.16 * lateral_l;
+                front_r += 0.98 * broad_r + 0.16 * lateral_r;
+                side_l += 0.28 * broad_l + 0.90 * lateral_l + 0.06 * diffuse_l;
+                side_r += 0.28 * broad_r + 0.90 * lateral_r + 0.06 * diffuse_r;
+                rear_l += 0.10 * lateral_l + 0.22 * diffuse_l;
+                rear_r += 0.10 * lateral_r + 0.22 * diffuse_r;
 
-                // Vertical shell. The frequency prior changes how readily an
-                // already-spatial component receives vertical extent; it never
-                // turns frequency alone into an elevation command.
+                // Height-only upmixers provide a useful restraint: derive
+                // ceiling support mostly from difference/spatial evidence, with
+                // only a tiny coherent-mid feed. Here that mid feed remains
+                // gated by broad-scene evidence, so a protected frontal anchor
+                // still cannot become a synthetic overhead vocal.
                 let height = control.height;
+                let front_height_mid = mid * control.broad * 0.08;
                 top_front_l += height
-                    * (0.40 * broad_l + 0.13 * lateral_l + 0.08 * diffuse_l);
+                    * (0.62 * broad_l
+                        + 0.22 * lateral_l
+                        + 0.08 * diffuse_l
+                        + front_height_mid);
                 top_front_r += height
-                    * (0.40 * broad_r + 0.13 * lateral_r + 0.08 * diffuse_r);
+                    * (0.62 * broad_r
+                        + 0.22 * lateral_r
+                        + 0.08 * diffuse_r
+                        + front_height_mid);
                 top_rear_l += height
-                    * (0.07 * broad_l + 0.11 * lateral_l + 0.28 * diffuse_l);
+                    * (0.04 * broad_l + 0.07 * lateral_l + 0.16 * diffuse_l);
                 top_rear_r += height
-                    * (0.07 * broad_r + 0.11 * lateral_r + 0.28 * diffuse_r);
+                    * (0.04 * broad_r + 0.07 * lateral_r + 0.16 * diffuse_r);
             }
 
             out.extend_from_slice(&[
@@ -461,26 +472,36 @@ mod tests {
     }
 
     #[test]
-    fn hard_left_material_produces_side_and_height_support_without_lfe() {
+    fn hard_left_material_produces_anterior_height_support_without_lfe() {
         let mut processor = MusicFieldProcessor::new(48_000);
         let mut input = Vec::new();
         for i in 0..4096 {
             let x = (2.0 * PI * 1800.0 * i as f32 / 48_000.0).sin() * 0.5;
             input.extend_from_slice(&[x, 0.0]);
         }
+        let mut front_energy = 0.0;
         let mut lateral_energy = 0.0;
+        let mut rear_energy = 0.0;
         let mut height_energy = 0.0;
+        let mut top_front_energy = 0.0;
+        let mut top_rear_energy = 0.0;
         let mut lfe_energy = 0.0;
         for chunk in input.chunks(2048) {
             let out = processor.process_interleaved_stereo(chunk);
             for frame in out.chunks_exact(MUSIC_FIELD_CHANNELS) {
+                front_energy += frame[0] * frame[0] + frame[1] * frame[1];
                 lateral_energy += frame[4] * frame[4] + frame[5] * frame[5];
+                rear_energy += frame[6] * frame[6] + frame[7] * frame[7];
+                top_front_energy += frame[8] * frame[8] + frame[9] * frame[9];
+                top_rear_energy += frame[10] * frame[10] + frame[11] * frame[11];
                 height_energy += frame[8..12].iter().map(|x| x * x).sum::<f32>();
                 lfe_energy += frame[3] * frame[3];
             }
         }
+        assert!(front_energy > rear_energy);
         assert!(lateral_energy > 0.0);
         assert!(height_energy > 0.0);
+        assert!(top_front_energy > top_rear_energy);
         assert_eq!(lfe_energy, 0.0);
     }
 
