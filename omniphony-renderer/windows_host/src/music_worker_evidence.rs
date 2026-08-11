@@ -195,7 +195,7 @@ pub fn run() -> anyhow::Result<()> {
     println!("  output:  {output_name}");
     println!("  direct:  captured stereo master remains authoritative");
     println!("  analysis: FFT magnitude + phase -> portable stereo/scene inference");
-    println!("  field:   160-320 Hz stereo-motion halo + 320+ Hz full 7.1.4 support");
+    println!("  field:   below 320 Hz protected; 320+ Hz derived 7.1.4 support");
     println!("  height:  vertical extent from already-spatial evidence");
     println!("  foundation: coherent pressure/body delta, no LFE/compression/saturation");
     println!(
@@ -206,7 +206,9 @@ pub fn run() -> anyhow::Result<()> {
         "  headroom: {:.1} dB fixed linear output gain, identical ON/OFF reference gain",
         20.0 * LINEAR_OUTPUT_GAIN.log10()
     );
-    println!("  acoustics: cascaded Omniphony virtual room / distance / HRTF / reflections / air cues");
+    println!(
+        "  acoustics: cascaded Omniphony virtual room / distance / HRTF / reflections / air cues"
+    );
     println!("  realtime: producer + playback callback claim MMCSS; queue underruns are metered");
 
     let bundle = Bundle::beside_executable()?;
@@ -330,7 +332,10 @@ pub fn run() -> anyhow::Result<()> {
             .context("live Omniphony frequency-evidence field render failed")?;
         for block in rendered {
             if block.n_channels != 2 {
-                bail!("music field renderer changed output width to {}", block.n_channels);
+                bail!(
+                    "music field renderer changed output width to {}",
+                    block.n_channels
+                );
             }
             if block.samples.is_empty() {
                 continue;
@@ -426,10 +431,7 @@ fn mix_preserved_master_with_support(
     Ok(out)
 }
 
-fn queue_block(
-    tx: &std::sync::mpsc::SyncSender<Vec<f32>>,
-    block: Vec<f32>,
-) -> anyhow::Result<()> {
+fn queue_block(tx: &std::sync::mpsc::SyncSender<Vec<f32>>, block: Vec<f32>) -> anyhow::Result<()> {
     if block.is_empty() {
         return Ok(());
     }
@@ -551,7 +553,10 @@ fn require_file(path: &Path, label: &str) -> anyhow::Result<()> {
 fn name_contains(device: &cpal::Device, needle: &str) -> bool {
     device
         .name()
-        .map(|name| name.to_ascii_lowercase().contains(&needle.to_ascii_lowercase()))
+        .map(|name| {
+            name.to_ascii_lowercase()
+                .contains(&needle.to_ascii_lowercase())
+        })
         .unwrap_or(false)
 }
 
@@ -620,7 +625,9 @@ fn choose_output_config(
         .min_by_key(|range| (range.channels(), sample_format_rank(range.sample_format())))
         .with_context(|| format!("output device has no >=2ch {sample_rate_hz} Hz format"))?;
     let sample_format = best.sample_format();
-    let config = best.with_sample_rate(cpal::SampleRate(sample_rate_hz)).config();
+    let config = best
+        .with_sample_rate(cpal::SampleRate(sample_rate_hz))
+        .config();
     Ok((sample_format, config))
 }
 
@@ -670,12 +677,8 @@ where
                     callback_mmcss = crate::realtime_priority::claim_realtime_audio();
                 }
                 for frame in data.chunks_exact_mut(channels) {
-                    let (left, right) = next_stereo_frame(
-                        &rx,
-                        &mut current,
-                        &mut cursor,
-                        &underrun_frames,
-                    );
+                    let (left, right) =
+                        next_stereo_frame(&rx, &mut current, &mut cursor, &underrun_frames);
                     frame[0] = T::from_sample(left);
                     frame[1] = T::from_sample(right);
                     for sample in &mut frame[2..] {
