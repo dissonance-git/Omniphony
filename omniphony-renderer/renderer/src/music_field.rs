@@ -506,7 +506,7 @@ mod tests {
     }
 
     #[test]
-    fn bass_foundation_is_not_emitted_into_support_channels() {
+    fn bass_foundation_stays_well_below_direct_energy() {
         let mut processor = MusicFieldProcessor::new(48_000);
         let mut input = Vec::new();
         for i in 0..4096 {
@@ -514,10 +514,24 @@ mod tests {
             input.extend_from_slice(&[x, x * 0.8]);
         }
         let mut support_energy = 0.0;
+        let mut direct_energy = 0.0;
+        let mut lfe_energy = 0.0;
         for chunk in input.chunks(2048) {
             let out = processor.process_interleaved_stereo(chunk);
-            support_energy += out.iter().map(|x| x * x).sum::<f32>();
+            for (frame, direct) in out
+                .chunks_exact(MUSIC_FIELD_CHANNELS)
+                .zip(chunk.chunks_exact(2))
+            {
+                support_energy += frame.iter().map(|x| x * x).sum::<f32>();
+                direct_energy += direct[0] * direct[0] + direct[1] * direct[1];
+                lfe_energy += frame[3] * frame[3];
+            }
         }
-        assert!(support_energy < 0.7);
+        let leakage_ratio = support_energy / direct_energy.max(1.0e-12);
+        assert!(
+            leakage_ratio < 0.002,
+            "60 Hz support leakage ratio {leakage_ratio:.6} exceeds the -27 dB energy guard"
+        );
+        assert_eq!(lfe_energy, 0.0);
     }
 }
