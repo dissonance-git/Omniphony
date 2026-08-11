@@ -19,6 +19,17 @@ use wasapi::{
 const SAMPLE_RATE_HZ: u32 = 48_000;
 const PLAYBACK_QUEUE_BLOCKS: usize = 16;
 const FIELD_SUPPORT_GAIN: f32 = 1.00;
+/// Fixed linear output headroom shared by ON and OFF.
+///
+/// The previous mixer gave the dry master first claim on +/-1.0 and then
+/// sample-clamped only the support into whatever instantaneous space remained.
+/// That protected the master, but it was a nonlinear operation on the spatial
+/// waveform and could create a tiny gritty/clipping-like edge on hostile peaks.
+///
+/// Instead, preserve both waveforms exactly and reserve enough fixed downstream
+/// headroom for their linear sum. Listening level is recovered at the physical
+/// DAC/amp, not by shaving individual support samples.
+const LINEAR_OUTPUT_GAIN: f32 = 0.45;
 const METER_INTERVAL_SECS: u64 = 5;
 
 #[derive(Default)]
@@ -172,12 +183,16 @@ pub fn run() -> anyhow::Result<()> {
     println!("  direct:  captured stereo master remains authoritative");
     println!("  analysis: FFT magnitude + phase -> portable stereo/scene inference");
     println!("  field:   220+ Hz broad/lateral/diffuse evidence -> overlapping 7.1.4 shell");
-    println!("  height:  conservative vertical extent from already-spatial evidence");
+    println!("  height:  vertical extent from already-spatial evidence");
     println!(
-        "  support: {:.0}% derived-field mix, master-first clipping veto",
+        "  support: {:.0}% derived-field mix, linear master+support summing",
         FIELD_SUPPORT_GAIN * 100.0
     );
-    println!("  room:    no early reflections / no late reverb / no air absorption");
+    println!(
+        "  headroom: {:.1} dB fixed linear output gain, identical ON/OFF",
+        20.0 * LINEAR_OUTPUT_GAIN.log10()
+    );
+    println!("  acoustics: inherited Omniphony distance / reflections / short room / air cues");
 
     let bundle = Bundle::beside_executable()?;
     let mut field_engine = Engine::from_paths(
@@ -241,10 +256,14 @@ pub fn run() -> anyhow::Result<()> {
         if input.is_empty() || input.len() % 2 != 0 {
             continue;
         }
-        direct_meter.observe(&input);
+
+        // Meter the reference at the same fixed output gain used by both ON/OFF
+        // so level does not contaminate the A/B or the added/direct diagnostic.
+        let output_reference = apply_output_headroom(&input);
+        direct_meter.observe(&output_reference);
 
         if args.start_off {
-            queue_block(&play_tx, input)?;
+            queue_block(&play_tx, output_reference)?;
             if last_meter_report.elapsed() >= Duration::from_secs(METER_INTERVAL_SECS) {
                 print_meters(
                     &mut direct_meter,
@@ -301,7 +320,8 @@ pub fn run() -> anyhow::Result<()> {
                 &block.samples,
                 FIELD_SUPPORT_GAIN,
             )?;
-            added_meter.observe_delta(&mixed, &dry);
+            let dry_reference = apply_output_headroom(&dry);
+            added_meter.observe_delta(&mixed, &dry_reference);
             queue_block(&play_tx, mixed)?;
         }
 
@@ -324,6 +344,19 @@ pub fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn apply_output_headroom(samples: &[f32]) -> Vec<f32> {
+    samples
+        .iter()
+        .map(|&sample| {
+            if sample.is_finite() {
+                sample * LINEAR_OUTPUT_GAIN
+            } else {
+                0.0
+            }
+        })
+        .collect()
+}
+
 fn mix_preserved_master_with_support(
     dry: &[f32],
     support: &[f32],
@@ -339,16 +372,12 @@ fn mix_preserved_master_with_support(
     let gain = support_gain.clamp(0.0, 1.0);
     let mut out = Vec::with_capacity(dry.len());
     for (&base, &field) in dry.iter().zip(support.iter()) {
-        if !base.is_finite() {
-            out.push(0.0);
-            continue;
-        }
-        if !field.is_finite() || base.abs() >= 1.0 {
-            out.push(base.clamp(-1.0, 1.0));
-            continue;
-        }
-        let wanted = field * gain;
-        out.push(base + wanted.clamp(-1.0 - base, 1.0 - base));
+        let base = if base.is_finite() { base } else { 0.0 };
+        let field = if field.is_finite() { field } else { 0.0 };
+        // Purely linear summing. No sample-dependent support clamp or limiter is
+        // allowed here: fixed shared headroom preserves the waveform and lets
+        // Omniphony's own support-render auto-gain handle true renderer overloads.
+        out.push((base + field * gain) * LINEAR_OUTPUT_GAIN);
     }
     Ok(out)
 }
