@@ -45,30 +45,33 @@ no obvious tonal damage
 but little useful added world
 ```
 
-The current **frequency-evidence music path** is the first architecture that has crossed into the desired region.
+The current **frequency-evidence music architecture** is the first direction that has preserved the raw stereo sound while beginning to add useful spatial enhancement.
 
-Latest clean listening evidence:
+Longer listening outranks the first few minutes of excitement. The reliable result is now:
 
 ```text
 raw stereo clarity remains
 music still feels intact
-spatial enhancement is now clearly useful
-presentation sounds bigger than the incumbent HeSuVi/DTS chain
-behind-head placement is convincing
-percussion can feel genuinely behind the listener rather than merely to the side
+no obvious tinny / hallway regression
+ON is mildly enhanced versus OFF
+frequency-evidence support is audible enough to be promising
 ```
 
-Current limitation:
+Do **not** currently treat these earlier first-impression claims as proven:
 
 ```text
-the field is rear-heavy
-front/side/rear balance is not yet spherical
-height is still largely absent
-radial depth is underdeveloped
-continuous 360° bubble / shell is not yet complete
+bigger than HeSuVi
+stronger rear localization than HeSuVi
+fully convincing 360° bubble
+convincing height
+strong bypass-collapse effect
 ```
 
-This result is now the **protected stereo sound floor**.
+Some of the first perceived jump was confounded by becoming reacquainted with raw stereo after turning the old HeSuVi chain off. Correction outranks coherence: the architecture is validated as a **fidelity-preserving foundation**, not yet as a finished spatial win over the incumbent.
+
+This is the protected stereo sound floor:
+
+> **Omniphony ON can preserve the clarity, bass/body, definition and identity of the mastered stereo signal while adding a mild spatial layer. Build outward from here.**
 
 From this point forward, every sound change must preserve or improve:
 
@@ -98,6 +101,7 @@ ambient continuity
 listener envelopment
 separation without disassembly
 energy / punch / density
+bypass-collapse strength
 ```
 
 A candidate may no longer buy a bigger sphere by regressing to the earlier tinny, hollow, phasey or reverberant sound.
@@ -113,6 +117,8 @@ Omniphony                        = only audible path to FiiO/headphones
 ```
 
 Changing the temporary Hi-Fi Cable endpoint from Windows 7.1 to Stereo restored normal playback level. Treat that as a **prototype transport/gain finding**, not a permanent user requirement. The finished Windows host must own the routing automatically.
+
+The active successor experiment above this protected floor expands the derived support field from sparse logical 7.1 to **overlapping logical 7.1.4**, adds conservative height participation, reduces rear-only concentration, and runs the derived support field at full host strength. It must earn promotion by listening.
 
 ---
 
@@ -349,7 +355,7 @@ The central creative problem is:
 
 > **How can a finished stereo master gain convincing full-sphere physicality while remaining recognizably and tonally the same finished master?**
 
-The current architecture is the first answer that has sounded promising enough to protect.
+The current architecture is the first answer that has sounded promising enough to protect as a fidelity floor.
 
 ---
 
@@ -455,13 +461,7 @@ FINISHED STEREO MASTER
           └──── causal multiband extraction
                         │
                         ▼
-             derived logical 7.1 field
-
-             L/R   = broad extent
-             C     = silent
-             LFE   = silent
-             Ls/Rs = lateral/object-like evidence
-             Lb/Rb = diffuse/field-like evidence
+                 derived support field
                         │
                         ▼
               UPSTREAM OMNIPHONY
@@ -476,6 +476,18 @@ FINISHED STEREO MASTER
                     headphones
 ```
 
+The protected listening floor used differentiated broad/lateral/diffuse support while preserving the master. The active successor now distributes those same evidence classes into overlapping **logical 7.1.4** lanes:
+
+```text
+L/R         broad front/front-side extent
+C           silent
+LFE         silent
+Ls/Rs       strongest lateral wrap
+Lb/Rb       restrained rear continuation
+Tfl/Tfr     front-height extent
+Tbl/Tbr     rear-height / upper diffuse continuation
+```
+
 Physical output remains ordinary binaural stereo. The internal multichannel structure is only a differentiated support field for the inherited renderer.
 
 Important properties:
@@ -487,7 +499,7 @@ Important properties:
 - no artificial LFE is created for stereo music;
 - support is latency-aligned before combination;
 - the master gets first claim on headroom;
-- early reflections are off in this experiment;
+- early reflections remain off in the current shell experiment;
 - late reverb is off;
 - air absorption is off;
 - spatiality therefore comes primarily from evidence + geometry + HRTF/ITD rather than an audible room tail.
@@ -512,33 +524,41 @@ Detailed checkpoint:
 
 This section is deliberately about **sound**, not product features.
 
-The current result is the foundation. The next work is to make the same intact recording inhabit a dramatically stronger acoustic world.
+The protected result is the foundation. The next work is to make the same intact recording inhabit a dramatically stronger acoustic world.
 
-## 7.1 Rebalance the current rear-heavy field
+## 7.1 Increase effect strength without losing the master
 
-The current frequency-evidence field proves that behind-head placement can become convincing. It is currently too eager to put useful musical energy into the rear hemisphere.
+The longer listening result says the current protected frequency-evidence presentation is only **mildly enhanced** versus OFF.
 
-The next spatial balance should become:
+That means the next candidates must make spatial support unmistakable while retaining the same clarity floor.
+
+The active 7.1.4 shell experiment therefore increases support energy and gives the derived field more places to exist rather than merely increasing rear gain.
+
+Success means:
+
+```text
+ON is immediately distinguishable from OFF
+but OFF does not sound cleaner, fuller or more correct
+```
+
+## 7.2 Front / side / rear balance
+
+The sphere should become:
 
 ```text
 front authority
++ front-side continuity
 + side wrap
 + rear depth
-+ upper/lower shell
 ```
 
-rather than:
+rather than dry stereo plus a detached rear layer.
 
-```text
-protected front master
-+ strong rear support
-```
+Rear should become one region of a larger shell, not the default destination of everything that is not centered.
 
-A drum hit should not be pushed behind the listener merely because it contains lateral or diffuse evidence. Rear should become one region of a larger shell, not the default destination of everything that is not centered.
+## 7.3 Stronger front externalization
 
-## 7.2 Stronger front externalization
-
-The front image should project outward instead of remaining mostly at the head while the support appears behind it.
+The front image should project outward instead of remaining mostly at the head while support appears elsewhere.
 
 Target:
 
@@ -550,11 +570,7 @@ no vocal thinning
 no center hole
 ```
 
-This is essential to turning the current rear-heavy scene into a sphere.
-
-## 7.3 Side wrap and continuous 360° bubble
-
-The final presentation should not sound like front stereo plus a rear layer.
+## 7.4 Side wrap and continuous 360° bubble
 
 Desired:
 
@@ -570,7 +586,7 @@ as a coherent wrap around the listener.
 
 The field should be continuous enough to inhabit while remaining structured enough to localize.
 
-## 7.4 Height and below-listener structure
+## 7.5 Height and below-listener structure
 
 The full-sphere ambition includes vertical dimension.
 
@@ -582,12 +598,12 @@ lower field adds grounding / lower spatial volume
 neither becomes a crude EQ trick
 ```
 
-Stereo contains little authored height truth, so inferred vertical treatment should primarily operate on broad/diffuse evidence and remain conservative for direct anchors.
+Stereo contains little authored height truth, so inferred vertical treatment should primarily operate on already-spatial broad/diffuse evidence and remain conservative for direct anchors.
 
 Do not turn treble into “height” merely because it is high frequency.
 Do not move bass foundation downward merely because it is low frequency.
 
-## 7.5 Radial depth
+## 7.6 Radial depth
 
 The target is not a flat ring around the head.
 
@@ -603,7 +619,7 @@ with enough radial layering that sources and fields can occupy different acousti
 
 Bypass should make the world shallower and smaller, not clearer.
 
-## 7.6 Source extent
+## 7.7 Source extent
 
 Not every musical source should collapse to a point.
 
@@ -617,9 +633,7 @@ compact anchor
 
 without indiscriminate decorrelation.
 
-Large string textures, synth beds, backing layers and reverberant musical environments may occupy extent while vocals, snares and melodic anchors retain authority.
-
-## 7.7 Ambient continuity
+## 7.8 Ambient continuity
 
 The sphere should not have obvious virtual-speaker holes.
 
@@ -632,7 +646,7 @@ structured enough to localize
 
 This is one place where more continuous geometry, diffuse-field representation or eventually an Ambisonic support field may earn a role.
 
-## 7.8 Separation without disassembly
+## 7.9 Separation without disassembly
 
 Omniphony should reveal more room between musical agents without making the mix sound pulled apart.
 
@@ -653,7 +667,7 @@ holes in the mix
 sources detached from their musical relationships
 ```
 
-## 7.9 Energy, punch and density
+## 7.10 Energy, punch and density
 
 Spatiality and energy are separate dimensions.
 
@@ -677,7 +691,7 @@ The finished product should not feel bare or polite merely because its signal pa
 
 Do not let louder-is-better contaminate spatial A/B tests, but do not leave energy as an afterthought either.
 
-## 7.10 Bass physicality
+## 7.11 Bass physicality
 
 Bass is more than quantity.
 
@@ -694,7 +708,7 @@ body
 
 The low-frequency foundation should feel at least as physical and timed as the dry master and eventually competitive with the incumbent chain, without turning bass into fake omnidirectional LFE.
 
-## 7.11 Transient sharpness and microdetail
+## 7.12 Transient sharpness and microdetail
 
 More world must not mean softer attacks.
 
@@ -707,7 +721,7 @@ fast percussion clarity
 rhythmic lock
 ```
 
-## 7.12 Stable, pre-authored appropriateness
+## 7.13 Stable, pre-authored appropriateness
 
 The presentation should become more appropriate to different recordings without sounding like a live remix.
 
@@ -721,7 +735,7 @@ Not:
 
 Confidence should control aggression. Uncertain evidence should become broad, reversible support rather than precise spatial fiction.
 
-## 7.13 Long-session comfort
+## 7.14 Long-session comfort
 
 A spectacular five-second demo is insufficient.
 
@@ -1099,7 +1113,7 @@ bass/body reinforcement
 strong level without obvious clipping
 ```
 
-The current Omniphony foundation already appears capable of exceeding the incumbent in **overall apparent size and behind-head placement**. The remaining job is to make that larger field more spherical, balanced, elevated, deep and energetic.
+Do not claim the current Omniphony prototype has beaten those functions yet. The longer clean listen only establishes a mildly enhanced, fidelity-preserving Omniphony foundation. The incumbent remains the spatial/energy comparison oracle until repeated matched listening clearly says otherwise.
 
 Migration law:
 
@@ -1212,40 +1226,44 @@ Changing the endpoint to Stereo / 2.0 restored normal playback level.
 
 Do not confuse that transport finding with the stereo spatial algorithm.
 
-## 17.7 Frequency-evidence foundation is the first promising music result
+## 17.7 Frequency-evidence path is the current protected music foundation
 
 The frequency-aware portable field path replaced the side-only scaffold.
 
-Current listening result:
+The first few minutes suggested a much larger rear-heavy field, but longer listening corrected that impression. The reliable result is:
 
 ```text
 raw stereo clarity remains
-no obvious tinny/hallway regression
+no obvious tinny / hallway regression
 music still feels intact
-field sounds bigger than HeSuVi
-behind-head localization is strong
-percussion can localize too strongly behind the listener
+ON is only mildly enhanced versus OFF
 ```
 
-This is the **current protected sound foundation**.
+This is enough to protect the architecture because it solves the destructive-fidelity problem while producing the beginning of useful enhancement.
 
-The next sound work is therefore not “more rear.” It is:
+It is **not** enough to declare victory over HeSuVi or to claim the 360° world is already strong.
+
+The next sound work is therefore:
 
 ```text
-redistribute rear dominance into full 360° wrap
+make ON unmistakably larger than OFF
+redistribute support into full 360° wrap rather than rear-only gain
 strengthen front externalization
 fill side/front-side continuity
-add conservative height/lower-shell support
+add conservative height / upper-shell support
 add radial depth
 improve extent and ambient continuity
 restore / exceed incumbent energy and punch
 ```
 
+The active 7.1.4-shell successor is the first experiment in that direction.
+
 From here compare every candidate against both:
 
 ```text
 A. dry / OFF stereo
-B. this frequency-evidence foundation
+B. protected frequency-evidence fidelity floor
+C. incumbent HeSuVi/DTS chain when practical
 ```
 
 A candidate that sounds more dramatic than B but less musical loses.
@@ -1462,7 +1480,7 @@ Single physical path established. Generic full-wet stereo rendering was rejected
 
 Established. The dry master can remain authoritative while Omniphony support is added without the former phone/hallway failure.
 
-## P0.4 - frequency-evidence stereo field
+## P0.4 - frequency-evidence fidelity-preserving field
 
 **CURRENT PROTECTED FOUNDATION.**
 
@@ -1470,21 +1488,37 @@ Established listening wins:
 
 ```text
 raw clarity retained
-larger apparent scene than HeSuVi
-strong real rear localization
+music identity retained
+mild spatial enhancement over OFF
 no obvious room-smear requirement
 ```
 
-Current sound weaknesses:
+Not yet established:
 
 ```text
-rear-heavy balance
-insufficient front-side wrap
-insufficient height
-insufficient radial layering
-sphere not yet continuous
-energy/punch still below desired final presentation
+clear superiority to HeSuVi
+strong full-sphere effect
+height
+radial layering
+strong bypass collapse
+final energy/punch
 ```
+
+## P0.5 - stronger 7.1.4 evidence shell
+
+**ACTIVE EXPERIMENT.**
+
+Purpose:
+
+```text
+same protected stereo master
++ stronger derived support
++ overlapping front/side/rear lanes
++ conservative height lanes
++ less concentration of diffuse evidence into rear only
+```
+
+This becomes a new foundation only if listening says it preserves P0.4 fidelity while making ON clearly and desirably different from OFF.
 
 ## P1 - excellent everyday stereo music
 
@@ -1512,7 +1546,7 @@ Preserve 5.1/7.1/height/object semantics directly and let them coexist with ster
 
 ## P4 - deeper stereo presentation
 
-Most of the first P4 concepts have now begun moving into the active foundation:
+Several P4 concepts now underpin the active foundation:
 
 ```text
 center-anchor protection            active
@@ -1575,6 +1609,7 @@ Port the host. Do not fork a Windows-shaped core.
 - Do not adopt convolution complexity merely because it exists.
 - Do not let rear placement become the default definition of “spatial.”
 - Do not turn high frequencies into fake height or low frequencies into fake floor cues by simple register mapping.
+- Do not let an exciting first impression outrank longer clean listening.
 - Do not forget parked research.
 
 Use:
@@ -1602,30 +1637,32 @@ If context is lost, recover this hierarchy:
 6. ordinary stereo music is the dominant use case
 7. a finished stereo master is authoritative and must remain recognizable
 8. generic full-wet virtual-speaker stereo failed listening
-9. preserved-master direct + support architecture solved the fidelity failure
+9. preserved-master direct + support architecture solved the destructive-fidelity failure
 10. pure side-only support was too weak to produce the desired world
-11. the current frequency-evidence path is the protected sound foundation
-12. that foundation already preserves raw clarity and sounds bigger than HeSuVi
-13. convincing behind-head placement is now proven
-14. the current weakness is rear-heavy geometry, not lack of spatial effect
-15. next sound work is 360° wrap, front externalization, height, lower shell, radial depth and continuity
-16. energy/punch/density remain a separate sound dimension that must eventually exceed the incumbent without clipping
-17. bass/foundation, direct identity, center authority and source interaural cues remain protected
-18. analysis from amplitude/phase/M-S is evidence, not authored truth
-19. direct / broad / diffuse / room remain separate responsibilities
-20. richer surround/object sources keep their real source truth
-21. simultaneous streams keep independent layouts
-22. HeSuVi is incumbent/reference, not architecture
-23. migrate by disabling pieces before uninstalling them
-24. one physical path only and OFF must be clean
-25. Stereo Convolver's 2x2 matrix is a useful conceptual influence
-26. Trifield contributes center-stability law
-27. LCC contributes source ITD/ILD preservation law
-28. FreeSurround/Real3D contribute analysis evidence but not output truth
-29. Halo/Penteo contribute source-safe / reversibility constraints
-30. MathAudio contributes bounded correction/crossfeed lessons, not a renderer replacement
-31. Helix/libaural research must compress into small earned mechanisms
-32. bypass should collapse the world, not restore the music
+11. frequency-dependent amplitude/phase evidence is the protected stereo architecture
+12. the proven sound floor is raw clarity + intact music + mild enhancement, not yet a huge sphere
+13. early claims of being bigger than HeSuVi were corrected after longer listening and are not frozen facts
+14. the incumbent remains the spatial/energy oracle until repeated comparison proves replacement
+15. the active successor expands the evidence field into overlapping logical 7.1.4 with height and stronger support
+16. that successor must preserve the P0.4 fidelity floor before promotion
+17. next sound work is unmistakable 360° wrap, front externalization, height, lower shell, radial depth and continuity
+18. energy/punch/density remain a separate sound dimension that must eventually equal or exceed the incumbent without clipping
+19. bass/foundation, direct identity, center authority and source interaural cues remain protected
+20. analysis from amplitude/phase/M-S is evidence, not authored truth
+21. direct / broad / diffuse / room remain separate responsibilities
+22. richer surround/object sources keep their real source truth
+23. simultaneous streams keep independent layouts
+24. HeSuVi is incumbent/reference, not architecture
+25. migrate by disabling pieces before uninstalling them
+26. one physical path only and OFF must be clean
+27. Stereo Convolver's 2x2 matrix is a useful conceptual influence
+28. Trifield contributes center-stability law
+29. LCC contributes source ITD/ILD preservation law
+30. FreeSurround/Real3D contribute analysis evidence but not output truth
+31. Halo/Penteo contribute source-safe / reversibility constraints
+32. MathAudio contributes bounded correction/crossfeed lessons, not a renderer replacement
+33. Helix/libaural research must compress into small earned mechanisms
+34. bypass should collapse the world, not restore the music
 ```
 
 That is the current view of Omniphony for Headphones.
