@@ -149,6 +149,8 @@ jobs:
           Copy-Item 'target\release-deploy\omniphony_live.exe' $dist -Force
           Copy-Item 'target\release-deploy\omniphony_worker.exe' $dist -Force
           Copy-Item 'target\release-deploy\omniphony_app.exe' (Join-Path $dist 'Omniphony.exe') -Force
+          Copy-Item 'windows_host\START-OMNIPHONY.cmd' (Join-Path $dist 'START-OMNIPHONY.cmd') -Force
+          Copy-Item 'windows_host\LIVE-README.txt' (Join-Path $dist 'LIVE-README.txt') -Force
           Copy-Item 'assets\binaural-baselines\upstream-demo-reference.yaml' (Join-Path $reference 'upstream-demo-reference.yaml') -Force
           Copy-Item 'assets\binaural-baselines\stereo-music-prototype.yaml' (Join-Path $reference 'stereo-music-prototype.yaml') -Force
           Copy-Item 'assets\binaural-baselines\stereo-field-prototype.yaml' (Join-Path $reference 'stereo-field-prototype.yaml') -Force
@@ -164,82 +166,8 @@ jobs:
           pause
           '@ | Set-Content (Join-Path $dist 'LIST-DEVICES.cmd') -Encoding ascii
 
-          @'
-          Omniphony for Headphones - preserved-master stereo prototype
-
-          OPEN THIS:
-
-              Omniphony.exe
-
-          CURRENT PRODUCT EXPERIMENT
-
-          Ordinary stereo is no longer replaced by two fully HRTF-rendered virtual
-          speakers. The authored stereo master remains the direct signal.
-
-              captured stereo master
-                    |\
-                    | \-> side evidence (L-R)/2
-                    |      -> high-pass around 220 Hz
-                    |      -> rear/side Omniphony support scene
-                    |      -> upstream HRTF/ITD binaural renderer
-                    |      -> low-level support field (~14%)
-                    |
-                    +-----> latency-aligned untouched direct stereo
-                                   |
-                                   + support field
-                                   v
-                              headphones
-
-          The direct stereo is buffered to match the Omniphony support-field latency
-          before the two paths are combined. This is important: mixing an undelayed
-          master with a delayed spatial copy would itself create comb filtering.
-
-          The support field gets a veto at clipping. The original master is not scaled
-          down merely to make room for the effect.
-
-          The support scene deliberately uses:
-
-              SAF/KEMAR upstream Omniphony HRTF path
-              rear/side virtual support positions
-              no early reflections
-              no late reverb
-              no distance air absorption
-
-          This is a bounded architecture test, not the final spatial strength.
-
-          ON / OFF
-
-          Clicking ON/OFF restarts the hidden worker. A short gap is intentional so
-          the previous capture/output/convolution queues cannot leak into the new A/B.
-
-          OFF is the clean captured 2-channel master.
-
-          MIGRATION TEST SETUP
-
-          Keep your existing HeSuVi / Hi-Fi / ASIO stack INSTALLED.
-
-          For trustworthy listening:
-
-          1. Keep Hi-Fi Cable installed and keep normal Windows/foobar output routed to it.
-          2. Disable HeSuVi / old virtualization.
-          3. Stop ASIO Bridge or any other route independently forwarding to FiiO.
-          4. Disable foobar's 5.1 upmix and feed ordinary stereo.
-          5. Run Omniphony.exe. It automatically prefers the physical FiiO endpoint.
-
-          The old full-wet stereo prototype and upstream demo configs remain bundled as
-          regression/reference material. omniphony_live.exe remains a diagnostic tool.
-
-          PRODUCT ARCHITECTURE
-
-              platform shell / host
-                    -> portable source presentation
-                    -> upstream Omniphony spatial/binaural core
-                    -> 2-channel physical headphones
-
-          Windows is the first host, not part of the portable renderer identity.
-          '@ | Set-Content (Join-Path $dist 'LIVE-README.txt')
-
           foreach ($required in @(
+            'START-OMNIPHONY.cmd',
             'Omniphony.exe',
             'omniphony_worker.exe',
             'omniphony_live.exe',
