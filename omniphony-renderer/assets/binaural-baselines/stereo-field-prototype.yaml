@@ -1,38 +1,84 @@
 # Protected-master stereo support-field prototype.
 #
-# This config is NOT asked to render the finished stereo master. The Windows
-# listening worker keeps the original L/R samples authoritative and feeds only
-# a derived, bass-protected relational field through this Omniphony scene.
+# The finished stereo master never enters this scene. The portable music-field
+# processor analyzes real L/R magnitude + phase by frequency and emits a derived
+# 7.1 support bed in canonical bridge order:
 #
-# Early experiments used a pure (L-R)/2 side field and then tried increasingly
-# large render.master_gain values. Listening established that the architecture
-# could remain transparent, but the side-only evidence stayed effectively
-# inaudible. The current worker therefore owns the support amount explicitly and
-# derives a richer center-reduced L/R field.
+#   L/R     broad source extent
+#   C/LFE   zero (center authority + bass remain in the direct master)
+#   Ls/Rs   persistent lateral/object-like evidence
+#   Lb/Rb   diffuse/field-like evidence
 #
-# Keep this renderer itself unity-gain so runtime meters are interpretable:
-# extracted evidence -> Omniphony render -> explicit host support coefficient.
-#
-# The support scene remains intentionally dry: no early reflections, no late
-# reverb, no air absorption. Audible spatial change should come from geometry /
-# HRTF / ITD rather than a room effect.
+# The support renderer remains unity-gain and dry. Spatial audibility should
+# come from evidence-controlled geometry, HRTF and ITD rather than from an
+# artificial room tail.
 render:
   master_gain: 0.0
   virtual_bed:
     radius_m: 1.0
     speakers:
+      # Broad source extent: still connected to the frontal hemisphere, but
+      # wider and less head-locked than the untouched master underneath it.
       - name: "L"
         coord_mode: "cartesian"
         x: -1.0
-        y: -0.35
-        z: 0.15
+        y: 0.25
+        z: 0.10
         spatialize: true
         delay_ms: 0
       - name: "R"
         coord_mode: "cartesian"
         x: 1.0
-        y: -0.35
-        z: 0.15
+        y: 0.25
+        z: 0.10
+        spatialize: true
+        delay_ms: 0
+
+      # These channels are deliberately silent in the derived support bed.
+      - name: "C"
+        coord_mode: "cartesian"
+        x: 0.0
+        y: 1.0
+        z: 0.0
+        spatialize: true
+        delay_ms: 0
+      - name: "LFE"
+        coord_mode: "cartesian"
+        x: 0.0
+        y: 0.0
+        z: 0.0
+        spatialize: false
+        delay_ms: 0
+
+      # Persistent source-like lateral evidence.
+      - name: "Ls"
+        coord_mode: "cartesian"
+        x: -1.0
+        y: -0.15
+        z: 0.18
+        spatialize: true
+        delay_ms: 0
+      - name: "Rs"
+        coord_mode: "cartesian"
+        x: 1.0
+        y: -0.15
+        z: 0.18
+        spatialize: true
+        delay_ms: 0
+
+      # Diffuse/field-like evidence receives the strongest rearward extent.
+      - name: "Lb"
+        coord_mode: "cartesian"
+        x: -0.70
+        y: -0.85
+        z: 0.28
+        spatialize: true
+        delay_ms: 0
+      - name: "Rb"
+        coord_mode: "cartesian"
+        x: 0.70
+        y: -0.85
+        z: 0.28
         spatialize: true
         delay_ms: 0
   binaural:
