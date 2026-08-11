@@ -22,11 +22,11 @@
 #     front        primary
 #     rear         primary, but must not dominate
 #     height       primary
-#     sides        wide and continuous, but not the main radial-distance cue
+#     sides        fully wide and continuous; radial reach is secondary
 #
 # This is intentionally not a narrow front/back tunnel. Side width remains large;
-# the stronger *distance* impression is simply concentrated on the front/back/z
-# axes because that is where the target listener gets most of the bubble percept.
+# the stronger *distance* impression is concentrated on the front/back/z axes
+# because those dimensions contribute most strongly to the target bubble percept.
 render:
   master_gain: 0.0
   auto_gain: true
@@ -34,9 +34,8 @@ render:
   virtual_bed:
     radius_m: 1.0
     speakers:
-      # Front field: push the derived broad field fully into the front corners.
-      # With the 3.25 m binaural scene scale these sit about 4.6 m from the
-      # listener, materially farther than the side continuity lanes.
+      # Front field reaches the full front corners. At the 4 m scene scale these
+      # broad-support positions sit about 5.7 m from the listener.
       - name: "L"
         coord_mode: "cartesian"
         x: -1.0
@@ -68,8 +67,8 @@ render:
         spatialize: false
         delay_ms: 0
 
-      # Sides stay fully wide, but sit closer radially than front/rear/height.
-      # They stitch the sphere together rather than becoming its centre of mass.
+      # Sides remain maximally wide but deliberately closer in radial distance.
+      # They provide width and continuity without becoming the main scale cue.
       - name: "Ls"
         coord_mode: "cartesian"
         x: -1.0
@@ -85,27 +84,24 @@ render:
         spatialize: true
         delay_ms: 0
 
-      # Rear remains a real radial dimension, but is deliberately shorter than
-      # the front corners so it cannot pull the perceived bubble behind the head.
+      # Rear is again a primary depth axis, but remains shorter than front so
+      # the acoustic centre of gravity stays around/in front of the listener.
       - name: "Lb"
         coord_mode: "cartesian"
-        x: -0.82
-        y: -0.82
+        x: -0.90
+        y: -0.90
         z: 0.12
         spatialize: true
         delay_ms: 0
       - name: "Rb"
         coord_mode: "cartesian"
-        x: 0.82
-        y: -0.82
+        x: 0.90
+        y: -0.90
         z: 0.12
         spatialize: true
         delay_ms: 0
 
-      # Explicit height poses matter in binaural mode because metric distance is
-      # derived directly from the virtual-object coordinates. Top-front is the
-      # longest axis in the current music presentation and should provide the
-      # strongest sense of an acoustic canopy away from the skull.
+      # Upper-front remains the longest radial axis and supplies the large canopy.
       - name: "TFL"
         coord_mode: "cartesian"
         x: -0.92
@@ -121,20 +117,20 @@ render:
         spatialize: true
         delay_ms: 0
 
-      # Upper-rear closes the sphere with real distance while remaining shorter
-      # and less dominant than the upper-front canopy.
+      # Upper-rear has substantial real distance so the canopy closes behind,
+      # while remaining slightly shorter than upper-front.
       - name: "TBL"
         coord_mode: "cartesian"
-        x: -0.80
-        y: -0.82
-        z: 0.90
+        x: -0.86
+        y: -0.90
+        z: 0.95
         spatialize: true
         delay_ms: 0
       - name: "TBR"
         coord_mode: "cartesian"
-        x: 0.80
-        y: -0.82
-        z: 0.90
+        x: 0.86
+        y: -0.90
+        z: 0.95
         spatialize: true
         delay_ms: 0
 
@@ -142,30 +138,28 @@ render:
     output_mode: binaural
     hrir_source: saf
 
-    # Upstream Omniphony's real demo uses 3.0 m. The music field now goes a
-    # little farther because physical listening says radial distance, especially
-    # front/back/height, is the strongest contributor to the desired giant bubble.
-    # Direct support gain is not attenuated by this scale; Omniphony uses it for
-    # metric acoustic cues such as reflection geometry, air and room send.
-    unit_scale_m: 3.25
+    # Push the inherited metric-distance machinery harder. Direct support gain is
+    # not reduced by this scale: distance drives Omniphony's acoustic cues such
+    # as reflection geometry, air absorption and room send.
+    unit_scale_m: 4.0
 
-    # Native six-image first-order reflection bank. Keep this below the upstream
-    # demo's 0.4 while using a substantially larger room so the reflections act
-    # as distance/externalization evidence rather than a small audible room.
+    # A larger native first-order reflection room increases propagation distance
+    # and externalization. Level rises only slightly; bubble size should come from
+    # geometry/delay rather than an obviously wetter presentation.
     reflections:
       enabled: true
-      room_width_m: 7.0
-      room_depth_m: 10.0
-      room_height_m: 4.8
-      level: 0.30
+      room_width_m: 9.0
+      room_depth_m: 14.0
+      room_height_m: 6.5
+      level: 0.34
 
-    # Native FDN tail remains deliberately short and low. It supplies continuity
-    # and acoustic volume, never the main spatial effect.
+    # Native FDN remains short and low. Keep the tail subordinate to direct HRTF,
+    # metric distance and first-order reflection cues.
     reverb:
       enabled: true
       level: 0.07
       rt60_s: 0.24
-      predelay_ms: 20.0
+      predelay_ms: 22.0
 
     # Native distance-dependent HF attenuation touches only the derived support
     # scene. The authoritative stereo master stays full-band outside this scene.
