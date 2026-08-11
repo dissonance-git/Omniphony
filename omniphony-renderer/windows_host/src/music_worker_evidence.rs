@@ -238,6 +238,7 @@ pub fn run() -> anyhow::Result<()> {
 
     let quit = Arc::new(AtomicBool::new(false));
     let playback_underrun_frames = Arc::new(AtomicU64::new(0));
+    let playback_failed = Arc::new(AtomicBool::new(false));
     let (play_tx, play_rx) = sync_channel::<Vec<f32>>(PLAYBACK_QUEUE_BLOCKS);
     let playback_stream = build_playback_stream(
         &output_device,
@@ -245,6 +246,7 @@ pub fn run() -> anyhow::Result<()> {
         output_format,
         play_rx,
         Arc::clone(&playback_underrun_frames),
+        Arc::clone(&playback_failed),
     )?;
     spawn_quit_control(Arc::clone(&quit));
     playback_stream
@@ -270,6 +272,9 @@ pub fn run() -> anyhow::Result<()> {
     );
 
     while !quit.load(Ordering::Relaxed) {
+        if playback_failed.load(Ordering::Acquire) {
+            bail!("WASAPI playback stream failed; supervisor will restart the audio engine");
+        }
         let Some(input) = loopback.next_block()? else {
             std::thread::sleep(Duration::from_millis(1));
             continue;
@@ -637,18 +642,79 @@ fn build_playback_stream(
     format: cpal::SampleFormat,
     rx: Receiver<Vec<f32>>,
     underrun_frames: Arc<AtomicU64>,
+    stream_failed: Arc<AtomicBool>,
 ) -> anyhow::Result<cpal::Stream> {
     match format {
-        cpal::SampleFormat::I8 => build_typed_playback::<i8>(device, config, rx, underrun_frames),
-        cpal::SampleFormat::I16 => build_typed_playback::<i16>(device, config, rx, underrun_frames),
-        cpal::SampleFormat::I32 => build_typed_playback::<i32>(device, config, rx, underrun_frames),
-        cpal::SampleFormat::I64 => build_typed_playback::<i64>(device, config, rx, underrun_frames),
-        cpal::SampleFormat::U8 => build_typed_playback::<u8>(device, config, rx, underrun_frames),
-        cpal::SampleFormat::U16 => build_typed_playback::<u16>(device, config, rx, underrun_frames),
-        cpal::SampleFormat::U32 => build_typed_playback::<u32>(device, config, rx, underrun_frames),
-        cpal::SampleFormat::U64 => build_typed_playback::<u64>(device, config, rx, underrun_frames),
-        cpal::SampleFormat::F32 => build_typed_playback::<f32>(device, config, rx, underrun_frames),
-        cpal::SampleFormat::F64 => build_typed_playback::<f64>(device, config, rx, underrun_frames),
+        cpal::SampleFormat::I8 => build_typed_playback::<i8>(
+            device,
+            config,
+            rx,
+            underrun_frames,
+            Arc::clone(&stream_failed),
+        ),
+        cpal::SampleFormat::I16 => build_typed_playback::<i16>(
+            device,
+            config,
+            rx,
+            underrun_frames,
+            Arc::clone(&stream_failed),
+        ),
+        cpal::SampleFormat::I32 => build_typed_playback::<i32>(
+            device,
+            config,
+            rx,
+            underrun_frames,
+            Arc::clone(&stream_failed),
+        ),
+        cpal::SampleFormat::I64 => build_typed_playback::<i64>(
+            device,
+            config,
+            rx,
+            underrun_frames,
+            Arc::clone(&stream_failed),
+        ),
+        cpal::SampleFormat::U8 => build_typed_playback::<u8>(
+            device,
+            config,
+            rx,
+            underrun_frames,
+            Arc::clone(&stream_failed),
+        ),
+        cpal::SampleFormat::U16 => build_typed_playback::<u16>(
+            device,
+            config,
+            rx,
+            underrun_frames,
+            Arc::clone(&stream_failed),
+        ),
+        cpal::SampleFormat::U32 => build_typed_playback::<u32>(
+            device,
+            config,
+            rx,
+            underrun_frames,
+            Arc::clone(&stream_failed),
+        ),
+        cpal::SampleFormat::U64 => build_typed_playback::<u64>(
+            device,
+            config,
+            rx,
+            underrun_frames,
+            Arc::clone(&stream_failed),
+        ),
+        cpal::SampleFormat::F32 => build_typed_playback::<f32>(
+            device,
+            config,
+            rx,
+            underrun_frames,
+            Arc::clone(&stream_failed),
+        ),
+        cpal::SampleFormat::F64 => build_typed_playback::<f64>(
+            device,
+            config,
+            rx,
+            underrun_frames,
+            Arc::clone(&stream_failed),
+        ),
         other => bail!("unsupported WASAPI output sample format: {other:?}"),
     }
 }
@@ -658,6 +724,7 @@ fn build_typed_playback<T>(
     config: &cpal::StreamConfig,
     rx: Receiver<Vec<f32>>,
     underrun_frames: Arc<AtomicU64>,
+    stream_failed: Arc<AtomicBool>,
 ) -> anyhow::Result<cpal::Stream>
 where
     T: cpal::Sample + cpal::SizedSample + cpal::FromSample<f32>,
@@ -666,7 +733,10 @@ where
     let mut current = Vec::<f32>::new();
     let mut cursor = 0usize;
     let mut callback_mmcss = None;
-    let err_fn = |err| eprintln!("WASAPI playback stream error: {err}");
+    let err_fn = move |err| {
+        eprintln!("WASAPI playback stream error: {err}");
+        stream_failed.store(true, Ordering::Release);
+    };
     device
         .build_output_stream(
             config,
