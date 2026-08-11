@@ -9,9 +9,7 @@
 //! multiband filter bank, so this stage does not introduce STFT reconstruction
 //! latency or replace the protected direct master.
 
-use crate::scene_inference::{
-    SceneEvidenceInput, SceneEvidenceKind, infer_scene_evidence,
-};
+use crate::scene_inference::{SceneEvidenceInput, SceneEvidenceKind, infer_scene_evidence};
 use crate::stereo_inference::{
     StereoBinEvidence, StereoEvidenceTracker, StereoInferenceParams, estimate_bin,
 };
@@ -32,10 +30,15 @@ const HEIGHT_PRIOR: [f32; 3] = [0.26, 0.60, 0.82];
 /// Static top-band support trim. The previous candidate used instantaneous
 /// sample-energy normalization, which is itself a gain-modulation mechanism.
 /// A fixed scale cannot pump; slower scene controls own all audible movement.
-const HIGH_BAND_SUPPORT_SCALE: f32 = 0.72;
+const HIGH_BAND_SUPPORT_SCALE: f32 = 0.58;
 /// The first audible support band overlaps the musical body region. Keep it
 /// present for continuity, but let the protected master/foundation dominate.
 const LOW_MID_SUPPORT_SCALE: f32 = 0.82;
+/// Cascaded virtual-speaker -> HRTF rendering adds a second spectral-spatial
+/// shaping stage. Keep the 1.2-5 kHz presence band slightly direct-dominant
+/// so bright partials do not become hard-edged while the master retains all
+/// authored attack and clarity.
+const PRESENCE_SUPPORT_SCALE: f32 = 0.90;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MusicFieldSnapshot {
@@ -96,13 +99,12 @@ fn slew_with_rates(current: f32, target: f32, rise: f32, fall: f32) -> f32 {
     (current + coefficient * (target - current)).clamp(0.0, 1.0)
 }
 
-fn slew_signed_with_rates(
-    current: f32,
-    target: f32,
-    rise: f32,
-    fall: f32,
-) -> f32 {
-    let coefficient = if target.abs() > current.abs() { rise } else { fall };
+fn slew_signed_with_rates(current: f32, target: f32, rise: f32, fall: f32) -> f32 {
+    let coefficient = if target.abs() > current.abs() {
+        rise
+    } else {
+        fall
+    };
     (current + coefficient * (target - current)).clamp(-1.0, 1.0)
 }
 
@@ -243,46 +245,38 @@ impl MusicFieldProcessor {
 
                 let broad_l = relational_l * control.broad;
                 let broad_r = relational_r * control.broad;
-                let lateral_l = (0.70 * relational_l + 0.30 * side)
-                    * control.lateral
-                    * (0.62 + 0.38 * steer_l);
-                let lateral_r = (0.70 * relational_r - 0.30 * side)
-                    * control.lateral
-                    * (0.62 + 0.38 * steer_r);
+                let lateral_l =
+                    (0.70 * relational_l + 0.30 * side) * control.lateral * (0.62 + 0.38 * steer_l);
+                let lateral_r =
+                    (0.70 * relational_r - 0.30 * side) * control.lateral * (0.62 + 0.38 * steer_r);
                 let diffuse_l = side * control.diffuse;
                 let diffuse_r = -side * control.diffuse;
 
                 let mut band_front_l = 0.98 * broad_l + 0.16 * lateral_l;
                 let mut band_front_r = 0.98 * broad_r + 0.16 * lateral_r;
-                let mut band_side_l =
-                    0.28 * broad_l + 0.90 * lateral_l + 0.06 * diffuse_l;
-                let mut band_side_r =
-                    0.28 * broad_r + 0.90 * lateral_r + 0.06 * diffuse_r;
+                let mut band_side_l = 0.28 * broad_l + 0.90 * lateral_l + 0.06 * diffuse_l;
+                let mut band_side_r = 0.28 * broad_r + 0.90 * lateral_r + 0.06 * diffuse_r;
                 let mut band_rear_l = 0.14 * lateral_l + 0.28 * diffuse_l;
                 let mut band_rear_r = 0.14 * lateral_r + 0.28 * diffuse_r;
 
                 let height = control.height;
                 let front_height_mid = mid * control.broad * 0.08;
                 let mut band_top_front_l = height
-                    * (0.62 * broad_l
-                        + 0.22 * lateral_l
-                        + 0.08 * diffuse_l
-                        + front_height_mid);
+                    * (0.62 * broad_l + 0.22 * lateral_l + 0.08 * diffuse_l + front_height_mid);
                 let mut band_top_front_r = height
-                    * (0.62 * broad_r
-                        + 0.22 * lateral_r
-                        + 0.08 * diffuse_r
-                        + front_height_mid);
-                let mut band_top_rear_l = height
-                    * (0.06 * broad_l + 0.10 * lateral_l + 0.19 * diffuse_l);
-                let mut band_top_rear_r = height
-                    * (0.06 * broad_r + 0.10 * lateral_r + 0.19 * diffuse_r);
+                    * (0.62 * broad_r + 0.22 * lateral_r + 0.08 * diffuse_r + front_height_mid);
+                let mut band_top_rear_l =
+                    height * (0.06 * broad_l + 0.10 * lateral_l + 0.19 * diffuse_l);
+                let mut band_top_rear_r =
+                    height * (0.06 * broad_r + 0.10 * lateral_r + 0.19 * diffuse_r);
 
                 // Keep the musical body region direct-dominant so kicks, toms,
                 // snare body and bass transients do not lose authority to room
                 // propagation. The mid/high bands remain the stronger spatial fuel.
                 let static_band_scale = if band == 1 {
                     LOW_MID_SUPPORT_SCALE
+                } else if band == 2 {
+                    PRESENCE_SUPPORT_SCALE
                 } else if band == 3 {
                     HIGH_BAND_SUPPORT_SCALE
                 } else {
@@ -388,11 +382,7 @@ impl MusicFieldProcessor {
                 },
                 params,
             );
-            let tracked = self.trackers[bin].update(
-                estimate,
-                elapsed_ms,
-                TRACK_TIME_CONSTANT_MS,
-            );
+            let tracked = self.trackers[bin].update(estimate, elapsed_ms, TRACK_TIME_CONSTANT_MS);
             let candidate = infer_scene_evidence(SceneEvidenceInput {
                 frequency_hz,
                 estimate,
@@ -452,8 +442,7 @@ impl MusicFieldProcessor {
                 let diffuse = ((a.diffuse / a.weight) * 1.70).clamp(0.0, 1.0);
                 let shell_evidence =
                     (0.45 * broad + 0.25 * lateral + 0.65 * diffuse).clamp(0.0, 1.0);
-                let height = (HEIGHT_PRIOR[index] * (0.35 + 0.65 * shell_evidence))
-                    .clamp(0.0, 1.0);
+                let height = (HEIGHT_PRIOR[index] * (0.35 + 0.65 * shell_evidence)).clamp(0.0, 1.0);
                 BandControl {
                     anchor: (a.anchor / a.weight).clamp(0.0, 1.0),
                     broad,

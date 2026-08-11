@@ -376,14 +376,9 @@ pub fn build_spatial_renderer(
         .and_then(LiveEvaluationMode::from_str);
     {
         let control = renderer.renderer_control();
-        // Register the demonstration backend so `backend_id = "example"` resolves.
-        control.register_backend(Box::new(example_backend::ExampleFactory));
-        // User-scriptable (Lua) backend; selecting `backend_id = "script"` routes
-        // a rebuild through it, reading its `.lua` path from the param store.
-        control.register_backend(Box::new(script_backend::ScriptFactory));
-        // Resolved after registration so any registered backend (not just the
-        // historical concrete ones) is accepted as a hybrid inner model; a nested
-        // hybrid or an unregistered id falls back to the default.
+        // This fork keeps the built-in/registered renderer frontier only.
+        // Cascaded binaural does not depend on upstream demo/script backends.
+        // A nested hybrid or an unregistered id falls back to the default.
         let hybrid_cfg = render_cfg.map(|cfg| {
             let defaults = renderer::live_params::HybridLiveParams::default();
             let valid_inner = |id: &str| id != "hybrid" && control.has_backend(id);
