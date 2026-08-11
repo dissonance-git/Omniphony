@@ -20,6 +20,7 @@ libc = "0.2"
 parking_lot = "0.12"
 flate2 = "1.0"
 rayon = "1"
+rustfft = "6"
 sys = { path = "../sys" }
 sofar = { version = "0.3", optional = true }
 
