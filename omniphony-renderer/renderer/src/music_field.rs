@@ -25,7 +25,13 @@ pub const MUSIC_FIELD_CHANNELS: usize = 12;
 const FFT_SIZE: usize = 1024;
 const TRACK_TIME_CONSTANT_MS: f32 = 140.0;
 const CROSSOVER_HZ: [f32; 3] = [220.0, 1_200.0, 5_000.0];
-const HEIGHT_PRIOR: [f32; 3] = [0.24, 0.54, 0.72];
+const HEIGHT_PRIOR: [f32; 3] = [0.26, 0.60, 0.80];
+/// The protected master already carries the complete >5 kHz waveform. Height
+/// may redistribute that evidence spatially, but duplicating it into more and
+/// more support lanes must not make the treble breathe in level as scene
+/// confidence changes. The highest band therefore gets a constant-energy
+/// support budget relative to the source band while its geometry remains free.
+const HIGH_BAND_SUPPORT_ENERGY_RATIO: f32 = 0.60;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MusicFieldSnapshot {
@@ -62,24 +68,38 @@ struct BandControl {
 }
 
 impl BandControl {
-    fn approach(&mut self, target: Self) {
-        self.anchor = slew(self.anchor, target.anchor);
-        self.broad = slew(self.broad, target.broad);
-        self.lateral = slew(self.lateral, target.lateral);
-        self.diffuse = slew(self.diffuse, target.diffuse);
-        self.height = slew(self.height, target.height);
-        self.pan = slew_signed(self.pan, target.pan);
-        self.side_fraction = slew(self.side_fraction, target.side_fraction);
+    fn approach(&mut self, target: Self, high_band: bool) {
+        // The top band used to open/close at the same rate as the body bands.
+        // Because >5 kHz also carries the strongest height prior, that could be
+        // heard as a treble "volume slider" rather than stable geometry. Keep
+        // high-band motion slower while retaining its larger spatial reach.
+        let (rise, fall, pan_rise, pan_fall) = if high_band {
+            (0.14, 0.055, 0.12, 0.055)
+        } else {
+            (0.32, 0.12, 0.30, 0.12)
+        };
+        self.anchor = slew_with_rates(self.anchor, target.anchor, rise, fall);
+        self.broad = slew_with_rates(self.broad, target.broad, rise, fall);
+        self.lateral = slew_with_rates(self.lateral, target.lateral, rise, fall);
+        self.diffuse = slew_with_rates(self.diffuse, target.diffuse, rise, fall);
+        self.height = slew_with_rates(self.height, target.height, rise, fall);
+        self.pan = slew_signed_with_rates(self.pan, target.pan, pan_rise, pan_fall);
+        self.side_fraction = slew_with_rates(self.side_fraction, target.side_fraction, rise, fall);
     }
 }
 
-fn slew(current: f32, target: f32) -> f32 {
-    let coefficient = if target > current { 0.32 } else { 0.12 };
+fn slew_with_rates(current: f32, target: f32, rise: f32, fall: f32) -> f32 {
+    let coefficient = if target > current { rise } else { fall };
     (current + coefficient * (target - current)).clamp(0.0, 1.0)
 }
 
-fn slew_signed(current: f32, target: f32) -> f32 {
-    let coefficient = if target.abs() > current.abs() { 0.30 } else { 0.12 };
+fn slew_signed_with_rates(
+    current: f32,
+    target: f32,
+    rise: f32,
+    fall: f32,
+) -> f32 {
+    let coefficient = if target.abs() > current.abs() { rise } else { fall };
     (current + coefficient * (target - current)).clamp(-1.0, 1.0)
 }
 
@@ -135,14 +155,14 @@ impl ChannelBandSplit {
 /// Output order is canonical 7.1.4:
 /// `L R C LFE Ls Rs Lb Rb Tfl Tfr Tbl Tbr`.
 ///
-/// The P0.6 shell deliberately overlaps evidence across neighbouring regions
-/// while biasing the added field toward the anterior and upper-front volume:
+/// The shell overlaps evidence across neighbouring regions while biasing the
+/// added field toward a wide, depth-led sphere:
 ///
 /// - L/R carry broad front/front-side extent;
 /// - Ls/Rs carry continuous lateral wrap;
-/// - Lb/Rb carry a restrained rear continuation;
+/// - Lb/Rb carry substantial rear depth without becoming gravity;
 /// - Tfl/Tfr carry the dominant vertical extent;
-/// - Tbl/Tbr retain only enough energy to close the upper shell behind.
+/// - Tbl/Tbr close the upper shell behind.
 ///
 /// C and LFE remain silent because center authority and low-frequency pressure
 /// belong to the untouched master. Height is a presentation permission, not a
@@ -233,39 +253,81 @@ impl MusicFieldProcessor {
                 let diffuse_l = side * control.diffuse;
                 let diffuse_r = -side * control.diffuse;
 
-                // P0.6 anterior reweighting. The current listening result says
-                // the clean field is real but behaves like a horizontal band
-                // that collapses inward and rearward. Preserve the strong side
-                // wrap, move diffuse continuation away from the rear, and give
-                // the front/front-side hemisphere more of the same evidence.
-                front_l += 0.98 * broad_l + 0.16 * lateral_l;
-                front_r += 0.98 * broad_r + 0.16 * lateral_r;
-                side_l += 0.28 * broad_l + 0.90 * lateral_l + 0.06 * diffuse_l;
-                side_r += 0.28 * broad_r + 0.90 * lateral_r + 0.06 * diffuse_r;
-                rear_l += 0.10 * lateral_l + 0.22 * diffuse_l;
-                rear_r += 0.10 * lateral_r + 0.22 * diffuse_r;
+                let mut band_front_l = 0.98 * broad_l + 0.16 * lateral_l;
+                let mut band_front_r = 0.98 * broad_r + 0.16 * lateral_r;
+                let mut band_side_l =
+                    0.28 * broad_l + 0.90 * lateral_l + 0.06 * diffuse_l;
+                let mut band_side_r =
+                    0.28 * broad_r + 0.90 * lateral_r + 0.06 * diffuse_r;
 
-                // Height-only upmixers provide a useful restraint: derive
-                // ceiling support mostly from difference/spatial evidence, with
-                // only a tiny coherent-mid feed. Here that mid feed remains
-                // gated by broad-scene evidence, so a protected frontal anchor
-                // still cannot become a synthetic overhead vocal.
+                // Physical listening after the first distance-led pass says the
+                // rear became slightly too polite. Restore impact without making
+                // rear the centre of gravity again.
+                let mut band_rear_l = 0.14 * lateral_l + 0.28 * diffuse_l;
+                let mut band_rear_r = 0.14 * lateral_r + 0.28 * diffuse_r;
+
+                // Height remains the most promising unused axis. Increase its
+                // permission while keeping the coherent-mid feed tiny and gated.
                 let height = control.height;
                 let front_height_mid = mid * control.broad * 0.08;
-                top_front_l += height
+                let mut band_top_front_l = height
                     * (0.62 * broad_l
                         + 0.22 * lateral_l
                         + 0.08 * diffuse_l
                         + front_height_mid);
-                top_front_r += height
+                let mut band_top_front_r = height
                     * (0.62 * broad_r
                         + 0.22 * lateral_r
                         + 0.08 * diffuse_r
                         + front_height_mid);
-                top_rear_l += height
-                    * (0.04 * broad_l + 0.07 * lateral_l + 0.16 * diffuse_l);
-                top_rear_r += height
-                    * (0.04 * broad_r + 0.07 * lateral_r + 0.16 * diffuse_r);
+                let mut band_top_rear_l = height
+                    * (0.06 * broad_l + 0.10 * lateral_l + 0.19 * diffuse_l);
+                let mut band_top_rear_r = height
+                    * (0.06 * broad_r + 0.10 * lateral_r + 0.19 * diffuse_r);
+
+                if band == 3 {
+                    // The same high-frequency evidence can occupy many spatial
+                    // lanes, but that must change *where* it is heard rather than
+                    // act as a content-dependent treble gain control. Normalize
+                    // only when the distributed >5 kHz support exceeds its fixed
+                    // energy budget. All lane ratios, including height, survive.
+                    let source_energy = left * left + right * right;
+                    let support_energy = band_front_l * band_front_l
+                        + band_front_r * band_front_r
+                        + band_side_l * band_side_l
+                        + band_side_r * band_side_r
+                        + band_rear_l * band_rear_l
+                        + band_rear_r * band_rear_r
+                        + band_top_front_l * band_top_front_l
+                        + band_top_front_r * band_top_front_r
+                        + band_top_rear_l * band_top_rear_l
+                        + band_top_rear_r * band_top_rear_r;
+                    let max_support_energy = source_energy * HIGH_BAND_SUPPORT_ENERGY_RATIO;
+                    if support_energy > max_support_energy && support_energy > 1.0e-12 {
+                        let scale = (max_support_energy / support_energy).sqrt();
+                        band_front_l *= scale;
+                        band_front_r *= scale;
+                        band_side_l *= scale;
+                        band_side_r *= scale;
+                        band_rear_l *= scale;
+                        band_rear_r *= scale;
+                        band_top_front_l *= scale;
+                        band_top_front_r *= scale;
+                        band_top_rear_l *= scale;
+                        band_top_rear_r *= scale;
+                    }
+                }
+
+                front_l += band_front_l;
+                front_r += band_front_r;
+                side_l += band_side_l;
+                side_r += band_side_r;
+                rear_l += band_rear_l;
+                rear_r += band_rear_r;
+                top_front_l += band_top_front_l;
+                top_front_r += band_top_front_r;
+                top_rear_l += band_top_rear_l;
+                top_rear_r += band_top_rear_r;
             }
 
             out.extend_from_slice(&[
@@ -427,7 +489,7 @@ impl MusicFieldProcessor {
             } else {
                 BandControl::default()
             };
-            self.controls[index].approach(target);
+            self.controls[index].approach(target, index == 2);
 
             let w = a.weight.max(1.0e-9);
             snapshot_weight += w;
@@ -503,6 +565,32 @@ mod tests {
         assert!(height_energy > 0.0);
         assert!(top_front_energy > top_rear_energy);
         assert_eq!(lfe_energy, 0.0);
+    }
+
+    #[test]
+    fn high_band_distribution_is_energy_bounded() {
+        let mut processor = MusicFieldProcessor::new(48_000);
+        let mut input = Vec::new();
+        for i in 0..4096 {
+            let x = (2.0 * PI * 9000.0 * i as f32 / 48_000.0).sin() * 0.5;
+            input.extend_from_slice(&[x, -0.6 * x]);
+        }
+        for chunk in input.chunks(2048) {
+            let out = processor.process_interleaved_stereo(chunk);
+            let mut support_energy = 0.0;
+            let mut direct_energy = 0.0;
+            for (support, direct) in out
+                .chunks_exact(MUSIC_FIELD_CHANNELS)
+                .zip(chunk.chunks_exact(2))
+            {
+                support_energy += support.iter().map(|x| x * x).sum::<f32>();
+                direct_energy += direct[0] * direct[0] + direct[1] * direct[1];
+            }
+            assert!(
+                support_energy <= direct_energy * (HIGH_BAND_SUPPORT_ENERGY_RATIO + 0.03),
+                "high-band support energy {support_energy:.6} exceeded bounded source budget {direct_energy:.6}"
+            );
+        }
     }
 
     #[test]
