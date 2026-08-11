@@ -68,13 +68,7 @@ fn prime_renderer(initial: &SpatialChannelEvent) -> SpatialRenderer {
             .map(|sample| pseudo((block_start + sample) as u64) * 0.25)
             .collect();
         let frame = renderer
-            .render_frame(
-                &pcm,
-                1,
-                std::slice::from_ref(initial),
-                reuse,
-                false,
-            )
+            .render_frame(&pcm, 1, std::slice::from_ref(initial), reuse, false)
             .expect("prime fixed binaural object");
         reuse = frame.samples;
         reuse.clear();

@@ -107,30 +107,23 @@ pub fn infer_scene_evidence(input: SceneEvidenceInput) -> SceneCandidateEvidence
         0.0
     };
 
-    let object_support = stable_lateral_object_score(
-        tracked,
-        input.magnitude,
-        input.reference_magnitude,
-    );
+    let object_support =
+        stable_lateral_object_score(tracked, input.magnitude, input.reference_magnitude);
 
     // Diffuse evidence should become stronger when both the directness model and
     // true complex M/S structure say the energy is field-like.
-    let field_support = (estimate.diffuseness * (0.35 + 0.65 * side_fraction))
-        .clamp(0.0, 1.0);
+    let field_support = (estimate.diffuseness * (0.35 + 0.65 * side_fraction)).clamp(0.0, 1.0);
 
     let bass_anchor = bass_anchor_weight(input.frequency_hz);
-    let coherent_center = (1.0 - tracked.pan.abs()).clamp(0.0, 1.0)
-        * tracked.directness
-        * tracked.persistence;
+    let coherent_center =
+        (1.0 - tracked.pan.abs()).clamp(0.0, 1.0) * tracked.directness * tracked.persistence;
 
     // Frequency alone cannot establish musical role. Low-frequency energy only
     // becomes foundation evidence when it is also persistent, source-like and
     // not better explained as a diffuse field.
-    let foundation_support = (bass_anchor
-        * tracked.directness
-        * tracked.persistence
-        * (1.0 - field_support))
-        .clamp(0.0, 1.0);
+    let foundation_support =
+        (bass_anchor * tracked.directness * tracked.persistence * (1.0 - field_support))
+            .clamp(0.0, 1.0);
 
     let kind = if coherent_center > 0.62 || foundation_support > 0.55 {
         SceneEvidenceKind::FrontalAnchor
@@ -147,11 +140,9 @@ pub fn infer_scene_evidence(input: SceneEvidenceInput) -> SceneCandidateEvidence
     // direct evidence. The bass penalty applies even when low-frequency energy
     // is diffuse: "do not smear the low end" is a presentation safeguard, not
     // a claim that every bass component is one frontal object.
-    let reassignment_safety = (object_support
-        * lateral_strength
-        * (1.0 - bass_anchor)
-        * (1.0 - 0.65 * field_support))
-        .clamp(0.0, 1.0);
+    let reassignment_safety =
+        (object_support * lateral_strength * (1.0 - bass_anchor) * (1.0 - 0.65 * field_support))
+            .clamp(0.0, 1.0);
 
     // The upstream object-support score intentionally maps a reference-level
     // component to roughly half-scale before lateral/persistence penalties. A
@@ -162,8 +153,10 @@ pub fn infer_scene_evidence(input: SceneEvidenceInput) -> SceneCandidateEvidence
         && matches!(kind, SceneEvidenceKind::LateralObjectCandidate)
     {
         SpatialSpecificity::Specific
-    } else if matches!(kind, SceneEvidenceKind::BroadSource | SceneEvidenceKind::DiffuseField)
-        || side_fraction > 0.30
+    } else if matches!(
+        kind,
+        SceneEvidenceKind::BroadSource | SceneEvidenceKind::DiffuseField
+    ) || side_fraction > 0.30
     {
         SpatialSpecificity::Broad
     } else {

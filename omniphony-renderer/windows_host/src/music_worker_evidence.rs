@@ -55,7 +55,7 @@ fn parse_args() -> anyhow::Result<Args> {
             "-h" | "--help" => {
                 println!(
                     "Omniphony frequency-evidence full-sphere stereo prototype\n\n\
-                     Usage:\n  omniphony_worker.exe [--output <name>] [--start-off]\n\n\
+                     Usage:\n  Omniphony.exe (internal engine mode)\n\n\
                      ON preserves the captured stereo master and analyzes real\n\
                      L/R magnitude/phase relationships by frequency. Portable\n\
                      Omniphony evidence laws derive broad, lateral, diffuse and\n\
@@ -211,11 +211,13 @@ pub fn run() -> anyhow::Result<()> {
     );
     println!("  realtime: producer + playback callback claim MMCSS; queue underruns are metered");
 
-    let bundle = Bundle::beside_executable()?;
+    let bundle = Bundle::embedded()?;
+    orender_engine::bridge_loader::register_linked_bridge(reference_bridge::linked_library)
+        .context("failed to register linked reference PCM bridge")?;
     let mut field_engine = Engine::from_paths(
         Some(&bundle.field_config),
         Some(&bundle.layout),
-        Some(&bundle.bridge),
+        None,
         None,
         SAMPLE_RATE_HZ,
     )
@@ -526,31 +528,39 @@ impl LoopbackCapture {
 }
 
 struct Bundle {
-    bridge: PathBuf,
     field_config: PathBuf,
     layout: PathBuf,
 }
 
 impl Bundle {
-    fn beside_executable() -> anyhow::Result<Self> {
-        let exe = std::env::current_exe().context("failed to resolve executable path")?;
-        let root = exe.parent().context("executable has no parent directory")?;
-        let reference = root.join("reference-demo");
-        let bundle = Self {
-            bridge: root.join("reference_bridge.dll"),
-            field_config: reference.join("stereo-field-prototype.yaml"),
-            layout: reference.join("7.1.4.yaml"),
-        };
-        require_file(&bundle.bridge, "reference PCM bridge")?;
-        require_file(&bundle.field_config, "music support-field Omniphony config")?;
-        require_file(&bundle.layout, "7.1.4 render layout")?;
-        Ok(bundle)
+    fn embedded() -> anyhow::Result<Self> {
+        const FIELD_CONFIG: &str =
+            include_str!("../../assets/binaural-baselines/stereo-field-prototype.yaml");
+        const LAYOUT: &str = include_str!("../../../layouts/7.1.4.yaml");
+
+        let root = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir)
+            .join("Omniphony")
+            .join("runtime");
+        std::fs::create_dir_all(&root)
+            .context("failed to create embedded Omniphony runtime directory")?;
+        let field_config = root.join("stereo-field-prototype.yaml");
+        let layout = root.join("7.1.4.yaml");
+        write_embedded_asset(&field_config, FIELD_CONFIG)?;
+        write_embedded_asset(&layout, LAYOUT)?;
+        Ok(Self {
+            field_config,
+            layout,
+        })
     }
 }
 
-fn require_file(path: &Path, label: &str) -> anyhow::Result<()> {
-    if !path.is_file() {
-        bail!("missing {label}: {}", path.display());
+fn write_embedded_asset(path: &Path, content: &str) -> anyhow::Result<()> {
+    let current = std::fs::read_to_string(path).ok();
+    if current.as_deref() != Some(content) {
+        std::fs::write(path, content)
+            .with_context(|| format!("failed to materialize {}", path.display()))?;
     }
     Ok(())
 }

@@ -57,8 +57,6 @@ pub fn probe_self_excluding_system_loopback() -> Result<()> {
         .get_audiocaptureclient()
         .context("loopback stream initialized but did not expose an audio capture client")?;
 
-    println!(
-        "loopback capture: ready (48 kHz stereo float, shared, self process tree excluded)"
-    );
+    println!("loopback capture: ready (48 kHz stereo float, shared, self process tree excluded)");
     Ok(())
 }

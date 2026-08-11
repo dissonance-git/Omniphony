@@ -16,7 +16,9 @@ const SAMPLE_RATE: f64 = 48_000.0;
 // Pinna-driven localization evidence is strongest above the low-frequency ITD
 // region. Sparse probes keep this dependency-free and make the measurement easy
 // to inspect instead of hiding it inside an FFT package.
-const PROBE_HZ: [f64; 7] = [3_000.0, 5_000.0, 7_000.0, 9_000.0, 11_000.0, 13_000.0, 15_000.0];
+const PROBE_HZ: [f64; 7] = [
+    3_000.0, 5_000.0, 7_000.0, 9_000.0, 11_000.0, 13_000.0, 15_000.0,
+];
 
 fn pair_at(set: &HrirSet, az_deg: f32, el_deg: f32) -> HrirPair {
     let mut pair = HrirPair {

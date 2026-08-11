@@ -177,13 +177,16 @@ fn render_file(source: &Path) -> anyhow::Result<RenderedFile> {
 
     require_file(source, "input WAV")?;
     let bundle = Bundle::beside_executable()?;
-    let input = std::fs::read(source)
-        .with_context(|| format!("failed to read {}", source.display()))?;
+    let input =
+        std::fs::read(source).with_context(|| format!("failed to read {}", source.display()))?;
     let info = parse_wav_info(&input)?;
 
     println!("Omniphony for Headphones file listening prototype");
     println!("  source: {}", source.display());
-    println!("  input: {} channel(s) @ {} Hz", info.channels, info.sample_rate_hz);
+    println!(
+        "  input: {} channel(s) @ {} Hz",
+        info.channels, info.sample_rate_hz
+    );
     println!("  config: {}", bundle.config.display());
     println!("  layout: {}", bundle.layout.display());
     println!("  mode: channel content forced through protected binaural render path");
@@ -217,7 +220,10 @@ fn render_file(source: &Path) -> anyhow::Result<RenderedFile> {
             .context("WAV bridge/Omniphony renderer failed")?;
         for block in blocks {
             if block.n_channels != OUTPUT_CHANNELS {
-                bail!("renderer changed output width to {} channels", block.n_channels);
+                bail!(
+                    "renderer changed output width to {} channels",
+                    block.n_channels
+                );
             }
             rendered.extend_from_slice(&block.samples);
         }
@@ -288,12 +294,7 @@ impl RealtimeProcessorHandle {
 
     fn process_in_place(&mut self, samples: &mut [f32], frames: usize) -> anyhow::Result<()> {
         let rc = unsafe {
-            omniphony_realtime_process_f32(
-                self.ptr,
-                samples.as_ptr(),
-                samples.as_mut_ptr(),
-                frames,
-            )
+            omniphony_realtime_process_f32(self.ptr, samples.as_ptr(), samples.as_mut_ptr(), frames)
         };
         if rc != 0 {
             bail!("realtime PCM seam returned error {rc}");
@@ -336,10 +337,14 @@ fn choose_stereo_output_config(
             };
             (range.channels(), format_rank)
         })
-        .with_context(|| format!("default WASAPI device has no >=2ch {sample_rate_hz} Hz output"))?;
+        .with_context(|| {
+            format!("default WASAPI device has no >=2ch {sample_rate_hz} Hz output")
+        })?;
 
     let sample_format = best.sample_format();
-    let config = best.with_sample_rate(cpal::SampleRate(sample_rate_hz)).config();
+    let config = best
+        .with_sample_rate(cpal::SampleRate(sample_rate_hz))
+        .config();
     Ok((sample_format, config))
 }
 

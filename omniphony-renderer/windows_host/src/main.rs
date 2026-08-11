@@ -133,12 +133,7 @@ impl RealtimeProcessorHandle {
 
     fn process_in_place(&mut self, samples: &mut [f32], frames: usize) -> anyhow::Result<()> {
         let rc = unsafe {
-            omniphony_realtime_process_f32(
-                self.ptr,
-                samples.as_ptr(),
-                samples.as_mut_ptr(),
-                frames,
-            )
+            omniphony_realtime_process_f32(self.ptr, samples.as_ptr(), samples.as_mut_ptr(), frames)
         };
         if rc != 0 {
             bail!("realtime PCM processor returned error {rc}");
@@ -228,10 +223,7 @@ where
                         let fade_in = (frame_index as f32 / ramp_frames as f32).min(1.0);
                         let fade_out = (remaining as f32 / ramp_frames as f32).min(1.0);
                         let envelope = fade_in.min(fade_out);
-                        let phase = 2.0
-                            * std::f32::consts::PI
-                            * 440.0
-                            * frame_index as f32
+                        let phase = 2.0 * std::f32::consts::PI * 440.0 * frame_index as f32
                             / sample_rate_hz as f32;
                         0.08 * envelope * phase.sin()
                     } else {
@@ -258,7 +250,9 @@ where
         )
         .context("failed to create default WASAPI output stream")?;
 
-    stream.play().context("failed to start WASAPI output stream")?;
+    stream
+        .play()
+        .context("failed to start WASAPI output stream")?;
     std::thread::sleep(duration + Duration::from_millis(150));
     drop(stream);
 
@@ -428,10 +422,14 @@ fn choose_stereo_output_config(
             };
             (range.channels(), format_rank)
         })
-        .with_context(|| format!("default WASAPI device has no >=2ch {sample_rate_hz} Hz output"))?;
+        .with_context(|| {
+            format!("default WASAPI device has no >=2ch {sample_rate_hz} Hz output")
+        })?;
 
     let sample_format = best.sample_format();
-    let config = best.with_sample_rate(cpal::SampleRate(sample_rate_hz)).config();
+    let config = best
+        .with_sample_rate(cpal::SampleRate(sample_rate_hz))
+        .config();
     Ok((sample_format, config))
 }
 

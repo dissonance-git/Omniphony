@@ -136,10 +136,7 @@ impl<'a> AudioInputBlock<'a> {
 pub enum AudioContractError {
     ZeroSampleRate,
     ZeroChannels,
-    PartialFrame {
-        sample_count: usize,
-        channels: u16,
-    },
+    PartialFrame { sample_count: usize, channels: u16 },
 }
 
 impl fmt::Display for AudioContractError {

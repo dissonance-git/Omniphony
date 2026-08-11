@@ -6,6 +6,19 @@ use bridge_api::{
     RVbapTableMode,
 };
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+static LINKED_BRIDGE_FACTORY: OnceLock<fn() -> BridgeLibRef> = OnceLock::new();
+
+pub fn register_linked_bridge(factory: fn() -> BridgeLibRef) -> Result<()> {
+    LINKED_BRIDGE_FACTORY
+        .set(factory)
+        .map_err(|_| anyhow::anyhow!("a linked bridge is already registered"))
+}
+
+pub fn linked_bridge() -> Option<BridgeLibRef> {
+    LINKED_BRIDGE_FACTORY.get().map(|factory| factory())
+}
 
 /// Loaded bridge library + live bridge instance.
 ///
@@ -19,6 +32,13 @@ pub struct LoadedBridge {
 }
 
 impl LoadedBridge {
+    pub fn from_library(lib: BridgeLibRef) -> Self {
+        install_bridge_host_log_sink(&lib);
+        let new_bridge = lib.new_bridge();
+        let bridge = new_bridge(false);
+        Self { lib, bridge }
+    }
+
     /// Load a bridge plugin from `path` and create one instance.
     ///
     /// Format-specific options (e.g. presentation index) are applied afterwards via

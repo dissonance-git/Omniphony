@@ -148,8 +148,7 @@ pub fn estimate_bin(
 
     // Shared, phase-aligned energy is source-like. Strongly one-sided energy is
     // also source-like. In-between cases smoothly interpolate between the two.
-    let mut directness =
-        (pan_intensity + phase_alignment * (1.0 - pan_intensity)).clamp(0.0, 1.0);
+    let mut directness = (pan_intensity + phase_alignment * (1.0 - pan_intensity)).clamp(0.0, 1.0);
 
     let focus = params.focus.clamp(-1.0, 1.0);
     if focus > 0.0 {

@@ -50,12 +50,17 @@ fn parse_args() -> anyhow::Result<Args> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--output" => {
-                parsed.output = Some(args.next().context("--output requires a device-name substring")?);
+                parsed.output = Some(
+                    args.next()
+                        .context("--output requires a device-name substring")?,
+                );
             }
             // Kept only so an older hand-written command fails gracefully after the
             // baseline stopped using recording/capture endpoints.
             "--input" => {
-                let _ = args.next().context("--input requires a device-name substring")?;
+                let _ = args
+                    .next()
+                    .context("--input requires a device-name substring")?;
                 eprintln!(
                     "note: --input is no longer needed; Omniphony now uses self-excluding Windows process loopback"
                 );
@@ -163,12 +168,8 @@ fn run() -> anyhow::Result<()> {
     let enabled = Arc::new(AtomicBool::new(!args.start_off));
     let quit = Arc::new(AtomicBool::new(false));
     let (play_tx, play_rx) = sync_channel::<Vec<f32>>(PLAYBACK_QUEUE_BLOCKS);
-    let playback_stream = build_playback_stream(
-        &output_device,
-        &output_config,
-        output_format,
-        play_rx,
-    )?;
+    let playback_stream =
+        build_playback_stream(&output_device, &output_config, output_format, play_rx)?;
 
     spawn_console_control(Arc::clone(&enabled), Arc::clone(&quit));
 
@@ -180,7 +181,11 @@ fn run() -> anyhow::Result<()> {
     println!();
     println!(
         "LIVE. Omniphony is {}.",
-        if enabled.load(Ordering::Relaxed) { "ON" } else { "OFF" }
+        if enabled.load(Ordering::Relaxed) {
+            "ON"
+        } else {
+            "OFF"
+        }
     );
     println!("Press ENTER to toggle ON/OFF. Type q then ENTER to quit.");
     println!("Play normally in foobar or any Windows application.");
@@ -203,7 +208,10 @@ fn run() -> anyhow::Result<()> {
         let mut wet = Vec::<f32>::new();
         for block in rendered {
             if block.n_channels != 2 {
-                bail!("live renderer changed output width to {} channels", block.n_channels);
+                bail!(
+                    "live renderer changed output width to {} channels",
+                    block.n_channels
+                );
             }
             wet.extend_from_slice(&block.samples);
         }
@@ -267,11 +275,9 @@ impl LoopbackCapture {
                 channels,
                 Some(mask),
             );
-            let mut client = AudioClient::new_application_loopback_client(
-                std::process::id(),
-                false,
-            )
-            .context("failed to activate self-excluding Windows process loopback")?;
+            let mut client =
+                AudioClient::new_application_loopback_client(std::process::id(), false)
+                    .context("failed to activate self-excluding Windows process loopback")?;
 
             match client.initialize_client(&format, &Direction::Capture, &mode) {
                 Ok(()) => {
@@ -419,7 +425,10 @@ fn print_devices(host: &cpal::Host) -> anyhow::Result<()> {
 fn name_contains(device: &cpal::Device, needle: &str) -> bool {
     device
         .name()
-        .map(|name| name.to_ascii_lowercase().contains(&needle.to_ascii_lowercase()))
+        .map(|name| {
+            name.to_ascii_lowercase()
+                .contains(&needle.to_ascii_lowercase())
+        })
         .unwrap_or(false)
 }
 
@@ -429,13 +438,18 @@ fn looks_like_virtual_cable(device: &cpal::Device) -> bool {
         .name()
         .map(|name| {
             let lower = name.to_ascii_lowercase();
-            lower.contains("vb-audio") || lower.contains("hi-fi cable") || lower.contains("hifi cable")
+            lower.contains("vb-audio")
+                || lower.contains("hi-fi cable")
+                || lower.contains("hifi cable")
         })
         .unwrap_or(false)
 }
 
 #[cfg(target_os = "windows")]
-fn choose_output_device(host: &cpal::Host, requested: Option<&str>) -> anyhow::Result<cpal::Device> {
+fn choose_output_device(
+    host: &cpal::Host,
+    requested: Option<&str>,
+) -> anyhow::Result<cpal::Device> {
     if let Some(needle) = requested {
         return host
             .output_devices()?
@@ -495,7 +509,9 @@ fn choose_output_config(
         .min_by_key(|range| (range.channels(), sample_format_rank(range.sample_format())))
         .with_context(|| format!("output device has no >=2ch {sample_rate_hz} Hz format"))?;
     let sample_format = best.sample_format();
-    let config = best.with_sample_rate(cpal::SampleRate(sample_rate_hz)).config();
+    let config = best
+        .with_sample_rate(cpal::SampleRate(sample_rate_hz))
+        .config();
     Ok((sample_format, config))
 }
 

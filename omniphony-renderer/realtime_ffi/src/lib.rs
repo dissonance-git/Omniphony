@@ -55,9 +55,7 @@ pub unsafe extern "C" fn omniphony_realtime_create(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn omniphony_realtime_destroy(
-    processor: *mut OmniphonyRealtimeProcessor,
-) {
+pub unsafe extern "C" fn omniphony_realtime_destroy(processor: *mut OmniphonyRealtimeProcessor) {
     if !processor.is_null() {
         // SAFETY: the ABI requires a pointer returned by create, exactly once.
         unsafe { drop(Box::from_raw(processor)) };
@@ -175,12 +173,10 @@ mod tests {
         unsafe {
             let processor = omniphony_realtime_create(&cfg);
             assert!(!processor.is_null());
-            assert_eq!(omniphony_realtime_process_f32(
-                processor,
-                input.as_ptr(),
-                output.as_mut_ptr(),
-                4,
-            ), 0);
+            assert_eq!(
+                omniphony_realtime_process_f32(processor, input.as_ptr(), output.as_mut_ptr(), 4,),
+                0
+            );
             omniphony_realtime_destroy(processor);
         }
 
@@ -198,12 +194,15 @@ mod tests {
         unsafe {
             let processor = omniphony_realtime_create(&cfg);
             assert!(!processor.is_null());
-            assert_eq!(omniphony_realtime_process_f32(
-                processor,
-                samples.as_ptr(),
-                samples.as_mut_ptr(),
-                4,
-            ), 0);
+            assert_eq!(
+                omniphony_realtime_process_f32(
+                    processor,
+                    samples.as_ptr(),
+                    samples.as_mut_ptr(),
+                    4,
+                ),
+                0
+            );
             omniphony_realtime_destroy(processor);
         }
 
@@ -216,12 +215,15 @@ mod tests {
         unsafe {
             let processor = omniphony_realtime_create(&cfg);
             assert!(!processor.is_null());
-            assert_eq!(omniphony_realtime_process_f32(
-                processor,
-                std::ptr::null(),
-                std::ptr::null_mut(),
-                0,
-            ), 0);
+            assert_eq!(
+                omniphony_realtime_process_f32(
+                    processor,
+                    std::ptr::null(),
+                    std::ptr::null_mut(),
+                    0,
+                ),
+                0
+            );
             omniphony_realtime_destroy(processor);
         }
     }

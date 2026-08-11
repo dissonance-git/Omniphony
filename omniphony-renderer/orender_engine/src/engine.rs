@@ -376,12 +376,19 @@ impl Engine {
         // when nothing is requested do we auto-discover *_bridge.* next to the
         // host binary. See `bridge_loader::resolve_bridge`.
         let config_bridge = render_cfg.as_ref().and_then(|c| c.bridge_path.clone());
-        let resolved_bridge = resolve_bridge(bridge_path, config_bridge.as_deref())?;
 
-        // The renderer's table mode/defaults come from the bridge, so load and
-        // configure it before building the renderer.
         let t_bridge = std::time::Instant::now();
-        let mut bridge = LoadedBridge::load_with_params(&resolved_bridge)?;
+        let (mut bridge, resolved_bridge) = if let Some(lib) = crate::bridge_loader::linked_bridge()
+        {
+            (
+                LoadedBridge::from_library(lib),
+                std::path::PathBuf::from("<linked-bridge>"),
+            )
+        } else {
+            let path = resolve_bridge(bridge_path, config_bridge.as_deref())?;
+            let loaded = LoadedBridge::load_with_params(&path)?;
+            (loaded, path)
+        };
         bridge.configure("presentation", "best");
         if let Some(codec) = input_codec {
             // Disambiguates the bridge's `Raw` transport (no data_type byte).
