@@ -790,6 +790,60 @@ pub fn apply_simple_osc_control(
         return Some(effects);
     }
 
+    if addr == "/omniphony/control/binaural_mode" {
+        // Switch the binaural stage between per-object HRTF ("direct") and the
+        // virtual-speaker cascade ("cascaded"). No topology recompute: the
+        // cascade stage builds its own virtual topology lazily on the render
+        // thread when first needed.
+        if let Some(mode) = parse_string_arg(msg.args.first())
+            .and_then(|v| renderer::live_params::BinauralMode::from_str(&v))
+        {
+            let mut live = ctx.renderer.live.write();
+            if live.binaural.mode != mode {
+                live.binaural.mode = mode;
+                effects.mark_dirty = true;
+                effects.log_message = Some(format!("OSC: binaural_mode -> {}", mode.as_str()));
+            }
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/ear_gain" {
+        // Headphone L/R output gain: [ear_idx (0|1), linear_gain]. Dedicated
+        // params — the ears no longer ride the first two per-speaker slots
+        // (those drive the virtual FL/FR in cascaded mode).
+        let idx = parse_nonnegative_u32_arg(msg.args.first());
+        let gain = parse_f32_arg(msg.args.get(1));
+        if let (Some(idx @ 0..=1), Some(gain)) = (idx, gain) {
+            if gain.is_finite() && (0.0..=4.0).contains(&gain) {
+                let mut live = ctx.renderer.live.write();
+                let ear = &mut live.binaural.ears[idx as usize];
+                if ear.gain != gain {
+                    ear.gain = gain;
+                    effects.mark_dirty = true;
+                    effects.log_message = Some(format!("OSC: binaural ear_gain {idx} -> {gain}"));
+                }
+            }
+        }
+        return Some(effects);
+    }
+
+    if addr == "/omniphony/control/binaural/ear_mute" {
+        // Headphone L/R mute: [ear_idx (0|1), 0|1].
+        let idx = parse_nonnegative_u32_arg(msg.args.first());
+        let mute = parse_bool_arg(msg.args.get(1));
+        if let (Some(idx @ 0..=1), Some(muted)) = (idx, mute) {
+            let mut live = ctx.renderer.live.write();
+            let ear = &mut live.binaural.ears[idx as usize];
+            if ear.muted != muted {
+                ear.muted = muted;
+                effects.mark_dirty = true;
+                effects.log_message = Some(format!("OSC: binaural ear_mute {idx} -> {muted}"));
+            }
+        }
+        return Some(effects);
+    }
+
     if addr == "/omniphony/control/head/orientation" {
         // Static head pose from Euler degrees [yaw, pitch, roll]. The live
         // head-tracking input (SensorsOSC) lands in M2; this lets Studio / tests

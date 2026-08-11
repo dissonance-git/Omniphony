@@ -347,6 +347,18 @@ pub struct BinauralConfig {
     /// Output path: `"speaker"` (default) or `"binaural"`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_mode: Option<String>,
+    /// Binaural stage input: `"direct"` (default, one HRTF per object) or
+    /// `"cascaded"` (the speaker pipeline rendered on the app layout as a
+    /// virtual room, then binauralised; convolution cost bound by the layout
+    /// size — the embedded/low-power path).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// Headphone L/R linear gains for the binaural output (default unity).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ear_gains: Option<[f32; 2]>,
+    /// Headphone L/R mute flags for the binaural output (default false).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ear_mutes: Option<[bool; 2]>,
     /// Metres represented by one ADM unit (isotropic distance scale). Default 1.0.
     /// Deliberately separate from `room_ratio`, which is anisotropic.
     #[serde(skip_serializing_if = "Option::is_none")]

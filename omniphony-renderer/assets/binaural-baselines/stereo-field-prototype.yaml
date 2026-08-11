@@ -11,17 +11,19 @@
 #   Tfl/Tfr     dominant front-height distance / canopy
 #   Tbl/Tbr     upper-rear closure and depth
 #
-# The support scene deliberately relies on Omniphony's inherited binaural core
-# for HRTF/ITD, metric distance, reflections, short FDN ambience and air cues.
-# Our stereo layer decides what evidence may enter the field.
+# P0.8 makes upstream Omniphony's cascaded binaural path the active headphone
+# architecture for this support branch. The derived field first runs through the
+# full 7.1.4 speaker renderer, creating a continuous virtual loudspeaker room,
+# and that virtual room is then binauralised by Omniphony's HRTF/ITD stage.
+#
+# The protected master and coherent foundation remain outside the virtual room.
+# They are summed with the rendered support later in the Windows host, preserving
+# the fidelity floor while letting the support field use the more continuous
+# speaker->binaural topology.
 #
 # Important topology rule: this renderer is an additive SUPPORT branch, not the
 # final program output. Omniphony's native auto-gain is therefore disabled here.
-# In the standalone renderer it protects the final stereo bus by permanently
-# lowering master gain after an overload; on an additive support branch that can
-# sound like spatial/high-frequency energy suddenly sliding downward while the
-# protected direct master stays unchanged. Final-bus headroom/measurement belongs
-# to the host combiner instead.
+# Final-bus headroom/measurement belongs to the host combiner instead.
 #
 # Current development law: push physical acoustic volume until the next increase
 # causes blur, anchor loss, transient softening, bass timing loss or fatigue. The
@@ -29,8 +31,6 @@
 render:
   master_gain: 0.0
   auto_gain: false
-  # Retained as a documented standalone-renderer reference; inactive while
-  # auto_gain is false for this support-only scene.
   auto_gain_ceiling_db: -2.0
   virtual_bed:
     radius_m: 1.0
@@ -65,8 +65,6 @@ render:
         spatialize: false
         delay_ms: 0
 
-      # Sides stay maximally wide. Their role is width and continuity rather than
-      # being the longest radial axis.
       - name: "Ls"
         coord_mode: "cartesian"
         x: -1.0
@@ -82,7 +80,6 @@ render:
         spatialize: true
         delay_ms: 0
 
-      # Rear impact stays close to the full diagonal without becoming gravity.
       - name: "Lb"
         coord_mode: "cartesian"
         x: -0.97
@@ -98,8 +95,6 @@ render:
         spatialize: true
         delay_ms: 0
 
-      # Height is the current frontier. Extend top-front vertically beyond the
-      # floor speaker radius so the canopy grows in distance, not treble level.
       - name: "TFL"
         coord_mode: "cartesian"
         x: -0.96
@@ -132,6 +127,7 @@ render:
 
   binaural:
     output_mode: binaural
+    mode: cascaded
     hrir_source: saf
 
     unit_scale_m: 6.0
