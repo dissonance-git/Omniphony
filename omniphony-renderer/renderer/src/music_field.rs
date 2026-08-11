@@ -24,14 +24,18 @@ use std::sync::Arc;
 pub const MUSIC_FIELD_CHANNELS: usize = 12;
 const FFT_SIZE: usize = 1024;
 const TRACK_TIME_CONSTANT_MS: f32 = 140.0;
-const CROSSOVER_HZ: [f32; 3] = [220.0, 1_200.0, 5_000.0];
-const HEIGHT_PRIOR: [f32; 3] = [0.26, 0.60, 0.80];
-/// The protected master already carries the complete >5 kHz waveform. Height
-/// may redistribute that evidence spatially, but duplicating it into more and
-/// more support lanes must not make the treble breathe in level as scene
-/// confidence changes. The highest band therefore gets a constant-energy
-/// support budget relative to the source band while its geometry remains free.
-const HIGH_BAND_SUPPORT_ENERGY_RATIO: f32 = 0.60;
+/// Keep kick/snare body and low-frequency pressure in the protected master.
+/// Spatial support now starts above 320 Hz instead of 220 Hz because physical
+/// listening showed ON losing some of OFF's bass/drum authority.
+const CROSSOVER_HZ: [f32; 3] = [320.0, 1_200.0, 5_000.0];
+const HEIGHT_PRIOR: [f32; 3] = [0.26, 0.60, 0.82];
+/// Static top-band support trim. The previous candidate used instantaneous
+/// sample-energy normalization, which is itself a gain-modulation mechanism.
+/// A fixed scale cannot pump; slower scene controls own all audible movement.
+const HIGH_BAND_SUPPORT_SCALE: f32 = 0.72;
+/// The first audible support band overlaps the musical body region. Keep it
+/// present for continuity, but let the protected master/foundation dominate.
+const LOW_MID_SUPPORT_SCALE: f32 = 0.82;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MusicFieldSnapshot {
@@ -69,12 +73,11 @@ struct BandControl {
 
 impl BandControl {
     fn approach(&mut self, target: Self, high_band: bool) {
-        // The top band used to open/close at the same rate as the body bands.
-        // Because >5 kHz also carries the strongest height prior, that could be
-        // heard as a treble "volume slider" rather than stable geometry. Keep
-        // high-band motion slower while retaining its larger spatial reach.
+        // >5 kHz carries the strongest height prior, so opening/closing it too
+        // quickly can sound like treble gain breathing. Move that band slowly;
+        // height comes from geometry and HRTF evidence, not a fast gain envelope.
         let (rise, fall, pan_rise, pan_fall) = if high_band {
-            (0.14, 0.055, 0.12, 0.055)
+            (0.12, 0.045, 0.10, 0.045)
         } else {
             (0.32, 0.12, 0.30, 0.12)
         };
@@ -103,15 +106,6 @@ fn slew_signed_with_rates(
     (current + coefficient * (target - current)).clamp(-1.0, 1.0)
 }
 
-fn high_band_energy_scale(source_energy: f32, support_energy: f32) -> f32 {
-    let max_support_energy = source_energy.max(0.0) * HIGH_BAND_SUPPORT_ENERGY_RATIO;
-    if support_energy <= max_support_energy || support_energy <= 1.0e-12 {
-        1.0
-    } else {
-        (max_support_energy / support_energy).sqrt()
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 struct OnePoleLowPass {
     alpha: f32,
@@ -135,7 +129,7 @@ impl OnePoleLowPass {
 }
 
 struct ChannelBandSplit {
-    low_220: OnePoleLowPass,
+    low_320: OnePoleLowPass,
     low_1200: OnePoleLowPass,
     low_5000: OnePoleLowPass,
 }
@@ -143,7 +137,7 @@ struct ChannelBandSplit {
 impl ChannelBandSplit {
     fn new(sample_rate_hz: u32) -> Self {
         Self {
-            low_220: OnePoleLowPass::new(sample_rate_hz, CROSSOVER_HZ[0]),
+            low_320: OnePoleLowPass::new(sample_rate_hz, CROSSOVER_HZ[0]),
             low_1200: OnePoleLowPass::new(sample_rate_hz, CROSSOVER_HZ[1]),
             low_5000: OnePoleLowPass::new(sample_rate_hz, CROSSOVER_HZ[2]),
         }
@@ -152,7 +146,7 @@ impl ChannelBandSplit {
     /// The four outputs sum algebraically to `sample`: adjacent bands are
     /// differences of parallel low-pass states rather than independent filters.
     fn split(&mut self, sample: f32) -> [f32; 4] {
-        let a = self.low_220.process(sample);
+        let a = self.low_320.process(sample);
         let b = self.low_1200.process(sample);
         let c = self.low_5000.process(sample);
         [a, b - a, c - b, sample - c]
@@ -233,7 +227,7 @@ impl MusicFieldProcessor {
             let mut top_rear_l = 0.0;
             let mut top_rear_r = 0.0;
 
-            // Band 0 (<220 Hz) remains entirely in the protected master.
+            // Band 0 (<320 Hz) remains entirely in the protected master.
             for band in 1..4 {
                 let control = self.controls[band - 1];
                 let left = left_bands[band];
@@ -241,10 +235,6 @@ impl MusicFieldProcessor {
                 let mid = 0.5 * (left + right);
                 let side = 0.5 * (left - right);
 
-                // Stable anchors are already suppressed by the scene controls.
-                // Retaining 22% of the coherent mid in this *support* candidate
-                // gives broad material enough body to externalize without
-                // turning the direct master into a virtual-speaker replacement.
                 let relational_l = left - 0.78 * mid;
                 let relational_r = right - 0.78 * mid;
 
@@ -268,15 +258,9 @@ impl MusicFieldProcessor {
                     0.28 * broad_l + 0.90 * lateral_l + 0.06 * diffuse_l;
                 let mut band_side_r =
                     0.28 * broad_r + 0.90 * lateral_r + 0.06 * diffuse_r;
-
-                // Physical listening after the first distance-led pass says the
-                // rear became slightly too polite. Restore impact without making
-                // rear the centre of gravity again.
                 let mut band_rear_l = 0.14 * lateral_l + 0.28 * diffuse_l;
                 let mut band_rear_r = 0.14 * lateral_r + 0.28 * diffuse_r;
 
-                // Height remains the most promising unused axis. Increase its
-                // permission while keeping the coherent-mid feed tiny and gated.
                 let height = control.height;
                 let front_height_mid = mid * control.broad * 0.08;
                 let mut band_top_front_l = height
@@ -294,35 +278,26 @@ impl MusicFieldProcessor {
                 let mut band_top_rear_r = height
                     * (0.06 * broad_r + 0.10 * lateral_r + 0.19 * diffuse_r);
 
-                if band == 3 {
-                    // The same high-frequency evidence can occupy many spatial
-                    // lanes, but that must change *where* it is heard rather than
-                    // act as a content-dependent treble gain control. Normalize
-                    // only when the distributed >5 kHz support exceeds its fixed
-                    // energy budget. All lane ratios, including height, survive.
-                    let source_energy = left * left + right * right;
-                    let support_energy = band_front_l * band_front_l
-                        + band_front_r * band_front_r
-                        + band_side_l * band_side_l
-                        + band_side_r * band_side_r
-                        + band_rear_l * band_rear_l
-                        + band_rear_r * band_rear_r
-                        + band_top_front_l * band_top_front_l
-                        + band_top_front_r * band_top_front_r
-                        + band_top_rear_l * band_top_rear_l
-                        + band_top_rear_r * band_top_rear_r;
-                    let scale = high_band_energy_scale(source_energy, support_energy);
-                    band_front_l *= scale;
-                    band_front_r *= scale;
-                    band_side_l *= scale;
-                    band_side_r *= scale;
-                    band_rear_l *= scale;
-                    band_rear_r *= scale;
-                    band_top_front_l *= scale;
-                    band_top_front_r *= scale;
-                    band_top_rear_l *= scale;
-                    band_top_rear_r *= scale;
-                }
+                // Keep the musical body region direct-dominant so kicks, toms,
+                // snare body and bass transients do not lose authority to room
+                // propagation. The mid/high bands remain the stronger spatial fuel.
+                let static_band_scale = if band == 1 {
+                    LOW_MID_SUPPORT_SCALE
+                } else if band == 3 {
+                    HIGH_BAND_SUPPORT_SCALE
+                } else {
+                    1.0
+                };
+                band_front_l *= static_band_scale;
+                band_front_r *= static_band_scale;
+                band_side_l *= static_band_scale;
+                band_side_r *= static_band_scale;
+                band_rear_l *= static_band_scale;
+                band_rear_r *= static_band_scale;
+                band_top_front_l *= static_band_scale;
+                band_top_front_r *= static_band_scale;
+                band_top_rear_l *= static_band_scale;
+                band_top_rear_r *= static_band_scale;
 
                 front_l += band_front_l;
                 front_r += band_front_r;
@@ -339,8 +314,8 @@ impl MusicFieldProcessor {
             out.extend_from_slice(&[
                 front_l,
                 front_r,
-                0.0, // C: direct master owns center authority.
-                0.0, // LFE: direct master owns low-frequency pressure.
+                0.0,
+                0.0,
                 side_l,
                 side_r,
                 rear_l,
@@ -574,16 +549,11 @@ mod tests {
     }
 
     #[test]
-    fn high_band_energy_guard_preserves_ratios_without_exceeding_budget() {
-        let source_energy = 1.0;
-        let raw_support_energy = 4.0;
-        let scale = high_band_energy_scale(source_energy, raw_support_energy);
-        let bounded = raw_support_energy * scale * scale;
-        assert!((bounded - HIGH_BAND_SUPPORT_ENERGY_RATIO).abs() < 1.0e-6);
-        assert!(scale < 1.0);
-
-        let under_budget = HIGH_BAND_SUPPORT_ENERGY_RATIO * 0.5;
-        assert_eq!(high_band_energy_scale(source_energy, under_budget), 1.0);
+    fn high_band_trim_is_static() {
+        assert!(HIGH_BAND_SUPPORT_SCALE > 0.0);
+        assert!(HIGH_BAND_SUPPORT_SCALE <= 1.0);
+        assert!(LOW_MID_SUPPORT_SCALE > 0.0);
+        assert!(LOW_MID_SUPPORT_SCALE <= 1.0);
     }
 
     #[test]
