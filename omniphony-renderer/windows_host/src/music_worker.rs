@@ -9,7 +9,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc::{Receiver, TryRecvError, TrySendError, sync_channel},
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use wasapi::{
     AudioCaptureClient, AudioClient, Direction, SampleType, StreamMode, WaveFormat,
     make_channelmasks,
@@ -17,8 +17,10 @@ use wasapi::{
 
 const SAMPLE_RATE_HZ: u32 = 48_000;
 const PLAYBACK_QUEUE_BLOCKS: usize = 16;
-const FIELD_HIGHPASS_HZ: f32 = 220.0;
-const FIELD_SUPPORT_GAIN: f32 = 0.14;
+const FIELD_HIGHPASS_HZ: f32 = 180.0;
+const FIELD_SUPPORT_GAIN: f32 = 0.45;
+const FIELD_CENTER_REJECTION: f32 = 0.75;
+const METER_INTERVAL_SECS: u64 = 5;
 
 #[derive(Default)]
 struct Args {
@@ -40,12 +42,13 @@ fn parse_args() -> anyhow::Result<Args> {
             "--start-off" => parsed.start_off = true,
             "-h" | "--help" => {
                 println!(
-                    "Omniphony preserved-master stereo prototype\n\n\
+                    "Omniphony protected-master stereo prototype\n\n\
                      Usage:\n  omniphony_worker.exe [--output <name>] [--start-off]\n\n\
-                     Normal ON keeps the original stereo master as the direct signal.\n\
-                     Only a bass-protected stereo side field is spatialized through\n\
-                     upstream Omniphony and added back at low level. OFF is untouched\n\
-                     captured stereo.\n"
+                     ON preserves the original stereo master and derives a\n\
+                     bass-protected, center-reduced relational field for the\n\
+                     upstream Omniphony binaural renderer. OFF is untouched\n\
+                     captured stereo. Runtime level meters are written to the\n\
+                     normal worker log every few seconds.\n"
                 );
                 std::process::exit(0);
             }
@@ -53,6 +56,96 @@ fn parse_args() -> anyhow::Result<Args> {
         }
     }
     Ok(parsed)
+}
+
+#[derive(Default)]
+struct SignalMeter {
+    sum_squares: f64,
+    peak: f32,
+    samples: u64,
+}
+
+impl SignalMeter {
+    fn observe(&mut self, samples: &[f32]) {
+        for &sample in samples {
+            if !sample.is_finite() {
+                continue;
+            }
+            self.sum_squares += f64::from(sample) * f64::from(sample);
+            self.peak = self.peak.max(sample.abs());
+            self.samples = self.samples.saturating_add(1);
+        }
+    }
+
+    fn observe_delta(&mut self, mixed: &[f32], dry: &[f32]) {
+        for (&wet, &base) in mixed.iter().zip(dry.iter()) {
+            let delta = wet - base;
+            if !delta.is_finite() {
+                continue;
+            }
+            self.sum_squares += f64::from(delta) * f64::from(delta);
+            self.peak = self.peak.max(delta.abs());
+            self.samples = self.samples.saturating_add(1);
+        }
+    }
+
+    fn rms_dbfs(&self) -> f32 {
+        if self.samples == 0 {
+            return -120.0;
+        }
+        let rms = (self.sum_squares / self.samples as f64).sqrt() as f32;
+        to_dbfs(rms)
+    }
+
+    fn peak_dbfs(&self) -> f32 {
+        to_dbfs(self.peak)
+    }
+
+    fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
+fn to_dbfs(value: f32) -> f32 {
+    if !value.is_finite() || value <= 1.0e-6 {
+        -120.0
+    } else {
+        20.0 * value.log10()
+    }
+}
+
+fn print_meters(
+    direct: &mut SignalMeter,
+    evidence: &mut SignalMeter,
+    rendered: &mut SignalMeter,
+    added: &mut SignalMeter,
+    bypass: bool,
+) {
+    if bypass {
+        println!(
+            "  meter OFF: direct rms={:.1} dBFS peak={:.1} dBFS",
+            direct.rms_dbfs(),
+            direct.peak_dbfs()
+        );
+    } else {
+        let direct_rms = direct.rms_dbfs();
+        let added_rms = added.rms_dbfs();
+        println!(
+            "  meter ON: direct rms={direct_rms:.1} peak={:.1} | evidence rms={:.1} peak={:.1} | rendered rms={:.1} peak={:.1} | actually-added rms={added_rms:.1} peak={:.1} | added/direct={:+.1} dB",
+            direct.peak_dbfs(),
+            evidence.rms_dbfs(),
+            evidence.peak_dbfs(),
+            rendered.rms_dbfs(),
+            rendered.peak_dbfs(),
+            added.peak_dbfs(),
+            added_rms - direct_rms,
+        );
+    }
+
+    direct.clear();
+    evidence.clear();
+    rendered.clear();
+    added.clear();
 }
 
 pub fn run() -> anyhow::Result<()> {
@@ -65,12 +158,11 @@ pub fn run() -> anyhow::Result<()> {
         .unwrap_or_else(|_| "<unavailable output name>".to_string());
     let (output_format, output_config) = choose_output_config(&output_device, SAMPLE_RATE_HZ)?;
 
-    // This worker is the stereo-music prototype. Refuse to silently call a
-    // 5.1/7.1 fallback "stereo". Rich-source/session routing belongs to a
-    // separate host path once source boundaries can be preserved correctly.
+    // This worker is deliberately stereo-only. Rich-source/session routing is
+    // a separate host problem once application boundaries can be preserved.
     let mut loopback = LoopbackCapture::open_stereo(SAMPLE_RATE_HZ)?;
 
-    println!("Omniphony for Headphones - preserved-master stereo prototype");
+    println!("Omniphony for Headphones - protected-master relational-field prototype");
     println!("  capture: self-excluding Windows process loopback");
     println!("           {SAMPLE_RATE_HZ} Hz / 2ch / f32");
     println!("  output:  {output_name}");
@@ -80,10 +172,12 @@ pub fn run() -> anyhow::Result<()> {
     );
     println!("  direct:  original captured stereo master");
     println!(
-        "  support: side field above ~{FIELD_HIGHPASS_HZ:.0} Hz -> upstream Omniphony @ {:.0}%",
+        "  support: L/R relational field, {:.0}% coherent-center rejection, HPF ~{FIELD_HIGHPASS_HZ:.0} Hz, host mix {:.0}%",
+        FIELD_CENTER_REJECTION * 100.0,
         FIELD_SUPPORT_GAIN * 100.0
     );
     println!("  room:    no reflections / no late reverb / no air absorption");
+    println!("  meters:  direct -> extracted evidence -> Omniphony render -> actual added delta");
 
     let bundle = Bundle::beside_executable()?;
     let mut field_engine = Engine::from_paths(
@@ -102,8 +196,6 @@ pub fn run() -> anyhow::Result<()> {
         );
     }
 
-    // Seed the streaming reference bridge once. Even though only a derived
-    // support field enters the engine, it is ordinary canonical stereo f32 PCM.
     let header = streaming_f32_wav_header(2, SAMPLE_RATE_HZ);
     let header_output = field_engine
         .process(&header, RInputTransport::Raw, 0)
@@ -127,9 +219,18 @@ pub fn run() -> anyhow::Result<()> {
         .context("failed to start WASAPI playback stream")?;
     loopback.start()?;
 
-    let mut extractor = StereoFieldExtractor::new(SAMPLE_RATE_HZ, FIELD_HIGHPASS_HZ);
+    let mut extractor = StereoFieldExtractor::new(
+        SAMPLE_RATE_HZ,
+        FIELD_HIGHPASS_HZ,
+        FIELD_CENTER_REJECTION,
+    );
     let mut pcm_bytes = Vec::<u8>::new();
     let mut dry_fifo = VecDeque::<f32>::new();
+    let mut direct_meter = SignalMeter::default();
+    let mut evidence_meter = SignalMeter::default();
+    let mut rendered_meter = SignalMeter::default();
+    let mut added_meter = SignalMeter::default();
+    let mut last_meter_report = Instant::now();
 
     println!();
     println!(
@@ -146,20 +247,33 @@ pub fn run() -> anyhow::Result<()> {
             continue;
         }
 
+        direct_meter.observe(&input);
+
         if args.start_off {
-            // Clean bypass: the exact captured stereo samples go to output.
             try_queue_block(&play_tx, input)?;
+            if last_meter_report.elapsed() >= Duration::from_secs(METER_INTERVAL_SECS) {
+                print_meters(
+                    &mut direct_meter,
+                    &mut evidence_meter,
+                    &mut rendered_meter,
+                    &mut added_meter,
+                    true,
+                );
+                last_meter_report = Instant::now();
+            }
             continue;
         }
 
-        // Keep the exact stereo master until the matching spatial support exits
-        // the engine. This aligns the direct path to the bridge/renderer latency
-        // instead of mixing a delayed wet field against a current dry block.
+        // Keep the exact stereo master until the corresponding spatial support
+        // exits the renderer, so the two paths combine at the same time origin.
         dry_fifo.extend(input.iter().copied());
 
-        // Only a conservative side-derived field enters the spatial renderer.
-        // The authored mid/direct signal never enters this branch.
+        // Preserve the coherent center in the direct master while deriving a
+        // much richer field than the old pure (L-R)/2 scaffold.  In M/S terms:
+        // field L = S + 0.25M, field R = -S + 0.25M.  The low foundation is
+        // removed from this branch before upstream Omniphony sees it.
         let field_input = extractor.process(&input);
+        evidence_meter.observe(&field_input);
         f32_as_le_bytes(&field_input, &mut pcm_bytes);
         let rendered = field_engine
             .process(&pcm_bytes, RInputTransport::Raw, 0)
@@ -183,16 +297,31 @@ pub fn run() -> anyhow::Result<()> {
                 );
             }
 
+            rendered_meter.observe(&block.samples);
+
             let mut dry = Vec::with_capacity(block.samples.len());
             for _ in 0..block.samples.len() {
                 dry.push(dry_fifo.pop_front().expect("dry FIFO length checked above"));
             }
+
             let mixed = mix_preserved_master_with_support(
                 &dry,
                 &block.samples,
                 FIELD_SUPPORT_GAIN,
             )?;
+            added_meter.observe_delta(&mixed, &dry);
             try_queue_block(&play_tx, mixed)?;
+        }
+
+        if last_meter_report.elapsed() >= Duration::from_secs(METER_INTERVAL_SECS) {
+            print_meters(
+                &mut direct_meter,
+                &mut evidence_meter,
+                &mut rendered_meter,
+                &mut added_meter,
+                false,
+            );
+            last_meter_report = Instant::now();
         }
     }
 
@@ -212,26 +341,21 @@ fn try_queue_block(
     match tx.try_send(block) {
         Ok(()) => Ok(()),
         Err(TrySendError::Full(_)) => {
-            // Prototype policy: a short dropout is preferable to allowing
-            // transport latency to grow without bound.
+            // A short dropout is preferable to allowing transport latency to
+            // grow without bound while this remains a listening prototype.
             Ok(())
         }
         Err(TrySendError::Disconnected(_)) => bail!("WASAPI playback stream disconnected"),
     }
 }
 
-/// Conservative field extraction for the first preserved-master experiment.
-///
-/// `(L-R)/2` contains the stereo side component. Only this evidence is promoted
-/// into the Omniphony support field. A first-order high-pass prevents the support
-/// branch from duplicating or phase-smearing the low-frequency foundation.
-struct StereoFieldExtractor {
+struct OnePoleHighPass {
     alpha: f32,
     prev_input: f32,
     prev_output: f32,
 }
 
-impl StereoFieldExtractor {
+impl OnePoleHighPass {
     fn new(sample_rate_hz: u32, cutoff_hz: f32) -> Self {
         let dt = 1.0 / sample_rate_hz as f32;
         let rc = 1.0 / (2.0 * std::f32::consts::PI * cutoff_hz.max(1.0));
@@ -242,26 +366,58 @@ impl StereoFieldExtractor {
         }
     }
 
+    fn process(&mut self, sample: f32) -> f32 {
+        let high = self.alpha * (self.prev_output + sample - self.prev_input);
+        self.prev_input = sample;
+        self.prev_output = high;
+        high
+    }
+}
+
+/// Center-protected relational field for the first post-side-only experiment.
+///
+/// The old `(L-R)/2` field was intentionally safe but proved effectively
+/// inaudible even at large nominal gain. This keeps the whole L/R relation while
+/// attenuating coherent center energy before spatialization:
+///
+///   M = (L+R)/2
+///   fieldL = L - center_rejection*M = S + (1-center_rejection)M
+///   fieldR = R - center_rejection*M = -S + (1-center_rejection)M
+///
+/// With center_rejection=0.75, only 25% of the coherent mid enters the spatial
+/// branch while lateral/differential structure remains at full strength.
+struct StereoFieldExtractor {
+    left_highpass: OnePoleHighPass,
+    right_highpass: OnePoleHighPass,
+    center_rejection: f32,
+}
+
+impl StereoFieldExtractor {
+    fn new(sample_rate_hz: u32, cutoff_hz: f32, center_rejection: f32) -> Self {
+        Self {
+            left_highpass: OnePoleHighPass::new(sample_rate_hz, cutoff_hz),
+            right_highpass: OnePoleHighPass::new(sample_rate_hz, cutoff_hz),
+            center_rejection: center_rejection.clamp(0.0, 1.0),
+        }
+    }
+
     fn process(&mut self, input: &[f32]) -> Vec<f32> {
         let mut out = Vec::with_capacity(input.len());
         for frame in input.chunks_exact(2) {
-            let side = 0.5 * (frame[0] - frame[1]);
-            let high = self.alpha * (self.prev_output + side - self.prev_input);
-            self.prev_input = side;
-            self.prev_output = high;
-
-            // Recreate the side component as a stereo pair. The dedicated
-            // field config places the two virtual channels rearward/sideward.
-            out.push(high);
-            out.push(-high);
+            let left = frame[0];
+            let right = frame[1];
+            let mid = 0.5 * (left + right);
+            let field_left = left - self.center_rejection * mid;
+            let field_right = right - self.center_rejection * mid;
+            out.push(self.left_highpass.process(field_left));
+            out.push(self.right_highpass.process(field_right));
         }
         out
     }
 }
 
 /// Preserve the dry/master sample and let the spatial support use only remaining
-/// headroom. The spatial layer gets reduced before the master ever gets clipped,
-/// scaled or limited.
+/// headroom. The spatial layer is reduced before the master is clipped or scaled.
 fn mix_preserved_master_with_support(
     dry: &[f32],
     support: &[f32],
