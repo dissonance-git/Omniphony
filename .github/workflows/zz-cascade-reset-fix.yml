@@ -1,0 +1,73 @@
+name: Apply cascade reset fix
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Restore whole-pipeline stream reset after SpeakerRenderStage import
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('omniphony-renderer/renderer/src/spatial_renderer/mod.rs')
+          text = path.read_text()
+          old = '''        if self
+            .reset_requested
+            .swap(false, std::sync::atomic::Ordering::Acquire)
+        {
+            self.channel_states.clear();
+        }
+'''
+          new = '''        if self
+            .reset_requested
+            .swap(false, std::sync::atomic::Ordering::Acquire)
+        {
+            // A new logical stream owns a new audio history. The upstream
+            // SpeakerRenderStage extraction moved speaker-owned state behind
+            // `speaker_stage`; keep our stronger reset invariant across that
+            // refactor so a tab/track/session teardown cannot leak old samples.
+            self.channel_states.clear();
+            for delay in &mut self.speaker_stage.delay_lines {
+                delay.reset_runtime_state();
+            }
+            for slot in &mut self.speaker_stage.crossover_filter_states {
+                if let Some(states) = slot.as_mut() {
+                    for state in states {
+                        *state = crate::crossover::BiquadState::default();
+                    }
+                }
+            }
+            self.binaural.reset_runtime_state();
+            if let Some(cascade) = self.cascade.as_mut() {
+                cascade.bus.clear();
+            }
+            self.last_mix_num_speakers = 0;
+        }
+'''
+          if new in text:
+              print('reset fix already applied')
+          elif old in text:
+              path.write_text(text.replace(old, new, 1))
+          else:
+              raise SystemExit('expected reset block not found')
+      - name: Commit fix
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add omniphony-renderer/renderer/src/spatial_renderer/mod.rs
+          git commit -m "fix(audio): clear cascaded renderer history on stream reset"
+          git push origin HEAD:main
