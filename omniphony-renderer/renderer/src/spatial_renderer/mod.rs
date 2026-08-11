@@ -494,7 +494,26 @@ impl SpatialRenderer {
             .reset_requested
             .swap(false, std::sync::atomic::Ordering::Acquire)
         {
+            // A new logical stream owns a new audio history. The upstream
+            // SpeakerRenderStage extraction moved speaker-owned state behind
+            // `speaker_stage`; keep our stronger reset invariant across that
+            // refactor so a tab/track/session teardown cannot leak old samples.
             self.channel_states.clear();
+            for delay in &mut self.speaker_stage.delay_lines {
+                delay.reset_runtime_state();
+            }
+            for slot in &mut self.speaker_stage.crossover_filter_states {
+                if let Some(states) = slot.as_mut() {
+                    for state in states {
+                        *state = crate::crossover::BiquadState::default();
+                    }
+                }
+            }
+            self.binaural.reset_runtime_state();
+            if let Some(cascade) = self.cascade.as_mut() {
+                cascade.bus.clear();
+            }
+            self.last_mix_num_speakers = 0;
         }
 
         // ── 0. Independent binaural (headphone) path ─────────────────────────
