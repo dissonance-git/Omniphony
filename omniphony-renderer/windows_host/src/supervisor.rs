@@ -202,10 +202,7 @@ fn ensure_autostart() {
 
 fn spawn_worker(enabled: bool) -> anyhow::Result<()> {
     let root = executable_root()?;
-    let worker = root.join("omniphony_worker.exe");
-    if !worker.is_file() {
-        bail!("missing audio worker: {}", worker.display());
-    }
+    let executable = std::env::current_exe().context("failed to resolve Omniphony engine executable")?;
 
     let log_path = root.join("omniphony.log");
     let log = OpenOptions::new()
@@ -215,9 +212,10 @@ fn spawn_worker(enabled: bool) -> anyhow::Result<()> {
         .with_context(|| format!("failed to open {}", log_path.display()))?;
     let log_err = log.try_clone().context("failed to clone Omniphony log handle")?;
 
-    let mut command = Command::new(&worker);
+    let mut command = Command::new(&executable);
     command
         .current_dir(&root)
+        .env("OMNIPHONY_INTERNAL_ENGINE", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(log_err))
@@ -228,8 +226,8 @@ fn spawn_worker(enabled: bool) -> anyhow::Result<()> {
 
     let mut child = command
         .spawn()
-        .with_context(|| format!("failed to launch {}", worker.display()))?;
-    let stdin = child.stdin.take().context("audio worker stdin was not piped")?;
+        .with_context(|| format!("failed to launch internal audio engine from {}", executable.display()))?;
+    let stdin = child.stdin.take().context("audio engine stdin was not piped")?;
 
     let mut app = state().lock().expect("Omniphony supervisor state poisoned");
     app.child = Some(child);
@@ -294,7 +292,7 @@ fn poll_worker(hwnd: HWND) {
         if let Some(child) = app.child.as_mut() {
             match child.try_wait() {
                 Ok(Some(status)) => {
-                    exited = Some(format!("audio worker exited: {status}"));
+                    exited = Some(format!("audio engine exited: {status}"));
                     app.child = None;
                     app.stdin = None;
                     if !app.quitting {
@@ -304,7 +302,7 @@ fn poll_worker(hwnd: HWND) {
                 }
                 Ok(None) => {}
                 Err(err) => {
-                    exited = Some(format!("audio worker status failed: {err}"));
+                    exited = Some(format!("audio engine status failed: {err}"));
                     app.child = None;
                     app.stdin = None;
                     if !app.quitting {
