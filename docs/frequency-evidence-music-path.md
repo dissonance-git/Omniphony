@@ -1,8 +1,8 @@
 # Frequency-evidence stereo music path
 
-Status: **protected stereo fidelity foundation with an active stronger 7.1.4-shell successor experiment**.
+Status: **protected stereo fidelity foundation with an active P0.6 anterior/height 7.1.4-shell experiment**.
 
-Longer listening has validated this direction strongly enough that future stereo sound work should build from it rather than from the earlier full-wet or side-only experiments. It has **not** yet validated a large 360° win over HeSuVi.
+Longer listening has validated this direction strongly enough that future stereo sound work should build from it rather than from the earlier full-wet or side-only experiments. P0.5 moved the sound close to the incumbent HeSuVi experience while preserving the striking clarity of the protected master, but its acoustic volume is still too small and rear-biased to count as the desired full bubble.
 
 ## Why this exists
 
@@ -58,21 +58,9 @@ FINISHED STEREO MASTER
 
 Physical output remains ordinary stereo headphones. Internal multichannel lanes are only differentiated support material for the inherited Omniphony renderer.
 
-## Active 7.1.4 shell experiment
+## P0.5 listening result
 
-The first frequency-evidence build used a sparse logical 7.1 mapping:
-
-```text
-L/R   = broad extent
-C     = silence
-LFE   = silence
-Ls/Rs = lateral/object-like evidence
-Lb/Rb = diffuse/field-like evidence
-```
-
-That mapping preserved fidelity but longer listening found the enhancement only mild. Diffuse evidence was also structurally concentrated in the rear pair.
-
-The active successor expands the field to canonical logical **7.1.4**:
+P0.5 expanded the first frequency-evidence build from sparse logical 7.1 into an overlapping canonical logical **7.1.4** shell:
 
 ```text
 L/R         broad front/front-side extent
@@ -84,11 +72,105 @@ Tfl/Tfr     front-height extent
 Tbl/Tbr     rear-height / upper diffuse continuation
 ```
 
-Evidence overlaps neighbouring regions rather than assigning each class to exactly one speaker pair. The purpose is a shell rather than isolated virtual-speaker islands.
+The host support coefficient was raised to full derived-field strength. That means **100% of the derived support**, not 100% wet replacement: the protected stereo master remains explicitly present and still owns headroom.
 
-The host support coefficient is also raised to full derived-field strength for this experiment. That means **100% of the derived support**, not 100% wet replacement: the protected stereo master remains explicitly present and still owns headroom.
+Physical listening established the strongest checkpoint so far:
 
-No early reflections, late reverb or air absorption are enabled. This pass tests geometry/evidence/HRTF/ITD before adding room effects.
+```text
+clear as hell
+clearly spatial
+getting close to full replacement of HeSuVi
+```
+
+But it also exposed a much more precise geometry failure:
+
+```text
+bubble smaller than preferred
+field behaves more like a band than a sphere
+much of that band still resolves inside the head and behind
+rear remains somewhat too strong
+front volume is underdeveloped
+height is underdeveloped
+OFF still does not collapse the world as dramatically as desired
+```
+
+This means the next problem is **shape**, not generic support loudness.
+
+## Active P0.6: anterior + vertical expansion
+
+P0.6 keeps the same protected-master architecture, evidence analysis, bass veto and full derived-field host coefficient. It changes only the geometry weighting of the derived shell.
+
+The intended balance is:
+
+```text
+rear support        down
+rear height         down
+side wrap           preserve
+front/front-side    up
+front height        strongly up
+upper-front volume  strongly up
+```
+
+The portable music-field processor now:
+
+- raises the height-permission prior in all three support bands;
+- gives broad and lateral evidence more weight in L/R front support;
+- trims lateral/diffuse continuation into Lb/Rb;
+- makes Tfl/Tfr the dominant height contribution;
+- retains Tbl/Tbr only strongly enough to close the upper shell behind;
+- allows a very small coherent-mid contribution into front height, but only when broad-scene evidence already permits it;
+- keeps coherent frontal anchors protected from becoming synthetic overhead vocals;
+- keeps C and LFE silent.
+
+The implementation also carries regression assertions that hard-panned spatial material must produce:
+
+```text
+front energy > rear energy
+top-front energy > top-rear energy
+height energy > 0
+LFE energy = 0
+```
+
+These are structural tests, not claims about final perceptual balance.
+
+## Foobar-for-Home-Theater influence
+
+Repository studied for P0.6:
+
+`https://github.com/ArtifexEt/Foobar-for-Home-Theater`
+
+Two mechanisms were useful as research inputs rather than code to transplant:
+
+1. its `Add Ceiling Speakers` DSP preserves all existing channels and synthesizes only missing height channels;
+2. its height synthesis is difference/spatial-evidence dominant, adds surround/rear feed, and uses only a small coherent-mid feed; its top-back path is weaker than its top-front path.
+
+Its integrated `Reference` stereo upmix also structurally restrains rear more than side and makes top-front stronger than top-back.
+
+The important lesson is architectural:
+
+```text
+preserve authoritative bed/master
++ synthesize only the missing dimension
++ make rear continuation weaker than the useful side/front field
++ make upper-front the primary height cue
+```
+
+Its actual AVR speaker-bed coefficients are **not** treated as Omniphony headphone targets. P0.6 adapts only the topology to the existing frequency-evidence + inherited binaural renderer architecture.
+
+## Why room effects are still off in P0.6
+
+P0.5 proved that a very clean spatial field already exists. P0.6 therefore isolates shell shape before adding environmental cues.
+
+Still disabled:
+
+```text
+early reflections
+late reverb
+air absorption
+artificial LFE
+```
+
+If P0.6 successfully inflates the front and upper bubble while preserving clarity, the next isolated experiment can test tiny directional early reflections / radial-distance cues for stronger front externalization. If P0.6 remains inside-head despite the new geometry, that is evidence that geometry alone is insufficient and makes the reflection/depth experiment much easier to interpret.
 
 ## Portable-core ownership
 
@@ -139,7 +221,7 @@ The audible field is extracted with a causal parallel low-pass/difference bank w
 
 ### Height is permission, not recovered truth
 
-The active shell gives already-spatial broad/lateral/diffuse evidence some vertical extent. Frequency changes the *permission prior* but never becomes a height command by itself.
+The active shell gives already-spatial broad/lateral/diffuse evidence vertical extent. Frequency changes the *permission prior* but never becomes a height command by itself.
 
 Forbidden shortcut:
 
@@ -191,41 +273,46 @@ side fraction
 
 Use these meters before treating an inaudible result as a taste problem.
 
-## Current listening baseline
+## Current listening setup
 
 For stereo-music development, the temporary Hi-Fi Cable endpoint should be configured as **Stereo / 2.0**.
 
 A 7.1 Windows endpoint feeding the stereo process-loopback prototype reduced playback level. Returning the endpoint to Stereo restored normal level. Treat this as a prototype transport/gain finding.
 
-The repeated-listening result for the protected frequency-evidence build is:
+The clean route remains:
 
 ```text
-raw stereo clarity remains
-music stays intact
-no obvious tinny / hallway regression
-ON is mildly enhanced versus OFF
+Hi-Fi Cable speaker config = Stereo / 2.0
+foobar upmix = OFF
+HeSuVi = OFF
+ASIO Bridge forwarding = OFF
+Omniphony = only audible path to the FiiO/headphones
 ```
-
-The first few minutes produced stronger impressions of rear placement and apparent size, but those were partly confounded by reacclimating to raw stereo after disabling HeSuVi. They are **not frozen comparison claims**.
-
-What is protected is therefore the architecture's fidelity behavior, not a claim that it already beats HeSuVi spatially.
 
 ## Sound frontier
 
-The next sound work is:
+The immediate listening question is now:
 
 ```text
-make ON unmistakably larger than OFF
--> preserve raw clarity / bass / center / transients
--> distribute support across front-side / side / rear instead of rear-only concentration
--> add conservative upper-shell participation
--> improve front externalization
--> add radial depth
--> improve source extent / ambient continuity
--> later restore / exceed incumbent energy and punch
+P0.6 anterior + vertical shell
+-> does the front move outward?
+-> does the field arch above the listener?
+-> is rear dominance reduced without losing wrap?
+-> does the bubble become meaningfully larger?
+-> does the protected master remain just as clear and punchy?
 ```
 
-The active 7.1.4-shell build is the first major push on the first three items.
+If yes:
+
+```text
+next: radial depth / tiny directional early reflections
+-> source extent
+-> ambient continuity
+-> lower-shell plausibility
+-> later, only if earned, restrained late-room support / distance-dependent air behavior
+```
+
+If no, do not simply raise global support gain. Determine whether the failure is front-distance perception, HRTF geometry, insufficient upper continuity, or evidence ownership.
 
 ## Listening success criterion from here
 
@@ -258,6 +345,14 @@ ambient continuity
 listener envelopment
 ```
 
-The desired mature bypass reaction remains:
+The desired bypass reaction remains:
 
-> **The original music is still fully present, but the acoustic world collapses when Omniphony is turned off.**
+```text
+The world collapsed.
+```
+
+not:
+
+```text
+The music came back.
+```
