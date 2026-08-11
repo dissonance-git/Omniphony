@@ -6,20 +6,27 @@
 #
 #   L/R         broad front/front-side extent
 #   C/LFE       zero (center authority + bass remain in the direct master)
-#   Ls/Rs       continuous lateral wrap
-#   Lb/Rb       restrained rear continuation
-#   Tfl/Tfr     dominant front-height extent
-#   Tbl/Tbr     restrained upper-rear closure
+#   Ls/Rs       wide lateral continuity / balance
+#   Lb/Rb       real rear depth without rear dominance
+#   Tfl/Tfr     dominant front-height distance / canopy
+#   Tbl/Tbr     upper-rear closure and depth
 #
 # The support scene deliberately relies on Omniphony's inherited binaural core
 # for the spatial acoustics. Our stereo layer decides what evidence may enter the
-# field; HRTF/ITD, physical-distance cues, first-order reflections, the short FDN
+# field; HRTF/ITD, metric distance cues, first-order reflections, the short FDN
 # tail and clipping protection remain native renderer mechanisms.
 #
-# P0.7 is intentionally additive: exercise the useful native mechanisms together,
-# then remove any one that physical listening proves costs clarity. The untouched
-# mastered stereo path remains outside this scene and therefore does not receive
-# the room/air treatment below.
+# Current perceptual weighting from physical listening:
+#
+#   DISTANCE / BUBBLE SCALE
+#     front        primary
+#     rear         primary, but must not dominate
+#     height       primary
+#     sides        wide and continuous, but not the main radial-distance cue
+#
+# This is intentionally not a narrow front/back tunnel. Side width remains large;
+# the stronger *distance* impression is simply concentrated on the front/back/z
+# axes because that is where the target listener gets most of the bubble percept.
 render:
   master_gain: 0.0
   auto_gain: true
@@ -27,20 +34,21 @@ render:
   virtual_bed:
     radius_m: 1.0
     speakers:
-      # Broad source extent: connected to the frontal hemisphere but wider and
-      # less head-locked than the untouched master underneath it.
+      # Front field: push the derived broad field fully into the front corners.
+      # With the 3.25 m binaural scene scale these sit about 4.6 m from the
+      # listener, materially farther than the side continuity lanes.
       - name: "L"
         coord_mode: "cartesian"
         x: -1.0
-        y: 0.25
-        z: 0.10
+        y: 1.0
+        z: 0.08
         spatialize: true
         delay_ms: 0
       - name: "R"
         coord_mode: "cartesian"
         x: 1.0
-        y: 0.25
-        z: 0.10
+        y: 1.0
+        z: 0.08
         spatialize: true
         delay_ms: 0
 
@@ -60,66 +68,105 @@ render:
         spatialize: false
         delay_ms: 0
 
-      # Persistent source-like lateral evidence.
+      # Sides stay fully wide, but sit closer radially than front/rear/height.
+      # They stitch the sphere together rather than becoming its centre of mass.
       - name: "Ls"
         coord_mode: "cartesian"
         x: -1.0
-        y: -0.15
-        z: 0.18
+        y: 0.0
+        z: 0.10
         spatialize: true
         delay_ms: 0
       - name: "Rs"
         coord_mode: "cartesian"
         x: 1.0
-        y: -0.15
-        z: 0.18
+        y: 0.0
+        z: 0.10
         spatialize: true
         delay_ms: 0
 
-      # Restrained rear continuation. P0.6 already reduced rear weighting in the
-      # evidence field, so these positions remain available without becoming the
-      # sphere's centre of gravity.
+      # Rear remains a real radial dimension, but is deliberately shorter than
+      # the front corners so it cannot pull the perceived bubble behind the head.
       - name: "Lb"
         coord_mode: "cartesian"
-        x: -0.70
-        y: -0.85
-        z: 0.28
+        x: -0.82
+        y: -0.82
+        z: 0.12
         spatialize: true
         delay_ms: 0
       - name: "Rb"
         coord_mode: "cartesian"
-        x: 0.70
-        y: -0.85
-        z: 0.28
+        x: 0.82
+        y: -0.82
+        z: 0.12
         spatialize: true
         delay_ms: 0
+
+      # Explicit height poses matter in binaural mode because metric distance is
+      # derived directly from the virtual-object coordinates. Top-front is the
+      # longest axis in the current music presentation and should provide the
+      # strongest sense of an acoustic canopy away from the skull.
+      - name: "TFL"
+        coord_mode: "cartesian"
+        x: -0.92
+        y: 1.0
+        z: 1.0
+        spatialize: true
+        delay_ms: 0
+      - name: "TFR"
+        coord_mode: "cartesian"
+        x: 0.92
+        y: 1.0
+        z: 1.0
+        spatialize: true
+        delay_ms: 0
+
+      # Upper-rear closes the sphere with real distance while remaining shorter
+      # and less dominant than the upper-front canopy.
+      - name: "TBL"
+        coord_mode: "cartesian"
+        x: -0.80
+        y: -0.82
+        z: 0.90
+        spatialize: true
+        delay_ms: 0
+      - name: "TBR"
+        coord_mode: "cartesian"
+        x: 0.80
+        y: -0.82
+        z: 0.90
+        spatialize: true
+        delay_ms: 0
+
   binaural:
     output_mode: binaural
     hrir_source: saf
 
-    # Match the real upstream Omniphony demo's physical scene scale. Distance
-    # never replaces the authored direct-master level; it feeds the renderer's
-    # own acoustic distance cues for this derived support scene.
-    unit_scale_m: 3.0
+    # Upstream Omniphony's real demo uses 3.0 m. The music field now goes a
+    # little farther because physical listening says radial distance, especially
+    # front/back/height, is the strongest contributor to the desired giant bubble.
+    # Direct support gain is not attenuated by this scale; Omniphony uses it for
+    # metric acoustic cues such as reflection geometry, air and room send.
+    unit_scale_m: 3.25
 
-    # Native six-image first-order reflection bank. Upstream's bundled demo uses
-    # 0.4. Start below that because this scene is additive support around a dry
-    # protected master, but high enough to test a real externalization jump.
+    # Native six-image first-order reflection bank. Keep this below the upstream
+    # demo's 0.4 while using a substantially larger room so the reflections act
+    # as distance/externalization evidence rather than a small audible room.
     reflections:
       enabled: true
-      room_width_m: 5.5
-      room_depth_m: 7.0
-      room_height_m: 3.2
-      level: 0.24
+      room_width_m: 7.0
+      room_depth_m: 10.0
+      room_height_m: 4.8
+      level: 0.30
 
-    # Native FDN tail, intentionally much drier than the upstream demo's 0.2 / 0.3 s.
-    # Its job is continuity and acoustic volume, never an audible hall effect.
+    # Native FDN tail remains deliberately short and low. It supplies continuity
+    # and acoustic volume, never the main spatial effect.
     reverb:
       enabled: true
-      level: 0.06
-      rt60_s: 0.22
-      predelay_ms: 18.0
+      level: 0.07
+      rt60_s: 0.24
+      predelay_ms: 20.0
 
-    # Native distance-dependent HF attenuation. This touches only the derived
-    # support scene; the authoritative stereo master remains full-band outside it.
+    # Native distance-dependent HF attenuation touches only the derived support
+    # scene. The authoritative stereo master stays full-band outside this scene.
     air_absorption: true
