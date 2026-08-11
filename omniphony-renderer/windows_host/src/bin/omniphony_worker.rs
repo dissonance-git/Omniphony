@@ -1,5 +1,5 @@
 #[cfg(target_os = "windows")]
-#[path = "../music_worker.rs"]
+#[path = "../music_worker_evidence.rs"]
 mod music_worker;
 
 fn main() -> anyhow::Result<()> {
