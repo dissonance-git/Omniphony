@@ -133,8 +133,7 @@ impl ReflectionBank {
             taps_r: Default::default(),
             sample_rate,
             tone_alpha: 1.0
-                - (-std::f32::consts::TAU * REFLECTION_TONE_SPLIT_HZ / sample_rate as f32)
-                    .exp(),
+                - (-std::f32::consts::TAU * REFLECTION_TONE_SPLIT_HZ / sample_rate as f32).exp(),
         }
     }
 
@@ -322,14 +321,7 @@ mod tests {
     #[test]
     fn binaural_targets_can_arrive_at_different_ear_times() {
         let mut bank = ReflectionBank::new(48_000);
-        bank.set_targets_binaural_toned(
-            0,
-            10.0 / 48_000.0,
-            14.0 / 48_000.0,
-            1.0,
-            1.0,
-            1.0,
-        );
+        bank.set_targets_binaural_toned(0, 10.0 / 48_000.0, 14.0 / 48_000.0, 1.0, 1.0, 1.0);
         for _ in 0..4_000 {
             bank.process(0.0);
         }

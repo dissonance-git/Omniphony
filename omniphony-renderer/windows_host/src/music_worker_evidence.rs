@@ -29,9 +29,9 @@ const FIELD_SUPPORT_GAIN: f32 = 1.00;
 /// The first clean-summing experiment reserved almost 7 dB unconditionally.
 /// Physical listening showed that was too costly for an always-on music path.
 /// Keep the summation purely linear but reclaim most of that level; this leaves
-/// about 2.85 dB of fixed headroom while we gather real peak evidence from the
+/// about 0.9 dB of fixed headroom while we gather real peak evidence from the
 /// frontier build. Do not reintroduce sample-wise support clipping.
-const LINEAR_OUTPUT_GAIN: f32 = 0.72;
+const LINEAR_OUTPUT_GAIN: f32 = 0.90;
 const METER_INTERVAL_SECS: u64 = 5;
 
 #[derive(Default)]
