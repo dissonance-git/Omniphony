@@ -77,3 +77,5 @@ use renderer::music_field::{MUSIC_FIELD_CHANNELS, MusicFieldProcessor, MusicFiel
           git add -A
           git commit -m 'feat(audio): compensate common SAF support colour'
           git push
+
+# trigger
