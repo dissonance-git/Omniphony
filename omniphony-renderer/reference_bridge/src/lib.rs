@@ -26,14 +26,25 @@ use bridge_api::{BridgeLib, BridgeLibRef, FormatBridge_TO, FormatBridgeBox};
 #[allow(unused_imports)]
 use bridge_api::FormatBridge as _FormatBridgeTrait;
 
-/// Plugin entry point: export the root module so the host can load it.
-#[export_root_module]
-fn get_library() -> BridgeLibRef {
+fn library_module() -> BridgeLibRef {
     BridgeLib {
         new_bridge: create_bridge,
         set_host_log_sink,
     }
     .leak_into_prefix()
+}
+
+/// Return the same bridge module through a normal Rust call so static embedders
+/// can link the reference PCM adapter directly instead of shipping a second
+/// dynamic library. The plugin ABI remains available for generic hosts.
+pub fn linked_library() -> BridgeLibRef {
+    library_module()
+}
+
+/// Plugin entry point: export the root module so the host can load it.
+#[export_root_module]
+fn get_library() -> BridgeLibRef {
+    library_module()
 }
 
 extern "C" fn create_bridge(strict: bool) -> FormatBridgeBox {
