@@ -20,6 +20,11 @@ cpal = "0.15.3"
 orender_engine = { path = "../orender_engine" }
 bridge_api = { path = "../bridge_api" }
 
+# Stereo music evidence/extraction belongs to the portable renderer, not to the
+# Windows host. The host merely captures PCM, calls this processor, and sends
+# the derived support lanes through the normal Omniphony engine.
+renderer = { path = "../renderer" }
+
 # The native host also exercises the narrow PCM seam intended for a future APO
 # or virtual endpoint. Its first implementation remains bit-exact identity so
 # host transport can be tested independently from renderer behaviour.
