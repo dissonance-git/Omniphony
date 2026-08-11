@@ -1,0 +1,523 @@
+[1m[92m    Updating[0m git repository `https://github.com/mgth/sofar`
+[1m[92m    Updating[0m git submodule `https://github.com/hoene/libmysofa.git`
+[1m[92m    Updating[0m crates.io index
+[1m[92m     Locking[0m 300 packages to latest compatible versions
+[1m[92m      Adding[0m bindgen v0.70.1 [1m[33m(available: v0.72.1)[0m
+[1m[92m      Adding[0m cbindgen v0.27.0 [1m[33m(available: v0.29.4)[0m
+[1m[92m      Adding[0m cpal v0.15.3 [1m[33m(available: v0.18.1)[0m
+[1m[92m      Adding[0m criterion v0.5.1 [1m[33m(available: v0.8.2)[0m
+[1m[92m      Adding[0m libloading v0.8.9 [1m[33m(available: v0.9.0)[0m
+[1m[92m      Adding[0m pipewire v0.9.2 [1m[33m(available: v0.10.0)[0m
+[1m[92m      Adding[0m rubato v0.14.1 [1m[33m(available: v5.0.0)[0m
+[1m[92m      Adding[0m vergen-gitcl v1.0.8 [1m[33m(available: v10.0.2)[0m
+[1m[92m      Adding[0m windows v0.54.0 [1m[33m(available: v0.62.2)[0m
+[1m[92m      Adding[0m windows-service v0.7.0 [1m[33m(available: v0.8.1)[0m
+[1m[92m Downloading[0m crates ...
+[1m[92m  Downloaded[0m adler2 v2.0.1
+[1m[92m  Downloaded[0m abi_stable_shared v0.11.0
+[1m[92m  Downloaded[0m serde_yaml_ng v0.10.0
+[1m[92m  Downloaded[0m shlex v1.3.0
+[1m[92m  Downloaded[0m libloading v0.8.9
+[1m[92m  Downloaded[0m abi_stable_derive v0.11.3
+[1m[92m  Downloaded[0m typed-arena v2.0.2
+[1m[92m  Downloaded[0m utf8parse v0.2.2
+[1m[92m  Downloaded[0m cexpr v0.6.0
+[1m[92m  Downloaded[0m transpose v0.2.3
+[1m[92m  Downloaded[0m ciborium-ll v0.2.2
+[1m[92m  Downloaded[0m cfg-if v1.0.4
+[1m[92m  Downloaded[0m generational-arena v0.2.9
+[1m[92m  Downloaded[0m tstr_proc_macros v0.2.2
+[1m[92m  Downloaded[0m plotters-backend v0.3.7
+[1m[92m  Downloaded[0m rustc_version v0.4.1
+[1m[92m  Downloaded[0m aho-corasick v1.1.5
+[1m[92m  Downloaded[0m thiserror-impl v2.0.20
+[1m[92m  Downloaded[0m zmij v1.0.23
+[1m[92m  Downloaded[0m equivalent v1.0.2
+[1m[92m  Downloaded[0m simd-adler32 v0.3.10
+[1m[92m  Downloaded[0m strength_reduce v0.2.4
+[1m[92m  Downloaded[0m thiserror v2.0.20
+[1m[92m  Downloaded[0m tinytemplate v1.2.1
+[1m[92m  Downloaded[0m tstr v0.2.4
+[1m[92m  Downloaded[0m walkdir v2.5.0
+[1m[92m  Downloaded[0m scopeguard v1.2.0
+[1m[92m  Downloaded[0m smallvec v1.15.2
+[1m[92m  Downloaded[0m defmt-parser v1.0.0
+[1m[92m  Downloaded[0m crossbeam-epoch v0.9.20
+[1m[92m  Downloaded[0m itoa v1.0.18
+[1m[92m  Downloaded[0m hashbrown v0.17.1
+[1m[92m  Downloaded[0m anstyle-query v1.1.5
+[1m[92m  Downloaded[0m same-file v1.0.6
+[1m[92m  Downloaded[0m unicode-ident v1.0.24
+[1m[92m  Downloaded[0m unsafe-libyaml v0.2.11
+[1m[92m  Downloaded[0m core_extensions_proc_macros v1.5.4
+[1m[92m  Downloaded[0m defmt-macros v1.1.1
+[1m[92m  Downloaded[0m paste v1.0.15
+[1m[92m  Downloaded[0m primal-check v0.3.4
+[1m[92m  Downloaded[0m typewit v1.15.2
+[1m[92m  Downloaded[0m lock_api v0.4.14
+[1m[92m  Downloaded[0m anstyle-parse v1.0.0
+[1m[92m  Downloaded[0m clap_lex v1.1.0
+[1m[92m  Downloaded[0m oorandom v11.1.5
+[1m[92m  Downloaded[0m num-integer v0.1.46
+[1m[92m  Downloaded[0m serde_json v1.0.151
+[1m[92m  Downloaded[0m zerocopy-derive v0.8.56
+[1m[92m  Downloaded[0m anstyle v1.0.14
+[1m[92m  Downloaded[0m autocfg v1.5.1
+[1m[92m  Downloaded[0m anes v0.1.6
+[1m[92m  Downloaded[0m num-complex v0.4.6
+[1m[92m  Downloaded[0m realfft v3.5.0
+[1m[92m  Downloaded[0m is-terminal v0.4.17
+[1m[92m  Downloaded[0m ciborium v0.2.2
+[1m[92m  Downloaded[0m clang-sys v1.9.1
+[1m[92m  Downloaded[0m either v1.17.0
+[1m[92m  Downloaded[0m libloading v0.7.4
+[1m[92m  Downloaded[0m parking_lot_core v0.9.12
+[1m[92m  Downloaded[0m quote v1.0.47
+[1m[92m  Downloaded[0m repr_offset v0.2.2
+[1m[92m  Downloaded[0m abi_stable v0.11.3
+[1m[92m  Downloaded[0m bitflags v1.3.2
+[1m[92m  Downloaded[0m colorchoice v1.0.5
+[1m[92m  Downloaded[0m criterion-plot v0.5.0
+[1m[92m  Downloaded[0m plotters-svg v0.3.7
+[1m[92m  Downloaded[0m rayon-core v1.13.0
+[1m[92m  Downloaded[0m rustc-hash v1.1.0
+[1m[92m  Downloaded[0m ciborium-io v0.2.2
+[1m[92m  Downloaded[0m is_terminal_polyfill v1.70.2
+[1m[92m  Downloaded[0m crossbeam-deque v0.8.7
+[1m[92m  Downloaded[0m env_filter v2.0.0
+[1m[92m  Downloaded[0m once_cell v1.21.4
+[1m[92m  Downloaded[0m anyhow v1.0.104
+[1m[92m  Downloaded[0m bitflags v2.13.1
+[1m[92m  Downloaded[0m num-traits v0.2.19
+[1m[92m  Downloaded[0m ryu v1.0.23
+[1m[92m  Downloaded[0m bindgen v0.70.1
+[1m[92m  Downloaded[0m cast v0.3.0
+[1m[92m  Downloaded[0m const_panic v0.2.15
+[1m[92m  Downloaded[0m clap v4.6.6
+[1m[92m  Downloaded[0m syn v1.0.109
+[1m[92m  Downloaded[0m env_logger v0.11.11
+[1m[92m  Downloaded[0m glob v0.3.4
+[1m[92m  Downloaded[0m log v0.4.33
+[1m[92m  Downloaded[0m rustversion v1.0.23
+[1m[92m  Downloaded[0m semver v1.0.28
+[1m[92m  Downloaded[0m serde_core v1.0.229
+[1m[92m  Downloaded[0m anstream v1.0.0
+[1m[92m  Downloaded[0m as_derive_utils v0.11.0
+[1m[92m  Downloaded[0m indexmap v2.14.0
+[1m[92m  Downloaded[0m prettyplease v0.2.37
+[1m[92m  Downloaded[0m defmt v1.1.1
+[1m[92m  Downloaded[0m half v2.7.1
+[1m[92m  Downloaded[0m miniz_oxide v0.8.9
+[1m[92m  Downloaded[0m parking_lot v0.12.5
+[1m[92m  Downloaded[0m syn v3.0.3
+[1m[92m  Downloaded[0m zerocopy v0.8.56
+[1m[92m  Downloaded[0m crc32fast v1.5.0
+[1m[92m  Downloaded[0m crossbeam-utils v0.8.22
+[1m[92m  Downloaded[0m syn v2.0.119
+[1m[92m  Downloaded[0m core_extensions v1.5.4
+[1m[92m  Downloaded[0m memchr v2.8.3
+[1m[92m  Downloaded[0m crossbeam-channel v0.5.16
+[1m[92m  Downloaded[0m flate2 v1.1.9
+[1m[92m  Downloaded[0m serde_derive v1.0.229
+[1m[92m  Downloaded[0m proc-macro2 v1.0.107
+[1m[92m  Downloaded[0m itertools v0.13.0
+[1m[92m  Downloaded[0m jiff-core v0.1.0
+[1m[92m  Downloaded[0m minimal-lexical v0.2.1
+[1m[92m  Downloaded[0m criterion v0.5.1
+[1m[92m  Downloaded[0m itertools v0.10.5
+[1m[92m  Downloaded[0m serde v1.0.229
+[1m[92m  Downloaded[0m arc-swap v1.9.2
+[1m[92m  Downloaded[0m nom v7.1.3
+[1m[92m  Downloaded[0m regex v1.13.1
+[1m[92m  Downloaded[0m clap_builder v4.6.6
+[1m[92m  Downloaded[0m rayon v1.12.0
+[1m[92m  Downloaded[0m plotters v0.3.7
+[1m[92m  Downloaded[0m rustfft v6.4.1
+[1m[92m  Downloaded[0m regex-syntax v0.8.11
+[1m[92m  Downloaded[0m jiff v0.2.35
+[1m[92m  Downloaded[0m regex-automata v0.4.18
+[1m[92m  Downloaded[0m libc v0.2.189
+[1m[92m   Compiling[0m proc-macro2 v1.0.107
+[1m[92m   Compiling[0m unicode-ident v1.0.24
+[1m[92m   Compiling[0m quote v1.0.47
+[1m[92m   Compiling[0m cfg-if v1.0.4
+[1m[92m   Compiling[0m memchr v2.8.3
+[1m[92m   Compiling[0m serde_core v1.0.229
+[1m[92m   Compiling[0m autocfg v1.5.1
+[1m[92m   Compiling[0m num-traits v0.2.19
+[1m[92m   Compiling[0m crossbeam-utils v0.8.22
+[1m[92m   Compiling[0m libc v0.2.189
+[1m[92m   Compiling[0m serde v1.0.229
+[1m[92m   Compiling[0m syn v2.0.119
+[1m[92m   Compiling[0m syn v3.0.3
+[1m[92m   Compiling[0m zmij v1.0.23
+[1m[92m   Compiling[0m serde_json v1.0.151
+[1m[92m   Compiling[0m itoa v1.0.18
+[1m[92m   Compiling[0m glob v0.3.4
+[1m[92m   Compiling[0m clang-sys v1.9.1
+[1m[92m   Compiling[0m aho-corasick v1.1.5
+[1m[92m   Compiling[0m serde_derive v1.0.229
+[1m[92m   Compiling[0m regex-syntax v0.8.11
+[1m[92m   Compiling[0m crossbeam-epoch v0.9.20
+[1m[92m   Compiling[0m anstyle v1.0.14
+[1m[92m   Compiling[0m prettyplease v0.2.37
+[1m[92m   Compiling[0m syn v1.0.109
+[1m[92m   Compiling[0m regex-automata v0.4.18
+[1m[92m   Compiling[0m anyhow v1.0.104
+[1m[92m   Compiling[0m crossbeam-deque v0.8.7
+[1m[92m   Compiling[0m parking_lot_core v0.9.12
+[1m[92m   Compiling[0m minimal-lexical v0.2.1
+[1m[92m   Compiling[0m core_extensions v1.5.4
+[1m[92m   Compiling[0m nom v7.1.3
+[1m[92m   Compiling[0m regex v1.13.1
+[1m[92m   Compiling[0m num-integer v0.1.46
+[1m[92m   Compiling[0m libloading v0.8.9
+[1m[92m   Compiling[0m bindgen v0.70.1
+[1m[92m   Compiling[0m scopeguard v1.2.0
+[1m[92m   Compiling[0m paste v1.0.15
+[1m[92m   Compiling[0m either v1.17.0
+[1m[92m   Compiling[0m core_extensions_proc_macros v1.5.4
+[1m[92m   Compiling[0m tstr_proc_macros v0.2.2
+[1m[92m   Compiling[0m zerocopy v0.8.56
+[1m[92m   Compiling[0m utf8parse v0.2.2
+[1m[92m   Compiling[0m rayon-core v1.13.0
+[1m[92m   Compiling[0m smallvec v1.15.2
+[1m[92m   Compiling[0m anstyle-parse v1.0.0
+[1m[92m   Compiling[0m tstr v0.2.4
+[1m[92m   Compiling[0m itertools v0.13.0
+[1m[92m   Compiling[0m lock_api v0.4.14
+[1m[92m   Compiling[0m cexpr v0.6.0
+[1m[92m   Compiling[0m as_derive_utils v0.11.0
+[1m[92m   Compiling[0m abi_stable_shared v0.11.0
+[1m[92m   Compiling[0m zerocopy-derive v0.8.56
+[1m[92m   Compiling[0m typed-arena v2.0.2
+[1m[92m   Compiling[0m shlex v1.3.0
+[1m[92m   Compiling[0m typewit v1.15.2
+[1m[92m   Compiling[0m is_terminal_polyfill v1.70.2
+[1m[92m   Compiling[0m bitflags v2.13.1
+[1m[92m   Compiling[0m rustversion v1.0.23
+[1m[92m   Compiling[0m log v0.4.33
+[1m[92m   Compiling[0m anstyle-query v1.1.5
+[1m[92m   Compiling[0m strength_reduce v0.2.4
+[1m[92m   Compiling[0m crc32fast v1.5.0
+[1m[92m   Compiling[0m rustc-hash v1.1.0
+[1m[92m   Compiling[0m jiff-core v0.1.0
+[1m[92m   Compiling[0m colorchoice v1.0.5
+[1m[92m   Compiling[0m anstream v1.0.0
+[1m[92m   Compiling[0m transpose v0.2.3
+[1m[92m   Compiling[0m env_filter v2.0.0
+[1m[92m   Compiling[0m const_panic v0.2.15
+[1m[92m   Compiling[0m jiff v0.2.35
+[1m[92m   Compiling[0m abi_stable_derive v0.11.3
+[1m[92m   Compiling[0m parking_lot v0.12.5
+[1m[92m   Compiling[0m repr_offset v0.2.2
+[1m[92m   Compiling[0m primal-check v0.3.4
+[1m[92m   Compiling[0m num-complex v0.4.6
+[1m[92m   Compiling[0m crossbeam-channel v0.5.16
+[1m[92m   Compiling[0m libloading v0.7.4
+[1m[92m   Compiling[0m generational-arena v0.2.9
+[1m[92m   Compiling[0m adler2 v2.0.1
+[1m[92m   Compiling[0m hashbrown v0.17.1
+[1m[92m   Compiling[0m simd-adler32 v0.3.10
+[1m[92m   Compiling[0m equivalent v1.0.2
+[1m[92m   Compiling[0m renderer v0.2.4 (/home/runner/work/Omniphony-Headphones/Omniphony-Headphones/omniphony-renderer/renderer)
+[1m[92m   Compiling[0m miniz_oxide v0.8.9
+[1m[92m   Compiling[0m rustfft v6.4.1
+[1m[92m   Compiling[0m abi_stable v0.11.3
+[1m[92m   Compiling[0m indexmap v2.14.0
+[1m[92m   Compiling[0m rayon v1.12.0
+[1m[92m   Compiling[0m half v2.7.1
+[1m[92m   Compiling[0m env_logger v0.11.11
+[1m[92m   Compiling[0m unsafe-libyaml v0.2.11
+[1m[92m   Compiling[0m clap_lex v1.1.0
+[1m[92m   Compiling[0m ciborium-io v0.2.2
+[1m[92m   Compiling[0m ryu v1.0.23
+[1m[92m   Compiling[0m plotters-backend v0.3.7
+[1m[92m   Compiling[0m serde_yaml_ng v0.10.0
+[1m[92m   Compiling[0m plotters-svg v0.3.7
+[1m[92m   Compiling[0m ciborium-ll v0.2.2
+[1m[92m   Compiling[0m clap_builder v4.6.6
+[1m[92m   Compiling[0m flate2 v1.1.9
+[1m[92m   Compiling[0m arc-swap v1.9.2
+[1m[92m   Compiling[0m sys v0.1.0 (/home/runner/work/Omniphony-Headphones/Omniphony-Headphones/omniphony-renderer/sys)
+[1m[92m   Compiling[0m itertools v0.10.5
+[1m[92m   Compiling[0m same-file v1.0.6
+[1m[92m   Compiling[0m cast v0.3.0
+[1m[92m   Compiling[0m walkdir v2.5.0
+[1m[92m   Compiling[0m clap v4.6.6
+[1m[92m   Compiling[0m criterion-plot v0.5.0
+[1m[92m   Compiling[0m bridge_api v0.3.0 (/home/runner/work/Omniphony-Headphones/Omniphony-Headphones/omniphony-renderer/bridge_api)
+[1m[92m   Compiling[0m realfft v3.5.0
+[1m[92m   Compiling[0m ciborium v0.2.2
+[1m[92m   Compiling[0m plotters v0.3.7
+[1m[92m   Compiling[0m tinytemplate v1.2.1
+[1m[92m   Compiling[0m is-terminal v0.4.17
+[1m[92m   Compiling[0m oorandom v11.1.5
+[1m[92m   Compiling[0m once_cell v1.21.4
+[1m[92m   Compiling[0m anes v0.1.6
+[1m[92m   Compiling[0m criterion v0.5.1
+[1m[33mwarning[0m[1m: method `reset` is never used[0m
+  [1m[94m--> [0mrenderer/src/spatial_renderer/../binaural/diffuse_compensation.rs:93:8
+   [1m[94m|[0m
+[1m[94m35[0m [1m[94m|[0m impl Biquad {
+   [1m[94m|[0m [1m[94m-----------[0m [1m[94mmethod in this implementation[0m
+[1m[94m...[0m
+[1m[94m93[0m [1m[94m|[0m     fn reset(&mut self) {
+   [1m[94m|[0m        [1m[33m^^^^^[0m
+   [1m[94m|[0m
+   [1m[94m= [0m[1mnote[0m: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+[1m[33mwarning[0m[1m: method `reset` is never used[0m
+   [1m[94m--> [0mrenderer/src/spatial_renderer/../binaural/diffuse_compensation.rs:126:8
+    [1m[94m|[0m
+[1m[94m106[0m [1m[94m|[0m impl EarCompensation {
+    [1m[94m|[0m [1m[94m--------------------[0m [1m[94mmethod in this implementation[0m
+[1m[94m...[0m
+[1m[94m126[0m [1m[94m|[0m     fn reset(&mut self) {
+    [1m[94m|[0m        [1m[33m^^^^^[0m
+
+[1m[33mwarning[0m[1m: method `reset_runtime_state` is never used[0m
+   [1m[94m--> [0mrenderer/src/spatial_renderer/../binaural/diffuse_compensation.rs:163:12
+    [1m[94m|[0m
+[1m[94m145[0m [1m[94m|[0m impl DiffuseFieldCompensator {
+    [1m[94m|[0m [1m[94m----------------------------[0m [1m[94mmethod in this implementation[0m
+[1m[94m...[0m
+[1m[94m163[0m [1m[94m|[0m     pub fn reset_runtime_state(&mut self) {
+    [1m[94m|[0m            [1m[33m^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[92m   Compiling[0m dsp_fixtures v0.1.0 (/home/runner/work/Omniphony-Headphones/Omniphony-Headphones/omniphony-renderer/dsp_fixtures)
+[1m[33mwarning[0m[1m: unused import: `crate::residual::peak_residual_dbfs`[0m
+ [1m[94m--> [0mdsp_fixtures/src/binaural_block_size.rs:8:5
+  [1m[94m|[0m
+[1m[94m8[0m [1m[94m|[0m use crate::residual::peak_residual_dbfs;
+  [1m[94m|[0m     [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+  [1m[94m|[0m
+  [1m[94m= [0m[1mnote[0m: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+[1m[33mwarning[0m[1m: unused import: `SAMPLE_RATE`[0m
+ [1m[94m--> [0mdsp_fixtures/src/binaural_block_size.rs:9:20
+  [1m[94m|[0m
+[1m[94m9[0m [1m[94m|[0m use crate::scene::{SAMPLE_RATE, build_renderer_binaural, pseudo};
+  [1m[94m|[0m                    [1m[33m^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: unused imports: `SAMPLE_RATE`, `build_renderer_binaural`, and `pseudo`[0m
+ [1m[94m--> [0mdsp_fixtures/src/stream_reset.rs:8:20
+  [1m[94m|[0m
+[1m[94m8[0m [1m[94m|[0m use crate::scene::{SAMPLE_RATE, build_renderer_binaural, pseudo};
+  [1m[94m|[0m                    [1m[33m^^^^^^^^^^^[0m  [1m[33m^^^^^^^^^^^^^^^^^^^^^^^[0m  [1m[33m^^^^^^[0m
+
+[1m[33mwarning[0m[1m: unused imports: `OutputMode` and `RampMode`[0m
+ [1m[94m--> [0mdsp_fixtures/src/stream_reset.rs:9:29
+  [1m[94m|[0m
+[1m[94m9[0m [1m[94m|[0m use renderer::live_params::{OutputMode, RampMode};
+  [1m[94m|[0m                             [1m[33m^^^^^^^^^^[0m  [1m[33m^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: unused import: `renderer::speaker_layout::SpeakerLayout`[0m
+  [1m[94m--> [0mdsp_fixtures/src/stream_reset.rs:11:5
+   [1m[94m|[0m
+[1m[94m11[0m [1m[94m|[0m use renderer::speaker_layout::SpeakerLayout;
+   [1m[94m|[0m     [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: constant `TOTAL_SAMPLES` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_block_size.rs:14:7
+   [1m[94m|[0m
+[1m[94m14[0m [1m[94m|[0m const TOTAL_SAMPLES: usize = 960; // 20 ms at 48 kHz = GAIN_SLEW_SECS.
+   [1m[94m|[0m       [1m[33m^^^^^^^^^^^^^[0m
+   [1m[94m|[0m
+   [1m[94m= [0m[1mnote[0m: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+[1m[33mwarning[0m[1m: constant `PRIME_BLOCK_SAMPLES` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_block_size.rs:15:7
+   [1m[94m|[0m
+[1m[94m15[0m [1m[94m|[0m const PRIME_BLOCK_SAMPLES: usize = 40;
+   [1m[94m|[0m       [1m[33m^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: constant `PRIME_SAMPLES` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_block_size.rs:19:7
+   [1m[94m|[0m
+[1m[94m19[0m [1m[94m|[0m const PRIME_SAMPLES: usize = 1_280;
+   [1m[94m|[0m       [1m[33m^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: constant `POSITION` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_block_size.rs:20:7
+   [1m[94m|[0m
+[1m[94m20[0m [1m[94m|[0m const POSITION: [f64; 3] = [0.0, 1.0, 0.0]; // fixed front-centre object.
+   [1m[94m|[0m       [1m[33m^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: constant `MOTION_TARGET` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_block_size.rs:21:7
+   [1m[94m|[0m
+[1m[94m21[0m [1m[94m|[0m const MOTION_TARGET: [f64; 3] = [1.0, 0.0, 0.0]; // full right.
+   [1m[94m|[0m       [1m[33m^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `event` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_block_size.rs:23:4
+   [1m[94m|[0m
+[1m[94m23[0m [1m[94m|[0m fn event(position: [f64; 3], gain_db: Option<i8>, ramp_length: u32) -> SpatialChannelEvent {
+   [1m[94m|[0m    [1m[33m^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `fixed_event` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_block_size.rs:35:4
+   [1m[94m|[0m
+[1m[94m35[0m [1m[94m|[0m fn fixed_event(gain_db: i8) -> SpatialChannelEvent {
+   [1m[94m|[0m    [1m[33m^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `build_binaural_renderer` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_block_size.rs:39:4
+   [1m[94m|[0m
+[1m[94m39[0m [1m[94m|[0m fn build_binaural_renderer() -> SpatialRenderer {
+   [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `prime_renderer` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_block_size.rs:57:4
+   [1m[94m|[0m
+[1m[94m57[0m [1m[94m|[0m fn prime_renderer(initial: &SpatialChannelEvent) -> SpatialRenderer {
+   [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `renderer_primed_at_silence` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_block_size.rs:79:4
+   [1m[94m|[0m
+[1m[94m79[0m [1m[94m|[0m fn renderer_primed_at_silence() -> SpatialRenderer {
+   [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `renderer_primed_audible_at_front` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_block_size.rs:83:4
+   [1m[94m|[0m
+[1m[94m83[0m [1m[94m|[0m fn renderer_primed_audible_at_front() -> SpatialRenderer {
+   [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `render_gain_step` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_block_size.rs:87:4
+   [1m[94m|[0m
+[1m[94m87[0m [1m[94m|[0m fn render_gain_step(block_samples: usize) -> Vec<f32> {
+   [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `render_position_motion` is never used[0m
+   [1m[94m--> [0mdsp_fixtures/src/binaural_block_size.rs:118:4
+    [1m[94m|[0m
+[1m[94m118[0m [1m[94m|[0m fn render_position_motion(block_samples: usize) -> Vec<f32> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: constant `PRIME_SAMPLES` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_groove_fidelity.rs:14:7
+   [1m[94m|[0m
+[1m[94m14[0m [1m[94m|[0m const PRIME_SAMPLES: usize = 1_280;
+   [1m[94m|[0m       [1m[33m^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: constant `PRIME_BLOCK` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_groove_fidelity.rs:15:7
+   [1m[94m|[0m
+[1m[94m15[0m [1m[94m|[0m const PRIME_BLOCK: usize = 40;
+   [1m[94m|[0m       [1m[33m^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: constant `BEAT_SAMPLES` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_groove_fidelity.rs:16:7
+   [1m[94m|[0m
+[1m[94m16[0m [1m[94m|[0m const BEAT_SAMPLES: usize = SAMPLE_RATE as usize / 2; // 120 BPM.
+   [1m[94m|[0m       [1m[33m^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: constant `BEATS` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_groove_fidelity.rs:17:7
+   [1m[94m|[0m
+[1m[94m17[0m [1m[94m|[0m const BEATS: usize = 4;
+   [1m[94m|[0m       [1m[33m^^^^^[0m
+
+[1m[33mwarning[0m[1m: constant `SEARCH_TAIL` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_groove_fidelity.rs:18:7
+   [1m[94m|[0m
+[1m[94m18[0m [1m[94m|[0m const SEARCH_TAIL: usize = 512;
+   [1m[94m|[0m       [1m[33m^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `front_event` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_groove_fidelity.rs:20:4
+   [1m[94m|[0m
+[1m[94m20[0m [1m[94m|[0m fn front_event() -> SpatialChannelEvent {
+   [1m[94m|[0m    [1m[33m^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `event_samples` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_groove_fidelity.rs:32:4
+   [1m[94m|[0m
+[1m[94m32[0m [1m[94m|[0m fn event_samples(offbeat_phase: f64) -> Vec<usize> {
+   [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `render_click_train` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/binaural_groove_fidelity.rs:42:4
+   [1m[94m|[0m
+[1m[94m42[0m [1m[94m|[0m fn render_click_train(offbeat_phase: f64, block_samples: usize) -> (Vec<f32>, Vec<usize>) {
+   [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `stereo_energy` is never used[0m
+   [1m[94m--> [0mdsp_fixtures/src/binaural_groove_fidelity.rs:104:4
+    [1m[94m|[0m
+[1m[94m104[0m [1m[94m|[0m fn stereo_energy(output: &[f32], sample: usize) -> f32 {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `detected_peaks` is never used[0m
+   [1m[94m--> [0mdsp_fixtures/src/binaural_groove_fidelity.rs:110:4
+    [1m[94m|[0m
+[1m[94m110[0m [1m[94m|[0m fn detected_peaks(output: &[f32], expected: &[usize]) -> Vec<usize> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `assert_timing_preserved` is never used[0m
+   [1m[94m--> [0mdsp_fixtures/src/binaural_groove_fidelity.rs:130:4
+    [1m[94m|[0m
+[1m[94m130[0m [1m[94m|[0m fn assert_timing_preserved(offbeat_phase: f64, block_samples: usize) {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `object_event` is never used[0m
+  [1m[94m--> [0mdsp_fixtures/src/stream_reset.rs:13:4
+   [1m[94m|[0m
+[1m[94m13[0m [1m[94m|[0m fn object_event() -> SpatialChannelEvent {
+   [1m[94m|[0m    [1m[33m^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m: `dsp_fixtures` (lib) generated 30 warnings (run `cargo fix --lib -p dsp_fixtures` to apply 5 suggestions)
+[1m[33mwarning[0m: `renderer` (lib) generated 3 warnings
+[1m[33mwarning[0m[1m: unused variable: `h`[0m
+   [1m[94m--> [0mrenderer/src/band_gaintable.rs:391:13
+    [1m[94m|[0m
+[1m[94m391[0m [1m[94m|[0m         let h = std::f32::consts::FRAC_1_SQRT_2;
+    [1m[94m|[0m             [1m[33m^[0m [1m[33mhelp: if this is intentional, prefix it with an underscore: `_h`[0m
+    [1m[94m|[0m
+    [1m[94m= [0m[1mnote[0m: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+[1m[33mwarning[0m[1m: variable does not need to be mutable[0m
+    [1m[94m--> [0mrenderer/src/spatial_renderer/tests.rs:1800:9
+     [1m[94m|[0m
+[1m[94m1800[0m [1m[94m|[0m     let mut set_mode = |r: &mut SpatialRenderer, mode: crate::live_params::OutputMode| {
+     [1m[94m|[0m         [1m[94m----[0m[1m[33m^^^^^^^^[0m
+     [1m[94m|[0m         [1m[94m|[0m
+     [1m[94m|[0m         [1m[94mhelp: remove this `mut`[0m
+     [1m[94m|[0m
+     [1m[94m= [0m[1mnote[0m: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+[1m[33mwarning[0m[1m: function `gain_step_norm` is never used[0m
+  [1m[94m--> [0mrenderer/src/spatial_vbap/panner/native_validation.rs:63:4
+   [1m[94m|[0m
+[1m[94m63[0m [1m[94m|[0m fn gain_step_norm(panner: &NativeVbapLayout, az: f32, el: f32, delta: f32) -> f32 {
+   [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^[0m
+   [1m[94m|[0m
+   [1m[94m= [0m[1mnote[0m: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+[1m[33mwarning[0m: `renderer` (lib test) generated 3 warnings (run `cargo fix --lib -p renderer --tests` to apply 2 suggestions)
+[1m[92m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 57.60s
+[1m[92m     Running[0m unittests src/lib.rs (omniphony-renderer/target/debug/deps/renderer-19754f357226645e)
+
+running 2 tests
+test spatial_renderer::cascade::diffuse_compensation::tests::reset_clears_filter_history ... ok
+test spatial_renderer::cascade::diffuse_compensation::tests::saf_profile_preserves_mid_reference_but_reduces_common_pinna_rise ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 291 filtered out; finished in 0.01s
+
+[1m[92m     Running[0m tests/hrtf_diffuse_spectrum.rs (omniphony-renderer/target/debug/deps/hrtf_diffuse_spectrum-e4dd6bdc95b57deb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+[1m[92m     Running[0m tests/hrtf_perceptual_cues.rs (omniphony-renderer/target/debug/deps/hrtf_perceptual_cues-e32e02b84f822c12)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+exit_status=0
