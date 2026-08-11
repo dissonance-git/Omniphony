@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
-    mpsc::{Receiver, TryRecvError, TrySendError, sync_channel},
+    mpsc::{Receiver, TryRecvError, sync_channel},
 };
 use std::time::{Duration, Instant};
 use wasapi::{
@@ -19,7 +19,6 @@ use wasapi::{
 const SAMPLE_RATE_HZ: u32 = 48_000;
 const PLAYBACK_QUEUE_BLOCKS: usize = 16;
 const FIELD_SUPPORT_GAIN: f32 = 1.00;
-const SUPPORT_SOFT_KNEE_START: f32 = 0.85;
 const METER_INTERVAL_SECS: u64 = 5;
 
 #[derive(Default)]
@@ -175,7 +174,7 @@ pub fn run() -> anyhow::Result<()> {
     println!("  field:   220+ Hz broad/lateral/diffuse evidence -> overlapping 7.1.4 shell");
     println!("  height:  conservative vertical extent from already-spatial evidence");
     println!(
-        "  support: {:.0}% derived-field mix, master-first soft support knee",
+        "  support: {:.0}% derived-field mix, master-first clipping veto",
         FIELD_SUPPORT_GAIN * 100.0
     );
     println!("  room:    no early reflections / no late reverb / no air absorption");
@@ -245,7 +244,7 @@ pub fn run() -> anyhow::Result<()> {
         direct_meter.observe(&input);
 
         if args.start_off {
-            try_queue_block(&play_tx, input)?;
+            queue_block(&play_tx, input)?;
             if last_meter_report.elapsed() >= Duration::from_secs(METER_INTERVAL_SECS) {
                 print_meters(
                     &mut direct_meter,
@@ -303,7 +302,7 @@ pub fn run() -> anyhow::Result<()> {
                 FIELD_SUPPORT_GAIN,
             )?;
             added_meter.observe_delta(&mixed, &dry);
-            try_queue_block(&play_tx, mixed)?;
+            queue_block(&play_tx, mixed)?;
         }
 
         if last_meter_report.elapsed() >= Duration::from_secs(METER_INTERVAL_SECS) {
@@ -323,32 +322,6 @@ pub fn run() -> anyhow::Result<()> {
     drop(playback_stream);
     println!("Omniphony frequency-evidence prototype stopped");
     Ok(())
-}
-
-fn soft_limit_support(base: f32, wanted: f32) -> f32 {
-    if wanted == 0.0 {
-        return 0.0;
-    }
-    let headroom = if wanted > 0.0 {
-        1.0 - base
-    } else {
-        1.0 + base
-    };
-    if headroom <= 0.0 {
-        return 0.0;
-    }
-
-    let magnitude = wanted.abs();
-    let knee_start = headroom * SUPPORT_SOFT_KNEE_START;
-    if magnitude <= knee_start {
-        return wanted;
-    }
-
-    let knee_width = (headroom - knee_start).max(f32::EPSILON);
-    let excess = magnitude - knee_start;
-    let compressed = knee_start + knee_width * (1.0 - (-excess / knee_width).exp());
-    let limited = compressed.min(headroom);
-    if wanted > 0.0 { limited } else { -limited }
 }
 
 fn mix_preserved_master_with_support(
@@ -375,24 +348,20 @@ fn mix_preserved_master_with_support(
             continue;
         }
         let wanted = field * gain;
-        let added = soft_limit_support(base, wanted);
-        out.push((base + added).clamp(-1.0, 1.0));
+        out.push(base + wanted.clamp(-1.0 - base, 1.0 - base));
     }
     Ok(out)
 }
 
-fn try_queue_block(
+fn queue_block(
     tx: &std::sync::mpsc::SyncSender<Vec<f32>>,
     block: Vec<f32>,
 ) -> anyhow::Result<()> {
     if block.is_empty() {
         return Ok(());
     }
-    match tx.try_send(block) {
-        Ok(()) => Ok(()),
-        Err(TrySendError::Full(_)) => Ok(()),
-        Err(TrySendError::Disconnected(_)) => bail!("WASAPI playback stream disconnected"),
-    }
+    tx.send(block)
+        .map_err(|_| anyhow::anyhow!("WASAPI playback stream disconnected"))
 }
 
 struct LoopbackCapture {
