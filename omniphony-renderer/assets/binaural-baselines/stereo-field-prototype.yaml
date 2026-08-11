@@ -11,7 +11,7 @@
 #   Tfl/Tfr     dominant front-height distance / canopy
 #   Tbl/Tbr     upper-rear closure and depth
 #
-# P0.8 makes upstream Omniphony's cascaded binaural path the active headphone
+# P0.9 keeps upstream Omniphony's cascaded binaural path as the active headphone
 # architecture for this support branch. The derived field first runs through the
 # full 7.1.4 speaker renderer, creating a continuous virtual loudspeaker room,
 # and that virtual room is then binauralised by Omniphony's HRTF/ITD stage.
@@ -21,17 +21,54 @@
 # the fidelity floor while letting the support field use the more continuous
 # speaker->binaural topology.
 #
+# P0.9 convergence law:
+#   - bass/body authority remains frozen as a success;
+#   - energy may be anchored, authored stereo motion may not be frozen;
+#   - height and world size come from geometry/HRTF, never from extra treble gain;
+#   - native speaker-room geometry and broadband phantom extraction may enrich
+#     the support field, but the protected master remains authoritative;
+#   - larger room geometry is paired with less reflection/reverb energy so scale
+#     grows without buying harshness, hallway colour or fatigue.
+#
 # Important topology rule: this renderer is an additive SUPPORT branch, not the
 # final program output. Omniphony's native auto-gain is therefore disabled here.
 # Final-bus headroom/measurement belongs to the host combiner instead.
-#
-# Current development law: push physical acoustic volume until the next increase
-# causes blur, anchor loss, transient softening, bass timing loss or fatigue. The
-# last clean point before that failure is the current perceptual frontier.
 render:
   master_gain: 0.0
   auto_gain: false
   auto_gain_ceiling_db: -2.0
+
+  # Shape the virtual speaker EFFECT SPACE independently of the HRTF reflection
+  # shoebox below. Width remains huge, while front/rear and especially upper
+  # distance get extra room. These are native Omniphony room-metre controls;
+  # they normalize to the renderer's room ratios on load.
+  room_width_m: 13.5
+  room_front_m: 11.0
+  room_rear_m: 9.0
+  room_height_m: 11.5
+  room_lower_m: 4.5
+  room_ratio_center_blend: 0.30
+
+  # A small constant source extent helps the cascaded virtual-loudspeaker field
+  # join into a continuous shell without turning discrete anchors into fog.
+  spread_from_distance: false
+  vbap_spread_min: 0.06
+  vbap_spread_max: 0.30
+
+  # Upstream broadband phantom extraction is zero-latency and runs only on this
+  # already-derived support bed. At low strength it preserves the bed while
+  # allowing correlated/panned material to become a genuinely moving object in
+  # the virtual room. No vertical lift yet: authored/inferred height remains the
+  # responsibility of the existing height evidence and geometry.
+  synthetic_objects_enabled: true
+  phantom_extract_mode: broadband
+  phantom_params:
+    strength: 0.22
+    passes: 1.0
+    lift: 0.0
+    center: 0.0
+    sides: 0.0
+
   virtual_bed:
     radius_m: 1.0
     speakers:
@@ -99,14 +136,14 @@ render:
         coord_mode: "cartesian"
         x: -0.96
         y: 1.0
-        z: 1.18
+        z: 1.45
         spatialize: true
         delay_ms: 0
       - name: "TFR"
         coord_mode: "cartesian"
         x: 0.96
         y: 1.0
-        z: 1.18
+        z: 1.45
         spatialize: true
         delay_ms: 0
 
@@ -114,14 +151,14 @@ render:
         coord_mode: "cartesian"
         x: -0.92
         y: -0.96
-        z: 1.10
+        z: 1.35
         spatialize: true
         delay_ms: 0
       - name: "TBR"
         coord_mode: "cartesian"
         x: 0.92
         y: -0.96
-        z: 1.10
+        z: 1.35
         spatialize: true
         delay_ms: 0
 
@@ -132,20 +169,23 @@ render:
 
     unit_scale_m: 6.0
 
-    # First-order propagation does the enlargement work. Late-room energy stays
-    # tiny so increasing the physical volume does not become a reverb wash.
+    # Make the physical reflection world larger while lowering its level. Scale
+    # should increasingly come from propagation timing/direction rather than from
+    # louder copies of bright material.
     reflections:
       enabled: true
-      room_width_m: 13.5
-      room_depth_m: 21.0
-      room_height_m: 10.0
-      level: 0.40
+      room_width_m: 14.5
+      room_depth_m: 23.0
+      room_height_m: 12.5
+      level: 0.36
 
+    # Late field is merely glue. P0.9 trims it again because cascade + larger
+    # first-order geometry already supplies enclosure.
     reverb:
       enabled: true
-      level: 0.04
-      rt60_s: 0.18
-      predelay_ms: 26.0
+      level: 0.035
+      rt60_s: 0.17
+      predelay_ms: 28.0
 
     # Native distance-dependent HF attenuation touches only the derived support
     # scene. The authoritative stereo master stays full-band outside this scene.
