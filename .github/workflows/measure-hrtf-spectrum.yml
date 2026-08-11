@@ -3,7 +3,7 @@ name: Temporary HRTF spectral measurement
 on:
   push:
     paths:
-      - '.github/hrtf-measure-now'
+      - '.github/workflows/measure-hrtf-spectrum.yml'
 
 jobs:
   measure:
