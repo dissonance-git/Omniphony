@@ -2,23 +2,33 @@
 #
 # The finished stereo master never enters this scene. The portable music-field
 # processor analyzes real L/R magnitude + phase by frequency and emits a derived
-# 7.1 support bed in canonical bridge order:
+# logical 7.1.4 support bed in canonical bridge order:
 #
-#   L/R     broad source extent
-#   C/LFE   zero (center authority + bass remain in the direct master)
-#   Ls/Rs   persistent lateral/object-like evidence
-#   Lb/Rb   diffuse/field-like evidence
+#   L/R         broad front/front-side extent
+#   C/LFE       zero (center authority + bass remain in the direct master)
+#   Ls/Rs       continuous lateral wrap
+#   Lb/Rb       restrained rear continuation
+#   Tfl/Tfr     dominant front-height extent
+#   Tbl/Tbr     restrained upper-rear closure
 #
-# The support renderer remains unity-gain and dry. Spatial audibility should
-# come from evidence-controlled geometry, HRTF and ITD rather than from an
-# artificial room tail.
+# The support scene deliberately relies on Omniphony's inherited binaural core
+# for the spatial acoustics. Our stereo layer decides what evidence may enter the
+# field; HRTF/ITD, physical-distance cues, first-order reflections, the short FDN
+# tail and clipping protection remain native renderer mechanisms.
+#
+# P0.7 is intentionally additive: exercise the useful native mechanisms together,
+# then remove any one that physical listening proves costs clarity. The untouched
+# mastered stereo path remains outside this scene and therefore does not receive
+# the room/air treatment below.
 render:
   master_gain: 0.0
+  auto_gain: true
+  auto_gain_ceiling_db: -2.0
   virtual_bed:
     radius_m: 1.0
     speakers:
-      # Broad source extent: still connected to the frontal hemisphere, but
-      # wider and less head-locked than the untouched master underneath it.
+      # Broad source extent: connected to the frontal hemisphere but wider and
+      # less head-locked than the untouched master underneath it.
       - name: "L"
         coord_mode: "cartesian"
         x: -1.0
@@ -66,7 +76,9 @@ render:
         spatialize: true
         delay_ms: 0
 
-      # Diffuse/field-like evidence receives the strongest rearward extent.
+      # Restrained rear continuation. P0.6 already reduced rear weighting in the
+      # evidence field, so these positions remain available without becoming the
+      # sphere's centre of gravity.
       - name: "Lb"
         coord_mode: "cartesian"
         x: -0.70
@@ -84,9 +96,30 @@ render:
   binaural:
     output_mode: binaural
     hrir_source: saf
+
+    # Match the real upstream Omniphony demo's physical scene scale. Distance
+    # never replaces the authored direct-master level; it feeds the renderer's
+    # own acoustic distance cues for this derived support scene.
     unit_scale_m: 3.0
+
+    # Native six-image first-order reflection bank. Upstream's bundled demo uses
+    # 0.4. Start below that because this scene is additive support around a dry
+    # protected master, but high enough to test a real externalization jump.
     reflections:
-      enabled: false
+      enabled: true
+      room_width_m: 5.5
+      room_depth_m: 7.0
+      room_height_m: 3.2
+      level: 0.24
+
+    # Native FDN tail, intentionally much drier than the upstream demo's 0.2 / 0.3 s.
+    # Its job is continuity and acoustic volume, never an audible hall effect.
     reverb:
-      enabled: false
-    air_absorption: false
+      enabled: true
+      level: 0.06
+      rt60_s: 0.22
+      predelay_ms: 18.0
+
+    # Native distance-dependent HF attenuation. This touches only the derived
+    # support scene; the authoritative stereo master remains full-band outside it.
+    air_absorption: true
