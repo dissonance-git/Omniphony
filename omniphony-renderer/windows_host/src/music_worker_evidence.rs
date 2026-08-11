@@ -2,9 +2,7 @@ use anyhow::{Context, bail};
 use bridge_api::RInputTransport;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use orender_engine::Engine;
-use renderer::music_field::{
-    MUSIC_FIELD_CHANNELS, MusicFieldProcessor, MusicFieldSnapshot,
-};
+use renderer::music_field::{MUSIC_FIELD_CHANNELS, MusicFieldProcessor, MusicFieldSnapshot};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -20,7 +18,7 @@ use wasapi::{
 
 const SAMPLE_RATE_HZ: u32 = 48_000;
 const PLAYBACK_QUEUE_BLOCKS: usize = 16;
-const FIELD_SUPPORT_GAIN: f32 = 0.80;
+const FIELD_SUPPORT_GAIN: f32 = 1.00;
 const METER_INTERVAL_SECS: u64 = 5;
 
 #[derive(Default)]
@@ -43,12 +41,13 @@ fn parse_args() -> anyhow::Result<Args> {
             "--start-off" => parsed.start_off = true,
             "-h" | "--help" => {
                 println!(
-                    "Omniphony frequency-evidence stereo prototype\n\n\
+                    "Omniphony frequency-evidence full-sphere stereo prototype\n\n\
                      Usage:\n  omniphony_worker.exe [--output <name>] [--start-off]\n\n\
                      ON preserves the captured stereo master and analyzes real\n\
                      L/R magnitude/phase relationships by frequency. Portable\n\
-                     Omniphony evidence laws derive broad, lateral and diffuse\n\
-                     support lanes while protecting center authority and bass.\n"
+                     Omniphony evidence laws derive broad, lateral, diffuse and\n\
+                     vertical support across a logical 7.1.4 shell while\n\
+                     protecting center authority and bass.\n"
                 );
                 std::process::exit(0);
             }
@@ -141,11 +140,12 @@ fn print_meters(
             added_rms - direct_rms,
         );
         println!(
-            "  evidence: anchor={:.2} broad={:.2} lateral={:.2} diffuse={:.2} pan={:+.2} side={:.2}",
+            "  evidence: anchor={:.2} broad={:.2} lateral={:.2} diffuse={:.2} height={:.2} pan={:+.2} side={:.2}",
             scene.anchor,
             scene.broad,
             scene.lateral,
             scene.diffuse,
+            scene.height,
             scene.lateral_pan,
             scene.side_fraction,
         );
@@ -166,13 +166,17 @@ pub fn run() -> anyhow::Result<()> {
     let (output_format, output_config) = choose_output_config(&output_device, SAMPLE_RATE_HZ)?;
     let mut loopback = LoopbackCapture::open_stereo(SAMPLE_RATE_HZ)?;
 
-    println!("Omniphony for Headphones - frequency-evidence music prototype");
+    println!("Omniphony for Headphones - frequency-evidence 7.1.4 shell prototype");
     println!("  capture: {SAMPLE_RATE_HZ} Hz / stereo / f32 process loopback");
     println!("  output:  {output_name}");
     println!("  direct:  captured stereo master remains authoritative");
-    println!("  analysis: 1024-bin-window FFT magnitude + phase -> portable stereo/scene inference");
-    println!("  field:   220+ Hz broad + lateral + diffuse support lanes -> upstream Omniphony");
-    println!("  support: {:.0}% host mix, master-first clipping veto", FIELD_SUPPORT_GAIN * 100.0);
+    println!("  analysis: FFT magnitude + phase -> portable stereo/scene inference");
+    println!("  field:   220+ Hz broad/lateral/diffuse evidence -> overlapping 7.1.4 shell");
+    println!("  height:  conservative vertical extent from already-spatial evidence");
+    println!(
+        "  support: {:.0}% derived-field mix, master-first clipping veto",
+        FIELD_SUPPORT_GAIN * 100.0
+    );
     println!("  room:    no early reflections / no late reverb / no air absorption");
 
     let bundle = Bundle::beside_executable()?;
@@ -195,7 +199,7 @@ pub fn run() -> anyhow::Result<()> {
     let header = streaming_f32_wav_header(MUSIC_FIELD_CHANNELS as u16, SAMPLE_RATE_HZ);
     let header_output = field_engine
         .process(&header, RInputTransport::Raw, 0)
-        .context("failed to seed 7.1 music-field PCM bridge")?;
+        .context("failed to seed 7.1.4 music-field PCM bridge")?;
     if !header_output.is_empty() {
         bail!("streaming WAV header unexpectedly produced audio");
     }
@@ -255,9 +259,9 @@ pub fn run() -> anyhow::Result<()> {
             continue;
         }
 
-        // The field processor is causal in the audible path and emits exactly
-        // one 7.1 support frame for every captured stereo frame. The renderer's
-        // own latency is therefore the only alignment delay handled here.
+        // The audible extraction path is causal and emits exactly one logical
+        // 7.1.4 support frame for every captured stereo frame. Only the
+        // inherited renderer/bridge latency therefore needs dry-path alignment.
         dry_fifo.extend(input.iter().copied());
         let field_input = field.process_interleaved_stereo(&input);
         if field_input.len() != (input.len() / 2) * MUSIC_FIELD_CHANNELS {
@@ -503,7 +507,10 @@ fn choose_output_device(
             .find(|device| name_contains(device, needle))
             .with_context(|| format!("no WASAPI output device contains '{needle}'"));
     }
-    if let Some(device) = host.output_devices()?.find(|device| name_contains(device, "fiio")) {
+    if let Some(device) = host
+        .output_devices()?
+        .find(|device| name_contains(device, "fiio"))
+    {
         return Ok(device);
     }
     if let Some(device) = host.default_output_device() {
