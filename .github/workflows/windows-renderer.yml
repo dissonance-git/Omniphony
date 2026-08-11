@@ -106,11 +106,11 @@ jobs:
             $global:LASTEXITCODE = 0
           }
 
-      - name: Check all native Windows host binaries
-        run: cargo check -p windows_host --bins
+      - name: Check native Windows host
+        run: cargo check -p windows_host --bin omniphony_app
 
   windows-live-artifact:
-    name: Windows x64 Omniphony app prototype
+    name: Windows x64 Omniphony prototype
     runs-on: windows-latest
     needs: [portable-core, windows-core]
     timeout-minutes: 35
@@ -133,67 +133,35 @@ jobs:
       - name: Normalize Rust formatting for CI
         run: cargo fmt --all
 
-      - name: Test live bridge and headless engine boundaries
+      - name: Test embedded bridge and headless engine boundaries
         run: cargo test -p reference_bridge -p orender_engine
 
-      - name: Build native Windows prototype
-        run: cargo build --profile release-deploy -p reference_bridge -p windows_host
+      - name: Build Omniphony
+        run: cargo build --profile release-deploy -p windows_host --bin omniphony_app
 
-      - name: Collect native Windows prototype
+      - name: Collect minimal development runtime
         run: |
           $dist = Join-Path $PWD 'dist\windows-x64'
-          $reference = Join-Path $dist 'reference-demo'
-          New-Item -ItemType Directory -Path $reference -Force | Out-Null
+          New-Item -ItemType Directory -Path $dist -Force | Out-Null
 
-          Copy-Item 'target\release-deploy\reference_bridge.dll' $dist -Force
-          Copy-Item 'target\release-deploy\omniphony_live.exe' $dist -Force
           Copy-Item 'target\release-deploy\omniphony_app.exe' (Join-Path $dist 'Omniphony.exe') -Force
           Copy-Item 'windows_host\START-OMNIPHONY.cmd' (Join-Path $dist 'START-OMNIPHONY.cmd') -Force
-          Copy-Item 'windows_host\LIVE-README.txt' (Join-Path $dist 'LIVE-README.txt') -Force
-          Copy-Item 'assets\binaural-baselines\upstream-demo-reference.yaml' (Join-Path $reference 'upstream-demo-reference.yaml') -Force
-          Copy-Item 'assets\binaural-baselines\stereo-music-prototype.yaml' (Join-Path $reference 'stereo-music-prototype.yaml') -Force
-          Copy-Item 'assets\binaural-baselines\stereo-field-prototype.yaml' (Join-Path $reference 'stereo-field-prototype.yaml') -Force
-          Copy-Item '..\layouts\7.1.4.yaml' (Join-Path $reference '7.1.4.yaml') -Force
 
-          @'
-          @echo off
-          setlocal
-          cd /d "%~dp0"
-          title Omniphony WASAPI Diagnostics
-          omniphony_live.exe --list-devices
-          echo.
-          pause
-          '@ | Set-Content (Join-Path $dist 'LIST-DEVICES.cmd') -Encoding ascii
-
-          foreach ($required in @(
-            'START-OMNIPHONY.cmd',
-            'Omniphony.exe',
-            'omniphony_live.exe',
-            'reference_bridge.dll',
-            'LIST-DEVICES.cmd',
-            'reference-demo\upstream-demo-reference.yaml',
-            'reference-demo\stereo-music-prototype.yaml',
-            'reference-demo\stereo-field-prototype.yaml',
-            'reference-demo\7.1.4.yaml',
-            'LIVE-README.txt'
-          )) {
+          $files = @(Get-ChildItem $dist -File)
+          if ($files.Count -ne 2) {
+            throw "minimal Omniphony package must contain exactly two files; found $($files.Count)"
+          }
+          foreach ($required in @('START-OMNIPHONY.cmd', 'Omniphony.exe')) {
             if (!(Test-Path (Join-Path $dist $required))) {
-              throw "required native prototype artifact was not collected: $required"
+              throw "required minimal runtime file missing: $required"
             }
           }
-
-          Get-ChildItem $dist -File -Recurse | ForEach-Object {
-            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            $relative = [System.IO.Path]::GetRelativePath($dist, $_.FullName)
-            "$hash  $relative"
-          } | Set-Content (Join-Path $dist 'SHA256SUMS.txt')
-
-          Get-ChildItem $dist -Recurse | Format-Table FullName, Length
+          Get-ChildItem $dist | Format-Table Name, Length
 
       - name: Upload native Windows prototype
         uses: actions/upload-artifact@v6
         with:
-          name: omniphony-headphones-native-prototype-windows-x64-${{ github.sha }}
+          name: omniphony-windows-x64-${{ github.sha }}
           path: omniphony-renderer/dist/windows-x64/
           if-no-files-found: error
           retention-days: 14
