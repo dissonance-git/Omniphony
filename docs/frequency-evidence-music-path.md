@@ -1,6 +1,8 @@
 # Frequency-evidence stereo music path
 
-Status: active Windows listening prototype, intended portable-core direction if listening validates it.
+Status: **active protected stereo sound foundation**.
+
+The first listening pass has now validated this direction strongly enough that future stereo sound work should build from it rather than from the earlier full-wet or side-only experiments.
 
 ## Why this exists
 
@@ -10,7 +12,7 @@ Early live tests established three important facts:
 2. preserving the original stereo master as the direct path removed those failures;
 3. a support field derived only from `(L-R)/2` remained effectively inaudible even when nominal support gain was made very large.
 
-The next useful step is therefore not more gain on the same side-only signal. It is richer, frequency-dependent stereo evidence while keeping the master authoritative.
+The frequency-evidence path therefore uses richer, frequency-dependent stereo evidence while keeping the master authoritative.
 
 ## Current architecture
 
@@ -60,7 +62,7 @@ FINISHED STEREO MASTER
                     headphones
 ```
 
-Physical output remains ordinary stereo headphones. The 7.1 structure is an internal logical field used to give the inherited Omniphony binaural renderer differentiated material.
+Physical output remains ordinary stereo headphones. The 7.1 structure is an internal logical support field used to give the inherited Omniphony binaural renderer differentiated material.
 
 ## Portable-core ownership
 
@@ -113,7 +115,7 @@ The audible field is extracted with a causal parallel low-pass/difference bank w
 
 Stereo evidence can justify broad/lateral/diffuse support. It does not prove that a source was authored behind or above the listener.
 
-Rearward field placement remains a presentation decision, not a claim about hidden source metadata.
+Rearward or vertical field placement remains a presentation decision, not a claim about hidden source metadata.
 
 ## Current logical field geometry
 
@@ -128,7 +130,7 @@ Diffuse Lb/Rb
 -> strongest rearward extent
 ```
 
-No early reflections, late reverb or air absorption are enabled in this experiment. If spatiality requires an obvious room tail, the presentation geometry is not yet solved.
+No early reflections, late reverb or air absorption are enabled in this experiment. The current spatial win therefore comes from evidence, geometry, HRTF and ITD rather than an audible room tail.
 
 ## Protected-master mix law
 
@@ -162,27 +164,58 @@ lateral pan
 side fraction
 ```
 
-If listening reports little or no ON/OFF difference, inspect the log before changing gain. The meters should distinguish weak evidence, weak renderer output and support lost to the master-first headroom veto.
+Use these meters before treating an inaudible result as a taste problem.
 
 ## Current listening baseline
 
 For stereo-music development, the temporary Hi-Fi Cable endpoint should be configured as **Stereo / 2.0**.
 
-A 7.1 Windows endpoint feeding the stereo process-loopback prototype was observed to reduce playback level. Returning the endpoint to Stereo restored normal level, while the previous side-only spatial support remained inaudible. Treat those as separate findings:
+A 7.1 Windows endpoint feeding the stereo process-loopback prototype reduced playback level. Returning the endpoint to Stereo restored normal level. Treat this as a prototype transport/gain finding.
+
+The first clean frequency-evidence listening result is now:
 
 ```text
-7.1 endpoint -> 2ch capture
-= transport/gain confound
-
-side-only field inaudibility
-= presentation/evidence limitation
+raw stereo clarity remains
+music stays intact
+sound is clearly enhanced
+apparent scene is bigger than the incumbent HeSuVi/DTS chain
+behind-head placement is convincing
+percussion can feel genuinely behind the listener rather than merely lateral
 ```
 
-The mature Windows product must remove this manual configuration dependency by owning its source-routing contract.
+This validates the architecture strongly enough to protect it.
 
-## Listening success criterion
+The current weakness is **rear-heavy field geometry**:
 
-This experiment is successful only if ON produces an obvious increase in useful spatial extent while preserving:
+```text
+rear support is too dominant
+front externalization is weaker than rear externalization
+side/front-side wrap is incomplete
+height is largely absent
+radial near/mid/far layering is underdeveloped
+continuous 360° shell is incomplete
+```
+
+Therefore the next sound work is **not more rear gain**.
+
+It is:
+
+```text
+rebalance rear evidence
+-> strengthen front externalization
+-> increase side/front-side continuity
+-> form a continuous 360° shell
+-> add conservative upper/lower field support
+-> add radial depth
+-> improve source extent / ambient continuity
+-> preserve the current clarity floor
+```
+
+## Listening success criterion from here
+
+The current build is the reference foundation.
+
+A successor wins only if it preserves:
 
 ```text
 bass/body
@@ -191,9 +224,23 @@ center authority
 transient definition
 stereo identity
 rhythmic precision
+raw clarity
 comfort
 ```
 
-The desired reaction is not merely "there is an effect." It is:
+while improving:
 
-> the original music is still fully present, but the acoustic world around it has expanded.
+```text
+front/side/rear balance
+360° wrap
+height
+below-listener plausibility
+radial depth
+source extent
+ambient continuity
+listener envelopment
+```
+
+The desired mature bypass reaction remains:
+
+> **The original music is still fully present, but the acoustic world collapses when Omniphony is turned off.**
