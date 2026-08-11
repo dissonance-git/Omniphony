@@ -12,33 +12,29 @@
 #   Tbl/Tbr     upper-rear closure and depth
 #
 # The support scene deliberately relies on Omniphony's inherited binaural core
-# for the spatial acoustics. Our stereo layer decides what evidence may enter the
-# field; HRTF/ITD, metric distance cues, first-order reflections, the short FDN
-# tail and clipping protection remain native renderer mechanisms.
+# for HRTF/ITD, metric distance, reflections, short FDN ambience and air cues.
+# Our stereo layer decides what evidence may enter the field.
+#
+# Important topology rule: this renderer is an additive SUPPORT branch, not the
+# final program output. Omniphony's native auto-gain is therefore disabled here.
+# In the standalone renderer it protects the final stereo bus by permanently
+# lowering master gain after an overload; on an additive support branch that can
+# sound like spatial/high-frequency energy suddenly sliding downward while the
+# protected direct master stays unchanged. Final-bus headroom/measurement belongs
+# to the host combiner instead.
 #
 # Current development law: push physical acoustic volume until the next increase
 # causes blur, anchor loss, transient softening, bass timing loss or fatigue. The
 # last clean point before that failure is the current perceptual frontier.
-#
-# Current perceptual weighting from physical listening:
-#
-#   DISTANCE / BUBBLE SCALE
-#     front        primary
-#     rear         primary and impactful, but must not dominate
-#     height       primary and currently the highest-value frontier
-#     sides        fully wide and continuous; radial reach is secondary
-#
-# This is intentionally not a narrow front/back tunnel. Side width remains large;
-# the strongest *distance* impression is concentrated on front/back/z because
-# those dimensions contribute most strongly to the target bubble percept.
 render:
   master_gain: 0.0
-  auto_gain: true
+  auto_gain: false
+  # Retained as a documented standalone-renderer reference; inactive while
+  # auto_gain is false for this support-only scene.
   auto_gain_ceiling_db: -2.0
   virtual_bed:
     radius_m: 1.0
     speakers:
-      # Front stays at the full diagonal and scales outward with the scene.
       - name: "L"
         coord_mode: "cartesian"
         x: -1.0
@@ -54,7 +50,6 @@ render:
         spatialize: true
         delay_ms: 0
 
-      # These channels are deliberately silent in the derived support bed.
       - name: "C"
         coord_mode: "cartesian"
         x: 0.0
@@ -87,9 +82,7 @@ render:
         spatialize: true
         delay_ms: 0
 
-      # Rear impact was slightly too polite in the previous frontier. Bring it
-      # almost to the full rear diagonal while still leaving front/top-front as
-      # the perceptual lead.
+      # Rear impact stays close to the full diagonal without becoming gravity.
       - name: "Lb"
         coord_mode: "cartesian"
         x: -0.97
@@ -106,7 +99,7 @@ render:
         delay_ms: 0
 
       # Height is the current frontier. Extend top-front vertically beyond the
-      # floor speaker radius so the canopy grows in *distance*, not loudness.
+      # floor speaker radius so the canopy grows in distance, not treble level.
       - name: "TFL"
         coord_mode: "cartesian"
         x: -0.96
@@ -122,8 +115,6 @@ render:
         spatialize: true
         delay_ms: 0
 
-      # Upper-rear also grows so the canopy closes behind, but remains shorter
-      # than upper-front to avoid returning to rear gravity.
       - name: "TBL"
         coord_mode: "cartesian"
         x: -0.92
@@ -143,13 +134,10 @@ render:
     output_mode: binaural
     hrir_source: saf
 
-    # Continue the native distance frontier, but let explicit top coordinates do
-    # extra vertical work rather than using frequency gain as a height shortcut.
     unit_scale_m: 6.0
 
-    # Expand first-order propagation again, especially vertically. Reflection
-    # strength reaches the known upstream reference level, while late-room energy
-    # is reduced so the larger world does not become a wash.
+    # First-order propagation does the enlargement work. Late-room energy stays
+    # tiny so increasing the physical volume does not become a reverb wash.
     reflections:
       enabled: true
       room_width_m: 13.5
