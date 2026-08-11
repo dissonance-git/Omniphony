@@ -26,6 +26,7 @@
 //! slots anymore (they would collide with the virtual FL/FR rows): the ears
 //! have dedicated live params ([`crate::live_params::EarLiveParams`]).
 
+use crate::binaural::diffuse_compensation::DiffuseFieldCompensator;
 use crate::live_params::RenderTopology;
 
 use super::speaker_stage::{SpeakerRenderStage, SpeakerStageDiagnostics, SpeakerStageFrame};
@@ -47,6 +48,12 @@ pub(super) struct CascadeStage {
     /// input. Reused every frame; exposed to the host for virtual metering
     /// (see `SpatialRenderer::virtual_bus`).
     pub(super) bus: Vec<f32>,
+    /// Direction-independent partial inverse of the common SAF/KEMAR colour.
+    /// Lazily built at the speaker stage's real sample rate and retained across
+    /// frames so the causal IIR history is continuous. This belongs here rather
+    /// than on the programme signal: it compensates the virtual-loudspeaker →
+    /// binaural cascade itself.
+    diffuse_compensation: Option<DiffuseFieldCompensator>,
 }
 
 impl CascadeStage {
@@ -69,6 +76,7 @@ impl CascadeStage {
             bin_gain: vec![1.0f32; speakers.len()],
             bin_direct: speakers.iter().map(|s| !s.spatialize).collect(),
             bus: Vec::new(),
+            diffuse_compensation: None,
         }
     }
 }
@@ -158,5 +166,20 @@ pub(super) fn render_cascade_frame(
         &cascade.bin_direct,
         output,
     );
+
+    // Omniphony's measured SAF/KEMAR set is already broadband-energy
+    // normalized, but measurement of the actual interpolated grid found a
+    // direction-independent diffuse rise of roughly +7 dB around 4-6 kHz and
+    // again near 10 kHz. In a cascade those common resonances are imposed on
+    // the virtual loudspeaker room before it is added to any protected source.
+    // Apply a bounded partial inverse here, not to programme audio and not to
+    // direct binaural mode. This mirrors the spectral-compensation principle
+    // used by mature virtual-loudspeaker binaural renderers while retaining
+    // useful directional HRTF residual cues.
+    let compensation = cascade
+        .diffuse_compensation
+        .get_or_insert_with(|| DiffuseFieldCompensator::saf_kemar_partial(stage.sample_rate));
+    compensation.process_interleaved_stereo_in_place(output);
+
     diag
 }
