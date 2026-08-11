@@ -2,12 +2,12 @@
 //!
 //! The finished stereo master remains authoritative. This module analyzes real
 //! L/R magnitude and phase relationships in the frequency domain, reuses the
-//! portable stereo/scene evidence laws, and turns that evidence into a small set
-//! of causal support lanes for the binaural renderer.
+//! portable stereo/scene evidence laws, and turns that evidence into causal
+//! support lanes for the inherited binaural renderer.
 //!
 //! The FFT is analysis-only. Audible support is extracted with a causal
-//! multiband filter bank so this stage does not introduce an STFT synthesis
-//! latency that would have to be reconciled with the protected direct master.
+//! multiband filter bank, so this stage does not introduce STFT reconstruction
+//! latency or replace the protected direct master.
 
 use crate::scene_inference::{
     SceneEvidenceInput, SceneEvidenceKind, infer_scene_evidence,
@@ -19,10 +19,13 @@ use rustfft::{Fft, FftPlanner, num_complex::Complex};
 use std::f32::consts::PI;
 use std::sync::Arc;
 
-pub const MUSIC_FIELD_CHANNELS: usize = 8;
+/// Canonical 7.1.4 order expected by the reference bridge:
+/// L R C LFE Ls Rs Lb Rb Tfl Tfr Tbl Tbr.
+pub const MUSIC_FIELD_CHANNELS: usize = 12;
 const FFT_SIZE: usize = 1024;
 const TRACK_TIME_CONSTANT_MS: f32 = 140.0;
 const CROSSOVER_HZ: [f32; 3] = [220.0, 1_200.0, 5_000.0];
+const HEIGHT_PRIOR: [f32; 3] = [0.20, 0.42, 0.58];
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MusicFieldSnapshot {
@@ -30,6 +33,7 @@ pub struct MusicFieldSnapshot {
     pub broad: f32,
     pub lateral: f32,
     pub diffuse: f32,
+    pub height: f32,
     pub lateral_pan: f32,
     pub side_fraction: f32,
 }
@@ -52,6 +56,7 @@ struct BandControl {
     broad: f32,
     lateral: f32,
     diffuse: f32,
+    height: f32,
     pan: f32,
     side_fraction: f32,
 }
@@ -62,6 +67,7 @@ impl BandControl {
         self.broad = slew(self.broad, target.broad);
         self.lateral = slew(self.lateral, target.lateral);
         self.diffuse = slew(self.diffuse, target.diffuse);
+        self.height = slew(self.height, target.height);
         self.pan = slew_signed(self.pan, target.pan);
         self.side_fraction = slew(self.side_fraction, target.side_fraction);
     }
@@ -114,9 +120,8 @@ impl ChannelBandSplit {
         }
     }
 
-    /// The four outputs sum exactly to `sample` at each sample despite the
-    /// individual one-pole phase responses because adjacent bands are formed by
-    /// subtraction from the same parallel low-pass states.
+    /// The four outputs sum algebraically to `sample`: adjacent bands are
+    /// differences of parallel low-pass states rather than independent filters.
     fn split(&mut self, sample: f32) -> [f32; 4] {
         let a = self.low_220.process(sample);
         let b = self.low_1200.process(sample);
@@ -127,16 +132,21 @@ impl ChannelBandSplit {
 
 /// Portable music-field extractor.
 ///
-/// Output order is the canonical 7.1 bed order expected by the bridge:
-/// `L R C LFE Ls Rs Lb Rb`. C and LFE are intentionally zero. The support
-/// lanes are:
+/// Output order is canonical 7.1.4:
+/// `L R C LFE Ls Rs Lb Rb Tfl Tfr Tbl Tbr`.
 ///
-/// - L/R: broad source extent, kept closer to the front/side hemisphere;
-/// - Ls/Rs: persistent lateral/object-like evidence;
-/// - Lb/Rb: diffuse/field-like evidence.
+/// The current shell deliberately overlaps evidence across neighbouring
+/// hemispheres instead of assigning every class to one speaker pair:
 ///
-/// The caller remains responsible for adding the binaurally rendered support
-/// around the untouched, latency-aligned stereo master.
+/// - L/R carry broad front/front-side extent;
+/// - Ls/Rs carry the strongest lateral wrap;
+/// - Lb/Rb carry a restrained rear continuation, not the whole diffuse field;
+/// - Tfl/Tfr and Tbl/Tbr carry conservative vertical extent derived from the
+///   same broad/lateral/diffuse evidence.
+///
+/// C and LFE remain silent because center authority and low-frequency pressure
+/// belong to the untouched master. Height is a presentation permission, not a
+/// claim that high-frequency material was authored above the listener.
 pub struct MusicFieldProcessor {
     sample_rate_hz: u32,
     fft: Arc<dyn Fft<f32>>,
@@ -183,16 +193,18 @@ impl MusicFieldProcessor {
             let left_bands = self.left_split.split(frame[0]);
             let right_bands = self.right_split.split(frame[1]);
 
-            let mut broad_l = 0.0;
-            let mut broad_r = 0.0;
-            let mut lateral_l = 0.0;
-            let mut lateral_r = 0.0;
-            let mut diffuse_l = 0.0;
-            let mut diffuse_r = 0.0;
+            let mut front_l = 0.0;
+            let mut front_r = 0.0;
+            let mut side_l = 0.0;
+            let mut side_r = 0.0;
+            let mut rear_l = 0.0;
+            let mut rear_r = 0.0;
+            let mut top_front_l = 0.0;
+            let mut top_front_r = 0.0;
+            let mut top_rear_l = 0.0;
+            let mut top_rear_r = 0.0;
 
-            // Band 0 (<220 Hz) is the protected foundation and intentionally
-            // never enters the support field. Controls 0..2 correspond to the
-            // three bands above that floor.
+            // Band 0 (<220 Hz) remains entirely in the protected master.
             for band in 1..4 {
                 let control = self.controls[band - 1];
                 let left = left_bands[band];
@@ -200,42 +212,64 @@ impl MusicFieldProcessor {
                 let mid = 0.5 * (left + right);
                 let side = 0.5 * (left - right);
 
-                // Preserve center authority. A small amount of coherent mid may
-                // remain in broad support, but stable anchors are strongly
-                // suppressed by the evidence controls before this point.
-                let relational_l = left - 0.85 * mid;
-                let relational_r = right - 0.85 * mid;
-
-                broad_l += relational_l * control.broad * 0.60;
-                broad_r += relational_r * control.broad * 0.60;
+                // Stable anchors are already suppressed by the scene controls.
+                // Retaining 22% of the coherent mid in this *support* candidate
+                // gives broad material enough body to externalize without
+                // turning the direct master into a virtual-speaker replacement.
+                let relational_l = left - 0.78 * mid;
+                let relational_r = right - 0.78 * mid;
 
                 let steer_l = (0.5 - 0.5 * control.pan).clamp(0.0, 1.0);
                 let steer_r = (0.5 + 0.5 * control.pan).clamp(0.0, 1.0);
-                lateral_l += (0.75 * relational_l + 0.25 * side)
-                    * control.lateral
-                    * (0.65 + 0.35 * steer_l)
-                    * 0.85;
-                lateral_r += (0.75 * relational_r - 0.25 * side)
-                    * control.lateral
-                    * (0.65 + 0.35 * steer_r)
-                    * 0.85;
 
-                // Diffuse evidence keeps the source's actual differential
-                // relationship. No synthetic room or random decorrelator is
-                // introduced here; Omniphony owns the binaural geometry.
-                diffuse_l += side * control.diffuse * 0.75;
-                diffuse_r -= side * control.diffuse * 0.75;
+                let broad_l = relational_l * control.broad;
+                let broad_r = relational_r * control.broad;
+                let lateral_l = (0.70 * relational_l + 0.30 * side)
+                    * control.lateral
+                    * (0.62 + 0.38 * steer_l);
+                let lateral_r = (0.70 * relational_r - 0.30 * side)
+                    * control.lateral
+                    * (0.62 + 0.38 * steer_r);
+                let diffuse_l = side * control.diffuse;
+                let diffuse_r = -side * control.diffuse;
+
+                // Horizontal shell. Broad and lateral evidence intentionally
+                // overlap neighbouring regions so the percept is a wrap rather
+                // than isolated virtual speakers. Rear energy is restrained.
+                front_l += 0.86 * broad_l + 0.08 * lateral_l;
+                front_r += 0.86 * broad_r + 0.08 * lateral_r;
+                side_l += 0.22 * broad_l + 0.94 * lateral_l + 0.08 * diffuse_l;
+                side_r += 0.22 * broad_r + 0.94 * lateral_r + 0.08 * diffuse_r;
+                rear_l += 0.16 * lateral_l + 0.36 * diffuse_l;
+                rear_r += 0.16 * lateral_r + 0.36 * diffuse_r;
+
+                // Vertical shell. The frequency prior changes how readily an
+                // already-spatial component receives vertical extent; it never
+                // turns frequency alone into an elevation command.
+                let height = control.height;
+                top_front_l += height
+                    * (0.40 * broad_l + 0.13 * lateral_l + 0.08 * diffuse_l);
+                top_front_r += height
+                    * (0.40 * broad_r + 0.13 * lateral_r + 0.08 * diffuse_r);
+                top_rear_l += height
+                    * (0.07 * broad_l + 0.11 * lateral_l + 0.28 * diffuse_l);
+                top_rear_r += height
+                    * (0.07 * broad_r + 0.11 * lateral_r + 0.28 * diffuse_r);
             }
 
             out.extend_from_slice(&[
-                broad_l,
-                broad_r,
-                0.0, // C: protected direct master owns center authority.
-                0.0, // LFE: low-frequency foundation stays in the master.
-                lateral_l,
-                lateral_r,
-                diffuse_l,
-                diffuse_r,
+                front_l,
+                front_r,
+                0.0, // C: direct master owns center authority.
+                0.0, // LFE: direct master owns low-frequency pressure.
+                side_l,
+                side_r,
+                rear_l,
+                rear_r,
+                top_front_l,
+                top_front_r,
+                top_rear_l,
+                top_rear_r,
             ]);
         }
         out
@@ -320,27 +354,27 @@ impl MusicFieldProcessor {
                 candidate.foundation_support
             }
             .clamp(0.0, 1.0);
-            let movable = (1.0 - 0.90 * anchor).clamp(0.0, 1.0);
+            let movable = (1.0 - 0.92 * anchor).clamp(0.0, 1.0);
 
             let lateral = if matches!(candidate.kind, SceneEvidenceKind::LateralObjectCandidate) {
                 candidate
                     .reassignment_safety
-                    .max(0.55 * candidate.object_support)
+                    .max(0.62 * candidate.object_support)
             } else {
-                0.20 * candidate.reassignment_safety
+                0.28 * candidate.reassignment_safety
             } * movable;
 
             let broad = match candidate.kind {
-                SceneEvidenceKind::BroadSource => 0.35 + 0.65 * candidate.side_fraction,
-                SceneEvidenceKind::LateralObjectCandidate => 0.18 + 0.30 * candidate.side_fraction,
-                SceneEvidenceKind::DiffuseField => 0.10 + 0.20 * candidate.side_fraction,
+                SceneEvidenceKind::BroadSource => 0.40 + 0.60 * candidate.side_fraction,
+                SceneEvidenceKind::LateralObjectCandidate => 0.22 + 0.38 * candidate.side_fraction,
+                SceneEvidenceKind::DiffuseField => 0.16 + 0.24 * candidate.side_fraction,
                 SceneEvidenceKind::FrontalAnchor => 0.0,
             } * movable;
 
             let diffuse = if matches!(candidate.kind, SceneEvidenceKind::DiffuseField) {
                 candidate.field_support
             } else {
-                0.18 * candidate.field_support
+                0.22 * candidate.field_support
             } * movable;
 
             let a = &mut accum[band];
@@ -359,11 +393,19 @@ impl MusicFieldProcessor {
         let mut snapshot = MusicFieldSnapshot::default();
         for (index, a) in accum.into_iter().enumerate() {
             let target = if a.weight > 1.0e-9 {
+                let broad = ((a.broad / a.weight) * 1.65).clamp(0.0, 1.0);
+                let lateral = ((a.lateral / a.weight) * 2.00).clamp(0.0, 1.0);
+                let diffuse = ((a.diffuse / a.weight) * 1.70).clamp(0.0, 1.0);
+                let shell_evidence =
+                    (0.45 * broad + 0.25 * lateral + 0.65 * diffuse).clamp(0.0, 1.0);
+                let height = (HEIGHT_PRIOR[index] * (0.35 + 0.65 * shell_evidence))
+                    .clamp(0.0, 1.0);
                 BandControl {
                     anchor: (a.anchor / a.weight).clamp(0.0, 1.0),
-                    broad: ((a.broad / a.weight) * 1.35).clamp(0.0, 1.0),
-                    lateral: ((a.lateral / a.weight) * 1.70).clamp(0.0, 1.0),
-                    diffuse: ((a.diffuse / a.weight) * 1.45).clamp(0.0, 1.0),
+                    broad,
+                    lateral,
+                    diffuse,
+                    height,
                     pan: if a.pan_weight > 1.0e-9 {
                         (a.pan_num / a.pan_weight).clamp(-1.0, 1.0)
                     } else {
@@ -382,6 +424,7 @@ impl MusicFieldProcessor {
             snapshot.broad += w * self.controls[index].broad;
             snapshot.lateral += w * self.controls[index].lateral;
             snapshot.diffuse += w * self.controls[index].diffuse;
+            snapshot.height += w * self.controls[index].height;
             snapshot.lateral_pan += w * self.controls[index].pan;
             snapshot.side_fraction += w * self.controls[index].side_fraction;
         }
@@ -391,6 +434,7 @@ impl MusicFieldProcessor {
             snapshot.broad /= snapshot_weight;
             snapshot.lateral /= snapshot_weight;
             snapshot.diffuse /= snapshot_weight;
+            snapshot.height /= snapshot_weight;
             snapshot.lateral_pan /= snapshot_weight;
             snapshot.side_fraction /= snapshot_weight;
         }
@@ -413,11 +457,11 @@ mod tests {
         let out = processor.process_interleaved_stereo(&input);
         assert_eq!(out.len(), 1024 * MUSIC_FIELD_CHANNELS);
         let energy: f32 = out.iter().map(|x| x * x).sum::<f32>() / out.len() as f32;
-        assert!(energy < 0.01);
+        assert!(energy < 0.012);
     }
 
     #[test]
-    fn hard_left_material_produces_lateral_support_without_lfe() {
+    fn hard_left_material_produces_side_and_height_support_without_lfe() {
         let mut processor = MusicFieldProcessor::new(48_000);
         let mut input = Vec::new();
         for i in 0..4096 {
@@ -425,15 +469,18 @@ mod tests {
             input.extend_from_slice(&[x, 0.0]);
         }
         let mut lateral_energy = 0.0;
+        let mut height_energy = 0.0;
         let mut lfe_energy = 0.0;
         for chunk in input.chunks(2048) {
             let out = processor.process_interleaved_stereo(chunk);
             for frame in out.chunks_exact(MUSIC_FIELD_CHANNELS) {
                 lateral_energy += frame[4] * frame[4] + frame[5] * frame[5];
+                height_energy += frame[8..12].iter().map(|x| x * x).sum::<f32>();
                 lfe_energy += frame[3] * frame[3];
             }
         }
         assert!(lateral_energy > 0.0);
+        assert!(height_energy > 0.0);
         assert_eq!(lfe_energy, 0.0);
     }
 
@@ -450,6 +497,6 @@ mod tests {
             let out = processor.process_interleaved_stereo(chunk);
             support_energy += out.iter().map(|x| x * x).sum::<f32>();
         }
-        assert!(support_energy < 0.5);
+        assert!(support_energy < 0.7);
     }
 }
