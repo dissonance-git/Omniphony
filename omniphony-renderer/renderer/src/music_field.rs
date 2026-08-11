@@ -26,15 +26,6 @@ const FFT_SIZE: usize = 1024;
 const TRACK_TIME_CONSTANT_MS: f32 = 140.0;
 const CROSSOVER_HZ: [f32; 3] = [220.0, 1_200.0, 5_000.0];
 const HEIGHT_PRIOR: [f32; 3] = [0.24, 0.54, 0.72];
-/// Fixed pre-HRTF headroom for the correlated rear support group.
-///
-/// P0.6 listening localized a tiny ON-only grain to the rear hemisphere. The
-/// binaural stage sums every derived lane directly into the ears, so related
-/// Lb/Rb and Tbl/Tbr material can align coherently even when each lane is clean.
-/// A linear ~2 dB trim preserves the rear geometry exactly while leaving front,
-/// side and dominant top-front support untouched. This is deliberately not a
-/// limiter or compressor: there is no signal-dependent gain modulation.
-const REAR_RENDER_HEADROOM_GAIN: f32 = 0.80;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MusicFieldSnapshot {
@@ -90,10 +81,6 @@ fn slew(current: f32, target: f32) -> f32 {
 fn slew_signed(current: f32, target: f32) -> f32 {
     let coefficient = if target.abs() > current.abs() { 0.30 } else { 0.12 };
     (current + coefficient * (target - current)).clamp(-1.0, 1.0)
-}
-
-fn apply_rear_render_headroom(samples: [f32; 4]) -> [f32; 4] {
-    samples.map(|sample| sample * REAR_RENDER_HEADROOM_GAIN)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -280,18 +267,6 @@ impl MusicFieldProcessor {
                 top_rear_r += height
                     * (0.04 * broad_r + 0.07 * lateral_r + 0.16 * diffuse_r);
             }
-
-            // The rear lanes are related views of the same stereo evidence. In
-            // the binaural stage their HRIR returns can add coherently, so give
-            // only this group fixed linear summing headroom before convolution.
-            // No signal-dependent limiting is used, and P0.6's front/top-front
-            // expansion remains exactly at its intended strength.
-            let [rear_l, rear_r, top_rear_l, top_rear_r] = apply_rear_render_headroom([
-                rear_l,
-                rear_r,
-                top_rear_l,
-                top_rear_r,
-            ]);
 
             out.extend_from_slice(&[
                 front_l,
@@ -481,15 +456,6 @@ impl MusicFieldProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn rear_render_headroom_is_linear_and_ratio_preserving() {
-        let input = [0.5, -0.25, 0.125, -0.0625];
-        let output = apply_rear_render_headroom(input);
-        for (before, after) in input.into_iter().zip(output) {
-            assert!((after - before * REAR_RENDER_HEADROOM_GAIN).abs() < 1.0e-7);
-        }
-    }
 
     #[test]
     fn mono_center_does_not_become_a_large_support_field() {
