@@ -26,8 +26,11 @@
 //! slots anymore (they would collide with the virtual FL/FR rows): the ears
 //! have dedicated live params ([`crate::live_params::EarLiveParams`]).
 
-use crate::binaural::diffuse_compensation::DiffuseFieldCompensator;
+#[path = "../binaural/diffuse_compensation.rs"]
+mod diffuse_compensation;
+
 use crate::live_params::RenderTopology;
+use diffuse_compensation::DiffuseFieldCompensator;
 
 use super::speaker_stage::{SpeakerRenderStage, SpeakerStageDiagnostics, SpeakerStageFrame};
 use super::{ChannelState, SpatialRenderer};
