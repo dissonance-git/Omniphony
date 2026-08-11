@@ -253,6 +253,44 @@ mod tests {
     }
 
     #[test]
+    fn foundation_preserves_left_to_right_body_motion() {
+        let frames_per_side = 8_192;
+        let mut input = Vec::with_capacity(frames_per_side * 4);
+        for i in 0..frames_per_side {
+            let x = (2.0 * PI * 180.0 * i as f32 / 48_000.0).sin() * 0.25;
+            input.extend_from_slice(&[x, 0.20 * x]);
+        }
+        for i in 0..frames_per_side {
+            let x = (2.0 * PI * 180.0 * i as f32 / 48_000.0).sin() * 0.25;
+            input.extend_from_slice(&[0.20 * x, x]);
+        }
+
+        let mut p = MusicFoundationProcessor::new(48_000);
+        let delta = p.process_interleaved_delta(&input);
+        let shaped: Vec<f32> = input.iter().zip(delta.iter()).map(|(a, b)| a + b).collect();
+
+        // Ignore filter settling after each pan change. The dominant side must
+        // remain dominant by a wide margin in both directions: foundation adds
+        // weight, but it may not freeze or mono-ize authored stereo motion.
+        let settle = 2_048;
+        let mut first_l = 0.0;
+        let mut first_r = 0.0;
+        for frame in shaped[(settle * 2)..(frames_per_side * 2)].chunks_exact(2) {
+            first_l += frame[0] * frame[0];
+            first_r += frame[1] * frame[1];
+        }
+        let second_start = (frames_per_side + settle) * 2;
+        let mut second_l = 0.0;
+        let mut second_r = 0.0;
+        for frame in shaped[second_start..].chunks_exact(2) {
+            second_l += frame[0] * frame[0];
+            second_r += frame[1] * frame[1];
+        }
+        assert!(first_l > first_r * 10.0);
+        assert!(second_r > second_l * 10.0);
+    }
+
+    #[test]
     fn default_foundation_relaxes_upper_presence_slightly() {
         let input = sine(10_000.0, 16_384);
         let mut p = MusicFoundationProcessor::new(48_000);
