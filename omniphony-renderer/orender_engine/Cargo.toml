@@ -8,11 +8,6 @@ repository = "https://github.com/dissonance-git/Omniphony"
 
 [dependencies]
 renderer = { version = "0.2.4", path = "../renderer" }
-# These are upstream renderer backends registered by the current engine builder.
-# The cascaded-binaural import brought that builder forward, so keep its crate
-# dependencies in sync rather than carrying a Windows-only unresolved seam.
-example_backend = { path = "../example_backend" }
-script_backend = { path = "../script_backend" }
 bridge_api = { version = "0.3.0", path = "../bridge_api" }
 runtime_control = { version = "0.2.4", path = "../runtime_control" }
 sys = { version = "0.1.0", path = "../sys" }
