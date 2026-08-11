@@ -260,7 +260,16 @@ impl MusicFieldProcessor {
                 let mut band_rear_r = 0.14 * lateral_r + 0.28 * diffuse_r;
 
                 let height = control.height;
-                let front_height_mid = mid * control.broad * 0.08;
+                // The protected master already carries the coherent stereo mid.
+                // Duplicating bright correlated mid directly into the top-front
+                // HRTF path can comb against that master after the cascaded room.
+                // Keep the shortcut for body/presence support, but above 5 kHz
+                // require height to come from relational/lateral/diffuse evidence.
+                let front_height_mid = if band == 3 {
+                    0.0
+                } else {
+                    mid * control.broad * 0.08
+                };
                 let mut band_top_front_l = height
                     * (0.62 * broad_l + 0.22 * lateral_l + 0.08 * diffuse_l + front_height_mid);
                 let mut band_top_front_r = height
