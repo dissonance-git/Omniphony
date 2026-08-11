@@ -258,6 +258,11 @@ pub struct SpatialRenderer {
     /// index out of the new width. 0 until the first mix pass.
     last_mix_num_speakers: usize,
 
+    /// Explicit host/config opt-in for cascade-only spectral compensation.
+    /// Defaults false so generic cascade remains numerically comparable to the
+    /// direct binaural path; the music topology opts in for SAF/KEMAR only.
+    cascade_spectral_compensation: bool,
+
     /// Scratch per-channel world positions for the binaural path (reused).
     binaural_pos_buf: Vec<[f64; 3]>,
 
@@ -275,6 +280,13 @@ impl SpatialRenderer {
     pub fn auto_gain_triggered(&self) -> bool {
         self.auto_gain_triggered
             .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Enable/disable the cascade-only common HRTF spectral compensation.
+    /// This is intentionally a construction/host policy rather than a generic
+    /// binaural default: direct mode and unconfigured cascades remain untouched.
+    pub fn set_cascade_spectral_compensation(&mut self, enabled: bool) {
+        self.cascade_spectral_compensation = enabled;
     }
 
     /// Set loudness metadata correction gain based on `dialogue_level` from the stream.
@@ -671,7 +683,7 @@ impl SpatialRenderer {
         // ramp position) and gains, then render to interleaved stereo. Bypasses
         // the entire speaker/VBAP path below.
         if binaural_active {
-            let (binaural_params, ears) = {
+            let (binaural_params, ears, saf_cascade_compensation) = {
                 let g = self.control.live.read();
                 // Compare against the live source in place: no per-frame clone
                 // (the `Sofa` variant carries a heap path), and any rebuild is
@@ -687,6 +699,11 @@ impl SpatialRenderer {
                         air_absorption: g.binaural.air_absorption,
                     },
                     g.binaural.ears,
+                    self.cascade_spectral_compensation
+                        && matches!(
+                            g.binaural.hrir_source,
+                            crate::binaural::HrirSource::SafKemar
+                        ),
                 )
             };
             let mut output = samples_buf;
@@ -729,6 +746,7 @@ impl SpatialRenderer {
                     },
                     live.speaker_params,
                     &binaural_params,
+                    saf_cascade_compensation,
                     &mut output,
                 );
                 cascade_diag = Some(diag);

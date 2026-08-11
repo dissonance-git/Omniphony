@@ -141,6 +141,7 @@ pub(super) fn render_cascade_frame(
     frame: SpeakerStageFrame<'_>,
     speaker_params: &[crate::live_params::SpeakerLiveParams],
     binaural_params: &crate::binaural::BinauralFrameParams,
+    spectral_compensation: bool,
     output: &mut [f32],
 ) -> SpeakerStageDiagnostics {
     let total = cascade.num_buses();
@@ -179,10 +180,14 @@ pub(super) fn render_cascade_frame(
     // direct binaural mode. This mirrors the spectral-compensation principle
     // used by mature virtual-loudspeaker binaural renderers while retaining
     // useful directional HRTF residual cues.
-    let compensation = cascade
-        .diffuse_compensation
-        .get_or_insert_with(|| DiffuseFieldCompensator::saf_kemar_partial(stage.sample_rate));
-    compensation.process_interleaved_stereo_in_place(output);
+    if spectral_compensation {
+        let compensation = cascade
+            .diffuse_compensation
+            .get_or_insert_with(|| DiffuseFieldCompensator::saf_kemar_partial(stage.sample_rate));
+        compensation.process_interleaved_stereo_in_place(output);
+    } else if let Some(compensation) = cascade.diffuse_compensation.as_mut() {
+        compensation.reset_runtime_state();
+    }
 
     diag
 }

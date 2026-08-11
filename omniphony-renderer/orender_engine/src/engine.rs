@@ -404,7 +404,7 @@ impl Engine {
         );
 
         let params = SpatialRendererParams::from_render_config(render_cfg.as_ref());
-        let renderer = build_spatial_renderer(
+        let mut renderer = build_spatial_renderer(
             &params,
             layout,
             sample_rate,
@@ -412,6 +412,24 @@ impl Engine {
             preferred,
             render_cfg.as_ref(),
         )?;
+        let cascade_spectral_compensation = render_cfg
+            .as_ref()
+            .and_then(|render| render.binaural.as_ref())
+            .and_then(|binaural| binaural.spectral_compensation.as_deref())
+            .is_some_and(|mode| mode.eq_ignore_ascii_case("saf_partial"));
+        if let Some(mode) = render_cfg
+            .as_ref()
+            .and_then(|render| render.binaural.as_ref())
+            .and_then(|binaural| binaural.spectral_compensation.as_deref())
+        {
+            if !mode.eq_ignore_ascii_case("off") && !mode.eq_ignore_ascii_case("saf_partial") {
+                log::warn!(
+                    "unknown binaural spectral_compensation '{}'; leaving cascade compensation off",
+                    mode
+                );
+            }
+        }
+        renderer.set_cascade_spectral_compensation(cascade_spectral_compensation);
 
         // Seed monitoring cadences from config (renderer is the source of
         // truth); embedded default is 10 Hz.

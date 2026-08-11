@@ -51,8 +51,8 @@ fn diffuse_power_db(set: &HrirSet, frequency_hz: f64) -> f64 {
 fn saf_kemar_diffuse_spectral_profile_is_finite_and_repeatable() {
     let set = HrirSet::new(&MeasuredHrirData::saf_kemar(), 48_000);
     let frequencies = [
-        500.0, 1_000.0, 2_000.0, 3_000.0, 4_000.0, 5_000.0, 6_000.0, 8_000.0,
-        10_000.0, 12_000.0, 14_000.0, 16_000.0,
+        500.0, 1_000.0, 2_000.0, 3_000.0, 4_000.0, 5_000.0, 6_000.0, 8_000.0, 10_000.0, 12_000.0,
+        14_000.0, 16_000.0,
     ];
     let reference_db = diffuse_power_db(&set, 1_000.0);
     let mut min_relative = f64::INFINITY;
@@ -70,5 +70,8 @@ fn saf_kemar_diffuse_spectral_profile_is_finite_and_repeatable() {
     eprintln!("SAF_DFE sampled_span {span:.2}dB");
     // This is a corruption/sanity guard, not a tonal target. The actual profile
     // is intentionally measured rather than forced flat in this change.
-    assert!(span < 40.0, "implausible SAF diffuse spectral span: {span:.2} dB");
+    assert!(
+        span < 40.0,
+        "implausible SAF diffuse spectral span: {span:.2} dB"
+    );
 }
