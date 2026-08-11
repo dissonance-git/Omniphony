@@ -8,9 +8,9 @@ Omniphony for Headphones is a fork of [`mgth/Omniphony`](https://github.com/mgth
 
 The central product law is simple:
 
-> **Upstream Omniphony already has a very good spatial/binaural effect. Preserve and extend that percept. Do not replace it with research for research's sake.**
+> **Upstream Omniphony already has a very good spatial/binaural core. Preserve and extend that percept. Do not replace it with research for research's sake.**
 
-The job is primarily to make that spatial renderer usable as a universal listening layer for an operating system, then make it unusually good for the dominant real-world source: **ordinary mastered stereo music**.
+The job is to make that renderer usable as a universal listening layer for an operating system, then make it unusually good for the dominant real-world source: **ordinary mastered stereo music**.
 
 The target is not merely wider stereo and not merely a HeSuVi clone.
 
@@ -18,17 +18,111 @@ The target is not merely wider stereo and not merely a HeSuVi clone.
 
 Useful category shorthand:
 
-> **an open-source, modern Sony-360-like headphone world that works with ordinary stereo, native surround, games, movies and richer spatial sources without requiring specially authored music.**
+> **An open-source, modern Sony-360-like headphone world that works with ordinary stereo, native surround, games, movies and richer spatial sources without requiring specially authored music.**
 
 ---
 
-# 0. The inheritance map
+# 0. Current protected sound foundation
+
+This is the most important re-entry checkpoint in the repository.
+
+The early full-wet stereo experiments failed because replacing the mastered stereo image with two HRTF-rendered virtual speakers damaged the recording:
+
+```text
+tinny / cheap-phone tone
+bass and body loss
+smaller useful stereo image
+audible room / hallway coloration
+less definition than bypass
+```
+
+The next preserved-master experiments established the opposite extreme:
+
+```text
+ON ≈ OFF
+raw music intact
+no obvious tonal damage
+but little useful added world
+```
+
+The current **frequency-evidence music path** is the first architecture that has crossed into the desired region.
+
+Latest clean listening evidence:
+
+```text
+raw stereo clarity remains
+music still feels intact
+spatial enhancement is now clearly useful
+presentation sounds bigger than the incumbent HeSuVi/DTS chain
+behind-head placement is convincing
+percussion can feel genuinely behind the listener rather than merely to the side
+```
+
+Current limitation:
+
+```text
+the field is rear-heavy
+front/side/rear balance is not yet spherical
+height is still largely absent
+radial depth is underdeveloped
+continuous 360° bubble / shell is not yet complete
+```
+
+This result is now the **protected stereo sound floor**.
+
+From this point forward, every sound change must preserve or improve:
+
+```text
+raw clarity
+bass/body
+center solidity
+stereo identity
+transient definition
+groove timing
+timbral naturalness
+microdetail
+comfort
+```
+
+while increasing:
+
+```text
+front externalization
+side wrap
+rear discrimination without rear dominance
+height
+below-listener plausibility
+radial depth
+source extent
+ambient continuity
+listener envelopment
+separation without disassembly
+energy / punch / density
+```
+
+A candidate may no longer buy a bigger sphere by regressing to the earlier tinny, hollow, phasey or reverberant sound.
+
+The current practical stereo-development setup is:
+
+```text
+Hi-Fi Cable speaker configuration = Stereo / 2.0
+foobar upmix                     = OFF
+HeSuVi                           = OFF
+ASIO Bridge forwarding           = OFF
+Omniphony                        = only audible path to FiiO/headphones
+```
+
+Changing the temporary Hi-Fi Cable endpoint from Windows 7.1 to Stereo restored normal playback level. Treat that as a **prototype transport/gain finding**, not a permanent user requirement. The finished Windows host must own the routing automatically.
+
+---
+
+# 1. The inheritance map
 
 This project is **not a ground-up replacement for Omniphony**.
 
-The load-bearing acoustical renderer remains upstream Omniphony.
+The load-bearing acoustical renderer remains upstream-derived Omniphony.
 
-## Inherited upstream core
+## 1.1 Inherited spatial heart
 
 The fork continues to build on upstream machinery for:
 
@@ -53,7 +147,7 @@ Important inherited components include:
 
 - the `renderer` crate and `SpatialRenderer`;
 - the independent binaural branch;
-- the HRTF/HRIR providers and convolution machinery;
+- HRTF/HRIR providers and convolution machinery;
 - ITD and head-pose handling;
 - channel/object metadata and ramps;
 - VBAP and speaker layouts;
@@ -64,9 +158,9 @@ Important inherited components include:
 
 That is the **heart** of the product.
 
-The fork has already modified and extended parts of this inherited code. “Upstream core” therefore means **upstream-derived renderer architecture and machinery**, not an untouched upstream binary hidden underneath the fork.
+“Upstream core” means upstream-derived renderer architecture and machinery, not an untouched upstream binary hidden underneath the fork. The fork has already modified and extended parts of that code.
 
-## What this fork is adding around it
+## 1.2 What this fork adds around it
 
 The fork's major ownership is increasingly:
 
@@ -74,18 +168,19 @@ The fork's major ownership is increasingly:
 portable source contracts
 stereo-music presentation
 source-truth preservation
+frequency-dependent stereo evidence
 concurrent-stream semantics
 Windows system routing
 future platform adapters
 always-on product shell
 clean bypass / transport
 fidelity regression tests
-music-specific preservation rules
-research/evaluation machinery
+music-specific preservation laws
+research / evaluation machinery
 selective renderer corrections only when earned
 ```
 
-The desired architecture is therefore:
+Desired architecture:
 
 ```text
                       PLATFORM HOST
@@ -110,15 +205,15 @@ The desired architecture is therefore:
                   ordinary 2.0 headphones
 ```
 
-A useful engineering rule follows:
+Engineering rule:
 
 > **When a problem can be solved by feeding the inherited renderer better material or by preserving the source around it, prefer that over replacing the renderer.**
 
-There is no meaningful single code-line percentage for “how much is upstream” because host, tests and research code can dwarf a compact DSP kernel. Acoustically, however, the upstream-derived Omniphony renderer remains the load-bearing spatial engine and should continue to do so unless a specific component demonstrably fails.
+There is no meaningful code-line percentage for “how much is upstream.” Host, tests and research code can dwarf a compact DSP kernel. Acoustically, however, the upstream-derived Omniphony renderer remains the load-bearing spatial engine.
 
 ---
 
-# 1. Perceptual north star
+# 2. Perceptual north star
 
 The strongest music aspiration is:
 
@@ -147,7 +242,7 @@ constantly reclassified
 obviously controlled by an algorithm
 ```
 
-Ordinary DSP state is expected. Convolution histories, delay lines, interpolation, smoothing, room decay and future head tracking are normal realtime audio mechanisms.
+Ordinary DSP state is expected. Convolution histories, delay lines, interpolation, smoothing, room decay and future head tracking are normal realtime mechanisms.
 
 The distinction is:
 
@@ -157,7 +252,7 @@ without requiring
 LIVE SEMANTIC REMIXING
 ```
 
-The full-sphere target can contain:
+The final full-sphere presentation may contain:
 
 ```text
 front
@@ -177,7 +272,7 @@ But the musical object always comes first.
 
 ---
 
-# 2. Hard fidelity law
+# 3. Hard fidelity law
 
 > **Dimension may not be purchased by damaging the music.**
 
@@ -212,23 +307,23 @@ comfort
 
 Desired bypass reaction:
 
-> **“the world collapsed.”**
+> **“The world collapsed.”**
 
 Not:
 
-> **“the music came back.”**
+> **“The music came back.”**
 
-A new invariant discovered by the first live stereo tests is:
+Frozen invariant:
 
-> **Omniphony ON may never be narrower, less defined, or tonally cheaper than the untouched stereo master merely to obtain spatial cues.**
+> **Omniphony ON may never be narrower, less defined, less energetic, or tonally cheaper than the authoritative stereo master merely to obtain spatial cues.**
 
 This law outranks clever DSP, research elegance and feature count.
 
 ---
 
-# 3. Main use case: ordinary stereo music
+# 4. Main use case: ordinary stereo music
 
-For most listeners, and for the primary private use case, the everyday source is normal 2-channel music.
+The everyday source is usually normal two-channel music.
 
 The mature path should be:
 
@@ -244,23 +339,21 @@ upstream-derived Omniphony binaural renderer
 ordinary 2-channel DAC / headphones
 ```
 
-The listener should not configure the operating system or physical DAC as 7.1 just to hear stereo music.
+The listener should not configure the operating system or physical DAC as virtual 7.1 just to hear stereo music.
 
 ```text
 physical headphone output = 2.0
 ```
 
-The difficult product question is:
+The central creative problem is:
 
 > **How can a finished stereo master gain convincing full-sphere physicality while remaining recognizably and tonally the same finished master?**
 
-Do not answer that by blindly turning `L` and `R` into two replacement virtual speakers.
-
-The first clean live tests showed why.
+The current architecture is the first answer that has sounded promising enough to protect.
 
 ---
 
-# 4. Stereo is authoritative, not raw material to discard
+# 5. Stereo is authoritative, not raw material to discard
 
 A finished stereo recording already contains valuable authored information:
 
@@ -279,7 +372,7 @@ mix hierarchy
 
 The default stereo presentation should preserve those properties and grow a spatial world around them.
 
-Conceptual model:
+Conceptual law:
 
 ```text
                          STEREO MASTER
@@ -298,15 +391,15 @@ Conceptual model:
                          headphones
 ```
 
-This is not necessarily three literal stems. It is a design law about what must remain authoritative.
+This is not necessarily three literal stems. It is a law about what remains authoritative.
 
-## 4.1 Foundation protection
+## 5.1 Foundation protection
 
-Low-frequency energy is especially dangerous to spatialize indiscriminately.
+Low-frequency energy is dangerous to spatialize indiscriminately.
 
-Existing fork research already encodes a conservative `80-220 Hz` bass-protection transition in `scene_inference.rs`.
+The portable scene evidence already encodes a conservative `80-220 Hz` bass-protection transition.
 
-The product implication is stronger:
+Product implication:
 
 ```text
 bass / pressure / groove foundation
@@ -314,11 +407,11 @@ bass / pressure / groove foundation
 → spatially move only when evidence earns it
 ```
 
-Do not fix bass loss after the fact with a compensating shelf if the renderer caused the loss structurally.
+Do not fix structural bass loss afterward with a compensating shelf.
 
-## 4.2 Direct versus field
+## 5.2 Direct versus field
 
-Useful separation:
+Keep this distinction:
 
 ```text
 DIRECT
@@ -332,50 +425,344 @@ Environment is not a substitute for geometry, and geometry is not permission to 
 
 ---
 
-# 5. Stereo convolution / 2x2 transfer-matrix influence
+# 6. Current protected stereo architecture
 
-The foobar Stereo Convolver lineage and related convolution research suggest a useful mathematical model.
+The old pure `(L-R)/2` side-field experiment is historical evidence now. It proved that a protected dry/master path could remain transparent, but the spatial branch was too starved to matter.
 
-A general stereo convolver is a 2x2 transfer matrix:
-
-```text
-yL = L * HLL + R * HRL
-yR = L * HLR + R * HRR
-```
-
-The key Omniphony interpretation is not “use a convolver plugin.” It is:
+The active foundation is the **frequency-evidence music path**.
 
 ```text
-DIAGONAL TERMS
-HLL / HRR
-→ preserve source authority and direct identity
+FINISHED STEREO MASTER
+        │
+        ├────────────────────────────────────────→ protected direct path
+        │
+        └→ 1024-sample FFT ANALYSIS ONLY
+              │
+              ├→ L/R magnitude
+              ├→ L/R phase
+              ├→ pan / phase coherence
+              ├→ directness / diffuseness
+              ├→ true complex M/S
+              └→ persistence / stability
+                        │
+                        ▼
+                 scene inference
+                        │
+          ┌─────────────┼─────────────┐
+          │             │             │
+        BROAD        LATERAL       DIFFUSE
+          │             │             │
+          └──── causal multiband extraction
+                        │
+                        ▼
+             derived logical 7.1 field
 
-OFF-DIAGONAL TERMS
-HLR / HRL
-→ add controlled interaural / spatial support
+             L/R   = broad extent
+             C     = silent
+             LFE   = silent
+             Ls/Rs = lateral/object-like evidence
+             Lb/Rb = diffuse/field-like evidence
+                        │
+                        ▼
+              UPSTREAM OMNIPHONY
+              HRTF / ITD / binaural
+                        │
+                        ▼
+                  stereo support
+                        │
+        protected master + aligned support
+                        │
+                        ▼
+                    headphones
 ```
 
-A useful conceptual target is therefore:
+Physical output remains ordinary binaural stereo. The internal multichannel structure is only a differentiated support field for the inherited renderer.
+
+Important properties:
+
+- FFT is **analysis-only** and does not STFT-resynthesize the master;
+- the audible support extraction remains causal;
+- center/foundation evidence can suppress aggressive field promotion;
+- low-frequency foundation remains in the master;
+- no artificial LFE is created for stereo music;
+- support is latency-aligned before combination;
+- the master gets first claim on headroom;
+- early reflections are off in this experiment;
+- late reverb is off;
+- air absorption is off;
+- spatiality therefore comes primarily from evidence + geometry + HRTF/ITD rather than an audible room tail.
+
+Portable ownership lives in:
 
 ```text
-H(z) = I + S(z)
+renderer/src/stereo_inference.rs
+renderer/src/scene_inference.rs
+renderer/src/music_field.rs
 ```
 
-where `I` is the protected stereo identity and `S(z)` is only the spatial support that earns its existence.
+Windows owns transport, not the hearing logic.
 
-This is a **research architecture**, not a frozen implementation formula.
+Detailed checkpoint:
 
-The important law is:
-
-> **The master can remain explicitly present in the transfer function instead of being deleted and synthesized again.**
-
-That is much closer to the product goal than “replace stereo with virtual speakers.”
+`docs/frequency-evidence-music-path.md`
 
 ---
 
-# 6. Direct, ambient and room should be separable
+# 7. Sound frontier from this foundation
 
-External research independently reinforces a three-way split:
+This section is deliberately about **sound**, not product features.
+
+The current result is the foundation. The next work is to make the same intact recording inhabit a dramatically stronger acoustic world.
+
+## 7.1 Rebalance the current rear-heavy field
+
+The current frequency-evidence field proves that behind-head placement can become convincing. It is currently too eager to put useful musical energy into the rear hemisphere.
+
+The next spatial balance should become:
+
+```text
+front authority
++ side wrap
++ rear depth
++ upper/lower shell
+```
+
+rather than:
+
+```text
+protected front master
++ strong rear support
+```
+
+A drum hit should not be pushed behind the listener merely because it contains lateral or diffuse evidence. Rear should become one region of a larger shell, not the default destination of everything that is not centered.
+
+## 7.2 Stronger front externalization
+
+The front image should project outward instead of remaining mostly at the head while the support appears behind it.
+
+Target:
+
+```text
+center stays solid
+front wall moves away from the forehead
+left/right front image gains acoustic distance
+no vocal thinning
+no center hole
+```
+
+This is essential to turning the current rear-heavy scene into a sphere.
+
+## 7.3 Side wrap and continuous 360° bubble
+
+The final presentation should not sound like front stereo plus a rear layer.
+
+Desired:
+
+```text
+front
+→ front-side
+→ side
+→ rear-side
+→ rear
+```
+
+as a coherent wrap around the listener.
+
+The field should be continuous enough to inhabit while remaining structured enough to localize.
+
+## 7.4 Height and below-listener structure
+
+The full-sphere ambition includes vertical dimension.
+
+Desired sound:
+
+```text
+upper field adds canopy / air / vertical extent
+lower field adds grounding / lower spatial volume
+neither becomes a crude EQ trick
+```
+
+Stereo contains little authored height truth, so inferred vertical treatment should primarily operate on broad/diffuse evidence and remain conservative for direct anchors.
+
+Do not turn treble into “height” merely because it is high frequency.
+Do not move bass foundation downward merely because it is low frequency.
+
+## 7.5 Radial depth
+
+The target is not a flat ring around the head.
+
+The presentation should develop:
+
+```text
+near
+mid-distance
+far
+```
+
+with enough radial layering that sources and fields can occupy different acoustic distances without destroying mix hierarchy.
+
+Bypass should make the world shallower and smaller, not clearer.
+
+## 7.6 Source extent
+
+Not every musical source should collapse to a point.
+
+The mature presentation should support a continuum:
+
+```text
+compact anchor
+→ coherent broad source
+→ diffuse field
+```
+
+without indiscriminate decorrelation.
+
+Large string textures, synth beds, backing layers and reverberant musical environments may occupy extent while vocals, snares and melodic anchors retain authority.
+
+## 7.7 Ambient continuity
+
+The sphere should not have obvious virtual-speaker holes.
+
+Desired field:
+
+```text
+continuous enough to inhabit
+structured enough to localize
+```
+
+This is one place where more continuous geometry, diffuse-field representation or eventually an Ambisonic support field may earn a role.
+
+## 7.8 Separation without disassembly
+
+Omniphony should reveal more room between musical agents without making the mix sound pulled apart.
+
+Desired:
+
+```text
+more legibility
+more breathing room
+more dimensional layering
+same song
+```
+
+Not:
+
+```text
+stem-demo separation
+holes in the mix
+sources detached from their musical relationships
+```
+
+## 7.9 Energy, punch and density
+
+Spatiality and energy are separate dimensions.
+
+The incumbent HeSuVi/DTS + foobar chain demonstrates a sound that can feel unusually energetic through a combination of gain structure, multichannel summation, HRIR response and limiting.
+
+Omniphony should reproduce the **beneficial percept**, not the accidental topology.
+
+Target:
+
+```text
+strong level
+physical bass/body
+kick and transient punch
+subjective density
+presence
+large spatial field
+without clipping or crushed dynamics
+```
+
+The finished product should not feel bare or polite merely because its signal path is cleaner.
+
+Do not let louder-is-better contaminate spatial A/B tests, but do not leave energy as an afterthought either.
+
+## 7.10 Bass physicality
+
+Bass is more than quantity.
+
+Protect and eventually improve:
+
+```text
+mass
+groove lock
+kick/bass interlock
+melodic bass contour
+pressure
+body
+```
+
+The low-frequency foundation should feel at least as physical and timed as the dry master and eventually competitive with the incumbent chain, without turning bass into fake omnidirectional LFE.
+
+## 7.11 Transient sharpness and microdetail
+
+More world must not mean softer attacks.
+
+The final presentation should retain or improve:
+
+```text
+attack precision
+microdetail
+fast percussion clarity
+rhythmic lock
+```
+
+## 7.12 Stable, pre-authored appropriateness
+
+The presentation should become more appropriate to different recordings without sounding like a live remix.
+
+Desired percept:
+
+> **This recording somehow already belongs in this acoustic world.**
+
+Not:
+
+> **The algorithm noticed something and moved it.**
+
+Confidence should control aggression. Uncertain evidence should become broad, reversible support rather than precise spatial fiction.
+
+## 7.13 Long-session comfort
+
+A spectacular five-second demo is insufficient.
+
+Avoid:
+
+```text
+spectral glare
+phase fatigue
+constant spatial motion
+excessive crossfeed
+room buildup
+transient softening
+pressure imbalance
+```
+
+The target is a presentation that becomes difficult to turn off because it feels natural, not because it constantly advertises itself.
+
+---
+
+# 8. Direct, broad, diffuse and room remain distinct
+
+Keep:
+
+```text
+DirectObject
+≠ BroadSource
+≠ DiffuseField
+≠ RoomField
+```
+
+and:
+
+```text
+rear direct object
+≠ rear reflection
+≠ diffuse rear field
+```
+
+A “bigger” sound fails if it merely converts direct musical material into room coloration.
+
+External research reinforces:
 
 ```text
 DIRECT
@@ -388,79 +775,69 @@ ROOM / REVERBERANT FIELD
 longer temporal structure
 ```
 
-Useful influences include:
+For music, the default room contribution may be tiny or absent. Spatial structure should survive without hallway coloration.
 
-- 3D Tune-In Toolkit: anechoic HRIR/ITD path separated from reverberation;
-- Google's Open Binaural Renderer: distinct Direct, Ambient and Reverberant filter profiles;
-- Steam Audio: direct, reflections and late environment are independent mechanisms;
-- stereo convolution systems: explicit cross-channel transfer rather than one opaque wet effect.
-
-Product consequence:
-
-> **Do not make the whole stereo master pass through an audible room just to externalize it.**
-
-For music, the default room contribution may be tiny or absent. Spatial structure should survive without “hallway” coloration.
+Directional early reflections may be tested later only if they add externalization/body without echo, doubling, comb coloration or transient damage.
 
 ---
 
-# 7. MathAudio lessons, bounded carefully
+# 9. Stereo convolution and source-safe transfer laws
 
-MathAudio's foobar DSP lineage is useful as a design influence, not as an implementation dependency.
+The foobar Stereo Convolver lineage suggests a useful conceptual model.
 
-Useful lessons:
-
-- headphone correction and spatial presentation are different problems;
-- crossfeed demonstrates that natural interaural coupling can be useful;
-- correction should be bounded rather than blindly inverting every measured error;
-- deep notches and unstable inverse filters should not be “fixed” merely because mathematics allows it;
-- phase, transient behavior and pre-ringing are audible product concerns.
-
-Do **not** inherit the broad claim that FIR convolution itself is inherently undesirable.
-
-Realtime auralization literature and multiple open binaural systems use partitioned convolution successfully. The useful distinction is:
+A general stereo convolver is a 2x2 transfer matrix:
 
 ```text
-not: FIR bad
-
-but:
-poorly constrained phase correction
-long inappropriate kernels
-bad transitions
-or bad latency architecture
-→ can sound bad
+yL = L * HLL + R * HRL
+yR = L * HLR + R * HRR
 ```
 
----
-
-# 8. Convolution engineering law
-
-If longer convolution becomes useful, prefer a realtime architecture designed for it.
-
-Research sources support:
+Useful interpretation:
 
 ```text
-small early partitions
-→ low latency
+DIAGONAL TERMS
+HLL / HRR
+→ preserve source authority and direct identity
 
-larger later partitions
-→ efficient long tail
+OFF-DIAGONAL TERMS
+HLR / HRL
+→ add controlled interaural / spatial support
 ```
 
-Non-uniform partitioned convolution is especially attractive for future direct/ambient/room separation.
+Conceptually:
 
-Potential implementation references are parked in `docs/influence-ledger.md`, including `HiFi-LoFi/FFTConvolver` and real-time auralization literature.
+```text
+H(z) = I + S(z)
+```
 
-This is future machinery. Do not replace the current short inherited HRIR kernel merely because a longer convolver exists.
+where `I` is protected stereo identity and `S(z)` is only the spatial support that earns its existence.
+
+This is a research model, not a frozen implementation formula.
+
+The important law is:
+
+> **The master can remain explicitly present instead of being deleted and synthesized again.**
+
+Professional upmix references such as Halo Upmix and Penteo add another constraint:
+
+```text
+stereo master
+→ expanded presentation
+→ defined collapse / downmix
+→ original relationships remain recognizably recoverable
+```
+
+Perfect bit-exact reversibility is not required for every perceptual enhancement, but the sphere may not be created by destroying the source structure.
 
 ---
 
-# 8.5. Source-safe stereo evidence laws
+# 10. Source-safe stereo evidence laws
 
-The Trifield, LCC, FreeSurround/Real3D, professional upmix and stereo-width research pass produced a small set of durable laws.
+The Trifield, LCC, FreeSurround/Real3D, MathAudio, professional upmix and stereo-width research passes produced durable laws.
 
-## Center authority must survive
+## 10.1 Center authority must survive
 
-Trifield's useful lesson is not “make a center speaker.” It is that the **center image is its own stability problem**.
+Trifield's useful lesson is not “make a center speaker.” It is that the center image is its own stability problem.
 
 ```text
 correlated / center-like energy
@@ -470,23 +847,17 @@ side / differential energy
 → candidate expansion evidence
 ```
 
-The listener should not gain rear width by making vocals, snares or other center anchors hollow or vague.
+Do not gain rear width by making vocals, snares or other center anchors hollow or vague.
 
-## Existing interaural cues are source evidence
+## 10.2 Existing interaural cues are source evidence
 
-LCC is a loudspeaker crosstalk-cancellation system, so its algorithm is not a headphone transplant.
+LCC is not a headphone algorithm to copy literally. Its deeper lesson transfers:
 
-Its deeper lesson transfers:
+> **Do not erase useful ITD/ILD relations already encoded in the source merely because synthesized binaural cues are available.**
 
-> **Do not let the presentation transform erase useful ITD/ILD relations that are already encoded in the source.**
+## 10.3 Analysis is not rendering
 
-Source interaural structure should be measured and protected where it is coherent, not automatically overwritten by synthesized binaural cues.
-
-## Analysis is not rendering
-
-FreeSurround and Real3D show that frequency-dependent amplitude and phase relations can be transformed into candidate spatial positions.
-
-That can be valuable evidence:
+FreeSurround and Real3D demonstrate that frequency-dependent amplitude and phase relations can provide candidate spatial evidence:
 
 ```text
 L/R amplitude relation
@@ -494,7 +865,7 @@ L/R amplitude relation
 → candidate position / field confidence
 ```
 
-But the resulting synthetic speaker bed is only **one rendering choice**.
+But a synthetic speaker bed is only one rendering choice.
 
 Do not confuse:
 
@@ -508,66 +879,30 @@ with:
 authored multichannel truth
 ```
 
-This is especially important because a historically used FreeSurround path produced a perceptually flatter/less desirable bubble despite its sophisticated analysis.
+## 10.4 Audible room is not required for spatiality
 
-## Expansion should be source-safe
+If Omniphony needs an obvious reverb tail to feel 3D, the geometry/presentation problem is not solved yet.
 
-Professional upmix references such as Halo Upmix and Penteo make source/downmix integrity a first-class goal.
+## 10.5 Small transforms may outperform wholesale reconstruction
 
-Omniphony should inherit the **constraint**, not proprietary algorithms:
+M/S width/depth processors and headphone crossfeed systems show that small frequency- and timing-aware transformations can materially reshape space without rebuilding the whole mix.
 
-```text
-stereo master
-→ expanded presentation
-→ defined collapse / downmix
-→ original relationships remain recognizably recoverable
-```
+Use complexity only where listening earns it.
 
-Perfect bit-exact reversibility is not required for every perceptual enhancement, but a default music mode should not create a sphere by destroying the source structure.
+## 10.6 MathAudio lessons are bounded
 
-Useful regression dimensions include:
+Useful lessons:
 
-```text
-center recovery
-L/R balance recovery
-bass recovery
-phase coherence
-transient recovery
-stereo-width recovery
-```
+- headphone correction and spatial presentation are different problems;
+- natural interaural coupling can be useful;
+- correction should be bounded rather than blindly inverted;
+- phase, transient behavior and pre-ringing matter.
 
-## Audible room is not required for spatiality
-
-Professional upmixers demonstrate that coherent spatial expansion can be pursued without mandatory artificial reverb, chorus or an audible delay effect.
-
-Therefore:
-
-> **If Omniphony needs an obvious room sound to feel spatial, the geometry/presentation problem is not solved yet.**
-
-## Small transforms may outperform wholesale reconstruction
-
-M/S width/depth processors and headphone crossfeed systems reinforce that small frequency- and timing-aware transformations can materially change spatial perception without rebuilding the entire mix.
-
-This supports a progression of:
-
-```text
-protect master
-→ derive modest field evidence
-→ add small controlled support
-→ increase complexity only if necessary
-```
-
-rather than immediately constructing a giant inferred surround scene.
-
-## Ambisonics is a possible field representation, not a mandatory stereo decoder
-
-Ambisonic tooling may become useful for representing a derived diffuse/full-sphere field because it is platform-neutral and renderer-friendly.
-
-It should enter only if it solves a measured representation problem better than simpler support channels.
+Do not inherit a blanket “FIR is bad” conclusion. Realtime binaural systems use convolution successfully when phase, latency and transitions are designed correctly.
 
 ---
 
-# 9. Universal source-truth law
+# 11. Universal source-truth law
 
 Inference decreases as source truth increases.
 
@@ -575,7 +910,7 @@ Inference decreases as source truth increases.
 STEREO
 finished presentation but little explicit full-sphere truth
 → preserve master
-→ add only validated support
+→ add validated support
 
 5.1 / 7.1
 real directional channel truth
@@ -602,9 +937,11 @@ Source truth outranks reconstruction.
 
 Richer sources should generally require **less inference**, not more.
 
+The stereo evidence system may create broad/lateral/diffuse support. It may not claim to have recovered hidden authored rear or height coordinates.
+
 ---
 
-# 10. Concurrent-stream law
+# 12. Concurrent-stream law
 
 Channel layout belongs to a logical source/stream, not to Omniphony globally.
 
@@ -614,7 +951,7 @@ A desktop may contain:
 foobar       stereo 2.0
 Overwatch    native 5.1 / 7.1 / spatial
 voice chat   mono / stereo
-future app   object / richer spatial metadata
+future app   objects / richer spatial metadata
 ```
 
 Correct model:
@@ -639,10 +976,9 @@ Omniphony global mode = 7.1
 ```
 
 Starting a surround game must not reinterpret a playing stereo song.
-
 Playing stereo music must not flatten the game's native surround truth.
 
-This becomes a permanent regression case:
+Permanent regression case:
 
 ```text
 stereo alone
@@ -655,7 +991,7 @@ The temporary Windows loopback prototype cannot yet preserve application boundar
 
 ---
 
-# 11. Portable core law
+# 13. Portable core law
 
 The core should accept platform-neutral logical streams and emit binaural stereo.
 
@@ -698,7 +1034,7 @@ Later ports should replace/adapt the host while preserving the same core semanti
 
 ---
 
-# 12. Product shell and zero-config law
+# 14. Product shell and zero-config law
 
 The mature experience should be almost boring:
 
@@ -717,23 +1053,13 @@ Headphones      automatic / saved
 Mode            automatic
 ```
 
-Advanced controls can exist later for:
-
-- spatial strength;
-- depth / extent;
-- HRTF / personalization;
-- headphone correction;
-- head tracking;
-- diagnostics;
-- specialist routes.
-
-They must not become routine setup requirements.
+Advanced controls may later expose spatial strength, depth/extent, HRTF/personalization, headphone correction, head tracking and diagnostics, but routine playback must not require them.
 
 ---
 
-# 13. Current incumbent and migration law
+# 15. Incumbent chain and migration law
 
-The existing reference remains:
+The existing perceptual reference remains:
 
 ```text
 foobar2000
@@ -763,17 +1089,27 @@ Known incumbent transport:
 
 This is preference evidence and a benchmark, not a design specification.
 
+Useful incumbent sound functions include:
+
+```text
+large bubble
+rear presence
+subjective density / energy
+bass/body reinforcement
+strong level without obvious clipping
+```
+
+The current Omniphony foundation already appears capable of exceeding the incumbent in **overall apparent size and behind-head placement**. The remaining job is to make that larger field more spherical, balanced, elevated, deep and energetic.
+
 Migration law:
 
 > **Disable before uninstall.**
 
-Keep the complicated incumbent installed until Omniphony actually replaces each function.
-
-During trustworthy listening tests there must be **one physical audible path only**.
+Keep the incumbent installed until Omniphony has actually earned replacement.
 
 ---
 
-# 14. Single-path and bypass law
+# 16. Single-path and bypass law
 
 Correct:
 
@@ -806,13 +1142,13 @@ duplicate dry path
 renderer leakage
 ```
 
-The current prototype restarts its hidden worker on ON/OFF to guarantee old queues die. A later polished implementation should use latency-aligned wet/dry selection near physical output.
+The current prototype restarts its hidden worker on ON/OFF so old queues die. A polished implementation should eventually select latency-aligned wet/dry near physical output.
 
 ---
 
-# 15. Current live-listening evidence
+# 17. Current live-listening evidence
 
-## 15.1 Transport proof
+## 17.1 Transport proof
 
 The native Windows app successfully plays arbitrary live Windows audio through Omniphony to the physical FiiO/headphones.
 
@@ -824,146 +1160,95 @@ Omniphony engine       proven
 physical output        proven
 ```
 
-## 15.2 Duplicate-route contamination was removed
+## 17.2 Duplicate-route contamination removed
 
 With HeSuVi disabled and the old ASIO forwarding path stopped, OFF became clean.
 
-That strongly reduced the likelihood that the remaining wet-path failure was only double playback.
+This established a trustworthy single-path comparison.
 
-## 15.3 Wet-path failure
+## 17.3 Generic full-wet stereo rejected
 
-Clean ON versus OFF produced:
+The generic channel-bed HRTF route produced:
 
 ```text
-ON:
-- tinny / cheap-phone tonal character
-- bass/body loss
-- less spatial than dry stereo
-- less rear extent / definition than dry stereo
-- audible room/reverb quality
-
-OFF:
-- clean
-- fuller
-- more defined
-- surprisingly more spatial in useful ways
+tinny / cheap-phone tonal character
+bass/body loss
+less useful spatiality than dry stereo
+less rear extent / definition
+audible room / reverb quality
 ```
 
-This is now a trustworthy product finding:
+Frozen conclusion:
 
-> **Replacing a finished stereo master with the generic channel-bed HRTF path is the wrong default music architecture.**
+> **Replacing a finished stereo master wholesale with the generic channel-bed HRTF path is the wrong default music architecture.**
 
-## 15.4 Upstream-demo config correction
+## 17.4 Upstream demo remains a known-spatial control
 
-The local upstream reference had also drifted from upstream's real bundled demo.
-
-The actual upstream demo uses roughly:
+The real upstream bundled demo uses roughly:
 
 ```text
 SAF / KEMAR
 unit_scale_m = 3.0
-early reflections enabled around 0.4
+early reflections around 0.4
 short reverb around 0.2 / 0.3 s
 ```
 
-The protected control was corrected.
+That remains useful for a known spatial 7.1.4 scene.
+It is not automatically the right stereo-music preset.
 
-That configuration remains useful for a **known spatial 7.1.4 scene**.
+## 17.5 Preserved-master side-only path established the fidelity floor
 
-It is not automatically the right preset for ordinary stereo music.
+Keeping the exact stereo master and adding only a small aligned side field removed the former tonal damage.
 
-This distinction is now explicit:
+At low and even nominally high support strengths, ON and OFF were effectively indistinguishable.
 
-```text
-known spatial scene
-→ upstream-style full binaural presentation
+That experiment succeeded as a **safety proof** but failed as a sufficient spatial decoder.
 
-finished stereo music
-→ preserve master
-→ add controlled Omniphony spatial support
-```
+## 17.6 Windows 7.1 endpoint was a level confound
 
----
+The temporary Hi-Fi Cable endpoint remained configured as Windows 7.1 while the music worker requested a 2ch loopback stream.
 
-# 16. Current stereo prototype direction
+Changing the endpoint to Stereo / 2.0 restored normal playback level.
 
-The current Windows prototype is stereo-first.
+Do not confuse that transport finding with the stereo spatial algorithm.
 
-The next product worker does **not** send the finished stereo master through the full HRTF path.
+## 17.7 Frequency-evidence foundation is the first promising music result
 
-Current experiment:
+The frequency-aware portable field path replaced the side-only scaffold.
+
+Current listening result:
 
 ```text
-                 FINISHED STEREO MASTER
-                         │
-             ┌───────────┴───────────────┐
-             │                           │
-             ▼                           ▼
-       DIRECT IDENTITY              SIDE EVIDENCE
-       exact L/R master              (L-R)/2
-             │                           │
-             │                      HPF ~220 Hz
-             │                           │
-             │                     rear/side field
-             │                           │
-             │                inherited Omniphony HRTF/ITD
-             │                           │
-             │                   low-level support (~14%)
-             │                           │
-             └──── latency align ────────┤
-                                         ▼
-                                      combine
-                                         ↓
-                                    headphones
+raw stereo clarity remains
+no obvious tinny/hallway regression
+music still feels intact
+field sounds bigger than HeSuVi
+behind-head localization is strong
+percussion can localize too strongly behind the listener
 ```
 
-Hard properties of this experiment:
+This is the **current protected sound foundation**.
 
-- OFF is the captured stereo master with no stereo downmix processing;
-- ON buffers the dry master until the corresponding spatial support exits the bridge/renderer so addition is time-aligned;
-- the support field receives no bass below the current ~220 Hz high-pass region;
-- the support field uses no early reflections;
-- the support field uses no late reverb;
-- the support field uses no air absorption;
-- support is reduced before clipping rather than scaling the direct master down to make room;
-- the support gain is intentionally small because this build tests architecture before final strength;
-- the experiment currently lives in the Windows worker so it can be rejected cheaply;
-- if it wins, the mechanism should move into the portable presentation layer.
-
-The old 8/6-channel-first/full-wet path remains diagnostic/reference material, not the default music architecture.
-
----
-
-# 17. Protected renderer vocabulary
-
-Useful distinctions remain:
+The next sound work is therefore not “more rear.” It is:
 
 ```text
-FrontalAnchor
-DirectObject
-BroadSource
-DiffuseField
-RoomField
+redistribute rear dominance into full 360° wrap
+strengthen front externalization
+fill side/front-side continuity
+add conservative height/lower-shell support
+add radial depth
+improve extent and ambient continuity
+restore / exceed incumbent energy and punch
 ```
 
-Keep:
+From here compare every candidate against both:
 
 ```text
-DirectObject
-≠ BroadSource
-≠ DiffuseField
-≠ RoomField
+A. dry / OFF stereo
+B. this frequency-evidence foundation
 ```
 
-and:
-
-```text
-rear direct object
-≠ rear reflection
-≠ diffuse rear field
-```
-
-Stereo inference may provide evidence for presentation, but it may not claim authored object truth that the master does not contain.
+A candidate that sounds more dramatic than B but less musical loses.
 
 ---
 
@@ -1006,9 +1291,7 @@ research
 → giant mandatory runtime
 ```
 
-Useful Helix music concepts include line + field, identity under transformation, role legibility, bass-function plurality, pressure topology, closure latency, temporal sovereignty and world formation.
-
-They primarily inform **what the renderer must preserve and how to test it**.
+Helix music concepts such as line + field, relational continuity, bass-function plurality, pressure topology, temporal sovereignty and world formation primarily inform **what must be preserved and how to test it**.
 
 ---
 
@@ -1032,9 +1315,10 @@ Primary durable surfaces:
 - `docs/influence-ledger.md`;
 - `docs/headphone-rendering-research.md`;
 - `docs/music-presentation-contract.md`;
+- `docs/frequency-evidence-music-path.md`;
 - `docs/windows-integration-research.md`.
 
-The influence ledger now explicitly preserves research from Stereo Convolver, MathAudio, Trifield, LCC, FreeSurround, Real3D, professional upmixers, stereo crossfeed/width tools, Ambisonic tooling and realtime convolution literature.
+The influence ledger preserves Stereo Convolver, MathAudio, Trifield, LCC, FreeSurround, Real3D, professional upmixers, stereo crossfeed/width tools, Ambisonic tooling, Steam Audio, Dolby references and realtime convolution literature.
 
 ---
 
@@ -1064,7 +1348,7 @@ known spatial geometry
 ```text
 controlled stereo
 → protected direct identity
-→ bounded spatial support
+→ frequency-evidence support
 → binaural output
 ```
 
@@ -1126,7 +1410,9 @@ Score dimensions separately:
 ```text
 front externalization
 rear discrimination
+rear/front balance
 side precision
+side-wrap continuity
 elevation
 below-listener plausibility
 radial distance
@@ -1145,11 +1431,12 @@ stereo definition
 interaural cue stability
 microdetail
 dynamics
+energy / density
 fatigue
 bypass-collapse strength
 ```
 
-Do not let loudness masquerade as quality.
+Do not let loudness masquerade as spatial quality, but do not mistake an under-energized presentation for fidelity either.
 
 ---
 
@@ -1171,44 +1458,53 @@ Heard successfully.
 
 Single physical path established. Generic full-wet stereo rendering was rejected as the music default because it damaged bass, timbre and useful stereo space.
 
-## P0.3 - preserve-master + spatial-support prototype
+## P0.3 - preserved-master fidelity floor
 
-**CURRENT.**
+Established. The dry master can remain authoritative while Omniphony support is added without the former phone/hallway failure.
 
-Goal:
+## P0.4 - frequency-evidence stereo field
+
+**CURRENT PROTECTED FOUNDATION.**
+
+Established listening wins:
 
 ```text
-untouched stereo identity remains authoritative
-+
-small aligned Omniphony-derived spatial field
+raw clarity retained
+larger apparent scene than HeSuVi
+strong real rear localization
+no obvious room-smear requirement
 ```
 
-No audible reverb default.
-No bass destruction.
-No narrowing relative to dry stereo.
-No phase damage from mixing an unaligned wet copy with the master.
+Current sound weaknesses:
+
+```text
+rear-heavy balance
+insufficient front-side wrap
+insufficient height
+insufficient radial layering
+sphere not yet continuous
+energy/punch still below desired final presentation
+```
 
 ## P1 - excellent everyday stereo music
 
-- persistent reliable route;
-- automatic output;
-- clean bypass;
-- strong full-sphere improvement;
-- center and stereo identity preserved;
-- no developer ritual;
-- no need to dismantle incumbent prematurely.
+Sound target:
+
+```text
+full 360° coherent shell
+front/side/rear all distinct but connected
+convincing height and some lower-shell structure
+near/mid/far depth
+source extent without smear
+ambient continuity
+strong energy and bass physicality
+raw-master clarity intact
+bypass collapses the world rather than restoring the song
+```
 
 ## P2 - owned Windows routing
 
-Replace loopback/cable scaffolding with the best native route.
-
-Requirements:
-
-- single physical path;
-- clean install/remove/update;
-- rich-source preservation;
-- no per-launch device ritual;
-- session/layout coexistence.
+Replace loopback/cable scaffolding with the best native route without changing the protected sound.
 
 ## P3 - native surround and richer spatial inputs
 
@@ -1216,18 +1512,28 @@ Preserve 5.1/7.1/height/object semantics directly and let them coexist with ster
 
 ## P4 - deeper stereo presentation
 
-Only after the protected-master architecture is proven:
+Most of the first P4 concepts have now begun moving into the active foundation:
 
-- center-anchor protection;
-- frequency-dependent field confidence;
-- amplitude/phase spatial evidence;
-- direct/field evidence;
-- source extent;
-- controlled full-sphere field formation;
-- bounded cross-ear support;
-- source-collapse/downmix invariance tests;
-- optional Ambisonic field representation if it earns itself;
-- optional libaural-derived mechanisms.
+```text
+center-anchor protection            active
+frequency-dependent field evidence  active
+amplitude/phase evidence             active
+direct/field evidence                active
+```
+
+Still to earn:
+
+```text
+better source extent
+continuous full-sphere field formation
+front/rear/side balance
+height / lower-shell field support
+radial-depth control
+bounded cross-ear support
+source-collapse/downmix invariance tests
+optional Ambisonic field representation
+optional libaural-derived mechanisms
+```
 
 ## P5 - personalization
 
@@ -1267,6 +1573,8 @@ Port the host. Do not fork a Windows-shaped core.
 - Do not accept OFF with wet leakage.
 - Do not mix an unaligned delayed support path against the direct master.
 - Do not adopt convolution complexity merely because it exists.
+- Do not let rear placement become the default definition of “spatial.”
+- Do not turn high frequencies into fake height or low frequencies into fake floor cues by simple register mapping.
 - Do not forget parked research.
 
 Use:
@@ -1293,25 +1601,31 @@ If context is lost, recover this hierarchy:
 5. physical headphone output is ordinary 2.0
 6. ordinary stereo music is the dominant use case
 7. a finished stereo master is authoritative and must remain recognizable
-8. build spatial support around the master rather than deleting it
-9. bass/foundation, direct identity, center authority and source interaural cues get protection
-10. analysis from amplitude/phase/M-S can be useful evidence without becoming authored truth
-11. direct / field / room are separate responsibilities
-12. richer surround/object sources keep their real source truth
-13. simultaneous streams keep independent layouts
-14. HeSuVi is incumbent/reference, not architecture
-15. migrate by disabling pieces before uninstalling them
-16. one physical path only and OFF must be clean
-17. the generic full-wet stereo virtual-speaker approach failed listening
-18. current frontier is latency-aligned preserved-direct stereo + small Omniphony support field
-19. Stereo Convolver's 2x2 matrix is a useful conceptual influence
-20. Trifield contributes center-stability law
-21. LCC contributes source ITD/ILD preservation law
-22. FreeSurround/Real3D contribute analysis evidence but not output truth
-23. Halo/Penteo contribute source-safe / reversibility constraints
-24. MathAudio contributes bounded correction/crossfeed lessons, not a renderer replacement
-25. Helix/libaural research must compress into small earned mechanisms
-26. bypass should collapse the world, not restore the music
+8. generic full-wet virtual-speaker stereo failed listening
+9. preserved-master direct + support architecture solved the fidelity failure
+10. pure side-only support was too weak to produce the desired world
+11. the current frequency-evidence path is the protected sound foundation
+12. that foundation already preserves raw clarity and sounds bigger than HeSuVi
+13. convincing behind-head placement is now proven
+14. the current weakness is rear-heavy geometry, not lack of spatial effect
+15. next sound work is 360° wrap, front externalization, height, lower shell, radial depth and continuity
+16. energy/punch/density remain a separate sound dimension that must eventually exceed the incumbent without clipping
+17. bass/foundation, direct identity, center authority and source interaural cues remain protected
+18. analysis from amplitude/phase/M-S is evidence, not authored truth
+19. direct / broad / diffuse / room remain separate responsibilities
+20. richer surround/object sources keep their real source truth
+21. simultaneous streams keep independent layouts
+22. HeSuVi is incumbent/reference, not architecture
+23. migrate by disabling pieces before uninstalling them
+24. one physical path only and OFF must be clean
+25. Stereo Convolver's 2x2 matrix is a useful conceptual influence
+26. Trifield contributes center-stability law
+27. LCC contributes source ITD/ILD preservation law
+28. FreeSurround/Real3D contribute analysis evidence but not output truth
+29. Halo/Penteo contribute source-safe / reversibility constraints
+30. MathAudio contributes bounded correction/crossfeed lessons, not a renderer replacement
+31. Helix/libaural research must compress into small earned mechanisms
+32. bypass should collapse the world, not restore the music
 ```
 
 That is the current view of Omniphony for Headphones.
