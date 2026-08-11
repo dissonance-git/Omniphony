@@ -1,8 +1,8 @@
 # Frequency-evidence stereo music path
 
-Status: **active protected stereo sound foundation**.
+Status: **protected stereo fidelity foundation with an active stronger 7.1.4-shell successor experiment**.
 
-The first listening pass has now validated this direction strongly enough that future stereo sound work should build from it rather than from the earlier full-wet or side-only experiments.
+Longer listening has validated this direction strongly enough that future stereo sound work should build from it rather than from the earlier full-wet or side-only experiments. It has **not** yet validated a large 360° win over HeSuVi.
 
 ## Why this exists
 
@@ -14,7 +14,7 @@ Early live tests established three important facts:
 
 The frequency-evidence path therefore uses richer, frequency-dependent stereo evidence while keeping the master authoritative.
 
-## Current architecture
+## Protected architecture
 
 ```text
 FINISHED STEREO MASTER
@@ -41,13 +41,7 @@ FINISHED STEREO MASTER
           +------ causal multiband extraction
                         |
                         v
-            derived logical 7.1 support bed
-
-            L/R   = broad extent
-            C     = silence
-            LFE   = silence
-            Ls/Rs = lateral/object-like evidence
-            Lb/Rb = diffuse/field-like evidence
+              derived support field
                         |
                         v
                upstream Omniphony
@@ -62,7 +56,39 @@ FINISHED STEREO MASTER
                     headphones
 ```
 
-Physical output remains ordinary stereo headphones. The 7.1 structure is an internal logical support field used to give the inherited Omniphony binaural renderer differentiated material.
+Physical output remains ordinary stereo headphones. Internal multichannel lanes are only differentiated support material for the inherited Omniphony renderer.
+
+## Active 7.1.4 shell experiment
+
+The first frequency-evidence build used a sparse logical 7.1 mapping:
+
+```text
+L/R   = broad extent
+C     = silence
+LFE   = silence
+Ls/Rs = lateral/object-like evidence
+Lb/Rb = diffuse/field-like evidence
+```
+
+That mapping preserved fidelity but longer listening found the enhancement only mild. Diffuse evidence was also structurally concentrated in the rear pair.
+
+The active successor expands the field to canonical logical **7.1.4**:
+
+```text
+L/R         broad front/front-side extent
+C           silence
+LFE         silence
+Ls/Rs       strongest lateral wrap
+Lb/Rb       restrained rear continuation
+Tfl/Tfr     front-height extent
+Tbl/Tbr     rear-height / upper diffuse continuation
+```
+
+Evidence overlaps neighbouring regions rather than assigning each class to exactly one speaker pair. The purpose is a shell rather than isolated virtual-speaker islands.
+
+The host support coefficient is also raised to full derived-field strength for this experiment. That means **100% of the derived support**, not 100% wet replacement: the protected stereo master remains explicitly present and still owns headroom.
+
+No early reflections, late reverb or air absorption are enabled. This pass tests geometry/evidence/HRTF/ITD before adding room effects.
 
 ## Portable-core ownership
 
@@ -95,7 +121,7 @@ Coherent frontal anchors should remain in the direct stereo master. The support 
 
 ### Bass foundation
 
-The support field begins above approximately 220 Hz. C and LFE are intentionally silent. Low-frequency weight, timing and pressure stay in the mastered direct path unless later evidence proves a safer mechanism.
+The support field begins above approximately 220 Hz. C and LFE remain intentionally silent. Low-frequency weight, timing and pressure stay in the mastered direct path unless later evidence proves a safer mechanism.
 
 ### Frequency-dependent evidence
 
@@ -111,26 +137,24 @@ Scene controls are aggregated into three support bands:
 
 The audible field is extracted with a causal parallel low-pass/difference bank whose bands sum algebraically back to the original signal before weighting.
 
+### Height is permission, not recovered truth
+
+The active shell gives already-spatial broad/lateral/diffuse evidence some vertical extent. Frequency changes the *permission prior* but never becomes a height command by itself.
+
+Forbidden shortcut:
+
+```text
+high frequency = above
+low frequency  = below
+```
+
+A coherent direct anchor remains protected regardless of register.
+
 ### Analysis is not authored truth
 
 Stereo evidence can justify broad/lateral/diffuse support. It does not prove that a source was authored behind or above the listener.
 
 Rearward or vertical field placement remains a presentation decision, not a claim about hidden source metadata.
-
-## Current logical field geometry
-
-```text
-Broad L/R
--> front-side extent
-
-Lateral Ls/Rs
--> side / slightly rearward
-
-Diffuse Lb/Rb
--> strongest rearward extent
-```
-
-No early reflections, late reverb or air absorption are enabled in this experiment. The current spatial win therefore comes from evidence, geometry, HRTF and ITD rather than an audible room tail.
 
 ## Protected-master mix law
 
@@ -160,6 +184,7 @@ anchor score
 broad score
 lateral score
 diffuse score
+height score
 lateral pan
 side fraction
 ```
@@ -172,48 +197,39 @@ For stereo-music development, the temporary Hi-Fi Cable endpoint should be confi
 
 A 7.1 Windows endpoint feeding the stereo process-loopback prototype reduced playback level. Returning the endpoint to Stereo restored normal level. Treat this as a prototype transport/gain finding.
 
-The first clean frequency-evidence listening result is now:
+The repeated-listening result for the protected frequency-evidence build is:
 
 ```text
 raw stereo clarity remains
 music stays intact
-sound is clearly enhanced
-apparent scene is bigger than the incumbent HeSuVi/DTS chain
-behind-head placement is convincing
-percussion can feel genuinely behind the listener rather than merely lateral
+no obvious tinny / hallway regression
+ON is mildly enhanced versus OFF
 ```
 
-This validates the architecture strongly enough to protect it.
+The first few minutes produced stronger impressions of rear placement and apparent size, but those were partly confounded by reacclimating to raw stereo after disabling HeSuVi. They are **not frozen comparison claims**.
 
-The current weakness is **rear-heavy field geometry**:
+What is protected is therefore the architecture's fidelity behavior, not a claim that it already beats HeSuVi spatially.
 
-```text
-rear support is too dominant
-front externalization is weaker than rear externalization
-side/front-side wrap is incomplete
-height is largely absent
-radial near/mid/far layering is underdeveloped
-continuous 360° shell is incomplete
-```
+## Sound frontier
 
-Therefore the next sound work is **not more rear gain**.
-
-It is:
+The next sound work is:
 
 ```text
-rebalance rear evidence
--> strengthen front externalization
--> increase side/front-side continuity
--> form a continuous 360° shell
--> add conservative upper/lower field support
+make ON unmistakably larger than OFF
+-> preserve raw clarity / bass / center / transients
+-> distribute support across front-side / side / rear instead of rear-only concentration
+-> add conservative upper-shell participation
+-> improve front externalization
 -> add radial depth
 -> improve source extent / ambient continuity
--> preserve the current clarity floor
+-> later restore / exceed incumbent energy and punch
 ```
+
+The active 7.1.4-shell build is the first major push on the first three items.
 
 ## Listening success criterion from here
 
-The current build is the reference foundation.
+The protected P0.4 fidelity floor remains the reference.
 
 A successor wins only if it preserves:
 
@@ -231,6 +247,7 @@ comfort
 while improving:
 
 ```text
+immediate ON/OFF audibility
 front/side/rear balance
 360° wrap
 height
