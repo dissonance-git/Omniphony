@@ -15,10 +15,11 @@ anyhow = "1"
 cpal = "0.15.3"
 
 # P0 uses the headless upstream decode->render engine directly for the protected
-# reference scene. This keeps the listening prototype on the real Omniphony
-# binaural path while the Windows host owns only transport/playback.
+# reference scene. The reference PCM bridge is linked as Rust code for the
+# single-executable Windows build; generic hosts can still load its cdylib ABI.
 orender_engine = { path = "../orender_engine" }
 bridge_api = { path = "../bridge_api" }
+reference_bridge = { path = "../reference_bridge" }
 
 # Stereo music evidence/extraction belongs to the portable renderer, not to the
 # Windows host. The host merely captures PCM, calls this processor, and sends
