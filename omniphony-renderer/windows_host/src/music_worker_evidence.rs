@@ -19,6 +19,7 @@ use wasapi::{
 const SAMPLE_RATE_HZ: u32 = 48_000;
 const PLAYBACK_QUEUE_BLOCKS: usize = 16;
 const FIELD_SUPPORT_GAIN: f32 = 1.00;
+const SUPPORT_SOFT_KNEE_START: f32 = 0.85;
 const METER_INTERVAL_SECS: u64 = 5;
 
 #[derive(Default)]
@@ -174,7 +175,7 @@ pub fn run() -> anyhow::Result<()> {
     println!("  field:   220+ Hz broad/lateral/diffuse evidence -> overlapping 7.1.4 shell");
     println!("  height:  conservative vertical extent from already-spatial evidence");
     println!(
-        "  support: {:.0}% derived-field mix, master-first clipping veto",
+        "  support: {:.0}% derived-field mix, master-first soft support knee",
         FIELD_SUPPORT_GAIN * 100.0
     );
     println!("  room:    no early reflections / no late reverb / no air absorption");
@@ -324,6 +325,32 @@ pub fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn soft_limit_support(base: f32, wanted: f32) -> f32 {
+    if wanted == 0.0 {
+        return 0.0;
+    }
+    let headroom = if wanted > 0.0 {
+        1.0 - base
+    } else {
+        1.0 + base
+    };
+    if headroom <= 0.0 {
+        return 0.0;
+    }
+
+    let magnitude = wanted.abs();
+    let knee_start = headroom * SUPPORT_SOFT_KNEE_START;
+    if magnitude <= knee_start {
+        return wanted;
+    }
+
+    let knee_width = (headroom - knee_start).max(f32::EPSILON);
+    let excess = magnitude - knee_start;
+    let compressed = knee_start + knee_width * (1.0 - (-excess / knee_width).exp());
+    let limited = compressed.min(headroom);
+    if wanted > 0.0 { limited } else { -limited }
+}
+
 fn mix_preserved_master_with_support(
     dry: &[f32],
     support: &[f32],
@@ -348,7 +375,8 @@ fn mix_preserved_master_with_support(
             continue;
         }
         let wanted = field * gain;
-        out.push(base + wanted.clamp(-1.0 - base, 1.0 - base));
+        let added = soft_limit_support(base, wanted);
+        out.push((base + added).clamp(-1.0, 1.0));
     }
     Ok(out)
 }
