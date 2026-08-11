@@ -22,15 +22,12 @@ const PLAYBACK_QUEUE_BLOCKS: usize = 16;
 const FIELD_SUPPORT_GAIN: f32 = 1.00;
 /// Fixed linear output headroom shared by ON and OFF.
 ///
-/// The previous mixer gave the dry master first claim on +/-1.0 and then
-/// sample-clamped only the support into whatever instantaneous space remained.
-/// That protected the master, but it was a nonlinear operation on the spatial
-/// waveform and could create a tiny gritty/clipping-like edge on hostile peaks.
-///
-/// Instead, preserve both waveforms exactly and reserve enough fixed downstream
-/// headroom for their linear sum. Listening level is recovered at the physical
-/// DAC/amp, not by shaving individual support samples.
-const LINEAR_OUTPUT_GAIN: f32 = 0.45;
+/// The first clean-summing experiment reserved almost 7 dB unconditionally.
+/// Physical listening showed that was too costly for an always-on music path.
+/// Keep the summation purely linear but reclaim most of that level; this leaves
+/// about 2.85 dB of fixed headroom while we gather real peak evidence from the
+/// frontier build. Do not reintroduce sample-wise support clipping.
+const LINEAR_OUTPUT_GAIN: f32 = 0.72;
 const METER_INTERVAL_SECS: u64 = 5;
 
 #[derive(Default)]
