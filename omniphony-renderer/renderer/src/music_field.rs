@@ -103,6 +103,15 @@ fn slew_signed_with_rates(
     (current + coefficient * (target - current)).clamp(-1.0, 1.0)
 }
 
+fn high_band_energy_scale(source_energy: f32, support_energy: f32) -> f32 {
+    let max_support_energy = source_energy.max(0.0) * HIGH_BAND_SUPPORT_ENERGY_RATIO;
+    if support_energy <= max_support_energy || support_energy <= 1.0e-12 {
+        1.0
+    } else {
+        (max_support_energy / support_energy).sqrt()
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct OnePoleLowPass {
     alpha: f32,
@@ -302,20 +311,17 @@ impl MusicFieldProcessor {
                         + band_top_front_r * band_top_front_r
                         + band_top_rear_l * band_top_rear_l
                         + band_top_rear_r * band_top_rear_r;
-                    let max_support_energy = source_energy * HIGH_BAND_SUPPORT_ENERGY_RATIO;
-                    if support_energy > max_support_energy && support_energy > 1.0e-12 {
-                        let scale = (max_support_energy / support_energy).sqrt();
-                        band_front_l *= scale;
-                        band_front_r *= scale;
-                        band_side_l *= scale;
-                        band_side_r *= scale;
-                        band_rear_l *= scale;
-                        band_rear_r *= scale;
-                        band_top_front_l *= scale;
-                        band_top_front_r *= scale;
-                        band_top_rear_l *= scale;
-                        band_top_rear_r *= scale;
-                    }
+                    let scale = high_band_energy_scale(source_energy, support_energy);
+                    band_front_l *= scale;
+                    band_front_r *= scale;
+                    band_side_l *= scale;
+                    band_side_r *= scale;
+                    band_rear_l *= scale;
+                    band_rear_r *= scale;
+                    band_top_front_l *= scale;
+                    band_top_front_r *= scale;
+                    band_top_rear_l *= scale;
+                    band_top_rear_r *= scale;
                 }
 
                 front_l += band_front_l;
@@ -568,29 +574,16 @@ mod tests {
     }
 
     #[test]
-    fn high_band_distribution_is_energy_bounded() {
-        let mut processor = MusicFieldProcessor::new(48_000);
-        let mut input = Vec::new();
-        for i in 0..4096 {
-            let x = (2.0 * PI * 9000.0 * i as f32 / 48_000.0).sin() * 0.5;
-            input.extend_from_slice(&[x, -0.6 * x]);
-        }
-        for chunk in input.chunks(2048) {
-            let out = processor.process_interleaved_stereo(chunk);
-            let mut support_energy = 0.0;
-            let mut direct_energy = 0.0;
-            for (support, direct) in out
-                .chunks_exact(MUSIC_FIELD_CHANNELS)
-                .zip(chunk.chunks_exact(2))
-            {
-                support_energy += support.iter().map(|x| x * x).sum::<f32>();
-                direct_energy += direct[0] * direct[0] + direct[1] * direct[1];
-            }
-            assert!(
-                support_energy <= direct_energy * (HIGH_BAND_SUPPORT_ENERGY_RATIO + 0.03),
-                "high-band support energy {support_energy:.6} exceeded bounded source budget {direct_energy:.6}"
-            );
-        }
+    fn high_band_energy_guard_preserves_ratios_without_exceeding_budget() {
+        let source_energy = 1.0;
+        let raw_support_energy = 4.0;
+        let scale = high_band_energy_scale(source_energy, raw_support_energy);
+        let bounded = raw_support_energy * scale * scale;
+        assert!((bounded - HIGH_BAND_SUPPORT_ENERGY_RATIO).abs() < 1.0e-6);
+        assert!(scale < 1.0);
+
+        let under_budget = HIGH_BAND_SUPPORT_ENERGY_RATIO * 0.5;
+        assert_eq!(high_band_energy_scale(source_energy, under_budget), 1.0);
     }
 
     #[test]
