@@ -32,3 +32,5 @@ jobs:
           git add .github/dfe-diagnostic.txt
           git commit -m 'chore: capture DFE diagnostic'
           git push
+
+# trigger
