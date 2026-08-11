@@ -3,6 +3,7 @@ use bridge_api::RInputTransport;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use orender_engine::Engine;
 use renderer::music_field::{MUSIC_FIELD_CHANNELS, MusicFieldProcessor, MusicFieldSnapshot};
+use renderer::music_foundation::MusicFoundationProcessor;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -184,12 +185,13 @@ pub fn run() -> anyhow::Result<()> {
     println!("  analysis: FFT magnitude + phase -> portable stereo/scene inference");
     println!("  field:   220+ Hz broad/lateral/diffuse evidence -> overlapping 7.1.4 shell");
     println!("  height:  vertical extent from already-spatial evidence");
+    println!("  foundation: coherent pressure/body delta, no LFE/compression/saturation");
     println!(
-        "  support: {:.0}% derived-field mix, linear master+support summing",
+        "  support: {:.0}% derived-field mix, linear master+foundation+support summing",
         FIELD_SUPPORT_GAIN * 100.0
     );
     println!(
-        "  headroom: {:.1} dB fixed linear output gain, identical ON/OFF",
+        "  headroom: {:.1} dB fixed linear output gain, identical ON/OFF reference gain",
         20.0 * LINEAR_OUTPUT_GAIN.log10()
     );
     println!("  acoustics: inherited Omniphony distance / reflections / short room / air cues");
@@ -234,8 +236,10 @@ pub fn run() -> anyhow::Result<()> {
     loopback.start()?;
 
     let mut field = MusicFieldProcessor::new(SAMPLE_RATE_HZ);
+    let mut foundation = MusicFoundationProcessor::new(SAMPLE_RATE_HZ);
     let mut pcm_bytes = Vec::<u8>::new();
     let mut dry_fifo = VecDeque::<f32>::new();
+    let mut foundation_fifo = VecDeque::<f32>::new();
     let mut direct_meter = SignalMeter::default();
     let mut evidence_meter = SignalMeter::default();
     let mut rendered_meter = SignalMeter::default();
@@ -257,8 +261,9 @@ pub fn run() -> anyhow::Result<()> {
             continue;
         }
 
-        // Meter the reference at the same fixed output gain used by both ON/OFF
-        // so level does not contaminate the A/B or the added/direct diagnostic.
+        // Meter the raw reference at the same fixed output gain used by the ON
+        // path. The foundation delta is intentionally an ON-path enhancement;
+        // it is not folded into the clean OFF reference.
         let output_reference = apply_output_headroom(&input);
         direct_meter.observe(&output_reference);
 
@@ -278,10 +283,21 @@ pub fn run() -> anyhow::Result<()> {
             continue;
         }
 
-        // The audible extraction path is causal and emits exactly one logical
-        // 7.1.4 support frame for every captured stereo frame. Only the
-        // inherited renderer/bridge latency therefore needs dry-path alignment.
+        // Both additive branches are causal and produce one aligned stereo
+        // foundation sample / one 7.1.4 support frame per input frame. Buffer
+        // them beside the authoritative dry master while the inherited renderer
+        // contributes its own bridge/binaural latency.
         dry_fifo.extend(input.iter().copied());
+        let foundation_delta = foundation.process_interleaved_delta(&input);
+        if foundation_delta.len() != input.len() {
+            bail!(
+                "music foundation width mismatch: stereo samples={} foundation samples={}",
+                input.len(),
+                foundation_delta.len()
+            );
+        }
+        foundation_fifo.extend(foundation_delta);
+
         let field_input = field.process_interleaved_stereo(&input);
         if field_input.len() != (input.len() / 2) * MUSIC_FIELD_CHANNELS {
             bail!(
@@ -303,20 +319,28 @@ pub fn run() -> anyhow::Result<()> {
             if block.samples.is_empty() {
                 continue;
             }
-            if dry_fifo.len() < block.samples.len() {
+            if dry_fifo.len() < block.samples.len() || foundation_fifo.len() < block.samples.len() {
                 bail!(
-                    "music field produced {} samples with only {} aligned dry samples buffered",
+                    "music field produced {} samples with dry/foundation buffered at {}/{}",
                     block.samples.len(),
-                    dry_fifo.len()
+                    dry_fifo.len(),
+                    foundation_fifo.len()
                 );
             }
             rendered_meter.observe(&block.samples);
             let mut dry = Vec::with_capacity(block.samples.len());
+            let mut foundation_delta = Vec::with_capacity(block.samples.len());
             for _ in 0..block.samples.len() {
                 dry.push(dry_fifo.pop_front().expect("dry FIFO length checked above"));
+                foundation_delta.push(
+                    foundation_fifo
+                        .pop_front()
+                        .expect("foundation FIFO length checked above"),
+                );
             }
             let mixed = mix_preserved_master_with_support(
                 &dry,
+                &foundation_delta,
                 &block.samples,
                 FIELD_SUPPORT_GAIN,
             )?;
@@ -359,25 +383,28 @@ fn apply_output_headroom(samples: &[f32]) -> Vec<f32> {
 
 fn mix_preserved_master_with_support(
     dry: &[f32],
+    foundation: &[f32],
     support: &[f32],
     support_gain: f32,
 ) -> anyhow::Result<Vec<f32>> {
-    if dry.len() != support.len() {
+    if dry.len() != support.len() || dry.len() != foundation.len() {
         bail!(
-            "support-field length mismatch: dry={} samples, field={} samples",
+            "support-field length mismatch: dry={} foundation={} field={} samples",
             dry.len(),
+            foundation.len(),
             support.len()
         );
     }
     let gain = support_gain.clamp(0.0, 1.0);
     let mut out = Vec::with_capacity(dry.len());
-    for (&base, &field) in dry.iter().zip(support.iter()) {
+    for ((&base, &body), &field) in dry.iter().zip(foundation.iter()).zip(support.iter()) {
         let base = if base.is_finite() { base } else { 0.0 };
+        let body = if body.is_finite() { body } else { 0.0 };
         let field = if field.is_finite() { field } else { 0.0 };
-        // Purely linear summing. No sample-dependent support clamp or limiter is
-        // allowed here: fixed shared headroom preserves the waveform and lets
-        // Omniphony's own support-render auto-gain handle true renderer overloads.
-        out.push((base + field * gain) * LINEAR_OUTPUT_GAIN);
+        // Pure linear superposition: protected master + coherent foundation delta
+        // + inherited-renderer support. Fixed downstream headroom owns level;
+        // nothing here clips, limits, saturates or dynamically reshapes samples.
+        out.push((base + body + field * gain) * LINEAR_OUTPUT_GAIN);
     }
     Ok(out)
 }
