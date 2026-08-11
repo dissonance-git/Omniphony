@@ -19,47 +19,51 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
           path = Path('omniphony-renderer/renderer/src/spatial_renderer/mod.rs')
           text = path.read_text()
-          old = '''        if self
-              .reset_requested
-              .swap(false, std::sync::atomic::Ordering::Acquire)
-          {
-              self.channel_states.clear();
-          }
-          '''
-          new = '''        if self
-              .reset_requested
-              .swap(false, std::sync::atomic::Ordering::Acquire)
-          {
-              // A new logical stream owns a new audio history. The upstream
-              // SpeakerRenderStage extraction moved speaker-owned state behind
-              // `speaker_stage`; keep our stronger reset invariant across that
-              // refactor so a tab/track/session teardown cannot leak old samples.
-              self.channel_states.clear();
-              for delay in &mut self.speaker_stage.delay_lines {
-                  delay.reset_runtime_state();
-              }
-              for slot in &mut self.speaker_stage.crossover_filter_states {
-                  if let Some(states) = slot.as_mut() {
-                      for state in states {
-                          *state = crate::crossover::BiquadState::default();
-                      }
-                  }
-              }
-              self.binaural.reset_runtime_state();
-              if let Some(cascade) = self.cascade.as_mut() {
-                  cascade.bus.clear();
-              }
-              self.last_mix_num_speakers = 0;
-          }
-          '''
-          if new in text:
+          marker = 'keep our stronger reset invariant across that'
+          if marker in text:
               print('reset fix already applied')
-          elif old in text:
-              path.write_text(text.replace(old, new, 1))
           else:
-              raise SystemExit('expected reset block not found')
+              pattern = re.compile(
+                  r'        if self\n'
+                  r'\s+\.reset_requested\n'
+                  r'\s+\.swap\(false, std::sync::atomic::Ordering::Acquire\)\n'
+                  r'\s*\{\n'
+                  r'\s+self\.channel_states\.clear\(\);\n'
+                  r'\s*\}\n'
+              )
+              replacement = '''        if self
+            .reset_requested
+            .swap(false, std::sync::atomic::Ordering::Acquire)
+        {
+            // A new logical stream owns a new audio history. The upstream
+            // SpeakerRenderStage extraction moved speaker-owned state behind
+            // `speaker_stage`; keep our stronger reset invariant across that
+            // refactor so a tab/track/session teardown cannot leak old samples.
+            self.channel_states.clear();
+            for delay in &mut self.speaker_stage.delay_lines {
+                delay.reset_runtime_state();
+            }
+            for slot in &mut self.speaker_stage.crossover_filter_states {
+                if let Some(states) = slot.as_mut() {
+                    for state in states {
+                        *state = crate::crossover::BiquadState::default();
+                    }
+                }
+            }
+            self.binaural.reset_runtime_state();
+            if let Some(cascade) = self.cascade.as_mut() {
+                cascade.bus.clear();
+            }
+            self.last_mix_num_speakers = 0;
+        }
+'''
+              text, count = pattern.subn(replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit(f'expected one reset block, found {count}')
+              path.write_text(text)
           PY
       - name: Commit fix
         shell: bash
