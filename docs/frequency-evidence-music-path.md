@@ -94,11 +94,15 @@ height is underdeveloped
 OFF still does not collapse the world as dramatically as desired
 ```
 
-This means the next problem is **shape**, not generic support loudness.
+A later P0.5 check on `Cosmic Cove Galaxy` also exposed a **tiny ON-only grain** that was not audible with Omniphony OFF. The rest of the presentation remained very clean. This is therefore treated as a narrow fidelity regression, not a reason to abandon the protected-master architecture.
+
+The leading implementation suspect was the host's sample-by-sample hard clipping of *support only* whenever the 100%-strength rendered field exceeded the dry master's remaining headroom. P0.6 keeps the master untouched but replaces that hard edge with a smooth support-only knee beginning at 85% of the available headroom. Ordinary support below the knee remains unchanged. This is a repair hypothesis until the same passage is physically rechecked.
+
+This means the next spatial problem is **shape**, not generic support loudness, while P0.6 must also prove that the tiny grain is gone.
 
 ## Active P0.6: anterior + vertical expansion
 
-P0.6 keeps the same protected-master architecture, evidence analysis, bass veto and full derived-field host coefficient. It changes only the geometry weighting of the derived shell.
+P0.6 keeps the same protected-master architecture, evidence analysis, bass veto and full derived-field host coefficient. It changes the geometry weighting of the derived shell and carries the support-mixer fidelity repair described above.
 
 The intended balance is:
 
@@ -130,6 +134,8 @@ top-front energy > top-rear energy
 height energy > 0
 LFE energy = 0
 ```
+
+The bass-foundation regression is expressed relative to direct-master energy rather than as a fixed accumulated support-energy number, so increasing the number or weighting of shell destinations cannot fail the test merely because the same tiny filter leakage is summed across more channels. At 60 Hz, support energy must remain below 0.2% of direct energy (about -27 dB by energy), and LFE remains exactly zero.
 
 These are structural tests, not claims about final perceptual balance.
 
@@ -191,7 +197,7 @@ WASAPI capture
 -> call portable MusicFieldProcessor
 -> feed derived field into Omniphony engine
 -> align protected master to renderer latency
--> combine
+-> combine with smooth support-only headroom protection
 -> physical playback
 ```
 
@@ -240,16 +246,21 @@ Rearward or vertical field placement remains a presentation decision, not a clai
 
 ## Protected-master mix law
 
-The direct master gets first claim on headroom.
+The direct master gets first claim on headroom and is never attenuated to make room for the effect.
 
 ```text
 wanted = rendered_support * support_gain
-available positive/negative headroom = distance from direct sample to +/-1
-actual support = clamp(wanted to remaining headroom)
+available headroom = distance from direct sample toward wanted support polarity
+
+if wanted is below 85% of available headroom:
+    actual support = wanted
+else:
+    actual support = smooth asymptotic knee toward the remaining headroom
+
 output = direct + actual support
 ```
 
-The master is not attenuated merely to make room for the spatial effect.
+The soft knee acts only on the added support. It replaces P0.5's hard per-sample support clamp, which could create a very small nonlinear edge on dense mastered peaks at full derived-field strength.
 
 ## Instrumentation
 
@@ -300,6 +311,7 @@ P0.6 anterior + vertical shell
 -> is rear dominance reduced without losing wrap?
 -> does the bubble become meaningfully larger?
 -> does the protected master remain just as clear and punchy?
+-> is the tiny P0.5 grain on Cosmic Cove Galaxy gone?
 ```
 
 If yes:
@@ -312,7 +324,7 @@ next: radial depth / tiny directional early reflections
 -> later, only if earned, restrained late-room support / distance-dependent air behavior
 ```
 
-If no, do not simply raise global support gain. Determine whether the failure is front-distance perception, HRTF geometry, insufficient upper continuity, or evidence ownership.
+If no, do not simply raise global support gain. Determine whether the failure is front-distance perception, HRTF geometry, insufficient upper continuity, evidence ownership, or a support-mix artifact.
 
 ## Listening success criterion from here
 
