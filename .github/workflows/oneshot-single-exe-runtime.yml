@@ -9,7 +9,6 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'chore(ci): stage single-executable runtime patch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -30,8 +29,6 @@ jobs:
 
           static LINKED_BRIDGE_FACTORY: OnceLock<fn() -> BridgeLibRef> = OnceLock::new();
 
-          /// Register a statically linked bridge module for embedded hosts. Generic
-          /// hosts continue to use the normal dynamic plugin path when no factory is set.
           pub fn register_linked_bridge(factory: fn() -> BridgeLibRef) -> Result<()> {
               LINKED_BRIDGE_FACTORY
                   .set(factory)
@@ -48,7 +45,6 @@ jobs:
               /// Load a bridge plugin from `path` and create one instance.
           '''
           new = '''impl LoadedBridge {
-              /// Construct a live bridge from a statically linked root module.
               pub fn from_library(lib: BridgeLibRef) -> Self {
                   install_bridge_host_log_sink(&lib);
                   let new_bridge = lib.new_bridge();
@@ -74,8 +70,6 @@ jobs:
           '''
           new = '''        let config_bridge = render_cfg.as_ref().and_then(|c| c.bridge_path.clone());
 
-                  // Static embedders can register a linked bridge and avoid shipping a
-                  // second dynamic library. Generic hosts keep the normal path resolver.
                   let t_bridge = std::time::Instant::now();
                   let (mut bridge, resolved_bridge) = if let Some(lib) = crate::bridge_loader::linked_bridge() {
                       (
@@ -166,7 +160,6 @@ jobs:
                       .join("runtime");
                   std::fs::create_dir_all(&root)
                       .context("failed to create embedded Omniphony runtime directory")?;
-
                   let field_config = root.join("stereo-field-prototype.yaml");
                   let layout = root.join("7.1.4.yaml");
                   write_embedded_asset(&field_config, FIELD_CONFIG)?;
