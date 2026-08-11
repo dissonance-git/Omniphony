@@ -11,59 +11,44 @@
 #   Tfl/Tfr     dominant front-height distance / canopy
 #   Tbl/Tbr     upper-rear closure and depth
 #
-# P0.9 keeps upstream Omniphony's cascaded binaural path as the active headphone
-# architecture for this support branch. The derived field first runs through the
-# full 7.1.4 speaker renderer, creating a continuous virtual loudspeaker room,
-# and that virtual room is then binauralised by Omniphony's HRTF/ITD stage.
+# Baseline 1 established cascaded binaural as the active headphone architecture:
+# the derived support bed runs through Omniphony's full virtual-speaker stage and
+# the resulting virtual room is then binauralised by the inherited HRTF/ITD core.
+#
+# This post-baseline frontier deliberately pushes geometry while the renderer's
+# early-reflection implementation gains frequency-dependent wall / extra-path HF
+# loss. Larger is no longer allowed to mean spectrally shinier.
 #
 # The protected master and coherent foundation remain outside the virtual room.
-# They are summed with the rendered support later in the Windows host, preserving
-# the fidelity floor while letting the support field use the more continuous
-# speaker->binaural topology.
-#
-# P0.9 convergence law:
-#   - bass/body authority remains frozen as a success;
-#   - energy may be anchored, authored stereo motion may not be frozen;
-#   - height and world size come from geometry/HRTF, never from extra treble gain;
-#   - native speaker-room geometry and broadband phantom extraction may enrich
-#     the support field, but the protected master remains authoritative;
-#   - larger room geometry is paired with less reflection/reverb energy so scale
-#     grows without buying harshness, hallway colour or fatigue.
-#
-# Important topology rule: this renderer is an additive SUPPORT branch, not the
-# final program output. Omniphony's native auto-gain is therefore disabled here.
-# Final-bus headroom/measurement belongs to the host combiner instead.
+# They are summed with rendered support later in the Windows host.
 render:
   master_gain: 0.0
   auto_gain: false
   auto_gain_ceiling_db: -2.0
 
-  # Shape the virtual speaker EFFECT SPACE independently of the HRTF reflection
-  # shoebox below. Width remains huge, while front/rear and especially upper
-  # distance get extra room. These are native Omniphony room-metre controls;
-  # they normalize to the renderer's room ratios on load.
-  room_width_m: 13.5
-  room_front_m: 11.0
-  room_rear_m: 9.0
-  room_height_m: 11.5
-  room_lower_m: 4.5
+  # Native speaker EFFECT SPACE. Front/back/height provide most radial scale;
+  # sides remain extremely wide for continuity rather than becoming the only
+  # source of apparent size.
+  room_width_m: 15.5
+  room_front_m: 13.0
+  room_rear_m: 10.5
+  room_height_m: 14.5
+  room_lower_m: 5.0
   room_ratio_center_blend: 0.30
 
-  # A small constant source extent helps the cascaded virtual-loudspeaker field
-  # join into a continuous shell without turning discrete anchors into fog.
+  # A little more source extent lets neighbouring virtual loudspeakers knit into
+  # a continuous shell. The direct stereo master remains untouched outside it.
   spread_from_distance: false
-  vbap_spread_min: 0.06
-  vbap_spread_max: 0.30
+  vbap_spread_min: 0.09
+  vbap_spread_max: 0.36
 
-  # Upstream broadband phantom extraction is zero-latency and runs only on this
-  # already-derived support bed. At low strength it preserves the bed while
-  # allowing correlated/panned material to become a genuinely moving object in
-  # the virtual room. No vertical lift yet: authored/inferred height remains the
-  # responsibility of the existing height evidence and geometry.
+  # Broadband phantom extraction operates only on the already-derived support
+  # bed. The stronger frontier value encourages authored pans / correlated motion
+  # to travel through the virtual room while leaving the protected master intact.
   synthetic_objects_enabled: true
   phantom_extract_mode: broadband
   phantom_params:
-    strength: 0.22
+    strength: 0.28
     passes: 1.0
     lift: 0.0
     center: 0.0
@@ -104,14 +89,14 @@ render:
 
       - name: "Ls"
         coord_mode: "cartesian"
-        x: -1.0
+        x: -1.15
         y: 0.0
         z: 0.14
         spatialize: true
         delay_ms: 0
       - name: "Rs"
         coord_mode: "cartesian"
-        x: 1.0
+        x: 1.15
         y: 0.0
         z: 0.14
         spatialize: true
@@ -136,14 +121,14 @@ render:
         coord_mode: "cartesian"
         x: -0.96
         y: 1.0
-        z: 1.45
+        z: 1.65
         spatialize: true
         delay_ms: 0
       - name: "TFR"
         coord_mode: "cartesian"
         x: 0.96
         y: 1.0
-        z: 1.45
+        z: 1.65
         spatialize: true
         delay_ms: 0
 
@@ -151,14 +136,14 @@ render:
         coord_mode: "cartesian"
         x: -0.92
         y: -0.96
-        z: 1.35
+        z: 1.50
         spatialize: true
         delay_ms: 0
       - name: "TBR"
         coord_mode: "cartesian"
         x: 0.92
         y: -0.96
-        z: 1.35
+        z: 1.50
         spatialize: true
         delay_ms: 0
 
@@ -167,20 +152,19 @@ render:
     mode: cascaded
     hrir_source: saf
 
-    unit_scale_m: 6.0
+    unit_scale_m: 7.25
 
-    # Make the physical reflection world larger while lowering its level. Scale
-    # should increasingly come from propagation timing/direction rather than from
-    # louder copies of bright material.
+    # The reflection room can now exceed the old hidden 20 m per-axis clamp.
+    # Its extra scale is paired with frequency-dependent wall / path HF loss in
+    # the renderer so bright material does not receive six perfect mirror copies.
     reflections:
       enabled: true
-      room_width_m: 14.5
-      room_depth_m: 23.0
-      room_height_m: 12.5
-      level: 0.36
+      room_width_m: 17.0
+      room_depth_m: 27.0
+      room_height_m: 15.5
+      level: 0.38
 
-    # Late field is merely glue. P0.9 trims it again because cascade + larger
-    # first-order geometry already supplies enclosure.
+    # Late field remains glue, not the source of the bubble.
     reverb:
       enabled: true
       level: 0.035

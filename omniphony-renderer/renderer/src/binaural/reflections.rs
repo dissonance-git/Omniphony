@@ -8,8 +8,8 @@
 //!
 //! The bank deliberately does not run a full HRIR convolution per reflection.
 //! It is a lightweight early-field layer: directional ITD + broadband ILD +
-//! propagation delay. More expensive spectral wall/HRTF treatment can be added
-//! later behind the same scene boundary if listening tests justify it.
+//! propagation delay + broad frequency-dependent wall / extra-path HF loss.
+//! The direct object still retains the full measured HRTF convolution.
 //!
 //! The direct path keeps zero common propagation delay (A/V sync unchanged);
 //! reflection delays are *relative* to the direct path
@@ -25,9 +25,10 @@ const SPEED_OF_SOUND: f32 = 343.0;
 /// well below this.
 const RING_CAPACITY_S: f32 = 0.25;
 
-/// Per-axis room size clamp (m).
+/// Per-axis room size clamp (m). The music frontier intentionally uses very
+/// large virtual rooms; 32 m still fits comfortably inside the delay ring.
 pub const MIN_ROOM_M: f32 = 1.0;
-pub const MAX_ROOM_M: f32 = 20.0;
+pub const MAX_ROOM_M: f32 = 32.0;
 
 /// Margin (m) keeping the (clamped) source strictly inside the room so an
 /// image can never coincide with the listener.
@@ -40,6 +41,21 @@ const DELAY_RAMP_RATE: f32 = 1.0;
 
 /// One-pole smoothing coefficient for tap gains (~1.5 ms at 48 kHz).
 const GAIN_SMOOTH: f32 = 0.015;
+
+/// Broad split used only on reflected paths. This is intentionally not a narrow
+/// corrective EQ: it separates the upper spectrum so real-wall / extra-path HF
+/// loss can be represented without weakening the reflection's low/mid timing.
+const REFLECTION_TONE_SPLIT_HZ: f32 = 4_000.0;
+
+/// Steam Audio's generic material model absorbs more energy at high frequencies
+/// than low frequencies. 0.84 is approximately sqrt(1 - 0.30), i.e. the
+/// amplitude retention corresponding to 30% high-band energy absorption.
+const GENERIC_WALL_HF_AMPLITUDE: f32 = 0.84;
+
+/// Additional upper-band amplitude decay per metre of reflection-only detour.
+/// The direct-path air filter already models source distance; this term covers
+/// only the extra image-source path that a reflection travels.
+const EXTRA_PATH_HF_DECAY_PER_M: f32 = 0.020;
 
 /// Number of first-order images of a shoebox (one per wall).
 pub const NUM_REFLECTIONS: usize = 6;
@@ -68,13 +84,18 @@ pub fn first_order_images(src_m: [f32; 3], room_m: [f32; 3]) -> [[f32; 3]; NUM_R
     out
 }
 
-/// One smoothed fractional read tap (delay in samples + linear gain).
+/// One smoothed fractional read tap (delay + level + reflection spectral state).
 #[derive(Clone, Copy, Default)]
 struct Tap {
     delay: f32,
     delay_target: f32,
     gain: f32,
     gain_target: f32,
+    /// One-pole low component used to form a broad low/high spectral split.
+    tone_state: f32,
+    /// Current / target retention for the upper side of that split.
+    hf_gain: f32,
+    hf_gain_target: f32,
 }
 
 impl Tap {
@@ -87,6 +108,7 @@ impl Tap {
             self.delay += DELAY_RAMP_RATE * d.signum();
         }
         self.gain += (self.gain_target - self.gain) * GAIN_SMOOTH;
+        self.hf_gain += (self.hf_gain_target - self.hf_gain) * GAIN_SMOOTH;
     }
 }
 
@@ -98,6 +120,7 @@ pub struct ReflectionBank {
     taps_l: [Tap; NUM_REFLECTIONS],
     taps_r: [Tap; NUM_REFLECTIONS],
     sample_rate: u32,
+    tone_alpha: f32,
 }
 
 impl ReflectionBank {
@@ -109,21 +132,30 @@ impl ReflectionBank {
             taps_l: Default::default(),
             taps_r: Default::default(),
             sample_rate,
+            tone_alpha: 1.0
+                - (-std::f32::consts::TAU * REFLECTION_TONE_SPLIT_HZ / sample_rate as f32)
+                    .exp(),
         }
     }
 
-    /// Backward-compatible target update with the same delay at both ears.
-    /// New binaural callers should prefer [`Self::set_targets_binaural`].
+    /// Backward-compatible full-band target update with the same delay at both
+    /// ears. Tests and callers that deliberately want the historical broadband
+    /// tap can continue to use this method.
     pub fn set_targets(&mut self, idx: usize, delay_s: f32, gain_l: f32, gain_r: f32) {
-        self.set_targets_binaural(idx, delay_s, delay_s, gain_l, gain_r);
+        self.set_targets_binaural_toned(idx, delay_s, delay_s, gain_l, gain_r, 1.0);
     }
 
-    /// Update one reflection's per-ear targets.
+    /// Update one physical reflection's per-ear targets.
     ///
     /// `delay_l_s` and `delay_r_s` include the common image-source propagation
     /// detour plus the reflection direction's interaural delay. Keeping those
     /// delays separate lets the cheap tap bank carry a real binaural timing cue
     /// rather than only an ILD pan.
+    ///
+    /// Unlike the legacy broadband tap, production reflections also receive a
+    /// broad high-frequency loss derived from a generic wall absorption term and
+    /// the reflection-only propagation detour. This keeps large virtual rooms
+    /// from behaving like six perfectly shiny broadband mirrors.
     pub fn set_targets_binaural(
         &mut self,
         idx: usize,
@@ -132,20 +164,42 @@ impl ReflectionBank {
         gain_l: f32,
         gain_r: f32,
     ) {
+        let extra_path_s = (0.5 * (delay_l_s + delay_r_s)).max(0.0);
+        let extra_path_m = extra_path_s * SPEED_OF_SOUND;
+        let extra_air_hf = (-EXTRA_PATH_HF_DECAY_PER_M * extra_path_m).exp();
+        let hf_gain = (GENERIC_WALL_HF_AMPLITUDE * extra_air_hf).clamp(0.45, 0.90);
+        self.set_targets_binaural_toned(idx, delay_l_s, delay_r_s, gain_l, gain_r, hf_gain);
+    }
+
+    /// Explicit spectral variant. `hf_gain=1` reproduces the historical
+    /// broadband reflection; smaller values attenuate only the upper side of the
+    /// broad reflection split while preserving low/mid timing and level.
+    pub fn set_targets_binaural_toned(
+        &mut self,
+        idx: usize,
+        delay_l_s: f32,
+        delay_r_s: f32,
+        gain_l: f32,
+        gain_r: f32,
+        hf_gain: f32,
+    ) {
         let max = (self.ring.len() - 2) as f32;
         let d_l = (delay_l_s * self.sample_rate as f32).clamp(0.0, max);
         let d_r = (delay_r_s * self.sample_rate as f32).clamp(0.0, max);
+        let hf_gain = hf_gain.clamp(0.0, 1.0);
         for (tap, delay, gain) in [
             (&mut self.taps_l[idx], d_l, gain_l),
             (&mut self.taps_r[idx], d_r, gain_r),
         ] {
             tap.delay_target = delay;
             tap.gain_target = gain;
-            // While the tap is (near) silent a delay jump is inaudible — snap
-            // instead of sweeping, so a fresh tap doesn't chirp its way from
-            // delay 0 to the target while tracking the live signal.
+            tap.hf_gain_target = hf_gain;
+            // While the tap is (near) silent a delay / spectral jump is
+            // inaudible. Snap instead of sweeping a fresh tap through the live
+            // signal on its way to the target.
             if tap.gain.abs() < 1e-4 {
                 tap.delay = delay;
+                tap.hf_gain = hf_gain;
             }
         }
     }
@@ -178,10 +232,17 @@ impl ReflectionBank {
         for i in 0..NUM_REFLECTIONS {
             let tl = &mut self.taps_l[i];
             tl.step();
-            l += tl.gain * read_frac(&self.ring, cap, self.write_pos, tl.delay);
+            let xl = read_frac(&self.ring, cap, self.write_pos, tl.delay);
+            tl.tone_state += (xl - tl.tone_state) * self.tone_alpha;
+            let yl = tl.tone_state + tl.hf_gain * (xl - tl.tone_state);
+            l += tl.gain * yl;
+
             let tr = &mut self.taps_r[i];
             tr.step();
-            r += tr.gain * read_frac(&self.ring, cap, self.write_pos, tr.delay);
+            let xr = read_frac(&self.ring, cap, self.write_pos, tr.delay);
+            tr.tone_state += (xr - tr.tone_state) * self.tone_alpha;
+            let yr = tr.tone_state + tr.hf_gain * (xr - tr.tone_state);
+            r += tr.gain * yr;
         }
 
         self.write_pos += 1;
@@ -218,7 +279,6 @@ mod tests {
     fn centered_source_images_sit_one_room_dimension_away() {
         let room = [4.0, 6.0, 3.0];
         let images = first_order_images([0.0, 0.0, 0.0], room);
-        // For a centred source the image across wall ±a sits at ±room[a].
         assert_eq!(images[0][0], 4.0);
         assert_eq!(images[1][0], -4.0);
         assert_eq!(images[2][1], 6.0);
@@ -231,7 +291,6 @@ mod tests {
     fn outside_source_is_clamped_inside() {
         let room = [4.0, 4.0, 4.0];
         let images = first_order_images([100.0, 0.0, 0.0], room);
-        // Clamped to x = 2 - margin; +x image at 2*2 - x stays just inside 2+margin.
         assert!(images[0][0] > 2.0 && images[0][0] < 2.1);
         for img in images {
             assert!(img.iter().all(|v| v.is_finite()));
@@ -241,13 +300,10 @@ mod tests {
     #[test]
     fn bank_delays_and_attenuates() {
         let mut bank = ReflectionBank::new(48_000);
-        // One active tap: 10-sample delay, gain 0.5 on the left only. Pre-set
-        // current = target by letting it settle on silence first.
         bank.set_targets(0, 10.0 / 48_000.0, 0.5, 0.0);
         for _ in 0..4_000 {
             bank.process(0.0);
         }
-        // Impulse, then read where it must come out.
         let mut outs = Vec::new();
         outs.push(bank.process(1.0));
         for _ in 0..20 {
@@ -256,7 +312,6 @@ mod tests {
         let (l10, r10) = outs[10];
         assert!((l10 - 0.5).abs() < 1e-3, "left tap at 10 smp: {l10}");
         assert!(r10.abs() < 1e-6, "right must stay silent: {r10}");
-        // Nothing significant elsewhere.
         for (i, &(l, _)) in outs.iter().enumerate() {
             if i != 10 {
                 assert!(l.abs() < 1e-3, "leak at {i}: {l}");
@@ -267,7 +322,14 @@ mod tests {
     #[test]
     fn binaural_targets_can_arrive_at_different_ear_times() {
         let mut bank = ReflectionBank::new(48_000);
-        bank.set_targets_binaural(0, 10.0 / 48_000.0, 14.0 / 48_000.0, 1.0, 1.0);
+        bank.set_targets_binaural_toned(
+            0,
+            10.0 / 48_000.0,
+            14.0 / 48_000.0,
+            1.0,
+            1.0,
+            1.0,
+        );
         for _ in 0..4_000 {
             bank.process(0.0);
         }
@@ -300,15 +362,52 @@ mod tests {
     }
 
     #[test]
+    fn physical_reflection_loses_more_hf_as_detour_grows() {
+        let mut near = ReflectionBank::new(48_000);
+        near.set_targets_binaural(0, 0.001, 0.001, 1.0, 1.0);
+        let near_hf = near.taps_l[0].hf_gain_target;
+
+        let mut far = ReflectionBank::new(48_000);
+        far.set_targets_binaural(0, 0.050, 0.050, 1.0, 1.0);
+        let far_hf = far.taps_l[0].hf_gain_target;
+
+        assert!(near_hf < 1.0);
+        assert!(far_hf < near_hf, "near={near_hf} far={far_hf}");
+        assert!(far_hf >= 0.45);
+    }
+
+    #[test]
+    fn toned_reflection_reduces_high_frequency_more_than_low_frequency() {
+        fn rms_for(freq: f32) -> f32 {
+            let mut bank = ReflectionBank::new(48_000);
+            bank.set_targets_binaural_toned(0, 0.0, 0.0, 1.0, 0.0, 0.35);
+            let mut sum = 0.0f32;
+            let mut count = 0usize;
+            for i in 0..8_000 {
+                let x = (std::f32::consts::TAU * freq * i as f32 / 48_000.0).sin();
+                let (y, _) = bank.process(x);
+                if i > 2_000 {
+                    sum += y * y;
+                    count += 1;
+                }
+            }
+            (sum / count as f32).sqrt()
+        }
+
+        let low = rms_for(500.0);
+        let high = rms_for(8_000.0);
+        assert!(low > high * 1.35, "low={low} high={high}");
+    }
+
+    #[test]
     fn gain_changes_are_smoothed() {
         let mut bank = ReflectionBank::new(48_000);
         bank.set_targets(0, 0.0, 1.0, 1.0);
         for _ in 0..4_000 {
-            bank.process(1.0); // settle: DC input, gain 1
+            bank.process(1.0);
         }
         let (settled, _) = bank.process(1.0);
         assert!((settled - 1.0).abs() < 1e-2);
-        // Drop the gain target to 0: output must move gradually, not jump.
         bank.set_targets(0, 0.0, 0.0, 0.0);
         let (next, _) = bank.process(1.0);
         assert!(next > 0.9, "gain jumped instead of smoothing: {next}");
