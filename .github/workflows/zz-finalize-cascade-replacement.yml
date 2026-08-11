@@ -1,0 +1,102 @@
+name: Finalize cascade replacement
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Remove unrelated upstream demo backend registrations and tame support-only presence
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          build = Path('omniphony-renderer/orender_engine/src/renderer_build.rs')
+          text = build.read_text()
+          old = '''        // Register the demonstration backend so `backend_id = "example"` resolves.
+          control.register_backend(Box::new(example_backend::ExampleFactory));
+          // User-scriptable (Lua) backend; selecting `backend_id = "script"` routes
+          // a rebuild through it, reading its `.lua` path from the param store.
+          control.register_backend(Box::new(script_backend::ScriptFactory));
+          // Resolved after registration so any registered backend (not just the
+          // historical concrete ones) is accepted as a hybrid inner model; a nested
+          // hybrid or an unregistered id falls back to the default.
+          '''
+          new = '''        // This fork does not carry upstream's demonstration/script backend
+          // crates. Resolve against the built-in/registered renderer frontier only;
+          // cascaded binaural does not depend on those optional example backends.
+          // A nested hybrid or an unregistered id falls back to the default.
+          '''
+          if old in text:
+              build.write_text(text.replace(old, new, 1))
+          elif 'example_backend::ExampleFactory' in text or 'script_backend::ScriptFactory' in text:
+              raise SystemExit('backend registration block changed unexpectedly')
+
+          music = Path('omniphony-renderer/renderer/src/music_field.rs')
+          text = music.read_text()
+          text = text.replace(
+              'const HIGH_BAND_SUPPORT_SCALE: f32 = 0.72;',
+              'const HIGH_BAND_SUPPORT_SCALE: f32 = 0.58;',
+              1,
+          )
+          anchor = '''const LOW_MID_SUPPORT_SCALE: f32 = 0.82;
+          '''
+          insert = '''const LOW_MID_SUPPORT_SCALE: f32 = 0.82;
+          /// Cascaded virtual-speaker -> HRTF rendering adds a second spectral-spatial
+          /// shaping stage. Keep the 1.2-5 kHz presence band slightly direct-dominant
+          /// so bright partials do not become hard-edged while the master retains all
+          /// authored attack and clarity.
+          const PRESENCE_SUPPORT_SCALE: f32 = 0.90;
+          '''
+          if 'const PRESENCE_SUPPORT_SCALE' not in text:
+              if anchor not in text:
+                  raise SystemExit('low-mid scale anchor not found')
+              text = text.replace(anchor, insert, 1)
+
+          old_scale = '''                let static_band_scale = if band == 1 {
+                      LOW_MID_SUPPORT_SCALE
+                  } else if band == 3 {
+                      HIGH_BAND_SUPPORT_SCALE
+                  } else {
+                      1.0
+                  };
+          '''
+          new_scale = '''                let static_band_scale = if band == 1 {
+                      LOW_MID_SUPPORT_SCALE
+                  } else if band == 2 {
+                      PRESENCE_SUPPORT_SCALE
+                  } else if band == 3 {
+                      HIGH_BAND_SUPPORT_SCALE
+                  } else {
+                      1.0
+                  };
+          '''
+          if old_scale in text:
+              text = text.replace(old_scale, new_scale, 1)
+          elif 'PRESENCE_SUPPORT_SCALE' not in text:
+              raise SystemExit('static support scale block changed unexpectedly')
+          music.write_text(text)
+          PY
+          cd omniphony-renderer
+          cargo fmt --all
+      - name: Commit integration and listening correction
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add omniphony-renderer/orender_engine/src/renderer_build.rs omniphony-renderer/renderer/src/music_field.rs
+          git commit -m 'tune(audio): retain cascade bass and soften upper support'
+          git push origin HEAD:main
