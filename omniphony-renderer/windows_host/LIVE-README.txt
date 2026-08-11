@@ -5,9 +5,11 @@ NORMAL USE
 1. Extract this entire folder to a stable location. Do not run it permanently from a temporary ZIP/extraction folder because Windows autostart points to the exact Omniphony.exe path.
 2. Keep normal Windows / foobar playback routed to the virtual sink you already use (currently Hi-Fi Cable) so the unprocessed signal does not also play directly from the physical headphones.
 3. Disable HeSuVi / DTS Virtual:X and stop ASIO Bridge or any other old route that independently forwards the virtual sink to the FiiO.
-4. Run Omniphony.exe once.
+4. During development, double-click START-OMNIPHONY.cmd. It simply launches Omniphony.exe from the extracted folder.
 
-Omniphony.exe opens no normal window. It starts the audio worker invisibly and lives in the Windows notification area. On first run it registers itself for per-user Windows autostart. After that, normal use should require no manual launch after login.
+Omniphony.exe opens no normal window. It lives in the Windows notification area and registers itself for per-user Windows autostart on first run. After that, normal use should require no manual launch after login.
+
+There is only one shipped Omniphony runtime executable. The normal Omniphony.exe instance is the invisible supervisor. For crash isolation it launches a second instance of the same Omniphony.exe in a private internal audio-engine mode. This preserves watchdog/recovery behavior without shipping a separate worker executable.
 
 TRAY CONTROLS
 
@@ -19,11 +21,11 @@ Left- or right-click the Omniphony tray icon:
   Start with Windows
   Exit Omniphony
 
-The supervisor is single-instance. If the worker exits or cannot start because the output device is temporarily unavailable, the supervisor retries automatically. Closing/restarting Windows Explorer also recreates the tray icon.
+The supervisor is single-instance. If the internal engine exits or cannot start because the output device is temporarily unavailable, the supervisor retries automatically. If WASAPI reports that the physical playback stream has failed, the engine exits cleanly and the supervisor relaunches it. Closing/restarting Windows Explorer also recreates the tray icon.
 
 AUDIO ROUTING
 
-The worker captures Windows process audio while excluding its own output, then sends the processed stereo result directly to the physical WASAPI endpoint. It prefers a device containing "FiiO" and otherwise uses a non-virtual Windows default output.
+The internal engine captures Windows process audio while excluding its own output, then sends the processed stereo result directly to the physical WASAPI endpoint. It prefers a device containing "FiiO" and otherwise uses a non-virtual Windows default output.
 
 This removes the old requirement to manually start an ASIO bridge after reboot. Hi-Fi Cable is still useful as the silent source/sink boundary until Omniphony owns a native virtual endpoint or APO host.
 
@@ -58,9 +60,17 @@ Windows owns only:
 
 The portable renderer owns music inference, foundation, spatial rendering and binaural behavior. Win32/WASAPI APIs do not define the Omniphony core.
 
+DEVELOPMENT PACKAGE
+
+  START-OMNIPHONY.cmd  easy double-click launch during rapid build iteration
+  Omniphony.exe         supervisor + internal crash-isolated audio engine
+  omniphony_live.exe    diagnostic/reference tool only, not part of normal runtime
+  reference_bridge.dll  current native bridge dependency
+  reference-demo\       current renderer configs/layout
+
 DIAGNOSTICS
 
-  omniphony.log       supervisor + hidden worker output
+  omniphony.log       supervisor + internal engine output
   LIST-DEVICES.cmd    list WASAPI devices
 
-If the audio engine repeatedly restarts, inspect omniphony.log first. The worker also reports playback-queue underruns so CPU scheduling crackle can be separated from DSP artifacts.
+If the audio engine repeatedly restarts, inspect omniphony.log first. The engine also reports playback-queue underruns so CPU scheduling crackle can be separated from DSP artifacts.
