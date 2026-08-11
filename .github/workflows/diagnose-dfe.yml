@@ -1,4 +1,4 @@
-name: Temporary DFE diagnostic
+name: Temporary renderer diagnostic
 
 on:
   push:
@@ -16,11 +16,11 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
-      - name: Capture focused test output
+      - name: Capture full renderer output
         shell: bash
         run: |
           set +e
-          cargo test --manifest-path omniphony-renderer/Cargo.toml -p renderer diffuse_compensation -- --nocapture > .github/dfe-diagnostic.txt 2>&1
+          cargo test --manifest-path omniphony-renderer/Cargo.toml -p renderer -- --nocapture > .github/dfe-diagnostic.txt 2>&1
           status=$?
           echo "exit_status=$status" >> .github/dfe-diagnostic.txt
           exit 0
@@ -30,7 +30,5 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add .github/dfe-diagnostic.txt
-          git commit -m 'chore: capture DFE diagnostic'
+          git commit -m 'chore: capture renderer diagnostic'
           git push
-
-# trigger
