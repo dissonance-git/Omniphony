@@ -1,0 +1,34 @@
+name: Temporary DFE diagnostic
+
+on:
+  push:
+    paths:
+      - '.github/workflows/diagnose-dfe.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Capture focused test output
+        shell: bash
+        run: |
+          set +e
+          cargo test --manifest-path omniphony-renderer/Cargo.toml -p renderer diffuse_compensation -- --nocapture > .github/dfe-diagnostic.txt 2>&1
+          status=$?
+          echo "exit_status=$status" >> .github/dfe-diagnostic.txt
+          exit 0
+      - name: Publish diagnostic
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/dfe-diagnostic.txt
+          git commit -m 'chore: capture DFE diagnostic'
+          git push
