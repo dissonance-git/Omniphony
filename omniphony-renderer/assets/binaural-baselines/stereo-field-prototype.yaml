@@ -24,13 +24,13 @@
 #
 #   DISTANCE / BUBBLE SCALE
 #     front        primary
-#     rear         primary, but must not dominate
-#     height       primary
+#     rear         primary and impactful, but must not dominate
+#     height       primary and currently the highest-value frontier
 #     sides        fully wide and continuous; radial reach is secondary
 #
 # This is intentionally not a narrow front/back tunnel. Side width remains large;
-# the stronger *distance* impression is concentrated on the front/back/z axes
-# because those dimensions contribute most strongly to the target bubble percept.
+# the strongest *distance* impression is concentrated on front/back/z because
+# those dimensions contribute most strongly to the target bubble percept.
 render:
   master_gain: 0.0
   auto_gain: true
@@ -38,20 +38,19 @@ render:
   virtual_bed:
     radius_m: 1.0
     speakers:
-      # Front field reaches the full front corners. At the 5.25 m scene scale
-      # these broad-support positions sit roughly 7.4 m from the listener.
+      # Front stays at the full diagonal and scales outward with the scene.
       - name: "L"
         coord_mode: "cartesian"
         x: -1.0
         y: 1.0
-        z: 0.08
+        z: 0.10
         spatialize: true
         delay_ms: 0
       - name: "R"
         coord_mode: "cartesian"
         x: 1.0
         y: 1.0
-        z: 0.08
+        z: 0.10
         spatialize: true
         delay_ms: 0
 
@@ -71,71 +70,72 @@ render:
         spatialize: false
         delay_ms: 0
 
-      # Sides stay at maximum width. They are closer radially than the diagonal
-      # front/rear/height axes, but still scale outward with the whole scene.
+      # Sides stay maximally wide. Their role is width and continuity rather than
+      # being the longest radial axis.
       - name: "Ls"
         coord_mode: "cartesian"
         x: -1.0
         y: 0.0
-        z: 0.12
+        z: 0.14
         spatialize: true
         delay_ms: 0
       - name: "Rs"
         coord_mode: "cartesian"
         x: 1.0
         y: 0.0
-        z: 0.12
+        z: 0.14
         spatialize: true
         delay_ms: 0
 
-      # Rear is a primary depth axis and is brought close to the full diagonal,
-      # while staying slightly shorter than front so rear never becomes gravity.
+      # Rear impact was slightly too polite in the previous frontier. Bring it
+      # almost to the full rear diagonal while still leaving front/top-front as
+      # the perceptual lead.
       - name: "Lb"
         coord_mode: "cartesian"
-        x: -0.94
-        y: -0.94
-        z: 0.12
+        x: -0.97
+        y: -0.97
+        z: 0.14
         spatialize: true
         delay_ms: 0
       - name: "Rb"
         coord_mode: "cartesian"
-        x: 0.94
-        y: -0.94
-        z: 0.12
+        x: 0.97
+        y: -0.97
+        z: 0.14
         spatialize: true
         delay_ms: 0
 
-      # Upper-front is the longest radial axis and should form a canopy clearly
-      # away from the skull rather than merely sounding brighter or taller.
+      # Height is the current frontier. Extend top-front vertically beyond the
+      # floor speaker radius so the canopy grows in *distance*, not loudness.
       - name: "TFL"
         coord_mode: "cartesian"
-        x: -0.94
+        x: -0.96
         y: 1.0
-        z: 1.0
+        z: 1.18
         spatialize: true
         delay_ms: 0
       - name: "TFR"
         coord_mode: "cartesian"
-        x: 0.94
+        x: 0.96
         y: 1.0
-        z: 1.0
+        z: 1.18
         spatialize: true
         delay_ms: 0
 
-      # Upper-rear closes the canopy deeply while remaining a little shorter
-      # than upper-front, preserving the desired front-biased centre of gravity.
+      # Upper-rear also grows so the canopy closes behind, but remains shorter
+      # than upper-front to avoid returning to rear gravity.
       - name: "TBL"
         coord_mode: "cartesian"
-        x: -0.90
-        y: -0.94
-        z: 0.98
+        x: -0.92
+        y: -0.96
+        z: 1.10
         spatialize: true
         delay_ms: 0
       - name: "TBR"
         coord_mode: "cartesian"
-        x: 0.90
-        y: -0.94
-        z: 0.98
+        x: 0.92
+        y: -0.96
+        z: 1.10
         spatialize: true
         delay_ms: 0
 
@@ -143,29 +143,25 @@ render:
     output_mode: binaural
     hrir_source: saf
 
-    # Frontier pass: increase native metric scale aggressively. Omniphony does
-    # not apply inverse-distance attenuation to the direct support channels, so
-    # this expands acoustic distance cues without simply making the field weak.
-    unit_scale_m: 5.25
+    # Continue the native distance frontier, but let explicit top coordinates do
+    # extra vertical work rather than using frequency gain as a height shortcut.
+    unit_scale_m: 6.0
 
-    # Grow the native image-source environment substantially and bring first-
-    # order reflections close to the upstream demo's 0.4 strength. Bubble size
-    # should come from direction + propagation delay, not a long reverb wash.
+    # Expand first-order propagation again, especially vertically. Reflection
+    # strength reaches the known upstream reference level, while late-room energy
+    # is reduced so the larger world does not become a wash.
     reflections:
       enabled: true
-      room_width_m: 12.0
-      room_depth_m: 18.0
-      room_height_m: 8.0
-      level: 0.38
+      room_width_m: 13.5
+      room_depth_m: 21.0
+      room_height_m: 10.0
+      level: 0.40
 
-    # As physical/reflection scale rises, *reduce* the late field. This is an
-    # intentional anti-blur trade: keep a little continuity but make geometry,
-    # HRTF/ITD and first-order reflections do nearly all the enlargement work.
     reverb:
       enabled: true
-      level: 0.05
-      rt60_s: 0.20
-      predelay_ms: 24.0
+      level: 0.04
+      rt60_s: 0.18
+      predelay_ms: 26.0
 
     # Native distance-dependent HF attenuation touches only the derived support
     # scene. The authoritative stereo master stays full-band outside this scene.
