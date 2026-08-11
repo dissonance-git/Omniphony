@@ -22,7 +22,6 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          # Typed, future-expandable config. Absent/off preserves generic parity.
           p = Path('omniphony-renderer/renderer/src/config.rs')
           s = p.read_text()
           old = '''    /// Path to a SOFA HRTF file, used when `hrir_source = "sofa"`.
@@ -40,7 +39,6 @@ jobs:
               raise SystemExit('BinauralConfig insertion anchor missing')
           p.write_text(s.replace(old, new, 1))
 
-          # Store the static opt-in in SpatialRenderer, outside generic LiveParams.
           p = Path('omniphony-renderer/renderer/src/spatial_renderer/mod.rs')
           s = p.read_text()
           old = '''    /// Scratch per-channel world positions for the binaural path (reused).
@@ -112,7 +110,6 @@ jobs:
               raise SystemExit('cascade call anchor missing')
           p.write_text(s.replace(old, new, 1))
 
-          # Seed the static renderer field to OFF in all generic constructors.
           p = Path('omniphony-renderer/renderer/src/spatial_renderer/construction.rs')
           s = p.read_text()
           old = '''            binaural: crate::binaural::BinauralRenderer::new(sample_rate),
@@ -128,7 +125,6 @@ jobs:
               raise SystemExit('construction field anchor missing')
           p.write_text(s.replace(old, new, 1))
 
-          # The cascade receives an explicit per-frame permission bit.
           p = Path('omniphony-renderer/renderer/src/spatial_renderer/cascade.rs')
           s = p.read_text()
           old = '''    speaker_params: &[crate::live_params::SpeakerLiveParams],
@@ -154,8 +150,6 @@ jobs:
             .get_or_insert_with(|| DiffuseFieldCompensator::saf_kemar_partial(stage.sample_rate));
         compensation.process_interleaved_stereo_in_place(output);
     } else if let Some(compensation) = cascade.diffuse_compensation.as_mut() {
-        // If a host turns the static policy off between streams, clear any IIR
-        // history so a later opt-in begins from silence rather than old state.
         compensation.reset_runtime_state();
     }
 
@@ -164,8 +158,6 @@ jobs:
               raise SystemExit('cascade unconditional DFE anchor missing')
           p.write_text(s.replace(old, new, 1))
 
-          # Embedded/headless engine reads the explicit config. Unknown values
-          # fail closed with a warning rather than silently enabling DSP.
           p = Path('omniphony-renderer/orender_engine/src/engine.rs')
           s = p.read_text()
           old = '''        let renderer = build_spatial_renderer(
@@ -210,7 +202,6 @@ jobs:
               raise SystemExit('Engine renderer construction anchor missing')
           p.write_text(s.replace(old, new, 1))
 
-          # Our music baseline explicitly opts in; generic configs do not.
           p = Path('omniphony-renderer/assets/binaural-baselines/stereo-field-prototype.yaml')
           s = p.read_text()
           old = '''    mode: cascaded
@@ -241,3 +232,5 @@ jobs:
           git add -A
           git commit -m 'fix(audio): gate SAF cascade compensation'
           git push
+
+# trigger
