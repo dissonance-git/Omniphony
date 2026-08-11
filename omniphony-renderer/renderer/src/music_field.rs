@@ -23,22 +23,26 @@ pub const MUSIC_FIELD_CHANNELS: usize = 12;
 const FFT_SIZE: usize = 1024;
 const TRACK_TIME_CONSTANT_MS: f32 = 140.0;
 /// Keep kick/snare body and low-frequency pressure in the protected master.
-/// Spatial support now starts above 320 Hz instead of 220 Hz because physical
-/// listening showed ON losing some of OFF's bass/drum authority.
+/// Full scene support starts above 320 Hz because physical listening showed ON
+/// losing some of OFF's bass/drum authority when the room owned more body.
 const CROSSOVER_HZ: [f32; 3] = [320.0, 1_200.0, 5_000.0];
+/// The 160-320 Hz octave may carry a very small stereo-motion trace, but never
+/// becomes a full spatial scene. This lets panned tom/body fundamentals move
+/// without handing their pressure or timing to the virtual room.
+const LOW_MOTION_FLOOR_HZ: f32 = 160.0;
+const LOW_MOTION_SUPPORT_SCALE: f32 = 0.065;
 const HEIGHT_PRIOR: [f32; 3] = [0.26, 0.60, 0.82];
-/// Static top-band support trim. The previous candidate used instantaneous
-/// sample-energy normalization, which is itself a gain-modulation mechanism.
-/// A fixed scale cannot pump; slower scene controls own all audible movement.
-const HIGH_BAND_SUPPORT_SCALE: f32 = 0.58;
-/// The first audible support band overlaps the musical body region. Keep it
-/// present for continuity, but let the protected master/foundation dominate.
+/// Static top-band support trim. Cascaded virtual-speaker -> HRTF rendering is
+/// now spatially large enough that height does not need much >5 kHz energy.
+/// Keep this static so the cure for fatigue cannot itself become gain pumping.
+const HIGH_BAND_SUPPORT_SCALE: f32 = 0.52;
+/// The first full support band overlaps the musical body region. Keep it present
+/// for continuity, but let the protected master/foundation dominate.
 const LOW_MID_SUPPORT_SCALE: f32 = 0.82;
-/// Cascaded virtual-speaker -> HRTF rendering adds a second spectral-spatial
-/// shaping stage. Keep the 1.2-5 kHz presence band slightly direct-dominant
-/// so bright partials do not become hard-edged while the master retains all
-/// authored attack and clarity.
-const PRESENCE_SUPPORT_SCALE: f32 = 0.90;
+/// Cascaded rendering adds speaker-domain and HRTF spectral shaping. Keep the
+/// 1.2-5 kHz presence band direct-dominant so the larger P0.9 room sounds wider
+/// and taller without becoming hard-edged or fatiguing.
+const PRESENCE_SUPPORT_SCALE: f32 = 0.86;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MusicFieldSnapshot {
@@ -80,7 +84,7 @@ impl BandControl {
         // quickly can sound like treble gain breathing. Move that band slowly;
         // height comes from geometry and HRTF evidence, not a fast gain envelope.
         let (rise, fall, pan_rise, pan_fall) = if high_band {
-            (0.12, 0.045, 0.10, 0.045)
+            (0.10, 0.040, 0.085, 0.040)
         } else {
             (0.32, 0.12, 0.30, 0.12)
         };
@@ -131,6 +135,7 @@ impl OnePoleLowPass {
 }
 
 struct ChannelBandSplit {
+    low_160: OnePoleLowPass,
     low_320: OnePoleLowPass,
     low_1200: OnePoleLowPass,
     low_5000: OnePoleLowPass,
@@ -139,19 +144,23 @@ struct ChannelBandSplit {
 impl ChannelBandSplit {
     fn new(sample_rate_hz: u32) -> Self {
         Self {
+            low_160: OnePoleLowPass::new(sample_rate_hz, LOW_MOTION_FLOOR_HZ),
             low_320: OnePoleLowPass::new(sample_rate_hz, CROSSOVER_HZ[0]),
             low_1200: OnePoleLowPass::new(sample_rate_hz, CROSSOVER_HZ[1]),
             low_5000: OnePoleLowPass::new(sample_rate_hz, CROSSOVER_HZ[2]),
         }
     }
 
-    /// The four outputs sum algebraically to `sample`: adjacent bands are
+    /// The five outputs sum algebraically to `sample`: adjacent bands are
     /// differences of parallel low-pass states rather than independent filters.
-    fn split(&mut self, sample: f32) -> [f32; 4] {
+    /// [0] <160 Hz is foundation-only; [1] 160-320 Hz is motion-only; [2..4]
+    /// are the three full support bands controlled by frequency evidence.
+    fn split(&mut self, sample: f32) -> [f32; 5] {
+        let m = self.low_160.process(sample);
         let a = self.low_320.process(sample);
         let b = self.low_1200.process(sample);
         let c = self.low_5000.process(sample);
-        [a, b - a, c - b, sample - c]
+        [m, a - m, b - a, c - b, sample - c]
     }
 }
 
@@ -229,9 +238,19 @@ impl MusicFieldProcessor {
             let mut top_rear_l = 0.0;
             let mut top_rear_r = 0.0;
 
-            // Band 0 (<320 Hz) remains entirely in the protected master.
-            for band in 1..4 {
-                let control = self.controls[band - 1];
+            // 160-320 Hz motion halo: only the true stereo-difference component
+            // is eligible. Centered kick/bass cancels here, while an authored
+            // left-right low-body motion leaves a tiny front/side trace. No rear,
+            // height, center or LFE receives this band.
+            let low_motion_side = 0.5 * (left_bands[1] - right_bands[1]);
+            side_l += LOW_MOTION_SUPPORT_SCALE * low_motion_side;
+            side_r -= LOW_MOTION_SUPPORT_SCALE * low_motion_side;
+            front_l += 0.22 * LOW_MOTION_SUPPORT_SCALE * low_motion_side;
+            front_r -= 0.22 * LOW_MOTION_SUPPORT_SCALE * low_motion_side;
+
+            // Bands 2..4 correspond to 320-1200, 1200-5000 and >5000 Hz.
+            for band in 2..5 {
+                let control = self.controls[band - 2];
                 let left = left_bands[band];
                 let right = right_bands[band];
                 let mid = 0.5 * (left + right);
@@ -273,11 +292,11 @@ impl MusicFieldProcessor {
                 // Keep the musical body region direct-dominant so kicks, toms,
                 // snare body and bass transients do not lose authority to room
                 // propagation. The mid/high bands remain the stronger spatial fuel.
-                let static_band_scale = if band == 1 {
+                let static_band_scale = if band == 2 {
                     LOW_MID_SUPPORT_SCALE
-                } else if band == 2 {
-                    PRESENCE_SUPPORT_SCALE
                 } else if band == 3 {
+                    PRESENCE_SUPPORT_SCALE
+                } else if band == 4 {
                     HIGH_BAND_SUPPORT_SCALE
                 } else {
                     1.0
@@ -538,11 +557,45 @@ mod tests {
     }
 
     #[test]
+    fn low_body_motion_is_lateral_only_and_center_safe() {
+        let mut panned = MusicFieldProcessor::new(48_000);
+        let mut mono = MusicFieldProcessor::new(48_000);
+        let mut panned_input = Vec::new();
+        let mut mono_input = Vec::new();
+        for i in 0..4096 {
+            let x = (2.0 * PI * 220.0 * i as f32 / 48_000.0).sin() * 0.5;
+            panned_input.extend_from_slice(&[x, 0.0]);
+            mono_input.extend_from_slice(&[x, x]);
+        }
+
+        let mut panned_side = 0.0;
+        let mut panned_rear_height_lfe = 0.0;
+        let mut mono_support = 0.0;
+        for (p_chunk, m_chunk) in panned_input.chunks(2048).zip(mono_input.chunks(2048)) {
+            let p_out = panned.process_interleaved_stereo(p_chunk);
+            let m_out = mono.process_interleaved_stereo(m_chunk);
+            for frame in p_out.chunks_exact(MUSIC_FIELD_CHANNELS) {
+                panned_side += frame[4] * frame[4] + frame[5] * frame[5];
+                panned_rear_height_lfe += frame[3] * frame[3]
+                    + frame[6..12].iter().map(|x| x * x).sum::<f32>();
+            }
+            mono_support += m_out.iter().map(|x| x * x).sum::<f32>();
+        }
+        assert!(panned_side > 0.0);
+        assert!(panned_rear_height_lfe < panned_side * 1.0e-5);
+        assert!(mono_support < panned_side * 0.02);
+    }
+
+    #[test]
     fn high_band_trim_is_static() {
         assert!(HIGH_BAND_SUPPORT_SCALE > 0.0);
         assert!(HIGH_BAND_SUPPORT_SCALE <= 1.0);
+        assert!(PRESENCE_SUPPORT_SCALE > HIGH_BAND_SUPPORT_SCALE);
+        assert!(PRESENCE_SUPPORT_SCALE <= 1.0);
         assert!(LOW_MID_SUPPORT_SCALE > 0.0);
         assert!(LOW_MID_SUPPORT_SCALE <= 1.0);
+        assert!(LOW_MOTION_SUPPORT_SCALE > 0.0);
+        assert!(LOW_MOTION_SUPPORT_SCALE < LOW_MID_SUPPORT_SCALE);
     }
 
     #[test]
