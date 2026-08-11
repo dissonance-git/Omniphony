@@ -147,7 +147,6 @@ jobs:
 
           Copy-Item 'target\release-deploy\reference_bridge.dll' $dist -Force
           Copy-Item 'target\release-deploy\omniphony_live.exe' $dist -Force
-          Copy-Item 'target\release-deploy\omniphony_worker.exe' $dist -Force
           Copy-Item 'target\release-deploy\omniphony_app.exe' (Join-Path $dist 'Omniphony.exe') -Force
           Copy-Item 'windows_host\START-OMNIPHONY.cmd' (Join-Path $dist 'START-OMNIPHONY.cmd') -Force
           Copy-Item 'windows_host\LIVE-README.txt' (Join-Path $dist 'LIVE-README.txt') -Force
@@ -169,7 +168,6 @@ jobs:
           foreach ($required in @(
             'START-OMNIPHONY.cmd',
             'Omniphony.exe',
-            'omniphony_worker.exe',
             'omniphony_live.exe',
             'reference_bridge.dll',
             'LIST-DEVICES.cmd',
