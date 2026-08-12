@@ -17,7 +17,7 @@ There is one normal listening model: Current model.
 
 The former research profile selector has been retired. The measured-HRTF early-reflection mechanism previously tested under the label Externalization is now part of Current model. Old profile environment variables or preferences are not used by the normal supervisor path.
 
-The current development build also carries one bounded listening candidate on top of that model: transient-aware early-room excitation. This candidate is implemented but is not yet promoted as a retained perceptual improvement. Physical listening decides whether it stays.
+The current development build carries the retained transient-aware early-room mechanism plus a new front/center refinement candidate. The latest pass keeps the side, rear and lower geometry unchanged while widening the front L/R evidence sources, widening/lifting the upper-front pair, reducing only the low-level late room closure and lowering fixed final listening level by 0.7 dB.
 
 TRAY CONTROLS
 
@@ -42,11 +42,12 @@ ON:
   authoritative captured stereo master
   + coherent music foundation/body delta
   + frequency-derived 7.1.4 support
+  -> widened front / upper-front evidence geometry
   -> inherited Omniphony cascaded speaker-world renderer
   -> measured SAF/KEMAR HRTF / ITD / metric distance / air cues
   -> lane-local transient detector on early-room input only
   -> six directional first-order reflection buses through measured HRTF
-  -> short restrained late room field
+  -> shorter, quieter late room closure
   -> fixed linear final summing
   -> physical headphones
 
@@ -57,6 +58,21 @@ OFF:
 The finished stereo master never becomes a full-wet virtual-room replacement. Bass/body remains direct-dominant. Full spatial support starts above 320 Hz. Current upper support is deliberately restrained to reduce fatigue while height and scale come from geometry rather than treble gain.
 
 The current coherent foundation includes stronger narrow kick support around 110 Hz. Dense-guitar fatigue correction remains confined to the additive HRTF support branch rather than darkening the protected master.
+
+FRONT / CENTER REFINEMENT CANDIDATE
+
+The latest listening pass keeps the already-successful side, rear and lower shell fixed while changing only the front-facing presentation:
+
+  front L/R x position       +/-1.00 -> +/-1.15
+  top-front x position       +/-0.96 -> +/-1.10
+  top-front z position          2.15 -> 2.45
+  late-room level              0.020 -> 0.016
+  late-room RT60                0.14 -> 0.12 s
+  final fixed makeup          +3.5 dB -> +2.8 dB
+
+The center and LFE support lanes remain silent. Centered vocals still come from the protected stereo master. The reduced late field is intended to make that direct center easier to hear without shrinking the early directional room that gives drums and stereo material physical space.
+
+Side, rear and lower evidence-source poses are unchanged in this pass. Bass/foundation tuning is unchanged. The transient-aware early-room mechanism is unchanged.
 
 EARLY REFLECTIONS
 
@@ -72,9 +88,9 @@ Instead:
 
 This gives the early room directional HRTF structure at bounded realtime cost. The old analytic first-order reflection bank is disabled on this path so the same early energy is not duplicated.
 
-TRANSIENT-AWARE EARLY-ROOM CANDIDATE
+TRANSIENT-AWARE EARLY ROOM
 
-The current development build detects sharp positive energy rises independently inside each existing spatial-support lane. It compares a fast short-time energy envelope with a slower reference envelope rather than treating raw level as transient evidence.
+The current model detects sharp positive energy rises independently inside each existing spatial-support lane. It compares a fast short-time energy envelope with a slower reference envelope rather than treating raw level as transient evidence.
 
 Only the signal entering that lane's early-reflection delay bank is changed:
 
@@ -83,16 +99,14 @@ Only the signal entering that lane's early-reflection delay bank is changed:
   -> bounded onset envelope
   -> early-reflection input only
 
-The candidate currently uses:
+Current constants are:
 
   fast energy time constant     3 ms
   slow energy time constant    45 ms
   release time                 20 ms
   maximum early-room gain    +2.5 dB
 
-The protected stereo master is untouched. The coherent bass/kick foundation is untouched. The primary spatial-support render is untouched. The late room field is untouched. Center and LFE remain excluded from inferred early-reflection support.
-
-This is a listening candidate, not a demonstrated improvement. Keep it only if attacks, especially drums and percussion, feel more physically connected to the surrounding room without making sustained guitars or vocals breathe, smearing transients, increasing fatigue, or producing audible spatial pumping. If it is not better, revert the transient modulation and retain the measured-HRTF early field underneath it.
+The protected stereo master is untouched. The coherent bass/kick foundation is untouched. The primary spatial-support render is untouched. Center and LFE remain excluded from inferred early-reflection support.
 
 CURRENT WINDOWS ROLE
 
