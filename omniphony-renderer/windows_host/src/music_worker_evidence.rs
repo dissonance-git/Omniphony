@@ -22,6 +22,11 @@ const SAMPLE_RATE_HZ: u32 = 48_000;
 /// steady-state latency; it gives MMCSS a little more room to survive short CPU
 /// scheduling stalls from heavy background compute.
 const PLAYBACK_QUEUE_BLOCKS: usize = 32;
+/// If the playback producer is briefly late, glide the last sample toward zero
+/// instead of creating an instantaneous waveform-to-zero discontinuity. Two
+/// milliseconds is short enough not to sound like a fade, while removing the
+/// sharp edge that turns a rare queue starvation into a click/crackle.
+const PLAYBACK_CONCEAL_FRAMES: usize = 96;
 const FIELD_SUPPORT_GAIN: f32 = 1.00;
 /// Fixed linear output headroom shared by ON and OFF.
 const LINEAR_OUTPUT_GAIN: f32 = 0.90;
@@ -75,6 +80,11 @@ fn parse_args() -> anyhow::Result<Args> {
 /// are preserved.
 struct StereoLookaheadPeakGuard {
     frames: VecDeque<[f32; 2]>,
+    /// Monotonic maximum queue for the current look-ahead window. Each frame is
+    /// inserted and removed at most once, avoiding the old full 5 ms scan for
+    /// every output sample.
+    peaks: VecDeque<(u64, f32)>,
+    next_frame_index: u64,
     gain: f32,
     release_coeff: f32,
     min_gain_since_report: f32,
@@ -86,6 +96,8 @@ impl StereoLookaheadPeakGuard {
         let release_coeff = (-1.0 / (release_seconds * sample_rate_hz.max(1) as f32)).exp();
         Self {
             frames: VecDeque::with_capacity(OUTPUT_LOOKAHEAD_FRAMES + 2),
+            peaks: VecDeque::with_capacity(OUTPUT_LOOKAHEAD_FRAMES + 2),
+            next_frame_index: 0,
             gain: 1.0,
             release_coeff,
             min_gain_since_report: 1.0,
@@ -100,22 +112,38 @@ impl StereoLookaheadPeakGuard {
         for frame in input.chunks_exact(2) {
             let left = if frame[0].is_finite() { frame[0] } else { 0.0 };
             let right = if frame[1].is_finite() { frame[1] } else { 0.0 };
-            self.frames
-                .push_back([left * OUTPUT_MAKEUP_GAIN, right * OUTPUT_MAKEUP_GAIN]);
+            let queued = [left * OUTPUT_MAKEUP_GAIN, right * OUTPUT_MAKEUP_GAIN];
+            let frame_peak = queued[0].abs().max(queued[1].abs());
+            let frame_index = self.next_frame_index;
+            self.next_frame_index = self.next_frame_index.saturating_add(1);
+
+            while let Some(&(_, back_peak)) = self.peaks.back() {
+                if back_peak >= frame_peak {
+                    break;
+                }
+                self.peaks.pop_back();
+            }
+            self.peaks.push_back((frame_index, frame_peak));
+            self.frames.push_back(queued);
 
             if self.frames.len() <= OUTPUT_LOOKAHEAD_FRAMES {
                 continue;
             }
 
-            let mut future_peak = 0.0_f32;
-            let mut peak_index = 0usize;
-            for (index, queued) in self.frames.iter().enumerate() {
-                let peak = queued[0].abs().max(queued[1].abs());
-                if peak > future_peak {
-                    future_peak = peak;
-                    peak_index = index;
-                }
+            let oldest_index = frame_index - OUTPUT_LOOKAHEAD_FRAMES as u64;
+            while self
+                .peaks
+                .front()
+                .is_some_and(|&(index, _)| index < oldest_index)
+            {
+                self.peaks.pop_front();
             }
+            let (peak_frame_index, future_peak) = self
+                .peaks
+                .front()
+                .copied()
+                .expect("look-ahead peak queue is non-empty");
+            let peak_index = (peak_frame_index - oldest_index) as usize;
             let target_gain = if future_peak > OUTPUT_CEILING {
                 OUTPUT_CEILING / future_peak
             } else {
@@ -275,7 +303,7 @@ fn report_playback_underruns(counter: &AtomicU64) {
     }
     let duration_ms = frames as f64 * 1000.0 / SAMPLE_RATE_HZ as f64;
     eprintln!(
-        "  realtime warning: WASAPI playback queue starved for {frames} frame(s) (~{duration_ms:.2} ms) in the last meter interval"
+        "  realtime warning: WASAPI playback queue starved for {frames} frame(s) (~{duration_ms:.2} ms) in the last meter interval; short gaps were continuity-concealed"
     );
 }
 
@@ -316,7 +344,10 @@ pub fn run() -> anyhow::Result<()> {
         "  output: {:.1} dB base trim + {OUTPUT_MAKEUP_DB:.1} dB makeup; {OUTPUT_CEILING_DBFS:.1} dBFS stereo-linked look-ahead safety ceiling",
         20.0 * LINEAR_OUTPUT_GAIN.log10()
     );
-    println!("  realtime: producer + playback callback claim MMCSS; queue underruns are metered");
+    println!(
+        "  realtime: producer + playback callback claim MMCSS; {}-frame underrun continuity concealment is active",
+        PLAYBACK_CONCEAL_FRAMES
+    );
 
     let quit = Arc::new(AtomicBool::new(false));
     let playback_underrun_frames = Arc::new(AtomicU64::new(0));
@@ -764,6 +795,59 @@ fn build_playback_stream(
     }
 }
 
+#[derive(Debug)]
+struct PlaybackContinuity {
+    last_output: [f32; 2],
+    conceal_anchor: [f32; 2],
+    starvation_frames: usize,
+    recovery_gain: f32,
+}
+
+impl Default for PlaybackContinuity {
+    fn default() -> Self {
+        Self {
+            last_output: [0.0, 0.0],
+            conceal_anchor: [0.0, 0.0],
+            starvation_frames: 0,
+            recovery_gain: 1.0,
+        }
+    }
+}
+
+impl PlaybackContinuity {
+    fn render(&mut self, input: Option<(f32, f32)>) -> (f32, f32) {
+        match input {
+            Some((left, right)) => {
+                if self.starvation_frames > 0 {
+                    let missing = self.starvation_frames.min(PLAYBACK_CONCEAL_FRAMES);
+                    self.recovery_gain =
+                        (1.0 - missing as f32 / PLAYBACK_CONCEAL_FRAMES as f32).max(0.0);
+                    self.starvation_frames = 0;
+                }
+
+                let gain = self.recovery_gain;
+                let output = [left * gain, right * gain];
+                self.recovery_gain =
+                    (self.recovery_gain + 1.0 / PLAYBACK_CONCEAL_FRAMES as f32).min(1.0);
+                self.last_output = output;
+                (output[0], output[1])
+            }
+            None => {
+                if self.starvation_frames == 0 {
+                    self.conceal_anchor = self.last_output;
+                }
+                self.starvation_frames = self.starvation_frames.saturating_add(1);
+                let missing = self.starvation_frames.min(PLAYBACK_CONCEAL_FRAMES);
+                let gain =
+                    (1.0 - missing as f32 / PLAYBACK_CONCEAL_FRAMES as f32).max(0.0);
+                let output = [self.conceal_anchor[0] * gain, self.conceal_anchor[1] * gain];
+                self.last_output = output;
+                (output[0], output[1])
+            }
+        }
+    }
+}
+
 fn build_typed_playback<T>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
@@ -777,6 +861,7 @@ where
     let channels = usize::from(config.channels);
     let mut current = Vec::<f32>::new();
     let mut cursor = 0usize;
+    let mut continuity = PlaybackContinuity::default();
     let mut callback_mmcss = None;
     let err_fn = move |err| {
         eprintln!("WASAPI playback stream error: {err}");
@@ -790,8 +875,11 @@ where
                     callback_mmcss = crate::realtime_priority::claim_realtime_audio();
                 }
                 for frame in data.chunks_exact_mut(channels) {
-                    let (left, right) =
-                        next_stereo_frame(&rx, &mut current, &mut cursor, &underrun_frames);
+                    let next = try_next_stereo_frame(&rx, &mut current, &mut cursor);
+                    if next.is_none() {
+                        underrun_frames.fetch_add(1, Ordering::Relaxed);
+                    }
+                    let (left, right) = continuity.render(next);
                     frame[0] = T::from_sample(left);
                     frame[1] = T::from_sample(right);
                     for sample in &mut frame[2..] {
@@ -805,27 +893,23 @@ where
         .context("failed to create WASAPI playback stream")
 }
 
-fn next_stereo_frame(
+fn try_next_stereo_frame(
     rx: &Receiver<Vec<f32>>,
     current: &mut Vec<f32>,
     cursor: &mut usize,
-    underrun_frames: &AtomicU64,
-) -> (f32, f32) {
+) -> Option<(f32, f32)> {
     loop {
         if *cursor + 1 < current.len() {
             let pair = (current[*cursor], current[*cursor + 1]);
             *cursor += 2;
-            return pair;
+            return Some(pair);
         }
         match rx.try_recv() {
             Ok(block) => {
                 *current = block;
                 *cursor = 0;
             }
-            Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => {
-                underrun_frames.fetch_add(1, Ordering::Relaxed);
-                return (0.0, 0.0);
-            }
+            Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => return None,
         }
     }
 }
@@ -848,4 +932,51 @@ fn spawn_quit_control(quit: Arc<AtomicBool>) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lookahead_peak_guard_keeps_makeup_spike_below_ceiling() {
+        let mut guard = StereoLookaheadPeakGuard::new(SAMPLE_RATE_HZ);
+        let mut input = Vec::with_capacity(900 * 2);
+        for frame in 0..900 {
+            let sample = if frame == 430 { 1.0 } else { 0.10 };
+            input.extend_from_slice(&[sample, -sample * 0.70]);
+        }
+        let output = guard.process_interleaved(&input).expect("peak guard");
+        assert!(!output.is_empty());
+        assert!(
+            output
+                .iter()
+                .all(|sample| sample.abs() <= OUTPUT_CEILING + 1.0e-5)
+        );
+    }
+
+    #[test]
+    fn playback_starvation_is_concealed_instead_of_hard_zeroed() {
+        let mut continuity = PlaybackContinuity::default();
+        let live = continuity.render(Some((0.50, -0.25)));
+        assert!((live.0 - 0.50).abs() < 1.0e-6);
+        assert!((live.1 + 0.25).abs() < 1.0e-6);
+
+        let first_missing = continuity.render(None);
+        assert!(first_missing.0 > 0.0 && first_missing.0 < live.0);
+        assert!(first_missing.1 < 0.0 && first_missing.1 > live.1);
+
+        let mut fully_concealed = first_missing;
+        for _ in 1..PLAYBACK_CONCEAL_FRAMES {
+            fully_concealed = continuity.render(None);
+        }
+        assert!(fully_concealed.0.abs() < 1.0e-6);
+        assert!(fully_concealed.1.abs() < 1.0e-6);
+
+        let resume = continuity.render(Some((0.50, -0.25)));
+        assert!(resume.0.abs() < 1.0e-6);
+        let next = continuity.render(Some((0.50, -0.25)));
+        assert!(next.0 > resume.0);
+        assert!(next.0 < 0.50);
+    }
 }
