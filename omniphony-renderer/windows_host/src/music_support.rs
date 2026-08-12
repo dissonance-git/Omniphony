@@ -1,3 +1,4 @@
+use crate::music_early_reflections::HrtfEarlyReflectionField;
 use anyhow::{Context, bail};
 use bridge_api::RInputTransport;
 use orender_engine::{Engine, RenderedAudio};
@@ -26,7 +27,7 @@ impl SpatialProfile {
             "all" | "portal" => Ok(Self::All),
             "hybrid" | "hybrid-height" | "direct-height" => Ok(Self::Hybrid),
             "direct" | "direct-hrtf" => Ok(Self::Direct),
-            "external" | "reflections" => Ok(Self::External),
+            "external" | "reflections" | "early-hrtf" | "hrtf-reflections" => Ok(Self::External),
             "prtf" | "pinna" => Ok(Self::Prtf),
             "close" | "distance" => Ok(Self::Close),
             "tracked" | "tracking" => Ok(Self::Tracked),
@@ -68,9 +69,15 @@ impl SpatialProfile {
                 cfg = cfg.replace("      level: 0.028", "      level: 0.015");
             }
             Self::External => {
-                cfg = cfg.replace("      level: 0.32", "      level: 0.42");
-                cfg = cfg.replace("      level: 0.028", "      level: 0.012");
-                cfg = cfg.replace("      rt60_s: 0.16", "      rt60_s: 0.12");
+                // Keep the current model's direct/cascade, late-field, air and
+                // spectral balance unchanged. Only replace its lightweight
+                // analytic first-order reflection bank with the fixed-cost
+                // mixed measured-HRTF early field in `music_early_reflections`.
+                cfg = current_model_room(cfg);
+                cfg = cfg.replace(
+                    "    reflections:\n      enabled: true",
+                    "    reflections:\n      enabled: false",
+                );
             }
             Self::Prtf => {
                 cfg = cfg.replace("    hrir_source: saf", "    hrir_source: prtf:100:72");
@@ -149,6 +156,7 @@ fn configure_direct_height(base: &str) -> String {
 pub(crate) struct MusicSupportRenderer {
     primary: Engine,
     height: Option<Engine>,
+    early_reflections: Option<HrtfEarlyReflectionField>,
     primary_pcm: Vec<u8>,
     height_pcm: Vec<u8>,
 }
@@ -175,6 +183,8 @@ impl MusicSupportRenderer {
         } else {
             None
         };
+        let early_reflections =
+            (profile == SpatialProfile::External).then(|| HrtfEarlyReflectionField::new(sample_rate_hz));
 
         let header = streaming_f32_wav_header(MUSIC_FIELD_CHANNELS as u16, sample_rate_hz);
         seed_engine(&mut primary, &header, "primary support")?;
@@ -185,6 +195,7 @@ impl MusicSupportRenderer {
         Ok(Self {
             primary,
             height,
+            early_reflections,
             primary_pcm: Vec::new(),
             height_pcm: Vec::new(),
         })
@@ -192,6 +203,10 @@ impl MusicSupportRenderer {
 
     pub(crate) fn is_hybrid(&self) -> bool {
         self.height.is_some()
+    }
+
+    pub(crate) fn has_hrtf_early_reflections(&self) -> bool {
+        self.early_reflections.is_some()
     }
 
     pub(crate) fn process(&mut self, field_input: &[f32]) -> anyhow::Result<Vec<RenderedAudio>> {
@@ -210,9 +225,16 @@ impl MusicSupportRenderer {
             combine_rendered_blocks(primary, height)
         } else {
             f32_as_le_bytes(field_input, &mut self.primary_pcm);
-            self.primary
+            let primary = self
+                .primary
                 .process(&self.primary_pcm, RInputTransport::Raw, 0)
-                .context("music support render failed")
+                .context("music support render failed")?;
+            if let Some(reflections) = self.early_reflections.as_mut() {
+                let early = reflections.process(field_input)?;
+                add_stereo_support(primary, &early)
+            } else {
+                Ok(primary)
+            }
         }
     }
 }
@@ -283,6 +305,35 @@ fn combine_rendered_blocks(
         out.push(a);
     }
     Ok(out)
+}
+
+fn add_stereo_support(
+    mut primary: Vec<RenderedAudio>,
+    added: &[f32],
+) -> anyhow::Result<Vec<RenderedAudio>> {
+    let total: usize = primary.iter().map(|block| block.samples.len()).sum();
+    if total != added.len() {
+        bail!(
+            "HRTF early-reflection support length mismatch: renderer={} reflection_field={}",
+            total,
+            added.len()
+        );
+    }
+    let mut cursor = 0usize;
+    for block in &mut primary {
+        if block.n_channels != 2 {
+            bail!(
+                "HRTF early-reflection challenger expected stereo primary output, got {} channels",
+                block.n_channels
+            );
+        }
+        let end = cursor + block.samples.len();
+        for (dst, src) in block.samples.iter_mut().zip(&added[cursor..end]) {
+            *dst += *src;
+        }
+        cursor = end;
+    }
+    Ok(primary)
 }
 
 struct Bundle {
