@@ -42,18 +42,18 @@ const HRTF_POWER_MATCH: f32 = 0.816_496_6;
 /// meaning rather than pretending the lanes are newly inferred objects.
 /// Positive azimuth is right, positive elevation is up.
 const LANE_DIRECTIONS_DEG: [(f32, f32); MUSIC_FIELD_CHANNELS] = [
-    (-30.0, 0.0),  // L
-    (30.0, 0.0),   // R
-    (0.0, 0.0),    // C (protected / normally silent in support)
-    (0.0, 0.0),    // LFE (protected / normally silent in support)
-    (-90.0, 0.0),  // Ls
-    (90.0, 0.0),   // Rs
-    (-140.0, 0.0), // Lb
-    (140.0, 0.0),  // Rb
-    (-40.0, 60.0), // Tfl
-    (40.0, 60.0),  // Tfr
-    (-140.0, 60.0),// Tbl
-    (140.0, 60.0), // Tbr
+    (-30.0, 0.0),
+    (30.0, 0.0),
+    (0.0, 0.0),
+    (0.0, 0.0),
+    (-90.0, 0.0),
+    (90.0, 0.0),
+    (-140.0, 0.0),
+    (140.0, 0.0),
+    (-40.0, 60.0),
+    (40.0, 60.0),
+    (-140.0, 60.0),
+    (140.0, 60.0),
 ];
 
 #[derive(Clone, Copy, Default)]
@@ -88,7 +88,7 @@ impl SourceReflectionBank {
             let distance_gain = (REF_DISTANCE_M / image_distance).clamp(0.0, MAX_DISTANCE_GAIN);
             let hf_gain = (GENERIC_WALL_HF_AMPLITUDE
                 * (-EXTRA_PATH_HF_DECAY_PER_M * relative_path_m).exp())
-                .clamp(0.45, 0.90);
+            .clamp(0.45, 0.90);
             taps[i] = PathTap {
                 delay_samples: (delay_s * sample_rate_hz as f32).clamp(0.0, (cap - 2) as f32),
                 gain: CURRENT_REFLECTION_LEVEL * distance_gain,
@@ -98,8 +98,6 @@ impl SourceReflectionBank {
             directions[i] = normalized(image);
         }
 
-        // Match the current renderer's source-distance air cue before the
-        // reflection-only wall/extra-path loss is applied.
         let air_coeff = if direct_distance > 3.0 {
             let fc = (20_000.0 * (-0.05 * (direct_distance - 3.0)).exp()).max(2_000.0);
             (-std::f32::consts::TAU * fc / sample_rate_hz as f32).exp()
@@ -113,8 +111,7 @@ impl SourceReflectionBank {
                 write_pos: 0,
                 taps,
                 tone_alpha: 1.0
-                    - (-std::f32::consts::TAU * TONE_SPLIT_HZ / sample_rate_hz as f32)
-                        .exp(),
+                    - (-std::f32::consts::TAU * TONE_SPLIT_HZ / sample_rate_hz as f32).exp(),
                 air_state: 0.0,
                 air_coeff,
             },
@@ -193,11 +190,6 @@ impl HrtfWallBus {
     }
 }
 
-/// Fixed-cost measured-HRTF early field for the twelve music evidence lanes.
-///
-/// Every source contribution is delayed and wall-filtered independently first.
-/// Contributions that hit the same physical wall are then summed, producing six
-/// wall buses. Each wall bus receives one measured KEMAR HRTF + analytic ITD.
 pub(crate) struct HrtfEarlyReflectionField {
     sources: Vec<Option<SourceReflectionBank>>,
     buses: [HrtfWallBus; NUM_REFLECTIONS],
@@ -210,9 +202,6 @@ impl HrtfEarlyReflectionField {
         let mut direction_weight = [0.0f32; NUM_REFLECTIONS];
 
         for channel in 0..MUSIC_FIELD_CHANNELS {
-            // Center and LFE remain protected by the master and are deliberately
-            // absent from the derived music support field. Ignore them here too
-            // if an upstream regression ever leaks energy into those lanes.
             if matches!(channel, 2 | 3) {
                 sources.push(None);
                 continue;
@@ -232,7 +221,7 @@ impl HrtfEarlyReflectionField {
 
         let measured = MeasuredHrirData::saf_kemar().resampled_to(sample_rate_hz);
         let hrir = HrirSet::new(&measured, sample_rate_hz);
-        let fallback = [
+        let fallback: [[f32; 3]; NUM_REFLECTIONS] = [
             [1.0, 0.0, 0.0],
             [-1.0, 0.0, 0.0],
             [0.0, 1.0, 0.0],
@@ -240,14 +229,14 @@ impl HrtfEarlyReflectionField {
             [0.0, 0.0, 1.0],
             [0.0, 0.0, -1.0],
         ];
-        let directions = std::array::from_fn(|wall| {
+        let directions: [[f32; 3]; NUM_REFLECTIONS] = std::array::from_fn(|wall| {
             if direction_weight[wall] > 1e-9 {
                 normalized(direction_sum[wall])
             } else {
                 fallback[wall]
             }
         });
-        let buses = std::array::from_fn(|wall| {
+        let buses: [HrtfWallBus; NUM_REFLECTIONS] = std::array::from_fn(|wall| {
             HrtfWallBus::new(sample_rate_hz, &hrir, directions[wall])
         });
         Self { sources, buses }
@@ -341,13 +330,16 @@ mod tests {
     fn first_order_field_is_delayed_not_a_second_direct_copy() {
         let mut field = HrtfEarlyReflectionField::new(48_000);
         let out = field.process(&impulse_field(6_000, 0)).unwrap();
-        // The current 23x32x21 m room makes the closest first-order detour many
-        // milliseconds long. The first 10 ms must therefore contain no added
-        // reflection energy at all.
         let early_energy: f32 = out[..960].iter().map(|x| x * x).sum();
         let tail_energy: f32 = out[960..].iter().map(|x| x * x).sum();
-        assert!(early_energy < 1e-10, "early reflection arrived too soon: {early_energy}");
-        assert!(tail_energy > 1e-8, "HRTF reflection field produced no delayed energy");
+        assert!(
+            early_energy < 1e-10,
+            "early reflection arrived too soon: {early_energy}"
+        );
+        assert!(
+            tail_energy > 1e-8,
+            "HRTF reflection field produced no delayed energy"
+        );
     }
 
     #[test]
@@ -368,7 +360,10 @@ mod tests {
             .zip(&actual)
             .map(|(a, b)| (a - b).abs())
             .fold(0.0f32, f32::max);
-        assert!(max_error < 1e-6, "callback boundary changed reflection field: {max_error}");
+        assert!(
+            max_error < 1e-6,
+            "callback boundary changed reflection field: {max_error}"
+        );
     }
 
     #[test]
@@ -388,7 +383,13 @@ mod tests {
             left_energy[0] += ll * ll;
             left_energy[1] += lr * lr;
         }
-        assert!(right_energy[1] > right_energy[0], "right wall lacks right-ear dominance: {right_energy:?}");
-        assert!(left_energy[0] > left_energy[1], "left wall lacks left-ear dominance: {left_energy:?}");
+        assert!(
+            right_energy[1] > right_energy[0],
+            "right wall lacks right-ear dominance: {right_energy:?}"
+        );
+        assert!(
+            left_energy[0] > left_energy[1],
+            "left wall lacks left-ear dominance: {left_energy:?}"
+        );
     }
 }
