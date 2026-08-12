@@ -31,8 +31,11 @@ const FIELD_SUPPORT_GAIN: f32 = 1.00;
 /// Fixed linear output headroom shared by ON and OFF.
 const LINEAR_OUTPUT_GAIN: f32 = 0.90;
 /// Fixed listening-level reclaim downstream of every spatial mechanism.
-const OUTPUT_MAKEUP_DB: f32 = 3.5;
-const OUTPUT_MAKEUP_GAIN: f32 = 1.496_235_6;
+/// Physical listening found the tonal/power balance right but the total level a
+/// little high, so reduce only this final fixed gain instead of touching bass,
+/// foundation, support balance, or the peak-safety law.
+const OUTPUT_MAKEUP_DB: f32 = 2.8;
+const OUTPUT_MAKEUP_GAIN: f32 = 1.380_384_3;
 /// Conservative sample ceiling leaves margin for inter-sample reconstruction.
 const OUTPUT_CEILING_DBFS: f32 = -1.0;
 const OUTPUT_CEILING: f32 = 0.891_250_9;
@@ -61,8 +64,7 @@ fn parse_args() -> anyhow::Result<Args> {
             "-h" | "--help" => {
                 println!(
                     "Omniphony protected-master full-sphere stereo renderer\n\n\
-                     Runtime profile is selected with OMNIPHONY_PROFILE.\n\
-                     Profiles: control|all|hybrid|direct|external|prtf|close|tracked|diffuse\n"
+                     One normal listening path: Current model.\n"
                 );
                 std::process::exit(0);
             }
