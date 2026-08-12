@@ -1,59 +1,66 @@
-# Protected-master stereo support-field prototype.
+# Protected-master stereo support field.
 #
 # The finished stereo master never enters this scene. The portable music-field
-# processor analyzes real L/R magnitude + phase by frequency and emits a derived
-# logical 7.1.4 support bed in canonical bridge order:
+# processor analyzes real L/R magnitude + phase by frequency and emits twelve
+# trustworthy support lanes in canonical 7.1.4 bridge order. Those lanes are
+# NOT treated as an authored 22-channel mix. In the active Windows music path
+# they are spatial virtual objects rendered by Omniphony/VBAP onto a denser
+# ITU-R BS.2051 System-H-derived 22-direction shell before binauralisation.
 #
-#   L/R         broad front/front-side extent
-#   C/LFE       zero (center authority + bass remain in the direct master)
-#   Ls/Rs       wide lateral continuity / balance
-#   Lb/Rb       real rear depth without rear dominance
-#   Tfl/Tfr     dominant front-height distance / canopy
-#   Tbl/Tbr     upper-rear closure and depth
+# Design law for this frontier:
 #
-# Baseline 1 established cascaded binaural as the active headphone architecture:
-# the derived support bed runs through Omniphony's full virtual-speaker stage and
-# the resulting virtual room is then binauralised by the inherited HRTF/ITD core.
+#   larger environment != blurrier sources
 #
-# This post-baseline frontier deliberately pushes geometry while the renderer's
-# early-reflection implementation gains frequency-dependent wall / extra-path HF
-# loss. Larger is no longer allowed to mean spectrally shinier.
-#
+# Scale comes from denser full-sphere sampling, room geometry, propagation,
+# binaural early reflections and air loss. Direct musical evidence is made
+# *narrower* than Baseline 1 so the scene can grow without dissolving into fog.
 # The protected master and coherent foundation remain outside the virtual room.
-# They are summed with rendered support later in the Windows host.
 render:
   master_gain: 0.0
   auto_gain: false
   auto_gain_ceiling_db: -2.0
 
-  # Native speaker EFFECT SPACE. Front/back/height provide most radial scale;
-  # sides remain extremely wide for continuity rather than becoming the only
-  # source of apparent size.
-  room_width_m: 15.5
-  room_front_m: 13.0
-  room_rear_m: 10.5
-  room_height_m: 14.5
-  room_lower_m: 5.0
-  room_ratio_center_blend: 0.30
+  # Full-sphere VBAP is intentional for the System H shell. Allocate negative-Z
+  # cartesian samples so the lower layer is a real part of the gain field rather
+  # than decorative output geometry.
+  vbap_allow_negative_z: true
+  render_evaluation_mode: precomputed_cartesian
+  render_evaluation_position_interpolation: true
+  evaluation_cartesian_x_size: 12
+  evaluation_cartesian_y_size: 12
+  evaluation_cartesian_z_size: 8
+  evaluation_cartesian_z_neg_size: 4
 
-  # A little more source extent lets neighbouring virtual loudspeakers knit into
-  # a continuous shell. The direct stereo master remains untouched outside it.
+  # Native speaker effect space. Front/back/height still carry most perceptual
+  # distance, but the lower half now has enough scale to close the sphere.
+  room_width_m: 19.0
+  room_front_m: 17.0
+  room_rear_m: 14.0
+  room_height_m: 19.0
+  room_lower_m: 9.5
+  room_ratio_center_blend: 0.22
+
+  # Baseline 1 used 0.09..0.36 spread to knit a 12-speaker shell. The new shell
+  # has far more spatial samples, so source spread is deliberately reduced.
+  # Envelopment belongs to the room/environment; musical structure stays sharp.
   spread_from_distance: false
-  vbap_spread_min: 0.09
-  vbap_spread_max: 0.36
+  vbap_spread_min: 0.025
+  vbap_spread_max: 0.18
 
-  # Broadband phantom extraction operates only on the already-derived support
-  # bed. The stronger frontier value encourages authored pans / correlated motion
-  # to travel through the virtual room while leaving the protected master intact.
+  # Phantom extraction remains useful for authored pan motion, but less of it is
+  # needed now that the speaker field itself is denser. Keep one pass and avoid
+  # manufacturing a diffuse duplicate of every correlated transient.
   synthetic_objects_enabled: true
   phantom_extract_mode: broadband
   phantom_params:
-    strength: 0.28
+    strength: 0.18
     passes: 1.0
     lift: 0.0
     center: 0.0
     sides: 0.0
 
+  # These are the twelve *evidence-source* poses, not the output layout. The
+  # Windows host renders them through VBAP into the separate 22-direction shell.
   virtual_bed:
     radius_m: 1.0
     speakers:
@@ -153,25 +160,28 @@ render:
     hrir_source: saf
     spectral_compensation: saf_partial
 
-    unit_scale_m: 7.25
+    # Larger metric world than Baseline 1 (7.25 m). Distance is expressed by
+    # inherited Omniphony propagation/air/reflection behavior, not extra wetness.
+    unit_scale_m: 9.25
 
-    # The reflection room can now exceed the old hidden 20 m per-axis clamp.
-    # Its extra scale is paired with frequency-dependent wall / path HF loss in
-    # the renderer so bright material does not receive six perfect mirror copies.
+    # Steam-Audio-style principle: make the environment physically larger while
+    # *reducing* reflection gain. Longer binaural timing + path-dependent wall/HF
+    # loss should signal distance without turning the recording into a hall.
     reflections:
       enabled: true
-      room_width_m: 17.0
-      room_depth_m: 27.0
-      room_height_m: 15.5
-      level: 0.38
+      room_width_m: 23.0
+      room_depth_m: 32.0
+      room_height_m: 21.0
+      level: 0.32
 
-    # Late field remains glue, not the source of the bubble.
+    # Late field is only low-level closure. The bubble is owned by geometry,
+    # HRTF/ITD and the early field rather than a large reverb tail.
     reverb:
       enabled: true
-      level: 0.035
-      rt60_s: 0.17
-      predelay_ms: 28.0
+      level: 0.028
+      rt60_s: 0.16
+      predelay_ms: 32.0
 
-    # Native distance-dependent HF attenuation touches only the derived support
-    # scene. The authoritative stereo master stays full-band outside this scene.
+    # Native distance-dependent HF attenuation touches only derived support.
+    # The authoritative stereo master remains full-band outside this scene.
     air_absorption: true
