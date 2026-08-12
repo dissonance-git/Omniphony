@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/scripts/apply_front_canopy_loudness.py'
+      - '.github/front-canopy-trigger'
   workflow_dispatch:
 
 permissions:
