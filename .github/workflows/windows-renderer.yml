@@ -109,6 +109,9 @@ jobs:
       - name: Check native Windows host
         run: cargo check -p windows_host --bin omniphony_app
 
+      - name: Test HRTF early-reflection challenger
+        run: cargo test -p windows_host --bin omniphony_app music_early_reflections::tests
+
   windows-live-artifact:
     name: Windows x64 Omniphony prototype
     runs-on: windows-latest
