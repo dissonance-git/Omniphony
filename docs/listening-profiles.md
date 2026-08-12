@@ -17,7 +17,7 @@ With no argument, `START-OMNIPHONY.cmd` selects `all`.
 
 ## control
 
-Reference for this experiment series.
+Prior reference for this experiment series.
 
 - cascaded binaural
 - measured SAF/KEMAR HRTF
@@ -30,7 +30,7 @@ Reference for this experiment series.
 
 ## all
 
-Conservative combined candidate.
+The current model and default listening reference.
 
 Relative to `control`:
 
@@ -41,6 +41,48 @@ Relative to `control`:
 
 It deliberately does not stack mutually exclusive HRTF models or increase late
 reverberation simply to sound larger.
+
+## hybrid
+
+Experimental direct-height challenger to `all`.
+
+The twelve evidence lanes are partitioned before rendering:
+
+```text
+L R C LFE Ls Rs Lb Rb
+→ current `all` cascaded virtual-speaker world
+
+TFL TFR TBL TBR
+→ measured SAF/KEMAR direct HRTF
+
+stereo cascade + stereo direct height
+→ linear support sum
+```
+
+Hard routing law:
+
+> A height sample enters one spatial route, never both.
+
+The direct-height engine is deliberately source-pure:
+
+- no phantom extraction;
+- no generated objects;
+- no second early-reflection room;
+- no late reverb;
+- no air-absorption pass;
+- no cascade-specific SAF spectral compensation.
+
+The surrounding eight-lane branch keeps the current `all` room and cascade.
+The protected master and coherent foundation remain outside both spatial routes.
+
+Renderer tests establish two mechanical safety properties before listening:
+
+- the 8+4 evidence split is exclusive and sample-wise lossless;
+- an elevated off-grid source has direct and cascaded first arrivals aligned to
+  within one sample frame after both native paths are settled.
+
+Those are engineering constraints, not proof that `hybrid` sounds better. `all`
+remains the current model until physical listening says otherwise.
 
 ## direct
 
@@ -54,7 +96,7 @@ Relative to `control`:
 - late reverb level 0.015
 
 This isolates the localization cost/benefit of removing the VBAP virtual-speaker
-stage before HRTF rendering. It is not the future hybrid-height implementation.
+stage before HRTF rendering for the entire support field.
 
 ## external
 
@@ -125,7 +167,6 @@ and binaural early-field cues.
 These remain separate engineering/research obligations rather than being faked
 with a nearby-looking effect:
 
-- hybrid cascaded enclosure plus direct-only height HRTF branch;
 - full-HRTF convolution for selected early reflections;
 - dedicated near-field HRTF filtering;
 - explicit short-term interaural-coherence shaping;
