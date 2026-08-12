@@ -1,0 +1,175 @@
+# Headphone-listening experiment derived from ITU-R BS.2051 System H.
+#
+# This is not a normative System H layout. It keeps the current +60-degree
+# headphone upper ring but moves the diagonal upper directions from +/-45 and
+# +/-135 degrees azimuth to +/-40 and +/-140 degrees. Elevation stays +60.
+#
+# Omniphony's HRTF cache is sampled on a 10-degree azimuth/elevation grid. The
+# upper directions below therefore land exactly on cached HRTF nodes instead of
+# requiring bilinear interpolation between neighbouring HRIRs. This is a narrow
+# static-source experiment, not a claim that nearest HRTF sampling is universally
+# preferable for moving sources.
+#
+# Coordinates use Omniphony's convention:
+#   x = right (+), y = front (+), z = up (+)
+name: "System-H-derived 22.0 shell, +60-degree grid-aligned upper ring"
+radius_m: 1
+speakers:
+  - name: "FC"
+    coord_mode: "cartesian"
+    x: 0.0
+    y: 1.0
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+  - name: "FLc"
+    coord_mode: "cartesian"
+    x: -0.500000
+    y: 0.866025
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+  - name: "FRc"
+    coord_mode: "cartesian"
+    x: 0.500000
+    y: 0.866025
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+  - name: "FL"
+    coord_mode: "cartesian"
+    x: -0.866025
+    y: 0.500000
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+  - name: "FR"
+    coord_mode: "cartesian"
+    x: 0.866025
+    y: 0.500000
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+  - name: "SiL"
+    coord_mode: "cartesian"
+    x: -1.0
+    y: 0.0
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+  - name: "SiR"
+    coord_mode: "cartesian"
+    x: 1.0
+    y: 0.0
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+  - name: "BL"
+    coord_mode: "cartesian"
+    x: -0.707107
+    y: -0.707107
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+  - name: "BR"
+    coord_mode: "cartesian"
+    x: 0.707107
+    y: -0.707107
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+  - name: "BC"
+    coord_mode: "cartesian"
+    x: 0.0
+    y: -1.0
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+
+  # Upper layer: elevation +60 degrees. Azimuths are exact 10-degree grid nodes.
+  - name: "TpFC"
+    coord_mode: "cartesian"
+    x: 0.0
+    y: 0.500000
+    z: 0.866025
+    spatialize: true
+    delay_ms: 0
+  - name: "TpFL"
+    coord_mode: "cartesian"
+    x: -0.321394
+    y: 0.383022
+    z: 0.866025
+    spatialize: true
+    delay_ms: 0
+  - name: "TpFR"
+    coord_mode: "cartesian"
+    x: 0.321394
+    y: 0.383022
+    z: 0.866025
+    spatialize: true
+    delay_ms: 0
+  - name: "TpSiL"
+    coord_mode: "cartesian"
+    x: -0.500000
+    y: 0.0
+    z: 0.866025
+    spatialize: true
+    delay_ms: 0
+  - name: "TpSiR"
+    coord_mode: "cartesian"
+    x: 0.500000
+    y: 0.0
+    z: 0.866025
+    spatialize: true
+    delay_ms: 0
+  - name: "TpBL"
+    coord_mode: "cartesian"
+    x: -0.321394
+    y: -0.383022
+    z: 0.866025
+    spatialize: true
+    delay_ms: 0
+  - name: "TpBR"
+    coord_mode: "cartesian"
+    x: 0.321394
+    y: -0.383022
+    z: 0.866025
+    spatialize: true
+    delay_ms: 0
+  - name: "TpBC"
+    coord_mode: "cartesian"
+    x: 0.0
+    y: -0.500000
+    z: 0.866025
+    spatialize: true
+    delay_ms: 0
+  - name: "TpC"
+    coord_mode: "cartesian"
+    x: 0.0
+    y: 0.0
+    z: 1.0
+    spatialize: true
+    delay_ms: 0
+
+  # Bottom layer unchanged from the current System-H-derived shell.
+  - name: "BtFC"
+    coord_mode: "cartesian"
+    x: 0.0
+    y: 0.866025
+    z: -0.500000
+    spatialize: true
+    delay_ms: 0
+  - name: "BtFL"
+    coord_mode: "cartesian"
+    x: -0.612372
+    y: 0.612372
+    z: -0.500000
+    spatialize: true
+    delay_ms: 0
+  - name: "BtFR"
+    coord_mode: "cartesian"
+    x: 0.612372
+    y: 0.612372
+    z: -0.500000
+    spatialize: true
+    delay_ms: 0
