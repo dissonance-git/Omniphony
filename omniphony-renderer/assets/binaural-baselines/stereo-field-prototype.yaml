@@ -61,6 +61,9 @@ render:
 
   # These are the twelve *evidence-source* poses, not the output layout. The
   # Windows host renders them through VBAP into the separate 22-direction shell.
+  # The upper-front pair is deliberately steeper (~57 deg elevation) than the
+  # rear-height pair: physical listening wants the front face of the sphere to
+  # rise while preserving the successful below-ear / lower-hemisphere wrap.
   virtual_bed:
     radius_m: 1.0
     speakers:
@@ -128,14 +131,14 @@ render:
         coord_mode: "cartesian"
         x: -0.96
         y: 1.0
-        z: 1.65
+        z: 2.15
         spatialize: true
         delay_ms: 0
       - name: "TFR"
         coord_mode: "cartesian"
         x: 0.96
         y: 1.0
-        z: 1.65
+        z: 2.15
         spatialize: true
         delay_ms: 0
 

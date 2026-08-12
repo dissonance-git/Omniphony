@@ -39,6 +39,12 @@ const LOW_MID_SUPPORT_SCALE: f32 = 0.82;
 /// so bright partials do not become hard-edged while the master retains all
 /// authored attack and clarity.
 const PRESENCE_SUPPORT_SCALE: f32 = 0.83;
+/// Raise the *front face* of the sphere without buying elevation with treble.
+/// Only body/presence support is rebalanced upward; >5 kHz is unchanged.
+const FRONT_CANOPY_LOW_MID_GAIN: f32 = 1.24;
+const FRONT_CANOPY_PRESENCE_GAIN: f32 = 1.18;
+const FRONT_HORIZONTAL_LOW_MID_RETENTION: f32 = 0.94;
+const FRONT_HORIZONTAL_PRESENCE_RETENTION: f32 = 0.96;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MusicFieldSnapshot {
@@ -278,6 +284,28 @@ impl MusicFieldProcessor {
                     height * (0.06 * broad_l + 0.10 * lateral_l + 0.19 * diffuse_l);
                 let mut band_top_rear_r =
                     height * (0.06 * broad_r + 0.10 * lateral_r + 0.19 * diffuse_r);
+
+                // Front-canopy recentering: move a little body/presence authority
+                // from the ear-level front toward the upper-front evidence pair.
+                // The top band is intentionally untouched so stronger elevation
+                // cannot reintroduce the cymbal/pinna glare fixed by prior builds.
+                let (front_retention, canopy_gain) = if band == 1 {
+                    (
+                        FRONT_HORIZONTAL_LOW_MID_RETENTION,
+                        FRONT_CANOPY_LOW_MID_GAIN,
+                    )
+                } else if band == 2 {
+                    (
+                        FRONT_HORIZONTAL_PRESENCE_RETENTION,
+                        FRONT_CANOPY_PRESENCE_GAIN,
+                    )
+                } else {
+                    (1.0, 1.0)
+                };
+                band_front_l *= front_retention;
+                band_front_r *= front_retention;
+                band_top_front_l *= canopy_gain;
+                band_top_front_r *= canopy_gain;
 
                 // Keep the musical body region direct-dominant so kicks, toms,
                 // snare body and bass transients do not lose authority to room

@@ -32,6 +32,15 @@ const FIELD_SUPPORT_GAIN: f32 = 1.00;
 /// about 0.9 dB of fixed headroom while we gather real peak evidence from the
 /// frontier build. Do not reintroduce sample-wise support clipping.
 const LINEAR_OUTPUT_GAIN: f32 = 0.90;
+/// Requested listening-level reclaim relative to the current grounded build.
+/// This is deliberately downstream of every spatial mechanism.
+const OUTPUT_MAKEUP_DB: f32 = 3.5;
+const OUTPUT_MAKEUP_GAIN: f32 = 1.496_235_6;
+/// Conservative sample ceiling leaves margin for inter-sample reconstruction.
+const OUTPUT_CEILING_DBFS: f32 = -1.0;
+const OUTPUT_CEILING: f32 = 0.891_250_9;
+const OUTPUT_LOOKAHEAD_FRAMES: usize = 240; // 5 ms at 48 kHz.
+const OUTPUT_RELEASE_MS: f32 = 160.0;
 const METER_INTERVAL_SECS: u64 = 5;
 
 #[derive(Default)]
@@ -68,6 +77,112 @@ fn parse_args() -> anyhow::Result<Args> {
         }
     }
     Ok(parsed)
+}
+
+/// Final-bus safety only. This is not a loudness leveller or spatial AGC.
+///
+/// The best spatial build already exists upstream of this point. The guard adds
+/// fixed makeup gain, delays both channels equally, and applies one stereo-linked
+/// attenuation envelope only when a future peak would cross the endpoint ceiling.
+/// Relative L/R amplitude and all upstream spatial relationships are preserved.
+struct StereoLookaheadPeakGuard {
+    frames: VecDeque<[f32; 2]>,
+    gain: f32,
+    release_coeff: f32,
+    min_gain_since_report: f32,
+}
+
+impl StereoLookaheadPeakGuard {
+    fn new(sample_rate_hz: u32) -> Self {
+        let release_seconds = OUTPUT_RELEASE_MS / 1000.0;
+        let release_coeff = (-1.0 / (release_seconds * sample_rate_hz.max(1) as f32)).exp();
+        Self {
+            frames: VecDeque::with_capacity(OUTPUT_LOOKAHEAD_FRAMES + 2),
+            gain: 1.0,
+            release_coeff,
+            min_gain_since_report: 1.0,
+        }
+    }
+
+    fn process_interleaved(&mut self, input: &[f32]) -> anyhow::Result<Vec<f32>> {
+        if input.len() % 2 != 0 {
+            bail!("output peak guard requires interleaved stereo samples");
+        }
+        let mut out = Vec::with_capacity(input.len());
+        for frame in input.chunks_exact(2) {
+            let left = if frame[0].is_finite() { frame[0] } else { 0.0 };
+            let right = if frame[1].is_finite() { frame[1] } else { 0.0 };
+            self.frames
+                .push_back([left * OUTPUT_MAKEUP_GAIN, right * OUTPUT_MAKEUP_GAIN]);
+
+            if self.frames.len() <= OUTPUT_LOOKAHEAD_FRAMES {
+                continue;
+            }
+
+            let mut future_peak = 0.0_f32;
+            let mut peak_index = 0usize;
+            for (index, queued) in self.frames.iter().enumerate() {
+                let peak = queued[0].abs().max(queued[1].abs());
+                if peak > future_peak {
+                    future_peak = peak;
+                    peak_index = index;
+                }
+            }
+            let target_gain = if future_peak > OUTPUT_CEILING {
+                OUTPUT_CEILING / future_peak
+            } else {
+                1.0
+            };
+
+            if target_gain < self.gain {
+                // The peak is `peak_index` frames ahead of the sample leaving the
+                // delay line. Ramp only as fast as necessary to reach the target
+                // before that peak arrives.
+                if peak_index == 0 {
+                    self.gain = target_gain;
+                } else {
+                    self.gain += (target_gain - self.gain) / peak_index as f32;
+                }
+            } else {
+                // Release slowly toward the currently-safe target.
+                self.gain = target_gain - (target_gain - self.gain) * self.release_coeff;
+            }
+
+            let current = self
+                .frames
+                .pop_front()
+                .expect("lookahead queue is non-empty");
+            let current_peak = current[0].abs().max(current[1].abs());
+            let immediate_safe_gain = if current_peak > OUTPUT_CEILING {
+                OUTPUT_CEILING / current_peak
+            } else {
+                1.0
+            };
+            let applied_gain = self.gain.min(immediate_safe_gain).clamp(0.0, 1.0);
+            self.gain = self.gain.min(applied_gain);
+            self.min_gain_since_report = self.min_gain_since_report.min(applied_gain);
+            out.push(current[0] * applied_gain);
+            out.push(current[1] * applied_gain);
+        }
+        Ok(out)
+    }
+
+    fn take_max_reduction_db(&mut self) -> f32 {
+        let reduction = if self.min_gain_since_report < 1.0 {
+            -20.0 * self.min_gain_since_report.max(1.0e-6).log10()
+        } else {
+            0.0
+        };
+        self.min_gain_since_report = 1.0;
+        reduction
+    }
+}
+
+fn report_output_peak_guard(guard: &mut StereoLookaheadPeakGuard) {
+    let reduction_db = guard.take_max_reduction_db();
+    println!(
+        "  output: +{OUTPUT_MAKEUP_DB:.1} dB makeup, ceiling={OUTPUT_CEILING_DBFS:.1} dBFS, max peak reduction={reduction_db:.2} dB"
+    );
 }
 
 #[derive(Default)]
@@ -203,7 +318,7 @@ pub fn run() -> anyhow::Result<()> {
         FIELD_SUPPORT_GAIN * 100.0
     );
     println!(
-        "  headroom: {:.1} dB fixed linear output gain, identical ON/OFF reference gain",
+        "  output: {:.1} dB base trim + {OUTPUT_MAKEUP_DB:.1} dB makeup; {OUTPUT_CEILING_DBFS:.1} dBFS stereo-linked look-ahead safety ceiling",
         20.0 * LINEAR_OUTPUT_GAIN.log10()
     );
     println!(
@@ -258,6 +373,7 @@ pub fn run() -> anyhow::Result<()> {
 
     let mut field = MusicFieldProcessor::new(SAMPLE_RATE_HZ);
     let mut foundation = MusicFoundationProcessor::new(SAMPLE_RATE_HZ);
+    let mut output_peak_guard = StereoLookaheadPeakGuard::new(SAMPLE_RATE_HZ);
     let mut pcm_bytes = Vec::<u8>::new();
     let mut dry_fifo = VecDeque::<f32>::new();
     let mut foundation_fifo = VecDeque::<f32>::new();
@@ -292,6 +408,7 @@ pub fn run() -> anyhow::Result<()> {
         direct_meter.observe(&output_reference);
 
         if args.start_off {
+            let output_reference = output_peak_guard.process_interleaved(&output_reference)?;
             queue_block(&play_tx, output_reference)?;
             if last_meter_report.elapsed() >= Duration::from_secs(METER_INTERVAL_SECS) {
                 print_meters(
@@ -303,6 +420,7 @@ pub fn run() -> anyhow::Result<()> {
                     true,
                 );
                 report_playback_underruns(&playback_underrun_frames);
+                report_output_peak_guard(&mut output_peak_guard);
                 last_meter_report = Instant::now();
             }
             continue;
@@ -374,6 +492,7 @@ pub fn run() -> anyhow::Result<()> {
             )?;
             let dry_reference = apply_output_headroom(&dry);
             added_meter.observe_delta(&mixed, &dry_reference);
+            let mixed = output_peak_guard.process_interleaved(&mixed)?;
             queue_block(&play_tx, mixed)?;
         }
 
@@ -387,6 +506,7 @@ pub fn run() -> anyhow::Result<()> {
                 false,
             );
             report_playback_underruns(&playback_underrun_frames);
+            report_output_peak_guard(&mut output_peak_guard);
             last_meter_report = Instant::now();
         }
     }
