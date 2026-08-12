@@ -56,3 +56,5 @@ replace(
     "            lower_pinna: Biquad::peaking(sample_rate_hz, 4_800.0, 0.65, -3.40),\n            upper_pinna: Biquad::peaking(sample_rate_hz, 10_000.0, 0.80, -3.00),\n            air_tail: Biquad::high_shelf(sample_rate_hz, 12_000.0, -1.20),\n",
     "            lower_pinna: Biquad::peaking(sample_rate_hz, 4_800.0, 0.65, -3.80),\n            upper_pinna: Biquad::peaking(sample_rate_hz, 10_000.0, 0.80, -3.30),\n            air_tail: Biquad::high_shelf(sample_rate_hz, 12_000.0, -1.35),\n",
 )
+
+# Trigger marker: source tuning is applied only by the gated workflow above.
