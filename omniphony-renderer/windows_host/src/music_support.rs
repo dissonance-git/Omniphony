@@ -32,8 +32,12 @@ impl SpatialProfile {
 fn current_model_config(base: &str) -> String {
     let mut cfg = base.to_string();
     cfg = cfg.replace("      level: 0.32", "      level: 0.36");
-    cfg = cfg.replace("      level: 0.028", "      level: 0.020");
-    cfg = cfg.replace("      rt60_s: 0.16", "      rt60_s: 0.14");
+    // Keep the transient-aware measured-HRTF early field intact, but reduce the
+    // low-level late closure after listening found the center slightly too wet.
+    // Spatial scale should come from geometry and early directional evidence,
+    // leaving centered vocals anchored in the protected master.
+    cfg = cfg.replace("      level: 0.028", "      level: 0.016");
+    cfg = cfg.replace("      rt60_s: 0.16", "      rt60_s: 0.12");
 
     // The Current model owns first-order reflections in the fixed-cost six-bus
     // measured-HRTF field below, so disable the inherited analytic reflection
