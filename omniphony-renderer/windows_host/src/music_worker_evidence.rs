@@ -43,6 +43,117 @@ const OUTPUT_LOOKAHEAD_FRAMES: usize = 240; // 5 ms at 48 kHz.
 const OUTPUT_RELEASE_MS: f32 = 160.0;
 const METER_INTERVAL_SECS: u64 = 5;
 
+/// Listening profiles keep mutually-exclusive spatial hypotheses in one binary.
+/// `control` is the exact current best before this matrix. `all` is the default
+/// conservative combined candidate; the other profiles isolate specific DSP
+/// families so subjective wins can be attributed instead of accumulated blindly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpatialProfile {
+    Control,
+    All,
+    Direct,
+    External,
+    Prtf,
+    Close,
+    Tracked,
+    Diffuse,
+}
+
+impl SpatialProfile {
+    fn from_env() -> anyhow::Result<Self> {
+        let raw = std::env::var("OMNIPHONY_PROFILE").unwrap_or_else(|_| "all".to_string());
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "control" | "best" => Ok(Self::Control),
+            "all" | "portal" => Ok(Self::All),
+            "direct" | "direct-hrtf" => Ok(Self::Direct),
+            "external" | "reflections" => Ok(Self::External),
+            "prtf" | "pinna" => Ok(Self::Prtf),
+            "close" | "distance" => Ok(Self::Close),
+            "tracked" | "tracking" => Ok(Self::Tracked),
+            "diffuse" | "decorrelated" => Ok(Self::Diffuse),
+            other => bail!(
+                "unknown OMNIPHONY_PROFILE '{other}'; expected control|all|direct|external|prtf|close|tracked|diffuse"
+            ),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Control => "control",
+            Self::All => "all",
+            Self::Direct => "direct",
+            Self::External => "external",
+            Self::Prtf => "prtf",
+            Self::Close => "close",
+            Self::Tracked => "tracked",
+            Self::Diffuse => "diffuse",
+        }
+    }
+
+    fn uses_grid_aligned_upper_shell(self) -> bool {
+        !matches!(self, Self::Control | Self::Direct)
+    }
+
+    fn configure(self, base: &str) -> String {
+        let mut cfg = base.to_string();
+        match self {
+            Self::Control => {}
+            Self::All => {
+                cfg = cfg.replace("      level: 0.32", "      level: 0.36");
+                cfg = cfg.replace("      level: 0.028", "      level: 0.020");
+                cfg = cfg.replace("      rt60_s: 0.16", "      rt60_s: 0.14");
+            }
+            Self::Direct => {
+                cfg = cfg.replace("    mode: cascaded", "    mode: direct");
+                cfg = cfg.replace("      level: 0.32", "      level: 0.24");
+                cfg = cfg.replace("      level: 0.028", "      level: 0.015");
+            }
+            Self::External => {
+                cfg = cfg.replace("      level: 0.32", "      level: 0.42");
+                cfg = cfg.replace("      level: 0.028", "      level: 0.012");
+                cfg = cfg.replace("      rt60_s: 0.16", "      rt60_s: 0.12");
+            }
+            Self::Prtf => {
+                cfg = cfg.replace("    hrir_source: saf", "    hrir_source: prtf:100:72");
+                cfg = cfg.replace(
+                    "    spectral_compensation: saf_partial",
+                    "    spectral_compensation: off",
+                );
+            }
+            Self::Close => {
+                // Distance-cue experiment only. This is deliberately not called
+                // a validated near-field HRTF model: current renderer distance
+                // changes air/reflection/reverb relationships but does not yet
+                // apply a dedicated near-field HRTF transform.
+                cfg = cfg.replace("    unit_scale_m: 9.25", "    unit_scale_m: 2.25");
+                cfg = cfg.replace("      room_width_m: 23.0", "      room_width_m: 8.0");
+                cfg = cfg.replace("      room_depth_m: 32.0", "      room_depth_m: 11.0");
+                cfg = cfg.replace("      room_height_m: 21.0", "      room_height_m: 7.0");
+                cfg = cfg.replace("      level: 0.32", "      level: 0.24");
+                cfg = cfg.replace("      level: 0.028", "      level: 0.012");
+            }
+            Self::Tracked => {
+                cfg = cfg.replace("      level: 0.32", "      level: 0.36");
+                cfg = cfg.replace("      level: 0.028", "      level: 0.020");
+                cfg = cfg.replace(
+                    "    air_absorption: true\n",
+                    "    air_absorption: true\n    head_tracking:\n      osc_address: \"/android/rotationvector\"\n      format: \"rotvec\"\n",
+                );
+            }
+            Self::Diffuse => {
+                // Deliberate negative-control-ish profile: more late decorrelated
+                // field and less early reflection authority. If it only sounds
+                // wider but less located, coherent/external cues win the test.
+                cfg = cfg.replace("      level: 0.32", "      level: 0.24");
+                cfg = cfg.replace("      level: 0.028", "      level: 0.055");
+                cfg = cfg.replace("      rt60_s: 0.16", "      rt60_s: 0.28");
+                cfg = cfg.replace("      predelay_ms: 32.0", "      predelay_ms: 24.0");
+            }
+        }
+        cfg
+    }
+}
+
 #[derive(Default)]
 struct Args {
     output: Option<String>,
@@ -135,16 +246,12 @@ impl StereoLookaheadPeakGuard {
             };
 
             if target_gain < self.gain {
-                // The peak is `peak_index` frames ahead of the sample leaving the
-                // delay line. Ramp only as fast as necessary to reach the target
-                // before that peak arrives.
                 if peak_index == 0 {
                     self.gain = target_gain;
                 } else {
                     self.gain += (target_gain - self.gain) / peak_index as f32;
                 }
             } else {
-                // Release slowly toward the currently-safe target.
                 self.gain = target_gain - (target_gain - self.gain) * self.release_coeff;
             }
 
@@ -297,6 +404,7 @@ fn report_playback_underruns(counter: &AtomicU64) {
 
 pub fn run() -> anyhow::Result<()> {
     let args = parse_args()?;
+    let profile = SpatialProfile::from_env()?;
     let host = cpal::default_host();
     let output_device = choose_output_device(&host, args.output.as_deref())?;
     let output_name = output_device
@@ -306,12 +414,13 @@ pub fn run() -> anyhow::Result<()> {
     let mut loopback = LoopbackCapture::open_stereo(SAMPLE_RATE_HZ)?;
 
     println!("Omniphony for Headphones - protected-master full-sphere renderer");
+    println!("  profile: {}", profile.as_str());
     println!("  capture: {SAMPLE_RATE_HZ} Hz / stereo / f32 process loopback");
     println!("  output:  {output_name}");
     println!("  direct:  captured stereo master remains authoritative");
     println!("  analysis: FFT magnitude + phase -> portable stereo/scene inference");
     println!("  field:   below 320 Hz protected; 320+ Hz uses 12 evidence lanes");
-    println!("  height:  vertical extent from already-spatial evidence");
+    println!("  height:  vertical extent from already-spatial evidence + coherent transfer");
     println!("  foundation: coherent pressure/body delta, no LFE/compression/saturation");
     println!(
         "  support: {:.0}% derived-field mix, linear master+foundation+support summing",
@@ -321,12 +430,9 @@ pub fn run() -> anyhow::Result<()> {
         "  output: {:.1} dB base trim + {OUTPUT_MAKEUP_DB:.1} dB makeup; {OUTPUT_CEILING_DBFS:.1} dBFS stereo-linked look-ahead safety ceiling",
         20.0 * LINEAR_OUTPUT_GAIN.log10()
     );
-    println!(
-        "  acoustics: 12 evidence lanes -> ITU System H 22-direction shell -> cascaded binaural room"
-    );
     println!("  realtime: producer + playback callback claim MMCSS; queue underruns are metered");
 
-    let bundle = Bundle::embedded()?;
+    let bundle = Bundle::embedded(profile)?;
     orender_engine::bridge_loader::register_linked_bridge(reference_bridge::linked_library)
         .context("failed to register linked reference PCM bridge")?;
     let mut field_engine = Engine::from_paths(
@@ -401,9 +507,6 @@ pub fn run() -> anyhow::Result<()> {
             continue;
         }
 
-        // Meter the raw reference at the same fixed output gain used by the ON
-        // path. The foundation delta is intentionally an ON-path enhancement;
-        // it is not folded into the clean OFF reference.
         let output_reference = apply_output_headroom(&input);
         direct_meter.observe(&output_reference);
 
@@ -426,10 +529,6 @@ pub fn run() -> anyhow::Result<()> {
             continue;
         }
 
-        // Both additive branches are causal and produce one aligned stereo
-        // foundation sample / one 12-lane support frame per input frame. Buffer
-        // them beside the authoritative dry master while the inherited renderer
-        // contributes its own bridge/binaural latency.
         dry_fifo.extend(input.iter().copied());
         let foundation_delta = foundation.process_interleaved_delta(&input);
         if foundation_delta.len() != input.len() {
@@ -550,9 +649,6 @@ fn mix_preserved_master_with_support(
         let base = if base.is_finite() { base } else { 0.0 };
         let body = if body.is_finite() { body } else { 0.0 };
         let field = if field.is_finite() { field } else { 0.0 };
-        // Pure linear superposition: protected master + coherent foundation delta
-        // + inherited-renderer support. Fixed downstream headroom owns level;
-        // nothing here clips, limits, saturates or dynamically reshapes samples.
         out.push((base + body + field * gain) * LINEAR_OUTPUT_GAIN);
     }
     Ok(out)
@@ -653,10 +749,13 @@ struct Bundle {
 }
 
 impl Bundle {
-    fn embedded() -> anyhow::Result<Self> {
+    fn embedded(profile: SpatialProfile) -> anyhow::Result<Self> {
         const FIELD_CONFIG: &str =
             include_str!("../../assets/binaural-baselines/stereo-field-prototype.yaml");
-        const LAYOUT: &str = include_str!("../../../layouts/itu-r-bs2051-system-h-22.0.yaml");
+        const CONTROL_LAYOUT: &str =
+            include_str!("../../../layouts/itu-r-bs2051-system-h-22.0.yaml");
+        const GRID_LAYOUT: &str =
+            include_str!("../../../layouts/system-h-derived-22.0-upper60-grid10.yaml");
 
         let root = std::env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
@@ -665,10 +764,17 @@ impl Bundle {
             .join("runtime");
         std::fs::create_dir_all(&root)
             .context("failed to create embedded Omniphony runtime directory")?;
-        let field_config = root.join("stereo-field-prototype.yaml");
-        let layout = root.join("itu-r-bs2051-system-h-22.0.yaml");
-        write_embedded_asset(&field_config, FIELD_CONFIG)?;
-        write_embedded_asset(&layout, LAYOUT)?;
+
+        let field_config = root.join(format!("stereo-field-{}.yaml", profile.as_str()));
+        let layout = root.join(format!("system-h-headphone-{}.yaml", profile.as_str()));
+        let configured = profile.configure(FIELD_CONFIG);
+        let layout_content = if profile.uses_grid_aligned_upper_shell() {
+            GRID_LAYOUT
+        } else {
+            CONTROL_LAYOUT
+        };
+        write_embedded_asset(&field_config, &configured)?;
+        write_embedded_asset(&layout, layout_content)?;
         Ok(Self {
             field_config,
             layout,
@@ -871,8 +977,6 @@ where
         .build_output_stream(
             config,
             move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
-                // CPAL invokes this closure on its own realtime playback thread;
-                // the producer thread's MMCSS registration does not cover it.
                 if callback_mmcss.is_none() {
                     callback_mmcss = crate::realtime_priority::claim_realtime_audio();
                 }
