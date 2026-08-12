@@ -1,0 +1,173 @@
+# ITU-R BS.2051 System H regular loudspeaker geometry, used here as a
+# 22-direction spatial rendering shell.
+#
+# System H defines 9 upper + 10 middle + 3 bottom regular loudspeakers plus
+# two LFE channels. Omniphony intentionally omits the LFE channels from this
+# support layout: bass authority remains in the protected stereo master and
+# coherent foundation path rather than being invented by the spatial branch.
+#
+# Coordinates are unit-sphere Cartesian values in Omniphony's convention:
+#   x = right (+), y = front (+), z = up (+)
+# ITU azimuth is left-positive, so its nominal azimuth signs are converted here.
+name: "ITU-R BS.2051 System H 22.0 spatial shell"
+radius_m: 1
+speakers:
+  # Middle layer: 10
+  - name: "FC"
+    coord_mode: "cartesian"
+    x: 0.0
+    y: 1.0
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+  - name: "FLc"
+    coord_mode: "cartesian"
+    x: -0.500000
+    y: 0.866025
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+  - name: "FRc"
+    coord_mode: "cartesian"
+    x: 0.500000
+    y: 0.866025
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+  - name: "FL"
+    coord_mode: "cartesian"
+    x: -0.866025
+    y: 0.500000
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+  - name: "FR"
+    coord_mode: "cartesian"
+    x: 0.866025
+    y: 0.500000
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+  - name: "SiL"
+    coord_mode: "cartesian"
+    x: -1.0
+    y: 0.0
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+  - name: "SiR"
+    coord_mode: "cartesian"
+    x: 1.0
+    y: 0.0
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+  - name: "BL"
+    coord_mode: "cartesian"
+    x: -0.707107
+    y: -0.707107
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+  - name: "BR"
+    coord_mode: "cartesian"
+    x: 0.707107
+    y: -0.707107
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+  - name: "BC"
+    coord_mode: "cartesian"
+    x: 0.0
+    y: -1.0
+    z: 0.0
+    spatialize: true
+    delay_ms: 0
+
+  # Upper layer: 8 at +30 degrees plus zenith
+  - name: "TpFC"
+    coord_mode: "cartesian"
+    x: 0.0
+    y: 0.866025
+    z: 0.500000
+    spatialize: true
+    delay_ms: 0
+  - name: "TpFL"
+    coord_mode: "cartesian"
+    x: -0.612372
+    y: 0.612372
+    z: 0.500000
+    spatialize: true
+    delay_ms: 0
+  - name: "TpFR"
+    coord_mode: "cartesian"
+    x: 0.612372
+    y: 0.612372
+    z: 0.500000
+    spatialize: true
+    delay_ms: 0
+  - name: "TpSiL"
+    coord_mode: "cartesian"
+    x: -0.866025
+    y: 0.0
+    z: 0.500000
+    spatialize: true
+    delay_ms: 0
+  - name: "TpSiR"
+    coord_mode: "cartesian"
+    x: 0.866025
+    y: 0.0
+    z: 0.500000
+    spatialize: true
+    delay_ms: 0
+  - name: "TpBL"
+    coord_mode: "cartesian"
+    x: -0.612372
+    y: -0.612372
+    z: 0.500000
+    spatialize: true
+    delay_ms: 0
+  - name: "TpBR"
+    coord_mode: "cartesian"
+    x: 0.612372
+    y: -0.612372
+    z: 0.500000
+    spatialize: true
+    delay_ms: 0
+  - name: "TpBC"
+    coord_mode: "cartesian"
+    x: 0.0
+    y: -0.866025
+    z: 0.500000
+    spatialize: true
+    delay_ms: 0
+  - name: "TpC"
+    coord_mode: "cartesian"
+    x: 0.0
+    y: 0.0
+    z: 1.0
+    spatialize: true
+    delay_ms: 0
+
+  # Bottom layer: 3 frontal directions at -30 degrees
+  - name: "BtFC"
+    coord_mode: "cartesian"
+    x: 0.0
+    y: 0.866025
+    z: -0.500000
+    spatialize: true
+    delay_ms: 0
+  - name: "BtFL"
+    coord_mode: "cartesian"
+    x: -0.612372
+    y: 0.612372
+    z: -0.500000
+    spatialize: true
+    delay_ms: 0
+  - name: "BtFR"
+    coord_mode: "cartesian"
+    x: 0.612372
+    y: 0.612372
+    z: -0.500000
+    spatialize: true
+    delay_ms: 0
