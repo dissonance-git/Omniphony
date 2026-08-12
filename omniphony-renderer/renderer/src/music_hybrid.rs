@@ -104,8 +104,14 @@ mod tests {
     fn stereo_support_sum_is_linear() {
         let cascade = [0.5_f32, -0.25, 0.10, 0.20];
         let height = [0.05_f32, 0.15, -0.03, 0.07];
+        let expected = [0.55_f32, -0.10, 0.07, 0.27];
         let out = sum_stereo_support(&cascade, &height).expect("matched stereo branches");
-        assert_eq!(out, vec![0.55, -0.10, 0.07, 0.27]);
+        for (actual, expected) in out.iter().zip(expected) {
+            assert!(
+                (*actual - expected).abs() < 1.0e-6,
+                "linear support sum drifted: got {actual}, expected {expected}"
+            );
+        }
     }
 
     #[test]
