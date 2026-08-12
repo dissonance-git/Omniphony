@@ -39,12 +39,12 @@ const LOW_MID_SUPPORT_SCALE: f32 = 0.82;
 /// so bright partials do not become hard-edged while the master retains all
 /// authored attack and clarity.
 const PRESENCE_SUPPORT_SCALE: f32 = 0.83;
-/// Raise the *front face* of the sphere without buying elevation with treble.
-/// Only body/presence support is rebalanced upward; >5 kHz is unchanged.
-const FRONT_CANOPY_LOW_MID_GAIN: f32 = 1.24;
-const FRONT_CANOPY_PRESENCE_GAIN: f32 = 1.18;
-const FRONT_HORIZONTAL_LOW_MID_RETENTION: f32 = 0.94;
-const FRONT_HORIZONTAL_PRESENCE_RETENTION: f32 = 0.96;
+/// Coherent height transfer. A fraction of an already-existing horizontal
+/// support waveform is moved, sample-for-sample, into its elevated counterpart.
+/// This is not an extra wet copy: horizontal + elevated lane amplitude is
+/// algebraically unchanged by the transfer before the binaural renderer.
+const FRONT_COHERENT_HEIGHT_TRANSFER: [f32; 3] = [0.22, 0.46, 0.38];
+const REAR_COHERENT_HEIGHT_TRANSFER: [f32; 3] = [0.12, 0.28, 0.24];
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MusicFieldSnapshot {
@@ -112,6 +112,13 @@ fn slew_signed_with_rates(current: f32, target: f32, rise: f32, fall: f32) -> f3
         fall
     };
     (current + coefficient * (target - current)).clamp(-1.0, 1.0)
+}
+
+#[inline]
+fn transfer_to_elevation(horizontal: &mut f32, elevated: &mut f32, fraction: f32) {
+    let transfer = *horizontal * fraction.clamp(0.0, 0.60);
+    *horizontal -= transfer;
+    *elevated += transfer;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -285,28 +292,6 @@ impl MusicFieldProcessor {
                 let mut band_top_rear_r =
                     height * (0.06 * broad_r + 0.10 * lateral_r + 0.19 * diffuse_r);
 
-                // Front-canopy recentering: move a little body/presence authority
-                // from the ear-level front toward the upper-front evidence pair.
-                // The top band is intentionally untouched so stronger elevation
-                // cannot reintroduce the cymbal/pinna glare fixed by prior builds.
-                let (front_retention, canopy_gain) = if band == 1 {
-                    (
-                        FRONT_HORIZONTAL_LOW_MID_RETENTION,
-                        FRONT_CANOPY_LOW_MID_GAIN,
-                    )
-                } else if band == 2 {
-                    (
-                        FRONT_HORIZONTAL_PRESENCE_RETENTION,
-                        FRONT_CANOPY_PRESENCE_GAIN,
-                    )
-                } else {
-                    (1.0, 1.0)
-                };
-                band_front_l *= front_retention;
-                band_front_r *= front_retention;
-                band_top_front_l *= canopy_gain;
-                band_top_front_r *= canopy_gain;
-
                 // Keep the musical body region direct-dominant so kicks, toms,
                 // snare body and bass transients do not lose authority to room
                 // propagation. The mid/high bands remain the stronger spatial fuel.
@@ -329,6 +314,20 @@ impl MusicFieldProcessor {
                 band_top_front_r *= static_band_scale;
                 band_top_rear_l *= static_band_scale;
                 band_top_rear_r *= static_band_scale;
+
+                // Coherent elevation transfer: move part of the exact horizontal
+                // support waveform into the matching height lane. No delay,
+                // decorrelation or second copy is created here. The HRTF stage is
+                // therefore asked to localize a real sample-coherent event above
+                // the listener instead of receiving only another weighted field.
+                let front_transfer =
+                    (height * FRONT_COHERENT_HEIGHT_TRANSFER[band - 1]).clamp(0.0, 0.60);
+                let rear_transfer =
+                    (height * REAR_COHERENT_HEIGHT_TRANSFER[band - 1]).clamp(0.0, 0.60);
+                transfer_to_elevation(&mut band_front_l, &mut band_top_front_l, front_transfer);
+                transfer_to_elevation(&mut band_front_r, &mut band_top_front_r, front_transfer);
+                transfer_to_elevation(&mut band_rear_l, &mut band_top_rear_l, rear_transfer);
+                transfer_to_elevation(&mut band_rear_r, &mut band_top_rear_r, rear_transfer);
 
                 front_l += band_front_l;
                 front_r += band_front_r;
@@ -525,6 +524,18 @@ impl MusicFieldProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn elevation_transfer_moves_signal_without_adding_a_copy() {
+        for horizontal in [0.75_f32, -0.75, 0.125, -0.125] {
+            let mut h = horizontal;
+            let mut e = 0.20_f32;
+            let before = h + e;
+            transfer_to_elevation(&mut h, &mut e, 0.35);
+            assert!((h + e - before).abs() < 1.0e-6);
+            assert!(h.abs() < horizontal.abs());
+        }
+    }
 
     #[test]
     fn mono_center_does_not_become_a_large_support_field() {
