@@ -340,6 +340,7 @@ Current profiles:
 ```text
 control   prior reference topology
 all       current combined model
+hybrid    cascaded world + exclusive direct-HRTF height challenger
 direct    direct per-evidence-lane binaural instead of cascade
 external  stronger early-field / smaller late-field candidate
 prtf      structural PRTF HRTF model instead of measured KEMAR
@@ -348,7 +349,9 @@ tracked   head-tracking-ready configuration
 diffuse   deliberately more diffuse late-field comparison
 ```
 
-A `hybrid` profile is currently being implemented to keep the cascaded 360-degree world while sending only the four height evidence lanes through direct HRTF rendering.
+`hybrid` is implemented as an experimental challenger. It keeps the current cascaded 360-degree world for the eight non-height support lanes while routing only TFL/TFR/TBL/TBR through direct measured HRTF rendering. The split is exclusive before rendering and the two native paths are sample-aligned at first arrival in the elevated test fixture.
+
+`all` remains the current model until physical listening says otherwise.
 
 These are experiment switches, not product modes.
 
@@ -554,9 +557,11 @@ The next work is ordered by expected perceptual leverage.
 
 ## A. Hybrid direct-height rendering
 
-Keep the cascaded binaural renderer for the continuous 360-degree environment, but remove the four height support lanes from the cascade and binauralize those lanes directly at their intended upper directions.
+The first hybrid challenger is now implemented for listening evaluation.
 
-Desired topology:
+It keeps the cascaded binaural renderer for the continuous 360-degree environment, removes the four height support lanes from that cascade, and binauralizes those lanes directly at their intended upper directions.
+
+Current topology:
 
 ```text
 horizontal / side / rear support
@@ -572,7 +577,9 @@ Hard requirement:
 
 > **A height sample may take one path or the other, never both.**
 
-This is the immediate implementation target.
+The portable routing test proves the 8+4 split is exclusive and sample-wise lossless. A separate elevated impulse test shows the native direct and cascaded paths arrive within one sample frame after settling.
+
+Those are mechanical safety results, not a perceptual win. `all` remains the current model until the hybrid challenger beats it in physical listening.
 
 ## B. Directional-HRTF early reflections
 
