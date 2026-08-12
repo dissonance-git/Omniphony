@@ -26,7 +26,7 @@ replacements = [
     ),
     (
         '        const LAYOUT: &str = include_str!("../../../layouts/7.1.4.yaml");',
-        '        const LAYOUT: &str =\n            include_str!("../../../layouts/itu-r-bs2051-system-h-22.0.yaml");',
+        '        const LAYOUT: &str = include_str!("../../../layouts/itu-r-bs2051-system-h-22.0.yaml");',
     ),
     (
         '        let layout = root.join("7.1.4.yaml");',
