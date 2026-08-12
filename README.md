@@ -1,59 +1,35 @@
 # Omniphony
 
-Omniphony is an experimental, always-on headphone spatial processor built from the upstream `mgth/Omniphony` renderer and aimed at one perceptual goal:
+Omniphony is an experimental, always-on headphone spatial processor built from the upstream `mgth/Omniphony` renderer.
+
+Its perceptual target is simple:
 
 > **Make the headphones disappear and place the listener inside the largest coherent version of the same finished recording.**
 
-The target is not ordinary stereo widening and not a full-wet surround reconstruction. The finished recording remains the musical authority while Omniphony adds a bounded external spatial world around it.
+The finished stereo master remains the musical authority. Omniphony adds a bounded external spatial world around it instead of replacing it with a full-wet reconstruction.
 
-Windows is the first product host. The renderer / inference / DSP core remains portable.
+Windows is the first host. The renderer, inference and DSP core remain portable.
 
 ---
 
 # Current model
 
-**Current listening reference:**
+The **Current model** is the measured-HRTF early-reflection path that was previously exposed in the tray as `Externalization`.
+
+Physical listening on 2026-08-12 suggested that this path sounded a little better than the previous current model, although the difference was small enough that placebo could not be excluded. It was nevertheless not worse, uses a more physically meaningful early-field mechanism, and is now the single normal playback path so development can continue without carrying a menu of weakly distinguished variants.
+
+The old listening-profile menu is retired. Normal runtime now exposes only:
 
 ```text
-89507730946ce80d767881e507d7f18937971f9f
+On / clean bypass
+Restart audio engine
+Start with Windows
+Exit
 ```
 
-The default launcher profile is:
+The historical profile experiments remain documented in `docs/listening-history.md` as research evidence, not product modes.
 
-```text
-all
-```
-
-Physical listening establishes this as the best reference in the fork so far.
-
-The current model combines:
-
-- protected finished stereo master;
-- coherent low-frequency / body foundation;
-- analysis-only stereo evidence extraction;
-- derived 7.1.4 support field;
-- coherent sample-for-sample height transfer instead of simply adding more upper wash;
-- System-H-derived full-sphere virtual-speaker shell with the regular upper layer at +60 degrees;
-- 10-degree-grid-aligned upper directions in the default `all` profile so important static height speakers land directly on cached HRTF nodes;
-- measured SAF/KEMAR HRTF rendering;
-- native ITD, metric-distance, early-reflection, short-reverb and air-absorption machinery;
-- restrained support-only spectral compensation, including the small listening-derived presence trim near 3.9 kHz;
-- fixed output makeup followed only by a stereo-linked look-ahead peak-safety guard;
-- single-executable Windows supervisor + audio-engine architecture.
-
-Current listening feedback is simply: **sounds great**.
-
-That is now the rollback point. New work must beat it while preserving bass authority, transient ownership, clarity, tonal comfort, motion, scale, reliability and the continuous 360-degree presentation.
-
-If a candidate is merely different, wetter, brighter, blurrier or more spectacular at the cost of musical authority, keep the current model.
-
----
-
-# 1. Architectural law
-
-> **Use Omniphony itself as the spatial core. Add custom machinery only for jobs the inherited renderer does not already own.**
-
-Current music path:
+## Current signal path
 
 ```text
 FINISHED STEREO MASTER
@@ -61,7 +37,7 @@ FINISHED STEREO MASTER
         ├──────────────────────────────→ protected direct master
         │
         ├→ coherent music foundation
-        │      └→ additive body / pressure delta
+        │      └→ additive pressure / kick / body delta
         │
         └→ analysis-only stereo evidence
                │
@@ -75,15 +51,20 @@ FINISHED STEREO MASTER
                 derived 7.1.4 support
                          │
                          ├→ coherent elevation transfer
-                         │
                          ▼
              OMNIPHONY SPEAKER STAGE
-             full-sphere virtual room
+             full-sphere virtual world
                          │
                          ▼
                CASCADED BINAURAL
-       HRTF / ITD / metric distance / room
-       early reflections / short FDN / air
+           measured SAF/KEMAR HRTF
+           ITD / metric distance / air
+                         │
+                         ├→ short late room field
+                         │
+                         └→ six directional first-order
+                            reflection buses
+                            → measured HRTF
                          │
                          ▼
                   binaural support
@@ -101,99 +82,93 @@ The protected master does **not** pass through the virtual room.
 
 That is the fidelity floor.
 
----
+## Current audible tuning
 
-# 2. How the current model arrived here
-
-The earlier cascaded-binaural reference proved that a continuous 360-degree environment could be substantially more convincing than a collection of directly rendered spatial points, but it still had three audible weaknesses:
-
-1. bright material could become sharp;
-2. height existed but did not have enough authority;
-3. some upper energy behaved more like spatial support than a real musical event occupying elevation.
-
-The changes that survived listening were deliberately small and mechanism-specific.
-
-## 2.1 Support-only spectral correction
-
-Measured SAF/KEMAR common coloration is partially compensated in the support branch. Physical listening still found a small hard edge on guitars, so a shallow additional static trim was added around:
+The coherent, non-spatial foundation currently uses approximately:
 
 ```text
-3.9 kHz
--0.8 dB
-Q 1.1
+85 Hz low shelf      +2.80 dB   pressure / mass
+110 Hz punch         +1.60 dB   kick impact
+240 Hz body          +1.20 dB   upper-bass / drum body
+800 Hz density       +0.50 dB   lower-mid density
+4.5 kHz high shelf   -0.35 dB   mild presence relaxation
 ```
 
-This never touches the protected master.
-
-The rule remains:
-
-> **Do not solve spatial harshness by darkening the recording. Correct the spatial branch first.**
-
-## 2.2 Coherent height transfer
-
-Height is no longer increased only by constructing more upper-field energy.
-
-A controlled fraction of an already-existing horizontal support waveform is moved sample-for-sample into its corresponding elevated lane:
+The additive HRTF support branch also carries a static, support-only SAF/KEMAR compensation. The current dense-guitar comfort trim is:
 
 ```text
-horizontal event
-      │
-      ├→ horizontal remainder
-      └→ same waveform → elevated lane → HRTF
+3.5 kHz
+-1.20 dB
+Q 0.90
 ```
 
-The transfer does not create another wet copy. Before binaural rendering, horizontal + elevated lane amplitude remains algebraically conserved by the transfer itself.
+The protected master is not darkened to solve spatial fatigue.
 
-Preferred direction for strong height:
+## Current early field
 
-> **Move structured evidence upward rather than smear additional energy upward.**
+The Current model replaces the original lightweight analytic first-order reflection panner with a bounded measured-HRTF field:
 
-## 2.3 Steeper upper shell
+```text
+12 derived support lanes
+        ↓
+first-order shoebox timing
++ source-distance / wall filtering
+        ↓
+contributions grouped by six room walls
+        ↓
+6 directional reflection buses
+        ↓
+measured SAF/KEMAR HRTF + ITD
+        ↓
+linear sum with the primary support render
+```
 
-The active headphone shell moves the eight regular System-H-derived upper directions from +30 degrees to +60 degrees while retaining:
+This is deliberately not 22 virtual speakers multiplied by six separate full-HRTF reflection convolvers. Timing and wall filtering happen before wall-wise aggregation, so the HRTF cost stays fixed at six reflection buses.
 
-- the horizontal layer;
-- zenith;
-- the lower hemisphere;
-- no synthetic LFE speakers.
-
-The default `all` profile additionally moves the diagonal upper azimuths onto exact 10-degree HRTF grid nodes.
-
-This is a headphone experiment, not a claim that the modified shell is normative ITU-R BS.2051 System H. A canonical System H reference remains stored separately.
+The field was designed to change the directional structure of the early room rather than win by being louder. Engineering tests cover delayed arrival, wall-direction binaural asymmetry, protected C/LFE exclusion and block-boundary invariance.
 
 ---
 
-# 3. Source authority
+# Architectural law
 
-The richer the source truth, the less Omniphony should infer.
+> **Use Omniphony itself as the spatial core. Add custom machinery only for jobs the inherited renderer does not already own.**
+
+Prefer inherited Omniphony machinery for:
 
 ```text
-stereo
-→ preserve master + infer bounded support
-
-5.1 / 7.1
-→ preserve real directional channels
-
-5.1.2 / 7.1.4
-→ preserve authored height
-
-object audio
-→ preserve supplied object positions
-
-Ambisonics / HOA
-→ preserve the supplied field representation
-
-already-binaural material
-→ avoid destructive double virtualization
+HRTF / HRIR
+ITD
+head pose / tracking
+metric distance
+speaker geometry
+VBAP / source extent
+cascaded rendering
+direct binaural rendering
+room machinery
+SOFA
+object / bed handling
 ```
 
-A stereo recording can justify presentation support. It cannot prove that an instrument was authored above or behind the listener.
+Custom fork ownership is strongest for:
 
-Height is presentation permission, not recovered metadata.
+```text
+source preservation
+stereo evidence
+confidence / permission laws
+music foundation
+support-field construction
+coherent elevation transfer
+bounded directional early-field adaptation
+final host summing
+validation
+Windows lifecycle / transport
+```
+
+If an inherited feature was designed for a final output bus, verify that it remains correct when used only on Omniphony's additive support branch.
 
 ---
 
-# 4. Hard fidelity laws
+# Hard fidelity laws
 
 > **Dimension may not be purchased by damaging the music.**
 
@@ -235,50 +210,20 @@ environment  may grow
 direct music must not blur
 ```
 
----
-
-# 5. Music foundation
-
-The music foundation is a fixed, causal, stereo-preserving additive delta. It is not a compressor, limiter, exciter or fake LFE generator.
-
-Approximate shaping:
-
-```text
-85 Hz      +2.30 dB   pressure / mass
-240 Hz     +1.20 dB   kick / body
-800 Hz     +0.50 dB   density
-4.5 kHz    -0.35 dB   mild presence relaxation
-```
-
-Properties:
-
-```text
-no compressor
-no saturation
-no mono fold
-no fake LFE
-no spatialized sub-bass foundation
-same topology left/right
-```
-
-A personal headphone correction profile is not Omniphony’s universal voicing.
+The stereo master is never STFT-resynthesized. FFT/STFT machinery in the music path is analysis-only.
 
 ---
 
-# 6. Stereo evidence path
+# Stereo evidence and support
 
-The FFT is **analysis only**. The finished waveform is never STFT-resynthesized.
-
-Current support policy:
+Current support policy is approximately:
 
 ```text
-<320 Hz        protected master / foundation only
+<320 Hz        protected master / coherent foundation only
 320–1200 Hz    restrained support body
 1.2–5 kHz      spatial support with presence restraint
 >5 kHz         slower-moving, reduced support
 ```
-
-C and LFE remain silent in the inferred stereo support bed.
 
 The current 7.1.4 evidence order is:
 
@@ -286,109 +231,65 @@ The current 7.1.4 evidence order is:
 L R C LFE Ls Rs Lb Rb Tfl Tfr Tbl Tbr
 ```
 
-The useful support lanes are derived from actual stereo relations rather than semantic source separation.
+C and LFE remain silent in the inferred stereo support bed.
+
+Height is presentation permission, not recovered source metadata. A stereo recording can justify an external spatial presentation, but it cannot prove that a particular guitar, cymbal or voice was authored above or behind the listener.
 
 ---
 
-# 7. Current spatial world
+# Source authority
 
-The current model is a wide, depth-led full sphere.
-
-Current priorities are approximately:
+The richer the source truth, the less Omniphony should infer.
 
 ```text
-FRONT DISTANCE   primary
-REAR DISTANCE    primary but not dominant
-HEIGHT           primary and still the main frontier
-SIDE WIDTH       very important
-SIDE DISTANCE    secondary
-LOWER HEMISPHERE present but restrained
+stereo
+→ preserve master + infer bounded support
+
+5.1 / 7.1
+→ preserve real directional channels
+
+5.1.2 / 7.1.4
+→ preserve authored height
+
+object audio
+→ preserve supplied object positions
+
+Ambisonics / HOA
+→ preserve supplied field representation
+
+already-binaural material
+→ avoid destructive double virtualization
 ```
 
-Scale should come mainly from:
-
-```text
-geometry
-HRTF / ITD
-propagation timing
-early-field structure
-source extent
-metric distance
-room-axis shaping
-```
-
-not from excessive treble, chorus, Haas widening, giant decorrelation networks or a wetter late-reverb tail.
-
-The perceptual north star remains:
-
-> **The listener should feel as if their head occupies a portal into the recording’s acoustic world, not as if a clever effect is attached to the headphones.**
+This becomes especially important as source-aware analysis arrives later. A classifier is evidence, not authorship.
 
 ---
 
-# 8. Listening-profile matrix
+# Realtime robustness
 
-`START-OMNIPHONY.cmd` accepts an optional temporary research profile.
+The Windows path is designed to stay boring and reliable even as the research layer becomes more intelligent.
 
-With no argument it selects:
+Current runtime protections include:
 
-```text
-all
-```
+- process-specific Windows loopback capture;
+- MMCSS priority for producer and playback callback;
+- bounded playback queue;
+- underrun telemetry;
+- short continuity concealment when the playback queue briefly starves;
+- stereo-linked 5 ms look-ahead peak safety;
+- amortized sliding maximum in the peak guard instead of rescanning the full look-ahead window every frame;
+- automatic worker restart after output-stream failure;
+- invisible supervisor/watchdog;
+- per-user autostart;
+- tray recovery after Explorer/taskbar restart.
 
-Current profiles:
+The underrun concealment is not an audible effect under normal operation. It exists so a rare scheduling gap becomes a short smooth continuity event instead of a one-sample waveform cliff that can sound like a crackle.
 
-```text
-control   prior reference topology
-all       current combined model
-hybrid    cascaded world + exclusive direct-HRTF height challenger
-direct    direct per-evidence-lane binaural instead of cascade
-external  stronger early-field / smaller late-field candidate
-prtf      structural PRTF HRTF model instead of measured KEMAR
-close     shorter distance / room-geometry control
-tracked   head-tracking-ready configuration
-diffuse   deliberately more diffuse late-field comparison
-```
-
-`hybrid` is implemented as an experimental challenger. It keeps the current cascaded 360-degree world for the eight non-height support lanes while routing only TFL/TFR/TBL/TBR through direct measured HRTF rendering. The split is exclusive before rendering and the two native paths are sample-aligned at first arrival in the elevated test fixture.
-
-`all` remains the current model until physical listening says otherwise.
-
-These are experiment switches, not product modes.
-
-Mutually exclusive HRTF models are compared rather than stacked. `all` does not convolve the same source through measured KEMAR and PRTF simultaneously.
-
-See `docs/listening-profiles.md` for exact current differences.
+If crackle reproduces, inspect `omniphony.log` and the underrun telemetry before blaming HRTF complexity.
 
 ---
 
-# 9. Output level and headroom
-
-The host currently sums:
-
-```text
-protected master
-+ foundation delta
-+ binaural support
-→ 0.90 fixed linear base gain
-→ +3.5 dB fixed makeup
-→ stereo-linked look-ahead peak guard
-```
-
-The peak guard is endpoint safety only:
-
-```text
-ceiling          -1.0 dBFS
-look-ahead        5 ms
-release          160 ms
-```
-
-It applies one linked gain to both ears only when needed to prevent a future peak crossing the ceiling.
-
-It is not a loudness leveller, support AGC or spatial compressor.
-
----
-
-# 10. Windows architecture
+# Windows architecture
 
 ```text
 PORTABLE OMNIPHONY CORE
@@ -402,7 +303,7 @@ process loopback / output / lifecycle
 Omniphony.exe
 ```
 
-The Windows runtime remains a single executable with two internal roles:
+The shipped runtime remains one executable with two internal roles:
 
 ```text
 Omniphony.exe
@@ -410,209 +311,116 @@ Omniphony.exe
 └→ internal audio-engine child process
 ```
 
-This preserves crash / endpoint recovery without shipping a separate engine executable.
-
-Normal direction:
-
-```text
-install once
-→ start silently at login
-→ find configured physical output
-→ process continuously
-→ recover automatically
-→ tray only when control is needed
-```
+The normal child process is pinned to the Current model. Historical listening profiles are no longer selectable from the tray or launcher.
 
 ---
 
-# 11. Realtime robustness
+# Relationship to libaural, VGM Tooling and Helix
 
-Current Windows work includes:
+The projects remain separate at runtime but deliberately feed research into each other at different layers.
 
-- process-specific Windows loopback capture;
-- MMCSS priority for the producer / audio-engine thread;
-- MMCSS priority for the playback callback;
-- bounded playback queue;
-- underrun telemetry;
-- automatic worker restart after output-stream failure;
-- invisible supervisor/watchdog;
-- per-user autostart;
-- tray recovery after Explorer/taskbar restart.
+```text
+                    HELIX
+          research / provenance / method
+                       │
+                       ▼
+                    libaural
+              experimental machine hearing
+                       │
+          heard-state / validated mechanisms
+                       │
+          ┌────────────┴────────────┐
+          ▼                         ▼
+     VGM Tooling                Omniphony
+source-native synthesis     spatial presentation
+ / reconstruction               testbed
+```
 
-If crackle reproduces with the spatial effect disabled, treat it first as a realtime-host problem rather than blaming HRTF complexity.
+VGM Tooling can expose source-native structure before final stereo collapse. libaural can use that as unusually strong calibration evidence for machine hearing. Omniphony tests which distinctions actually matter when a human experiences the final headphone presentation.
+
+No project should become a runtime dependency of another merely because it provided a useful experiment.
 
 ---
 
-# 12. Native mechanism ownership
+# Listening evidence so far
 
-Prefer inherited Omniphony machinery for:
+The profile experiments produced useful compression:
 
-```text
-HRTF / HRIR
-ITD
-head pose / tracking
-metric distance
-speaker geometry
-VBAP / source extent
-cascaded rendering
-direct binaural rendering
-first-order reflections
-late room field
-SOFA
-object / bed handling
-```
+- `hybrid` direct-height routing was not clearly distinguishable from the prior current model and did not earn its added complexity;
+- `prtf` was clearly worse in the tested system, described as tinnier, and remains a negative result;
+- several room/routing variants were not clearly distinguishable enough to justify carrying them as user-facing modes;
+- the measured-HRTF early-reflection path was heard as **slightly better**, though the difference may have been placebo, and is adopted provisionally as Current model because it was not worse and represents a more meaningful mechanism.
 
-Custom fork ownership is strongest for:
-
-```text
-source preservation
-stereo evidence
-confidence / permission laws
-music foundation
-support-field construction
-coherent elevation transfer
-final host summing
-validation
-Windows lifecycle / transport
-```
-
-If an inherited feature was designed for a final output bus, verify that it remains correct on Omniphony’s additive support branch.
+See `docs/listening-history.md` for the retained experiment record.
 
 ---
 
-# 13. Relationship to libaural and Helix
+# Current frontier
+
+The large 360-degree world already exists. The next work should increase **musical physicality and intelligence**, not add more generic spatial variants.
+
+## 1. Transient-aware live-drum presentation
+
+This is the next isolated listening experiment.
+
+The goal is for a drum kit to feel as though it is physically exciting the space around the listener while preserving the master attack and low-frequency anchor.
+
+Desired division:
 
 ```text
-HELIX
-research / experiment machinery
-       │
-       ▼
-libaural
-reusable machine-hearing / human-hearing research
-       │
-       ▼
-Omniphony
-listening product / perceptual testbed
+kick fundamental / body
+→ coherent master + foundation
+→ anchored, physical, not spatialized sub-bass
+
+snare / tom / cymbal transient evidence
+→ precise support localization
+→ stronger sparse early-room excitation
+→ room around the kit without transient smear
+
+sustained cymbal / room tail
+→ broader environmental support
+→ controlled height / lateral extent
 ```
 
-The projects help each other but remain separate.
+The first experiment should infer transience from the existing signal path rather than requiring a neural separator. That lets us determine whether transient-aware spatial behavior itself is useful.
 
-Omniphony asks:
+## 2. Source-aware control from libaural
 
-> **Does this mechanism make the listening experience better?**
+After the transient mechanism independently earns itself, libaural can tell Omniphony more about **what** generated the evidence.
 
-libaural asks:
-
-> **What auditory variable changed, can it be represented cleanly, and what claim does the evidence actually support?**
-
-Current spatial research sequence:
+The intended relationship is:
 
 ```text
-AUD-SPACE-001  typed binaural evidence gate
-AUD-SPACE-002  elevation spectral-template stress
-AUD-SPACE-003  externalization-cue decomposition
+original stereo master
+        │
+        ├→ audible truth
+        │
+        └→ libaural machine-hearing analysis DSP
+                ↓
+         time-varying source/activity evidence
+         masks / continuity / confidence
+                ↓
+         bounded Omniphony control projection
 ```
 
-Do not create a runtime dependency from Omniphony onto libaural merely because an experiment originated there.
+Separated stem waveforms do not need to enter the audible master. Modern separators, semantic activity models and open-vocabulary extractors are sensors for libaural, not replacement audio sources.
+
+This can eventually let the same transient mechanism behave differently for drums, vocals, guitars, bass, strings and pads without hard-coded genre presets.
+
+## 3. Head motion and personalization
+
+Later controlled frontiers remain:
+
+- actual world-lock testing with live head motion;
+- listener-specific or selected HRTFs;
+- dedicated near-field HRTF behavior;
+- short-term interaural-coherence shaping where it solves a measured obligation.
+
+These should not interrupt the transient/source-awareness path unless listening exposes a more urgent failure.
 
 ---
 
-# 14. Research influences
-
-Durable influence families include:
-
-- upstream Omniphony;
-- Spatial Audio Framework;
-- Steam Audio;
-- OpenAL Soft;
-- MPEG-H binaural / virtual-loudspeaker rendering work;
-- binaural externalization / BRIR literature;
-- human sagittal-plane / elevation-localization literature;
-- 3D Tune-In;
-- open binaural rendering systems;
-- mature source-safe upmix / downmix systems.
-
-Research is an influence source, not permission to replace a successful renderer with a parallel science project.
-
-Every substantive audible change follows the repository research gate in `AGENTS.md`:
-
-```text
-listening observation
-→ literature pass
-→ mature implementation pass
-→ smallest relevant mechanism
-→ adapt to Omniphony topology
-→ CI / measurement
-→ physical listening
-→ keep, revise, or revert
-```
-
----
-
-# 15. Current frontier
-
-The bubble exists. Width, depth, bass authority and overall fidelity are no longer the primary unsolved problems.
-
-The next work is ordered by expected perceptual leverage.
-
-## A. Hybrid direct-height rendering
-
-The first hybrid challenger is now implemented for listening evaluation.
-
-It keeps the cascaded binaural renderer for the continuous 360-degree environment, removes the four height support lanes from that cascade, and binauralizes those lanes directly at their intended upper directions.
-
-Current topology:
-
-```text
-horizontal / side / rear support
-→ cascaded virtual-speaker world
-                     ┐
-                     ├→ sum support binaural
-                     │
-TFL / TFR / TBL / TBR│
-→ direct HRTF height ┘
-```
-
-Hard requirement:
-
-> **A height sample may take one path or the other, never both.**
-
-The portable routing test proves the 8+4 split is exclusive and sample-wise lossless. A separate elevated impulse test shows the native direct and cascaded paths arrive within one sample frame after settling.
-
-Those are mechanical safety results, not a perceptual win. `all` remains the current model until the hybrid challenger beats it in physical listening.
-
-## B. Directional-HRTF early reflections
-
-The current reflection bank supplies useful binaural timing / level structure, but selected strongest reflection paths can eventually carry their own full directional HRTF filtering.
-
-The goal is stronger externalization without a larger late tail.
-
-## C. HRTF selection / personalization
-
-Generic KEMAR may become the ceiling for elevation on a particular listener.
-
-Omniphony already owns measured, SOFA and structural HRTF families. Future personalization should be a controlled selection/calibration problem, not random HRTF swapping.
-
-## D. World locking under real head motion
-
-The renderer already has head-pose / SensorsOSC plumbing. A real comparison requires actual motion input.
-
-The purpose is not a visual gimmick. It is to make the acoustic world remain stable while the listener’s head moves.
-
-## E. Additional controlled candidates
-
-After the major spatial coordinates are stable:
-
-- dedicated near-field HRTF filtering;
-- transient versus sustained spatial routing;
-- short-term interaural-coherence shaping;
-- higher-order Ambisonic intermediate-field experiments.
-
-Do not add these simply because they exist. Each must beat the current model or solve a clearly isolated limitation.
-
----
-
-# 16. Failure signals
+# Failure signals
 
 ```text
 piercing / fatigue
@@ -629,24 +437,23 @@ late-reverb fog
 stereo motion collapse
 height that is only brighter, not higher
 realtime crackle / underruns
+spatial pumping / twitching from analysis
 ```
 
 Listening outranks parameter aesthetics.
 
-The numbers are allowed to look unconventional if the result remains coherent.
+A mechanism stays only if it improves the experience or solves an isolated failure without damaging the protected music underneath it.
 
 ---
 
-# 17. Definition of success
+# Definition of success
 
-The goal is not “accurate surround conversion.”
+The goal is not "accurate surround conversion."
 
 It is:
 
 > **A finished stereo recording keeps its identity, weight, dynamics and clarity while gaining a stable external world with front distance, rear depth, extreme width, convincing overhead volume, continuous motion and enough radial scale that ordinary headphone playback feels dimensionally collapsed by comparison.**
 
-The current model makes the central question much narrower:
+The next narrower question is:
 
-> **Can Omniphony turn an already excellent giant headphone sphere into a genuinely external, vertically occupied acoustic world without sacrificing the finished master underneath it?**
-
-That is the current frontier.
+> **Can the Current model make drums and other musical events feel physically present in the surrounding acoustic world without sacrificing the finished master that gives them their authority?**
