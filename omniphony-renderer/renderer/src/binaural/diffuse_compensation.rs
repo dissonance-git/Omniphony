@@ -111,13 +111,13 @@ impl EarCompensation {
         // The three measured sections remove roughly half to three-fifths of that
         // common rise rather than flattening the HRTF completely.
         //
-        // Physical music listening still found a small hard edge on electric
-        // guitars after the measured correction. Apply only a shallow, static
-        // support-branch trim near 4 kHz. This remains downstream of the HRTF,
-        // never touches the protected master, and is intentionally much smaller
-        // than the measured diffuse-field compensation.
+        // Physical music listening still found a hard edge on dense electric
+        // guitars after the measured correction. Keep the remedy static and
+        // support-only, but make it slightly broader and stronger so the added
+        // HRTF field does not double the 3-5 kHz bite already present in the
+        // authoritative stereo master.
         Self {
-            presence_trim: Biquad::peaking(sample_rate_hz, 3_900.0, 1.10, -0.80),
+            presence_trim: Biquad::peaking(sample_rate_hz, 3_500.0, 0.90, -1.20),
             lower_pinna: Biquad::peaking(sample_rate_hz, 4_800.0, 0.65, -3.80),
             upper_pinna: Biquad::peaking(sample_rate_hz, 10_000.0, 0.80, -3.30),
             air_tail: Biquad::high_shelf(sample_rate_hz, 12_000.0, -1.35),
@@ -143,7 +143,7 @@ impl EarCompensation {
 /// Partial, static inverse of the common diffuse-field colour measured from the
 /// embedded SAF/KEMAR HRTF set.
 ///
-/// Use this on a *rendered binaural support branch*. Do not use it as a master
+/// Use this on a *rendered binaural support branch*. Do not use this as a master
 /// programme EQ. The master already represents the finished recording; this
 /// stage exists only to keep the additive HRTF world from imposing its common
 /// pinna colour a second time.
