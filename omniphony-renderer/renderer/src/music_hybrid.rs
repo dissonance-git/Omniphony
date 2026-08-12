@@ -5,7 +5,7 @@
 //! through a second direct-binaural engine. This module owns only the algebraic
 //! partition and stereo recombination so the safety law is portable and tested:
 //!
-//!     one evidence sample -> one spatial route
+//! `one evidence sample -> one spatial route`
 //!
 //! It does not own HRTFs, room simulation, host lifecycle or profile tuning.
 
