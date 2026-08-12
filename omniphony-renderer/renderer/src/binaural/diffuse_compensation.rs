@@ -98,6 +98,7 @@ impl Biquad {
 
 #[derive(Debug, Clone, Copy)]
 struct EarCompensation {
+    presence_trim: Biquad,
     lower_pinna: Biquad,
     upper_pinna: Biquad,
     air_tail: Biquad,
@@ -107,9 +108,16 @@ impl EarCompensation {
     fn saf_kemar_partial(sample_rate_hz: u32) -> Self {
         // Measured common SAF/KEMAR diffuse response (relative to 1 kHz):
         // ~+7.3 dB at 4-6 kHz, ~+7.5 dB at 10 kHz, and ~+4 dB above 12 kHz.
-        // These three broad sections remove roughly half to three-fifths of that
+        // The three measured sections remove roughly half to three-fifths of that
         // common rise rather than flattening the HRTF completely.
+        //
+        // Physical music listening still found a small hard edge on electric
+        // guitars after the measured correction. Apply only a shallow, static
+        // support-branch trim near 4 kHz. This remains downstream of the HRTF,
+        // never touches the protected master, and is intentionally much smaller
+        // than the measured diffuse-field compensation.
         Self {
+            presence_trim: Biquad::peaking(sample_rate_hz, 3_900.0, 1.10, -0.80),
             lower_pinna: Biquad::peaking(sample_rate_hz, 4_800.0, 0.65, -3.80),
             upper_pinna: Biquad::peaking(sample_rate_hz, 10_000.0, 0.80, -3.30),
             air_tail: Biquad::high_shelf(sample_rate_hz, 12_000.0, -1.35),
@@ -118,12 +126,14 @@ impl EarCompensation {
 
     #[inline]
     fn process(&mut self, sample: f32) -> f32 {
-        let x = self.lower_pinna.process(sample);
+        let x = self.presence_trim.process(sample);
+        let x = self.lower_pinna.process(x);
         let x = self.upper_pinna.process(x);
         self.air_tail.process(x)
     }
 
     fn reset(&mut self) {
+        self.presence_trim.reset();
         self.lower_pinna.reset();
         self.upper_pinna.reset();
         self.air_tail.reset();
@@ -194,16 +204,21 @@ mod tests {
     #[test]
     fn saf_profile_preserves_mid_reference_but_reduces_common_pinna_rise() {
         let at_1k = measured_gain_db(1_000.0);
+        let at_4k = measured_gain_db(4_000.0);
         let at_5k = measured_gain_db(5_000.0);
         let at_10k = measured_gain_db(10_000.0);
 
         assert!(at_1k > -0.8, "1 kHz was over-corrected: {at_1k:.2} dB");
         assert!(
-            (-5.5..=-3.0).contains(&at_5k),
+            (-5.6..=-4.4).contains(&at_4k),
+            "4 kHz listening trim outside target: {at_4k:.2} dB"
+        );
+        assert!(
+            (-6.0..=-3.0).contains(&at_5k),
             "5 kHz partial DFE outside target: {at_5k:.2} dB"
         );
         assert!(
-            (-5.5..=-3.0).contains(&at_10k),
+            (-5.6..=-3.0).contains(&at_10k),
             "10 kHz partial DFE outside target: {at_10k:.2} dB"
         );
     }
