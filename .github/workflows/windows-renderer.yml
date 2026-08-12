@@ -112,6 +112,9 @@ jobs:
       - name: Test HRTF early-reflection challenger
         run: cargo test -p windows_host --bin omniphony_app music_early_reflections::tests
 
+      - name: Test realtime continuity guards
+        run: cargo test -p windows_host --bin omniphony_app music_engine::tests
+
   windows-live-artifact:
     name: Windows x64 Omniphony prototype
     runs-on: windows-latest
