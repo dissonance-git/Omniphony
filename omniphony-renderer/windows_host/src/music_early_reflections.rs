@@ -1,14 +1,17 @@
-//! Bounded HRTF-rendered early-reflection challenger for the music path.
+//! Bounded measured-HRTF early-reflection field for the music path.
 //!
-//! The current renderer's first-order room is deliberately cheap: each source
-//! gets six image-source taps with analytic ITD/ILD and broad HF wall loss. A
-//! literal measured-HRTF convolution for every image of every virtual source
-//! would multiply the FIR count by the speaker count. This module keeps the
-//! physical first-order timing/tone law but mixes contributions by wall first,
-//! then applies exactly six measured SAF/KEMAR HRTFs.
+//! A literal measured-HRTF convolution for every first-order image of every
+//! virtual support source would multiply the FIR count by the speaker count.
+//! This module keeps first-order image timing and wall tone per support lane,
+//! groups contributions by wall, then applies exactly six measured SAF/KEMAR
+//! HRTFs.
 //!
-//! It is used only by the `external` listening challenger. The normal current
-//! model still owns the default reflection implementation.
+//! The transient-aware excitation in this file is intentionally narrower than
+//! transient separation or transient reshaping. Each support lane compares a
+//! fast energy envelope with a slow energy envelope. A sharp positive rise may
+//! briefly increase only that lane's signal entering the early-reflection delay
+//! bank. The protected stereo master, coherent foundation, primary support
+//! render and late room field are not modified here.
 
 use anyhow::bail;
 use renderer::binaural::convolver::EarConvolver;
@@ -31,11 +34,24 @@ const GENERIC_WALL_HF_AMPLITUDE: f32 = 0.84;
 const EXTRA_PATH_HF_DECAY_PER_M: f32 = 0.020;
 const ITD_MAX_S: f32 = 0.003;
 
+// Listening-candidate transient law. Fast/slow energy comparison follows the
+// established onset-detection idea that a transient is a positive change in
+// short-time energy, not simply a loud sample. Values are deliberately bounded
+// and local to each existing spatial-support lane so a drum event cannot turn
+// the whole mixture's room up at once.
+const TRANSIENT_FAST_MS: f32 = 3.0;
+const TRANSIENT_SLOW_MS: f32 = 45.0;
+const TRANSIENT_RELEASE_MS: f32 = 20.0;
+const TRANSIENT_MIN_RMS: f32 = 0.0015;
+const TRANSIENT_RISE_THRESHOLD: f32 = 0.75;
+const TRANSIENT_FULL_RISE: f32 = 3.0;
+const TRANSIENT_MAX_GAIN_DB: f32 = 2.5;
+
 // The legacy analytic reflection panner has total L+R power 4/3 for a unit
 // reflection gain (`SHADOW=0.5`, denominator 1.5). A diffuse-normalized HRIR
-// pair is approximately 2.0 total-ear power. Scale by sqrt((4/3)/2) so this
-// challenger primarily changes directional spectral information rather than
-// simply making the early field louder.
+// pair is approximately 2.0 total-ear power. Scale by sqrt((4/3)/2) so the
+// measured-HRTF field primarily changes directional spectral information rather
+// than simply making the early field louder.
 const HRTF_POWER_MATCH: f32 = 0.816_496_6;
 
 /// Canonical 7.1.4 evidence-lane directions, matching the current music-field
@@ -64,6 +80,62 @@ struct PathTap {
     tone_state: f32,
 }
 
+#[derive(Clone, Copy)]
+struct TransientReflectionExciter {
+    fast_energy: f32,
+    slow_energy: f32,
+    envelope: f32,
+    fast_alpha: f32,
+    slow_alpha: f32,
+    release_coeff: f32,
+    max_delta: f32,
+}
+
+impl TransientReflectionExciter {
+    fn new(sample_rate_hz: u32) -> Self {
+        let sample_rate_hz = sample_rate_hz.max(1) as f32;
+        let one_pole_alpha = |time_ms: f32| {
+            1.0 - (-1.0 / (0.001 * time_ms.max(0.01) * sample_rate_hz)).exp()
+        };
+        Self {
+            fast_energy: 0.0,
+            slow_energy: 0.0,
+            envelope: 0.0,
+            fast_alpha: one_pole_alpha(TRANSIENT_FAST_MS),
+            slow_alpha: one_pole_alpha(TRANSIENT_SLOW_MS),
+            release_coeff: (-1.0
+                / (0.001 * TRANSIENT_RELEASE_MS.max(0.01) * sample_rate_hz))
+                .exp(),
+            max_delta: 10.0_f32.powf(TRANSIENT_MAX_GAIN_DB / 20.0) - 1.0,
+        }
+    }
+
+    #[inline]
+    fn gain(&mut self, input: f32) -> f32 {
+        let energy = input * input;
+        self.fast_energy += self.fast_alpha * (energy - self.fast_energy);
+        self.slow_energy += self.slow_alpha * (energy - self.slow_energy);
+
+        let target = if self.fast_energy > TRANSIENT_MIN_RMS * TRANSIENT_MIN_RMS {
+            let positive_rise = (self.fast_energy - self.slow_energy).max(0.0);
+            let relative_rise = positive_rise / (self.slow_energy + 1.0e-9);
+            ((relative_rise - TRANSIENT_RISE_THRESHOLD)
+                / (TRANSIENT_FULL_RISE - TRANSIENT_RISE_THRESHOLD))
+                .clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
+        if target > self.envelope {
+            self.envelope = target;
+        } else {
+            self.envelope *= self.release_coeff;
+        }
+
+        1.0 + self.max_delta * self.envelope
+    }
+}
+
 struct SourceReflectionBank {
     ring: Vec<f32>,
     write_pos: usize,
@@ -71,6 +143,7 @@ struct SourceReflectionBank {
     tone_alpha: f32,
     air_state: f32,
     air_coeff: f32,
+    transient: TransientReflectionExciter,
 }
 
 impl SourceReflectionBank {
@@ -114,6 +187,7 @@ impl SourceReflectionBank {
                     - (-std::f32::consts::TAU * TONE_SPLIT_HZ / sample_rate_hz as f32).exp(),
                 air_state: 0.0,
                 air_coeff,
+                transient: TransientReflectionExciter::new(sample_rate_hz),
             },
             directions,
         )
@@ -121,6 +195,11 @@ impl SourceReflectionBank {
 
     #[inline]
     fn process(&mut self, mut input: f32) -> [f32; NUM_REFLECTIONS] {
+        // Only the signal entering the early-reflection delay bank receives the
+        // transient-dependent gain. The direct master and primary spatial field
+        // are outside this module and therefore cannot be reshaped by it.
+        input *= self.transient.gain(input);
+
         if self.air_coeff > 0.0 {
             self.air_state += (input - self.air_state) * (1.0 - self.air_coeff);
             input = self.air_state;
@@ -315,6 +394,49 @@ mod tests {
         let mut field = vec![0.0f32; frames * MUSIC_FIELD_CHANNELS];
         field[channel] = 1.0;
         field
+    }
+
+    #[test]
+    fn transient_exciter_is_bounded_and_returns_to_unity() {
+        let mut exciter = TransientReflectionExciter::new(48_000);
+        for _ in 0..1_024 {
+            assert!((exciter.gain(0.0) - 1.0).abs() < 1.0e-7);
+        }
+
+        let peak = exciter.gain(0.5);
+        let maximum = 10.0_f32.powf(TRANSIENT_MAX_GAIN_DB / 20.0);
+        assert!(peak > 1.25, "impulse did not excite early room enough: {peak}");
+        assert!(peak <= maximum + 1.0e-6, "transient gain exceeded bound: {peak}");
+
+        let mut settled = peak;
+        for _ in 0..4_800 {
+            settled = exciter.gain(0.0);
+        }
+        assert!(settled < 1.01, "transient room gain did not decay: {settled}");
+    }
+
+    #[test]
+    fn steady_tone_does_not_sustain_transient_excitation() {
+        let mut exciter = TransientReflectionExciter::new(48_000);
+        let mut max_tail = 1.0f32;
+        for sample in 0..48_000 {
+            let x = (std::f32::consts::TAU * 1_000.0 * sample as f32 / 48_000.0).sin() * 0.2;
+            let gain = exciter.gain(x);
+            if sample > 9_600 {
+                max_tail = max_tail.max(gain);
+            }
+        }
+        assert!(
+            max_tail < 1.005,
+            "steady tone kept transient room excitation alive: {max_tail}"
+        );
+    }
+
+    #[test]
+    fn sub_threshold_impulse_does_not_excitate_room() {
+        let mut exciter = TransientReflectionExciter::new(48_000);
+        let gain = exciter.gain(0.0001);
+        assert!((gain - 1.0).abs() < 1.0e-7);
     }
 
     #[test]
