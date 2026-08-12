@@ -1,12 +1,18 @@
 # Omniphony development contract
 
-## Helix relationship
+## Project instruction chain
 
-This repository is the independent implementation home for `project:omniphony-immersive-audio`, which is tracked by Helix for project continuity, research, evidence, relationships, negative results, and re-entry.
+This repository is the independent implementation home for `project:omniphony-immersive-audio`, which is tracked by Helix and is a child project of libaural.
 
-Before substantive work, read the current Helix operating law at `dissonance-git/Helix/AGENTS.md` and apply the parts relevant to evidence, provenance, correction, validation, re-entry, and concurrent repository safety. This file owns Omniphony's project-specific implementation laws and may specialize repository workflow where the project genuinely differs. Direct user instruction or correction outranks both.
+Before substantive work, read the current instruction chain in order:
 
-Do not copy Omniphony's implementation into Helix merely to make the connection visible, and do not copy Helix machinery into this repository merely to inherit its design. Helix preserves the exact route to this project; this repository remains canonical for its code, tests, builds, local implementation history, and releases.
+1. `dissonance-git/Helix/AGENTS.md` for the common operating law;
+2. `dissonance-git/libaural/AGENTS.md` for applicable parent-project research law;
+3. this file for Omniphony-specific implementation and listening law.
+
+A child inherits only the parent laws that apply to its work. This file may specialize them where realtime rendering, listening authority, Windows integration, fidelity, or product constraints genuinely differ. Direct user instruction or correction outranks the entire chain.
+
+Do not copy Omniphony's implementation into Helix or libaural merely to make the connection visible, and do not copy parent machinery into this repository merely to inherit its design. Helix preserves project continuity and cross-project routes; libaural owns general artificial-hearing research; this repository remains canonical for Omniphony code, tests, builds, local implementation history, and releases.
 
 ## Research gate
 
@@ -79,7 +85,7 @@ When a build is clearly better, preserve it as a rollback point before pushing f
 
 ## libaural relationship
 
-libaural is the next research layer for reusable auditory / machine-hearing mechanisms. Omniphony should import only small validated distinctions that improve the consumer renderer without replacing its working spatial core.
+libaural is the parent research project for reusable auditory / machine-hearing mechanisms. Omniphony should import only small validated distinctions that improve the consumer renderer without replacing its working spatial core.
 
 ```text
 Helix research machinery
