@@ -15,6 +15,28 @@ START-OMNIPHONY.cmd <profile>
 
 With no argument, `START-OMNIPHONY.cmd` selects `all`.
 
+## Current listening observation · 2026-08-12
+
+A physical tray-profile comparison reported **no clear audible difference among
+the non-PRTF profile variants in this pass; the presentation remained good**.
+`prtf` was the exception and was heard as **tinnier and worse**.
+
+Consequences:
+
+- `all` remains the current model;
+- `hybrid` is not promoted because the direct-height branch did not produce a
+  reliably audible benefit;
+- the other profile-level room/routing controls remain useful engineering/A-B
+  controls, but this pass provides no listening evidence that they improve the
+  current model;
+- `prtf` is retained as a negative control rather than a current contender;
+- a head-tracking claim still requires actual live head-motion input rather than
+  a static `tracked` profile.
+
+This is one physical listening result under the current hardware/listening
+conditions. It is decisive for what gets promoted in this project, but it is not
+rewritten as a universal human-hearing result.
+
 ## control
 
 Prior reference for this experiment series.
@@ -44,7 +66,7 @@ reverberation simply to sound larger.
 
 ## hybrid
 
-Experimental direct-height challenger to `all`.
+Experimental direct-height control relative to `all`.
 
 The twelve evidence lanes are partitioned before rendering:
 
@@ -81,8 +103,8 @@ Renderer tests establish two mechanical safety properties before listening:
 - an elevated off-grid source has direct and cascaded first arrivals aligned to
   within one sample frame after both native paths are settled.
 
-Those are engineering constraints, not proof that `hybrid` sounds better. `all`
-remains the current model until physical listening says otherwise.
+Physical listening on 2026-08-12 did not reveal a clear difference from the
+current model, so the extra routing complexity has **not** earned promotion.
 
 ## direct
 
@@ -113,7 +135,7 @@ buying externalization through a longer or louder diffuse tail.
 
 ## prtf
 
-Alternative structural pinna model.
+Alternative structural pinna model and current **negative listening control**.
 
 Relative to the grid-aligned shell:
 
@@ -122,8 +144,11 @@ Relative to the grid-aligned shell:
 - pinna depth 0.72
 - SAF/KEMAR-specific spectral compensation disabled
 
-This is mutually exclusive with measured KEMAR by design. Do not interpret a
-preference as proof that a generic structural model is more accurate.
+Physical listening on 2026-08-12 described this profile as **tinnier and worse**
+than the current presentation. It therefore does not qualify for promotion.
+Retaining it is useful because it is a concrete counterexample to the idea that
+adding a different structural pinna model automatically improves elevation or
+externalization.
 
 ## close
 
@@ -171,6 +196,7 @@ with a nearby-looking effect:
 - dedicated near-field HRTF filtering;
 - explicit short-term interaural-coherence shaping;
 - transient/sustained spatial routing;
+- source-aware control from a validated deep-lookahead libaural analysis DSP;
 - higher-order Ambisonic intermediate field;
 - human head-motion comparison without a live tracker.
 
