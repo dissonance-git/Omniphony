@@ -1,11 +1,8 @@
 use anyhow::{Context, bail};
-use bridge_api::RInputTransport;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use orender_engine::Engine;
 use renderer::music_field::{MUSIC_FIELD_CHANNELS, MusicFieldProcessor, MusicFieldSnapshot};
 use renderer::music_foundation::MusicFoundationProcessor;
 use std::collections::VecDeque;
-use std::path::{Path, PathBuf};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -17,23 +14,18 @@ use wasapi::{
     make_channelmasks,
 };
 
+use crate::music_support::{MusicSupportRenderer, SpatialProfile};
+
 const SAMPLE_RATE_HZ: u32 = 48_000;
 /// Burst cushion between the capture/DSP producer and WASAPI playback callback.
 /// Capture is realtime, so a larger bounded capacity does not intentionally add
 /// steady-state latency; it gives MMCSS a little more room to survive short CPU
-/// scheduling stalls from heavy background Helix/research workloads.
+/// scheduling stalls from heavy background compute.
 const PLAYBACK_QUEUE_BLOCKS: usize = 32;
 const FIELD_SUPPORT_GAIN: f32 = 1.00;
 /// Fixed linear output headroom shared by ON and OFF.
-///
-/// The first clean-summing experiment reserved almost 7 dB unconditionally.
-/// Physical listening showed that was too costly for an always-on music path.
-/// Keep the summation purely linear but reclaim most of that level; this leaves
-/// about 0.9 dB of fixed headroom while we gather real peak evidence from the
-/// frontier build. Do not reintroduce sample-wise support clipping.
 const LINEAR_OUTPUT_GAIN: f32 = 0.90;
-/// Requested listening-level reclaim relative to the current grounded build.
-/// This is deliberately downstream of every spatial mechanism.
+/// Fixed listening-level reclaim downstream of every spatial mechanism.
 const OUTPUT_MAKEUP_DB: f32 = 3.5;
 const OUTPUT_MAKEUP_GAIN: f32 = 1.496_235_6;
 /// Conservative sample ceiling leaves margin for inter-sample reconstruction.
@@ -42,117 +34,6 @@ const OUTPUT_CEILING: f32 = 0.891_250_9;
 const OUTPUT_LOOKAHEAD_FRAMES: usize = 240; // 5 ms at 48 kHz.
 const OUTPUT_RELEASE_MS: f32 = 160.0;
 const METER_INTERVAL_SECS: u64 = 5;
-
-/// Listening profiles keep mutually-exclusive spatial hypotheses in one binary.
-/// `control` is the exact current best before this matrix. `all` is the default
-/// conservative combined candidate; the other profiles isolate specific DSP
-/// families so subjective wins can be attributed instead of accumulated blindly.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SpatialProfile {
-    Control,
-    All,
-    Direct,
-    External,
-    Prtf,
-    Close,
-    Tracked,
-    Diffuse,
-}
-
-impl SpatialProfile {
-    fn from_env() -> anyhow::Result<Self> {
-        let raw = std::env::var("OMNIPHONY_PROFILE").unwrap_or_else(|_| "all".to_string());
-        match raw.trim().to_ascii_lowercase().as_str() {
-            "control" | "best" => Ok(Self::Control),
-            "all" | "portal" => Ok(Self::All),
-            "direct" | "direct-hrtf" => Ok(Self::Direct),
-            "external" | "reflections" => Ok(Self::External),
-            "prtf" | "pinna" => Ok(Self::Prtf),
-            "close" | "distance" => Ok(Self::Close),
-            "tracked" | "tracking" => Ok(Self::Tracked),
-            "diffuse" | "decorrelated" => Ok(Self::Diffuse),
-            other => bail!(
-                "unknown OMNIPHONY_PROFILE '{other}'; expected control|all|direct|external|prtf|close|tracked|diffuse"
-            ),
-        }
-    }
-
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Control => "control",
-            Self::All => "all",
-            Self::Direct => "direct",
-            Self::External => "external",
-            Self::Prtf => "prtf",
-            Self::Close => "close",
-            Self::Tracked => "tracked",
-            Self::Diffuse => "diffuse",
-        }
-    }
-
-    fn uses_grid_aligned_upper_shell(self) -> bool {
-        !matches!(self, Self::Control | Self::Direct)
-    }
-
-    fn configure(self, base: &str) -> String {
-        let mut cfg = base.to_string();
-        match self {
-            Self::Control => {}
-            Self::All => {
-                cfg = cfg.replace("      level: 0.32", "      level: 0.36");
-                cfg = cfg.replace("      level: 0.028", "      level: 0.020");
-                cfg = cfg.replace("      rt60_s: 0.16", "      rt60_s: 0.14");
-            }
-            Self::Direct => {
-                cfg = cfg.replace("    mode: cascaded", "    mode: direct");
-                cfg = cfg.replace("      level: 0.32", "      level: 0.24");
-                cfg = cfg.replace("      level: 0.028", "      level: 0.015");
-            }
-            Self::External => {
-                cfg = cfg.replace("      level: 0.32", "      level: 0.42");
-                cfg = cfg.replace("      level: 0.028", "      level: 0.012");
-                cfg = cfg.replace("      rt60_s: 0.16", "      rt60_s: 0.12");
-            }
-            Self::Prtf => {
-                cfg = cfg.replace("    hrir_source: saf", "    hrir_source: prtf:100:72");
-                cfg = cfg.replace(
-                    "    spectral_compensation: saf_partial",
-                    "    spectral_compensation: off",
-                );
-            }
-            Self::Close => {
-                // Distance-cue experiment only. This is deliberately not called
-                // a validated near-field HRTF model: current renderer distance
-                // changes air/reflection/reverb relationships but does not yet
-                // apply a dedicated near-field HRTF transform.
-                cfg = cfg.replace("    unit_scale_m: 9.25", "    unit_scale_m: 2.25");
-                cfg = cfg.replace("      room_width_m: 23.0", "      room_width_m: 8.0");
-                cfg = cfg.replace("      room_depth_m: 32.0", "      room_depth_m: 11.0");
-                cfg = cfg.replace("      room_height_m: 21.0", "      room_height_m: 7.0");
-                cfg = cfg.replace("      level: 0.32", "      level: 0.24");
-                cfg = cfg.replace("      level: 0.028", "      level: 0.012");
-            }
-            Self::Tracked => {
-                cfg = cfg.replace("      level: 0.32", "      level: 0.36");
-                cfg = cfg.replace("      level: 0.028", "      level: 0.020");
-                cfg = cfg.replace(
-                    "    air_absorption: true\n",
-                    "    air_absorption: true\n    head_tracking:\n      osc_address: \"/android/rotationvector\"\n      format: \"rotvec\"\n",
-                );
-            }
-            Self::Diffuse => {
-                // Deliberate negative-control-ish profile: more late decorrelated
-                // field and less early reflection authority. If it only sounds
-                // wider but less located, coherent/external cues win the test.
-                cfg = cfg.replace("      level: 0.32", "      level: 0.24");
-                cfg = cfg.replace("      level: 0.028", "      level: 0.055");
-                cfg = cfg.replace("      rt60_s: 0.16", "      rt60_s: 0.28");
-                cfg = cfg.replace("      predelay_ms: 32.0", "      predelay_ms: 24.0");
-            }
-        }
-        cfg
-    }
-}
 
 #[derive(Default)]
 struct Args {
@@ -174,13 +55,9 @@ fn parse_args() -> anyhow::Result<Args> {
             "--start-off" => parsed.start_off = true,
             "-h" | "--help" => {
                 println!(
-                    "Omniphony frequency-evidence full-sphere stereo prototype\n\n\
-                     Usage:\n  Omniphony.exe (internal engine mode)\n\n\
-                     ON preserves the captured stereo master and analyzes real\n\
-                     L/R magnitude/phase relationships by frequency. Portable\n\
-                     Omniphony evidence laws derive broad, lateral, diffuse and\n\
-                     vertical support across a logical 7.1.4 shell while\n\
-                     protecting center authority and bass.\n"
+                    "Omniphony protected-master full-sphere stereo renderer\n\n\
+                     Runtime profile is selected with OMNIPHONY_PROFILE.\n\
+                     Profiles: control|all|hybrid|direct|external|prtf|close|tracked|diffuse\n"
                 );
                 std::process::exit(0);
             }
@@ -192,10 +69,10 @@ fn parse_args() -> anyhow::Result<Args> {
 
 /// Final-bus safety only. This is not a loudness leveller or spatial AGC.
 ///
-/// The best spatial build already exists upstream of this point. The guard adds
-/// fixed makeup gain, delays both channels equally, and applies one stereo-linked
-/// attenuation envelope only when a future peak would cross the endpoint ceiling.
-/// Relative L/R amplitude and all upstream spatial relationships are preserved.
+/// The guard adds fixed makeup gain, delays both channels equally, and applies
+/// one stereo-linked attenuation envelope only when a future peak would cross
+/// the endpoint ceiling. Relative L/R amplitude and upstream spatial relations
+/// are preserved.
 struct StereoLookaheadPeakGuard {
     frames: VecDeque<[f32; 2]>,
     gain: f32,
@@ -412,6 +289,7 @@ pub fn run() -> anyhow::Result<()> {
         .unwrap_or_else(|_| "<unavailable output name>".to_string());
     let (output_format, output_config) = choose_output_config(&output_device, SAMPLE_RATE_HZ)?;
     let mut loopback = LoopbackCapture::open_stereo(SAMPLE_RATE_HZ)?;
+    let mut support_renderer = MusicSupportRenderer::new(profile, SAMPLE_RATE_HZ)?;
 
     println!("Omniphony for Headphones - protected-master full-sphere renderer");
     println!("  profile: {}", profile.as_str());
@@ -423,6 +301,14 @@ pub fn run() -> anyhow::Result<()> {
     println!("  height:  vertical extent from already-spatial evidence + coherent transfer");
     println!("  foundation: coherent pressure/body delta, no LFE/compression/saturation");
     println!(
+        "  support route: {}",
+        if support_renderer.is_hybrid() {
+            "8 non-height lanes -> cascaded world; 4 height lanes -> direct HRTF; exclusive recombination"
+        } else {
+            "single native Omniphony spatial path"
+        }
+    );
+    println!(
         "  support: {:.0}% derived-field mix, linear master+foundation+support summing",
         FIELD_SUPPORT_GAIN * 100.0
     );
@@ -431,33 +317,6 @@ pub fn run() -> anyhow::Result<()> {
         20.0 * LINEAR_OUTPUT_GAIN.log10()
     );
     println!("  realtime: producer + playback callback claim MMCSS; queue underruns are metered");
-
-    let bundle = Bundle::embedded(profile)?;
-    orender_engine::bridge_loader::register_linked_bridge(reference_bridge::linked_library)
-        .context("failed to register linked reference PCM bridge")?;
-    let mut field_engine = Engine::from_paths(
-        Some(&bundle.field_config),
-        Some(&bundle.layout),
-        None,
-        None,
-        SAMPLE_RATE_HZ,
-    )
-    .context("failed to construct Omniphony music-field engine")?;
-    field_engine.set_channel_render_mode_code(1);
-    if field_engine.channel_count() != 2 {
-        bail!(
-            "binaural support-field configuration expected 2 output channels but engine reports {}",
-            field_engine.channel_count()
-        );
-    }
-
-    let header = streaming_f32_wav_header(MUSIC_FIELD_CHANNELS as u16, SAMPLE_RATE_HZ);
-    let header_output = field_engine
-        .process(&header, RInputTransport::Raw, 0)
-        .context("failed to seed 12-lane music-field PCM bridge")?;
-    if !header_output.is_empty() {
-        bail!("streaming WAV header unexpectedly produced audio");
-    }
 
     let quit = Arc::new(AtomicBool::new(false));
     let playback_underrun_frames = Arc::new(AtomicU64::new(0));
@@ -480,7 +339,6 @@ pub fn run() -> anyhow::Result<()> {
     let mut field = MusicFieldProcessor::new(SAMPLE_RATE_HZ);
     let mut foundation = MusicFoundationProcessor::new(SAMPLE_RATE_HZ);
     let mut output_peak_guard = StereoLookaheadPeakGuard::new(SAMPLE_RATE_HZ);
-    let mut pcm_bytes = Vec::<u8>::new();
     let mut dry_fifo = VecDeque::<f32>::new();
     let mut foundation_fifo = VecDeque::<f32>::new();
     let mut direct_meter = SignalMeter::default();
@@ -549,15 +407,14 @@ pub fn run() -> anyhow::Result<()> {
             );
         }
         evidence_meter.observe(&field_input);
-        f32_as_le_bytes(&field_input, &mut pcm_bytes);
 
-        let rendered = field_engine
-            .process(&pcm_bytes, RInputTransport::Raw, 0)
-            .context("live Omniphony frequency-evidence field render failed")?;
+        let rendered = support_renderer
+            .process(&field_input)
+            .context("live Omniphony support render failed")?;
         for block in rendered {
             if block.n_channels != 2 {
                 bail!(
-                    "music field renderer changed output width to {}",
+                    "music support renderer changed output width to {}",
                     block.n_channels
                 );
             }
@@ -566,7 +423,7 @@ pub fn run() -> anyhow::Result<()> {
             }
             if dry_fifo.len() < block.samples.len() || foundation_fifo.len() < block.samples.len() {
                 bail!(
-                    "music field produced {} samples with dry/foundation buffered at {}/{}",
+                    "music support produced {} samples with dry/foundation buffered at {}/{}",
                     block.samples.len(),
                     dry_fifo.len(),
                     foundation_fifo.len()
@@ -612,7 +469,7 @@ pub fn run() -> anyhow::Result<()> {
 
     let _ = loopback.stop();
     drop(playback_stream);
-    println!("Omniphony frequency-evidence prototype stopped");
+    println!("Omniphony frequency-evidence renderer stopped");
     Ok(())
 }
 
@@ -741,54 +598,6 @@ impl LoopbackCapture {
         }
         Ok(Some(samples))
     }
-}
-
-struct Bundle {
-    field_config: PathBuf,
-    layout: PathBuf,
-}
-
-impl Bundle {
-    fn embedded(profile: SpatialProfile) -> anyhow::Result<Self> {
-        const FIELD_CONFIG: &str =
-            include_str!("../../assets/binaural-baselines/stereo-field-prototype.yaml");
-        const CONTROL_LAYOUT: &str =
-            include_str!("../../../layouts/itu-r-bs2051-system-h-22.0.yaml");
-        const GRID_LAYOUT: &str =
-            include_str!("../../../layouts/system-h-derived-22.0-upper60-grid10.yaml");
-
-        let root = std::env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(std::env::temp_dir)
-            .join("Omniphony")
-            .join("runtime");
-        std::fs::create_dir_all(&root)
-            .context("failed to create embedded Omniphony runtime directory")?;
-
-        let field_config = root.join(format!("stereo-field-{}.yaml", profile.as_str()));
-        let layout = root.join(format!("system-h-headphone-{}.yaml", profile.as_str()));
-        let configured = profile.configure(FIELD_CONFIG);
-        let layout_content = if profile.uses_grid_aligned_upper_shell() {
-            GRID_LAYOUT
-        } else {
-            CONTROL_LAYOUT
-        };
-        write_embedded_asset(&field_config, &configured)?;
-        write_embedded_asset(&layout, layout_content)?;
-        Ok(Self {
-            field_config,
-            layout,
-        })
-    }
-}
-
-fn write_embedded_asset(path: &Path, content: &str) -> anyhow::Result<()> {
-    let current = std::fs::read_to_string(path).ok();
-    if current.as_deref() != Some(content) {
-        std::fs::write(path, content)
-            .with_context(|| format!("failed to materialize {}", path.display()))?;
-    }
-    Ok(())
 }
 
 fn name_contains(device: &cpal::Device, needle: &str) -> bool {
@@ -1018,34 +827,6 @@ fn next_stereo_frame(
                 return (0.0, 0.0);
             }
         }
-    }
-}
-
-fn streaming_f32_wav_header(channels: u16, sample_rate_hz: u32) -> Vec<u8> {
-    let block_align = channels.saturating_mul(4);
-    let byte_rate = sample_rate_hz.saturating_mul(u32::from(block_align));
-    let mut wav = Vec::with_capacity(44);
-    wav.extend_from_slice(b"RIFF");
-    wav.extend_from_slice(&u32::MAX.to_le_bytes());
-    wav.extend_from_slice(b"WAVE");
-    wav.extend_from_slice(b"fmt ");
-    wav.extend_from_slice(&16u32.to_le_bytes());
-    wav.extend_from_slice(&3u16.to_le_bytes());
-    wav.extend_from_slice(&channels.to_le_bytes());
-    wav.extend_from_slice(&sample_rate_hz.to_le_bytes());
-    wav.extend_from_slice(&byte_rate.to_le_bytes());
-    wav.extend_from_slice(&block_align.to_le_bytes());
-    wav.extend_from_slice(&32u16.to_le_bytes());
-    wav.extend_from_slice(b"data");
-    wav.extend_from_slice(&u32::MAX.to_le_bytes());
-    wav
-}
-
-fn f32_as_le_bytes(samples: &[f32], out: &mut Vec<u8>) {
-    out.clear();
-    out.reserve(samples.len() * 4);
-    for &sample in samples {
-        out.extend_from_slice(&sample.to_le_bytes());
     }
 }
 
