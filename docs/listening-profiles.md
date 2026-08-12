@@ -26,9 +26,9 @@ Consequences:
 - `all` remains the current model;
 - `hybrid` is not promoted because the direct-height branch did not produce a
   reliably audible benefit;
-- the other profile-level room/routing controls remain useful engineering/A-B
-  controls, but this pass provides no listening evidence that they improve the
-  current model;
+- the former `external` level/reverb-only control did not earn retention as a
+  distinct mechanism and its tray slot is now reused for a materially different
+  HRTF early-reflection challenger;
 - `prtf` is retained as a negative control rather than a current contender;
 - a head-tracking claim still requires actual live head-motion input rather than
   a static `tracked` profile.
@@ -122,16 +122,58 @@ stage before HRTF rendering for the entire support field.
 
 ## external
 
-Early-field weighted externalization candidate.
+**HRTF early-reflection externalization challenger.**
 
-Relative to `all`:
+The previous `external` profile only strengthened the existing lightweight early
+field while reducing the late field, and the 2026-08-12 listening pass did not
+reveal a clear difference. The tray slot now carries a different mechanism.
 
-- reflection level 0.42
-- late reverb level 0.012
-- RT60 0.12 s
+Relative to `all`, the primary cascade keeps the current model's:
 
-The intent is to test stronger binaural early-reflection structure without
-buying externalization through a longer or louder diffuse tail.
+- direct/cascaded measured-HRTF path;
+- grid-aligned upper shell;
+- 23 x 32 x 21 m room geometry;
+- reflection level target 0.36;
+- late reverb level 0.020 and RT60 0.14 s;
+- source-distance air cue;
+- support-only spectral compensation.
+
+Only the first-order reflection renderer changes:
+
+```text
+12 derived support lanes
+        ↓
+per-lane first-order shoebox image timing
++ current source-distance air filtering
++ current broad wall / extra-path HF loss
+        ↓
+contributions grouped by the six physical walls
+        ↓
+6 fixed reflection buses
+        ↓
+measured SAF/KEMAR HRTF + analytic ITD
+        ↓
+linear sum with the otherwise-current support render
+```
+
+The primary engine's original analytic reflection bank is disabled for this
+profile, so the same early-reflection energy is not routed twice.
+
+The six HRTF buses are approximately power-matched to the previous analytic
+binaural reflection panner. The experiment is therefore intended to change the
+directional spectral content of the early field rather than win by simply being
+louder.
+
+This is deliberately **not** 132 separate full-HRTF reflection convolutions for
+22 virtual speakers x 6 walls. Contributions are delayed and wall-filtered
+before wall-wise mixing, then only six measured HRTFs are run. That keeps the
+challenger bounded enough for the realtime Windows path.
+
+Engineering tests cover protected C/LFE exclusion, delayed rather than duplicate
+direct arrival, callback-boundary invariance, and measured-HRTF lateral ear
+asymmetry. A physical listening result is still required before any promotion.
+
+Aliases `early-hrtf` and `hrtf-reflections` select this same challenger.
 
 ## prtf
 
@@ -192,7 +234,8 @@ and binaural early-field cues.
 These remain separate engineering/research obligations rather than being faked
 with a nearby-looking effect:
 
-- full-HRTF convolution for selected early reflections;
+- per-image/per-source full-HRTF reflection rendering beyond the bounded six-bus
+  early-field challenger;
 - dedicated near-field HRTF filtering;
 - explicit short-term interaural-coherence shaping;
 - transient/sustained spatial routing;
