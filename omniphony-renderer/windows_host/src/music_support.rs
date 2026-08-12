@@ -114,10 +114,23 @@ fn current_model_room(mut cfg: String) -> String {
 fn configure_direct_height(base: &str) -> String {
     let mut cfg = base.to_string();
     cfg = cfg.replace("    mode: cascaded", "    mode: direct");
+
+    // The direct-height engine receives only TFL/TFR/TBL/TBR. Do not let it
+    // synthesize phantom or generated objects from those lanes: a height sample
+    // has one direct route, not a second inferred route inside the same engine.
+    cfg = cfg.replace(
+        "  synthetic_objects_enabled: true",
+        "  synthetic_objects_enabled: false",
+    );
+    cfg = cfg.replace("  phantom_extract_mode: broadband", "  phantom_extract_mode: off");
+
     // The cascade remains the environmental/world branch. The direct-height
     // engine is intentionally localization-only so the same height event does
     // not acquire a second room, early field or late tail.
-    cfg = cfg.replace("    spectral_compensation: saf_partial", "    spectral_compensation: off");
+    cfg = cfg.replace(
+        "    spectral_compensation: saf_partial",
+        "    spectral_compensation: off",
+    );
     cfg = cfg.replace(
         "    reflections:\n      enabled: true",
         "    reflections:\n      enabled: false",
@@ -126,6 +139,7 @@ fn configure_direct_height(base: &str) -> String {
         "    reverb:\n      enabled: true",
         "    reverb:\n      enabled: false",
     );
+
     // Preserve the measured HRTF's directional high-frequency structure on the
     // direct height branch. The cascade still owns distance/air cues for the
     // surrounding world.
