@@ -1,5 +1,13 @@
 # Omniphony development contract
 
+## Helix relationship
+
+This repository is the independent implementation home for `project:omniphony-immersive-audio`, which is tracked by Helix for project continuity, research, evidence, relationships, negative results, and re-entry.
+
+Before substantive work, read the current Helix operating law at `dissonance-git/Helix/AGENTS.md` and apply the parts relevant to evidence, provenance, correction, validation, re-entry, and concurrent repository safety. This file owns Omniphony's project-specific implementation laws and may specialize repository workflow where the project genuinely differs. Direct user instruction or correction outranks both.
+
+Do not copy Omniphony's implementation into Helix merely to make the connection visible, and do not copy Helix machinery into this repository merely to inherit its design. Helix preserves the exact route to this project; this repository remains canonical for its code, tests, builds, local implementation history, and releases.
+
 ## Research gate
 
 Every substantive change that can alter what the listener hears must begin with both:
