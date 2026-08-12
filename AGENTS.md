@@ -1,8 +1,44 @@
 # Omniphony development contract
 
+## GitHub connector entrance
+
+When entering this repository through GitHub, an LLM connector, or another remote agent surface, treat the root documents as the lobby rather than trying to infer the project from code search alone.
+
+Use this bounded entrance sequence:
+
+```text
+current main HEAD
+→ README.md
+→ AGENTS.md at the same HEAD
+→ recent commits
+→ current listening frontier
+→ smallest task-relevant code / tests / history
+→ exact target file
+```
+
+1. Resolve `dissonance-git/Omniphony-Headphones` and record the current `main` commit before substantive work.
+2. Read `README.md` first because it owns the current listening model, retained baseline, active candidate, and frontier. Read this `AGENTS.md` from the same repository state for implementation and listening law.
+3. Inspect recent commits to see which candidate or repair is actively moving. Recent activity does not overrule the retained listening baseline or the current root documents.
+4. Hydrate only the task-relevant region. Do not pull in all of libaural, VGM Tooling, or Helix unless the work genuinely crosses those boundaries.
+5. Before any GitHub replacement write, re-fetch current `main` and the exact target file. If `main` changed since preflight, re-read this file, refresh the README/frontier when relevant, and reconstruct the edit from current target content.
+6. Write against the exact current blob SHA. Preserve unrelated concurrent work. Never replace a file from a cached or reconstructed older copy.
+7. After publication, fetch the resulting commit, inspect its changed paths, and confirm the commit remains in current `main` history. Report publication, compile/tests, CI, measurements, and physical listening as separate evidence states.
+
+Fast routes:
+
+- current listening model, retained baseline, active candidate, and frontier: `README.md`
+- governing implementation/listening law: `AGENTS.md`
+- perceptual promotion and rejection history: `docs/listening-history.md`
+- portable renderer/DSP implementation: `omniphony-renderer/`
+- Windows host/integration code: follow the current README repository guide and exact implementation path rather than guessing from historical layouts
+- CI and build behavior: `.github/`
+- historical or research context: `docs/`, only as required by the current task
+
+For sound-changing work, the shortest valid path is normally `README.md` → relevant recent commits → exact renderer code/tests → physical listening history. Do not begin with a broad historical scan.
+
 ## Project instruction chain
 
-This repository is the independent implementation home for `project:omniphony-immersive-audio`, which is tracked by Helix and is a child project of libaural.
+This repository is the independent implementation home for `project:omniphony`, which is tracked by Helix and is a child project of libaural.
 
 Before substantive work, read the current instruction chain in order:
 
