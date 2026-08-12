@@ -1,6 +1,6 @@
 # Listening history
 
-This file preserves physical listening evidence from retired Omniphony comparison paths.
+This file preserves physical listening evidence from retired Omniphony comparison paths and from audible mechanisms as they enter or leave the single Current model.
 
 These are **historical research controls**, not user-facing listening modes. The tray and launcher no longer expose a profile selector. Normal Windows playback uses one **Current model**.
 
@@ -25,7 +25,7 @@ The project therefore records the result conservatively:
 
 > slight subjective preference; not a demonstrated perceptual law.
 
-The path is nevertheless adopted provisionally as the **Current model** because:
+The path was adopted as the **Current model** because:
 
 - it was not heard as worse;
 - it represents a materially different and more physically meaningful early-field mechanism;
@@ -34,6 +34,44 @@ The path is nevertheless adopted provisionally as the **Current model** because:
 - carrying many weakly distinguished product profiles no longer helps development.
 
 The former tray label `Externalization` is retired. The mechanism is now simply part of the Current model.
+
+## 2026-08-12 · transient-aware early-room excitation
+
+The next build added lane-local transient evidence before the measured-HRTF early-reflection delay bank. Fast versus slow energy envelopes briefly increased only early-room excitation, with a +2.5 dB ceiling, while leaving the protected master, coherent foundation, primary support render and late room unchanged.
+
+Physical listening reported that the sound was **better incrementally again**. No pumping, attack damage, bass loss or new fatigue was reported in that pass.
+
+The result is therefore promoted into Current model as an application-specific retained mechanism:
+
+> sharp musical events may briefly excite the already-existing early room more strongly, provided the direct event remains untouched.
+
+This does **not** establish that the transient detector identifies drums or instruments. It only establishes that, in the tested listening system, the bounded transient-dependent early-room behavior improved the experience enough to retain.
+
+## 2026-08-12 · front / center refinement candidate
+
+The next listening candidate responds to a more specific observation:
+
+- center/vocals can be a little less reverberant and slightly clearer;
+- stereo-front material can move farther outward;
+- front height can expand somewhat;
+- side, rear and lower presentation already sound good and should stay fixed;
+- bass and power are already right;
+- total playback level can come down slightly.
+
+The candidate therefore changes only:
+
+```text
+front L/R x position       +/-1.00 -> +/-1.15
+top-front x position       +/-0.96 -> +/-1.10
+top-front z position          2.15 -> 2.45
+late-room level              0.020 -> 0.016
+late-room RT60                0.14 -> 0.12 s
+final fixed makeup          +3.5 dB -> +2.8 dB
+```
+
+Side, rear and lower evidence-source poses are unchanged. Bass/foundation tuning is unchanged. The retained transient-aware measured-HRTF early field is unchanged.
+
+This candidate is **not yet a listening result**. It remains provisional until physical listening.
 
 ## Current model inherited from the comparison
 
@@ -44,17 +82,21 @@ The Current model retains:
 - analysis-only stereo evidence extraction;
 - derived 7.1.4 support field;
 - coherent elevation transfer;
-- grid-aligned +60-degree upper shell;
+- grid-aligned full-sphere shell;
 - measured SAF/KEMAR binaural rendering;
-- current room balance and short late field;
+- measured-HRTF six-bus first-order early field;
+- lane-local transient-aware early-room excitation;
+- short low-level late closure;
 - support-only spectral compensation;
 - fixed output makeup and stereo-linked peak safety;
 - Windows realtime continuity guards.
 
-Its first-order early field now uses:
+Its first-order early field uses:
 
 ```text
 support lanes
+    ↓
+lane-local transient evidence
     ↓
 first-order image timing / wall filtering
     ↓
@@ -134,4 +176,4 @@ remain ambiguous
 → do not multiply product modes
 ```
 
-The next isolated audible frontier is **transient-aware live-drum presentation**. Source/instrument awareness from libaural should follow only after the spatial transient mechanism independently earns itself, so two unknown mechanisms are not evaluated at once.
+The current isolated audible frontier is the **front / center refinement candidate** above. Source/instrument awareness from libaural remains the next larger frontier after the basic geometry/directness behavior is satisfactory.
