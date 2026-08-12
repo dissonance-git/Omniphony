@@ -10,9 +10,9 @@ Windows is the first product host. The renderer / inference / DSP core remains p
 
 ---
 
-# Current listening baseline
+# Current model
 
-**Baseline 2 / current reference:**
+**Current listening reference:**
 
 ```text
 89507730946ce80d767881e507d7f18937971f9f
@@ -24,9 +24,9 @@ The default launcher profile is:
 all
 ```
 
-Physical listening now establishes this as the best reference in the fork so far.
+Physical listening establishes this as the best reference in the fork so far.
 
-Baseline 2 preserves the successful properties of the earlier cascaded-binaural build while adding the mechanisms that survived subsequent listening:
+The current model combines:
 
 - protected finished stereo master;
 - coherent low-frequency / body foundation;
@@ -41,11 +41,11 @@ Baseline 2 preserves the successful properties of the earlier cascaded-binaural 
 - fixed output makeup followed only by a stereo-linked look-ahead peak-safety guard;
 - single-executable Windows supervisor + audio-engine architecture.
 
-Listening feedback on this state is simply: **sounds great**.
+Current listening feedback is simply: **sounds great**.
 
-That changes the development obligation again. New work must beat this state while preserving its bass authority, transient ownership, clarity, tonal comfort, motion, scale, reliability and continuous 360-degree presentation.
+That is now the rollback point. New work must beat it while preserving bass authority, transient ownership, clarity, tonal comfort, motion, scale, reliability and the continuous 360-degree presentation.
 
-If a candidate becomes merely different, wetter, brighter, blurrier or more spectacular at the cost of musical authority, keep Baseline 2.
+If a candidate is merely different, wetter, brighter, blurrier or more spectacular at the cost of musical authority, keep the current model.
 
 ---
 
@@ -103,15 +103,15 @@ That is the fidelity floor.
 
 ---
 
-# 2. What changed after Baseline 1
+# 2. How the current model arrived here
 
-The earlier reference proved that cascaded binaural could create a much more continuous 360-degree bubble than the direct support path, but it still had three audible weaknesses:
+The earlier cascaded-binaural reference proved that a continuous 360-degree environment could be substantially more convincing than a collection of directly rendered spatial points, but it still had three audible weaknesses:
 
 1. bright material could become sharp;
 2. height existed but did not have enough authority;
 3. some upper energy behaved more like spatial support than a real musical event occupying elevation.
 
-The successful post-baseline changes were deliberately small and mechanism-specific.
+The changes that survived listening were deliberately small and mechanism-specific.
 
 ## 2.1 Support-only spectral correction
 
@@ -144,9 +144,9 @@ horizontal event
 
 The transfer does not create another wet copy. Before binaural rendering, horizontal + elevated lane amplitude remains algebraically conserved by the transfer itself.
 
-This is the preferred direction for strong height:
+Preferred direction for strong height:
 
-> **move structured evidence upward rather than smear additional energy upward.**
+> **Move structured evidence upward rather than smear additional energy upward.**
 
 ## 2.3 Steeper upper shell
 
@@ -228,11 +228,11 @@ Shortest form:
 Additional invariants:
 
 ```text
-mass        may remain anchored
-trajectory  must remain alive
+mass         may remain anchored
+trajectory   must remain alive
 
-environment may grow
-direct musical structure must not blur
+environment  may grow
+direct music must not blur
 ```
 
 ---
@@ -286,13 +286,13 @@ The current 7.1.4 evidence order is:
 L R C LFE Ls Rs Lb Rb Tfl Tfr Tbl Tbr
 ```
 
-The useful support lanes are derived from actual stereo relations rather than from semantic source separation.
+The useful support lanes are derived from actual stereo relations rather than semantic source separation.
 
 ---
 
 # 7. Current spatial world
 
-Baseline 2 is a wide, depth-led full sphere.
+The current model is a wide, depth-led full sphere.
 
 Current priorities are approximately:
 
@@ -338,8 +338,8 @@ all
 Current profiles:
 
 ```text
-control   previous current-best topology before the latest matrix
-all       conservative combined Baseline-2 candidate
+control   prior reference topology
+all       current combined model
 direct    direct per-evidence-lane binaural instead of cascade
 external  stronger early-field / smaller late-field candidate
 prtf      structural PRTF HRTF model instead of measured KEMAR
@@ -348,11 +348,13 @@ tracked   head-tracking-ready configuration
 diffuse   deliberately more diffuse late-field comparison
 ```
 
+A `hybrid` profile is currently being implemented to keep the cascaded 360-degree world while sending only the four height evidence lanes through direct HRTF rendering.
+
 These are experiment switches, not product modes.
 
 Mutually exclusive HRTF models are compared rather than stacked. `all` does not convolve the same source through measured KEMAR and PRTF simultaneously.
 
-See `docs/listening-profiles.md` for the exact current differences.
+See `docs/listening-profiles.md` for exact current differences.
 
 ---
 
@@ -570,9 +572,9 @@ Hard requirement:
 
 > **A height sample may take one path or the other, never both.**
 
-This is the next major implementation target.
+This is the immediate implementation target.
 
-## B. Directional HRTF early reflections
+## B. Directional-HRTF early reflections
 
 The current reflection bank supplies useful binaural timing / level structure, but selected strongest reflection paths can eventually carry their own full directional HRTF filtering.
 
@@ -599,7 +601,7 @@ After the major spatial coordinates are stable:
 - short-term interaural-coherence shaping;
 - higher-order Ambisonic intermediate-field experiments.
 
-Do not add these simply because they exist. Each must beat Baseline 2 or solve a clearly isolated limitation.
+Do not add these simply because they exist. Each must beat the current model or solve a clearly isolated limitation.
 
 ---
 
@@ -636,7 +638,7 @@ It is:
 
 > **A finished stereo recording keeps its identity, weight, dynamics and clarity while gaining a stable external world with front distance, rear depth, extreme width, convincing overhead volume, continuous motion and enough radial scale that ordinary headphone playback feels dimensionally collapsed by comparison.**
 
-Baseline 2 makes the central question much narrower:
+The current model makes the central question much narrower:
 
 > **Can Omniphony turn an already excellent giant headphone sphere into a genuinely external, vertically occupied acoustic world without sacrificing the finished master underneath it?**
 
