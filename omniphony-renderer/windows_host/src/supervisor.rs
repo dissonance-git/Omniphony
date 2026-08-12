@@ -223,6 +223,10 @@ fn spawn_worker(enabled: bool) -> anyhow::Result<()> {
     command
         .current_dir(&root)
         .env("OMNIPHONY_INTERNAL_ENGINE", "1")
+        // The measured-HRTF early-reflection path is the promoted Current model.
+        // Pin it here so old user-level profile variables/preferences cannot
+        // silently return normal playback to a retired listening control.
+        .env("OMNIPHONY_PROFILE", "external")
         .stdin(Stdio::piped())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(log_err))
