@@ -1,6 +1,5 @@
 #![cfg(target_os = "windows")]
 
-use crate::music_support::SpatialProfile;
 use anyhow::{Context, bail};
 use std::ffi::OsStr;
 use std::fs::{OpenOptions, create_dir_all};
@@ -23,7 +22,7 @@ use windows_sys::Win32::UI::Shell::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
     DispatchMessageW, GetCursorPos, GetMessageW, IDC_ARROW, IDI_APPLICATION, LoadCursorW,
-    LoadIconW, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, PostMessageW,
+    LoadIconW, MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, PostMessageW,
     PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, SetTimer,
     TPM_LEFTALIGN, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage, WM_APP, WM_CLOSE,
     WM_COMMAND, WM_CREATE, WM_DESTROY, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WM_TIMER, WNDCLASSW,
@@ -39,26 +38,14 @@ const ID_RESTART: usize = 2003;
 const ID_AUTOSTART: usize = 2004;
 const ID_EXIT: usize = 2005;
 
-const ID_PROFILE_ALL: usize = 2100;
-const ID_PROFILE_HYBRID: usize = 2101;
-const ID_PROFILE_DIRECT: usize = 2102;
-const ID_PROFILE_EXTERNAL: usize = 2103;
-const ID_PROFILE_PRTF: usize = 2104;
-const ID_PROFILE_CLOSE: usize = 2105;
-const ID_PROFILE_TRACKED: usize = 2106;
-const ID_PROFILE_DIFFUSE: usize = 2107;
-const ID_PROFILE_CONTROL: usize = 2108;
-
 const RESTART_DELAY: Duration = Duration::from_secs(2);
 const AUTOSTART_VALUE: &str = "Omniphony";
 const AUTOSTART_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
-const PROFILE_FILE: &str = "listening-model.txt";
 
 struct AppState {
     child: Option<Child>,
     stdin: Option<ChildStdin>,
     enabled: bool,
-    profile: SpatialProfile,
     quitting: bool,
     next_restart: Option<Instant>,
     restart_count: u32,
@@ -70,7 +57,6 @@ impl Default for AppState {
             child: None,
             stdin: None,
             enabled: true,
-            profile: SpatialProfile::All,
             quitting: false,
             next_restart: None,
             restart_count: 0,
@@ -155,88 +141,6 @@ fn append_log(message: &str) {
     }
 }
 
-fn profile_from_name(raw: &str) -> Option<SpatialProfile> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "all" | "portal" => Some(SpatialProfile::All),
-        "hybrid" | "hybrid-height" | "direct-height" => Some(SpatialProfile::Hybrid),
-        "direct" | "direct-hrtf" => Some(SpatialProfile::Direct),
-        "external" | "reflections" => Some(SpatialProfile::External),
-        "prtf" | "pinna" => Some(SpatialProfile::Prtf),
-        "close" | "distance" => Some(SpatialProfile::Close),
-        "tracked" | "tracking" => Some(SpatialProfile::Tracked),
-        "diffuse" | "decorrelated" => Some(SpatialProfile::Diffuse),
-        "control" | "best" => Some(SpatialProfile::Control),
-        _ => None,
-    }
-}
-
-fn profile_label(profile: SpatialProfile) -> &'static str {
-    match profile {
-        SpatialProfile::All => "Current model",
-        SpatialProfile::Hybrid => "Hybrid direct height",
-        SpatialProfile::Direct => "Direct HRTF",
-        SpatialProfile::External => "Externalization",
-        SpatialProfile::Prtf => "Structural PRTF",
-        SpatialProfile::Close => "Close-distance control",
-        SpatialProfile::Tracked => "Head-tracked",
-        SpatialProfile::Diffuse => "Diffuse control",
-        SpatialProfile::Control => "Prior control",
-    }
-}
-
-fn profile_for_command(id: usize) -> Option<SpatialProfile> {
-    match id {
-        ID_PROFILE_ALL => Some(SpatialProfile::All),
-        ID_PROFILE_HYBRID => Some(SpatialProfile::Hybrid),
-        ID_PROFILE_DIRECT => Some(SpatialProfile::Direct),
-        ID_PROFILE_EXTERNAL => Some(SpatialProfile::External),
-        ID_PROFILE_PRTF => Some(SpatialProfile::Prtf),
-        ID_PROFILE_CLOSE => Some(SpatialProfile::Close),
-        ID_PROFILE_TRACKED => Some(SpatialProfile::Tracked),
-        ID_PROFILE_DIFFUSE => Some(SpatialProfile::Diffuse),
-        ID_PROFILE_CONTROL => Some(SpatialProfile::Control),
-        _ => None,
-    }
-}
-
-fn profile_command(profile: SpatialProfile) -> usize {
-    match profile {
-        SpatialProfile::All => ID_PROFILE_ALL,
-        SpatialProfile::Hybrid => ID_PROFILE_HYBRID,
-        SpatialProfile::Direct => ID_PROFILE_DIRECT,
-        SpatialProfile::External => ID_PROFILE_EXTERNAL,
-        SpatialProfile::Prtf => ID_PROFILE_PRTF,
-        SpatialProfile::Close => ID_PROFILE_CLOSE,
-        SpatialProfile::Tracked => ID_PROFILE_TRACKED,
-        SpatialProfile::Diffuse => ID_PROFILE_DIFFUSE,
-        SpatialProfile::Control => ID_PROFILE_CONTROL,
-    }
-}
-
-fn profile_preference_path() -> PathBuf {
-    settings_root().join(PROFILE_FILE)
-}
-
-fn persisted_profile() -> Option<SpatialProfile> {
-    let raw = std::fs::read_to_string(profile_preference_path()).ok()?;
-    profile_from_name(&raw)
-}
-
-fn initial_profile() -> SpatialProfile {
-    std::env::var("OMNIPHONY_PROFILE")
-        .ok()
-        .and_then(|raw| profile_from_name(&raw))
-        .or_else(persisted_profile)
-        .unwrap_or(SpatialProfile::All)
-}
-
-fn persist_profile(profile: SpatialProfile) -> anyhow::Result<()> {
-    let root = settings_root();
-    create_dir_all(&root).context("failed to create Omniphony settings directory")?;
-    std::fs::write(root.join(PROFILE_FILE), format!("{}\n", profile.as_str()))
-        .context("failed to persist listening-model preference")
-}
-
 fn autostart_marker() -> PathBuf {
     settings_root().join("autostart.disabled")
 }
@@ -304,10 +208,6 @@ fn spawn_worker(enabled: bool) -> anyhow::Result<()> {
     let root = executable_root()?;
     let executable =
         std::env::current_exe().context("failed to resolve Omniphony engine executable")?;
-    let profile = state()
-        .lock()
-        .expect("Omniphony supervisor state poisoned")
-        .profile;
 
     let log_path = root.join("omniphony.log");
     let log = OpenOptions::new()
@@ -323,7 +223,6 @@ fn spawn_worker(enabled: bool) -> anyhow::Result<()> {
     command
         .current_dir(&root)
         .env("OMNIPHONY_INTERNAL_ENGINE", "1")
-        .env("OMNIPHONY_PROFILE", profile.as_str())
         .stdin(Stdio::piped())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(log_err))
@@ -348,10 +247,7 @@ fn spawn_worker(enabled: bool) -> anyhow::Result<()> {
     app.stdin = Some(stdin);
     app.enabled = enabled;
     app.next_restart = None;
-    append_log(&format!(
-        "audio engine started with listening model '{}'",
-        profile.as_str()
-    ));
+    append_log("audio engine started with Current model");
     Ok(())
 }
 
@@ -399,26 +295,6 @@ fn restart_worker(hwnd: HWND, enabled: bool) {
         schedule_restart(&format!("audio engine restart failed: {err:#}"));
     }
     update_tray_tip(hwnd);
-}
-
-fn select_profile(hwnd: HWND, profile: SpatialProfile) {
-    let enabled = {
-        let mut app = state().lock().expect("Omniphony supervisor state poisoned");
-        if app.profile == profile {
-            return;
-        }
-        app.profile = profile;
-        app.enabled
-    };
-
-    if let Err(err) = persist_profile(profile) {
-        append_log(&format!("could not persist listening model: {err:#}"));
-    }
-    append_log(&format!(
-        "tray selected listening model '{}'",
-        profile.as_str()
-    ));
-    restart_worker(hwnd, enabled);
 }
 
 fn poll_worker(hwnd: HWND) {
@@ -477,17 +353,16 @@ fn poll_worker(hwnd: HWND) {
 
 fn tray_status() -> String {
     let app = state().lock().expect("Omniphony supervisor state poisoned");
-    let profile = profile_label(app.profile);
     if app.child.is_some() {
         if app.enabled {
-            format!("Omniphony - ON - {profile}")
+            "Omniphony - ON - Current model".to_string()
         } else {
-            format!("Omniphony - clean bypass - {profile}")
+            "Omniphony - clean bypass".to_string()
         }
     } else if app.quitting {
         "Omniphony - stopping".to_string()
     } else {
-        format!("Omniphony - recovering audio ({}) - {profile}", app.restart_count)
+        format!("Omniphony - recovering audio ({})", app.restart_count)
     }
 }
 
@@ -534,49 +409,24 @@ fn append_menu_item(menu: *mut core::ffi::c_void, flags: u32, id: usize, text: &
     }
 }
 
-fn append_profile_item(menu: *mut core::ffi::c_void, selected: SpatialProfile, profile: SpatialProfile) {
-    append_menu_item(
-        menu,
-        MF_STRING | if selected == profile { MF_CHECKED } else { 0 },
-        profile_command(profile),
-        profile_label(profile),
-    );
-}
-
 fn show_tray_menu(hwnd: HWND) {
     let menu = unsafe { CreatePopupMenu() };
     if menu.is_null() {
         return;
     }
 
-    let profile_menu = unsafe { CreatePopupMenu() };
-    if profile_menu.is_null() {
-        unsafe {
-            let _ = DestroyMenu(menu);
-        }
-        return;
-    }
-
-    let (running, enabled, restarts, profile) = {
+    let (running, enabled, restarts) = {
         let app = state().lock().expect("Omniphony supervisor state poisoned");
-        (
-            app.child.is_some(),
-            app.enabled,
-            app.restart_count,
-            app.profile,
-        )
+        (app.child.is_some(), app.enabled, app.restart_count)
     };
     let status = if running {
         if enabled {
-            format!("Omniphony: ON | {}", profile_label(profile))
+            "Omniphony: ON | Current model".to_string()
         } else {
-            format!("Omniphony: clean bypass | {}", profile_label(profile))
+            "Omniphony: clean bypass".to_string()
         }
     } else {
-        format!(
-            "Omniphony: recovering ({restarts}) | {}",
-            profile_label(profile)
-        )
+        format!("Omniphony: recovering ({restarts})")
     };
 
     append_menu_item(menu, MF_STRING | MF_GRAYED, ID_STATUS, &status);
@@ -590,30 +440,6 @@ fn show_tray_menu(hwnd: HWND) {
             "Turn Omniphony on"
         },
     );
-
-    append_profile_item(profile_menu, profile, SpatialProfile::All);
-    append_profile_item(profile_menu, profile, SpatialProfile::Hybrid);
-    unsafe {
-        let _ = AppendMenuW(profile_menu, MF_SEPARATOR, 0, std::ptr::null());
-    }
-    append_profile_item(profile_menu, profile, SpatialProfile::Direct);
-    append_profile_item(profile_menu, profile, SpatialProfile::External);
-    append_profile_item(profile_menu, profile, SpatialProfile::Prtf);
-    append_profile_item(profile_menu, profile, SpatialProfile::Close);
-    append_profile_item(profile_menu, profile, SpatialProfile::Tracked);
-    append_profile_item(profile_menu, profile, SpatialProfile::Diffuse);
-    append_profile_item(profile_menu, profile, SpatialProfile::Control);
-
-    let listening_model = wide("Listening model");
-    unsafe {
-        let _ = AppendMenuW(
-            menu,
-            MF_POPUP,
-            profile_menu as usize,
-            listening_model.as_ptr(),
-        );
-    }
-
     append_menu_item(menu, MF_STRING, ID_RESTART, "Restart audio engine");
     append_menu_item(
         menu,
@@ -687,11 +513,6 @@ unsafe extern "system" fn window_proc(
         }
         WM_COMMAND => {
             let command_id = wparam & 0xffff;
-            if let Some(profile) = profile_for_command(command_id) {
-                select_profile(hwnd, profile);
-                return 0;
-            }
-
             match command_id {
                 ID_TOGGLE => {
                     let enabled = state()
@@ -747,11 +568,6 @@ unsafe extern "system" fn window_proc(
 }
 
 pub fn run() -> anyhow::Result<()> {
-    {
-        let mut app = state().lock().expect("Omniphony supervisor state poisoned");
-        app.profile = initial_profile();
-    }
-
     let Some(_instance_guard) = claim_single_instance()? else {
         return Ok(());
     };
