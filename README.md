@@ -29,6 +29,8 @@ Exit
 
 The historical profile experiments remain documented in `docs/listening-history.md` as research evidence, not product modes.
 
+The current development build carries one additional **listening candidate** on top of this baseline: lane-local transient-aware early-room excitation. It is implemented and mechanically bounded, but it is not yet promoted as a retained perceptual improvement. Physical listening decides whether it stays.
+
 ## Current signal path
 
 ```text
@@ -62,8 +64,9 @@ FINISHED STEREO MASTER
                          │
                          ├→ short late room field
                          │
-                         └→ six directional first-order
-                            reflection buses
+                         └→ lane-local transient evidence
+                            → first-order image timing / wall tone
+                            → six directional reflection buses
                             → measured HRTF
                          │
                          ▼
@@ -126,6 +129,44 @@ linear sum with the primary support render
 This is deliberately not 22 virtual speakers multiplied by six separate full-HRTF reflection convolvers. Timing and wall filtering happen before wall-wise aggregation, so the HRTF cost stays fixed at six reflection buses.
 
 The field was designed to change the directional structure of the early room rather than win by being louder. Engineering tests cover delayed arrival, wall-direction binaural asymmetry, protected C/LFE exclusion and block-boundary invariance.
+
+### Transient-aware early-room candidate
+
+The current development build adds a deliberately small modulation before each support lane enters its early-reflection delay bank:
+
+```text
+existing support lane
+        ↓
+fast energy envelope
+vs slow energy envelope
+        ↓
+positive-rise transient evidence
+        ↓
+bounded early-room gain only
+        ↓
+existing first-order wall paths
+```
+
+The candidate is lane-local rather than global. A sharp rise in one spatial-support lane cannot directly turn up every other simultaneously active lane.
+
+Current candidate constants are:
+
+```text
+fast envelope      3 ms
+slow envelope     45 ms
+release           20 ms
+maximum gain    +2.5 dB
+```
+
+This gain is applied only to the signal entering the early-reflection bank. It does **not** modify:
+
+- the protected stereo master;
+- the coherent music foundation;
+- the primary spatial-support render;
+- the late room field;
+- center or LFE support.
+
+This is still a listening candidate. Mechanical success only establishes that the intended control law is bounded and localized. It does not establish that the result sounds more physical.
 
 ---
 
@@ -351,6 +392,8 @@ The profile experiments produced useful compression:
 - several room/routing variants were not clearly distinguishable enough to justify carrying them as user-facing modes;
 - the measured-HRTF early-reflection path was heard as **slightly better**, though the difference may have been placebo, and is adopted provisionally as Current model because it was not worse and represents a more meaningful mechanism.
 
+The transient-aware early-room candidate has **not** yet been physically adjudicated and therefore does not appear here as a positive or negative listening result.
+
 See `docs/listening-history.md` for the retained experiment record.
 
 ---
@@ -361,7 +404,7 @@ The large 360-degree world already exists. The next work should increase **music
 
 ## 1. Transient-aware live-drum presentation
 
-This is the next isolated listening experiment.
+The first bounded candidate is now implemented in the current development build.
 
 The goal is for a drum kit to feel as though it is physically exciting the space around the listener while preserving the master attack and low-frequency anchor.
 
@@ -374,15 +417,31 @@ kick fundamental / body
 
 snare / tom / cymbal transient evidence
 → precise support localization
-→ stronger sparse early-room excitation
+→ brief stronger early-room excitation
 → room around the kit without transient smear
 
 sustained cymbal / room tail
-→ broader environmental support
+→ ordinary environmental support
 → controlled height / lateral extent
 ```
 
-The first experiment should infer transience from the existing signal path rather than requiring a neural separator. That lets us determine whether transient-aware spatial behavior itself is useful.
+The candidate deliberately infers transience from the existing support signal rather than requiring a neural separator. This isolates the question of whether transient-aware spatial behavior itself is useful.
+
+Mechanical acceptance requires:
+
+- gain never exceeds the declared +2.5 dB early-room ceiling;
+- silence and sub-threshold signals remain unity gain;
+- a steady tone does not keep the transient envelope alive after settling;
+- the transient envelope decays rapidly after a sharp event;
+- center and LFE remain excluded from inferred reflection support;
+- first reflections remain delayed rather than becoming a second direct copy;
+- callback partitioning does not change the rendered result.
+
+Physical listening acceptance is stricter:
+
+> **Drums and other attacks should feel more physically connected to the surrounding room without making sustained material breathe, smearing attack, increasing fatigue, or producing spatial pumping.**
+
+If that sentence is not clearly true, remove the transient modulation and keep the measured-HRTF early field underneath it.
 
 ## 2. Source-aware control from libaural
 
@@ -456,4 +515,4 @@ It is:
 
 The next narrower question is:
 
-> **Can the Current model make drums and other musical events feel physically present in the surrounding acoustic world without sacrificing the finished master that gives them their authority?**
+> **Can transient events make the surrounding acoustic world react more physically without changing the finished master that gives those events their authority?**
