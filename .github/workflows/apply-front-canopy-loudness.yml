@@ -1,0 +1,46 @@
+name: Apply front canopy and loudness tuning
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/scripts/apply_front_canopy_loudness.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+          components: rustfmt
+      - name: Apply researched front-canopy and output tuning
+        run: python .github/scripts/apply_front_canopy_loudness.py
+      - name: Format and validate portable renderer
+        working-directory: omniphony-renderer
+        run: |
+          cargo fmt --all
+          git diff --check
+          cargo test -p renderer -- --skip binaural::tests::hrir_source_switch_lands_asynchronously_without_blocking_render
+      - name: Commit candidate source
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add omniphony-renderer/assets/binaural-baselines/stereo-field-prototype.yaml \
+                  omniphony-renderer/renderer/src/music_field.rs \
+                  omniphony-renderer/windows_host/src/music_worker_evidence.rs
+          if git diff --cached --quiet; then
+            echo "No source changes to commit"
+            exit 0
+          fi
+          git commit -m "tune(audio): lift front canopy and reclaim output level"
+          git push origin HEAD:main
