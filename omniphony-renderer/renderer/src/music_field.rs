@@ -30,7 +30,7 @@ const HEIGHT_PRIOR: [f32; 3] = [0.26, 0.60, 0.82];
 /// Static top-band support trim. The previous candidate used instantaneous
 /// sample-energy normalization, which is itself a gain-modulation mechanism.
 /// A fixed scale cannot pump; slower scene controls own all audible movement.
-const HIGH_BAND_SUPPORT_SCALE: f32 = 0.52;
+const HIGH_BAND_SUPPORT_SCALE: f32 = 0.48;
 /// The first audible support band overlaps the musical body region. Keep it
 /// present for continuity, but let the protected master/foundation dominate.
 const LOW_MID_SUPPORT_SCALE: f32 = 0.82;
@@ -38,7 +38,7 @@ const LOW_MID_SUPPORT_SCALE: f32 = 0.82;
 /// shaping stage. Keep the 1.2-5 kHz presence band slightly direct-dominant
 /// so bright partials do not become hard-edged while the master retains all
 /// authored attack and clarity.
-const PRESENCE_SUPPORT_SCALE: f32 = 0.86;
+const PRESENCE_SUPPORT_SCALE: f32 = 0.83;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MusicFieldSnapshot {

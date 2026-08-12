@@ -18,6 +18,8 @@ use std::f32::consts::PI;
 pub struct MusicFoundationTuning {
     /// Broad low-frequency pressure / mass.
     pub low_shelf_db: f32,
+    /// Coherent kick / upper-bass impact around 110 Hz.
+    pub punch_db: f32,
     /// Upper-bass / lower-mid body.
     pub body_db: f32,
     /// Small midrange density correction.
@@ -34,7 +36,8 @@ impl Default for MusicFoundationTuning {
         // non-spatial rather than trying to recover impact with fake LFE or
         // extra room energy.
         Self {
-            low_shelf_db: 2.30,
+            low_shelf_db: 2.80,
+            punch_db: 1.00,
             body_db: 1.20,
             density_db: 0.50,
             presence_shelf_db: -0.35,
@@ -154,6 +157,7 @@ impl Biquad {
 
 struct ChannelFoundation {
     pressure: Biquad,
+    punch: Biquad,
     body: Biquad,
     density: Biquad,
     presence: Biquad,
@@ -163,6 +167,7 @@ impl ChannelFoundation {
     fn new(sample_rate_hz: u32, tuning: MusicFoundationTuning) -> Self {
         Self {
             pressure: Biquad::low_shelf(sample_rate_hz, 85.0, tuning.low_shelf_db),
+            punch: Biquad::peaking(sample_rate_hz, 110.0, 0.80, tuning.punch_db),
             body: Biquad::peaking(sample_rate_hz, 240.0, 0.80, tuning.body_db),
             density: Biquad::peaking(sample_rate_hz, 800.0, 0.70, tuning.density_db),
             presence: Biquad::high_shelf(sample_rate_hz, 4_500.0, tuning.presence_shelf_db),
@@ -171,6 +176,7 @@ impl ChannelFoundation {
 
     fn process(&mut self, sample: f32) -> f32 {
         let x = self.pressure.process(sample);
+        let x = self.punch.process(x);
         let x = self.body.process(x);
         let x = self.density.process(x);
         self.presence.process(x)
@@ -243,6 +249,19 @@ mod tests {
     }
 
     #[test]
+    fn default_foundation_adds_coherent_kick_punch_at_110_hz() {
+        let input = sine(110.0, 16_384);
+        let mut p = MusicFoundationProcessor::new(48_000);
+        let delta = p.process_interleaved_delta(&input);
+        let shaped: Vec<f32> = input.iter().zip(delta.iter()).map(|(a, b)| a + b).collect();
+        let start = 4_096 * 2;
+        assert!(rms(&shaped[start..]) > rms(&input[start..]) * 1.15);
+        for frame in delta[start..].chunks_exact(2) {
+            assert!((frame[0] - frame[1]).abs() < 1.0e-6);
+        }
+    }
+
+    #[test]
     fn default_foundation_adds_body_at_240_hz() {
         let input = sine(240.0, 16_384);
         let mut p = MusicFoundationProcessor::new(48_000);
@@ -304,6 +323,7 @@ mod tests {
     fn zero_tuning_is_effectively_transparent() {
         let tuning = MusicFoundationTuning {
             low_shelf_db: 0.0,
+            punch_db: 0.0,
             body_db: 0.0,
             density_db: 0.0,
             presence_shelf_db: 0.0,

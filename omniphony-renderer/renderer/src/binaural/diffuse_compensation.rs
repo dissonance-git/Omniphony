@@ -110,9 +110,9 @@ impl EarCompensation {
         // These three broad sections remove roughly half to three-fifths of that
         // common rise rather than flattening the HRTF completely.
         Self {
-            lower_pinna: Biquad::peaking(sample_rate_hz, 4_800.0, 0.65, -3.40),
-            upper_pinna: Biquad::peaking(sample_rate_hz, 10_000.0, 0.80, -3.00),
-            air_tail: Biquad::high_shelf(sample_rate_hz, 12_000.0, -1.20),
+            lower_pinna: Biquad::peaking(sample_rate_hz, 4_800.0, 0.65, -3.80),
+            upper_pinna: Biquad::peaking(sample_rate_hz, 10_000.0, 0.80, -3.30),
+            air_tail: Biquad::high_shelf(sample_rate_hz, 12_000.0, -1.35),
         }
     }
 
