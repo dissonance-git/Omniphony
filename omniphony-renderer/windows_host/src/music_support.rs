@@ -60,7 +60,7 @@ impl SpatialProfile {
         match self {
             Self::Control => {}
             Self::All | Self::Hybrid => {
-                cfg = baseline_two_room(cfg);
+                cfg = current_model_room(cfg);
             }
             Self::Direct => {
                 cfg = cfg.replace("    mode: cascaded", "    mode: direct");
@@ -88,7 +88,7 @@ impl SpatialProfile {
                 cfg = cfg.replace("      level: 0.028", "      level: 0.012");
             }
             Self::Tracked => {
-                cfg = baseline_two_room(cfg);
+                cfg = current_model_room(cfg);
                 cfg = cfg.replace(
                     "    air_absorption: true\n",
                     "    air_absorption: true\n    head_tracking:\n      osc_address: \"/android/rotationvector\"\n      format: \"rotvec\"\n",
@@ -105,7 +105,7 @@ impl SpatialProfile {
     }
 }
 
-fn baseline_two_room(mut cfg: String) -> String {
+fn current_model_room(mut cfg: String) -> String {
     cfg = cfg.replace("      level: 0.32", "      level: 0.36");
     cfg = cfg.replace("      level: 0.028", "      level: 0.020");
     cfg.replace("      rt60_s: 0.16", "      rt60_s: 0.14")
