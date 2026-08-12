@@ -1,46 +1,59 @@
 # Omniphony
 
-Omniphony is an experimental, always-on headphone spatial processor built from the upstream `mgth/Omniphony` renderer and aimed at a simple perceptual goal:
+Omniphony is an experimental, always-on headphone spatial processor built from the upstream `mgth/Omniphony` renderer and aimed at one perceptual goal:
 
 > **Make the headphones disappear and place the listener inside the largest coherent version of the same finished recording.**
 
-This repository is not trying to make ordinary stereo merely wider. It is building a reusable spatial-audio core that can preserve source truth while presenting music, games, films and richer spatial formats as a continuous externalized world around the listener.
+The target is not ordinary stereo widening and not a full-wet surround reconstruction. The finished recording remains the musical authority while Omniphony adds a bounded external spatial world around it.
 
-Windows is the first product host. The renderer itself remains platform-independent.
+Windows is the first product host. The renderer / inference / DSP core remains portable.
 
 ---
 
-## Baseline 1
+# Current listening baseline
 
-**Canonical listening baseline:**
+**Baseline 2 / current reference:**
 
 ```text
-03dac8bb454444b47353c39f65b58ce82617d731
+89507730946ce80d767881e507d7f18937971f9f
 ```
 
-This is the first build that is good enough to be treated as a reference rather than a disposable prototype.
+The default launcher profile is:
 
-Physical listening established that Baseline 1:
+```text
+all
+```
 
-- produces a substantially more continuous spherical / “bubble” presentation than the earlier direct-HRTF path;
-- restores the low-end power, drum weight and physicality that earlier spatial candidates lost;
-- produces useful height, front/back depth and very wide lateral extent;
-- is already usable in normal listening in place of the previous HeSuVi + DTS Virtual:X chain;
-- preserves unusual clarity for an aggressive spatial processor;
-- runs as a minimal single-executable Windows runtime;
-- still has one important audible defect: **some bright transients, especially cymbals and already-aggressive mixes, can become piercing or fatiguing.**
+Physical listening now establishes this as the best reference in the fork so far.
 
-Post-baseline work must beat this state. If an experiment damages the baseline’s bass authority, clarity, motion, spatial scale or reliability, revert the experiment rather than redefining success.
+Baseline 2 preserves the successful properties of the earlier cascaded-binaural build while adding the mechanisms that survived subsequent listening:
+
+- protected finished stereo master;
+- coherent low-frequency / body foundation;
+- analysis-only stereo evidence extraction;
+- derived 7.1.4 support field;
+- coherent sample-for-sample height transfer instead of simply adding more upper wash;
+- System-H-derived full-sphere virtual-speaker shell with the regular upper layer at +60 degrees;
+- 10-degree-grid-aligned upper directions in the default `all` profile so important static height speakers land directly on cached HRTF nodes;
+- measured SAF/KEMAR HRTF rendering;
+- native ITD, metric-distance, early-reflection, short-reverb and air-absorption machinery;
+- restrained support-only spectral compensation, including the small listening-derived presence trim near 3.9 kHz;
+- fixed output makeup followed only by a stereo-linked look-ahead peak-safety guard;
+- single-executable Windows supervisor + audio-engine architecture.
+
+Listening feedback on this state is simply: **sounds great**.
+
+That changes the development obligation again. New work must beat this state while preserving its bass authority, transient ownership, clarity, tonal comfort, motion, scale, reliability and continuous 360-degree presentation.
+
+If a candidate becomes merely different, wetter, brighter, blurrier or more spectacular at the cost of musical authority, keep Baseline 2.
 
 ---
 
 # 1. Architectural law
 
-The most important engineering rule is:
-
 > **Use Omniphony itself as the spatial core. Add custom machinery only for jobs the inherited renderer does not already own.**
 
-The current music architecture is:
+Current music path:
 
 ```text
 FINISHED STEREO MASTER
@@ -52,8 +65,7 @@ FINISHED STEREO MASTER
         │
         └→ analysis-only stereo evidence
                │
-               ├→ magnitude
-               ├→ phase
+               ├→ magnitude / phase
                ├→ M/S relation
                ├→ pan / coherence
                ├→ directness / diffuseness
@@ -62,9 +74,11 @@ FINISHED STEREO MASTER
                          ▼
                 derived 7.1.4 support
                          │
+                         ├→ coherent elevation transfer
+                         │
                          ▼
              OMNIPHONY SPEAKER STAGE
-             virtual 7.1.4 loudspeaker room
+             full-sphere virtual room
                          │
                          ▼
                CASCADED BINAURAL
@@ -77,7 +91,7 @@ FINISHED STEREO MASTER
        protected master + foundation + support
                          │
                          ▼
-                  fixed linear gain
+          fixed makeup + peak safety only
                          │
                          ▼
                      headphones
@@ -85,30 +99,67 @@ FINISHED STEREO MASTER
 
 The protected master does **not** pass through the virtual room.
 
-That distinction is the fidelity floor of the project.
+That is the fidelity floor.
 
 ---
 
-# 2. Why cascaded binaural became the core
+# 2. What changed after Baseline 1
 
-The early music prototypes rendered each derived support channel directly through its own HRTF path. They could sound clear and spatial, but the result often behaved more like a set of spatial points than a continuous environment.
+The earlier reference proved that cascaded binaural could create a much more continuous 360-degree bubble than the direct support path, but it still had three audible weaknesses:
 
-Upstream Omniphony’s cascaded renderer changed that topology:
+1. bright material could become sharp;
+2. height existed but did not have enough authority;
+3. some upper energy behaved more like spatial support than a real musical event occupying elevation.
+
+The successful post-baseline changes were deliberately small and mechanism-specific.
+
+## 2.1 Support-only spectral correction
+
+Measured SAF/KEMAR common coloration is partially compensated in the support branch. Physical listening still found a small hard edge on guitars, so a shallow additional static trim was added around:
 
 ```text
-derived support
-→ real virtual-speaker renderer
-→ continuous 3D loudspeaker field
-→ binauralize the resulting virtual room
+3.9 kHz
+-0.8 dB
+Q 1.1
 ```
 
-Physical listening immediately produced a more convincing bubble.
+This never touches the protected master.
 
-Therefore the current headphone architecture is:
+The rule remains:
 
-> **cascaded virtual-speaker rendering first, binaural rendering second.**
+> **Do not solve spatial harshness by darkening the recording. Correct the spatial branch first.**
 
-Direct binaural remains useful upstream machinery and a reference path, but it is no longer the primary music architecture for this fork.
+## 2.2 Coherent height transfer
+
+Height is no longer increased only by constructing more upper-field energy.
+
+A controlled fraction of an already-existing horizontal support waveform is moved sample-for-sample into its corresponding elevated lane:
+
+```text
+horizontal event
+      │
+      ├→ horizontal remainder
+      └→ same waveform → elevated lane → HRTF
+```
+
+The transfer does not create another wet copy. Before binaural rendering, horizontal + elevated lane amplitude remains algebraically conserved by the transfer itself.
+
+This is the preferred direction for strong height:
+
+> **move structured evidence upward rather than smear additional energy upward.**
+
+## 2.3 Steeper upper shell
+
+The active headphone shell moves the eight regular System-H-derived upper directions from +30 degrees to +60 degrees while retaining:
+
+- the horizontal layer;
+- zenith;
+- the lower hemisphere;
+- no synthetic LFE speakers.
+
+The default `all` profile additionally moves the diagonal upper azimuths onto exact 10-degree HRTF grid nodes.
+
+This is a headphone experiment, not a claim that the modified shell is normative ITU-R BS.2051 System H. A canonical System H reference remains stored separately.
 
 ---
 
@@ -130,21 +181,19 @@ object audio
 → preserve supplied object positions
 
 Ambisonics / HOA
-→ preserve the field representation
+→ preserve the supplied field representation
 
 already-binaural material
 → avoid destructive double virtualization
 ```
 
-A stereo recording can justify presentation support. It cannot prove that an instrument was authored “above” or “behind” the listener.
+A stereo recording can justify presentation support. It cannot prove that an instrument was authored above or behind the listener.
 
-Height is permission, not recovered metadata.
+Height is presentation permission, not recovered metadata.
 
 ---
 
 # 4. Hard fidelity laws
-
-## 4.1 Dimension may not damage the music
 
 > **Dimension may not be purchased by damaging the music.**
 
@@ -172,26 +221,19 @@ Turning Omniphony off must **not** restore:
 - dynamics;
 - comfortable spectral balance.
 
-The shortest formulation is:
+Shortest form:
 
 > **OFF may collapse the world. It may not bring the rhythm section back to life.**
 
-## 4.2 Energy may be anchored; motion may not be frozen
-
-The low-frequency foundation exists to keep physical weight coherent. It does not mean stereo motion should become static.
-
-Authored left/right movement must survive through the protected master and foundation. A panned tom roll should still sweep.
+Additional invariants:
 
 ```text
 mass        may remain anchored
 trajectory  must remain alive
+
+environment may grow
+direct musical structure must not blur
 ```
-
-## 4.3 The master is authoritative
-
-The finished stereo waveform remains explicitly present.
-
-Do not replace it with a full-wet virtualized reconstruction merely to obtain spatial cues.
 
 ---
 
@@ -199,7 +241,7 @@ Do not replace it with a full-wet virtualized reconstruction merely to obtain sp
 
 The music foundation is a fixed, causal, stereo-preserving additive delta. It is not a compressor, limiter, exciter or fake LFE generator.
 
-Current baseline shaping is approximately:
+Approximate shaping:
 
 ```text
 85 Hz      +2.30 dB   pressure / mass
@@ -212,221 +254,136 @@ Properties:
 
 ```text
 no compressor
-no limiter
 no saturation
-no dynamic loudness control
 no mono fold
 no fake LFE
 no spatialized sub-bass foundation
 same topology left/right
 ```
 
-This is intentionally separate from any headphone-specific EQ. A personal Noire X correction profile is not Omniphony’s universal voicing.
+A personal headphone correction profile is not Omniphony’s universal voicing.
 
 ---
 
 # 6. Stereo evidence path
 
-The FFT exists for **analysis only**. The mastered waveform is never STFT-resynthesized.
+The FFT is **analysis only**. The finished waveform is never STFT-resynthesized.
 
-Current broad support policy:
+Current support policy:
 
 ```text
-<320 Hz        protected master/foundation only
+<320 Hz        protected master / foundation only
 320–1200 Hz    restrained support body
 1.2–5 kHz      spatial support with presence restraint
 >5 kHz         slower-moving, reduced support
 ```
 
-The lower spatial boundary was raised from roughly 220 Hz to 320 Hz after physical listening showed that sending too much bass and drum body through HRTF/room propagation reduced perceived punch even though the dry master still existed.
-
 C and LFE remain silent in the inferred stereo support bed.
+
+The current 7.1.4 evidence order is:
+
+```text
+L R C LFE Ls Rs Lb Rb Tfl Tfr Tbl Tbr
+```
+
+The useful support lanes are derived from actual stereo relations rather than from semantic source separation.
 
 ---
 
-# 7. Baseline spatial world
+# 7. Current spatial world
 
-Baseline 1 uses the inherited Omniphony renderer aggressively.
+Baseline 2 is a wide, depth-led full sphere.
 
-The support scene is a virtual 7.1.4 shell with:
-
-- maximally wide sides;
-- strong front distance;
-- useful rear impact without rear gravity;
-- dominant top-front height;
-- upper-rear closure;
-- metric distance scaling;
-- native first-order reflections;
-- a very short late room field;
-- air absorption;
-- cascaded speaker-to-binaural rendering.
-
-The perceptual weighting is:
+Current priorities are approximately:
 
 ```text
 FRONT DISTANCE   primary
-REAR DISTANCE    primary, but not dominant
-HEIGHT DISTANCE  primary
+REAR DISTANCE    primary but not dominant
+HEIGHT           primary and still the main frontier
 SIDE WIDTH       very important
 SIDE DISTANCE    secondary
+LOWER HEMISPHERE present but restrained
 ```
-
-The goal is a **wide, depth-led sphere**, not a side-only ring and not a rear-heavy halo.
-
----
-
-# 8. Known Baseline 1 defect: bright-material harshness
-
-The remaining major audible defect is intermittent piercing / fatigue on bright transient material.
-
-Important: this is **not assumed to be a simple EQ problem.**
-
-The post-baseline research program treats several mechanisms as plausible contributors.
-
-## 8.1 Virtual-loudspeaker binaural comb coloration
-
-Research on MPEG-H binaural virtual-loudspeaker rendering reports undesirable comb-filter coloration caused by phase differences between binaural filters when virtual loudspeaker signals are downmixed to the ears.
-
-This is directly relevant to the cascaded topology.
-
-## 8.2 Dry-master + delayed support interference
-
-The protected master is summed with a delayed and phase-shaped binaural support branch. Superposition of delayed and undelayed correlated material can create audible comb structure even when the delayed branch is substantially lower in level.
-
-Therefore a narrow piercing peak may be a **coherence / phase problem**, not a broad treble imbalance.
-
-## 8.3 HRTF spectral normalization
-
-The current Omniphony HRIR grid performs broadband diffuse-field-style **energy normalization** so different HRTF sources do not jump wildly in overall level.
-
-That is not the same as frequency-dependent diffuse-field equalization.
-
-Spatial Audio Framework and published binaural-rendering work support frequency-dependent diffuse-field / coloration compensation as a way to reduce timbral errors while retaining localization and externalization.
-
-## 8.4 Early reflections are currently too spectrally simple
-
-Omniphony’s first-order reflection bank currently models:
-
-```text
-propagation delay
-distance loss
-analytic ITD
-broadband ILD
-```
-
-but does not yet model a real wall’s frequency-dependent absorption on each reflected path.
-
-This means a very large virtual room can have unrealistically shiny reflection paths, particularly obvious on cymbals and bright percussion.
-
-The research literature on headphone externalization specifically supports combining early reflection geometry with wall absorption, air absorption and restrained late reverberation.
-
-### Post-baseline rule
-
-> **Do not solve the harshness merely by making Omniphony darker. Fix spectral/coherence behavior in the spatial branch first, then retain only as much static high-band trim as listening still requires.**
-
----
-
-# 9. Post-baseline research priorities
-
-The next renderer work is ordered by mechanism rather than by arbitrary parameter tweaking.
-
-## Priority A — reflection spectral realism
-
-Add frequency-dependent loss to early reflection paths so distant virtual walls do not return bright transient energy unrealistically intact.
-
-Desired result:
-
-```text
-larger perceived room
-less metallic glare
-no loss of master attack
-```
-
-## Priority B — HRTF diffuse-field spectral compensation
-
-Evaluate a frequency-dependent diffuse-field normalization / coloration-compensation stage for the support renderer.
-
-Reference ideas include:
-
-- Spatial Audio Framework diffuse-field HRTF equalization;
-- MagLS / coloration-compensated binaural rendering;
-- time-aligned HRTFs with diffuse-field constraints;
-- MPEG-H virtual-loudspeaker spectral compensation.
-
-This belongs in the renderer/HRTF layer, not in the protected stereo master.
-
-## Priority C — coherence management
-
-Investigate light, transient-preserving decorrelation only where coherent duplicate support paths create audible combing.
-
-The master remains untouched.
-
-Potential targets are diffuse / reflection / upper support components rather than direct musical anchors.
-
-## Priority D — larger bubble
-
-Continue increasing the world only after spectral stability improves.
 
 Scale should come mainly from:
 
 ```text
 geometry
+HRTF / ITD
 propagation timing
 early-field structure
 source extent
-HRTF / ITD
+metric distance
 room-axis shaping
 ```
 
-not from louder treble or a wetter late reverb tail.
+not from excessive treble, chorus, Haas widening, giant decorrelation networks or a wetter late-reverb tail.
 
-## Priority E — HRTF selection / personalization
+The perceptual north star remains:
 
-Omniphony already supports:
-
-- embedded SAF KEMAR;
-- SOFA loading;
-- synthetic head model;
-- parametric pinna model;
-- PRTF model.
-
-Once the renderer itself is spectrally stable, systematic HRTF selection can target better elevation, front/back discrimination and externalization.
-
-Do not call a random alternate HRTF “personalization.”
+> **The listener should feel as if their head occupies a portal into the recording’s acoustic world, not as if a clever effect is attached to the headphones.**
 
 ---
 
-# 10. Output level and headroom
+# 8. Listening-profile matrix
 
-The Windows host currently combines:
+`START-OMNIPHONY.cmd` accepts an optional temporary research profile.
+
+With no argument it selects:
+
+```text
+all
+```
+
+Current profiles:
+
+```text
+control   previous current-best topology before the latest matrix
+all       conservative combined Baseline-2 candidate
+direct    direct per-evidence-lane binaural instead of cascade
+external  stronger early-field / smaller late-field candidate
+prtf      structural PRTF HRTF model instead of measured KEMAR
+close     shorter distance / room-geometry control
+tracked   head-tracking-ready configuration
+diffuse   deliberately more diffuse late-field comparison
+```
+
+These are experiment switches, not product modes.
+
+Mutually exclusive HRTF models are compared rather than stacked. `all` does not convolve the same source through measured KEMAR and PRTF simultaneously.
+
+See `docs/listening-profiles.md` for the exact current differences.
+
+---
+
+# 9. Output level and headroom
+
+The host currently sums:
 
 ```text
 protected master
 + foundation delta
 + binaural support
-→ fixed linear output gain
+→ 0.90 fixed linear base gain
+→ +3.5 dB fixed makeup
+→ stereo-linked look-ahead peak guard
 ```
 
-There is no sample-dependent host clamp, compressor, limiter or AGC.
-
-Baseline 1 uses a fixed output gain of approximately:
+The peak guard is endpoint safety only:
 
 ```text
-0.72 linear
-≈ -2.85 dB
+ceiling          -1.0 dBFS
+look-ahead        5 ms
+release          160 ms
 ```
 
-Physical listening now shows that this is probably too conservative for normal use, particularly when headphone correction upstream already reserves its own preamp headroom.
+It applies one linked gain to both ears only when needed to prevent a future peak crossing the ceiling.
 
-Post-baseline work should reclaim output level with explicit peak measurement and static gain where possible.
-
-Do not reintroduce the earlier support-only auto-gain behavior or fast gain riding.
+It is not a loudness leveller, support AGC or spatial compressor.
 
 ---
 
-# 11. Windows product architecture
-
-The portable core remains independent of Windows.
+# 10. Windows architecture
 
 ```text
 PORTABLE OMNIPHONY CORE
@@ -434,15 +391,13 @@ renderer / inference / DSP
           │
           ▼
 WINDOWS HOST
-loopback capture / output / lifecycle
+process loopback / output / lifecycle
           │
           ▼
 Omniphony.exe
 ```
 
-The current Windows runtime ships as a single executable.
-
-Internally the executable supports two process roles:
+The Windows runtime remains a single executable with two internal roles:
 
 ```text
 Omniphony.exe
@@ -450,56 +405,52 @@ Omniphony.exe
 └→ internal audio-engine child process
 ```
 
-The second process preserves crash/device-recovery isolation without shipping a second runtime executable.
+This preserves crash / endpoint recovery without shipping a separate engine executable.
 
-Normal product direction:
+Normal direction:
 
 ```text
 install once
 → start silently at login
-→ find configured output
-→ run continuously
-→ recover automatically after endpoint failure
+→ find configured physical output
+→ process continuously
+→ recover automatically
 → tray only when control is needed
 ```
 
-The final goal is infrastructure, not an app that must be opened before listening.
-
-During rapid development the ZIP may include a tiny `START-OMNIPHONY.cmd` convenience launcher. That CMD is not part of the architecture.
-
 ---
 
-# 12. Realtime robustness
+# 11. Realtime robustness
 
-Windows realtime work includes:
+Current Windows work includes:
 
-- MMCSS priority for the producer/audio-engine thread;
+- process-specific Windows loopback capture;
+- MMCSS priority for the producer / audio-engine thread;
 - MMCSS priority for the playback callback;
-- a bounded playback queue;
-- explicit underrun telemetry;
+- bounded playback queue;
+- underrun telemetry;
 - automatic worker restart after output-stream failure;
-- an invisible supervisor/watchdog;
+- invisible supervisor/watchdog;
 - per-user autostart;
 - tray recovery after Explorer/taskbar restart.
 
-Audio crackle under heavy external compute load should be treated first as a realtime-host problem when it reproduces with the spatial effect disabled.
-
-Do not blame HRTF complexity without evidence.
+If crackle reproduces with the spatial effect disabled, treat it first as a realtime-host problem rather than blaming HRTF complexity.
 
 ---
 
-# 13. Native-first mechanism ownership
+# 12. Native mechanism ownership
 
 Prefer inherited Omniphony machinery for:
 
 ```text
 HRTF / HRIR
 ITD
-head pose
+head pose / tracking
 metric distance
 speaker geometry
 VBAP / source extent
 cascaded rendering
+direct binaural rendering
 first-order reflections
 late room field
 SOFA
@@ -514,36 +465,17 @@ stereo evidence
 confidence / permission laws
 music foundation
 support-field construction
+coherent elevation transfer
 final host summing
 validation
 Windows lifecycle / transport
 ```
 
-If an inherited feature was designed for a **final output bus**, verify that it remains correct when used on Omniphony’s additive support branch. Native does not automatically mean topologically appropriate.
+If an inherited feature was designed for a final output bus, verify that it remains correct on Omniphony’s additive support branch.
 
 ---
 
-# 14. Research influences
-
-The repository’s influence documents remain the durable research ledger. The most important current families are:
-
-- upstream Omniphony;
-- Spatial Audio Framework;
-- Steam Audio;
-- MPEG-H binaural / virtual loudspeaker rendering research;
-- binaural externalization / BRIR literature;
-- 3D Tune-In;
-- Google / open binaural rendering work;
-- Cavern;
-- Foobar Home Theater / multichannel-height references;
-- FreeSurround / Real3D as evidence sources rather than final renderers;
-- source-safety and reversibility ideas from mature upmix/downmix systems.
-
-Research is an influence source, not permission to replace a working renderer with a parallel science project.
-
----
-
-# 15. Relationship to libaural and Helix
+# 13. Relationship to libaural and Helix
 
 ```text
 HELIX
@@ -551,42 +483,127 @@ research / experiment machinery
        │
        ▼
 libaural
-reusable machine-hearing research
+reusable machine-hearing / human-hearing research
        │
        ▼
 Omniphony
-consumer spatial processor / testbed
+listening product / perceptual testbed
 ```
 
-Until the Omniphony listening baseline is more mature, libaural should contribute **small validated distinctions and preservation laws**, not a large semantic runtime.
+The projects help each other but remain separate.
 
-Preferred runtime hierarchy:
+Omniphony asks:
+
+> **Does this mechanism make the listening experience better?**
+
+libaural asks:
+
+> **What auditory variable changed, can it be represented cleanly, and what claim does the evidence actually support?**
+
+Current spatial research sequence:
 
 ```text
-fixed validated DSP / renderer behavior
-↓
-small stateful perceptual mechanisms
-↓
-bounded adaptive control only when clearly superior
-↓
-large learned / semantic runtime only exceptionally
+AUD-SPACE-001  typed binaural evidence gate
+AUD-SPACE-002  elevation spectral-template stress
+AUD-SPACE-003  externalization-cue decomposition
+```
+
+Do not create a runtime dependency from Omniphony onto libaural merely because an experiment originated there.
+
+---
+
+# 14. Research influences
+
+Durable influence families include:
+
+- upstream Omniphony;
+- Spatial Audio Framework;
+- Steam Audio;
+- OpenAL Soft;
+- MPEG-H binaural / virtual-loudspeaker rendering work;
+- binaural externalization / BRIR literature;
+- human sagittal-plane / elevation-localization literature;
+- 3D Tune-In;
+- open binaural rendering systems;
+- mature source-safe upmix / downmix systems.
+
+Research is an influence source, not permission to replace a successful renderer with a parallel science project.
+
+Every substantive audible change follows the repository research gate in `AGENTS.md`:
+
+```text
+listening observation
+→ literature pass
+→ mature implementation pass
+→ smallest relevant mechanism
+→ adapt to Omniphony topology
+→ CI / measurement
+→ physical listening
+→ keep, revise, or revert
 ```
 
 ---
 
-# 16. Development method
+# 15. Current frontier
 
-Baseline 1 changes the development philosophy.
+The bubble exists. Width, depth, bass authority and overall fidelity are no longer the primary unsolved problems.
 
-Before Baseline 1, the job was to discover an architecture that could become genuinely spatial without destroying music.
+The next work is ordered by expected perceptual leverage.
 
-After Baseline 1, the job is:
+## A. Hybrid direct-height rendering
 
-> **Preserve the baseline’s winning invariants while deliberately pushing beyond it, then retreat from the first mechanism that crosses a real perceptual boundary.**
+Keep the cascaded binaural renderer for the continuous 360-degree environment, but remove the four height support lanes from the cascade and binauralize those lanes directly at their intended upper directions.
 
-The frontier can move aggressively because the baseline is now explicit.
+Desired topology:
 
-Failure signals include:
+```text
+horizontal / side / rear support
+→ cascaded virtual-speaker world
+                     ┐
+                     ├→ sum support binaural
+                     │
+TFL / TFR / TBL / TBR│
+→ direct HRTF height ┘
+```
+
+Hard requirement:
+
+> **A height sample may take one path or the other, never both.**
+
+This is the next major implementation target.
+
+## B. Directional HRTF early reflections
+
+The current reflection bank supplies useful binaural timing / level structure, but selected strongest reflection paths can eventually carry their own full directional HRTF filtering.
+
+The goal is stronger externalization without a larger late tail.
+
+## C. HRTF selection / personalization
+
+Generic KEMAR may become the ceiling for elevation on a particular listener.
+
+Omniphony already owns measured, SOFA and structural HRTF families. Future personalization should be a controlled selection/calibration problem, not random HRTF swapping.
+
+## D. World locking under real head motion
+
+The renderer already has head-pose / SensorsOSC plumbing. A real comparison requires actual motion input.
+
+The purpose is not a visual gimmick. It is to make the acoustic world remain stable while the listener’s head moves.
+
+## E. Additional controlled candidates
+
+After the major spatial coordinates are stable:
+
+- dedicated near-field HRTF filtering;
+- transient versus sustained spatial routing;
+- short-term interaural-coherence shaping;
+- higher-order Ambisonic intermediate-field experiments.
+
+Do not add these simply because they exist. Each must beat Baseline 2 or solve a clearly isolated limitation.
+
+---
+
+# 16. Failure signals
 
 ```text
 piercing / fatigue
@@ -601,6 +618,7 @@ rear gravity
 hallway coloration
 late-reverb fog
 stereo motion collapse
+height that is only brighter, not higher
 realtime crackle / underruns
 ```
 
@@ -610,16 +628,16 @@ The numbers are allowed to look unconventional if the result remains coherent.
 
 ---
 
-# 17. Current definition of success
+# 17. Definition of success
 
-The near-term goal is not “accurate surround conversion.”
+The goal is not “accurate surround conversion.”
 
 It is:
 
 > **A finished stereo recording keeps its identity, weight, dynamics and clarity while gaining a stable external world with front distance, rear depth, extreme width, convincing overhead volume, continuous motion and enough radial scale that ordinary headphone playback feels dimensionally collapsed by comparison.**
 
-Baseline 1 proves enough of that target to stop treating it as hypothetical.
+Baseline 2 makes the central question much narrower:
 
-The next major problem is no longer whether the bubble exists.
+> **Can Omniphony turn an already excellent giant headphone sphere into a genuinely external, vertically occupied acoustic world without sacrificing the finished master underneath it?**
 
-It is making the bubble **larger, louder and spectrally calmer at the same time.**
+That is the current frontier.
