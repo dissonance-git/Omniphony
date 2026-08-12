@@ -1,0 +1,33 @@
+name: Apply spectral persistence fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/apply-persist-fix.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Apply staged persistence patch
+        run: python .github/scripts/fix_persist_spectral.py
+      - name: Verify expected source changed
+        run: |
+          git diff --exit-code -- .github/scripts/fix_persist_spectral.py
+          git diff --quiet -- omniphony-renderer/runtime_control/src/persist.rs && exit 1 || true
+          grep -q 'spectral_compensation,' omniphony-renderer/runtime_control/src/persist.rs
+      - name: Commit persistence fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add omniphony-renderer/runtime_control/src/persist.rs
+          git commit -m 'fix(windows): preserve cascade spectral compensation'
+          git push origin HEAD:main
