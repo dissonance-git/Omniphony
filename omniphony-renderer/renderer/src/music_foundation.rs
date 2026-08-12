@@ -34,10 +34,11 @@ impl Default for MusicFoundationTuning {
         // conservative pass: Omniphony ON must never feel weaker than OFF in
         // bass pressure, kick weight or drum body. Keep this coherent and
         // non-spatial rather than trying to recover impact with fake LFE or
-        // extra room energy.
+        // extra room energy. The stronger 110 Hz term is deliberately narrow
+        // enough to add kick impact without turning the whole bass range up.
         Self {
             low_shelf_db: 2.80,
-            punch_db: 1.00,
+            punch_db: 1.60,
             body_db: 1.20,
             density_db: 0.50,
             presence_shelf_db: -0.35,
@@ -255,7 +256,7 @@ mod tests {
         let delta = p.process_interleaved_delta(&input);
         let shaped: Vec<f32> = input.iter().zip(delta.iter()).map(|(a, b)| a + b).collect();
         let start = 4_096 * 2;
-        assert!(rms(&shaped[start..]) > rms(&input[start..]) * 1.15);
+        assert!(rms(&shaped[start..]) > rms(&input[start..]) * 1.20);
         for frame in delta[start..].chunks_exact(2) {
             assert!((frame[0] - frame[1]).abs() < 1.0e-6);
         }
