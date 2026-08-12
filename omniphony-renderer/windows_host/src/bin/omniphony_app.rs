@@ -5,6 +5,10 @@
 mod supervisor;
 
 #[cfg(target_os = "windows")]
+#[path = "../music_support.rs"]
+mod music_support;
+
+#[cfg(target_os = "windows")]
 #[path = "../music_worker_evidence.rs"]
 mod music_engine;
 
