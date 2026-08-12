@@ -190,12 +190,12 @@ pub fn run() -> anyhow::Result<()> {
     let (output_format, output_config) = choose_output_config(&output_device, SAMPLE_RATE_HZ)?;
     let mut loopback = LoopbackCapture::open_stereo(SAMPLE_RATE_HZ)?;
 
-    println!("Omniphony for Headphones - frequency-evidence 7.1.4 shell prototype");
+    println!("Omniphony for Headphones - protected-master full-sphere renderer");
     println!("  capture: {SAMPLE_RATE_HZ} Hz / stereo / f32 process loopback");
     println!("  output:  {output_name}");
     println!("  direct:  captured stereo master remains authoritative");
     println!("  analysis: FFT magnitude + phase -> portable stereo/scene inference");
-    println!("  field:   below 320 Hz protected; 320+ Hz derived 7.1.4 support");
+    println!("  field:   below 320 Hz protected; 320+ Hz uses 12 evidence lanes");
     println!("  height:  vertical extent from already-spatial evidence");
     println!("  foundation: coherent pressure/body delta, no LFE/compression/saturation");
     println!(
@@ -207,7 +207,7 @@ pub fn run() -> anyhow::Result<()> {
         20.0 * LINEAR_OUTPUT_GAIN.log10()
     );
     println!(
-        "  acoustics: cascaded Omniphony virtual room / distance / HRTF / reflections / air cues"
+        "  acoustics: 12 evidence lanes -> ITU System H 22-direction shell -> cascaded binaural room"
     );
     println!("  realtime: producer + playback callback claim MMCSS; queue underruns are metered");
 
@@ -233,7 +233,7 @@ pub fn run() -> anyhow::Result<()> {
     let header = streaming_f32_wav_header(MUSIC_FIELD_CHANNELS as u16, SAMPLE_RATE_HZ);
     let header_output = field_engine
         .process(&header, RInputTransport::Raw, 0)
-        .context("failed to seed 7.1.4 music-field PCM bridge")?;
+        .context("failed to seed 12-lane music-field PCM bridge")?;
     if !header_output.is_empty() {
         bail!("streaming WAV header unexpectedly produced audio");
     }
@@ -309,7 +309,7 @@ pub fn run() -> anyhow::Result<()> {
         }
 
         // Both additive branches are causal and produce one aligned stereo
-        // foundation sample / one 7.1.4 support frame per input frame. Buffer
+        // foundation sample / one 12-lane support frame per input frame. Buffer
         // them beside the authoritative dry master while the inherited renderer
         // contributes its own bridge/binaural latency.
         dry_fifo.extend(input.iter().copied());
@@ -536,7 +536,7 @@ impl Bundle {
     fn embedded() -> anyhow::Result<Self> {
         const FIELD_CONFIG: &str =
             include_str!("../../assets/binaural-baselines/stereo-field-prototype.yaml");
-        const LAYOUT: &str = include_str!("../../../layouts/7.1.4.yaml");
+        const LAYOUT: &str = include_str!("../../../layouts/itu-r-bs2051-system-h-22.0.yaml");
 
         let root = std::env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
@@ -546,7 +546,7 @@ impl Bundle {
         std::fs::create_dir_all(&root)
             .context("failed to create embedded Omniphony runtime directory")?;
         let field_config = root.join("stereo-field-prototype.yaml");
-        let layout = root.join("7.1.4.yaml");
+        let layout = root.join("itu-r-bs2051-system-h-22.0.yaml");
         write_embedded_asset(&field_config, FIELD_CONFIG)?;
         write_embedded_asset(&layout, LAYOUT)?;
         Ok(Self {
