@@ -230,6 +230,13 @@ pub fn save_live_config_to_path(
         } => (format!("prtf:{freq_scale_pct}:{depth_pct}"), None),
         other => (other.as_str().to_string(), None),
     };
+    // Spectral compensation is a static renderer policy rather than a live
+    // control, so preserve the loaded choice when saving unrelated binaural
+    // settings instead of silently dropping the music topology's opt-in.
+    let spectral_compensation = render
+        .binaural
+        .as_ref()
+        .and_then(|binaural| binaural.spectral_compensation.clone());
     render.binaural = Some(renderer::config::BinauralConfig {
         output_mode: Some(live.binaural.output_mode.as_str().to_string()),
         mode: Some(live.binaural.mode.as_str().to_string()),
@@ -239,6 +246,7 @@ pub fn save_live_config_to_path(
         head_radius_m: Some(live.binaural.head_radius_m),
         hrir_source: Some(hrir_source),
         hrtf_sofa_path,
+        spectral_compensation,
         head_tracking: Some(renderer::config::HeadTrackingConfig {
             osc_address: live.binaural.tracking.address.clone(),
             format: Some(live.binaural.tracking.format.as_str().to_string()),
