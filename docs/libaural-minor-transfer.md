@@ -51,6 +51,46 @@ Frozen shorthand:
 
 Do not add a special low-frequency motion renderer unless physical listening shows the preserved stereo pan plus existing 320 Hz+ support is insufficient.
 
+## Hearing loss and prosthetic-hearing research
+
+libaural now treats hearing loss, deafness, hearing aids, cochlear implants, hybrid electric-acoustic stimulation, auditory brainstem implants and biological hearing restoration as **controlled perturbations of auditory representation**.
+
+That does not change Omniphony's current listening model.
+
+The useful transfer is initially a validation route:
+
+```text
+current Omniphony render
++
+altered-hearing simulation / listener model
+↓
+which spatial and musical cues remain available?
+which cues become redundant?
+which protected invariants fail first?
+```
+
+This can later help answer questions such as:
+
+- whether the current spatial field remains useful under reduced frequency selectivity;
+- whether height or externalization depends too strongly on a narrow spectral cue range;
+- whether binaural asymmetry makes one support mechanism unstable;
+- whether added support energy falls into a region that is poorly usable for a particular listener;
+- whether a small compensation can improve accessibility without touching the protected master more than necessary.
+
+The most useful open-source precedent is 3D Tune-In, which deliberately combined binaural spatialization with hearing-loss and hearing-aid simulation. Treat it as a research quarry, not as a replacement renderer.
+
+Hard boundary:
+
+```text
+hearing-loss model
+≠ default audible processing
+
+hearing-aid / implant research
+≠ permission to alter the normal master path
+```
+
+If listener-specific compensation is ever added, it should be an explicit accessibility/personalization layer with its own validation and bypass, not a silent change to the Current model.
+
 ## Deferred until Omniphony is stable
 
 Keep these in libaural research for now:
@@ -60,6 +100,8 @@ Keep these in libaural research for now:
 - prediction-driven organization;
 - learned-model scene interpretation;
 - expensive biological hearing front ends;
-- multi-hypothesis auditory-world state as a realtime requirement.
+- multi-hypothesis auditory-world state as a realtime requirement;
+- hearing-loss / hearing-aid / implant simulation as normal runtime processing;
+- listener-specific impairment compensation without controlled validation.
 
 The product should first earn a stable everyday stereo sound using the inherited Omniphony renderer, protected source truth, small evidence mechanisms, and listening-driven correction.
