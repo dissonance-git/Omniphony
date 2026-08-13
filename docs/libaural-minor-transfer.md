@@ -79,6 +79,14 @@ This can later help answer questions such as:
 
 The most useful open-source precedent is 3D Tune-In, which deliberately combined binaural spatialization with hearing-loss and hearing-aid simulation. Treat it as a research quarry, not as a replacement renderer.
 
+The first libaural loss discriminator now adds a more concrete rule. `AUD-LOSS-001` matched two synthetic loss mechanisms exactly on an isolated-tone loss and restored both with the same gain, yet the broadened-frequency-selectivity condition still differed by about `9.03 dB` on its local masking relation. The transfer to Omniphony is not the specific number. It is this validation law:
+
+> **Matching level or an audiogram-like gain target is not enough evidence that the spatially relevant auditory representation has been restored.**
+
+So any future listener-specific accessibility layer must test the obligations Omniphony actually needs, such as usable interaural relations, externalization cues, spectral-directional structure, transient ownership and music fidelity. Do not call a compensation successful merely because a level target has been matched.
+
+`AUD-LOSS-002` now prepares the next site-of-lesion challenge with a Verhulst2018 auditory-periphery teacher: the same modeled BM/IHC drive is retained while HSR/MSR/LSR neural population weights change. That remains research-only and externally unscored. Its immediate value to Omniphony is to prevent future personalization from treating "hearing loss" as one EQ curve.
+
 Hard boundary:
 
 ```text
