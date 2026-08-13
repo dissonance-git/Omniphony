@@ -99,6 +99,84 @@ hearing-aid / implant research
 
 If listener-specific compensation is ever added, it should be an explicit accessibility/personalization layer with its own validation and bypass, not a silent change to the Current model.
 
+## VGM and prior machine-hearing research
+
+The new libaural influence pass compares `vgm-tooling` with broader artificial-hearing work including Two!Ears, HARK robot audition, MASA, CARFAC, HEAR and modern binaural learned systems.
+
+The useful Omniphony transfer is again **validation**, not a larger playback architecture.
+
+### VGM source truth as a microscope
+
+Source-aware VGM material can expose exact logical tracks, synthesis state, control trajectories, programmed effects and physical voice allocation underneath a rendered waveform.
+
+That gives future Omniphony research unusually strong fixtures:
+
+```text
+same causal musical part
++ different physical allocation / realization
+
+same exact program
++ reference vs controlled enhanced render
+
+known separate sources
++ final stereo mixture
+```
+
+Use that truth to test whether Omniphony preserves musical motion, transient ownership, spatial relationships and authored structure.
+
+Do not make source metadata a runtime requirement. Ordinary stereo remains the product input.
+
+### Reliability survives processing
+
+HARK-style robot audition provides a useful law: when a separation or enhancement transform damages part of the evidence, downstream consumers benefit from knowing **where the result is unreliable** rather than receiving a supposedly perfect cleaned signal.
+
+For Omniphony this becomes:
+
+> **An uncertain support signal must not acquire more authority merely because it has been processed.**
+
+If future learned separation, restoration or semantic extraction contributes support, preserve confidence / reliability and always retain the protected master as the fallback authority.
+
+### Cooperative specialists stay outside the audible core
+
+Two!Ears and MASA show that localization, identification, separation and quality-estimation modules can cooperate or feed information back to one another.
+
+That is useful for offline validation and future libaural reasoning, but it does not earn a global blackboard or multi-agent inference loop in Omniphony playback.
+
+The playback transfer remains:
+
+```text
+rich research system
+→ discover stable invariant
+→ implement smallest deterministic / bounded mechanism
+→ listening A/B
+→ keep only if better
+```
+
+### Semantic extraction must preserve space
+
+Semantic Hearing demonstrates an important evaluation target: selective binaural extraction can be designed while explicitly preserving spatial cues.
+
+If Omniphony ever experiments with semantic/source-aware support, extraction quality alone is insufficient. It must preserve or improve the interaural and spectral-directional evidence that Omniphony exists to enhance.
+
+### Active listening is not a current renderer feature
+
+Two!Ears also highlights active sensing: moving the listener/sensor can resolve ambiguities that a fixed observation cannot.
+
+This may later inspire multi-pose HRTF or head-motion validation of externalization/front-back cues. It does **not** imply that the current fixed stereo renderer needs head tracking or an active-hearing controller.
+
+Hard boundary:
+
+```text
+machine-hearing architecture
+≠ Omniphony runtime architecture
+
+semantic/source model
+≠ permission to touch protected master
+
+processed support
+≠ source truth
+```
+
 ## Deferred until Omniphony is stable
 
 Keep these in libaural research for now:
@@ -110,6 +188,9 @@ Keep these in libaural research for now:
 - expensive biological hearing front ends;
 - multi-hypothesis auditory-world state as a realtime requirement;
 - hearing-loss / hearing-aid / implant simulation as normal runtime processing;
-- listener-specific impairment compensation without controlled validation.
+- listener-specific impairment compensation without controlled validation;
+- multi-agent / blackboard machine-hearing orchestration;
+- active-sensing control loops;
+- semantic separation as normal playback processing.
 
 The product should first earn a stable everyday stereo sound using the inherited Omniphony renderer, protected source truth, small evidence mechanisms, and listening-driven correction.
