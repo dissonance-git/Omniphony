@@ -58,6 +58,9 @@ jobs:
       - name: Test native-host realtime PCM ABI
         run: cargo test -p realtime_ffi
 
+      - name: Test causal source render ABI
+        run: cargo test -p source_ffi
+
       - name: Test DSP measurement harness
         run: cargo test -p dsp_fixtures
 
@@ -108,6 +111,9 @@ jobs:
 
       - name: Check native Windows host
         run: cargo check -p windows_host --bin omniphony_app
+
+      - name: Check causal source render DLL
+        run: cargo check -p source_ffi
 
       - name: Test HRTF early-reflection challenger
         run: cargo test -p windows_host --bin omniphony_app music_early_reflections::tests
