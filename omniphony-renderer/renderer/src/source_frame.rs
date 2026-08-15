@@ -7,6 +7,7 @@
 
 use anyhow::{Result, bail};
 
+use crate::source_identity::{SourcePresentationIdentity, source_presentation_identity};
 use crate::source_scene::{
     NativeStereoRoute, SourceLaneKind, SourcePresentationPolicy, SourceSceneEvidence,
 };
@@ -20,6 +21,8 @@ pub struct SourceFrameRenderer {
     routes: Vec<ChannelRoute>,
     events: Vec<SpatialChannelEvent>,
     scaled_input: Vec<f32>,
+    presentation_identities: Vec<Option<SourcePresentationIdentity>>,
+    presentation_identity_initialized: Vec<bool>,
 }
 
 /// Collapse a historical stereo route to the scalar energy carried by one
@@ -50,6 +53,8 @@ impl SourceFrameRenderer {
             routes: Vec::new(),
             events: Vec::new(),
             scaled_input: Vec::new(),
+            presentation_identities: Vec::new(),
+            presentation_identity_initialized: Vec::new(),
         }
     }
 
@@ -159,6 +164,10 @@ impl SourceFrameRenderer {
             self.routes.resize(channels, ChannelRoute::Virtual);
             self.renderer.configure_channel_routing(&self.routes);
             self.configured_channels = channels;
+            self.presentation_identities.clear();
+            self.presentation_identities.resize(channels, None);
+            self.presentation_identity_initialized.clear();
+            self.presentation_identity_initialized.resize(channels, false);
             // A width change is also a source-scene discontinuity. Do not let a
             // previous channel's pose/ramp survive into a newly admitted lane.
             self.renderer.reset_runtime_state();
@@ -167,17 +176,28 @@ impl SourceFrameRenderer {
         self.events.clear();
         self.events.reserve(channels);
         for (channel_idx, source) in sources.iter().copied().enumerate() {
+            let identity = source_presentation_identity(&source);
+            let identity_changed = self.presentation_identity_initialized[channel_idx]
+                && self.presentation_identities[channel_idx] != identity;
+
+            // A physical lane is not a musical identity. If an unrelated source
+            // reuses the same channel, do not interpolate through the outgoing
+            // source's old pose. A proven persistent part retains the same
+            // identity key and therefore keeps ordinary smooth motion.
+            let event_ramp_length = if identity_changed { 0 } else { ramp_length };
             let presented = present_source_channel(
                 channel_idx,
                 source,
                 self.policy,
                 Some(sample_pos),
-                Some(ramp_length),
+                Some(event_ramp_length),
             );
             let Some(event) = presented.event else {
                 bail!("renderable source channel {channel_idx} produced no object event");
             };
             self.events.push(event);
+            self.presentation_identities[channel_idx] = identity;
+            self.presentation_identity_initialized[channel_idx] = true;
         }
 
         let gain_for = |channel_idx: usize| {
@@ -226,6 +246,7 @@ impl SourceFrameRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::source_identity::{SourcePresentationIdentity, source_presentation_identity};
 
     #[test]
     fn source_frame_contract_rejects_reference_mix_as_object_lane() {
@@ -290,5 +311,30 @@ mod tests {
             1.0
         );
         assert_eq!(route_energy_gain(sources[0].native_stereo_route), std::f32::consts::FRAC_1_SQRT_2);
+    }
+
+    #[test]
+    fn persistent_part_owns_presentation_continuity_across_source_reuse() {
+        let a = SourceSceneEvidence {
+            source_id: 10,
+            persistent_part_id: Some(77),
+            ..SourceSceneEvidence::default()
+        };
+        let b = SourceSceneEvidence {
+            source_id: 11,
+            persistent_part_id: Some(77),
+            ..SourceSceneEvidence::default()
+        };
+        let unrelated = SourceSceneEvidence {
+            source_id: 12,
+            persistent_part_id: None,
+            ..SourceSceneEvidence::default()
+        };
+        assert_eq!(
+            source_presentation_identity(&a),
+            Some(SourcePresentationIdentity::PersistentPart(77))
+        );
+        assert_eq!(source_presentation_identity(&a), source_presentation_identity(&b));
+        assert_ne!(source_presentation_identity(&b), source_presentation_identity(&unrelated));
     }
 }
