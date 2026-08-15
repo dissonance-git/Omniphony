@@ -7,7 +7,9 @@
 
 use anyhow::{Result, bail};
 
-use crate::source_scene::{SourceLaneKind, SourcePresentationPolicy, SourceSceneEvidence};
+use crate::source_scene::{
+    NativeStereoRoute, SourceLaneKind, SourcePresentationPolicy, SourceSceneEvidence,
+};
 use crate::source_scene_event::present_source_channel;
 use crate::spatial_renderer::{ChannelRoute, RenderedFrame, SpatialChannelEvent, SpatialRenderer};
 
@@ -17,6 +19,26 @@ pub struct SourceFrameRenderer {
     configured_channels: usize,
     routes: Vec<ChannelRoute>,
     events: Vec<SpatialChannelEvent>,
+    scaled_input: Vec<f32>,
+}
+
+/// Collapse a historical stereo route to the scalar energy carried by one
+/// causal mono source before Omniphony replaces that two-channel projection
+/// with a binaural object.
+///
+/// Signs remain available in `NativeStereoRoute` as polarity/phase evidence;
+/// they do not swap sides and therefore enter the energy law squared. The
+/// normalization keeps a source routed at unity to both historical outputs at
+/// unity, while a unity hard-left/right source carries sqrt(1/2) of that stereo
+/// RMS energy.
+pub fn route_energy_gain(route: Option<NativeStereoRoute>) -> f32 {
+    let Some(route) = route else { return 1.0; };
+    if !route.left_gain.is_finite() || !route.right_gain.is_finite() {
+        return 0.0;
+    }
+    ((route.left_gain * route.left_gain + route.right_gain * route.right_gain) * 0.5)
+        .sqrt()
+        .clamp(0.0, 1.0)
 }
 
 impl SourceFrameRenderer {
@@ -27,6 +49,7 @@ impl SourceFrameRenderer {
             configured_channels: 0,
             routes: Vec::new(),
             events: Vec::new(),
+            scaled_input: Vec::new(),
         }
     }
 
@@ -121,8 +144,31 @@ impl SourceFrameRenderer {
             self.events.push(event);
         }
 
+        // The causal PCM is intentionally pre-route. Preserve the historical
+        // route's source energy before replacing its two-channel projection with
+        // an HRTF object. Do this at float precision rather than quantizing the
+        // source level into SpatialChannelEvent's integer-dB gain field.
+        let needs_scaling = sources.iter().any(|source| {
+            (route_energy_gain(source.native_stereo_route) - 1.0).abs() > 1.0e-7
+        });
+        let render_input: &[f32] = if needs_scaling {
+            self.scaled_input.resize(input_pcm.len(), 0.0);
+            for (frame_in, frame_out) in input_pcm
+                .chunks_exact(channels)
+                .zip(self.scaled_input.chunks_exact_mut(channels))
+            {
+                for channel_idx in 0..channels {
+                    frame_out[channel_idx] = frame_in[channel_idx]
+                        * route_energy_gain(sources[channel_idx].native_stereo_route);
+                }
+            }
+            &self.scaled_input
+        } else {
+            input_pcm
+        };
+
         self.renderer.render_frame(
-            input_pcm,
+            render_input,
             channels,
             &self.events,
             samples_buf,
@@ -159,5 +205,26 @@ mod tests {
             },
         ];
         assert_ne!(3usize % sources.len(), 0);
+    }
+
+    #[test]
+    fn authored_stereo_route_preserves_source_energy_and_not_polarity_as_level() {
+        assert_eq!(route_energy_gain(None), 1.0);
+        assert!((route_energy_gain(Some(NativeStereoRoute {
+            left_gain: 1.0,
+            right_gain: 1.0,
+        })) - 1.0).abs() < 1.0e-7);
+        assert!((route_energy_gain(Some(NativeStereoRoute {
+            left_gain: 1.0,
+            right_gain: 0.0,
+        })) - std::f32::consts::FRAC_1_SQRT_2).abs() < 1.0e-7);
+        assert!((route_energy_gain(Some(NativeStereoRoute {
+            left_gain: -1.0,
+            right_gain: 0.5,
+        })) - ((1.0_f32 + 0.25) * 0.5).sqrt()).abs() < 1.0e-7);
+        assert_eq!(route_energy_gain(Some(NativeStereoRoute {
+            left_gain: 0.0,
+            right_gain: 0.0,
+        })), 0.0);
     }
 }
