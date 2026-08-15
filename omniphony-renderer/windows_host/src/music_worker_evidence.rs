@@ -17,11 +17,22 @@ use wasapi::{
 use crate::music_support::{MusicSupportRenderer, SpatialProfile};
 
 const SAMPLE_RATE_HZ: u32 = 48_000;
-/// Burst cushion between the capture/DSP producer and WASAPI playback callback.
-/// Capture is realtime, so a larger bounded capacity does not intentionally add
-/// steady-state latency; it gives MMCSS a little more room to survive short CPU
-/// scheduling stalls from heavy background compute.
+/// Emergency burst reservoir between the capture/DSP producer and WASAPI.
+/// This is capacity, not desired latency. Playback inventory is separately
+/// regulated below so a cold-start producer burst cannot park hundreds of
+/// milliseconds of history in this queue.
 const PLAYBACK_QUEUE_BLOCKS: usize = 32;
+/// Two nominal 20 ms process-loopback packets. This is the steady transport
+/// inventory target, not the renderer's total end-to-end latency.
+const PLAYBACK_TARGET_LATENCY_MS: usize = 40;
+/// Re-enter refill when callback-visible inventory collapses this far below the
+/// target. The existing continuity ramp carries the audible edge while the
+/// queue rebuilds.
+const PLAYBACK_LOW_RECOVER_LATENCY_MS: usize = 10;
+/// If scheduler/boot catch-up places substantially more history in front of the
+/// DAC, discard oldest buffered source time back to the target rather than
+/// preserving a permanent A/V-like offset until manual engine restart.
+const PLAYBACK_HIGH_RECOVER_LATENCY_MS: usize = 100;
 /// If the playback producer is briefly late, glide the last sample toward zero
 /// instead of creating an instantaneous waveform-to-zero discontinuity. Two
 /// milliseconds is short enough not to sound like a fade, while removing the
@@ -42,6 +53,10 @@ const OUTPUT_CEILING: f32 = 0.891_250_9;
 const OUTPUT_LOOKAHEAD_FRAMES: usize = 240; // 5 ms at 48 kHz.
 const OUTPUT_RELEASE_MS: f32 = 160.0;
 const METER_INTERVAL_SECS: u64 = 5;
+
+fn playback_frames_for_ms(ms: usize) -> usize {
+    (SAMPLE_RATE_HZ as usize).saturating_mul(ms) / 1000
+}
 
 #[derive(Default)]
 struct Args {
@@ -82,9 +97,6 @@ fn parse_args() -> anyhow::Result<Args> {
 /// are preserved.
 struct StereoLookaheadPeakGuard {
     frames: VecDeque<[f32; 2]>,
-    /// Monotonic maximum queue for the current look-ahead window. Each frame is
-    /// inserted and removed at most once, avoiding the old full 5 ms scan for
-    /// every output sample.
     peaks: VecDeque<(u64, f32)>,
     next_frame_index: u64,
     gain: f32,
@@ -298,15 +310,28 @@ fn print_meters(
     added.clear();
 }
 
-fn report_playback_underruns(counter: &AtomicU64) {
-    let frames = counter.swap(0, Ordering::Relaxed);
-    if frames == 0 {
-        return;
-    }
-    let duration_ms = frames as f64 * 1000.0 / SAMPLE_RATE_HZ as f64;
-    eprintln!(
-        "  realtime warning: WASAPI playback queue starved for {frames} frame(s) (~{duration_ms:.2} ms) in the last meter interval; short gaps were continuity-concealed"
+#[derive(Clone, Default)]
+struct PlaybackTelemetry {
+    underrun_frames: Arc<AtomicU64>,
+    buffered_frames: Arc<AtomicU64>,
+    trimmed_frames: Arc<AtomicU64>,
+}
+
+fn report_playback_transport(telemetry: &PlaybackTelemetry) {
+    let underrun_frames = telemetry.underrun_frames.swap(0, Ordering::Relaxed);
+    let buffered_frames = telemetry.buffered_frames.load(Ordering::Relaxed);
+    let trimmed_frames = telemetry.trimmed_frames.swap(0, Ordering::Relaxed);
+    let buffered_ms = buffered_frames as f64 * 1000.0 / SAMPLE_RATE_HZ as f64;
+    let trimmed_ms = trimmed_frames as f64 * 1000.0 / SAMPLE_RATE_HZ as f64;
+    println!(
+        "  transport: queue={buffered_ms:.1} ms target={PLAYBACK_TARGET_LATENCY_MS} ms, trimmed={trimmed_ms:.1} ms"
     );
+    if underrun_frames != 0 {
+        let duration_ms = underrun_frames as f64 * 1000.0 / SAMPLE_RATE_HZ as f64;
+        eprintln!(
+            "  realtime warning: WASAPI playback queue starved for {underrun_frames} frame(s) (~{duration_ms:.2} ms) in the last meter interval; short gaps were continuity-concealed"
+        );
+    }
 }
 
 pub fn run() -> anyhow::Result<()> {
@@ -347,12 +372,12 @@ pub fn run() -> anyhow::Result<()> {
         20.0 * LINEAR_OUTPUT_GAIN.log10()
     );
     println!(
-        "  realtime: producer + playback callback claim MMCSS; {}-frame underrun continuity concealment is active",
+        "  realtime: producer + playback callback claim MMCSS; transport targets {PLAYBACK_TARGET_LATENCY_MS} ms and hard-recovers above {PLAYBACK_HIGH_RECOVER_LATENCY_MS} ms; {}-frame continuity concealment is active",
         PLAYBACK_CONCEAL_FRAMES
     );
 
     let quit = Arc::new(AtomicBool::new(false));
-    let playback_underrun_frames = Arc::new(AtomicU64::new(0));
+    let playback_telemetry = PlaybackTelemetry::default();
     let playback_failed = Arc::new(AtomicBool::new(false));
     let (play_tx, play_rx) = sync_channel::<Vec<f32>>(PLAYBACK_QUEUE_BLOCKS);
     let playback_stream = build_playback_stream(
@@ -360,7 +385,7 @@ pub fn run() -> anyhow::Result<()> {
         &output_config,
         output_format,
         play_rx,
-        Arc::clone(&playback_underrun_frames),
+        playback_telemetry.clone(),
         Arc::clone(&playback_failed),
     )?;
     spawn_quit_control(Arc::clone(&quit));
@@ -413,7 +438,7 @@ pub fn run() -> anyhow::Result<()> {
                     field.snapshot(),
                     true,
                 );
-                report_playback_underruns(&playback_underrun_frames);
+                report_playback_transport(&playback_telemetry);
                 report_output_peak_guard(&mut output_peak_guard);
                 last_meter_report = Instant::now();
             }
@@ -494,7 +519,7 @@ pub fn run() -> anyhow::Result<()> {
                 field.snapshot(),
                 false,
             );
-            report_playback_underruns(&playback_underrun_frames);
+            report_playback_transport(&playback_telemetry);
             report_output_peak_guard(&mut output_peak_guard);
             last_meter_report = Instant::now();
         }
@@ -719,82 +744,130 @@ fn build_playback_stream(
     config: &cpal::StreamConfig,
     format: cpal::SampleFormat,
     rx: Receiver<Vec<f32>>,
-    underrun_frames: Arc<AtomicU64>,
+    telemetry: PlaybackTelemetry,
     stream_failed: Arc<AtomicBool>,
 ) -> anyhow::Result<cpal::Stream> {
     match format {
-        cpal::SampleFormat::I8 => build_typed_playback::<i8>(
-            device,
-            config,
-            rx,
-            underrun_frames,
-            Arc::clone(&stream_failed),
-        ),
-        cpal::SampleFormat::I16 => build_typed_playback::<i16>(
-            device,
-            config,
-            rx,
-            underrun_frames,
-            Arc::clone(&stream_failed),
-        ),
-        cpal::SampleFormat::I32 => build_typed_playback::<i32>(
-            device,
-            config,
-            rx,
-            underrun_frames,
-            Arc::clone(&stream_failed),
-        ),
-        cpal::SampleFormat::I64 => build_typed_playback::<i64>(
-            device,
-            config,
-            rx,
-            underrun_frames,
-            Arc::clone(&stream_failed),
-        ),
-        cpal::SampleFormat::U8 => build_typed_playback::<u8>(
-            device,
-            config,
-            rx,
-            underrun_frames,
-            Arc::clone(&stream_failed),
-        ),
-        cpal::SampleFormat::U16 => build_typed_playback::<u16>(
-            device,
-            config,
-            rx,
-            underrun_frames,
-            Arc::clone(&stream_failed),
-        ),
-        cpal::SampleFormat::U32 => build_typed_playback::<u32>(
-            device,
-            config,
-            rx,
-            underrun_frames,
-            Arc::clone(&stream_failed),
-        ),
-        cpal::SampleFormat::U64 => build_typed_playback::<u64>(
-            device,
-            config,
-            rx,
-            underrun_frames,
-            Arc::clone(&stream_failed),
-        ),
-        cpal::SampleFormat::F32 => build_typed_playback::<f32>(
-            device,
-            config,
-            rx,
-            underrun_frames,
-            Arc::clone(&stream_failed),
-        ),
-        cpal::SampleFormat::F64 => build_typed_playback::<f64>(
-            device,
-            config,
-            rx,
-            underrun_frames,
-            Arc::clone(&stream_failed),
-        ),
+        cpal::SampleFormat::I8 => build_typed_playback::<i8>(device, config, rx, telemetry, stream_failed),
+        cpal::SampleFormat::I16 => build_typed_playback::<i16>(device, config, rx, telemetry, stream_failed),
+        cpal::SampleFormat::I32 => build_typed_playback::<i32>(device, config, rx, telemetry, stream_failed),
+        cpal::SampleFormat::I64 => build_typed_playback::<i64>(device, config, rx, telemetry, stream_failed),
+        cpal::SampleFormat::U8 => build_typed_playback::<u8>(device, config, rx, telemetry, stream_failed),
+        cpal::SampleFormat::U16 => build_typed_playback::<u16>(device, config, rx, telemetry, stream_failed),
+        cpal::SampleFormat::U32 => build_typed_playback::<u32>(device, config, rx, telemetry, stream_failed),
+        cpal::SampleFormat::U64 => build_typed_playback::<u64>(device, config, rx, telemetry, stream_failed),
+        cpal::SampleFormat::F32 => build_typed_playback::<f32>(device, config, rx, telemetry, stream_failed),
+        cpal::SampleFormat::F64 => build_typed_playback::<f64>(device, config, rx, telemetry, stream_failed),
         other => bail!("unsupported WASAPI output sample format: {other:?}"),
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PlaybackPreparation {
+    audible: bool,
+    became_audible: bool,
+    trimmed_frames: usize,
+    buffered_frames: usize,
+}
+
+#[derive(Debug, Default)]
+struct PlaybackLatencyGovernor {
+    audible: bool,
+}
+
+impl PlaybackLatencyGovernor {
+    fn prepare(
+        &mut self,
+        rx: &Receiver<Vec<f32>>,
+        current: &mut Vec<f32>,
+        cursor: &mut usize,
+        pending: &mut VecDeque<Vec<f32>>,
+    ) -> PlaybackPreparation {
+        while let Ok(block) = rx.try_recv() {
+            if !block.is_empty() {
+                pending.push_back(block);
+            }
+        }
+
+        let target_frames = playback_frames_for_ms(PLAYBACK_TARGET_LATENCY_MS);
+        let low_frames = playback_frames_for_ms(PLAYBACK_LOW_RECOVER_LATENCY_MS);
+        let high_frames = playback_frames_for_ms(PLAYBACK_HIGH_RECOVER_LATENCY_MS);
+        let mut buffered = buffered_playback_frames(current, *cursor, pending);
+        let was_audible = self.audible;
+
+        if self.audible && buffered < low_frames {
+            self.audible = false;
+        }
+
+        let mut trimmed_frames = 0usize;
+        if !self.audible {
+            if buffered >= target_frames {
+                if buffered > target_frames {
+                    trimmed_frames = discard_oldest_playback_frames(
+                        current,
+                        cursor,
+                        pending,
+                        buffered - target_frames,
+                    );
+                    buffered = buffered.saturating_sub(trimmed_frames);
+                }
+                self.audible = true;
+            }
+        } else if buffered > high_frames {
+            trimmed_frames = discard_oldest_playback_frames(
+                current,
+                cursor,
+                pending,
+                buffered - target_frames,
+            );
+            buffered = buffered.saturating_sub(trimmed_frames);
+        }
+
+        PlaybackPreparation {
+            audible: self.audible,
+            became_audible: !was_audible && self.audible,
+            trimmed_frames,
+            buffered_frames: buffered,
+        }
+    }
+}
+
+fn buffered_playback_frames(
+    current: &[f32],
+    cursor: usize,
+    pending: &VecDeque<Vec<f32>>,
+) -> usize {
+    let current_frames = current.len().saturating_sub(cursor) / 2;
+    current_frames.saturating_add(
+        pending
+            .iter()
+            .map(|block| block.len() / 2)
+            .sum::<usize>(),
+    )
+}
+
+fn discard_oldest_playback_frames(
+    current: &mut Vec<f32>,
+    cursor: &mut usize,
+    pending: &mut VecDeque<Vec<f32>>,
+    mut frames: usize,
+) -> usize {
+    let requested = frames;
+    while frames != 0 {
+        let available = current.len().saturating_sub(*cursor) / 2;
+        if available != 0 {
+            let discard = available.min(frames);
+            *cursor += discard * 2;
+            frames -= discard;
+            continue;
+        }
+        let Some(block) = pending.pop_front() else {
+            break;
+        };
+        *current = block;
+        *cursor = 0;
+    }
+    requested - frames
 }
 
 #[derive(Debug)]
@@ -803,6 +876,8 @@ struct PlaybackContinuity {
     conceal_anchor: [f32; 2],
     starvation_frames: usize,
     recovery_gain: f32,
+    splice_anchor: [f32; 2],
+    splice_frames_remaining: usize,
 }
 
 impl Default for PlaybackContinuity {
@@ -812,14 +887,35 @@ impl Default for PlaybackContinuity {
             conceal_anchor: [0.0, 0.0],
             starvation_frames: 0,
             recovery_gain: 1.0,
+            splice_anchor: [0.0, 0.0],
+            splice_frames_remaining: 0,
         }
     }
 }
 
 impl PlaybackContinuity {
+    fn begin_splice_recovery(&mut self) {
+        self.splice_anchor = self.last_output;
+        self.splice_frames_remaining = PLAYBACK_CONCEAL_FRAMES;
+        self.starvation_frames = 0;
+        self.recovery_gain = 1.0;
+    }
+
     fn render(&mut self, input: Option<(f32, f32)>) -> (f32, f32) {
         match input {
             Some((left, right)) => {
+                if self.splice_frames_remaining != 0 {
+                    let completed = PLAYBACK_CONCEAL_FRAMES - self.splice_frames_remaining;
+                    let t = (completed + 1) as f32 / PLAYBACK_CONCEAL_FRAMES as f32;
+                    let output = [
+                        self.splice_anchor[0] + (left - self.splice_anchor[0]) * t,
+                        self.splice_anchor[1] + (right - self.splice_anchor[1]) * t,
+                    ];
+                    self.splice_frames_remaining -= 1;
+                    self.last_output = output;
+                    return (output[0], output[1]);
+                }
+
                 if self.starvation_frames > 0 {
                     let missing = self.starvation_frames.min(PLAYBACK_CONCEAL_FRAMES);
                     self.recovery_gain =
@@ -835,6 +931,7 @@ impl PlaybackContinuity {
                 (output[0], output[1])
             }
             None => {
+                self.splice_frames_remaining = 0;
                 if self.starvation_frames == 0 {
                     self.conceal_anchor = self.last_output;
                 }
@@ -854,7 +951,7 @@ fn build_typed_playback<T>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
     rx: Receiver<Vec<f32>>,
-    underrun_frames: Arc<AtomicU64>,
+    telemetry: PlaybackTelemetry,
     stream_failed: Arc<AtomicBool>,
 ) -> anyhow::Result<cpal::Stream>
 where
@@ -863,6 +960,8 @@ where
     let channels = usize::from(config.channels);
     let mut current = Vec::<f32>::new();
     let mut cursor = 0usize;
+    let mut pending = VecDeque::<Vec<f32>>::new();
+    let mut latency = PlaybackLatencyGovernor::default();
     let mut continuity = PlaybackContinuity::default();
     let mut callback_mmcss = None;
     let err_fn = move |err| {
@@ -876,10 +975,28 @@ where
                 if callback_mmcss.is_none() {
                     callback_mmcss = crate::realtime_priority::claim_realtime_audio();
                 }
+
+                let preparation = latency.prepare(&rx, &mut current, &mut cursor, &mut pending);
+                telemetry
+                    .buffered_frames
+                    .store(preparation.buffered_frames as u64, Ordering::Relaxed);
+                if preparation.trimmed_frames != 0 {
+                    telemetry
+                        .trimmed_frames
+                        .fetch_add(preparation.trimmed_frames as u64, Ordering::Relaxed);
+                    continuity.begin_splice_recovery();
+                } else if preparation.became_audible {
+                    continuity.begin_splice_recovery();
+                }
+
                 for frame in data.chunks_exact_mut(channels) {
-                    let next = try_next_stereo_frame(&rx, &mut current, &mut cursor);
-                    if next.is_none() {
-                        underrun_frames.fetch_add(1, Ordering::Relaxed);
+                    let next = if preparation.audible {
+                        try_next_stereo_frame(&rx, &mut current, &mut cursor, &mut pending)
+                    } else {
+                        None
+                    };
+                    if preparation.audible && next.is_none() {
+                        telemetry.underrun_frames.fetch_add(1, Ordering::Relaxed);
                     }
                     let (left, right) = continuity.render(next);
                     frame[0] = T::from_sample(left);
@@ -899,12 +1016,18 @@ fn try_next_stereo_frame(
     rx: &Receiver<Vec<f32>>,
     current: &mut Vec<f32>,
     cursor: &mut usize,
+    pending: &mut VecDeque<Vec<f32>>,
 ) -> Option<(f32, f32)> {
     loop {
         if *cursor + 1 < current.len() {
             let pair = (current[*cursor], current[*cursor + 1]);
             *cursor += 2;
             return Some(pair);
+        }
+        if let Some(block) = pending.pop_front() {
+            *current = block;
+            *cursor = 0;
+            continue;
         }
         match rx.try_recv() {
             Ok(block) => {
@@ -939,6 +1062,14 @@ fn spawn_quit_control(quit: Arc<AtomicBool>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn stereo_block(frames: usize, value: f32) -> Vec<f32> {
+        let mut block = Vec::with_capacity(frames * 2);
+        for _ in 0..frames {
+            block.extend_from_slice(&[value, -value]);
+        }
+        block
+    }
 
     #[test]
     fn lookahead_peak_guard_keeps_makeup_spike_below_ceiling() {
@@ -980,5 +1111,103 @@ mod tests {
         let next = continuity.render(Some((0.50, -0.25)));
         assert!(next.0 > resume.0);
         assert!(next.0 < 0.50);
+    }
+
+    #[test]
+    fn cold_start_overfill_is_trimmed_to_target_before_audio_opens() {
+        let (tx, rx) = sync_channel::<Vec<f32>>(PLAYBACK_QUEUE_BLOCKS);
+        let packet_frames = playback_frames_for_ms(20);
+        for index in 0..25 {
+            tx.try_send(stereo_block(packet_frames, index as f32 / 25.0))
+                .expect("queue capacity covers synthetic cold-start burst");
+        }
+
+        let mut governor = PlaybackLatencyGovernor::default();
+        let mut current = Vec::new();
+        let mut cursor = 0usize;
+        let mut pending = VecDeque::new();
+        let preparation = governor.prepare(&rx, &mut current, &mut cursor, &mut pending);
+
+        assert!(preparation.audible);
+        assert_eq!(preparation.buffered_frames, playback_frames_for_ms(PLAYBACK_TARGET_LATENCY_MS));
+        assert!(preparation.trimmed_frames >= playback_frames_for_ms(400));
+    }
+
+    #[test]
+    fn startup_waits_for_target_then_opens_without_extra_history() {
+        let (tx, rx) = sync_channel::<Vec<f32>>(PLAYBACK_QUEUE_BLOCKS);
+        let packet_frames = playback_frames_for_ms(20);
+        let mut governor = PlaybackLatencyGovernor::default();
+        let mut current = Vec::new();
+        let mut cursor = 0usize;
+        let mut pending = VecDeque::new();
+
+        tx.try_send(stereo_block(packet_frames, 0.1)).unwrap();
+        let first = governor.prepare(&rx, &mut current, &mut cursor, &mut pending);
+        assert!(!first.audible);
+        assert_eq!(first.trimmed_frames, 0);
+
+        tx.try_send(stereo_block(packet_frames, 0.2)).unwrap();
+        let second = governor.prepare(&rx, &mut current, &mut cursor, &mut pending);
+        assert!(second.audible);
+        assert!(second.became_audible);
+        assert_eq!(second.buffered_frames, playback_frames_for_ms(PLAYBACK_TARGET_LATENCY_MS));
+        assert_eq!(second.trimmed_frames, 0);
+    }
+
+    #[test]
+    fn high_backlog_recovery_discards_oldest_audio_back_to_target() {
+        let (tx, rx) = sync_channel::<Vec<f32>>(PLAYBACK_QUEUE_BLOCKS);
+        let packet_frames = playback_frames_for_ms(20);
+        let mut governor = PlaybackLatencyGovernor::default();
+        let mut current = Vec::new();
+        let mut cursor = 0usize;
+        let mut pending = VecDeque::new();
+
+        for _ in 0..2 {
+            tx.try_send(stereo_block(packet_frames, 0.1)).unwrap();
+        }
+        let start = governor.prepare(&rx, &mut current, &mut cursor, &mut pending);
+        assert!(start.audible);
+
+        for _ in 0..8 {
+            tx.try_send(stereo_block(packet_frames, 0.2)).unwrap();
+        }
+        let recovered = governor.prepare(&rx, &mut current, &mut cursor, &mut pending);
+        assert!(recovered.audible);
+        assert!(recovered.trimmed_frames > 0);
+        assert_eq!(recovered.buffered_frames, playback_frames_for_ms(PLAYBACK_TARGET_LATENCY_MS));
+    }
+
+    #[test]
+    fn low_inventory_reenters_refill_before_resuming() {
+        let (tx, rx) = sync_channel::<Vec<f32>>(PLAYBACK_QUEUE_BLOCKS);
+        let packet_frames = playback_frames_for_ms(20);
+        let mut governor = PlaybackLatencyGovernor::default();
+        let mut current = Vec::new();
+        let mut cursor = 0usize;
+        let mut pending = VecDeque::new();
+
+        for _ in 0..2 {
+            tx.try_send(stereo_block(packet_frames, 0.1)).unwrap();
+        }
+        assert!(governor.prepare(&rx, &mut current, &mut cursor, &mut pending).audible);
+
+        let available = buffered_playback_frames(&current, cursor, &pending);
+        let dropped = discard_oldest_playback_frames(
+            &mut current,
+            &mut cursor,
+            &mut pending,
+            available,
+        );
+        assert_eq!(dropped, available);
+
+        let empty = governor.prepare(&rx, &mut current, &mut cursor, &mut pending);
+        assert!(!empty.audible);
+
+        tx.try_send(stereo_block(packet_frames, 0.2)).unwrap();
+        assert!(!governor.prepare(&rx, &mut current, &mut cursor, &mut pending).audible);
+        tx.try_send(stereo_block(packet_frames, 0.3)).unwrap();
+        assert!(governor.prepare(&rx, &mut current, &mut cursor, &mut pending).audible);
     }
 }
