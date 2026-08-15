@@ -151,6 +151,9 @@ jobs:
       - name: Build Omniphony
         run: cargo build --profile release-deploy -p windows_host --bin omniphony_app
 
+      - name: Build causal source renderer DLL
+        run: cargo build --profile release-deploy -p source_ffi
+
       - name: Collect minimal development runtime
         run: |
           $dist = Join-Path $PWD 'dist\windows-x64'
@@ -170,10 +173,31 @@ jobs:
           }
           Get-ChildItem $dist | Format-Table Name, Length
 
+      - name: Collect causal source SDK
+        run: |
+          $dist = Join-Path $PWD 'dist\source-windows-x64'
+          New-Item -ItemType Directory -Path $dist -Force | Out-Null
+          Copy-Item 'target\release-deploy\omniphony_source.dll' (Join-Path $dist 'omniphony_source.dll') -Force
+          Copy-Item 'source_ffi\include\omniphony_source.h' (Join-Path $dist 'omniphony_source.h') -Force
+          foreach ($required in @('omniphony_source.dll', 'omniphony_source.h')) {
+            if (!(Test-Path (Join-Path $dist $required))) {
+              throw "required source SDK file missing: $required"
+            }
+          }
+          Get-ChildItem $dist | Format-Table Name, Length
+
       - name: Upload native Windows prototype
         uses: actions/upload-artifact@v6
         with:
           name: omniphony-windows-x64-${{ github.sha }}
           path: omniphony-renderer/dist/windows-x64/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload causal source SDK
+        uses: actions/upload-artifact@v6
+        with:
+          name: omniphony-source-windows-x64-${{ github.sha }}
+          path: omniphony-renderer/dist/source-windows-x64/
           if-no-files-found: error
           retention-days: 14
