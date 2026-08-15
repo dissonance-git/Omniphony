@@ -26,9 +26,6 @@ pub enum SourceSpatialMode {
     NativeRouting,
     /// Use the full evidence-earned sphere with the measured HRTF path.
     FullSphere,
-    /// Full sphere plus a small listening-room early-reflection field for
-    /// stronger externalization. Content/shared source reverb remains separate.
-    FullSphereExternalized,
 }
 
 impl SourceSpatialMode {
@@ -36,7 +33,6 @@ impl SourceSpatialMode {
         match self {
             Self::NativeRouting => "native_routing",
             Self::FullSphere => "full_sphere",
-            Self::FullSphereExternalized => "full_sphere_externalized",
         }
     }
 }
@@ -44,12 +40,16 @@ impl SourceSpatialMode {
 #[derive(Debug, Clone)]
 pub struct SourceRendererOptions {
     pub mode: SourceSpatialMode,
+    /// Listening-room early reflections are an externalization control, not
+    /// part of source geometry. Keeping this independent lets a listener test
+    /// full sphere dry versus the same exact scene with room cues.
+    pub externalization: bool,
     /// Measured SAF/KEMAR is the default and can later be replaced by a
     /// listener-specific SOFA set without changing the source-scene contract.
     pub hrir_source: HrirSource,
     /// Metres represented by one ADM unit for binaural distance cues.
     pub unit_scale_m: f32,
-    /// Early-reflection return level for the externalized mode only.
+    /// Early-reflection return level when externalization is enabled.
     pub reflection_level: f32,
     /// Small listening-room dimensions for externalization, not source reverb.
     pub reflection_room_size_m: [f32; 3],
@@ -59,6 +59,7 @@ impl Default for SourceRendererOptions {
     fn default() -> Self {
         Self {
             mode: SourceSpatialMode::FullSphere,
+            externalization: false,
             hrir_source: HrirSource::SafKemar,
             unit_scale_m: 1.0,
             reflection_level: 0.22,
@@ -67,7 +68,7 @@ impl Default for SourceRendererOptions {
     }
 }
 
-fn presentation_policy(mode: SourceSpatialMode) -> SourcePresentationPolicy {
+pub fn source_presentation_policy(mode: SourceSpatialMode) -> SourcePresentationPolicy {
     match mode {
         SourceSpatialMode::NativeRouting => SourcePresentationPolicy {
             sphere_strength: 0.0,
@@ -75,19 +76,17 @@ fn presentation_policy(mode: SourceSpatialMode) -> SourcePresentationPolicy {
             max_elevation_deg: 0.0,
             max_distance: 1.0,
         },
-        SourceSpatialMode::FullSphere | SourceSpatialMode::FullSphereExternalized => {
-            SourcePresentationPolicy {
-                sphere_strength: 1.0,
-                // A support object may live well behind the listener while
-                // leaving a margin around the exact rear singularity.
-                max_rear_azimuth_deg: 150.0,
-                // Strong enough to create an unmistakable upper hemisphere;
-                // vertical placement still requires explicit source/policy
-                // affinity from the source-scene evidence.
-                max_elevation_deg: 60.0,
-                max_distance: 1.75,
-            }
-        }
+        SourceSpatialMode::FullSphere => SourcePresentationPolicy {
+            sphere_strength: 1.0,
+            // A support object may live well behind the listener while leaving
+            // a margin around the exact rear singularity.
+            max_rear_azimuth_deg: 150.0,
+            // Strong enough to create an unmistakable upper hemisphere;
+            // vertical placement still requires explicit source/policy affinity
+            // from the source-scene evidence.
+            max_elevation_deg: 60.0,
+            max_distance: 1.75,
+        },
     }
 }
 
@@ -142,8 +141,7 @@ pub fn build_source_frame_renderer(
         live.binaural.unit_scale_m = options.unit_scale_m.clamp(0.25, 4.0);
         live.binaural.air_absorption = true;
         live.binaural.reverb.enabled = false;
-        live.binaural.reflections.enabled =
-            options.mode == SourceSpatialMode::FullSphereExternalized;
+        live.binaural.reflections.enabled = options.externalization;
         live.binaural.reflections.level = options.reflection_level.clamp(0.0, 1.0);
         live.binaural.reflections.room_size_m = [
             options.reflection_room_size_m[0].max(1.0),
@@ -158,7 +156,7 @@ pub fn build_source_frame_renderer(
 
     Ok(SourceFrameRenderer::new(
         renderer,
-        presentation_policy(options.mode),
+        source_presentation_policy(options.mode),
     ))
 }
 
@@ -168,7 +166,7 @@ mod tests {
 
     #[test]
     fn native_mode_disables_inferred_depth_and_height() {
-        let policy = presentation_policy(SourceSpatialMode::NativeRouting);
+        let policy = source_presentation_policy(SourceSpatialMode::NativeRouting);
         assert_eq!(policy.sphere_strength, 0.0);
         assert_eq!(policy.max_elevation_deg, 0.0);
         assert_eq!(policy.max_distance, 1.0);
@@ -176,7 +174,7 @@ mod tests {
 
     #[test]
     fn full_sphere_uses_rear_height_and_depth_capacity() {
-        let policy = presentation_policy(SourceSpatialMode::FullSphere);
+        let policy = source_presentation_policy(SourceSpatialMode::FullSphere);
         assert_eq!(policy.sphere_strength, 1.0);
         assert!(policy.max_rear_azimuth_deg > 135.0);
         assert!(policy.max_elevation_deg >= 55.0);
@@ -184,10 +182,9 @@ mod tests {
     }
 
     #[test]
-    fn externalization_is_orthogonal_to_sphere_geometry() {
-        assert_eq!(
-            presentation_policy(SourceSpatialMode::FullSphere),
-            presentation_policy(SourceSpatialMode::FullSphereExternalized)
-        );
+    fn externalization_defaults_off_so_geometry_can_be_tested_alone() {
+        let options = SourceRendererOptions::default();
+        assert_eq!(options.mode, SourceSpatialMode::FullSphere);
+        assert!(!options.externalization);
     }
 }
