@@ -19,6 +19,7 @@ pub mod render_backend;
 pub mod runtime_env;
 pub mod scene_inference;
 pub mod source_scene;
+pub mod source_scene_event;
 pub mod spatial_renderer;
 pub mod spatial_vbap;
 pub mod speaker_layout;
