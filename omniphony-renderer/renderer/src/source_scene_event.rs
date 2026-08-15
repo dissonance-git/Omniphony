@@ -9,7 +9,7 @@ use crate::source_scene::{
 };
 use crate::spatial_renderer::SpatialChannelEvent;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SourceChannelPresentation {
     pub presentation: SourcePresentation,
     /// None means the lane is a protected reference/control and must not be
@@ -28,7 +28,11 @@ pub fn present_source_channel(
     let event = presentation.render_as_object.then(|| SpatialChannelEvent {
         channel_idx,
         is_bed: false,
-        gain_db: None,
+        // ChannelState defaults to -128 dB. A source-aware lane is a newly
+        // admitted object, so initialize it explicitly at unity rather than
+        // depending on cached/default state. Subsequent gain automation can
+        // still arrive as ordinary SpatialChannelEvents.
+        gain_db: Some(0),
         ramp_length,
         size: Some(presentation.size),
         position: Some(presentation.position),
@@ -44,9 +48,7 @@ pub fn present_source_channel(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::source_scene::{
-        NativeStereoRoute, SourceLaneKind, SourcePositionAuthority,
-    };
+    use crate::source_scene::{NativeStereoRoute, SourceLaneKind, SourcePositionAuthority};
 
     fn source(id: u64) -> SourceSceneEvidence {
         SourceSceneEvidence {
@@ -91,6 +93,7 @@ mod tests {
         let event = result.event.expect("dry source should become an object");
         assert_eq!(event.channel_idx, 5);
         assert!(!event.is_bed);
+        assert_eq!(event.gain_db, Some(0));
         assert_eq!(event.sample_pos, Some(480));
         assert_eq!(event.ramp_length, Some(96));
         assert!(event.position.expect("position")[0] > 0.0);
@@ -109,7 +112,10 @@ mod tests {
             None,
             None,
         );
-        assert_eq!(result.presentation.authority, SourcePositionAuthority::Authored);
+        assert_eq!(
+            result.presentation.authority,
+            SourcePositionAuthority::Authored
+        );
         assert_eq!(result.event.expect("object event").position, Some(position));
     }
 
@@ -126,7 +132,9 @@ mod tests {
             Some(0),
             Some(256),
         );
-        let event = result.event.expect("shared wet return should be renderable");
+        let event = result
+            .event
+            .expect("shared wet return should be renderable");
         assert_eq!(event.size, Some([1.0, 1.0, 1.0]));
         assert!(result.presentation.azimuth_deg.abs() > 90.0);
     }
