@@ -1,0 +1,95 @@
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct OmniphonySourceProcessor OmniphonySourceProcessor;
+
+enum {
+    OMNIPHONY_SOURCE_FLAG_PERSISTENT_PART = 1u << 0,
+    OMNIPHONY_SOURCE_FLAG_NATIVE_STEREO_ROUTE = 1u << 1,
+    OMNIPHONY_SOURCE_FLAG_AUTHORED_POSITION = 1u << 2,
+};
+
+enum {
+    OMNIPHONY_SOURCE_LANE_DRY = 0,
+    OMNIPHONY_SOURCE_LANE_SHARED_WET = 1,
+    OMNIPHONY_SOURCE_LANE_REFERENCE_MIX = 2,
+};
+
+enum {
+    OMNIPHONY_SOURCE_SPATIAL_NATIVE_ROUTING = 0,
+    OMNIPHONY_SOURCE_SPATIAL_FULL_SPHERE = 1,
+};
+
+enum {
+    OMNIPHONY_SOURCE_HRIR_SAF_KEMAR = 0,
+    OMNIPHONY_SOURCE_HRIR_SYNTHETIC = 1,
+};
+
+typedef struct OmniphonySourceConfig {
+    uint32_t sample_rate_hz;
+    uint32_t spatial_mode;
+    uint32_t externalization;
+    uint32_t hrir_source;
+    float unit_scale_m;
+    float reflection_level;
+} OmniphonySourceConfig;
+
+typedef struct OmniphonySourceEvidenceV1 {
+    uint32_t lane_kind;
+    uint32_t flags;
+    uint64_t source_id;
+    uint64_t persistent_part_id;
+    float left_gain;
+    float right_gain;
+    float authored_x;
+    float authored_y;
+    float authored_z;
+    float foundation;
+    float foreground;
+    float diffuse;
+    float width;
+    float vertical_affinity;
+    float confidence;
+} OmniphonySourceEvidenceV1;
+
+uint32_t omniphony_source_abi_major(void);
+uint32_t omniphony_source_abi_minor(void);
+
+OmniphonySourceProcessor *omniphony_source_create(const OmniphonySourceConfig *config);
+void omniphony_source_destroy(OmniphonySourceProcessor *processor);
+int32_t omniphony_source_reset(OmniphonySourceProcessor *processor);
+int32_t omniphony_source_set_spatial_mode(OmniphonySourceProcessor *processor, uint32_t mode);
+int32_t omniphony_source_set_externalization(OmniphonySourceProcessor *processor, uint32_t enabled);
+
+/*
+ * Render interleaved causal source lanes to interleaved stereo f32.
+ *
+ * input:        frames * source_count samples
+ * sources:      one evidence record per source channel, same order as input
+ * output:       frames * 2 samples
+ * sample_pos:   absolute source-frame position for metadata/ramp continuity
+ * ramp_frames:  presentation movement ramp in source frames
+ *
+ * OMNIPHONY_SOURCE_LANE_REFERENCE_MIX is a protected control and is rejected
+ * here. Keep the historical/reference stereo mix outside the object-lane call
+ * for A/B and reconstruction validation.
+ */
+int32_t omniphony_source_process_f32(
+    OmniphonySourceProcessor *processor,
+    const float *input,
+    const OmniphonySourceEvidenceV1 *sources,
+    size_t source_count,
+    size_t frames,
+    uint64_t sample_pos,
+    uint32_t ramp_frames,
+    float *output);
+
+#ifdef __cplusplus
+}
+#endif
