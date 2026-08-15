@@ -47,6 +47,8 @@ render [next_event, following_event)
 
 This follows the normal sample-offset event model used by realtime audio systems. It does not require future-song knowledge.
 
+The Rust `repr(C)` evidence/event records and the Game Music Interpreter C++ transport pin the ABI 0.3 size and critical field offsets from both sides, so a future layout drift fails validation instead of silently reinterpreting evidence.
+
 ## Evidence authority
 
 The source ABI preserves these distinctions:
@@ -80,11 +82,32 @@ for spatial-ramp continuity.
 
 If an unrelated source reuses the same channel, its first new presentation event uses a zero-length pose ramp rather than interpolating from the outgoing source's last position. If the persistent musical part remains the same across a source/slot migration, ordinary smooth presentation continuity is retained.
 
+Presentation identity is committed only after successful rendering. A failed block therefore cannot change the continuity decision used by the next block.
+
 This resets presentation motion only. It does not flush the entire room/binaural history merely because one source identity changed.
+
+## Reset / seek lifecycle
+
+A track change, seek or decoder restart is a true causal-timeline boundary.
+
+`omniphony_source_reset()` therefore clears both:
+
+```text
+binaural / spatial runtime history
+source-presentation identity history
+```
+
+The Game Music Interpreter canonical pipeline binds this reset function and clears its own musical memory in the same operation. Resetting only one side is invalid because it would leave either old musical interpretation steering a new timeline or old renderer identity/pose state attached to fresh sources.
 
 ## Game Music Interpreter handoff
 
-Game Music Interpreter's corresponding path is:
+Game Music Interpreter's canonical wrapper is:
+
+```text
+realtime_musical_omniphony_pipeline::process_block(...)
+```
+
+which enforces:
 
 ```text
 raw spatial_source_block_view
@@ -93,10 +116,12 @@ raw spatial_source_block_view
 → projected_view()
 → Omniphony ABI 0.3 transport
 → this renderer
-→ complete_block(raw block) after rendering
+→ complete_block(raw block) only after successful rendering
 ```
 
 The final step intentionally uses GMI's raw block rather than its projected renderer sidecar. That prevents a semantic feedback loop in which an earlier role guess becomes evidence for itself.
+
+A render failure does not advance GMI musical memory, so a caller may retry or fall back without semantic state jumping ahead of the audio that actually sounded.
 
 ## Artificial-hearing research
 
