@@ -18,6 +18,7 @@ pub mod ramp_strategy;
 pub mod render_backend;
 pub mod runtime_env;
 pub mod scene_inference;
+pub mod source_frame;
 pub mod source_scene;
 pub mod source_scene_event;
 pub mod spatial_renderer;
