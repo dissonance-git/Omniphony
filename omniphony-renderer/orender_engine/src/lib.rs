@@ -23,6 +23,7 @@ pub mod phantom_extract;
 mod phantom_spectral;
 pub mod render;
 pub mod renderer_build;
+pub mod source_renderer_build;
 pub mod spatial;
 mod stft;
 pub mod virtual_bed;
@@ -31,6 +32,9 @@ pub use channel_layout::label_for_speaker_name;
 pub use degraded::{DegradedReporter, start_degraded_reporter};
 pub use engine::{Engine, OscOptions, RenderedAudio};
 pub use osc::{ObjectMeta, OscSender};
+pub use source_renderer_build::{
+    SourceRendererOptions, SourceSpatialMode, build_source_frame_renderer,
+};
 /// The shared omniphony config (`~/.config/omniphony/config.yaml`) + its path,
 /// re-exported so hosts default to the SAME config as the `orender` CLI + studio
 /// (bridge path, layout, OSC settings, render params).
