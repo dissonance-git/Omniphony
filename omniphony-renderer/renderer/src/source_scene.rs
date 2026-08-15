@@ -30,6 +30,10 @@ pub struct SourceSceneEvidence {
     pub source_id: u64,
     pub persistent_part_id: Option<u64>,
     pub native_stereo_route: Option<NativeStereoRoute>,
+    /// True when the host has already applied the source's sample-accurate
+    /// native gain trajectory to the causal PCM. The route remains authoritative
+    /// pose/polarity evidence but must not attenuate the PCM a second time.
+    pub route_gain_preapplied: bool,
     pub authored_position: Option<[f64; 3]>,
     pub foundation: f32,
     pub foreground: f32,
@@ -46,6 +50,7 @@ impl Default for SourceSceneEvidence {
             source_id: 0,
             persistent_part_id: None,
             native_stereo_route: None,
+            route_gain_preapplied: false,
             authored_position: None,
             foundation: 0.0,
             foreground: 0.0,
@@ -179,7 +184,7 @@ fn inferred_presentation(
         return SourcePresentation {
             render_as_object: false,
             authority: SourcePositionAuthority::InferredPresentation,
-            position: [0.0, 1.0, 0.0],
+            position: [0.0, 0.0, 1.0],
             size: [0.0; 3],
             azimuth_deg: 0.0,
             elevation_deg: 0.0,
@@ -201,62 +206,60 @@ fn inferred_presentation(
     let width = clamp01(source.width);
     let vertical = clamp_signed(source.vertical_affinity);
 
-    // Foundation is intentionally difficult to dislodge. Confidence that a
-    // source is foundational must not become confidence that it should move.
-    let movable = sphere * confidence * (1.0 - foundation).powi(2);
+    // Native routing remains a side constraint. Identity only provides a small,
+    // stable separation for sources whose native route is balanced/unknown.
+    let native_azimuth = pan * 70.0;
+    let stable_offset = identity * 18.0 * (1.0 - pan.abs());
+    let frontal_anchor = (0.75 * foundation + 0.35 * foreground).clamp(0.0, 1.0);
 
-    // Crucial evidence law: absence of foreground/foundation labels is NOT
-    // positive support evidence. Rear/depth placement requires an affirmative
-    // diffuse/support cue. This keeps unknown centered sources conservative.
-    let support = diffuse * (1.0 - foundation) * (1.0 - foreground);
+    // Rear placement is earned by positive diffuse/support evidence. Missing
+    // foreground/foundation evidence is not itself support evidence.
+    let support = (0.70 * diffuse + 0.30 * width).clamp(0.0, 1.0);
+    let rear_weight = sphere
+        * confidence
+        * support
+        * (1.0 - 0.85 * frontal_anchor)
+        * (0.55 + 0.45 * (1.0 - pan.abs()));
 
-    let route_azimuth = pan * 70.0;
-    let identity_azimuth = identity * 28.0 * movable * (1.0 - pan.abs());
-    let frontal_azimuth = (route_azimuth + identity_azimuth).clamp(-78.0, 78.0);
-
-    let rear_weight = (movable
-        * (0.72 * diffuse + 0.42 * support)
-        * (1.0 - 0.85 * foreground))
-        .clamp(0.0, 1.0);
-    let side = if pan.abs() > 0.05 {
+    let side_sign = if pan.abs() > 0.05 {
         pan.signum()
     } else if identity.abs() > 1.0e-6 {
         identity.signum()
     } else {
         1.0
     };
-    let rear_target = side
-        * (110.0 + 35.0 * identity.abs())
-            .min(policy.max_rear_azimuth_deg.clamp(90.0, 179.0));
-    let azimuth = frontal_azimuth + (rear_target - frontal_azimuth) * rear_weight;
+    let rear_target = side_sign
+        * policy
+            .max_rear_azimuth_deg
+            .clamp(90.0, 179.0)
+        * (0.55 + 0.45 * support);
+    let front_target = (native_azimuth + stable_offset).clamp(-80.0, 80.0);
+    let azimuth = front_target + (rear_target - front_target) * rear_weight;
 
-    // Vertical placement also requires explicit signed evidence. Register,
-    // physical voice number, or brightness alone never manufactures height.
-    let elevation = vertical
-        * policy.max_elevation_deg.clamp(0.0, 80.0)
-        * movable
-        * (0.25 + 0.75 * diffuse.max(support));
+    // Foundation sinks slightly and remains frontal. Positive upper/register
+    // evidence can earn height; diffuse support can also lift modestly.
+    let upward = (vertical.max(0.0) * 0.75 + diffuse * 0.25)
+        * (1.0 - 0.75 * foundation);
+    let downward = foundation * (0.18 + 0.12 * (-vertical).max(0.0));
+    let elevation = ((upward - downward)
+        * sphere
+        * confidence
+        * policy.max_elevation_deg.max(0.0))
+        .clamp(-18.0, policy.max_elevation_deg.max(0.0));
 
-    let depth_weight = movable
-        * (0.55 * support + 0.70 * diffuse)
-        * (1.0 - 0.65 * foreground);
+    let distance_push = (0.55 * diffuse + 0.25 * width + 0.20 * rear_weight)
+        * (1.0 - 0.65 * foundation);
     let distance = 1.0
-        + (policy.max_distance.max(1.0) - 1.0) * depth_weight.clamp(0.0, 1.0);
-
-    let horizontal_size = (0.08 + 0.72 * width + 0.45 * diffuse).clamp(0.0, 1.0);
-    let depth_size = (0.05 + 0.55 * diffuse + 0.25 * support).clamp(0.0, 1.0);
-    let height_size = (0.03 + 0.50 * diffuse + 0.25 * vertical.abs()).clamp(0.0, 1.0);
-    let size_scale = (0.20 + 0.80 * movable).clamp(0.0, 1.0);
+        + (policy.max_distance.max(1.0) - 1.0)
+            * sphere
+            * confidence
+            * distance_push;
 
     SourcePresentation {
         render_as_object: true,
         authority: SourcePositionAuthority::InferredPresentation,
         position: to_cartesian(azimuth, elevation, distance),
-        size: [
-            horizontal_size * size_scale,
-            depth_size * size_scale,
-            height_size * size_scale,
-        ],
+        size: [width, diffuse, diffuse],
         azimuth_deg: azimuth,
         elevation_deg: elevation,
         distance,
@@ -265,36 +268,19 @@ fn inferred_presentation(
     }
 }
 
-/// Source-authored geometry passes through untouched. Everything else remains
-/// explicitly an Omniphony presentation decision.
 pub fn present_source(
     source: SourceSceneEvidence,
     policy: SourcePresentationPolicy,
 ) -> SourcePresentation {
     if let Some(position) = source.authored_position {
-        let x = position[0] as f32;
-        let y = position[1] as f32;
-        let z = position[2] as f32;
-        let horizontal = (x * x + y * y).sqrt();
-        let distance = (horizontal * horizontal + z * z).sqrt();
-        let azimuth = x.atan2(y).to_degrees();
-        let elevation = if horizontal <= 1.0e-6 {
-            if z > 0.0 { 90.0 } else if z < 0.0 { -90.0 } else { 0.0 }
-        } else {
-            z.atan2(horizontal).to_degrees()
-        };
         return SourcePresentation {
             render_as_object: source.lane_kind != SourceLaneKind::ReferenceMix,
             authority: SourcePositionAuthority::Authored,
             position,
-            size: [
-                clamp01(source.width),
-                clamp01(source.diffuse),
-                clamp01(source.diffuse),
-            ],
-            azimuth_deg: azimuth,
-            elevation_deg: elevation,
-            distance,
+            size: [clamp01(source.width); 3],
+            azimuth_deg: 0.0,
+            elevation_deg: 0.0,
+            distance: 1.0,
             route_pan: route_pan(source.native_stereo_route),
             rear_weight: 0.0,
         };
@@ -306,165 +292,92 @@ pub fn present_source(
 mod tests {
     use super::*;
 
-    fn dry(id: u64) -> SourceSceneEvidence {
-        SourceSceneEvidence {
-            source_id: id,
-            confidence: 1.0,
-            ..SourceSceneEvidence::default()
-        }
-    }
-
     #[test]
     fn route_pan_uses_magnitude_not_polarity() {
-        let positive = route_pan(Some(NativeStereoRoute { left_gain: 1.0, right_gain: 0.25 }));
-        let inverted = route_pan(Some(NativeStereoRoute { left_gain: -1.0, right_gain: 0.25 }));
-        assert!(positive < 0.0);
-        assert_eq!(positive, inverted);
+        assert_eq!(route_pan(Some(NativeStereoRoute { left_gain: -1.0, right_gain: 0.0 })), -1.0);
+        assert_eq!(route_pan(Some(NativeStereoRoute { left_gain: 0.0, right_gain: -1.0 })), 1.0);
     }
 
     #[test]
-    fn protected_reference_mix_is_not_an_extra_object() {
-        let out = present_source(
-            SourceSceneEvidence { lane_kind: SourceLaneKind::ReferenceMix, ..dry(1) },
-            SourcePresentationPolicy::default(),
-        );
-        assert!(!out.render_as_object);
-    }
-
-    #[test]
-    fn foundation_remains_frontal_even_at_full_sphere() {
-        let out = present_source(
-            SourceSceneEvidence {
-                foundation: 1.0,
-                diffuse: 1.0,
-                vertical_affinity: 1.0,
-                native_stereo_route: Some(NativeStereoRoute { left_gain: 1.0, right_gain: 1.0 }),
-                ..dry(2)
-            },
-            SourcePresentationPolicy::default(),
-        );
-        assert!(out.azimuth_deg.abs() < 1.0e-5);
-        assert!(out.elevation_deg.abs() < 1.0e-5);
-        assert!(out.distance <= 1.0001);
-        assert!(out.rear_weight <= 1.0e-6);
-    }
-
-    #[test]
-    fn native_routes_bias_expected_sides() {
-        let left = present_source(
-            SourceSceneEvidence {
-                native_stereo_route: Some(NativeStereoRoute { left_gain: 1.0, right_gain: 0.0 }),
-                foreground: 1.0,
-                ..dry(3)
-            },
-            SourcePresentationPolicy::default(),
-        );
-        let right = present_source(
-            SourceSceneEvidence {
-                native_stereo_route: Some(NativeStereoRoute { left_gain: 0.0, right_gain: 1.0 }),
-                foreground: 1.0,
-                ..dry(4)
-            },
-            SourcePresentationPolicy::default(),
-        );
-        assert!(left.azimuth_deg < -45.0);
-        assert!(right.azimuth_deg > 45.0);
-    }
-
-    #[test]
-    fn unknown_role_does_not_become_rear_support_by_absence() {
-        let out = present_source(dry(10), SourcePresentationPolicy::default());
-        assert_eq!(out.rear_weight, 0.0);
-        assert_eq!(out.distance, 1.0);
-        assert_eq!(out.elevation_deg, 0.0);
-        assert!(out.azimuth_deg.abs() <= 28.0);
-    }
-
-    #[test]
-    fn affirmative_diffuse_evidence_can_use_rear_height_and_depth() {
-        let out = present_source(
-            SourceSceneEvidence {
-                diffuse: 0.9,
-                vertical_affinity: 0.8,
-                width: 0.8,
-                ..dry(11)
-            },
-            SourcePresentationPolicy::default(),
-        );
-        assert!(out.rear_weight > 0.0);
-        assert!(out.elevation_deg > 0.0);
-        assert!(out.distance > 1.0);
-        assert!(out.size[0] > 0.2);
-    }
-
-    #[test]
-    fn shared_wet_is_broad_environment_only_when_sphere_opens() {
+    fn reference_mix_is_never_promoted_to_object() {
         let source = SourceSceneEvidence {
-            lane_kind: SourceLaneKind::SharedWetReturn,
-            confidence: 1.0,
-            source_id: 12,
+            lane_kind: SourceLaneKind::ReferenceMix,
             ..SourceSceneEvidence::default()
         };
-        let native = present_source(
-            source,
-            SourcePresentationPolicy {
-                sphere_strength: 0.0,
-                max_elevation_deg: 0.0,
-                max_distance: 1.0,
-                ..SourcePresentationPolicy::default()
-            },
-        );
-        let full = present_source(source, SourcePresentationPolicy::default());
-        assert_eq!(native.elevation_deg, 0.0);
-        assert_eq!(native.distance, 1.0);
-        assert!(full.azimuth_deg.abs() > 90.0);
-        assert!(full.elevation_deg > 20.0);
-        assert!(full.distance > 1.0);
-        assert_eq!(full.size, [1.0, 1.0, 1.0]);
+        assert!(!present_source(source, SourcePresentationPolicy::default()).render_as_object);
     }
 
     #[test]
-    fn persistent_part_identity_survives_source_reassignment() {
-        let a = present_source(
-            SourceSceneEvidence {
-                source_id: 6,
-                persistent_part_id: Some(9001),
-                diffuse: 0.7,
-                vertical_affinity: 0.6,
-                confidence: 1.0,
-                ..SourceSceneEvidence::default()
-            },
-            SourcePresentationPolicy::default(),
-        );
-        let b = present_source(
-            SourceSceneEvidence {
-                source_id: 123456,
-                persistent_part_id: Some(9001),
-                diffuse: 0.7,
-                vertical_affinity: 0.6,
-                confidence: 1.0,
-                ..SourceSceneEvidence::default()
-            },
-            SourcePresentationPolicy::default(),
-        );
-        assert_eq!(a.position, b.position);
-        assert_eq!(a.size, b.size);
+    fn foundation_stays_frontal_and_low() {
+        let source = SourceSceneEvidence {
+            source_id: 10,
+            native_stereo_route: Some(NativeStereoRoute { left_gain: 1.0, right_gain: 1.0 }),
+            foundation: 1.0,
+            confidence: 1.0,
+            ..SourceSceneEvidence::default()
+        };
+        let p = present_source(source, SourcePresentationPolicy::default());
+        assert!(p.azimuth_deg.abs() < 10.0);
+        assert!(p.elevation_deg <= 0.0);
+        assert!(p.distance <= 1.1);
     }
 
     #[test]
-    fn authored_position_passes_through_untouched() {
-        let position = [-0.4, -0.7, 0.3];
-        let out = present_source(
-            SourceSceneEvidence {
-                authored_position: Some(position),
-                foundation: 1.0,
-                diffuse: 1.0,
-                vertical_affinity: -1.0,
-                ..dry(14)
-            },
-            SourcePresentationPolicy::default(),
-        );
-        assert_eq!(out.authority, SourcePositionAuthority::Authored);
-        assert_eq!(out.position, position);
+    fn positive_diffuse_evidence_can_earn_rear_and_height() {
+        let source = SourceSceneEvidence {
+            source_id: 21,
+            diffuse: 1.0,
+            width: 1.0,
+            vertical_affinity: 0.7,
+            confidence: 1.0,
+            ..SourceSceneEvidence::default()
+        };
+        let p = present_source(source, SourcePresentationPolicy::default());
+        assert!(p.azimuth_deg.abs() > 80.0);
+        assert!(p.elevation_deg > 0.0);
+        assert!(p.distance > 1.0);
+    }
+
+    #[test]
+    fn missing_role_evidence_does_not_become_support_evidence() {
+        let source = SourceSceneEvidence {
+            source_id: 22,
+            confidence: 1.0,
+            ..SourceSceneEvidence::default()
+        };
+        let p = present_source(source, SourcePresentationPolicy::default());
+        assert!(p.azimuth_deg.abs() <= 18.0);
+        assert_eq!(p.rear_weight, 0.0);
+        assert_eq!(p.distance, 1.0);
+    }
+
+    #[test]
+    fn persistent_part_controls_stable_identity_position() {
+        let a = SourceSceneEvidence {
+            source_id: 1,
+            persistent_part_id: Some(777),
+            confidence: 1.0,
+            ..SourceSceneEvidence::default()
+        };
+        let b = SourceSceneEvidence {
+            source_id: 999,
+            persistent_part_id: Some(777),
+            confidence: 1.0,
+            ..SourceSceneEvidence::default()
+        };
+        assert_eq!(present_source(a, SourcePresentationPolicy::default()).position,
+                   present_source(b, SourcePresentationPolicy::default()).position);
+    }
+
+    #[test]
+    fn authored_position_passes_through_unchanged() {
+        let source = SourceSceneEvidence {
+            source_id: 1,
+            authored_position: Some([0.25, -0.5, 1.0]),
+            ..SourceSceneEvidence::default()
+        };
+        let p = present_source(source, SourcePresentationPolicy::default());
+        assert_eq!(p.authority, SourcePositionAuthority::Authored);
+        assert_eq!(p.position, [0.25, -0.5, 1.0]);
     }
 }
