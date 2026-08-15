@@ -16,11 +16,12 @@ use renderer::source_scene::{
 use std::ptr;
 
 const ABI_MAJOR: u32 = 0;
-const ABI_MINOR: u32 = 1;
+const ABI_MINOR: u32 = 2;
 
 pub const SOURCE_FLAG_PERSISTENT_PART: u32 = 1 << 0;
 pub const SOURCE_FLAG_NATIVE_STEREO_ROUTE: u32 = 1 << 1;
 pub const SOURCE_FLAG_AUTHORED_POSITION: u32 = 1 << 2;
+pub const SOURCE_FLAG_ROUTE_GAIN_PREAPPLIED: u32 = 1 << 3;
 
 pub const SOURCE_LANE_DRY: u32 = 0;
 pub const SOURCE_LANE_SHARED_WET: u32 = 1;
@@ -66,6 +67,7 @@ pub struct OmniphonySourceEvidenceV1 {
 pub struct OmniphonySourceProcessor {
     renderer: SourceFrameRenderer,
     source_buf: Vec<SourceSceneEvidence>,
+    gain_preapplied_buf: Vec<bool>,
     samples_buf: Vec<f32>,
 }
 
@@ -165,6 +167,7 @@ pub unsafe extern "C" fn omniphony_source_create(
     Box::into_raw(Box::new(OmniphonySourceProcessor {
         renderer,
         source_buf: Vec::new(),
+        gain_preapplied_buf: Vec::new(),
         samples_buf: Vec::new(),
     }))
 }
@@ -190,6 +193,7 @@ pub unsafe extern "C" fn omniphony_source_reset(
     let processor = unsafe { &mut *processor };
     processor.renderer.reset_runtime_state();
     processor.source_buf.clear();
+    processor.gain_preapplied_buf.clear();
     processor.samples_buf.clear();
     0
 }
@@ -269,7 +273,10 @@ pub unsafe extern "C" fn omniphony_source_process_f32(
 
     processor.source_buf.clear();
     processor.source_buf.reserve(source_count);
+    processor.gain_preapplied_buf.clear();
+    processor.gain_preapplied_buf.reserve(source_count);
     for raw in raw_sources.iter().copied() {
+        let gain_preapplied = raw.flags & SOURCE_FLAG_ROUTE_GAIN_PREAPPLIED != 0;
         let Some(source) = convert_source(raw) else {
             return -4;
         };
@@ -277,12 +284,14 @@ pub unsafe extern "C" fn omniphony_source_process_f32(
             return -5;
         }
         processor.source_buf.push(source);
+        processor.gain_preapplied_buf.push(gain_preapplied);
     }
 
     let samples_buf = std::mem::take(&mut processor.samples_buf);
-    let rendered = match processor.renderer.render_source_frame(
+    let rendered = match processor.renderer.render_source_frame_with_gain_policy(
         input,
         &processor.source_buf,
+        Some(&processor.gain_preapplied_buf),
         sample_pos,
         ramp_frames,
         samples_buf,
@@ -327,6 +336,22 @@ mod tests {
         let route = converted.native_stereo_route.expect("route");
         assert_eq!(route.left_gain, -1.0);
         assert_eq!(route.right_gain, 0.5);
+    }
+
+    #[test]
+    fn preapplied_gain_flag_does_not_remove_route_pose_evidence() {
+        let raw = OmniphonySourceEvidenceV1 {
+            lane_kind: SOURCE_LANE_DRY,
+            flags: SOURCE_FLAG_NATIVE_STEREO_ROUTE | SOURCE_FLAG_ROUTE_GAIN_PREAPPLIED,
+            left_gain: 1.0,
+            right_gain: 0.0,
+            ..OmniphonySourceEvidenceV1::default()
+        };
+        assert_ne!(raw.flags & SOURCE_FLAG_ROUTE_GAIN_PREAPPLIED, 0);
+        let converted = convert_source(raw).expect("valid source");
+        let route = converted.native_stereo_route.expect("route remains pose evidence");
+        assert_eq!(route.left_gain, 1.0);
+        assert_eq!(route.right_gain, 0.0);
     }
 
     #[test]
