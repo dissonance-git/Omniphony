@@ -13,6 +13,12 @@ enum {
     OMNIPHONY_SOURCE_FLAG_PERSISTENT_PART = 1u << 0,
     OMNIPHONY_SOURCE_FLAG_NATIVE_STEREO_ROUTE = 1u << 1,
     OMNIPHONY_SOURCE_FLAG_AUTHORED_POSITION = 1u << 2,
+    /*
+     * The host has already applied this source's native sample-accurate gain
+     * trajectory to input PCM. left_gain/right_gain remain pose/polarity
+     * evidence and MUST NOT be scalar-applied again by Omniphony.
+     */
+    OMNIPHONY_SOURCE_FLAG_ROUTE_GAIN_PREAPPLIED = 1u << 3,
 };
 
 enum {
