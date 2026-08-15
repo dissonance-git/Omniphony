@@ -9,7 +9,7 @@ use crate::source_scene::{
 };
 use crate::spatial_renderer::SpatialChannelEvent;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct SourceChannelPresentation {
     pub presentation: SourcePresentation,
     /// None means the lane is a protected reference/control and must not be
