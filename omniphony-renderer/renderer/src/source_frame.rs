@@ -74,8 +74,10 @@ impl SourceFrameRenderer {
         self.policy = policy;
     }
 
-    pub fn reset_runtime_state(&self) {
+    pub fn reset_runtime_state(&mut self) {
         self.renderer.reset_runtime_state();
+        self.presentation_identities.fill(None);
+        self.presentation_identity_initialized.fill(false);
     }
 
     /// Render one block of interleaved already-separated source PCM.
