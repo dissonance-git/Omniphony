@@ -64,6 +64,18 @@ typedef struct OmniphonySourceEvidenceV1 {
     float confidence;
 } OmniphonySourceEvidenceV1;
 
+/*
+ * One evidence state change inside the current audio block. frame_offset is a
+ * zero-based sample/frame offset relative to the block passed to
+ * omniphony_source_process_events_f32(). Events must be ordered by nondecreasing
+ * frame_offset. Multiple lane changes may share one boundary.
+ */
+typedef struct OmniphonySourceEvidenceEventV1 {
+    uint32_t frame_offset;
+    uint32_t lane_index;
+    OmniphonySourceEvidenceV1 evidence;
+} OmniphonySourceEvidenceEventV1;
+
 uint32_t omniphony_source_abi_major(void);
 uint32_t omniphony_source_abi_minor(void);
 
@@ -85,12 +97,38 @@ int32_t omniphony_source_set_externalization(OmniphonySourceProcessor *processor
  * OMNIPHONY_SOURCE_LANE_REFERENCE_MIX is a protected control and is rejected
  * here. Keep the historical/reference stereo mix outside the object-lane call
  * for A/B and reconstruction validation.
+ *
+ * This legacy entry point is equivalent to omniphony_source_process_events_f32
+ * with no timed events.
  */
 int32_t omniphony_source_process_f32(
     OmniphonySourceProcessor *processor,
     const float *input,
     const OmniphonySourceEvidenceV1 *sources,
     size_t source_count,
+    size_t frames,
+    uint64_t sample_pos,
+    uint32_t ramp_frames,
+    float *output);
+
+/*
+ * Render the same causal source block while applying ordered source-evidence
+ * changes at exact frame boundaries inside the buffer. The renderer processes
+ * audio only up to the next event boundary, applies all events at that boundary,
+ * then continues. No whole-track automation or future-song knowledge is used.
+ *
+ * Events at frame_offset == frames are accepted as a zero-length terminal
+ * state transition; callers should normally carry that evidence as the initial
+ * state of the next block. Malformed event lists are rejected before any audio
+ * from this call is rendered.
+ */
+int32_t omniphony_source_process_events_f32(
+    OmniphonySourceProcessor *processor,
+    const float *input,
+    const OmniphonySourceEvidenceV1 *sources,
+    size_t source_count,
+    const OmniphonySourceEvidenceEventV1 *events,
+    size_t event_count,
     size_t frames,
     uint64_t sample_pos,
     uint32_t ramp_frames,
