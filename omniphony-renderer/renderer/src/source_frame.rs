@@ -196,8 +196,6 @@ impl SourceFrameRenderer {
                 bail!("renderable source channel {channel_idx} produced no object event");
             };
             self.events.push(event);
-            self.presentation_identities[channel_idx] = identity;
-            self.presentation_identity_initialized[channel_idx] = true;
         }
 
         let gain_for = |channel_idx: usize| {
@@ -233,13 +231,23 @@ impl SourceFrameRenderer {
             input_pcm
         };
 
-        self.renderer.render_frame(
+        let rendered = self.renderer.render_frame(
             render_input,
             channels,
             &self.events,
             samples_buf,
             measure_breakdown,
-        )
+        )?;
+
+        // Presentation identity is part of successful renderer history. Do not
+        // advance it before render_frame succeeds, or a failed block could make
+        // the following call inherit a continuity decision that never sounded.
+        for (channel_idx, source) in sources.iter().enumerate() {
+            self.presentation_identities[channel_idx] = source_presentation_identity(source);
+            self.presentation_identity_initialized[channel_idx] = true;
+        }
+
+        Ok(rendered)
     }
 }
 
