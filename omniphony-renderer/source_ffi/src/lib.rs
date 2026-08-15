@@ -16,7 +16,7 @@ use renderer::source_scene::{
 use std::ptr;
 
 const ABI_MAJOR: u32 = 0;
-const ABI_MINOR: u32 = 2;
+const ABI_MINOR: u32 = 3;
 
 pub const SOURCE_FLAG_PERSISTENT_PART: u32 = 1 << 0;
 pub const SOURCE_FLAG_NATIVE_STEREO_ROUTE: u32 = 1 << 1;
@@ -64,10 +64,27 @@ pub struct OmniphonySourceEvidenceV1 {
     pub confidence: f32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct OmniphonySourceEvidenceEventV1 {
+    pub frame_offset: u32,
+    pub lane_index: u32,
+    pub evidence: OmniphonySourceEvidenceV1,
+}
+
+#[derive(Clone, Copy)]
+struct ConvertedSourceEvent {
+    frame_offset: usize,
+    lane_index: usize,
+    evidence: SourceSceneEvidence,
+    gain_preapplied: bool,
+}
+
 pub struct OmniphonySourceProcessor {
     renderer: SourceFrameRenderer,
     source_buf: Vec<SourceSceneEvidence>,
     gain_preapplied_buf: Vec<bool>,
+    event_buf: Vec<ConvertedSourceEvent>,
     samples_buf: Vec<f32>,
 }
 
@@ -123,6 +140,69 @@ fn convert_source(raw: OmniphonySourceEvidenceV1) -> Option<SourceSceneEvidence>
     })
 }
 
+fn validate_event_headers(
+    events: &[OmniphonySourceEvidenceEventV1],
+    source_count: usize,
+    frames: usize,
+) -> bool {
+    let mut previous_offset = 0usize;
+    let mut have_previous = false;
+    for event in events {
+        let offset = event.frame_offset as usize;
+        let lane_index = event.lane_index as usize;
+        if offset > frames || lane_index >= source_count {
+            return false;
+        }
+        if have_previous && offset < previous_offset {
+            return false;
+        }
+        previous_offset = offset;
+        have_previous = true;
+    }
+    true
+}
+
+fn render_segment(
+    processor: &mut OmniphonySourceProcessor,
+    input: &[f32],
+    output: &mut [f32],
+    source_count: usize,
+    start_frame: usize,
+    end_frame: usize,
+    sample_pos: u64,
+    ramp_frames: u32,
+) -> Result<(), i32> {
+    if start_frame == end_frame {
+        return Ok(());
+    }
+    let input_start = start_frame.checked_mul(source_count).ok_or(-3)?;
+    let input_end = end_frame.checked_mul(source_count).ok_or(-3)?;
+    let output_start = start_frame.checked_mul(2).ok_or(-3)?;
+    let output_end = end_frame.checked_mul(2).ok_or(-3)?;
+    let absolute_sample = sample_pos.checked_add(start_frame as u64).ok_or(-3)?;
+
+    let samples_buf = std::mem::take(&mut processor.samples_buf);
+    let rendered = match processor.renderer.render_source_frame_with_gain_policy(
+        &input[input_start..input_end],
+        &processor.source_buf,
+        Some(&processor.gain_preapplied_buf),
+        absolute_sample,
+        ramp_frames,
+        samples_buf,
+        false,
+    ) {
+        Ok(rendered) => rendered,
+        Err(_) => return Err(-6),
+    };
+    if rendered.samples.len() != output_end - output_start {
+        processor.samples_buf = rendered.samples;
+        return Err(-7);
+    }
+    output[output_start..output_end].copy_from_slice(&rendered.samples);
+    processor.samples_buf = rendered.samples;
+    Ok(())
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn omniphony_source_abi_major() -> u32 {
     ABI_MAJOR
@@ -168,6 +248,7 @@ pub unsafe extern "C" fn omniphony_source_create(
         renderer,
         source_buf: Vec::new(),
         gain_preapplied_buf: Vec::new(),
+        event_buf: Vec::new(),
         samples_buf: Vec::new(),
     }))
 }
@@ -194,6 +275,7 @@ pub unsafe extern "C" fn omniphony_source_reset(
     processor.renderer.reset_runtime_state();
     processor.source_buf.clear();
     processor.gain_preapplied_buf.clear();
+    processor.event_buf.clear();
     processor.samples_buf.clear();
     0
 }
@@ -230,13 +312,8 @@ pub unsafe extern "C" fn omniphony_source_set_externalization(
     0
 }
 
-/// Render interleaved causal source lanes to interleaved stereo f32.
-///
-/// `input` contains `frames * source_count` samples. `sources` contains one
-/// evidence record per source channel in the same order. `output` must have
-/// space for `frames * 2` samples. The protected ReferenceMix is deliberately
-/// not accepted as an object lane; keep it beside this call for A/B/reference
-/// validation.
+/// Legacy whole-block entry point. Equivalent to the timed event path with an
+/// empty event list.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn omniphony_source_process_f32(
     processor: *mut OmniphonySourceProcessor,
@@ -248,13 +325,48 @@ pub unsafe extern "C" fn omniphony_source_process_f32(
     ramp_frames: u32,
     output: *mut f32,
 ) -> i32 {
+    // SAFETY: this function forwards the exact caller-owned pointers and sizes
+    // to the stricter timed entry point with no event slice.
+    unsafe {
+        omniphony_source_process_events_f32(
+            processor,
+            input,
+            sources,
+            source_count,
+            ptr::null(),
+            0,
+            frames,
+            sample_pos,
+            ramp_frames,
+            output,
+        )
+    }
+}
+
+/// Render interleaved causal source lanes while applying ordered evidence
+/// transitions at exact frame offsets inside the current block.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn omniphony_source_process_events_f32(
+    processor: *mut OmniphonySourceProcessor,
+    input: *const f32,
+    sources: *const OmniphonySourceEvidenceV1,
+    source_count: usize,
+    events: *const OmniphonySourceEvidenceEventV1,
+    event_count: usize,
+    frames: usize,
+    sample_pos: u64,
+    ramp_frames: u32,
+    output: *mut f32,
+) -> i32 {
     if processor.is_null() {
         return -1;
     }
     if frames == 0 {
         return 0;
     }
-    if source_count == 0 || input.is_null() || sources.is_null() || output.is_null() {
+    if source_count == 0 || input.is_null() || sources.is_null() || output.is_null()
+        || (event_count != 0 && events.is_null())
+    {
         return -2;
     }
     let Some(input_samples) = frames.checked_mul(source_count) else {
@@ -268,9 +380,24 @@ pub unsafe extern "C" fn omniphony_source_process_f32(
     // slice lengths for the duration of this call.
     let input = unsafe { std::slice::from_raw_parts(input, input_samples) };
     let raw_sources = unsafe { std::slice::from_raw_parts(sources, source_count) };
+    let raw_events: &[OmniphonySourceEvidenceEventV1] = if event_count == 0 {
+        &[]
+    } else {
+        // SAFETY: non-zero event_count requires a non-null event pointer above.
+        unsafe { std::slice::from_raw_parts(events, event_count) }
+    };
+    let output = unsafe { std::slice::from_raw_parts_mut(output, output_samples) };
+
+    if !validate_event_headers(raw_events, source_count, frames) {
+        return -4;
+    }
+
     // SAFETY: processor pointer contract is the same as create/destroy.
     let processor = unsafe { &mut *processor };
 
+    // Convert the complete initial state and complete event timeline before the
+    // first sample is rendered. A malformed lane/event therefore cannot leave
+    // this call half-rendered merely because the bad metadata appeared late.
     processor.source_buf.clear();
     processor.source_buf.reserve(source_count);
     processor.gain_preapplied_buf.clear();
@@ -287,30 +414,67 @@ pub unsafe extern "C" fn omniphony_source_process_f32(
         processor.gain_preapplied_buf.push(gain_preapplied);
     }
 
-    let samples_buf = std::mem::take(&mut processor.samples_buf);
-    let rendered = match processor.renderer.render_source_frame_with_gain_policy(
-        input,
-        &processor.source_buf,
-        Some(&processor.gain_preapplied_buf),
-        sample_pos,
-        ramp_frames,
-        samples_buf,
-        false,
-    ) {
-        Ok(rendered) => rendered,
-        Err(_) => return -6,
-    };
-    if rendered.samples.len() != output_samples {
-        processor.samples_buf = rendered.samples;
-        return -7;
+    processor.event_buf.clear();
+    processor.event_buf.reserve(event_count);
+    for raw_event in raw_events.iter().copied() {
+        let Some(evidence) = convert_source(raw_event.evidence) else {
+            return -4;
+        };
+        if evidence.lane_kind == SourceLaneKind::ReferenceMix {
+            return -5;
+        }
+        processor.event_buf.push(ConvertedSourceEvent {
+            frame_offset: raw_event.frame_offset as usize,
+            lane_index: raw_event.lane_index as usize,
+            evidence,
+            gain_preapplied: raw_event.evidence.flags & SOURCE_FLAG_ROUTE_GAIN_PREAPPLIED != 0,
+        });
     }
 
-    // SAFETY: output has documented capacity frames*2; source Vec remains alive
-    // for the duration of the copy and cannot overlap host output memory.
-    unsafe {
-        ptr::copy_nonoverlapping(rendered.samples.as_ptr(), output, output_samples);
+    let mut start_frame = 0usize;
+    let mut event_index = 0usize;
+    while event_index < processor.event_buf.len() {
+        let boundary = processor.event_buf[event_index].frame_offset;
+        if let Err(code) = render_segment(
+            processor,
+            input,
+            output,
+            source_count,
+            start_frame,
+            boundary,
+            sample_pos,
+            ramp_frames,
+        ) {
+            return code;
+        }
+
+        // Apply every state change at this exact frame before rendering the next
+        // sample. This mirrors standard sample-offset event processing used by
+        // realtime audio plugin APIs rather than inventing a precomputed song
+        // automation timeline.
+        while event_index < processor.event_buf.len()
+            && processor.event_buf[event_index].frame_offset == boundary
+        {
+            let event = processor.event_buf[event_index];
+            processor.source_buf[event.lane_index] = event.evidence;
+            processor.gain_preapplied_buf[event.lane_index] = event.gain_preapplied;
+            event_index += 1;
+        }
+        start_frame = boundary;
     }
-    processor.samples_buf = rendered.samples;
+
+    if let Err(code) = render_segment(
+        processor,
+        input,
+        output,
+        source_count,
+        start_frame,
+        frames,
+        sample_pos,
+        ramp_frames,
+    ) {
+        return code;
+    }
     0
 }
 
@@ -377,5 +541,43 @@ mod tests {
         assert!(convert_source(unknown).is_none());
         assert!(spatial_mode(99).is_none());
         assert!(hrir_source(99).is_none());
+    }
+
+    #[test]
+    fn timed_event_headers_are_sample_ordered_and_lane_bounded() {
+        let evidence = OmniphonySourceEvidenceV1 {
+            lane_kind: SOURCE_LANE_DRY,
+            source_id: 1,
+            ..OmniphonySourceEvidenceV1::default()
+        };
+        let valid = [
+            OmniphonySourceEvidenceEventV1 { frame_offset: 12, lane_index: 0, evidence },
+            OmniphonySourceEvidenceEventV1 { frame_offset: 12, lane_index: 1, evidence },
+            OmniphonySourceEvidenceEventV1 { frame_offset: 64, lane_index: 0, evidence },
+        ];
+        assert!(validate_event_headers(&valid, 2, 64));
+
+        let backwards = [valid[2], valid[0]];
+        assert!(!validate_event_headers(&backwards, 2, 64));
+
+        let bad_lane = [OmniphonySourceEvidenceEventV1 {
+            frame_offset: 1,
+            lane_index: 2,
+            evidence,
+        }];
+        assert!(!validate_event_headers(&bad_lane, 2, 64));
+
+        let past_end = [OmniphonySourceEvidenceEventV1 {
+            frame_offset: 65,
+            lane_index: 0,
+            evidence,
+        }];
+        assert!(!validate_event_headers(&past_end, 2, 64));
+    }
+
+    #[test]
+    fn source_abi_minor_advertises_timed_event_support() {
+        assert_eq!(omniphony_source_abi_major(), 0);
+        assert!(omniphony_source_abi_minor() >= 3);
     }
 }
