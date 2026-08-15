@@ -110,6 +110,34 @@ pub fn route_pan(route: Option<NativeStereoRoute>) -> f32 {
     }
 }
 
+/// Matrix-surround-compatible phase-opposition cue derived from authored native
+/// stereo routing. 0 means there is no usable opposite-polarity evidence; 1
+/// means equal-magnitude L/R routes with opposite signs.
+///
+/// This is deliberately not called an authored 3-D position. A Dolby-style
+/// matrix decoder can use phase/opposition to steer rear/surround energy, but a
+/// signed device route alone does not prove a discrete source coordinate or
+/// elevation. The magnitude-balance term keeps strongly one-sided inverted
+/// routes from being promoted into a rear cue merely because one sign differs.
+pub fn matrix_surround_phase_cue(route: Option<NativeStereoRoute>) -> f32 {
+    let Some(route) = route else { return 0.0; };
+    if !route.left_gain.is_finite() || !route.right_gain.is_finite() {
+        return 0.0;
+    }
+
+    let left = route.left_gain.abs();
+    let right = route.right_gain.abs();
+    let sum = left + right;
+    if left <= 1.0e-9 || right <= 1.0e-9 || sum <= 1.0e-9 {
+        return 0.0;
+    }
+    if route.left_gain.is_sign_negative() == route.right_gain.is_sign_negative() {
+        return 0.0;
+    }
+
+    (1.0 - (left - right).abs() / sum).clamp(0.0, 1.0)
+}
+
 /// Stable deterministic coordinate. A persistent musical part wins over a
 /// temporary physical/source id so voice stealing does not make a part jump.
 fn identity_bias(source: &SourceSceneEvidence) -> f32 {
@@ -173,6 +201,7 @@ fn inferred_presentation(
     policy: SourcePresentationPolicy,
 ) -> SourcePresentation {
     let pan = route_pan(source.native_stereo_route);
+    let matrix_surround = matrix_surround_phase_cue(source.native_stereo_route);
     let identity = identity_bias(&source);
 
     if source.lane_kind == SourceLaneKind::ReferenceMix {
@@ -214,10 +243,18 @@ fn inferred_presentation(
     let identity_azimuth = identity * 28.0 * movable * (1.0 - pan.abs());
     let frontal_azimuth = (route_azimuth + identity_azimuth).clamp(-78.0, 78.0);
 
-    let rear_weight = (movable
+    let inferred_rear_weight = (movable
         * (0.72 * diffuse + 0.42 * support)
         * (1.0 - 0.85 * foreground))
         .clamp(0.0, 1.0);
+
+    // Opposite-polarity, magnitude-balanced native routing is authored phase
+    // evidence that historically fed matrix-surround decoders. It outranks our
+    // inferred role classifier, including an inferred "foundation" label, but
+    // remains a presentation prior rather than a fabricated authored point.
+    let matrix_rear_weight = (sphere * matrix_surround * 0.92).clamp(0.0, 1.0);
+    let rear_weight = inferred_rear_weight.max(matrix_rear_weight);
+
     let side = if pan.abs() > 0.05 {
         pan.signum()
     } else if identity.abs() > 1.0e-6 {
@@ -230,23 +267,32 @@ fn inferred_presentation(
             .min(policy.max_rear_azimuth_deg.clamp(90.0, 179.0));
     let azimuth = frontal_azimuth + (rear_target - frontal_azimuth) * rear_weight;
 
-    // Vertical placement also requires explicit signed evidence. Register,
-    // physical voice number, or brightness alone never manufactures height.
+    // Matrix-surround phase evidence carries no vertical coordinate. Height is
+    // still earned only from explicit signed vertical/presentation evidence.
     let elevation = vertical
         * policy.max_elevation_deg.clamp(0.0, 80.0)
         * movable
         * (0.25 + 0.75 * diffuse.max(support));
 
-    let depth_weight = movable
+    let inferred_depth_weight = movable
         * (0.55 * support + 0.70 * diffuse)
         * (1.0 - 0.65 * foreground);
+    let depth_weight = inferred_depth_weight.max(0.30 * sphere * matrix_surround);
     let distance = 1.0
         + (policy.max_distance.max(1.0) - 1.0) * depth_weight.clamp(0.0, 1.0);
 
-    let horizontal_size = (0.08 + 0.72 * width + 0.45 * diffuse).clamp(0.0, 1.0);
-    let depth_size = (0.05 + 0.55 * diffuse + 0.25 * support).clamp(0.0, 1.0);
+    let horizontal_size = (0.08 + 0.72 * width + 0.45 * diffuse)
+        .max(0.82 * matrix_surround)
+        .clamp(0.0, 1.0);
+    let depth_size = (0.05 + 0.55 * diffuse + 0.25 * support)
+        .max(0.55 * matrix_surround)
+        .clamp(0.0, 1.0);
     let height_size = (0.03 + 0.50 * diffuse + 0.25 * vertical.abs()).clamp(0.0, 1.0);
-    let size_scale = (0.20 + 0.80 * movable).clamp(0.0, 1.0);
+    // An authored matrix cue must not disappear simply because inferred role
+    // evidence says the source is immovable.
+    let size_scale = (0.20 + 0.80 * movable)
+        .max(0.75 * matrix_surround)
+        .clamp(0.0, 1.0);
 
     SourcePresentation {
         render_as_object: true,
@@ -323,6 +369,24 @@ mod tests {
     }
 
     #[test]
+    fn matrix_surround_phase_cue_requires_opposite_polarity_and_balance() {
+        assert_eq!(
+            matrix_surround_phase_cue(Some(NativeStereoRoute { left_gain: 1.0, right_gain: 1.0 })),
+            0.0
+        );
+        assert_eq!(
+            matrix_surround_phase_cue(Some(NativeStereoRoute { left_gain: -1.0, right_gain: -1.0 })),
+            0.0
+        );
+        assert_eq!(
+            matrix_surround_phase_cue(Some(NativeStereoRoute { left_gain: -1.0, right_gain: 1.0 })),
+            1.0
+        );
+        let weak = matrix_surround_phase_cue(Some(NativeStereoRoute { left_gain: -1.0, right_gain: 0.1 }));
+        assert!(weak > 0.0 && weak < 0.25);
+    }
+
+    #[test]
     fn protected_reference_mix_is_not_an_extra_object() {
         let out = present_source(
             SourceSceneEvidence { lane_kind: SourceLaneKind::ReferenceMix, ..dry(1) },
@@ -347,6 +411,22 @@ mod tests {
         assert!(out.elevation_deg.abs() < 1.0e-5);
         assert!(out.distance <= 1.0001);
         assert!(out.rear_weight <= 1.0e-6);
+    }
+
+    #[test]
+    fn authored_phase_opposition_outranks_inferred_foundation() {
+        let out = present_source(
+            SourceSceneEvidence {
+                foundation: 1.0,
+                native_stereo_route: Some(NativeStereoRoute { left_gain: -1.0, right_gain: 1.0 }),
+                ..dry(20)
+            },
+            SourcePresentationPolicy::default(),
+        );
+        assert!(out.rear_weight > 0.85);
+        assert!(out.azimuth_deg.abs() > 100.0);
+        assert_eq!(out.elevation_deg, 0.0);
+        assert!(out.size[0] > 0.5);
     }
 
     #[test]
