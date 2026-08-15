@@ -34,6 +34,7 @@ pub use engine::{Engine, OscOptions, RenderedAudio};
 pub use osc::{ObjectMeta, OscSender};
 pub use source_renderer_build::{
     SourceRendererOptions, SourceSpatialMode, build_source_frame_renderer,
+    source_presentation_policy,
 };
 /// The shared omniphony config (`~/.config/omniphony/config.yaml`) + its path,
 /// re-exported so hosts default to the SAME config as the `orender` CLI + studio
