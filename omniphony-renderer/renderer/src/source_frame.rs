@@ -75,10 +75,8 @@ impl SourceFrameRenderer {
 
     /// Render one block of interleaved already-separated source PCM.
     ///
-    /// `sources.len()` is the PCM channel count. Every source here must be a
-    /// renderable causal lane (`DrySource` or `SharedWetReturn`). The protected
-    /// reference mix belongs beside this path as a validation/control signal,
-    /// not as another channel inside it.
+    /// This compatibility entry point assumes every lane is still pre-route and
+    /// therefore derives scalar source energy from `native_stereo_route`.
     pub fn render_source_frame(
         &mut self,
         input_pcm: &[f32],
@@ -88,7 +86,45 @@ impl SourceFrameRenderer {
         samples_buf: Vec<f32>,
         measure_breakdown: bool,
     ) -> Result<RenderedFrame> {
+        self.render_source_frame_with_gain_policy(
+            input_pcm,
+            sources,
+            None,
+            sample_pos,
+            ramp_length,
+            samples_buf,
+            measure_breakdown,
+        )
+    }
+
+    /// Render one block with optional host-owned gain policy.
+    ///
+    /// `route_gain_preapplied[channel] == true` means the host has already
+    /// applied that lane's sample-accurate native gain trajectory to its causal
+    /// PCM. Native L/R routing remains available to the scene policy for pose
+    /// and polarity evidence, but Omniphony must not scalar-attenuate the PCM a
+    /// second time. This is used by SPC where the effective `mChnL/mChnR`
+    /// trajectory varies inside the block.
+    pub fn render_source_frame_with_gain_policy(
+        &mut self,
+        input_pcm: &[f32],
+        sources: &[SourceSceneEvidence],
+        route_gain_preapplied: Option<&[bool]>,
+        sample_pos: u64,
+        ramp_length: u32,
+        samples_buf: Vec<f32>,
+        measure_breakdown: bool,
+    ) -> Result<RenderedFrame> {
         let channels = sources.len();
+        if let Some(flags) = route_gain_preapplied {
+            if flags.len() != channels {
+                bail!(
+                    "route gain policy width {} does not match {} source channels",
+                    flags.len(),
+                    channels
+                );
+            }
+        }
         if channels == 0 {
             if !input_pcm.is_empty() {
                 bail!("source PCM is non-empty but source channel list is empty");
@@ -144,12 +180,23 @@ impl SourceFrameRenderer {
             self.events.push(event);
         }
 
-        // The causal PCM is intentionally pre-route. Preserve the historical
-        // route's source energy before replacing its two-channel projection with
-        // an HRTF object. Do this at float precision rather than quantizing the
-        // source level into SpatialChannelEvent's integer-dB gain field.
-        let needs_scaling = sources.iter().any(|source| {
-            (route_energy_gain(source.native_stereo_route) - 1.0).abs() > 1.0e-7
+        let gain_for = |channel_idx: usize| {
+            if route_gain_preapplied
+                .and_then(|flags| flags.get(channel_idx))
+                .copied()
+                .unwrap_or(false)
+            {
+                1.0
+            } else {
+                route_energy_gain(sources[channel_idx].native_stereo_route)
+            }
+        };
+
+        // Preserve historical source energy unless the host explicitly applied
+        // a more precise trajectory already. This stays at float precision
+        // rather than quantizing source level into integer-dB object metadata.
+        let needs_scaling = (0..channels).any(|channel_idx| {
+            (gain_for(channel_idx) - 1.0).abs() > 1.0e-7
         });
         let render_input: &[f32] = if needs_scaling {
             self.scaled_input.resize(input_pcm.len(), 0.0);
@@ -158,8 +205,7 @@ impl SourceFrameRenderer {
                 .zip(self.scaled_input.chunks_exact_mut(channels))
             {
                 for channel_idx in 0..channels {
-                    frame_out[channel_idx] = frame_in[channel_idx]
-                        * route_energy_gain(sources[channel_idx].native_stereo_route);
+                    frame_out[channel_idx] = frame_in[channel_idx] * gain_for(channel_idx);
                 }
             }
             &self.scaled_input
@@ -226,5 +272,23 @@ mod tests {
             left_gain: 0.0,
             right_gain: 0.0,
         })), 0.0);
+    }
+
+    #[test]
+    fn preapplied_gain_policy_is_width_checked_and_semantically_unity() {
+        let sources = [
+            SourceSceneEvidence {
+                native_stereo_route: Some(NativeStereoRoute { left_gain: 1.0, right_gain: 0.0 }),
+                ..SourceSceneEvidence::default()
+            },
+            SourceSceneEvidence::default(),
+        ];
+        let flags = [true, false];
+        assert_eq!(flags.len(), sources.len());
+        assert_eq!(
+            if flags[0] { 1.0 } else { route_energy_gain(sources[0].native_stereo_route) },
+            1.0
+        );
+        assert_eq!(route_energy_gain(sources[0].native_stereo_route), std::f32::consts::FRAC_1_SQRT_2);
     }
 }
