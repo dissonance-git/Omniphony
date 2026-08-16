@@ -194,9 +194,16 @@ jobs:
         shell: pwsh
         run: |
           $dist = "$env:GITHUB_WORKSPACE\dist\SpatialEndpoint"
-          $package = "$env:GITHUB_WORKSPACE\endpoint-upstream\x64\Release\package"
+          $release = "$env:GITHUB_WORKSPACE\endpoint-upstream\x64\Release"
+          $package = "$release\package"
+          $certificate = "$release\package.cer"
+          if (-not (Test-Path $certificate)) {
+            throw "WDK development signing certificate was not exported: $certificate"
+          }
+
           New-Item -ItemType Directory -Force $dist | Out-Null
           Copy-Item "$package\*" $dist -Recurse -Force
+          Copy-Item $certificate "$dist\SpatialEndpoint-Development.cer" -Force
           Copy-Item "$env:GITHUB_WORKSPACE\omniphony\omniphony-renderer\windows_endpoint\SpatialEndpoint.ps1" "$dist\SpatialEndpoint.ps1" -Force
           Copy-Item "$env:GITHUB_WORKSPACE\endpoint-upstream\LICENSE" "$dist\UPSTREAM-LICENSE.txt" -Force
           Copy-Item "$env:GITHUB_WORKSPACE\endpoint-upstream\THIRD_PARTY_NOTICES.md" "$dist\THIRD_PARTY_NOTICES.md" -Force
@@ -222,9 +229,11 @@ jobs:
           DevCon or DevGen and it does not alter the portable renderer.
 
           DEVELOPMENT SIGNING BOUNDARY:
-          This custom CI artifact is not claimed to be production/Microsoft signed.
-          Do not change Secure Boot, BitLocker, or Windows test-signing state
-          automatically. Installation is a separate evidence gate.
+          This custom CI artifact is WDK development/test signed, not production
+          Microsoft-signed. SpatialEndpoint-Development.cer is the public test
+          certificate exported by this exact build so the package remains
+          inspectable and testable. Nothing in this artifact changes Secure Boot,
+          BitLocker, boot configuration, or Windows test-signing state.
           "@ | Set-Content -Encoding utf8 "$dist\BUILD-METADATA.txt"
 
       - name: Upload Spatial endpoint development package
