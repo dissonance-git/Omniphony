@@ -95,12 +95,17 @@ jobs:
         shell: pwsh
         run: |
           Set-Location "$env:GITHUB_WORKSPACE\endpoint-upstream"
+
+          # MSBuild imports environment variables as properties. Put the legacy
+          # DDK paths there so the semicolon-delimited include list reaches the
+          # old project intact instead of being parsed as multiple /p switches.
+          $env:DDK_INC_PATH = $env:SPATIAL_DDK_INC_PATH
+          $env:DDK_LIB_PATH = $env:SPATIAL_DDK_LIB_PATH
+
           msbuild 'VirtualAudioDriver.sln' /m `
             /p:Configuration=Release `
             /p:Platform=x64 `
             /p:RunCodeAnalysis=false `
-            "/p:DDK_INC_PATH=$env:SPATIAL_DDK_INC_PATH" `
-            "/p:DDK_LIB_PATH=$env:SPATIAL_DDK_LIB_PATH" `
             "/p:WindowsTargetPlatformVersion=$env:SPATIAL_WDK_VERSION"
           if ($LASTEXITCODE -ne 0) { throw "Spatial endpoint build failed with exit code $LASTEXITCODE" }
 
