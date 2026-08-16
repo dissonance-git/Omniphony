@@ -47,7 +47,7 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Ensure Windows 11 WDK
+      - name: Ensure Windows 11 WDK and resolve explicit paths
         shell: pwsh
         run: |
           $wdkRoot = 'C:\Program Files (x86)\Windows Kits\10'
@@ -56,14 +56,47 @@ jobs:
             choco install windowsdriverkit11 -y --no-progress
             if ($LASTEXITCODE -ne 0) { throw "WDK installation failed with exit code $LASTEXITCODE" }
           }
-          Write-Host 'Detected WDK versions:'
-          Get-ChildItem "$wdkRoot\Include" -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
+
+          # The pinned SysVAD-derived project predates current VS/WDK property
+          # discovery. New hosted VS images can leave DDK_INC_PATH/DDK_LIB_PATH
+          # empty even though the kit is present, so bind those legacy project
+          # properties explicitly instead of depending on ambient MSBuild state.
+          $versions = Get-ChildItem "$wdkRoot\Include" -Directory -ErrorAction Stop |
+            Where-Object { $_.Name -match '^10\.0\.\d+\.\d+$' } |
+            Sort-Object { [version]$_.Name } -Descending
+          $selected = $versions | Where-Object {
+            (Test-Path (Join-Path $_.FullName 'km\portcls.h')) -and
+            (Test-Path "$wdkRoot\Lib\$($_.Name)\km\x64\portcls.lib")
+          } | Select-Object -First 1
+          if (-not $selected) {
+            throw 'No installed WDK contains both km\portcls.h and x64\portcls.lib'
+          }
+
+          $version = $selected.Name
+          $includeRoot = "$wdkRoot\Include\$version"
+          $libRoot = "$wdkRoot\Lib\$version\km\x64"
+          $includePath = "$includeRoot\km;$includeRoot\shared;$includeRoot\um"
+
+          "SPATIAL_WDK_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SPATIAL_DDK_INC_PATH=$includePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SPATIAL_DDK_LIB_PATH=$libRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+          Write-Host "Selected WDK: $version"
+          Write-Host "DDK include path: $includePath"
+          Write-Host "DDK library path: $libRoot"
+          Get-Item "$includeRoot\km\portcls.h", "$libRoot\portcls.lib" | Select-Object FullName, Length
 
       - name: Build Spatial endpoint package
         shell: pwsh
         run: |
           Set-Location "$env:GITHUB_WORKSPACE\endpoint-upstream"
-          msbuild 'VirtualAudioDriver.sln' /m /p:Configuration=Release /p:Platform=x64 /p:RunCodeAnalysis=false
+          msbuild 'VirtualAudioDriver.sln' /m `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:RunCodeAnalysis=false `
+            "/p:DDK_INC_PATH=$env:SPATIAL_DDK_INC_PATH" `
+            "/p:DDK_LIB_PATH=$env:SPATIAL_DDK_LIB_PATH" `
+            "/p:WindowsTargetPlatformVersion=$env:SPATIAL_WDK_VERSION"
           if ($LASTEXITCODE -ne 0) { throw "Spatial endpoint build failed with exit code $LASTEXITCODE" }
 
       - name: Verify endpoint package identity
@@ -79,6 +112,7 @@ jobs:
 
           $infText = Get-Content -Raw $inf.FullName
           if ($infText -notmatch 'Spatial') { throw 'Built INF does not contain Spatial endpoint identity' }
+          if ($infText -notmatch 'ROOT\\SpatialAudioEndpoint') { throw 'Built INF does not contain Spatial hardware ID' }
           if ($infText -match '(?m)^AddInterface=.*WaveMicArray1') {
             throw 'Built Spatial P0 INF still exposes the sample microphone endpoint'
           }
@@ -99,9 +133,11 @@ jobs:
           Spatial endpoint development build
           ==================================
           Target: Windows 11 x64
+          Endpoint hardware ID: ROOT\SpatialAudioEndpoint
           Endpoint role: silent render sink only
           Upstream: VirtualDrivers/Virtual-Audio-Driver
           Upstream commit: bb34fba15faf569a6ae9bdea360bc1cf4821354e
+          WDK: $env:SPATIAL_WDK_VERSION
           Omniphony commit: $env:GITHUB_SHA
 
           This driver contains no Omniphony DSP. It exists only to give Windows
