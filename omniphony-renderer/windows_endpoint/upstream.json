@@ -4,8 +4,10 @@
   "repository": "VirtualDrivers/Virtual-Audio-Driver",
   "commit": "bb34fba15faf569a6ae9bdea360bc1cf4821354e",
   "license_boundary": "Upstream contains MIT-licensed original work and Microsoft sample-derived MS-PL code. It is fetched as a separate Windows component and is not relicensed as part of the portable Omniphony core.",
+  "architecture_boundary": "The endpoint is a replaceable Windows adapter. Windows/WDK concepts must not enter the portable renderer or realtime host ABI.",
   "p0": {
     "platform": "Windows 11 x64",
+    "hardware_id": "ROOT\\SpatialAudioEndpoint",
     "endpoint_name": "Spatial",
     "role": "silent virtual render sink",
     "source_format": "Windows shared-mode stereo first",
