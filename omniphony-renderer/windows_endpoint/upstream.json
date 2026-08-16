@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "purpose": "Pinned Windows-only bootstrap source for the private Spatial virtual render endpoint.",
+  "repository": "VirtualDrivers/Virtual-Audio-Driver",
+  "commit": "bb34fba15faf569a6ae9bdea360bc1cf4821354e",
+  "license_boundary": "Upstream contains MIT-licensed original work and Microsoft sample-derived MS-PL code. It is fetched as a separate Windows component and is not relicensed as part of the portable Omniphony core.",
+  "p0": {
+    "platform": "Windows 11 x64",
+    "endpoint_name": "Spatial",
+    "role": "silent virtual render sink",
+    "source_format": "Windows shared-mode stereo first",
+    "transport_to_renderer": "Windows application/process loopback, excluding the Spatial process tree"
+  }
+}
