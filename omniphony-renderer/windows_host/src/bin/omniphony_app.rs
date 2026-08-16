@@ -1,7 +1,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 #[cfg(target_os = "windows")]
-#[path = "../supervisor.rs"]
+#[path = "../spatial_supervisor.rs"]
 mod supervisor;
 
 #[cfg(target_os = "windows")]
@@ -71,10 +71,10 @@ fn run_audio_engine() -> anyhow::Result<()> {
 fn main() -> anyhow::Result<()> {
     #[cfg(target_os = "windows")]
     {
-        // Omniphony ships as one executable. The normal instance is the invisible
-        // tray/supervisor; it spawns a second copy of itself in this internal
-        // engine mode so audio failures remain isolated and restartable without
-        // requiring a second executable on disk.
+        // Spatial is the private Windows-product shell. The renderer internals
+        // retain their Omniphony identity while the transport/product layer is
+        // replaced. A second copy of this executable is used only as the
+        // crash-isolated internal audio-engine child.
         if std::env::var_os("OMNIPHONY_INTERNAL_ENGINE").is_some() {
             return run_audio_engine();
         }
@@ -83,6 +83,6 @@ fn main() -> anyhow::Result<()> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        anyhow::bail!("Omniphony.exe is only available on Windows");
+        anyhow::bail!("Spatial is only available on Windows");
     }
 }
