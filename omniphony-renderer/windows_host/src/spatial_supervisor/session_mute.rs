@@ -45,50 +45,49 @@ impl DrySessionSilencer {
     /// Mute every external shared-mode render session currently present.
     /// Sessions created later are picked up by repeated calls from the tray
     /// watchdog. `skip_pids` must contain both supervisor and audio-child PIDs.
+    ///
+    /// Per-session failures are deliberately non-fatal. A session that cannot
+    /// be inspected or muted is left alone, while every successful change is
+    /// still persisted before this call returns.
     pub fn silence_external_sessions(&mut self, skip_pids: &[u32]) -> Result<usize> {
         let sessions = enumerate_render_sessions()?;
         let mut changed = 0usize;
 
         for session in sessions {
-            if skip_pids.contains(&session.pid) {
+            if session.pid == 0 || skip_pids.contains(&session.pid) {
                 continue;
             }
 
             if self.changed_sessions.contains(&session.instance_id) {
                 // A mixer UI or source app may have unmuted itself. Spatial is
-                // authoritative while ON, so reassert the temporary dry mute.
-                unsafe {
-                    session
-                        .volume
-                        .SetMute(true, &EVENT_CONTEXT)
-                        .with_context(|| format!("failed to re-mute audio session {}", session.pid))?;
-                }
+                // authoritative while ON, so best-effort reassert our own mute.
+                let _ = unsafe { session.volume.SetMute(true, &EVENT_CONTEXT) };
                 continue;
             }
 
-            let already_muted = unsafe { session.volume.GetMute() }
-                .with_context(|| format!("failed to read mute state for audio session {}", session.pid))?
-                .as_bool();
-            if already_muted {
+            let Ok(already_muted) = (unsafe { session.volume.GetMute() }) else {
+                continue;
+            };
+            if already_muted.as_bool() {
                 // User/application state, not ours. Never claim ownership of it.
                 continue;
             }
 
-            unsafe {
-                session
-                    .volume
-                    .SetMute(true, &EVENT_CONTEXT)
-                    .with_context(|| format!("failed to mute dry audio session {}", session.pid))?;
+            if unsafe { session.volume.SetMute(true, &EVENT_CONTEXT) }.is_err() {
+                continue;
             }
             self.changed_sessions.insert(session.instance_id);
             changed += 1;
         }
 
+        // Persist after the complete pass even if one individual session did
+        // not cooperate, so a later recovery can always undo successful mutes.
         self.persist_snapshot()?;
         Ok(changed)
     }
 
     /// Restore only sessions that Spatial itself changed from unmuted to muted.
+    /// Failed restorations remain in the snapshot for a later retry.
     pub fn restore(&mut self) -> Result<usize> {
         if self.changed_sessions.is_empty() {
             let _ = std::fs::remove_file(&self.snapshot_path);
@@ -96,28 +95,30 @@ impl DrySessionSilencer {
         }
 
         let sessions = enumerate_render_sessions()?;
-        let mut seen = HashSet::new();
+        let mut live_owned = HashSet::new();
+        let mut restored_ids = Vec::new();
         let mut restored = 0usize;
 
         for session in sessions {
             if !self.changed_sessions.contains(&session.instance_id) {
                 continue;
             }
-            seen.insert(session.instance_id.clone());
-            unsafe {
-                session
-                    .volume
-                    .SetMute(false, &EVENT_CONTEXT)
-                    .with_context(|| format!("failed to restore audio session {}", session.pid))?;
+            live_owned.insert(session.instance_id.clone());
+
+            if unsafe { session.volume.SetMute(false, &EVENT_CONTEXT) }.is_ok() {
+                restored_ids.push(session.instance_id);
+                restored += 1;
             }
-            self.changed_sessions.remove(&session.instance_id);
-            restored += 1;
         }
 
-        // A session instance that no longer exists cannot remain muted. Forget
-        // stale identifiers rather than carrying them into an unrelated future
-        // session created by the same application.
-        self.changed_sessions.retain(|id| seen.contains(id));
+        for id in restored_ids {
+            self.changed_sessions.remove(&id);
+        }
+
+        // A session instance that no longer exists cannot remain muted. Drop
+        // dead instance IDs, but retain live IDs whose restore failed so the
+        // snapshot can recover them on the next timer tick or launch.
+        self.changed_sessions.retain(|id| live_owned.contains(id));
         self.persist_snapshot()?;
         Ok(restored)
     }
