@@ -27,6 +27,18 @@ function Write-Utf8Bom {
     )
 }
 
+function Write-Utf16LeBom {
+    param([string]$Path, [string]$Text)
+    # Current WDK InfVerif accepts ANSI or UTF-16 LE for INF input. Keep the
+    # generated INX explicitly UTF-16 LE with BOM so StampInf preserves a
+    # verifier-supported encoding. C/C++ patches remain ordinary UTF-8 below.
+    [System.IO.File]::WriteAllText(
+        $Path,
+        $Text,
+        [System.Text.UnicodeEncoding]::new($false, $true)
+    )
+}
+
 $inxPath = Join-Path $SourceRoot 'Source/Main/VirtualAudioDriver.inx'
 $pairPath = Join-Path $SourceRoot 'Source/Filters/minipairs.h'
 $adapterPath = Join-Path $SourceRoot 'Source/Main/adapter.cpp'
@@ -67,7 +79,7 @@ $micInterfaces = @(
 foreach ($line in $micInterfaces) {
     $inx = Require-Replace $inx $line ('; Spatial P0 disabled capture: ' + $line) ('capture interface ' + $line)
 }
-Write-Utf8Bom $inxPath $inx
+Write-Utf16LeBom $inxPath $inx
 
 $pairs = Get-Content -Raw -LiteralPath $pairPath
 $oldCaptureArray = @'
