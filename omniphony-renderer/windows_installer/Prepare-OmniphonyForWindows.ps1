@@ -111,10 +111,6 @@ fn append_log(message: &str) {
     let mut child = Command::new(&executable)
 '@
     $supervisor = Require-Replace $supervisor $oldWorkerLog $newWorkerLog 'non-fatal writable worker log setup'
-    $supervisor = Require-Replace $supervisor `
-        '        .stdout(Stdio::from(log))`n        .stderr(Stdio::from(log_err))' `
-        '        .stdout(worker_stdout)`n        .stderr(worker_stderr)' `
-        'non-fatal worker stdio routing'
 
     # Personal build only: make the downstream physical endpoint explicit.
     # Windows' default render endpoint is intentionally the signed development
@@ -125,6 +121,8 @@ fn append_log(message: &str) {
         .env("OMNIPHONY_INTERNAL_ENGINE", "1")
         .env("OMNIPHONY_PROFILE", "external")
         .stdin(Stdio::piped())
+        .stdout(Stdio::from(log))
+        .stderr(Stdio::from(log_err))
 '@
     $newWorkerLaunch = @'
         .env("OMNIPHONY_INTERNAL_ENGINE", "1")
@@ -132,8 +130,10 @@ fn append_log(message: &str) {
         .arg("--output")
         .arg("Dan Clark Noire X")
         .stdin(Stdio::piped())
+        .stdout(worker_stdout)
+        .stderr(worker_stderr)
 '@
-    $supervisor = Require-Replace $supervisor $oldWorkerLaunch $newWorkerLaunch 'personal physical-output child launch'
+    $supervisor = Require-Replace $supervisor $oldWorkerLaunch $newWorkerLaunch 'personal physical-output child launch and non-fatal stdio'
     Write-Utf8Bom $supervisorPath $supervisor
 
     $app = Get-Content -Raw -LiteralPath $appPath
