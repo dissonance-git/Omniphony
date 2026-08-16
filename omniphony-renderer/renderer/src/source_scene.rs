@@ -267,12 +267,16 @@ fn inferred_presentation(
             .min(policy.max_rear_azimuth_deg.clamp(90.0, 179.0));
     let azimuth = frontal_azimuth + (rear_target - frontal_azimuth) * rear_weight;
 
-    // Matrix-surround phase evidence carries no vertical coordinate. Height is
-    // still earned only from explicit signed vertical/presentation evidence.
+    // Matrix-surround phase evidence still carries no vertical coordinate.
+    // Explicit signed vertical_affinity, however, IS positive presentation
+    // evidence and must not require a second diffuse/support classifier to earn
+    // most of its height. Diffuse/support can strengthen the elevation, while
+    // sphere strength, confidence and the foundation lock remain authoritative.
+    let vertical_context = 0.72 + 0.28 * diffuse.max(support);
     let elevation = vertical
         * policy.max_elevation_deg.clamp(0.0, 80.0)
         * movable
-        * (0.25 + 0.75 * diffuse.max(support));
+        * vertical_context;
 
     let inferred_depth_weight = movable
         * (0.55 * support + 0.70 * diffuse)
@@ -458,6 +462,52 @@ mod tests {
         assert_eq!(out.distance, 1.0);
         assert_eq!(out.elevation_deg, 0.0);
         assert!(out.azimuth_deg.abs() <= 28.0);
+    }
+
+    #[test]
+    fn explicit_vertical_evidence_does_not_require_diffuse_support() {
+        let up = present_source(
+            SourceSceneEvidence {
+                vertical_affinity: 0.8,
+                ..dry(21)
+            },
+            SourcePresentationPolicy::default(),
+        );
+        let down = present_source(
+            SourceSceneEvidence {
+                vertical_affinity: -0.8,
+                ..dry(22)
+            },
+            SourcePresentationPolicy::default(),
+        );
+        assert!(up.elevation_deg > 30.0);
+        assert!(down.elevation_deg < -30.0);
+        assert_eq!(up.rear_weight, 0.0);
+        assert_eq!(up.distance, 1.0);
+    }
+
+    #[test]
+    fn explicit_vertical_evidence_still_obeys_sphere_and_foundation_locks() {
+        let closed = present_source(
+            SourceSceneEvidence {
+                vertical_affinity: 1.0,
+                ..dry(23)
+            },
+            SourcePresentationPolicy {
+                sphere_strength: 0.0,
+                ..SourcePresentationPolicy::default()
+            },
+        );
+        let foundation = present_source(
+            SourceSceneEvidence {
+                foundation: 1.0,
+                vertical_affinity: 1.0,
+                ..dry(24)
+            },
+            SourcePresentationPolicy::default(),
+        );
+        assert_eq!(closed.elevation_deg, 0.0);
+        assert_eq!(foundation.elevation_deg, 0.0);
     }
 
     #[test]
