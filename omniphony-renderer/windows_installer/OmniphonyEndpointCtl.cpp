@@ -4,6 +4,7 @@
 #include <audioclient.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <mmdeviceapi.h>
+#include <newdev.h>
 #include <propsys.h>
 #include <propvarutil.h>
 #include <wrl/client.h>
@@ -21,7 +22,7 @@
 // by mature Windows audio projects such as Sunshine and EarTrumpet. Keep this
 // implementation below the portable Omniphony renderer boundary.
 //
-// IPolicyConfig IID:       F8679F50-850A-41CF-9C72-430F290290C8
+// IPolicyConfig IID:         F8679F50-850A-41CF-9C72-430F290290C8
 // CPolicyConfigClient CLSID: 870AF99C-171D-4F9E-AF0D-E63DF40C2BC9
 
 using Microsoft::WRL::ComPtr;
@@ -52,6 +53,7 @@ constexpr int kExitNotFound = 3;
 constexpr int kExitCom = 4;
 constexpr int kExitVerify = 5;
 constexpr int kExitEnumeration = 6;
+constexpr int kExitDriver = 7;
 
 struct Endpoint {
     std::wstring id;
@@ -115,6 +117,10 @@ std::wstring HResultText(HRESULT hr) {
         LocalFree(buffer);
     }
     return out.str();
+}
+
+std::wstring Win32Text(DWORD error) {
+    return HResultText(HRESULT_FROM_WIN32(error));
 }
 
 HRESULT CreateEnumerator(ComPtr<IMMDeviceEnumerator>& enumerator) {
@@ -324,20 +330,39 @@ int GetDefaultCommand() {
     return PrintEndpoint(L"DEFAULT", endpoint);
 }
 
+int InstallDriverCommand(const std::wstring& infPath) {
+    BOOL needReboot = FALSE;
+    if (!DiInstallDriverW(nullptr, infPath.c_str(), 0, &needReboot)) {
+        const DWORD error = GetLastError();
+        std::wcerr << L"ERROR\tDiInstallDriverW\t" << Win32Text(error) << L'\n';
+        return kExitDriver;
+    }
+    std::wcout << L"DRIVER_INSTALLED\tREBOOT=" << (needReboot ? 1 : 0) << L'\n';
+    return 0;
+}
+
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
     if (argc < 2) {
-        std::wcerr << L"usage: OmniphonyEndpointCtl <probe-policy|list|find-name|set-default-name|set-default-id|get-default> ...\n";
+        std::wcerr << L"usage: OmniphonyEndpointCtl <probe-policy|list|find-name|set-default-name|set-default-id|get-default|install-driver> ...\n";
         return kExitUsage;
+    }
+
+    const std::wstring command = argv[1];
+
+    if (command == L"install-driver") {
+        if (argc != 3 || !argv[2] || !*argv[2]) {
+            std::wcerr << L"ERROR\tinstall-driver requires one full INF path\n";
+            return kExitUsage;
+        }
+        return InstallDriverCommand(argv[2]);
     }
 
     ComApartment com;
     if (FAILED(com.status())) {
         return Fail(L"CoInitializeEx", com.status(), kExitCom);
     }
-
-    const std::wstring command = argv[1];
 
     if (command == L"probe-policy") {
         ComPtr<IPolicyConfig> policy;
