@@ -51,6 +51,71 @@ if ($Mode -eq 'Host') {
         'legacy autostart value after branding migration'
     $supervisor = $supervisor.Replace('spatial.log', 'omniphony.log')
 
+    # Installed applications run unelevated from Program Files. Runtime logging
+    # therefore belongs under the per-user settings root, not beside the EXE.
+    # Logging is diagnostic only and must never prevent the audio-engine child
+    # from starting if the log file itself cannot be opened.
+    $oldAppendLog = @'
+fn append_log(message: &str) {
+    let Ok(root) = executable_root() else {
+        return;
+    };
+    let path = root.join("omniphony.log");
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "[supervisor] {message}");
+    }
+}
+'@
+    $newAppendLog = @'
+fn append_log(message: &str) {
+    let root = settings_root();
+    let _ = create_dir_all(&root);
+    let path = root.join("omniphony.log");
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "[supervisor] {message}");
+    }
+}
+'@
+    $supervisor = Require-Replace $supervisor $oldAppendLog $newAppendLog 'writable runtime supervisor log root'
+
+    $oldWorkerLog = @'
+    let log_path = root.join("omniphony.log");
+    let log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .with_context(|| format!("failed to open {}", log_path.display()))?;
+    let log_err = log.try_clone().context("failed to clone Omniphony log handle")?;
+
+    let mut child = Command::new(&executable)
+'@
+    $newWorkerLog = @'
+    let log_root = settings_root();
+    let _ = create_dir_all(&log_root);
+    let log_path = log_root.join("omniphony.log");
+    let (worker_stdout, worker_stderr) = match OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+    {
+        Ok(log) => {
+            let stderr = log
+                .try_clone()
+                .map(Stdio::from)
+                .unwrap_or_else(|_| Stdio::null());
+            (Stdio::from(log), stderr)
+        }
+        Err(_) => (Stdio::null(), Stdio::null()),
+    };
+
+    let mut child = Command::new(&executable)
+'@
+    $supervisor = Require-Replace $supervisor $oldWorkerLog $newWorkerLog 'non-fatal writable worker log setup'
+    $supervisor = Require-Replace $supervisor `
+        '        .stdout(Stdio::from(log))`n        .stderr(Stdio::from(log_err))' `
+        '        .stdout(worker_stdout)`n        .stderr(worker_stderr)' `
+        'non-fatal worker stdio routing'
+
     # Personal build only: make the downstream physical endpoint explicit.
     # Windows' default render endpoint is intentionally the signed development
     # transport, so the renderer child must never infer its own destination from
@@ -145,7 +210,7 @@ fn looks_like_virtual_cable(device: &cpal::Device) -> bool {
     $worker = Require-Replace $worker $oldChoice $newChoice 'personal physical-output preference'
     Write-Utf8Bom $workerPath $worker
 
-    Write-Host 'Prepared Omniphony for Windows host: Omniphony branding, explicit Dan Clark Noire X child output, and hard virtual-transport rejection.'
+    Write-Host 'Prepared Omniphony for Windows host: writable non-fatal runtime logging, explicit Dan Clark Noire X child output, and hard virtual-transport rejection.'
     exit 0
 }
 
