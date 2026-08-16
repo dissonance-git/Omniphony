@@ -116,6 +116,19 @@ jobs:
         with:
           vs-version: '[17.0,18.0)'
 
+      - name: Build native endpoint control helper
+        shell: pwsh
+        run: |
+          $project = "$env:GITHUB_WORKSPACE\omniphony\omniphony-renderer\windows_installer\OmniphonyEndpointCtl.vcxproj"
+          msbuild $project /m /p:Configuration=Release /p:Platform=x64
+          if ($LASTEXITCODE -ne 0) { throw "OmniphonyEndpointCtl build failed: $LASTEXITCODE" }
+
+          $helper = "$env:GITHUB_WORKSPACE\omniphony\omniphony-renderer\windows_installer\build\endpoint_ctl\OmniphonyEndpointCtl.exe"
+          if (-not (Test-Path $helper)) { throw "OmniphonyEndpointCtl.exe was not produced: $helper" }
+
+          & $helper probe-policy
+          if ($LASTEXITCODE -ne 0) { throw "PolicyConfig activation probe failed: $LASTEXITCODE" }
+
       - name: Ensure Windows 11 WDK
         shell: pwsh
         run: |
@@ -197,6 +210,7 @@ jobs:
           Copy-Item "$env:GITHUB_WORKSPACE\endpoint-upstream\THIRD_PARTY_NOTICES.md" "$driver\THIRD_PARTY_NOTICES.md" -Force
 
           Copy-Item "$env:GITHUB_WORKSPACE\omniphony\omniphony-renderer\windows_installer\Install-OmniphonyForWindows.ps1" "$support\Install-OmniphonyForWindows.ps1" -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\omniphony\omniphony-renderer\windows_installer\build\endpoint_ctl\OmniphonyEndpointCtl.exe" "$support\OmniphonyEndpointCtl.exe" -Force
           Copy-Item "$env:GITHUB_WORKSPACE\omniphony\LICENSE" "$payload\LICENSE" -Force
           Copy-Item "$env:GITHUB_WORKSPACE\omniphony\docs\omniphony-for-windows.md" "$payload\PRODUCT-CONTEXT.md" -Force
 
