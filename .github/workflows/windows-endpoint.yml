@@ -80,6 +80,33 @@ jobs:
           if (-not $driverTargets) { throw 'WDK installed but WindowsDriver.Common.targets is missing' }
           Write-Host "Driver targets=$($driverTargets.FullName)"
 
+      - name: Repair WDK InfVerif loader path
+        shell: pwsh
+        run: |
+          # Current WDK packaging can invoke InfVerif from an x86 host while its
+          # managed verifier requests x86\InfVerif.dll relative to that host
+          # directory. Upstream carries the same compatibility workaround. Copy
+          # the real WDK DLL into the nested location; never fabricate a stub.
+          $kitsBin = 'C:\Program Files (x86)\Windows Kits\10\bin'
+          $dlls = @(Get-ChildItem $kitsBin -Recurse -Filter 'InfVerif.dll' -File -ErrorAction SilentlyContinue)
+          if ($dlls.Count -eq 0) {
+            throw 'WDK InfVerif.dll was not found; refusing to disable INF verification'
+          }
+
+          $repairs = 0
+          foreach ($dll in $dlls) {
+            $hostDir = Split-Path -Parent $dll.FullName
+            if ((Split-Path -Leaf $hostDir) -ne 'x86') { continue }
+            $nested = Join-Path $hostDir 'x86'
+            New-Item -ItemType Directory -Force $nested | Out-Null
+            Copy-Item $dll.FullName (Join-Path $nested 'InfVerif.dll') -Force
+            Write-Host "InfVerif compatibility copy: $($dll.FullName) -> $nested"
+            $repairs++
+          }
+          if ($repairs -eq 0) {
+            throw 'Found InfVerif.dll, but no x86 WDK host copy was available to repair'
+          }
+
       - name: Probe upstream signed bridge against kernel policy
         id: signed_bridge
         shell: pwsh
