@@ -51,6 +51,13 @@ function Remove-LegacyRunEntries {
     }
 }
 
+function Remove-OmniphonyRunEntry {
+    if (Test-Path $RunKey) {
+        Remove-ItemProperty -LiteralPath $RunKey -Name 'Omniphony' -ErrorAction SilentlyContinue
+    }
+    Remove-LegacyRunEntries
+}
+
 function Get-EndpointIdByFriendlyName([string[]]$Needles) {
     $root = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render'
     if (-not (Test-Path $root)) { return $null }
@@ -246,7 +253,7 @@ try {
     if ($Action -eq 'Install') {
         Write-InstallLog 'Install requested.'
         Stop-OldHosts
-        Remove-LegacyRunEntries
+        Remove-OmniphonyRunEntry
 
         if (-not (Test-Path $exe)) { throw "Omniphony runtime missing: $exe" }
         if (-not (Test-Path $driverScript)) { throw "Endpoint installer missing: $driverScript" }
@@ -275,6 +282,7 @@ try {
         Remove-LegacyRunEntries
         Write-InstallLog "Autostart configured: $exe"
         Write-InstallLog "Physical output preference: $PhysicalOutput"
+        Write-InstallLog 'Install control plane completed successfully.'
         exit 0
     }
 
@@ -284,16 +292,24 @@ try {
     if (Test-Path $driverScript) {
         try { & $driverScript -Action Remove } catch { Write-InstallLog "Endpoint removal warning: $($_.Exception.Message)" }
     }
-    if (Test-Path $RunKey) {
-        Remove-ItemProperty -LiteralPath $RunKey -Name 'Omniphony' -ErrorAction SilentlyContinue
-        Remove-LegacyRunEntries
-    }
+    Remove-OmniphonyRunEntry
     Remove-DevelopmentCertificate $certificate
     Write-InstallLog 'Uninstall control-plane cleanup completed.'
     exit 0
 }
 catch {
-    Write-InstallLog "FATAL: $($_.Exception.Message)"
-    Write-Error $_
+    $failure = $_
+    if ($Action -eq 'Install') {
+        Write-InstallLog 'Install failed; rolling back Omniphony-owned machine state.'
+        Stop-OldHosts
+        Remove-OmniphonyRunEntry
+        if (Test-Path $driverScript) {
+            try { & $driverScript -Action Remove } catch { Write-InstallLog "Rollback endpoint removal warning: $($_.Exception.Message)" }
+        }
+        try { Remove-DevelopmentCertificate $certificate } catch { Write-InstallLog "Rollback certificate removal warning: $($_.Exception.Message)" }
+        try { Set-DefaultEndpointByName @($PhysicalOutput, 'FiiO') | Out-Null } catch { Write-InstallLog "Rollback physical default restore warning: $($_.Exception.Message)" }
+    }
+    Write-InstallLog "FATAL: $($failure.Exception.Message)"
+    Write-Error $failure
     exit 1603
 }
