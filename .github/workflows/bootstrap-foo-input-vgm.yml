@@ -10,18 +10,51 @@ jobs:
   fetch:
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect maintained public foo_input_vgm 0.31 download form
+      - name: Install archive tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends p7zip-full
+
+      - name: Fetch maintained public foo_input_vgm 0.31 package
         shell: bash
         run: |
           set -euo pipefail
           page='https://uu.getuploader.com/foobar2000/download/249'
-          ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
-          curl --fail --location --retry 4 -A "$ua" -c cookies.txt -b cookies.txt "$page" -o download-page.html
-          python3 - <<'PY'
-          from html.parser import HTMLParser
-          class P(HTMLParser):
-              def handle_starttag(self, tag, attrs):
-                  if tag in {'form','input','button'}:
-                      print(tag, dict(attrs))
-          P().feed(open('download-page.html', encoding='utf-8', errors='replace').read())
-          PY
+          ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
+          name='foo_input_vgm_v0.31.7z'
+          success=''
+          for host in download1 download2 download3 download4 download5 download6 downloadx download; do
+            url="https://${host}.getuploader.com/g/foobar2000/249/${name}"
+            echo "trying ${host}.getuploader.com"
+            code="$(curl --location --retry 1 --silent --show-error \
+              -A "$ua" -e "$page" \
+              -H 'Accept: application/octet-stream,application/x-7z-compressed,*/*' \
+              -o candidate.bin -w '%{http_code}' "$url" || true)"
+            size="$(stat -c %s candidate.bin 2>/dev/null || echo 0)"
+            echo "HTTP $code size $size"
+            if [ "$code" = 200 ] && [ "$size" -gt 100000 ]; then
+              if 7z t candidate.bin >/dev/null 2>&1; then
+                mv candidate.bin "$name"
+                success="$host"
+                break
+              fi
+            fi
+            rm -f candidate.bin
+          done
+          test -n "$success" || { echo 'no usable uploader host'; exit 1; }
+          echo "downloaded from ${success}.getuploader.com"
+          7z t "$name"
+          7z l "$name" | tee archive-list.txt
+
+      - name: Upload public archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: foo-input-vgm-0.31-public
+          path: |
+            foo_input_vgm_v0.31.7z
+            archive-list.txt
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
