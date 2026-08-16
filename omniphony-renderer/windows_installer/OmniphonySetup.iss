@@ -41,6 +41,7 @@ RestartApplications=no
 Source: "{#PayloadDir}\app\Omniphony.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\driver\*"; DestDir: "{app}\driver"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#PayloadDir}\support\Install-OmniphonyForWindows.ps1"; DestDir: "{app}\support"; Flags: ignoreversion
+Source: "{#PayloadDir}\support\OmniphonyEndpointCtl.exe"; DestDir: "{app}\support"; Flags: ignoreversion
 Source: "Invoke-OmniphonyInstaller.ps1"; DestDir: "{app}\support"; Flags: ignoreversion
 Source: "{#PayloadDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\PRODUCT-CONTEXT.md"; DestDir: "{app}"; Flags: ignoreversion
