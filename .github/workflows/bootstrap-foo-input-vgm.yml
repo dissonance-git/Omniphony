@@ -10,45 +10,29 @@ jobs:
   fetch:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch public foo_input_vgm 0.31 release
+      - name: Install archive tools
         shell: bash
         run: |
           set -euo pipefail
-          topic='https://vgmrips.net/forum/viewtopic.php?p=20177'
-          ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends p7zip-full
 
-          curl --fail --location --retry 4 -A "$ua" \
-            -c cookies.txt -b cookies.txt "$topic" -o topic.html
-
-          href="$(python3 - <<'PY'
-          import html, re
-          text = open('topic.html', encoding='utf-8', errors='replace').read()
-          matches = re.findall(r'href=["\']([^"\']*download/file\.php\?id=5292[^"\']*)', text)
-          if not matches:
-              raise SystemExit('attachment href not found in live topic HTML')
-          print(html.unescape(matches[0]))
-          PY
-          )"
-          case "$href" in
-            http://*|https://*) url="$href" ;;
-            /*) url="https://vgmrips.net$href" ;;
-            *) url="https://vgmrips.net/forum/$href" ;;
-          esac
-          echo "resolved public attachment URL: ${url%%&sid=*}&sid=<session>"
-
-          curl --fail --location --retry 4 -A "$ua" \
-            -e "$topic" -c cookies.txt -b cookies.txt "$url" \
-            -o foo_input_vgm-0.31.zip
-          file foo_input_vgm-0.31.zip
-          unzip -t foo_input_vgm-0.31.zip
-          unzip -l foo_input_vgm-0.31.zip | tee archive-list.txt
+      - name: Fetch maintained public foo_input_vgm 0.31 package
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://downloadx.getuploader.com/g/foobar2000/249/foo_input_vgm_v0.31.7z'
+          curl --fail --location --retry 4 -A 'Mozilla/5.0' "$url" -o foo_input_vgm_v0.31.7z
+          file foo_input_vgm_v0.31.7z
+          7z t foo_input_vgm_v0.31.7z
+          7z l foo_input_vgm_v0.31.7z | tee archive-list.txt
 
       - name: Upload public archive
         uses: actions/upload-artifact@v4
         with:
           name: foo-input-vgm-0.31-public
           path: |
-            foo_input_vgm-0.31.zip
+            foo_input_vgm_v0.31.7z
             archive-list.txt
           compression-level: 0
           retention-days: 1
