@@ -84,10 +84,8 @@ fn looks_like_virtual_cable(device: &cpal::Device) -> bool {
             lower.contains("vb-audio")
                 || lower.contains("hi-fi cable")
                 || lower.contains("hifi cable")
-                || lower == "omniphony"
-                || lower.starts_with("omniphony ")
-                || lower == "spatial"
-                || lower.starts_with("spatial ")
+                || lower.contains("omniphony")
+                || lower.contains("spatial")
         })
         .unwrap_or(false)
 }
