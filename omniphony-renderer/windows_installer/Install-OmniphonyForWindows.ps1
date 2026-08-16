@@ -10,14 +10,19 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
-$LogPath = Join-Path $env:ProgramData 'Omniphony\installer.log'
+$StateRoot = Join-Path $env:ProgramData 'Omniphony'
+$LogPath = Join-Path $StateRoot 'installer.log'
+$TransportStatePath = Join-Path $StateRoot 'development-transport.txt'
 $RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-$EndpointHardwareId = 'ROOT\SpatialAudioEndpoint' # stable private bootstrap ID
 $CurrentEndpointServiceName = 'VirtualAudioDriver'
+$SteamDriverInf = if (${env:CommonProgramFiles(x86)}) {
+    Join-Path ${env:CommonProgramFiles(x86)} 'Steam\drivers\Windows10\x64\SteamStreamingSpeakers.inf'
+} else {
+    $null
+}
 
 function Write-InstallLog([string]$Message) {
-    $dir = Split-Path -Parent $LogPath
-    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    New-Item -ItemType Directory -Force -Path $StateRoot | Out-Null
     Add-Content -LiteralPath $LogPath -Value "[$(Get-Date -Format o)] $Message" -Encoding utf8
 }
 
@@ -47,10 +52,14 @@ function Test-LegacyOmniphonyService($Service) {
 
 function Stop-OldHosts {
     foreach ($name in @('Omniphony', 'Spatial')) {
-        Get-Process -Name $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Get-Process -Name $name -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
     }
 
-    $legacyServices = @(Get-CimInstance Win32_Service -ErrorAction SilentlyContinue | Where-Object { Test-LegacyOmniphonyService $_ })
+    $legacyServices = @(
+        Get-CimInstance Win32_Service -ErrorAction SilentlyContinue |
+            Where-Object { Test-LegacyOmniphonyService $_ }
+    )
     foreach ($service in $legacyServices) {
         try {
             if ($service.State -ne 'Stopped') {
@@ -98,6 +107,16 @@ function Get-EndpointIdByFriendlyName([string[]]$Needles) {
             }
         }
     }
+    return $null
+}
+
+function Wait-EndpointIdByFriendlyName([string[]]$Needles, [int]$Seconds = 20) {
+    $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
+    do {
+        $id = Get-EndpointIdByFriendlyName $Needles
+        if ($id) { return $id }
+        Start-Sleep -Milliseconds 500
+    } while ([DateTime]::UtcNow -lt $deadline)
     return $null
 }
 
@@ -224,19 +243,43 @@ namespace Omniphony.WindowsAudio
 '@
 }
 
+function Ensure-NewDevInterop {
+    if ('Omniphony.WindowsAudio.NewDev' -as [type]) { return }
+
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+namespace Omniphony.WindowsAudio
+{
+    public static class NewDev
+    {
+        [DllImport("newdev.dll", EntryPoint = "DiInstallDriverW", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool DiInstallDriver(IntPtr hwndParent, string fullInfPath, uint flags, out bool needReboot);
+
+        public static bool Install(string fullInfPath)
+        {
+            bool needReboot;
+            if (!DiInstallDriver(IntPtr.Zero, fullInfPath, 0, out needReboot))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "DiInstallDriverW failed for Steam Streaming Speakers");
+            return needReboot;
+        }
+    }
+}
+'@
+}
+
 function Set-DefaultEndpointByName([string[]]$Needles) {
     Ensure-PolicyConfigInterop
-    $deadline = [DateTime]::UtcNow.AddSeconds(20)
-    do {
-        $id = Get-EndpointIdByFriendlyName $Needles
-        if ($id) {
-            [Omniphony.WindowsAudio.PolicyConfig]::SetDefault($id)
-            Write-InstallLog "Default render endpoint set to $($Needles -join ' / ') [$id]"
-            return $id
-        }
-        Start-Sleep -Milliseconds 500
-    } while ([DateTime]::UtcNow -lt $deadline)
-    throw "Windows did not expose an active render endpoint matching: $($Needles -join ', ')"
+    $id = Wait-EndpointIdByFriendlyName $Needles 20
+    if (-not $id) {
+        throw "Windows did not expose an active render endpoint matching: $($Needles -join ', ')"
+    }
+    [Omniphony.WindowsAudio.PolicyConfig]::SetDefault($id)
+    Write-InstallLog "Default render endpoint set to $($Needles -join ' / ') [$id]"
+    return $id
 }
 
 function Import-DevelopmentCertificate([string]$CertificatePath) {
@@ -253,13 +296,72 @@ function Remove-DevelopmentCertificate([string]$CertificatePath) {
     $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($CertificatePath)
     foreach ($store in @('Root', 'TrustedPublisher')) {
         $path = "Cert:\LocalMachine\$store\$($cert.Thumbprint)"
-        if (Test-Path $path) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
+        if (Test-Path $path) {
+            Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+        }
     }
     Write-InstallLog "Removed development driver certificate $($cert.Thumbprint)"
 }
 
+function Set-TransportState([string]$Transport) {
+    New-Item -ItemType Directory -Force -Path $StateRoot | Out-Null
+    Set-Content -LiteralPath $TransportStatePath -Value $Transport -Encoding ascii
+    Write-InstallLog "Development transport: $Transport"
+}
+
+function Get-TransportState {
+    if (-not (Test-Path $TransportStatePath)) { return $null }
+    return (Get-Content -LiteralPath $TransportStatePath -Raw -ErrorAction SilentlyContinue).Trim()
+}
+
+function Remove-TransportState {
+    Remove-Item -LiteralPath $TransportStatePath -Force -ErrorAction SilentlyContinue
+}
+
+function Install-SteamTransport {
+    $needles = @('Steam Streaming Speakers')
+    $existing = Get-EndpointIdByFriendlyName $needles
+    if ($existing) {
+        Write-InstallLog "Using existing Steam Streaming Speakers endpoint [$existing]"
+        Set-DefaultEndpointByName $needles | Out-Null
+        Set-TransportState 'steam-streaming-speakers'
+        return
+    }
+
+    if (-not $SteamDriverInf -or -not (Test-Path -LiteralPath $SteamDriverInf)) {
+        throw 'Steam Streaming Speakers is not installed and the official Steam-local driver package was not found.'
+    }
+
+    Ensure-NewDevInterop
+    Write-InstallLog "Installing official Steam-local virtual sink: $SteamDriverInf"
+    $needsReboot = [Omniphony.WindowsAudio.NewDev]::Install((Resolve-Path -LiteralPath $SteamDriverInf).Path)
+    if ($needsReboot) {
+        Write-InstallLog 'Steam Streaming Speakers installation reported that Windows may require a reboot.'
+    }
+
+    $id = Wait-EndpointIdByFriendlyName $needles 20
+    if (-not $id) {
+        if ($needsReboot) {
+            throw 'Steam Streaming Speakers installed but Windows requested a reboot before exposing the endpoint.'
+        }
+        throw 'Steam Streaming Speakers driver installation succeeded but Windows did not expose the render endpoint.'
+    }
+
+    Set-DefaultEndpointByName $needles | Out-Null
+    Set-TransportState 'steam-streaming-speakers'
+    Write-InstallLog 'Steam signed development transport is ready. Omniphony does not own or modify the Valve driver.'
+}
+
+function Install-DevelopmentOmniphonyEndpoint([string]$DriverScript, [string]$Certificate) {
+    Import-DevelopmentCertificate $Certificate | Out-Null
+    & $DriverScript -Action Install
+    Set-DefaultEndpointByName @('Omniphony', 'Spatial') | Out-Null
+    Set-TransportState 'omniphony-development-endpoint'
+}
+
 if ($Action -eq 'Validate') {
     Ensure-PolicyConfigInterop
+    Ensure-NewDevInterop
     Write-Host 'Omniphony for Windows installer control plane compiled successfully.'
     exit 0
 }
@@ -279,24 +381,35 @@ try {
         if (-not (Test-Path $exe)) { throw "Omniphony runtime missing: $exe" }
         if (-not (Test-Path $driverScript)) { throw "Endpoint installer missing: $driverScript" }
 
-        Import-DevelopmentCertificate $certificate | Out-Null
+        # Private-development priority: prefer Valve's already Microsoft-trusted
+        # Steam Streaming Speakers when the local Steam installation provides it.
+        # This keeps stock Windows 11/Secure Boot intact. The Valve driver is only
+        # transport; it is neither redistributed nor modified nor owned by Omniphony.
+        $steamAvailable = (Get-EndpointIdByFriendlyName @('Steam Streaming Speakers')) -or
+                          ($SteamDriverInf -and (Test-Path -LiteralPath $SteamDriverInf))
 
-        try {
-            & $driverScript -Action Install
+        if ($steamAvailable) {
+            Install-SteamTransport
         }
-        catch {
-            $secureBoot = $false
-            try { $secureBoot = Confirm-SecureBootUEFI -ErrorAction Stop } catch { }
-            $detail = if ($secureBoot) {
-                'Windows 11 blocked the development/test-signed Omniphony audio driver while Secure Boot enforcement is active. This private build cannot legitimately bypass that kernel policy. Disable Driver Signature Enforcement for the current boot, then run the same installer again.'
-            } else {
-                'Windows rejected the development Omniphony audio driver. Run the same installer again after booting Windows with Driver Signature Enforcement disabled for this development boot.'
+        else {
+            try {
+                Install-DevelopmentOmniphonyEndpoint $driverScript $certificate
             }
-            Write-InstallLog "$detail Driver error: $($_.Exception.Message)"
-            throw $detail
-        }
+            catch {
+                try { & $driverScript -Action Remove } catch { Write-InstallLog "Development endpoint cleanup warning: $($_.Exception.Message)" }
+                try { Remove-DevelopmentCertificate $certificate } catch { Write-InstallLog "Development certificate cleanup warning: $($_.Exception.Message)" }
 
-        Set-DefaultEndpointByName @('Omniphony', 'Spatial') | Out-Null
+                $secureBoot = $false
+                try { $secureBoot = Confirm-SecureBootUEFI -ErrorAction Stop } catch { }
+                $detail = if ($secureBoot) {
+                    'Windows 11 blocked the development/test-signed Omniphony endpoint and no signed Steam Streaming Speakers transport was available locally. The permanent fix is Microsoft production signing of the Omniphony driver.'
+                } else {
+                    'Windows rejected the development Omniphony endpoint and no signed Steam Streaming Speakers transport was available locally.'
+                }
+                Write-InstallLog "$detail Driver error: $($_.Exception.Message)"
+                throw $detail
+            }
+        }
 
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $RunKey) | Out-Null
         New-ItemProperty -LiteralPath $RunKey -Name 'Omniphony' -PropertyType String -Value ('"' + $exe + '"') -Force | Out-Null
@@ -309,12 +422,21 @@ try {
 
     Write-InstallLog 'Uninstall requested.'
     Stop-OldHosts
-    try { Set-DefaultEndpointByName @($PhysicalOutput, 'FiiO') | Out-Null } catch { Write-InstallLog "Physical default restore warning: $($_.Exception.Message)" }
+    try {
+        Set-DefaultEndpointByName @($PhysicalOutput, 'FiiO') | Out-Null
+    }
+    catch {
+        Write-InstallLog "Physical default restore warning: $($_.Exception.Message)"
+    }
+
+    # Remove only Omniphony-owned development machinery. A Valve Steam endpoint
+    # used as a bootstrap transport is intentionally left untouched.
     if (Test-Path $driverScript) {
         try { & $driverScript -Action Remove } catch { Write-InstallLog "Endpoint removal warning: $($_.Exception.Message)" }
     }
     Remove-OmniphonyRunEntry
     Remove-DevelopmentCertificate $certificate
+    Remove-TransportState
     Write-InstallLog 'Uninstall control-plane cleanup completed.'
     exit 0
 }
@@ -328,7 +450,13 @@ catch {
             try { & $driverScript -Action Remove } catch { Write-InstallLog "Rollback endpoint removal warning: $($_.Exception.Message)" }
         }
         try { Remove-DevelopmentCertificate $certificate } catch { Write-InstallLog "Rollback certificate removal warning: $($_.Exception.Message)" }
-        try { Set-DefaultEndpointByName @($PhysicalOutput, 'FiiO') | Out-Null } catch { Write-InstallLog "Rollback physical default restore warning: $($_.Exception.Message)" }
+        Remove-TransportState
+        try {
+            Set-DefaultEndpointByName @($PhysicalOutput, 'FiiO') | Out-Null
+        }
+        catch {
+            Write-InstallLog "Rollback physical default restore warning: $($_.Exception.Message)"
+        }
     }
     Write-InstallLog "FATAL: $($failure.Exception.Message)"
     Write-Error $failure
