@@ -39,6 +39,7 @@ if (-not (Test-Path $pairPath)) { throw "Missing pinned endpoint pair source: $p
 # endpoint-independent process-loopback host can hear every external app while
 # its own binaural K7 output remains excluded.
 $inx = Get-Content -Raw -LiteralPath $inxPath
+$inx = Require-Replace $inx '%VIRTUALAUDIODRIVER_SA.DeviceDesc%=VIRTUALAUDIODRIVER_SA, ROOT\VirtualAudioDriver' '%VIRTUALAUDIODRIVER_SA.DeviceDesc%=VIRTUALAUDIODRIVER_SA, ROOT\SpatialAudioEndpoint' 'root hardware id'
 $inx = Require-Replace $inx 'ProviderName = "MikeTheTech"' 'ProviderName = "Spatial"' 'provider name'
 $inx = Require-Replace $inx 'MfgName      = "MikeTheTech"' 'MfgName      = "Spatial"' 'manufacturer name'
 $inx = Require-Replace $inx 'MsCopyRight  = "MikeTheTech"' 'MsCopyRight  = "Spatial endpoint bootstrap"' 'copyright label'
@@ -89,6 +90,9 @@ Write-Utf8Bom $pairPath $pairs
 # unexpectedly expanded endpoint if the pinned upstream source drifts.
 $verifyInx = Get-Content -Raw -LiteralPath $inxPath
 $verifyPairs = Get-Content -Raw -LiteralPath $pairPath
+if ($verifyInx -notmatch 'ROOT\\SpatialAudioEndpoint') {
+    throw 'Spatial root hardware ID verification failed'
+}
 if ($verifyInx -notmatch 'WaveSpeaker\.szPname="Spatial"') {
     throw 'Spatial render endpoint branding verification failed'
 }
@@ -99,4 +103,4 @@ if ($verifyPairs -notmatch '#define g_cCaptureEndpoints 0') {
     throw 'Spatial P0 capture miniport disable verification failed'
 }
 
-Write-Host 'Prepared Spatial P0 endpoint source: one silent Windows render endpoint, no DSP, no sample microphone endpoint.'
+Write-Host 'Prepared Spatial P0 endpoint source: one silent Windows render endpoint, unique root hardware ID, no DSP, no sample microphone endpoint.'
