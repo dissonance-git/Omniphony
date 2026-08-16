@@ -36,9 +36,19 @@ realtime_ffi = { path = "../realtime_ffi" }
 # Windows audio-session APIs.
 wasapi = "0.23.0"
 
-# Windows owns lifecycle only: one Omniphony executable provides the invisible
-# supervisor/tray shell and launches a crash-isolated internal engine instance
-# of itself. None of these APIs are visible to the portable renderer crates.
+# The temporary private Windows host uses Core Audio session controls to silence
+# only the dry render sessions while pre-volume process loopback feeds Spatial.
+# wasapi 0.23 already carries windows 0.62, so this direct dependency exposes
+# the same generated COM interfaces without introducing a second Windows stack.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_System_Com",
+] }
+
+# Windows owns lifecycle only: one Spatial executable provides the invisible
+# supervisor/tray shell and launches a crash-isolated internal Omniphony engine
+# instance of itself. None of these APIs are visible to the portable renderer.
 windows-sys = { version = ">=0.59, <=0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
