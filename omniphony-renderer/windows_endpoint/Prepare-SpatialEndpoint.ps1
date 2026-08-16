@@ -29,9 +29,11 @@ function Write-Utf8Bom {
 
 $inxPath = Join-Path $SourceRoot 'Source/Main/VirtualAudioDriver.inx'
 $pairPath = Join-Path $SourceRoot 'Source/Filters/minipairs.h'
+$adapterPath = Join-Path $SourceRoot 'Source/Main/adapter.cpp'
 
 if (-not (Test-Path $inxPath)) { throw "Missing pinned endpoint INF source: $inxPath" }
 if (-not (Test-Path $pairPath)) { throw "Missing pinned endpoint pair source: $pairPath" }
+if (-not (Test-Path $adapterPath)) { throw "Missing pinned endpoint adapter source: $adapterPath" }
 
 # P0 is intentionally a Windows-only transport shell. The portable renderer is
 # not copied into the driver and no DSP is performed here. The virtual speaker
@@ -86,10 +88,24 @@ static PENDPOINT_MINIPAIR* g_CaptureEndpoints = NULL;
 $pairs = Require-Replace $pairs $oldCaptureArray $newCaptureArray 'capture endpoint list'
 Write-Utf8Bom $pairPath $pairs
 
+# With capture count intentionally compiled to zero, current WDK /W4 /WX
+# diagnoses `i < 0` as an always-false unsigned comparison. Keep upstream's
+# loop structurally intact while using the equivalent count-termination form;
+# for every valid endpoint count it visits exactly the same 0..count-1 range,
+# and for Spatial P0 the zero-count loop remains a no-op.
+$adapter = Get-Content -Raw -LiteralPath $adapterPath
+$adapter = Require-Replace `
+    $adapter `
+    'for (ULONG i = 0; i < g_cCaptureEndpoints; ++i, ++ppAeMiniports)' `
+    'for (ULONG i = 0; i != g_cCaptureEndpoints; ++i, ++ppAeMiniports)' `
+    'zero-count capture loop warning'
+Write-Utf8Bom $adapterPath $adapter
+
 # Guardrails: fail the build rather than silently shipping a partly branded or
 # unexpectedly expanded endpoint if the pinned upstream source drifts.
 $verifyInx = Get-Content -Raw -LiteralPath $inxPath
 $verifyPairs = Get-Content -Raw -LiteralPath $pairPath
+$verifyAdapter = Get-Content -Raw -LiteralPath $adapterPath
 if ($verifyInx -notmatch 'ROOT\\SpatialAudioEndpoint') {
     throw 'Spatial root hardware ID verification failed'
 }
@@ -101,6 +117,9 @@ if ($verifyInx -match '(?m)^AddInterface=.*WaveMicArray1') {
 }
 if ($verifyPairs -notmatch '#define g_cCaptureEndpoints 0') {
     throw 'Spatial P0 capture miniport disable verification failed'
+}
+if ($verifyAdapter -notmatch 'i != g_cCaptureEndpoints') {
+    throw 'Spatial P0 capture loop compile guard verification failed'
 }
 
 Write-Host 'Prepared Spatial P0 endpoint source: one silent Windows render endpoint, unique root hardware ID, no DSP, no sample microphone endpoint.'
