@@ -313,10 +313,13 @@ try {
             }
         }
 
-        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $RunKey) | Out-Null
-        New-ItemProperty -LiteralPath $RunKey -Name 'Omniphony' -PropertyType String -Value ('"' + $exe + '"') -Force | Out-Null
+        # The runtime supervisor is the canonical owner of the per-user
+        # "Start with Windows" preference. It registers its own Run value with
+        # reg.exe on first launch and treats policy denial as non-fatal. The
+        # elevated installer must not make a redundant HKCU write capable of
+        # rolling back an otherwise working audio installation.
         Remove-LegacyRunEntries
-        Write-InstallLog "Autostart configured: $exe"
+        Write-InstallLog 'Runtime supervisor owns per-user autostart; installer skipped HKCU Run registration.'
         Write-InstallLog "Physical output preference: $PhysicalOutput"
         Write-InstallLog 'Install control plane completed successfully.'
         exit 0
