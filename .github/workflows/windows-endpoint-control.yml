@@ -1,0 +1,41 @@
+name: Windows endpoint control smoke gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/windows-endpoint-control.yml'
+      - 'omniphony-renderer/windows_installer/OmniphonyEndpointCtl.cpp'
+      - 'omniphony-renderer/windows_installer/OmniphonyEndpointCtl.vcxproj'
+
+permissions:
+  contents: read
+
+jobs:
+  endpoint-control:
+    name: Compile and activate Windows endpoint control
+    runs-on: windows-2022
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Omniphony fork
+        uses: actions/checkout@v4
+
+      - name: Setup VS2022 MSBuild
+        uses: microsoft/setup-msbuild@v2
+        with:
+          vs-version: '[17.0,18.0)'
+
+      - name: Build native endpoint control helper
+        shell: pwsh
+        run: |
+          $project = "$env:GITHUB_WORKSPACE\omniphony-renderer\windows_installer\OmniphonyEndpointCtl.vcxproj"
+          msbuild $project /m /p:Configuration=Release /p:Platform=x64
+          if ($LASTEXITCODE -ne 0) { throw "OmniphonyEndpointCtl build failed: $LASTEXITCODE" }
+
+          $helper = "$env:GITHUB_WORKSPACE\omniphony-renderer\windows_installer\build\endpoint_ctl\OmniphonyEndpointCtl.exe"
+          if (-not (Test-Path $helper)) { throw "OmniphonyEndpointCtl.exe was not produced: $helper" }
+
+          & $helper probe-policy
+          if ($LASTEXITCODE -ne 0) { throw "PolicyConfig activation probe failed: $LASTEXITCODE" }
