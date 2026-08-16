@@ -28,9 +28,10 @@ Fast routes:
 
 - current listening model, retained baseline, active candidate, and frontier: `README.md`
 - governing implementation/listening law: `AGENTS.md`
+- Omniphony for Windows product/profile boundary: `docs/omniphony-for-windows.md`
 - perceptual promotion and rejection history: `docs/listening-history.md`
 - portable renderer/DSP implementation: `omniphony-renderer/`
-- Windows host/integration code: follow the current README repository guide and exact implementation path rather than guessing from historical layouts
+- Windows host/integration code: follow `docs/omniphony-for-windows.md` and the exact implementation path rather than guessing from historical layouts
 - CI and build behavior: `.github/`
 - historical or research context: `docs/`, only as required by the current task
 
@@ -78,9 +79,21 @@ Purely mechanical build, packaging, CI, formatting, or compile repairs do not re
 
 ## Core independence
 
-The renderer / inference / DSP core must remain portable and independent of Windows. Windows owns capture, playback, lifecycle, recovery, autostart, tray behavior, and endpoint integration only.
+The renderer / inference / DSP core must remain portable and independent of Windows. Windows owns capture, playback, lifecycle, recovery, autostart, tray behavior, endpoint integration, installation, update, and uninstall only.
 
 Do not move Windows concepts into the portable core to solve host problems.
+
+### Omniphony for Windows product boundary
+
+**Omniphony is the renderer/engine family. Omniphony for Windows is the Windows operating-system host around that engine, not a second renderer.**
+
+The Windows product should make the engine behave like ordinary installed system audio software: one installer, one system-wide render endpoint, automatic physical-output routing, headless background operation, recovery, autostart, update, and clean uninstall. Omniphony Studio remains a separate advanced visualization/control frontend; do not duplicate its control model incompatibly inside the Windows shell.
+
+The Windows host is replaceable. A future macOS/Linux host, `foo_omniphony`, or another frontend should reuse portable renderer and profile contracts without inheriting WDK, WASAPI, tray, installer, or Windows service concepts.
+
+Public/default tuning and listener-specific tuning are separate layers. Hardware-specific EQ, hearing-asymmetry compensation, listener-specific HRTF selection, preferred geometry, comfort level, and other personal parameters belong in a user profile unless separately generalized and validated. A successful personal profile is evidence that Omniphony can be customized; it is not automatically the public default.
+
+The canonical product/profile contract is `docs/omniphony-for-windows.md`.
 
 ## Source authority
 
