@@ -6,9 +6,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/windows-powershell51-installer.yml'
-      - 'omniphony-renderer/windows_installer/Install-OmniphonyForWindows.ps1'
-      - 'omniphony-renderer/windows_installer/Invoke-OmniphonyInstaller.ps1'
-      - 'omniphony-renderer/windows_installer/OmniphonySetup.iss'
+      - 'omniphony-renderer/windows_installer/**'
 
 permissions:
   contents: read
