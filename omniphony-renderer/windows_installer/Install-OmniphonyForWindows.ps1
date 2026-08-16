@@ -13,6 +13,7 @@ $ProgressPreference = 'SilentlyContinue'
 $LogPath = Join-Path $env:ProgramData 'Omniphony\installer.log'
 $RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $EndpointHardwareId = 'ROOT\SpatialAudioEndpoint' # stable private bootstrap ID
+$CurrentEndpointServiceName = 'VirtualAudioDriver'
 
 function Write-InstallLog([string]$Message) {
     $dir = Split-Path -Parent $LogPath
@@ -32,14 +33,34 @@ function Require-Administrator {
     }
 }
 
+function Test-LegacyOmniphonyService($Service) {
+    if (-not $Service) { return $false }
+    if ($Service.Name -eq $CurrentEndpointServiceName) { return $false }
+
+    $name = [string]$Service.Name
+    $display = [string]$Service.DisplayName
+    return $name -match '(?i)^Omniphony' -or
+           $display -match '(?i)^Omniphony' -or
+           $name -ieq 'Spatial' -or
+           $display -ieq 'Spatial'
+}
+
 function Stop-OldHosts {
     foreach ($name in @('Omniphony', 'Spatial')) {
         Get-Process -Name $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     }
-    foreach ($serviceName in @('Omniphony', 'Spatial')) {
-        $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-        if ($service) {
-            try { Stop-Service -Name $serviceName -Force -ErrorAction Stop } catch { Write-InstallLog "Legacy service stop failed: $serviceName $($_.Exception.Message)" }
+
+    $legacyServices = @(Get-CimInstance Win32_Service -ErrorAction SilentlyContinue | Where-Object { Test-LegacyOmniphonyService $_ })
+    foreach ($service in $legacyServices) {
+        try {
+            if ($service.State -ne 'Stopped') {
+                & "$env:WINDIR\System32\sc.exe" stop $service.Name | Out-Null
+            }
+            & "$env:WINDIR\System32\sc.exe" config $service.Name start= disabled | Out-Null
+            Write-InstallLog "Retired legacy audio service: $($service.Name) [$($service.DisplayName)]"
+        }
+        catch {
+            Write-InstallLog "Legacy service retirement failed: $($service.Name) $($_.Exception.Message)"
         }
     }
 }
