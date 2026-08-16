@@ -1,0 +1,43 @@
+name: Omniphony installer PowerShell 5.1 compatibility
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/windows-powershell51-installer.yml'
+      - 'omniphony-renderer/windows_installer/Install-OmniphonyForWindows.ps1'
+      - 'omniphony-renderer/windows_installer/Invoke-OmniphonyInstaller.ps1'
+      - 'omniphony-renderer/windows_installer/OmniphonySetup.iss'
+
+permissions:
+  contents: read
+
+jobs:
+  powershell51:
+    name: Validate stock Windows PowerShell 5.1 installer path
+    runs-on: windows-2022
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Omniphony fork
+        uses: actions/checkout@v4
+
+      - name: Validate exact Windows 11-compatible control-plane path
+        shell: powershell
+        run: |
+          if ($PSVersionTable.PSVersion.Major -ne 5) {
+            throw "Expected Windows PowerShell 5.1, got $($PSVersionTable.PSVersion)"
+          }
+
+          $scratch = Join-Path $env:RUNNER_TEMP 'omniphony-installer-ps51'
+          New-Item -ItemType Directory -Force -Path $scratch | Out-Null
+
+          & '.\omniphony-renderer\windows_installer\Invoke-OmniphonyInstaller.ps1' `
+            -Action Validate `
+            -AppRoot $scratch `
+            -PhysicalOutput 'Dan Clark Noire X'
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows PowerShell 5.1 installer validation failed: $LASTEXITCODE"
+          }
