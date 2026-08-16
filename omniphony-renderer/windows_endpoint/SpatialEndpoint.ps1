@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('Install', 'Remove', 'Status')]
+    [ValidateSet('Install', 'Remove', 'Status', 'Validate')]
     [string]$Action = 'Install'
 )
 
@@ -176,6 +176,14 @@ function Get-EndpointInf {
 }
 
 switch ($Action) {
+    'Validate' {
+        # CI/dev check: compile the embedded SetupAPI bridge without changing
+        # device state. This catches P/Invoke/C# syntax drift before packaging.
+        Ensure-SetupApiBridge
+        Write-Host 'Spatial endpoint installer bridge compiled successfully.'
+        break
+    }
+
     'Status' {
         Invoke-PnpUtil -Arguments @('/enum-devices', '/deviceid', $HardwareId) -AllowFailure | Out-Null
         break
