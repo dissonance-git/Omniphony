@@ -28,7 +28,7 @@ function Invoke-PnpUtil {
     & "$env:WINDIR\System32\pnputil.exe" @Arguments
     $code = $LASTEXITCODE
     if ($code -ne 0 -and -not $AllowFailure) {
-        throw "PnPUtil failed with exit code $code: $($Arguments -join ' ')"
+        throw "PnPUtil failed with exit code ${code}: $($Arguments -join ' ')"
     }
     return $code
 }
