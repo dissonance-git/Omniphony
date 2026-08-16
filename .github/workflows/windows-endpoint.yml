@@ -13,7 +13,10 @@ permissions:
 jobs:
   build-windows11-x64:
     name: Build Windows 11 x64 endpoint
-    runs-on: windows-2025
+    # The pinned SysVAD-derived driver is a VS2022-era WDK project. Keep the
+    # Windows adapter on that known-compatible toolchain instead of teaching the
+    # project to impersonate a kernel-driver build under VS2026.
+    runs-on: windows-2022
     timeout-minutes: 45
 
     steps:
@@ -49,84 +52,91 @@ jobs:
         run: |
           & "$env:GITHUB_WORKSPACE\omniphony\omniphony-renderer\windows_endpoint\SpatialEndpoint.ps1" -Action Validate
 
-      - name: Setup MSBuild
+      - name: Setup VS2022 MSBuild
         uses: microsoft/setup-msbuild@v2
+        with:
+          vs-version: '[17.0,18.0)'
 
-      - name: Ensure Windows 11 WDK and resolve explicit paths
+      - name: Ensure Windows 11 WDK
         shell: pwsh
         run: |
+          choco install windowsdriverkit11 -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "WDK installation failed with exit code $LASTEXITCODE" }
+
           $kitsRoot = 'C:\Program Files (x86)\Windows Kits\10'
-          $driverTargets = Get-ChildItem $kitsRoot -Recurse -Filter 'WindowsDriver.Common.targets' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $driverTargets) {
-            choco install windowsdriverkit11 -y --no-progress
-            if ($LASTEXITCODE -ne 0) { throw "WDK installation failed with exit code $LASTEXITCODE" }
-          }
-
-          # The pinned SysVAD-derived project predates current VS/WDK property
-          # discovery. New hosted VS images can leave DDK_INC_PATH/DDK_LIB_PATH
-          # empty even though the kit is present, so bind those legacy project
-          # properties explicitly instead of depending on ambient MSBuild state.
-          $versions = Get-ChildItem "$kitsRoot\Include" -Directory -ErrorAction Stop |
-            Where-Object { $_.Name -match '^10\.0\.\d+\.\d+$' } |
+          $wdkVersions = Get-ChildItem "$kitsRoot\Include" -Directory -ErrorAction Stop |
+            Where-Object {
+              $_.Name -match '^10\.0\.\d+\.\d+$' -and
+              (Test-Path (Join-Path $_.FullName 'km\portcls.h')) -and
+              (Test-Path "$kitsRoot\Lib\$($_.Name)\km\x64\portcls.lib")
+            } |
             Sort-Object { [version]$_.Name } -Descending
-          $wdk = $versions | Where-Object {
-            (Test-Path (Join-Path $_.FullName 'km\portcls.h')) -and
-            (Test-Path "$kitsRoot\Lib\$($_.Name)\km\x64\portcls.lib")
-          } | Select-Object -First 1
-          if (-not $wdk) {
-            throw 'No installed WDK contains both km\portcls.h and x64\portcls.lib'
+          $wdk = $wdkVersions | Select-Object -First 1
+          if (-not $wdk) { throw 'Installed WDK exposes no x64 PortCls development surface' }
+          "SPATIAL_WDK_VERSION=$($wdk.Name)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "WDK=$($wdk.Name)"
+
+          $driverTargets = Get-ChildItem $kitsRoot -Recurse -Filter 'WindowsDriver.Common.targets' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $driverTargets) { throw 'WDK installed but WindowsDriver.Common.targets is missing' }
+          Write-Host "Driver targets=$($driverTargets.FullName)"
+
+      - name: Probe upstream signed bridge against kernel policy
+        id: signed_bridge
+        shell: pwsh
+        run: |
+          $url = 'https://github.com/VirtualDrivers/Virtual-Audio-Driver/releases/download/25.7.14/Virtual.Audio.Driver.Signed.-.25.7.14.zip'
+          $zip = "$env:RUNNER_TEMP\VirtualAudioDriver-Signed-25.7.14.zip"
+          Invoke-WebRequest -Uri $url -OutFile $zip
+
+          $expected = 'dd10560994de65a7e587fb8b93c0d7e9838292d9c3566a0976c2786d727292bd'
+          $actual = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) {
+            throw "Signed bridge release hash mismatch: expected $expected got $actual"
           }
 
-          # WDK and Windows SDK versions are separate inputs. The hosted runner
-          # can carry a newer integrated Windows SDK than the standalone WDK we
-          # install for PortCls. Do not force the old WDK version onto MSBuild's
-          # user-mode SDK selection.
-          $sdk = $versions | Where-Object {
-            (Test-Path (Join-Path $_.FullName 'um\Windows.h')) -and
-            (Test-Path "$kitsRoot\Lib\$($_.Name)\um\x64\kernel32.lib") -and
-            (Test-Path "$kitsRoot\Lib\$($_.Name)\ucrt\x64\ucrt.lib")
-          } | Select-Object -First 1
-          if (-not $sdk) {
-            throw 'No complete x64 Windows SDK was found for MSBuild'
+          $extract = "$env:RUNNER_TEMP\signed-vad"
+          Expand-Archive -Path $zip -DestinationPath $extract -Force
+          Write-Host 'Signed release contents:'
+          Get-ChildItem $extract -Recurse -File | Select-Object FullName, Length
+
+          $cat = Get-ChildItem $extract -Recurse -Filter '*.cat' -File | Select-Object -First 1
+          $sys = Get-ChildItem $extract -Recurse -Filter '*.sys' -File | Select-Object -First 1
+          $inf = Get-ChildItem $extract -Recurse -Filter '*.inf' -File | Select-Object -First 1
+          if (-not $cat -or -not $sys -or -not $inf) {
+            throw 'Signed bridge release is missing INF/CAT/SYS package files'
           }
 
-          $wdkVersion = $wdk.Name
-          $sdkVersion = $sdk.Name
-          $includeRoot = "$kitsRoot\Include\$wdkVersion"
-          $libRoot = "$kitsRoot\Lib\$wdkVersion\km\x64"
-          $includePath = "$includeRoot\km;$includeRoot\shared;$includeRoot\um"
+          $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter 'signtool.exe' -File |
+            Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $signtool) { throw 'signtool.exe was not found after WDK installation' }
 
-          "SPATIAL_WDK_VERSION=$wdkVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "SPATIAL_WINDOWS_SDK_VERSION=$sdkVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "SPATIAL_DDK_INC_PATH=$includePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "SPATIAL_DDK_LIB_PATH=$libRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Kernel-policy verification using $($signtool.FullName)"
+          & $signtool.FullName verify /kp /v $cat.FullName
+          $kernelPolicy = $LASTEXITCODE
+          $global:LASTEXITCODE = 0
 
-          Write-Host "Selected WDK: $wdkVersion"
-          Write-Host "Selected Windows SDK: $sdkVersion"
-          Write-Host "DDK include path: $includePath"
-          Write-Host "DDK library path: $libRoot"
-          Get-Item `
-            "$includeRoot\km\portcls.h", `
-            "$libRoot\portcls.lib", `
-            "$kitsRoot\Lib\$sdkVersion\um\x64\kernel32.lib" |
-            Select-Object FullName, Length
+          $status = Get-AuthenticodeSignature $cat.FullName
+          Write-Host "Catalog Authenticode status=$($status.Status) signer=$($status.SignerCertificate.Subject)"
+
+          if ($kernelPolicy -eq 0) {
+            Write-Host 'Upstream signed bridge satisfies signtool kernel-policy verification.'
+            "SPATIAL_SIGNED_BRIDGE_OK=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "SPATIAL_SIGNED_BRIDGE_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          } else {
+            Write-Warning 'Upstream signed bridge does not satisfy kernel-policy verification; it will not be offered as the Secure-Boot P0 shortcut.'
+            "SPATIAL_SIGNED_BRIDGE_OK=0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
 
       - name: Build Spatial endpoint package
         shell: pwsh
         run: |
           Set-Location "$env:GITHUB_WORKSPACE\endpoint-upstream"
-
-          # MSBuild imports environment variables as properties. Put the legacy
-          # DDK paths there so the semicolon-delimited include list reaches the
-          # old project intact instead of being parsed as multiple /p switches.
-          $env:DDK_INC_PATH = $env:SPATIAL_DDK_INC_PATH
-          $env:DDK_LIB_PATH = $env:SPATIAL_DDK_LIB_PATH
-
           msbuild 'VirtualAudioDriver.sln' /m `
             /p:Configuration=Release `
             /p:Platform=x64 `
-            /p:RunCodeAnalysis=false `
-            "/p:WindowsTargetPlatformVersion=$env:SPATIAL_WINDOWS_SDK_VERSION"
+            /p:RunCodeAnalysis=false
           if ($LASTEXITCODE -ne 0) { throw "Spatial endpoint build failed with exit code $LASTEXITCODE" }
 
       - name: Verify endpoint package identity
@@ -169,7 +179,6 @@ jobs:
           Upstream: VirtualDrivers/Virtual-Audio-Driver
           Upstream commit: bb34fba15faf569a6ae9bdea360bc1cf4821354e
           WDK: $env:SPATIAL_WDK_VERSION
-          Windows SDK: $env:SPATIAL_WINDOWS_SDK_VERSION
           Omniphony commit: $env:GITHUB_SHA
 
           This driver contains no Omniphony DSP. It exists only to give Windows
@@ -183,7 +192,7 @@ jobs:
           DevCon or DevGen and it does not alter the portable renderer.
 
           DEVELOPMENT SIGNING BOUNDARY:
-          This CI artifact is not claimed to be production/Microsoft signed.
+          This custom CI artifact is not claimed to be production/Microsoft signed.
           Do not change Secure Boot, BitLocker, or Windows test-signing state
           automatically. Installation is a separate evidence gate.
           "@ | Set-Content -Encoding utf8 "$dist\BUILD-METADATA.txt"
@@ -193,5 +202,14 @@ jobs:
         with:
           name: spatial-endpoint-windows11-x64-${{ github.sha }}
           path: dist/SpatialEndpoint
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload kernel-policy-valid signed bridge
+        if: env.SPATIAL_SIGNED_BRIDGE_OK == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: spatial-temporary-signed-bridge-${{ github.sha }}
+          path: ${{ env.SPATIAL_SIGNED_BRIDGE_ZIP }}
           if-no-files-found: error
           retention-days: 14
