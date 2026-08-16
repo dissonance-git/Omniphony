@@ -44,6 +44,11 @@ jobs:
           & "$env:GITHUB_WORKSPACE\omniphony\omniphony-renderer\windows_endpoint\Prepare-SpatialEndpoint.ps1" `
             -SourceRoot "$env:GITHUB_WORKSPACE\endpoint-upstream"
 
+      - name: Validate self-contained endpoint installer
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE\omniphony\omniphony-renderer\windows_endpoint\SpatialEndpoint.ps1" -Action Validate
+
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
@@ -127,6 +132,7 @@ jobs:
           $package = "$env:GITHUB_WORKSPACE\endpoint-upstream\x64\Release\package"
           New-Item -ItemType Directory -Force $dist | Out-Null
           Copy-Item "$package\*" $dist -Recurse -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\omniphony\omniphony-renderer\windows_endpoint\SpatialEndpoint.ps1" "$dist\SpatialEndpoint.ps1" -Force
           Copy-Item "$env:GITHUB_WORKSPACE\endpoint-upstream\LICENSE" "$dist\UPSTREAM-LICENSE.txt" -Force
           Copy-Item "$env:GITHUB_WORKSPACE\endpoint-upstream\THIRD_PARTY_NOTICES.md" "$dist\THIRD_PARTY_NOTICES.md" -Force
           @"
@@ -145,6 +151,10 @@ jobs:
           application audio with endpoint-independent process loopback, excludes
           its own process tree, renders through the portable core, and writes
           binaural stereo to the physical output.
+
+          SpatialEndpoint.ps1 creates/removes only ROOT\SpatialAudioEndpoint and
+          uses Windows' built-in PnPUtil to stage/bind the INF. It does not carry
+          DevCon or DevGen and it does not alter the portable renderer.
 
           DEVELOPMENT SIGNING BOUNDARY:
           This CI artifact is not claimed to be production/Microsoft signed.
