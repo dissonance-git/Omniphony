@@ -10,30 +10,18 @@ jobs:
   fetch:
     runs-on: ubuntu-latest
     steps:
-      - name: Install archive tools
+      - name: Inspect maintained public foo_input_vgm 0.31 download form
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends p7zip-full
-
-      - name: Fetch maintained public foo_input_vgm 0.31 package
-        shell: bash
-        run: |
-          set -euo pipefail
-          url='https://downloadx.getuploader.com/g/foobar2000/249/foo_input_vgm_v0.31.7z'
-          curl --fail --location --retry 4 -A 'Mozilla/5.0' "$url" -o foo_input_vgm_v0.31.7z
-          file foo_input_vgm_v0.31.7z
-          7z t foo_input_vgm_v0.31.7z
-          7z l foo_input_vgm_v0.31.7z | tee archive-list.txt
-
-      - name: Upload public archive
-        uses: actions/upload-artifact@v4
-        with:
-          name: foo-input-vgm-0.31-public
-          path: |
-            foo_input_vgm_v0.31.7z
-            archive-list.txt
-          compression-level: 0
-          retention-days: 1
-          if-no-files-found: error
+          page='https://uu.getuploader.com/foobar2000/download/249'
+          ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
+          curl --fail --location --retry 4 -A "$ua" -c cookies.txt -b cookies.txt "$page" -o download-page.html
+          python3 - <<'PY'
+          from html.parser import HTMLParser
+          class P(HTMLParser):
+              def handle_starttag(self, tag, attrs):
+                  if tag in {'form','input','button'}:
+                      print(tag, dict(attrs))
+          P().feed(open('download-page.html', encoding='utf-8', errors='replace').read())
+          PY
