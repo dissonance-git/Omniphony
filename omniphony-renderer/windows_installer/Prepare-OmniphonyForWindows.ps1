@@ -112,11 +112,11 @@ fn append_log(message: &str) {
 '@
     $supervisor = Require-Replace $supervisor $oldWorkerLog $newWorkerLog 'non-fatal writable worker log setup'
 
-    # Personal build only: make the downstream physical endpoint explicit.
-    # Windows' default render endpoint is intentionally the signed development
-    # transport, so the renderer child must never infer its own destination from
-    # that default. Keep this in the profile/product preparation layer rather
-    # than the portable renderer or generic Windows source.
+    # Personal build only: make both sides of the development bridge explicit.
+    # Windows applications render into Steam Streaming Speakers. The worker
+    # captures that endpoint directly, while its processed output goes only to
+    # the user's physical Noire X/K7 endpoint. Neither side depends on whatever
+    # Windows happens to call the current default device after startup.
     $oldWorkerLaunch = @'
         .env("OMNIPHONY_INTERNAL_ENGINE", "1")
         .env("OMNIPHONY_PROFILE", "external")
@@ -127,13 +127,15 @@ fn append_log(message: &str) {
     $newWorkerLaunch = @'
         .env("OMNIPHONY_INTERNAL_ENGINE", "1")
         .env("OMNIPHONY_PROFILE", "external")
+        .arg("--capture")
+        .arg("Steam Streaming Speakers")
         .arg("--output")
         .arg("Dan Clark Noire X")
         .stdin(Stdio::piped())
         .stdout(worker_stdout)
         .stderr(worker_stderr)
 '@
-    $supervisor = Require-Replace $supervisor $oldWorkerLaunch $newWorkerLaunch 'personal physical-output child launch and non-fatal stdio'
+    $supervisor = Require-Replace $supervisor $oldWorkerLaunch $newWorkerLaunch 'explicit transport capture and physical output child launch'
     Write-Utf8Bom $supervisorPath $supervisor
 
     $app = Get-Content -Raw -LiteralPath $appPath
@@ -146,6 +148,197 @@ fn append_log(message: &str) {
     # endpoint explicitly, then retain the historical FiiO fallback. Never let
     # a virtual transport endpoint become its own output.
     $worker = Get-Content -Raw -LiteralPath $workerPath
+
+    $worker = Require-Replace $worker `
+        '    AudioCaptureClient, AudioClient, Direction, SampleType, StreamMode, WaveFormat,' `
+        '    AudioCaptureClient, AudioClient, DeviceEnumerator, Direction, SampleType, StreamMode, WaveFormat,' `
+        'WASAPI endpoint enumerator import'
+
+    $worker = Require-Replace $worker @'
+struct Args {
+    output: Option<String>,
+    start_off: bool,
+}
+'@ @'
+struct Args {
+    capture: Option<String>,
+    output: Option<String>,
+    start_off: bool,
+}
+'@ 'capture endpoint argument storage'
+
+    $worker = Require-Replace $worker @'
+        match arg.as_str() {
+            "--output" => {
+'@ @'
+        match arg.as_str() {
+            "--capture" => {
+                parsed.capture = Some(
+                    args.next()
+                        .context("--capture requires a render-endpoint name substring")?,
+                );
+            }
+            "--output" => {
+'@ 'capture endpoint argument parsing'
+
+    $worker = Require-Replace $worker `
+        '    let mut loopback = LoopbackCapture::open_stereo(SAMPLE_RATE_HZ)?;' `
+        '    let mut loopback = LoopbackCapture::open_stereo(SAMPLE_RATE_HZ, args.capture.as_deref())?;' `
+        'explicit endpoint loopback construction'
+
+    $worker = Require-Replace $worker `
+        '    println!("  capture: {SAMPLE_RATE_HZ} Hz / stereo / f32 process loopback");' `
+        '    println!("  capture: {SAMPLE_RATE_HZ} Hz / stereo / f32 {}", loopback.source());' `
+        'capture source banner'
+
+    $worker = Require-Replace $worker @'
+        let Some(input) = loopback.next_block()? else {
+            std::thread::sleep(Duration::from_millis(1));
+            continue;
+        };
+'@ @'
+        let Some(input) = loopback.next_block()? else {
+            if last_meter_report.elapsed() >= Duration::from_secs(METER_INTERVAL_SECS) {
+                println!("  capture heartbeat: no endpoint-loopback packets in the last {METER_INTERVAL_SECS} s (source may be idle)");
+                report_playback_transport(&playback_telemetry);
+                report_output_peak_guard(&mut output_peak_guard);
+                last_meter_report = Instant::now();
+            }
+            std::thread::sleep(Duration::from_millis(1));
+            continue;
+        };
+'@ 'capture no-packet heartbeat'
+
+    $oldLoopback = @'
+struct LoopbackCapture {
+    client: AudioClient,
+    capture: AudioCaptureClient,
+    scratch: Vec<u8>,
+}
+
+impl LoopbackCapture {
+    fn open_stereo(sample_rate_hz: u32) -> anyhow::Result<Self> {
+        const BUFFER_DURATION_HNS: i64 = 200_000;
+        let mode = StreamMode::PollingShared {
+            autoconvert: true,
+            buffer_duration_hns: BUFFER_DURATION_HNS,
+        };
+        let mask = make_channelmasks(2).into_iter().next().unwrap_or(0);
+        let format = WaveFormat::new(
+            32,
+            32,
+            &SampleType::Float,
+            sample_rate_hz as usize,
+            2,
+            Some(mask),
+        );
+        let mut client = AudioClient::new_application_loopback_client(std::process::id(), false)
+            .context("failed to activate self-excluding Windows process loopback")?;
+        client
+            .initialize_client(&format, &Direction::Capture, &mode)
+            .context("Windows process loopback rejected required stereo 48 kHz float format")?;
+        let capture = client
+            .get_audiocaptureclient()
+            .context("process loopback initialized but exposed no capture client")?;
+        Ok(Self {
+            client,
+            capture,
+            scratch: Vec::new(),
+        })
+    }
+'@
+    $newLoopback = @'
+struct LoopbackCapture {
+    client: AudioClient,
+    capture: AudioCaptureClient,
+    scratch: Vec<u8>,
+    source: String,
+}
+
+impl LoopbackCapture {
+    fn open_stereo(sample_rate_hz: u32, endpoint_name: Option<&str>) -> anyhow::Result<Self> {
+        const BUFFER_DURATION_HNS: i64 = 200_000;
+        let mode = StreamMode::PollingShared {
+            autoconvert: true,
+            buffer_duration_hns: BUFFER_DURATION_HNS,
+        };
+        let mask = make_channelmasks(2).into_iter().next().unwrap_or(0);
+        let format = WaveFormat::new(
+            32,
+            32,
+            &SampleType::Float,
+            sample_rate_hz as usize,
+            2,
+            Some(mask),
+        );
+
+        if let Some(needle) = endpoint_name {
+            let enumerator = DeviceEnumerator::new()
+                .context("failed to create WASAPI render-endpoint enumerator")?;
+            let devices = enumerator
+                .get_device_collection(&Direction::Render)
+                .context("failed to enumerate active WASAPI render endpoints")?;
+            let count = devices
+                .get_nbr_devices()
+                .context("failed to count active WASAPI render endpoints")?;
+            let needle_lower = needle.to_ascii_lowercase();
+            let mut selected = None;
+            for index in 0..count {
+                let device = devices
+                    .get_device_at_index(index)
+                    .with_context(|| format!("failed to inspect WASAPI render endpoint {index}"))?;
+                let name = device
+                    .get_friendlyname()
+                    .unwrap_or_else(|_| "<unnamed render endpoint>".to_string());
+                if name.to_ascii_lowercase().contains(&needle_lower) {
+                    selected = Some((device, name));
+                    break;
+                }
+            }
+            let (device, name) = selected.with_context(|| {
+                format!("no active WASAPI render endpoint contains '{needle}'")
+            })?;
+            let mut client = device
+                .get_iaudioclient()
+                .with_context(|| format!("failed to open endpoint loopback client for {name}"))?;
+            client
+                .initialize_client(&format, &Direction::Capture, &mode)
+                .with_context(|| {
+                    format!("endpoint loopback for {name} rejected stereo 48 kHz float format")
+                })?;
+            let capture = client
+                .get_audiocaptureclient()
+                .with_context(|| format!("endpoint loopback for {name} exposed no capture client"))?;
+            return Ok(Self {
+                client,
+                capture,
+                scratch: Vec::new(),
+                source: format!("endpoint loopback <- {name}"),
+            });
+        }
+
+        let mut client = AudioClient::new_application_loopback_client(std::process::id(), false)
+            .context("failed to activate self-excluding Windows process loopback")?;
+        client
+            .initialize_client(&format, &Direction::Capture, &mode)
+            .context("Windows process loopback rejected required stereo 48 kHz float format")?;
+        let capture = client
+            .get_audiocaptureclient()
+            .context("process loopback initialized but exposed no capture client")?;
+        Ok(Self {
+            client,
+            capture,
+            scratch: Vec::new(),
+            source: "self-excluding process loopback".to_string(),
+        })
+    }
+
+    fn source(&self) -> &str {
+        &self.source
+    }
+'@
+    $worker = Require-Replace $worker $oldLoopback $newLoopback 'direct transport endpoint loopback implementation'
+
     $oldVirtual = @'
 fn looks_like_virtual_cable(device: &cpal::Device) -> bool {
     device
@@ -210,7 +403,7 @@ fn looks_like_virtual_cable(device: &cpal::Device) -> bool {
     $worker = Require-Replace $worker $oldChoice $newChoice 'personal physical-output preference'
     Write-Utf8Bom $workerPath $worker
 
-    Write-Host 'Prepared Omniphony for Windows host: writable non-fatal runtime logging, explicit Dan Clark Noire X child output, and hard virtual-transport rejection.'
+    Write-Host 'Prepared Omniphony for Windows host: direct Steam endpoint loopback capture, explicit Dan Clark Noire X output, writable non-fatal logging, and hard virtual-transport rejection.'
     exit 0
 }
 
