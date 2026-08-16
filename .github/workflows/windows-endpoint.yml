@@ -1,0 +1,125 @@
+name: Spatial Windows endpoint
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/windows-endpoint.yml'
+      - 'omniphony-renderer/windows_endpoint/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows11-x64:
+    name: Build Windows 11 x64 endpoint
+    runs-on: windows-2025
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout Omniphony host repository
+        uses: actions/checkout@v4
+        with:
+          path: omniphony
+
+      - name: Checkout pinned virtual-audio bootstrap source
+        uses: actions/checkout@v4
+        with:
+          repository: VirtualDrivers/Virtual-Audio-Driver
+          ref: bb34fba15faf569a6ae9bdea360bc1cf4821354e
+          path: endpoint-upstream
+
+      - name: Verify pinned upstream revision
+        shell: pwsh
+        run: |
+          Set-Location "$env:GITHUB_WORKSPACE\endpoint-upstream"
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne 'bb34fba15faf569a6ae9bdea360bc1cf4821354e') {
+            throw "Unexpected endpoint bootstrap revision: $head"
+          }
+
+      - name: Prepare Spatial-only endpoint source
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE\omniphony\omniphony-renderer\windows_endpoint\Prepare-SpatialEndpoint.ps1" `
+            -SourceRoot "$env:GITHUB_WORKSPACE\endpoint-upstream"
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Ensure Windows 11 WDK
+        shell: pwsh
+        run: |
+          $wdkRoot = 'C:\Program Files (x86)\Windows Kits\10'
+          $driverTargets = Get-ChildItem $wdkRoot -Recurse -Filter 'WindowsDriver.Common.targets' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $driverTargets) {
+            choco install windowsdriverkit11 -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "WDK installation failed with exit code $LASTEXITCODE" }
+          }
+          Write-Host 'Detected WDK versions:'
+          Get-ChildItem "$wdkRoot\Include" -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
+
+      - name: Build Spatial endpoint package
+        shell: pwsh
+        run: |
+          Set-Location "$env:GITHUB_WORKSPACE\endpoint-upstream"
+          msbuild 'VirtualAudioDriver.sln' /m /p:Configuration=Release /p:Platform=x64 /p:RunCodeAnalysis=false
+          if ($LASTEXITCODE -ne 0) { throw "Spatial endpoint build failed with exit code $LASTEXITCODE" }
+
+      - name: Verify endpoint package identity
+        shell: pwsh
+        run: |
+          $package = "$env:GITHUB_WORKSPACE\endpoint-upstream\x64\Release\package"
+          if (-not (Test-Path $package)) { throw "Endpoint package directory was not produced: $package" }
+
+          $inf = Get-ChildItem $package -Filter '*.inf' | Select-Object -First 1
+          $sys = Get-ChildItem $package -Filter '*.sys' | Select-Object -First 1
+          if (-not $inf) { throw 'Endpoint build produced no INF' }
+          if (-not $sys) { throw 'Endpoint build produced no SYS' }
+
+          $infText = Get-Content -Raw $inf.FullName
+          if ($infText -notmatch 'Spatial') { throw 'Built INF does not contain Spatial endpoint identity' }
+          if ($infText -match '(?m)^AddInterface=.*WaveMicArray1') {
+            throw 'Built Spatial P0 INF still exposes the sample microphone endpoint'
+          }
+
+          Write-Host "Built endpoint INF: $($inf.FullName)"
+          Write-Host "Built endpoint SYS: $($sys.FullName)"
+
+      - name: Assemble development artifact
+        shell: pwsh
+        run: |
+          $dist = "$env:GITHUB_WORKSPACE\dist\SpatialEndpoint"
+          $package = "$env:GITHUB_WORKSPACE\endpoint-upstream\x64\Release\package"
+          New-Item -ItemType Directory -Force $dist | Out-Null
+          Copy-Item "$package\*" $dist -Recurse -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\endpoint-upstream\LICENSE" "$dist\UPSTREAM-LICENSE.txt" -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\endpoint-upstream\THIRD_PARTY_NOTICES.md" "$dist\THIRD_PARTY_NOTICES.md" -Force
+          @"
+          Spatial endpoint development build
+          ==================================
+          Target: Windows 11 x64
+          Endpoint role: silent render sink only
+          Upstream: VirtualDrivers/Virtual-Audio-Driver
+          Upstream commit: bb34fba15faf569a6ae9bdea360bc1cf4821354e
+          Omniphony commit: $env:GITHUB_SHA
+
+          This driver contains no Omniphony DSP. It exists only to give Windows
+          a real render destination. Spatial's user-mode host captures external
+          application audio with endpoint-independent process loopback, excludes
+          its own process tree, renders through the portable core, and writes
+          binaural stereo to the physical output.
+
+          DEVELOPMENT SIGNING BOUNDARY:
+          This CI artifact is not claimed to be production/Microsoft signed.
+          Do not change Secure Boot, BitLocker, or Windows test-signing state
+          automatically. Installation is a separate evidence gate.
+          "@ | Set-Content -Encoding utf8 "$dist\BUILD-METADATA.txt"
+
+      - name: Upload Spatial endpoint development package
+        uses: actions/upload-artifact@v4
+        with:
+          name: spatial-endpoint-windows11-x64-${{ github.sha }}
+          path: dist/SpatialEndpoint
+          if-no-files-found: error
+          retention-days: 14
