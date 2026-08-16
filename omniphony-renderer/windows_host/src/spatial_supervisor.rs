@@ -1,26 +1,17 @@
 #![cfg(target_os = "windows")]
 
-mod session_mute;
-
 use anyhow::{Context, bail};
-use session_mute::DrySessionSilencer;
 use std::ffi::OsStr;
 use std::fs::{OpenOptions, create_dir_all};
 use std::io::Write;
 use std::os::windows::ffi::OsStrExt;
-use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM, LRESULT, POINT, WPARAM,
-};
-use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-    SetInformationJobObject,
+    CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HWND, LPARAM, LRESULT, POINT, WPARAM,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::{CREATE_NO_WINDOW, CreateMutexW};
@@ -55,8 +46,7 @@ const AUTOSTART_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run
 struct AppState {
     child: Option<Child>,
     stdin: Option<ChildStdin>,
-    /// User intent. When false, there must be no audio-engine child process and
-    /// no Windows sessions muted on Spatial's behalf.
+    /// User intent. When false, there must be no audio-engine child process.
     enabled: bool,
     quitting: bool,
     next_restart: Option<Instant>,
@@ -76,7 +66,7 @@ impl Default for AppState {
     }
 }
 
-struct HandleGuard(HANDLE);
+struct HandleGuard(*mut core::ffi::c_void);
 
 impl Drop for HandleGuard {
     fn drop(&mut self) {
@@ -90,21 +80,9 @@ impl Drop for HandleGuard {
 
 static STATE: OnceLock<Mutex<AppState>> = OnceLock::new();
 static TASKBAR_CREATED: OnceLock<u32> = OnceLock::new();
-static DRY_SILENCER: OnceLock<Mutex<DrySessionSilencer>> = OnceLock::new();
-// Stored as an integer so the static remains trivially Send + Sync. The actual
-// HANDLE is owned by the HandleGuard that lives for the supervisor run.
-static CHILD_JOB: OnceLock<usize> = OnceLock::new();
 
 fn state() -> &'static Mutex<AppState> {
     STATE.get_or_init(|| Mutex::new(AppState::default()))
-}
-
-fn dry_silencer() -> &'static Mutex<DrySessionSilencer> {
-    DRY_SILENCER.get_or_init(|| {
-        Mutex::new(DrySessionSilencer::new(
-            settings_root().join("spatial-dry-mutes.txt"),
-        ))
-    })
 }
 
 fn wide(text: &str) -> Vec<u16> {
@@ -140,46 +118,6 @@ fn claim_single_instance() -> anyhow::Result<Option<HandleGuard>> {
         return Ok(None);
     }
     Ok(Some(HandleGuard(handle)))
-}
-
-fn install_child_job() -> Option<HandleGuard> {
-    unsafe {
-        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
-        if job.is_null() {
-            return None;
-        }
-
-        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        if SetInformationJobObject(
-            job,
-            JobObjectExtendedLimitInformation,
-            std::ptr::addr_of!(info).cast(),
-            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-        ) == 0
-        {
-            let _ = CloseHandle(job);
-            return None;
-        }
-
-        if CHILD_JOB.set(job as usize).is_err() {
-            let _ = CloseHandle(job);
-            return None;
-        }
-        Some(HandleGuard(job))
-    }
-}
-
-fn assign_child_to_job(child: &Child) -> anyhow::Result<()> {
-    let Some(raw_job) = CHILD_JOB.get().copied() else {
-        return Ok(());
-    };
-    let job = raw_job as HANDLE;
-    let process = child.as_raw_handle() as HANDLE;
-    if unsafe { AssignProcessToJobObject(job, process) } == 0 {
-        bail!("failed to bind Spatial audio child to kill-on-close job object");
-    }
-    Ok(())
 }
 
 fn executable_root() -> anyhow::Result<PathBuf> {
@@ -249,6 +187,7 @@ fn set_run_entry(enabled: bool) -> anyhow::Result<()> {
         if !status.success() {
             bail!("reg.exe could not register Spatial autostart");
         }
+        // Prevent the legacy private build from launching a second supervisor.
         delete_run_value(LEGACY_AUTOSTART_VALUE);
     } else {
         delete_run_value(AUTOSTART_VALUE);
@@ -279,94 +218,8 @@ fn ensure_autostart() {
             append_log(&format!("autostart registration failed: {err:#}"));
         }
     } else {
+        // A stale legacy Run value must not override the persisted preference.
         let _ = set_run_entry(false);
-    }
-}
-
-fn restore_stale_dry_audio() {
-    let mut silencer = dry_silencer()
-        .lock()
-        .expect("Spatial dry-session state poisoned");
-    match silencer.restore_stale_snapshot() {
-        Ok(count) if count > 0 => append_log(&format!(
-            "restored {count} dry audio session(s) from previous Spatial run"
-        )),
-        Ok(_) => {}
-        Err(err) => append_log(&format!("stale dry-session restore failed: {err:#}")),
-    }
-}
-
-fn restore_dry_audio() {
-    let mut silencer = dry_silencer()
-        .lock()
-        .expect("Spatial dry-session state poisoned");
-    match silencer.restore() {
-        Ok(count) if count > 0 => {
-            append_log(&format!("restored {count} dry audio session(s)"));
-        }
-        Ok(_) => {}
-        Err(err) => append_log(&format!("dry-session restore failed: {err:#}")),
-    }
-}
-
-fn silence_dry_audio(skip_pids: &[u32]) -> anyhow::Result<()> {
-    let mut silencer = dry_silencer()
-        .lock()
-        .expect("Spatial dry-session state poisoned");
-    match silencer.silence_external_sessions(skip_pids) {
-        Ok(count) => {
-            if count > 0 {
-                append_log(&format!("silenced {count} dry audio session(s)"));
-            }
-            Ok(())
-        }
-        Err(err) => {
-            // If persistence or enumeration fails after any successful mute,
-            // immediately roll back everything we still own rather than leave
-            // Windows in a partially muted, untracked state.
-            let _ = silencer.restore();
-            Err(err).context("could not establish temporary single-stream routing")
-        }
-    }
-}
-
-fn child_pid() -> Option<u32> {
-    state()
-        .lock()
-        .expect("Spatial supervisor state poisoned")
-        .child
-        .as_ref()
-        .map(Child::id)
-}
-
-fn refresh_dry_audio(hwnd: HWND) {
-    let (enabled, quitting, pid) = {
-        let app = state().lock().expect("Spatial supervisor state poisoned");
-        (
-            app.enabled,
-            app.quitting,
-            app.child.as_ref().map(Child::id),
-        )
-    };
-    let Some(pid) = pid else {
-        return;
-    };
-    if !enabled || quitting {
-        return;
-    }
-
-    if let Err(err) = silence_dry_audio(&[std::process::id(), pid]) {
-        append_log(&format!(
-            "dry-session refresh failed; stopping Spatial rather than allowing doubled audio: {err:#}"
-        ));
-        {
-            let mut app = state().lock().expect("Spatial supervisor state poisoned");
-            app.enabled = false;
-            app.next_restart = None;
-        }
-        stop_worker();
-        restore_dry_audio();
-        update_tray_tip(hwnd);
     }
 }
 
@@ -377,11 +230,6 @@ fn spawn_worker() -> anyhow::Result<()> {
             return Ok(());
         }
     }
-
-    // Current process-loopback is a copy rather than an intercept. For this
-    // temporary private host, silence existing external render sessions before
-    // the audio child starts so the listener hears only Spatial's output.
-    silence_dry_audio(&[std::process::id()])?;
 
     let root = executable_root()?;
     let executable = std::env::current_exe().context("failed to resolve Spatial engine executable")?;
@@ -394,69 +242,36 @@ fn spawn_worker() -> anyhow::Result<()> {
         .with_context(|| format!("failed to open {}", log_path.display()))?;
     let log_err = log.try_clone().context("failed to clone Spatial log handle")?;
 
-    let spawn_result = Command::new(&executable)
+    let mut child = Command::new(&executable)
         .current_dir(&root)
+        // Internal renderer identity remains Omniphony-derived. Spatial is only
+        // the private Windows-product shell at this stage.
         .env("OMNIPHONY_INTERNAL_ENGINE", "1")
         .env("OMNIPHONY_PROFILE", "external")
         .stdin(Stdio::piped())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(log_err))
         .creation_flags(CREATE_NO_WINDOW)
-        .spawn();
+        .spawn()
+        .with_context(|| {
+            format!(
+                "failed to launch internal audio engine from {}",
+                executable.display()
+            )
+        })?;
+    let stdin = child.stdin.take().context("audio engine stdin was not piped")?;
 
-    let mut child = match spawn_result {
-        Ok(child) => child,
-        Err(err) => {
-            restore_dry_audio();
-            return Err(err).with_context(|| {
-                format!(
-                    "failed to launch internal audio engine from {}",
-                    executable.display()
-                )
-            });
-        }
-    };
-
-    if let Err(err) = assign_child_to_job(&child) {
-        let _ = child.kill();
-        let _ = child.wait();
-        restore_dry_audio();
-        return Err(err);
-    }
-
-    let stdin = match child.stdin.take() {
-        Some(stdin) => stdin,
-        None => {
-            let _ = child.kill();
-            let _ = child.wait();
-            restore_dry_audio();
-            bail!("audio engine stdin was not piped");
-        }
-    };
-
-    let pid = child.id();
     let mut app = state().lock().expect("Spatial supervisor state poisoned");
     if !app.enabled || app.quitting {
         drop(app);
         let _ = child.kill();
         let _ = child.wait();
-        restore_dry_audio();
         return Ok(());
     }
     app.child = Some(child);
     app.stdin = Some(stdin);
     app.next_restart = None;
-    drop(app);
-
-    // Catch any sessions that appeared during child startup while explicitly
-    // excluding both supervisor and Spatial renderer output.
-    if let Err(err) = silence_dry_audio(&[std::process::id(), pid]) {
-        stop_worker();
-        restore_dry_audio();
-        return Err(err);
-    }
-
-    append_log("Spatial audio engine started with Current model");
+    append_log("audio engine started with Current model");
     Ok(())
 }
 
@@ -473,21 +288,15 @@ fn stop_worker() {
     }
 
     if let Some(child) = child.as_mut() {
-        let mut exited = false;
         for _ in 0..12 {
             match child.try_wait() {
-                Ok(Some(_)) => {
-                    exited = true;
-                    break;
-                }
+                Ok(Some(_)) => return,
                 Ok(None) => std::thread::sleep(Duration::from_millis(20)),
                 Err(_) => break,
             }
         }
-        if !exited {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }
 
@@ -512,15 +321,13 @@ fn set_enabled(hwnd: HWND, enabled: bool) {
     if enabled {
         append_log("Spatial ON requested");
         if let Err(err) = spawn_worker() {
-            restore_dry_audio();
             schedule_restart(&format!("audio engine start failed: {err:#}"));
         }
     } else {
-        // OFF is a hard lifecycle state, not clean bypass. The child is gone,
-        // capture/output handles are released, and source sessions are restored.
+        // OFF is intentionally a hard lifecycle state, not DSP bypass. Taking
+        // down the child releases both process-loopback capture and K7 output.
         append_log("Spatial OFF requested; stopping audio engine");
         stop_worker();
-        restore_dry_audio();
     }
     update_tray_tip(hwnd);
 }
@@ -540,9 +347,7 @@ fn restart_worker(hwnd: HWND) {
         app.next_restart = None;
     }
     stop_worker();
-    restore_dry_audio();
     if let Err(err) = spawn_worker() {
-        restore_dry_audio();
         schedule_restart(&format!("audio engine restart failed: {err:#}"));
     }
     update_tray_tip(hwnd);
@@ -594,17 +399,12 @@ fn poll_worker(hwnd: HWND) {
 
     if let Some(detail) = exited {
         append_log(&detail);
-        // Do not leave the source muted during the recovery delay.
-        restore_dry_audio();
     }
     if retry {
         if let Err(err) = spawn_worker() {
-            restore_dry_audio();
             schedule_restart(&format!("automatic audio recovery failed: {err:#}"));
         }
     }
-
-    refresh_dry_audio(hwnd);
     update_tray_tip(hwnd);
 }
 
@@ -735,9 +535,8 @@ fn shutdown(hwnd: HWND) {
         app.enabled = false;
         app.next_restart = None;
     }
-    stop_worker();
-    restore_dry_audio();
     remove_tray_icon(hwnd);
+    stop_worker();
 }
 
 unsafe extern "system" fn window_proc(
@@ -756,10 +555,9 @@ unsafe extern "system" fn window_proc(
         WM_CREATE => {
             add_tray_icon(hwnd);
             unsafe {
-                SetTimer(hwnd, TIMER_ID, 250, None);
+                SetTimer(hwnd, TIMER_ID, 500, None);
             }
             if let Err(err) = spawn_worker() {
-                restore_dry_audio();
                 schedule_restart(&format!("initial audio engine start failed: {err:#}"));
                 update_tray_tip(hwnd);
             }
@@ -813,10 +611,6 @@ unsafe extern "system" fn window_proc(
             0
         }
         WM_DESTROY => {
-            // Defensive idempotent cleanup for any destruction path that did
-            // not arrive through our normal Exit/WM_CLOSE handlers.
-            stop_worker();
-            restore_dry_audio();
             unsafe {
                 PostQuitMessage(0);
             }
@@ -827,31 +621,9 @@ unsafe extern "system" fn window_proc(
 }
 
 pub fn run() -> anyhow::Result<()> {
-    wasapi::initialize_mta()
-        .ok()
-        .context("failed to initialize COM MTA for Spatial supervisor")?;
-
     let Some(_instance_guard) = claim_single_instance()? else {
         return Ok(());
     };
-
-    // A force-killed previous private build can leave source sessions muted.
-    // Recover those first, before autostart or a new engine is allowed to run.
-    restore_stale_dry_audio();
-
-    if std::env::args().any(|arg| arg == "--restore-dry-audio") {
-        append_log("manual dry-audio restore completed");
-        return Ok(());
-    }
-
-    // If the supervisor itself disappears, closing this job handle makes
-    // Windows terminate the renderer child. That prevents a ghost audio engine
-    // from surviving after the tray/application process is gone.
-    let _child_job_guard = install_child_job();
-    if _child_job_guard.is_none() {
-        append_log("warning: kill-on-close child job unavailable");
-    }
-
     ensure_autostart();
     let _ = taskbar_created_message();
 
@@ -872,6 +644,7 @@ pub fn run() -> anyhow::Result<()> {
         bail!("RegisterClassW failed");
     }
 
+    // Invisible top-level window: owns tray callbacks and watchdog timing only.
     let hwnd = unsafe {
         CreateWindowExW(
             0,
@@ -889,7 +662,6 @@ pub fn run() -> anyhow::Result<()> {
         )
     };
     if hwnd.is_null() {
-        restore_dry_audio();
         bail!("CreateWindowExW failed");
     }
 
@@ -897,8 +669,6 @@ pub fn run() -> anyhow::Result<()> {
     loop {
         let result = unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) };
         if result == -1 {
-            stop_worker();
-            restore_dry_audio();
             bail!("GetMessageW failed");
         }
         if result == 0 {
@@ -910,7 +680,5 @@ pub fn run() -> anyhow::Result<()> {
         }
     }
 
-    stop_worker();
-    restore_dry_audio();
     Ok(())
 }
