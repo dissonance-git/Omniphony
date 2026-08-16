@@ -50,6 +50,25 @@ if ($Mode -eq 'Host') {
         'const LEGACY_AUTOSTART_VALUE: &str = "Spatial";' `
         'legacy autostart value after branding migration'
     $supervisor = $supervisor.Replace('spatial.log', 'omniphony.log')
+
+    # Personal build only: make the downstream physical endpoint explicit.
+    # Windows' default render endpoint is intentionally the signed development
+    # transport, so the renderer child must never infer its own destination from
+    # that default. Keep this in the profile/product preparation layer rather
+    # than the portable renderer or generic Windows source.
+    $oldWorkerLaunch = @'
+        .env("OMNIPHONY_INTERNAL_ENGINE", "1")
+        .env("OMNIPHONY_PROFILE", "external")
+        .stdin(Stdio::piped())
+'@
+    $newWorkerLaunch = @'
+        .env("OMNIPHONY_INTERNAL_ENGINE", "1")
+        .env("OMNIPHONY_PROFILE", "external")
+        .arg("--output")
+        .arg("Dan Clark Noire X")
+        .stdin(Stdio::piped())
+'@
+    $supervisor = Require-Replace $supervisor $oldWorkerLaunch $newWorkerLaunch 'personal physical-output child launch'
     Write-Utf8Bom $supervisorPath $supervisor
 
     $app = Get-Content -Raw -LiteralPath $appPath
@@ -60,7 +79,7 @@ if ($Mode -eq 'Host') {
     # Personal development build routing. This belongs to the Windows/profile
     # layer, never the portable renderer. Prefer the user's real physical
     # endpoint explicitly, then retain the historical FiiO fallback. Never let
-    # the virtual Omniphony/legacy Spatial endpoint become its own output.
+    # a virtual transport endpoint become its own output.
     $worker = Get-Content -Raw -LiteralPath $workerPath
     $oldVirtual = @'
 fn looks_like_virtual_cable(device: &cpal::Device) -> bool {
@@ -84,6 +103,7 @@ fn looks_like_virtual_cable(device: &cpal::Device) -> bool {
             lower.contains("vb-audio")
                 || lower.contains("hi-fi cable")
                 || lower.contains("hifi cable")
+                || lower.contains("steam streaming speakers")
                 || lower.contains("omniphony")
                 || lower.contains("spatial")
         })
@@ -120,12 +140,12 @@ fn looks_like_virtual_cable(device: &cpal::Device) -> bool {
             return Ok(device);
         }
     }
-    bail!("no physical output was auto-detected; expected Dan Clark Noire X, FiiO, or a non-Omniphony Windows default")
+    bail!("no physical output was auto-detected; expected Dan Clark Noire X, FiiO, or a non-transport Windows default")
 '@
     $worker = Require-Replace $worker $oldChoice $newChoice 'personal physical-output preference'
     Write-Utf8Bom $workerPath $worker
 
-    Write-Host 'Prepared Omniphony for Windows host: Omniphony branding, hard self-output rejection, Dan Clark Noire X preference.'
+    Write-Host 'Prepared Omniphony for Windows host: Omniphony branding, explicit Dan Clark Noire X child output, and hard virtual-transport rejection.'
     exit 0
 }
 
