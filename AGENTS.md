@@ -19,7 +19,7 @@ current main HEAD
 1. Resolve `dissonance-git/Omniphony-Headphones` and record the current `main` commit before substantive work.
 2. Read `README.md` first because it owns the current listening model, retained baseline, active candidate, and frontier. Read this `AGENTS.md` from the same repository state for implementation and listening law.
 3. Inspect recent commits to see which candidate or repair is actively moving. Recent activity does not overrule the retained listening baseline or the current root documents.
-4. Hydrate only the task-relevant region. Do not pull in all of libaural, VGM Tooling, or Helix unless the work genuinely crosses those boundaries.
+4. Hydrate only the task-relevant region. Do not pull in all of deepSTRF, retired libaural provenance, VGM Tooling, or Helix unless the work genuinely crosses those boundaries.
 5. Before any GitHub replacement write, re-fetch current `main` and the exact target file. If `main` changed since preflight, re-read this file, refresh the README/frontier when relevant, and reconstruct the edit from current target content.
 6. Write against the exact current blob SHA. Preserve unrelated concurrent work. Never replace a file from a cached or reconstructed older copy.
 7. After publication, fetch the resulting commit, inspect its changed paths, and confirm the commit remains in current `main` history. Report publication, compile/tests, CI, measurements, and physical listening as separate evidence states.
@@ -38,17 +38,17 @@ For sound-changing work, the shortest valid path is normally `README.md` → rel
 
 ## Project instruction chain
 
-This repository is the independent implementation home for `project:omniphony`, which is tracked by Helix and is a child project of libaural.
+This repository is the independent implementation home for `project:omniphony`, which is tracked by Helix and consumes active artificial-hearing research from deepSTRF. The former libaural repository is retired provenance only.
 
 Before substantive work, read the current instruction chain in order:
 
 1. `dissonance-git/Helix/AGENTS.md` for the common operating law;
-2. `dissonance-git/libaural/AGENTS.md` for applicable parent-project research law;
+2. `dissonance-git/deepSTRF/AGENTS.md` from its active `develop` branch for applicable parent-project research law;
 3. this file for Omniphony-specific implementation and listening law.
 
 A child inherits only the parent laws that apply to its work. This file may specialize them where realtime rendering, listening authority, Windows integration, fidelity, or product constraints genuinely differ. Direct user instruction or correction outranks the entire chain.
 
-Do not copy Omniphony's implementation into Helix or libaural merely to make the connection visible, and do not copy parent machinery into this repository merely to inherit its design. Helix preserves project continuity and cross-project routes; libaural owns general artificial-hearing research; this repository remains canonical for Omniphony code, tests, builds, local implementation history, and releases.
+Do not copy Omniphony's implementation into Helix or deepSTRF merely to make the connection visible, and do not copy parent machinery into this repository merely to inherit its design. Helix preserves project continuity and cross-project routes; deepSTRF owns active general artificial-hearing research; retired libaural material is provenance only; this repository remains canonical for Omniphony code, tests, builds, local implementation history, and releases.
 
 ## Research gate
 
@@ -119,14 +119,14 @@ Physical listening outranks theory. Measurements and papers guide candidate mech
 
 When a build is clearly better, preserve it as a rollback point before pushing farther. If a new mechanism damages a winning invariant, revert the mechanism rather than lowering the invariant.
 
-## libaural relationship
+## deepSTRF relationship
 
-libaural is the parent research project for reusable auditory / machine-hearing mechanisms. Omniphony should import only small validated distinctions that improve the consumer renderer without replacing its working spatial core.
+deepSTRF is the active parent research project for reusable auditory / machine-hearing mechanisms. Omniphony should import only small validated distinctions that improve the consumer renderer without replacing its working spatial core. libaural is retained only as historical provenance for research that predates the consolidation.
 
 ```text
 Helix research machinery
         ↓
-libaural auditory research
+deepSTRF auditory research
         ↓
 small validated mechanisms
         ↓
