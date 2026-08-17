@@ -22,7 +22,8 @@ foreach ($path in @($apo, $ctl, $endpointCtl, $realtime, $realtimeSmoke, $apoSmo
     if (-not (Test-Path -LiteralPath $path)) { throw "Missing package file: $path" }
 }
 
-# Prove the extracted Rust ABI is internally coherent before changing Windows.
+# Prove both the identity oracle and Current worker can initialize before
+# changing the machine's registered APO path.
 & $realtimeSmoke $realtime
 if ($LASTEXITCODE -ne 0) {
     throw "Omniphony realtime ABI self-test failed before installation: $LASTEXITCODE"
@@ -33,8 +34,8 @@ Get-Process -Name Omniphony -ErrorAction SilentlyContinue | Stop-Process -Force 
 $register = Start-Process -FilePath $regsvr32 -ArgumentList @('/s', $apo) -Wait -PassThru
 if ($register.ExitCode -ne 0) { throw "APO COM registration failed: $($register.ExitCode)" }
 
-# Exercise COM activation, LockForProcess, the realtime bridge, APOProcess and
-# UnlockForProcess before attaching anything to the physical endpoint.
+# Exercise COM activation, Current-mode LockForProcess, the realtime bridge,
+# fixed-latency safety lane, APOProcess and UnlockForProcess before endpoint association.
 & $apoSmoke
 if ($LASTEXITCODE -ne 0) {
     Start-Process -FilePath $regsvr32 -ArgumentList @('/u', '/s', $apo) -Wait | Out-Null
@@ -61,7 +62,8 @@ Start-Sleep -Milliseconds 750
 if ($LASTEXITCODE -ne 0) { throw 'APO registry state did not survive Windows Audio restart.' }
 
 Write-Host ''
-Write-Host 'Omniphony identity APO is attached to the physical endpoint.'
-Write-Host 'The packaged realtime ABI and APO processing path passed their local self-tests first.'
-Write-Host 'The old Omniphony process was stopped. Do not relaunch that old build during this test.'
-Write-Host 'This build intentionally sounds bit-identical; its only job is to prove native APO attachment.'
+Write-Host 'Omniphony Current is attached to the physical endpoint.'
+Write-Host 'Current includes the primary Noire X personal output-EQ and right-ear correction profile.'
+Write-Host 'The native endpoint remains the Windows default; no Omniphony playback device is required.'
+Write-Host 'The realtime ABI and Current-mode APO lifecycle passed local self-tests before attachment.'
+Write-Host 'This is now an audible listening candidate. Physical listening decides whether it is retained.'

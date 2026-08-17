@@ -149,21 +149,22 @@ jobs:
           Copy-Item 'omniphony-renderer/windows_installer/endpoint_apo/Uninstall-OmniphonyAPO.ps1' $dist
           Copy-Item 'omniphony-renderer/windows_installer/endpoint_apo/README.md' $dist
           @"
-          Omniphony native endpoint APO identity bootstrap
+          Omniphony native endpoint APO Current listening candidate
           Source: $env:GITHUB_SHA
           Target: Windows 11 x64
           APO CLSID: {A9333BFE-39C1-40FD-B4B0-ECC591410B47}
-          Realtime ABI: 0.2
-          Processing: identity through omniphony_realtime.dll
-          Added APO latency: 0 hns
-          Failure behavior: deterministic in-APO identity fallback
+          Realtime ABI: 0.3
+          Processing: Current model + primary Noire X personal output correction
+          Current host latency: 40 ms / 1920 frames at 48 kHz
+          Failure behavior: time-aligned delayed-dry fallback
+          Final safety: retained stereo-linked -1.0 dBFS peak ceiling
           Physical endpoint association is intentionally not performed on CI.
           "@ | Set-Content -Encoding utf8 "$dist/BUILD-METADATA.txt"
 
       - name: Upload endpoint APO artifact
         uses: actions/upload-artifact@v4
         with:
-          name: omniphony-endpoint-apo-x64-${{ github.sha }}
+          name: omniphony-endpoint-apo-current-x64-${{ github.sha }}
           path: dist/Omniphony-Endpoint-APO
           if-no-files-found: error
           retention-days: 14

@@ -5,6 +5,9 @@
 //! callback only copies PCM into/out of preallocated SPSC rings; the existing
 //! allocating renderer never runs on the audio callback thread.
 
+mod noire_x_profile;
+
+use noire_x_profile::NoireXPersonalEq;
 use orender_engine::current_music_support::CurrentMusicSupportRenderer;
 use renderer::music_field::{MUSIC_FIELD_CHANNELS, MusicFieldProcessor};
 use renderer::music_foundation::MusicFoundationProcessor;
@@ -17,10 +20,11 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 const ABI_MAJOR: u32 = 0;
-const ABI_MINOR: u32 = 2;
+const ABI_MINOR: u32 = 3;
 const MODE_IDENTITY: u32 = 0;
 const MODE_CURRENT: u32 = 1;
 const PROCESS_BLOCK_MS: usize = 20;
+const CURRENT_HOST_LATENCY_MS: usize = 40;
 const RING_SECONDS: usize = 2;
 const FIELD_SUPPORT_GAIN: f32 = 1.0;
 const LINEAR_OUTPUT_GAIN: f32 = 0.90;
@@ -42,8 +46,6 @@ struct AudioRing {
     write: AtomicUsize,
 }
 
-// Exactly one producer and one consumer touch each ring. Indices publish cell
-// ownership with release/acquire ordering before the opposite side reads it.
 unsafe impl Send for AudioRing {}
 unsafe impl Sync for AudioRing {}
 
@@ -79,7 +81,6 @@ impl AudioRing {
         let write = self.write.load(Ordering::Relaxed);
         for i in 0..count {
             let slot = (write.wrapping_add(i)) % self.capacity;
-            // SAFETY: producer exclusively owns all unpublished write slots.
             unsafe { *self.cells[slot].get() = *input.add(i) };
         }
         self.write.store(write.wrapping_add(count), Ordering::Release);
@@ -87,7 +88,6 @@ impl AudioRing {
     }
 
     fn push_slice(&self, input: &[f32]) -> bool {
-        // SAFETY: the slice is valid for input.len() reads.
         unsafe { self.push_ptr(input.as_ptr(), input.len()) }
     }
 
@@ -101,7 +101,6 @@ impl AudioRing {
         let take = count.min(available);
         for i in 0..take {
             let slot = (read.wrapping_add(i)) % self.capacity;
-            // SAFETY: consumer exclusively owns all published unread slots.
             unsafe { *output.add(i) = *self.cells[slot].get() };
         }
         self.read.store(read.wrapping_add(take), Ordering::Release);
@@ -109,8 +108,19 @@ impl AudioRing {
     }
 
     fn pop_slice(&self, output: &mut [f32]) -> usize {
-        // SAFETY: the slice is valid for output.len() writes.
         unsafe { self.pop_ptr(output.as_mut_ptr(), output.len()) }
+    }
+
+    fn discard(&self, count: usize) -> usize {
+        let read = self.read.load(Ordering::Relaxed);
+        let available = self
+            .write
+            .load(Ordering::Acquire)
+            .wrapping_sub(read)
+            .min(self.capacity);
+        let take = count.min(available);
+        self.read.store(read.wrapping_add(take), Ordering::Release);
+        take
     }
 }
 
@@ -205,6 +215,7 @@ struct CurrentPipeline {
     support: CurrentMusicSupportRenderer,
     dry_fifo: VecDeque<f32>,
     foundation_fifo: VecDeque<f32>,
+    headphone_eq: NoireXPersonalEq,
     peak_guard: StereoLookaheadPeakGuard,
 }
 
@@ -217,6 +228,7 @@ impl CurrentPipeline {
                 .map_err(|error| error.to_string())?,
             dry_fifo: VecDeque::new(),
             foundation_fifo: VecDeque::new(),
+            headphone_eq: NoireXPersonalEq::new(sample_rate_hz),
             peak_guard: StereoLookaheadPeakGuard::new(sample_rate_hz),
         })
     }
@@ -262,9 +274,46 @@ impl CurrentPipeline {
                 let support = if support.is_finite() { support } else { 0.0 };
                 mixed.push((base + body + support * FIELD_SUPPORT_GAIN) * LINEAR_OUTPUT_GAIN);
             }
+
+            self.headphone_eq.process_interleaved(&mut mixed);
             out.extend(self.peak_guard.process_interleaved(&mixed));
         }
         Ok(out)
+    }
+}
+
+struct StereoDelay {
+    frames: Box<[[f32; 2]]>,
+    offset: usize,
+    filled: usize,
+}
+
+impl StereoDelay {
+    fn new(sample_rate_hz: u32) -> Self {
+        let delay_frames = ((sample_rate_hz as usize) * CURRENT_HOST_LATENCY_MS / 1000).max(1);
+        Self {
+            frames: vec![[0.0, 0.0]; delay_frames].into_boxed_slice(),
+            offset: 0,
+            filled: 0,
+        }
+    }
+
+    fn delay_frames(&self) -> usize {
+        self.frames.len()
+    }
+
+    fn push(&mut self, input: [f32; 2]) -> ([f32; 2], bool) {
+        let delayed = self.frames[self.offset];
+        self.frames[self.offset] = input;
+        self.offset += 1;
+        if self.offset == self.frames.len() {
+            self.offset = 0;
+        }
+        let primed = self.filled >= self.frames.len();
+        if self.filled < self.frames.len() {
+            self.filled += 1;
+        }
+        (delayed, primed)
     }
 }
 
@@ -275,6 +324,8 @@ struct AsyncCurrent {
     failed: Arc<AtomicBool>,
     processed_blocks: Arc<AtomicU64>,
     worker: Option<JoinHandle<()>>,
+    dry_delay: StereoDelay,
+    missed_current_frames: usize,
 }
 
 impl AsyncCurrent {
@@ -355,6 +406,8 @@ impl AsyncCurrent {
                 failed,
                 processed_blocks,
                 worker: Some(worker),
+                dry_delay: StereoDelay::new(sample_rate_hz),
+                missed_current_frames: 0,
             }),
             Ok(Err(error)) => {
                 stop.store(true, Ordering::Release);
@@ -369,24 +422,76 @@ impl AsyncCurrent {
         }
     }
 
+    fn latency_frames(&self) -> usize {
+        self.dry_delay.delay_frames()
+    }
+
     unsafe fn process_raw(
-        &self,
+        &mut self,
         input: *const f32,
         output: *mut f32,
         samples: usize,
     ) -> i32 {
-        if self.failed.load(Ordering::Acquire) {
+        if samples % 2 != 0 {
             return -10;
         }
-        // SAFETY: caller validated both pointers for `samples` elements.
-        if !unsafe { self.input.push_ptr(input, samples) } {
-            return -11;
+
+        let mut use_current = !self.failed.load(Ordering::Acquire);
+        if use_current {
+            if !unsafe { self.input.push_ptr(input, samples) } {
+                self.failed.store(true, Ordering::Release);
+                use_current = false;
+            }
         }
-        // SAFETY: caller validated output for `samples` elements.
-        let got = unsafe { self.output.pop_ptr(output, samples) };
-        for index in got..samples {
-            // Startup/rare worker underrun is silence, never stale memory.
-            unsafe { *output.add(index) = 0.0 };
+
+        let frame_count = samples / 2;
+        for frame in 0..frame_count {
+            let base = frame * 2;
+            let left = unsafe { *input.add(base) };
+            let right = unsafe { *input.add(base + 1) };
+            let (delayed, primed) = self.dry_delay.push([
+                if left.is_finite() { left } else { 0.0 },
+                if right.is_finite() { right } else { 0.0 },
+            ]);
+
+            let mut rendered = delayed;
+            if !primed {
+                rendered = [0.0, 0.0];
+            } else if use_current && !self.failed.load(Ordering::Acquire) {
+                while self.missed_current_frames > 0 && self.output.available() >= 2 {
+                    let discarded = self.output.discard(2);
+                    if discarded != 2 {
+                        break;
+                    }
+                    self.missed_current_frames -= 1;
+                }
+
+                if self.missed_current_frames == 0 && self.output.available() >= 2 {
+                    let mut current = [0.0f32; 2];
+                    let got = self.output.pop_slice(&mut current);
+                    if got == 2 {
+                        rendered = current;
+                    } else {
+                        self.missed_current_frames = self.missed_current_frames.saturating_add(1);
+                    }
+                } else {
+                    self.missed_current_frames = self.missed_current_frames.saturating_add(1);
+                }
+            }
+
+            rendered[0] = if rendered[0].is_finite() { rendered[0] } else { 0.0 };
+            rendered[1] = if rendered[1].is_finite() { rendered[1] } else { 0.0 };
+            let peak = rendered[0].abs().max(rendered[1].abs());
+            if peak > OUTPUT_CEILING {
+                let gain = OUTPUT_CEILING / peak;
+                rendered[0] *= gain;
+                rendered[1] *= gain;
+            }
+
+            unsafe {
+                *output.add(base) = rendered[0];
+                *output.add(base + 1) = rendered[1];
+            }
         }
         0
     }
@@ -500,6 +605,19 @@ pub unsafe extern "C" fn omniphony_realtime_processed_blocks(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn omniphony_realtime_latency_frames(
+    processor: *const OmniphonyRealtimeProcessor,
+) -> usize {
+    if processor.is_null() {
+        return 0;
+    }
+    match unsafe { &(*processor).mode } {
+        ProcessorMode::Identity => 0,
+        ProcessorMode::Current(current) => current.latency_frames(),
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn omniphony_realtime_reset(
     processor: *mut OmniphonyRealtimeProcessor,
 ) -> i32 {
@@ -526,7 +644,7 @@ pub unsafe extern "C" fn omniphony_realtime_process_f32(
     let Some(samples) = frames.checked_mul(processor.channels as usize) else {
         return -3;
     };
-    match &processor.mode {
+    match &mut processor.mode {
         ProcessorMode::Identity => {
             unsafe { ptr::copy(input, output, samples) };
             0
@@ -613,5 +731,30 @@ mod tests {
             assert_eq!(omniphony_realtime_process_f32(processor, std::ptr::null(), std::ptr::null_mut(), 0), 0);
             omniphony_realtime_destroy(processor);
         }
+    }
+
+    #[test]
+    fn current_reports_fixed_host_latency() {
+        let cfg = config();
+        unsafe {
+            let processor = omniphony_realtime_create(&cfg);
+            assert!(!processor.is_null());
+            assert_eq!(omniphony_realtime_latency_frames(processor), 0);
+            assert_eq!(omniphony_realtime_set_mode(processor, MODE_CURRENT), 0);
+            assert_eq!(omniphony_realtime_latency_frames(processor), 1_920);
+            omniphony_realtime_destroy(processor);
+        }
+    }
+
+    #[test]
+    fn aligned_dry_delay_primes_at_exact_frame_budget() {
+        let mut delay = StereoDelay::new(48_000);
+        for frame in 0..1_920 {
+            let (_, primed) = delay.push([frame as f32, -(frame as f32)]);
+            assert!(!primed);
+        }
+        let (delayed, primed) = delay.push([9_999.0, -9_999.0]);
+        assert!(primed);
+        assert_eq!(delayed, [0.0, -0.0]);
     }
 }

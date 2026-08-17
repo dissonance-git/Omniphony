@@ -11,7 +11,7 @@ extern "C" {
 #endif
 
 #define OMNIPHONY_REALTIME_ABI_MAJOR 0
-#define OMNIPHONY_REALTIME_ABI_MINOR 2
+#define OMNIPHONY_REALTIME_ABI_MINOR 3
 
 #define OMNIPHONY_REALTIME_MODE_IDENTITY 0u
 #define OMNIPHONY_REALTIME_MODE_CURRENT 1u
@@ -41,16 +41,25 @@ uint32_t omniphony_realtime_mode(
 uint64_t omniphony_realtime_processed_blocks(
     const OmniphonyRealtimeProcessor *processor);
 
+/*
+ * Fixed host delay, in frames, for the active processing mode. Identity is 0.
+ * Current uses a bounded delayed-dry safety lane so worker underruns never turn
+ * into time-shifted immediate dry audio.
+ */
+size_t omniphony_realtime_latency_frames(
+    const OmniphonyRealtimeProcessor *processor);
+
 int32_t omniphony_realtime_reset(OmniphonyRealtimeProcessor *processor);
 
 /*
  * Process interleaved float32 PCM. Input/output may alias for in-place audio
  * processing. Returns 0 on success and a negative error code for invalid input.
  *
- * Mode 0 is exact identity and is the deterministic transport oracle used while
- * native Windows APO integration is proven. Mode 1 runs the retained stereo
- * Current model on a dedicated worker thread; the host callback itself only
- * copies PCM through preallocated SPSC rings.
+ * Mode 0 is exact identity and remains the deterministic transport oracle.
+ * Mode 1 runs the retained stereo Current model on a dedicated worker thread;
+ * the host callback itself only performs bounded PCM movement through
+ * preallocated rings. Current includes the primary listener's separate Noire X
+ * output-correction profile before the retained final linked peak guard.
  */
 int32_t omniphony_realtime_process_f32(
     OmniphonyRealtimeProcessor *processor,

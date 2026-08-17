@@ -39,7 +39,7 @@ public:
 
     bool start(UINT32 sampleRateHz, UINT32 channels) noexcept {
         shutdown();
-        if (sampleRateHz == 0 || channels == 0 || !g_module) {
+        if (sampleRateHz == 0 || channels != 2 || !g_module) {
             return false;
         }
 
@@ -66,8 +66,10 @@ public:
         create_ = resolve<CreateFn>("omniphony_realtime_create");
         destroy_ = resolve<DestroyFn>("omniphony_realtime_destroy");
         setMode_ = resolve<SetModeFn>("omniphony_realtime_set_mode");
+        latencyFrames_ = resolve<LatencyFramesFn>("omniphony_realtime_latency_frames");
         process_ = resolve<ProcessFn>("omniphony_realtime_process_f32");
-        if (!abiMajor_ || !abiMinor_ || !create_ || !destroy_ || !setMode_ || !process_) {
+        if (!abiMajor_ || !abiMinor_ || !create_ || !destroy_ || !setMode_ ||
+            !latencyFrames_ || !process_) {
             shutdown();
             return false;
         }
@@ -83,10 +85,19 @@ public:
             shutdown();
             return false;
         }
-        if (setMode_(processor_, OMNIPHONY_REALTIME_MODE_IDENTITY) != 0) {
+        if (setMode_(processor_, OMNIPHONY_REALTIME_MODE_CURRENT) != 0) {
             shutdown();
             return false;
         }
+
+        const size_t latencyFrames = latencyFrames_(processor_);
+        if (latencyFrames > static_cast<size_t>(std::numeric_limits<HNSTIME>::max() / 10'000'000LL)) {
+            shutdown();
+            return false;
+        }
+        latencyHns_ = static_cast<HNSTIME>(
+            (static_cast<unsigned long long>(latencyFrames) * 10'000'000ULL) /
+            static_cast<unsigned long long>(sampleRateHz));
         return true;
     }
 
@@ -97,16 +108,22 @@ public:
         return process_(processor_, input, output, frames) == 0;
     }
 
+    HNSTIME latencyHns() const noexcept {
+        return latencyHns_;
+    }
+
     void shutdown() noexcept {
         if (processor_ && destroy_) {
             destroy_(processor_);
         }
         processor_ = nullptr;
+        latencyHns_ = 0;
         abiMajor_ = nullptr;
         abiMinor_ = nullptr;
         create_ = nullptr;
         destroy_ = nullptr;
         setMode_ = nullptr;
+        latencyFrames_ = nullptr;
         process_ = nullptr;
         if (module_) {
             FreeLibrary(module_);
@@ -119,6 +136,7 @@ private:
     using CreateFn = OmniphonyRealtimeProcessor* (*)(const OmniphonyRealtimeConfig*);
     using DestroyFn = void (*)(OmniphonyRealtimeProcessor*);
     using SetModeFn = int32_t (*)(OmniphonyRealtimeProcessor*, uint32_t);
+    using LatencyFramesFn = size_t (*)(const OmniphonyRealtimeProcessor*);
     using ProcessFn = int32_t (*)(OmniphonyRealtimeProcessor*, const float*, float*, size_t);
 
     template <typename T>
@@ -128,11 +146,13 @@ private:
 
     HMODULE module_ = nullptr;
     OmniphonyRealtimeProcessor* processor_ = nullptr;
+    HNSTIME latencyHns_ = 0;
     AbiFn abiMajor_ = nullptr;
     AbiFn abiMinor_ = nullptr;
     CreateFn create_ = nullptr;
     DestroyFn destroy_ = nullptr;
     SetModeFn setMode_ = nullptr;
+    LatencyFramesFn latencyFrames_ = nullptr;
     ProcessFn process_ = nullptr;
 };
 
@@ -291,7 +311,9 @@ public:
         if (!latency) {
             return E_POINTER;
         }
-        *latency = 0;
+        *latency = InterlockedCompareExchange(&realtimeEligible_, 0, 0) != 0
+            ? realtime_.latencyHns()
+            : 0;
         return S_OK;
     }
 
@@ -344,13 +366,36 @@ public:
             output->u32ValidFrameCount = frames;
             break;
         }
-        case BUFFER_SILENT:
+        case BUFFER_SILENT: {
+            if (!outputBuffer && bytes != 0) {
+                output->u32BufferFlags = BUFFER_INVALID;
+                output->u32ValidFrameCount = 0;
+                break;
+            }
+
             if (outputBuffer && bytes != 0) {
                 std::memset(outputBuffer, 0, bytes);
             }
-            output->u32BufferFlags = BUFFER_SILENT;
+
+            bool processed = false;
+            if (frames != 0 && outputBuffer &&
+                InterlockedCompareExchange(&realtimeEligible_, 0, 0) != 0) {
+                // BUFFER_SILENT does not guarantee readable input memory. Feed the
+                // pre-zeroed output buffer in-place so Current keeps its worker
+                // timeline and can emit delayed tails safely.
+                processed = realtime_.process(
+                    static_cast<const float*>(outputBuffer),
+                    static_cast<float*>(outputBuffer),
+                    frames);
+                if (!processed) {
+                    InterlockedExchange(&realtimeEligible_, 0);
+                }
+            }
+
+            output->u32BufferFlags = processed ? BUFFER_VALID : BUFFER_SILENT;
             output->u32ValidFrameCount = frames;
             break;
+        }
         default:
             output->u32BufferFlags = BUFFER_INVALID;
             output->u32ValidFrameCount = 0;

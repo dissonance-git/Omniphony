@@ -4,10 +4,14 @@
 #include <audiomediatype.h>
 #include <ksmedia.h>
 
+#include <algorithm>
 #include <array>
+#include <chrono>
+#include <cmath>
 #include <cstdint>
-#include <cstring>
 #include <iostream>
+#include <thread>
+#include <vector>
 #include <wrl/client.h>
 
 using Microsoft::WRL::ComPtr;
@@ -15,6 +19,7 @@ using Microsoft::WRL::ComPtr;
 namespace {
 constexpr GUID kOmniphonyApoClsid = {
     0xa9333bfe, 0x39c1, 0x40fd, {0xb4, 0xb0, 0xec, 0xc5, 0x91, 0x41, 0x0b, 0x47}};
+constexpr HNSTIME kExpectedCurrentLatencyHns = 400000; // 40 ms
 
 int ExerciseProcessing(
     IAudioProcessingObject* apo,
@@ -49,14 +54,13 @@ int ExerciseProcessing(
         return 7;
     }
 
-    constexpr UINT32 kFrames = 4;
-    alignas(16) std::array<float, kFrames * 2> input = {
-        0.0f, -0.25f,
-        0.5f, 1.0f,
-        -1.0f, 0.125f,
-        -0.75f, 0.875f,
-    };
-    alignas(16) std::array<float, kFrames * 2> output = {};
+    constexpr UINT32 kFrames = 960; // one 20 ms Current worker block at 48 kHz
+    std::vector<float> input(kFrames * 2);
+    std::vector<float> output(kFrames * 2);
+    for (UINT32 frame = 0; frame < kFrames; ++frame) {
+        input[frame * 2] = 0.035f;
+        input[frame * 2 + 1] = -0.020f;
+    }
 
     APO_CONNECTION_DESCRIPTOR inputDescriptor = {};
     inputDescriptor.Type = APO_CONNECTION_BUFFER_TYPE_EXTERNAL;
@@ -84,9 +88,15 @@ int ExerciseProcessing(
     }
 
     int result = 0;
-    if (GetModuleHandleW(L"omniphony_realtime.dll") == nullptr) {
-        std::wcerr << L"APO_REALTIME_BRIDGE_NOT_RESIDENT" << std::endl;
+    HNSTIME latency = -1;
+    hr = apo->GetLatency(&latency);
+    if (FAILED(hr) || latency != kExpectedCurrentLatencyHns) {
+        std::wcerr << L"APO_CURRENT_LATENCY_FAILED\tHR=0x" << std::hex << hr
+                   << L"\tLATENCY=" << std::dec << latency << std::endl;
         result = 9;
+    } else if (GetModuleHandleW(L"omniphony_realtime.dll") == nullptr) {
+        std::wcerr << L"APO_REALTIME_BRIDGE_NOT_RESIDENT" << std::endl;
+        result = 10;
     } else {
         APO_CONNECTION_PROPERTY inputProperty = {};
         inputProperty.pBuffer = reinterpret_cast<UINT_PTR>(input.data());
@@ -96,30 +106,47 @@ int ExerciseProcessing(
 
         APO_CONNECTION_PROPERTY outputProperty = {};
         outputProperty.pBuffer = reinterpret_cast<UINT_PTR>(output.data());
-        outputProperty.u32ValidFrameCount = 0;
-        outputProperty.u32BufferFlags = BUFFER_INVALID;
         outputProperty.u32Signature = APO_CONNECTION_PROPERTY_SIGNATURE;
 
         APO_CONNECTION_PROPERTY* inputProperties[] = {&inputProperty};
         APO_CONNECTION_PROPERTY* outputProperties[] = {&outputProperty};
 
-        std::wcout << L"SMOKE_STAGE\tPROCESS_BEGIN" << std::endl;
-        rt->APOProcess(1, inputProperties, 1, outputProperties);
-        std::wcout << L"SMOKE_STAGE\tPROCESS_END" << std::endl;
+        bool sawNonSilent = false;
+        for (int pass = 0; pass < 8; ++pass) {
+            std::fill(output.begin(), output.end(), 0.0f);
+            outputProperty.u32ValidFrameCount = 0;
+            outputProperty.u32BufferFlags = BUFFER_INVALID;
+            rt->APOProcess(1, inputProperties, 1, outputProperties);
 
-        if (outputProperty.u32BufferFlags != BUFFER_VALID ||
-            outputProperty.u32ValidFrameCount != kFrames) {
-            std::wcerr << L"APO_PROCESS_METADATA_FAILED\tFLAGS="
-                       << outputProperty.u32BufferFlags << L"\tFRAMES="
-                       << outputProperty.u32ValidFrameCount << std::endl;
-            result = 10;
-        } else if (std::memcmp(input.data(), output.data(), sizeof(input)) != 0) {
-            std::wcerr << L"APO_PROCESS_NOT_BIT_EXACT" << std::endl;
-            result = 11;
-        } else {
+            if (outputProperty.u32BufferFlags != BUFFER_VALID ||
+                outputProperty.u32ValidFrameCount != kFrames) {
+                std::wcerr << L"APO_PROCESS_METADATA_FAILED\tFLAGS="
+                           << outputProperty.u32BufferFlags << L"\tFRAMES="
+                           << outputProperty.u32ValidFrameCount << std::endl;
+                result = 11;
+                break;
+            }
+            if (!std::all_of(output.begin(), output.end(), [](float sample) {
+                    return std::isfinite(sample);
+                })) {
+                std::wcerr << L"APO_PROCESS_NONFINITE" << std::endl;
+                result = 12;
+                break;
+            }
+            sawNonSilent = sawNonSilent || std::any_of(output.begin(), output.end(), [](float sample) {
+                return std::abs(sample) > 1.0e-6f;
+            });
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        if (result == 0 && !sawNonSilent) {
+            std::wcerr << L"APO_CURRENT_NEVER_EMITTED_PCM" << std::endl;
+            result = 13;
+        } else if (result == 0) {
             std::wcout << L"APO_PROCESS_OK\tFRAMES=" << kFrames
-                       << L"\tCHANNELS=2\tFORMAT=float32\tBIT_EXACT=1\tREALTIME_DLL_RESIDENT=1"
-                       << std::endl;
+                       << L"\tCHANNELS=2\tFORMAT=float32\tMODE=current"
+                       << L"\tLATENCY_HNS=" << kExpectedCurrentLatencyHns
+                       << L"\tREALTIME_DLL_RESIDENT=1" << std::endl;
         }
     }
 
@@ -128,7 +155,7 @@ int ExerciseProcessing(
     std::wcout << L"SMOKE_STAGE\tUNLOCK_END\t0x" << std::hex << unlockHr << std::endl;
     if (FAILED(unlockHr) && result == 0) {
         std::wcerr << L"APO_UNLOCK_FAILED\t0x" << std::hex << unlockHr << std::endl;
-        result = 12;
+        result = 14;
     }
     return result;
 }
@@ -148,7 +175,7 @@ int ExerciseUnsupportedPcm16Contract(
         &format, mediaType.ReleaseAndGetAddressOf());
     if (FAILED(hr)) {
         std::wcerr << L"APO_PCM16_MEDIA_TYPE_FAILED\t0x" << std::hex << hr << std::endl;
-        return 13;
+        return 15;
     }
 
     constexpr UINT32 kFrames = 4;
@@ -189,11 +216,11 @@ int ExerciseUnsupportedPcm16Contract(
                        << std::endl;
         }
         std::wcerr << L"APO_PCM16_UNEXPECTEDLY_ACCEPTED" << std::endl;
-        return 14;
+        return 16;
     }
 
     std::wcerr << L"APO_PCM16_WRONG_REJECTION\t0x" << std::hex << hr << std::endl;
-    return 15;
+    return 17;
 }
 } // namespace
 
@@ -220,31 +247,20 @@ int wmain() {
             ComPtr<IAudioProcessingObjectConfiguration> configuration;
             ComPtr<IAudioSystemEffects> effects;
 
-            std::wcout << L"SMOKE_STAGE\tQI_RT_BEGIN" << std::endl;
             const HRESULT rtHr = apo.As(&rt);
-            std::wcout << L"SMOKE_STAGE\tQI_RT_END\t0x" << std::hex << rtHr << std::endl;
-
-            std::wcout << L"SMOKE_STAGE\tQI_CFG_BEGIN" << std::endl;
             const HRESULT cfgHr = apo.As(&configuration);
-            std::wcout << L"SMOKE_STAGE\tQI_CFG_END\t0x" << std::hex << cfgHr << std::endl;
-
-            std::wcout << L"SMOKE_STAGE\tQI_FX_BEGIN" << std::endl;
             const HRESULT fxHr = apo.As(&effects);
-            std::wcout << L"SMOKE_STAGE\tQI_FX_END\t0x" << std::hex << fxHr << std::endl;
 
             if (FAILED(rtHr) || FAILED(cfgHr) || FAILED(fxHr)) {
                 std::wcerr << L"APO_INTERFACE_FAILED\tRT=0x" << std::hex << rtHr
                            << L"\tCFG=0x" << cfgHr << L"\tFX=0x" << fxHr << std::endl;
                 result = 4;
             } else {
-                HNSTIME latency = -1;
-                std::wcout << L"SMOKE_STAGE\tLATENCY_BEGIN" << std::endl;
-                hr = apo->GetLatency(&latency);
-                std::wcout << L"SMOKE_STAGE\tLATENCY_END\t0x" << std::hex << hr
-                           << L"\t" << std::dec << latency << std::endl;
-                if (FAILED(hr) || latency != 0) {
-                    std::wcerr << L"APO_LATENCY_FAILED\tHR=0x" << std::hex << hr
-                               << L"\tLATENCY=" << std::dec << latency << std::endl;
+                HNSTIME preLockLatency = -1;
+                hr = apo->GetLatency(&preLockLatency);
+                if (FAILED(hr) || preLockLatency != 0) {
+                    std::wcerr << L"APO_PRELOCK_LATENCY_FAILED\tHR=0x" << std::hex << hr
+                               << L"\tLATENCY=" << std::dec << preLockLatency << std::endl;
                     result = 5;
                 } else {
                     result = ExerciseProcessing(apo.Get(), rt.Get(), configuration.Get());
@@ -253,8 +269,8 @@ int wmain() {
                     }
                     if (result == 0) {
                         std::wcout << L"APO_COM_OK\tCLSID={A9333BFE-39C1-40FD-B4B0-ECC591410B47}"
-                                   << L"\tLATENCY_HNS=0\tPROCESSING_SMOKE=1\tPCM16_REJECT=1"
-                                   << std::endl;
+                                   << L"\tMODE=current\tLATENCY_HNS=" << kExpectedCurrentLatencyHns
+                                   << L"\tPROCESSING_SMOKE=1\tPCM16_REJECT=1" << std::endl;
                     }
                 }
             }

@@ -1,12 +1,12 @@
-# Omniphony native endpoint APO bootstrap
+# Omniphony native endpoint APO Current candidate
 
-This package proves the Windows integration layer before the Current Omniphony model is allowed to become audible inside it.
+This package is the first **audible** native Windows endpoint-APO build of the retained Omniphony Current model.
 
 ## What this build is
 
-`OmniphonyAPO.dll` is a real Windows Audio Processing Object hosted by the Windows audio engine. In this bootstrap it remains intentionally **identity-only**: valid float PCM is copied bit-for-bit, silent buffers remain silent, and the APO reports zero added latency.
+`OmniphonyAPO.dll` is a real Windows Audio Processing Object hosted by the Windows audio engine on the physical render endpoint. It does not create or require an Omniphony playback device.
 
-The identity path is now split across the same boundary intended for the finished renderer:
+The processing boundary is:
 
 ```text
 Windows audio engine / audiodg
@@ -15,18 +15,68 @@ OmniphonyAPO.dll
         ↓ cached realtime ABI call
 omniphony_realtime.dll
         ↓
-identity today / Current worker later
+bounded delayed-dry safety lane
++ dedicated Current worker
+        ↓
+protected master + foundation + spatial support
+        ↓
+primary Noire X personal output correction
+        ↓
+retained final linked peak guard
+        ↓
+physical FiiO / Noire X endpoint
 ```
 
-The Rust realtime DLL is loaded, ABI-checked and instantiated during `LockForProcess`, never from `APOProcess`. The realtime callback uses only cached state and bounded PCM operations. If the Rust identity call becomes unavailable, the APO falls back to native in-process identity rather than dropping or corrupting the buffer.
+Mode 0 remains exact identity inside the portable realtime ABI as a deterministic transport oracle. The endpoint APO now selects **mode 1 / Current** for supported stereo float32 graphs.
 
-The Current model is already present behind realtime ABI mode 1 and runs on a dedicated worker with preallocated SPSC rings. It is **not enabled by this endpoint package yet**. Keeping the first physical test identity-only separates Windows attachment failures from DSP/latency failures.
+## Personal output correction
 
-The test therefore still answers one question only:
+The Current renderer's public foundation EQ and the listener's headphone correction are separate layers.
 
-> Can Windows load the Omniphony APO on the physical FiiO / Dan Clark playback endpoint, keep the normal physical endpoint as default, and carry real playback through the native APO path without creating another playback device?
+This personal development package includes the primary Noire X correction profile after the Omniphony spatial/master sum and before the final peak guard:
 
-A successful first hardware test is expected to sound unchanged.
+```text
+shared preamp     -4.0 dB
+15 Hz high-pass   Q 0.6
+45 Hz low shelf   +3.5 dB Q 0.5
+30 Hz peak        +1.2 dB Q 0.8
+85 Hz peak        +2.0 dB Q 0.65
+155 Hz peak       +1.3 dB Q 0.75
+240 Hz peak       -0.2 dB Q 0.9
+420 Hz peak       +0.8 dB Q 0.7
+700 Hz peak       +0.8 dB Q 0.8
+1.2 kHz peak      +0.9 dB Q 0.7
+1.9 kHz peak      +0.5 dB Q 0.8
+2.8 kHz peak      -0.6 dB Q 0.6
+3.8 kHz peak      -2.2 dB Q 0.9
+4.8 kHz peak      -2.6 dB Q 1.1
+6.2 kHz peak      -0.9 dB Q 1.3
+7.2 kHz high shelf -1.8 dB Q 0.7
+
+right only
+preamp            -0.4 dB
+180 Hz peak        -0.3 dB Q 0.9
+3.0 kHz peak       -1.1 dB Q 1.0
+6.2 kHz high shelf -0.3 dB Q 0.7
+delay               0.02 ms
+```
+
+The biquad implementation independently matches the RBJ/Q/corner-frequency semantics used by the former Equalizer APO profile. `0.02 ms` rounds to one right-channel sample at 48 kHz, matching Equalizer APO's integer-sample delay behavior. Equalizer APO itself is not a dependency.
+
+This profile is a listener-specific layer and **not** the public/default Omniphony tuning.
+
+## Fixed-latency safety lane
+
+Current rendering remains off the Windows realtime callback. The callback only performs bounded copies into/out of preallocated rings.
+
+The endpoint build reports a fixed **40 ms** host delay. The same delay is continuously maintained for a dry safety lane. During startup, output is silent until that timeline is primed. After priming:
+
+- normal case: aligned Current PCM is emitted;
+- transient worker underrun: the matching delayed dry frame is emitted instead;
+- late Current frames corresponding to missed deadlines are discarded before Current resumes;
+- worker/ring failure: the APO remains on the aligned delayed-dry path instead of jumping to immediate dry or stale PCM.
+
+This is intentionally conservative for the first physical Current test. Latency can be reduced only after hardware timing measurements show a smaller budget is stable.
 
 ## Safety boundary
 
@@ -36,10 +86,10 @@ A successful first hardware test is expected to sound unchanged.
 - no `DisableProtectedAudioDG` change;
 - the installer refuses to overwrite a different existing EFX APO;
 - detach removes the EFX value only when it belongs to Omniphony;
-- if the EFX processing-mode value did not exist before attachment, Omniphony removes only the value it created;
-- DLL loading, ABI resolution, processor creation and teardown occur outside `APOProcess`;
-- the identity realtime callback does not allocate, log, sleep, access files, or touch the registry;
-- Current stays disabled until its worker latency/fallback contract is ready and the identity APO has been physically proven.
+- DLL loading, ABI resolution, Current-worker construction and teardown occur outside `APOProcess`;
+- `APOProcess` does not allocate, log, sleep, access files, launch processes, discover devices, or touch the registry;
+- identity mode remains bit-exact inside the ABI for transport regression tests;
+- final Current peak safety remains after the personal EQ.
 
 Stable APO CLSID:
 
@@ -47,25 +97,23 @@ Stable APO CLSID:
 {A9333BFE-39C1-40FD-B4B0-ECC591410B47}
 ```
 
-## Install on the test machine
+## Install / update on the test machine
 
-Extract the **whole artifact** into one directory. Open **PowerShell as Administrator** in that directory and run:
+Extract the **whole artifact** into one directory and keep that directory in place during this test. Open **PowerShell as Administrator** there and run:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\Install-OmniphonyAPO.ps1
 ```
 
-Before touching the endpoint, the installer now runs two local fail-fast checks:
+Before touching the endpoint, the installer runs two local fail-fast checks:
 
-1. `OmniphonyRealtimeSmoke.exe` dynamically loads `omniphony_realtime.dll`, checks ABI compatibility, and verifies exact identity PCM.
-2. After COM registration, `OmniphonyApoSmoke.exe` activates the APO and exercises its normal configure/process lifecycle before endpoint association.
+1. `OmniphonyRealtimeSmoke.exe` loads `omniphony_realtime.dll`, verifies ABI 0.3, exact identity mode, Current initialization, and the 40 ms latency contract.
+2. `OmniphonyApoSmoke.exe` activates the COM APO and exercises Current-mode configure/process/unlock behavior before endpoint association.
 
-Only after those pass does the script stop the old Omniphony build, attach the APO to the physical output, restore the physical FiiO / Noire endpoint as the Windows default, restart Windows Audio, and verify the attachment survived the restart.
+Only after those pass does the script attach the APO to the physical output, restore the physical FiiO / Noire endpoint as Windows default, restart Windows Audio, and verify that association survived the restart.
 
-Then check Windows Sound. The physical FiiO / Dan Clark endpoint should be the default playback device. You should **not** need to select an `Omniphony` playback endpoint for this test.
-
-Normal audio should still play and should sound unchanged because the APO is identity-only.
+Then play normal stereo audio through `Dan Clark Noire X (FiiO Q series)`. You should **not** select an `Omniphony` playback endpoint.
 
 For diagnostics:
 
@@ -74,9 +122,16 @@ For diagnostics:
 .\OmniphonyApoCtl.exe status
 ```
 
+Expected association:
+
+```text
+EFX     {A9333BFE-39C1-40FD-B4B0-ECC591410B47}
+ENHANCEMENTS_DISABLED   0
+```
+
 If installation reports `EXISTING_EFX`, stop and preserve the output. Omniphony deliberately refuses to replace another endpoint effect.
 
-If installation reports `FX_WRITE` with access denied, preserve that output too. Some endpoint registry keys use tighter ACLs; the bounded repair is an Omniphony-owned installer step for writable FX properties, not a reason to weaken Windows security globally.
+If installation reports `FX_WRITE` with access denied, preserve that output too. Do not weaken Windows security globally.
 
 ## Remove
 
@@ -92,13 +147,12 @@ Keep these separate:
 
 ```text
 APO builds
-≠ realtime ABI identity self-test succeeds
+≠ realtime ABI Current tests pass
 ≠ COM registration/activation succeeds
-≠ LockForProcess → APOProcess → UnlockForProcess succeeds
 ≠ physical endpoint accepts the EFX association
 ≠ audiodg loads it for real playback
-≠ identity audio is stable on the physical machine
-≠ Current Omniphony DSP is ready to become audible in the APO
+≠ Current PCM is stable on the physical machine
+≠ Current + personal EQ is preferred in physical listening
 ```
 
-The bootstrap is promoted only after the physical-machine attachment result is known.
+The endpoint association has already been physically proven on the primary FiiO/Noire endpoint. This package promotes the **audible Current renderer** to the next physical listening gate. Listening success is not claimed until the listener reports it.
