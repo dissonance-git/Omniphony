@@ -4,6 +4,8 @@
 #include <audioengineextensionapo.h>
 #include <BaseAudioProcessingObject.h>
 
+#include "omniphony_realtime.h"
+
 #include <cstring>
 #include <new>
 #include <string>
@@ -23,6 +25,115 @@ public:
     virtual ULONG STDMETHODCALLTYPE NonDelegatingRelease() = 0;
 };
 
+class RealtimeBridge final {
+public:
+    RealtimeBridge() = default;
+    RealtimeBridge(const RealtimeBridge&) = delete;
+    RealtimeBridge& operator=(const RealtimeBridge&) = delete;
+
+    ~RealtimeBridge() {
+        shutdown();
+    }
+
+    bool start(UINT32 sampleRateHz, UINT32 channels) noexcept {
+        shutdown();
+        if (sampleRateHz == 0 || channels == 0 || !g_module) {
+            return false;
+        }
+
+        wchar_t modulePath[MAX_PATH] = {};
+        const DWORD length = GetModuleFileNameW(g_module, modulePath, MAX_PATH);
+        if (length == 0 || length >= MAX_PATH) {
+            return false;
+        }
+        std::wstring realtimePath(modulePath, length);
+        const size_t separator = realtimePath.find_last_of(L"\\/");
+        if (separator == std::wstring::npos) {
+            return false;
+        }
+        realtimePath.resize(separator + 1);
+        realtimePath.append(L"omniphony_realtime.dll");
+
+        module_ = LoadLibraryW(realtimePath.c_str());
+        if (!module_) {
+            return false;
+        }
+
+        abiMajor_ = resolve<AbiFn>("omniphony_realtime_abi_major");
+        abiMinor_ = resolve<AbiFn>("omniphony_realtime_abi_minor");
+        create_ = resolve<CreateFn>("omniphony_realtime_create");
+        destroy_ = resolve<DestroyFn>("omniphony_realtime_destroy");
+        setMode_ = resolve<SetModeFn>("omniphony_realtime_set_mode");
+        process_ = resolve<ProcessFn>("omniphony_realtime_process_f32");
+        if (!abiMajor_ || !abiMinor_ || !create_ || !destroy_ || !setMode_ || !process_) {
+            shutdown();
+            return false;
+        }
+        if (abiMajor_() != OMNIPHONY_REALTIME_ABI_MAJOR ||
+            abiMinor_() < OMNIPHONY_REALTIME_ABI_MINOR) {
+            shutdown();
+            return false;
+        }
+
+        const OmniphonyRealtimeConfig config{sampleRateHz, channels};
+        processor_ = create_(&config);
+        if (!processor_) {
+            shutdown();
+            return false;
+        }
+        if (setMode_(processor_, OMNIPHONY_REALTIME_MODE_IDENTITY) != 0) {
+            shutdown();
+            return false;
+        }
+        return true;
+    }
+
+    bool process(const float* input, float* output, size_t frames) const noexcept {
+        if (!processor_ || !process_ || !input || !output) {
+            return false;
+        }
+        return process_(processor_, input, output, frames) == 0;
+    }
+
+    void shutdown() noexcept {
+        if (processor_ && destroy_) {
+            destroy_(processor_);
+        }
+        processor_ = nullptr;
+        abiMajor_ = nullptr;
+        abiMinor_ = nullptr;
+        create_ = nullptr;
+        destroy_ = nullptr;
+        setMode_ = nullptr;
+        process_ = nullptr;
+        if (module_) {
+            FreeLibrary(module_);
+            module_ = nullptr;
+        }
+    }
+
+private:
+    using AbiFn = uint32_t (*)();
+    using CreateFn = OmniphonyRealtimeProcessor* (*)(const OmniphonyRealtimeConfig*);
+    using DestroyFn = void (*)(OmniphonyRealtimeProcessor*);
+    using SetModeFn = int32_t (*)(OmniphonyRealtimeProcessor*, uint32_t);
+    using ProcessFn = int32_t (*)(OmniphonyRealtimeProcessor*, const float*, float*, size_t);
+
+    template <typename T>
+    T resolve(const char* name) const noexcept {
+        return module_ ? reinterpret_cast<T>(GetProcAddress(module_, name)) : nullptr;
+    }
+
+    HMODULE module_ = nullptr;
+    OmniphonyRealtimeProcessor* processor_ = nullptr;
+    AbiFn abiMajor_ = nullptr;
+    AbiFn abiMinor_ = nullptr;
+    CreateFn create_ = nullptr;
+    DestroyFn destroy_ = nullptr;
+    SetModeFn setMode_ = nullptr;
+    ProcessFn process_ = nullptr;
+};
+
 class OmniphonyAPO final : public CBaseAudioProcessingObject,
                            public IAudioSystemEffects,
                            public INonDelegatingUnknown {
@@ -37,6 +148,8 @@ public:
     }
 
     ~OmniphonyAPO() override {
+        InterlockedExchange(&realtimeEligible_, 0);
+        realtime_.shutdown();
         InterlockedDecrement(&instanceCount);
     }
 
@@ -103,6 +216,54 @@ public:
         return S_OK;
     }
 
+    HRESULT STDMETHODCALLTYPE LockForProcess(
+        UINT32 inputCount,
+        APO_CONNECTION_DESCRIPTOR** inputs,
+        UINT32 outputCount,
+        APO_CONNECTION_DESCRIPTOR** outputs) override {
+        InterlockedExchange(&realtimeEligible_, 0);
+        realtime_.shutdown();
+
+        const HRESULT hr = CBaseAudioProcessingObject::LockForProcess(
+            inputCount, inputs, outputCount, outputs);
+        if (FAILED(hr)) {
+            return hr;
+        }
+
+        if (inputCount != 1 || outputCount != 1 || !inputs || !outputs ||
+            !inputs[0] || !outputs[0] || !inputs[0]->pFormat || !outputs[0]->pFormat) {
+            return S_OK;
+        }
+
+        UNCOMPRESSEDAUDIOFORMAT inputFormat = {};
+        UNCOMPRESSEDAUDIOFORMAT outputFormat = {};
+        if (FAILED(inputs[0]->pFormat->GetUncompressedAudioFormat(&inputFormat)) ||
+            FAILED(outputs[0]->pFormat->GetUncompressedAudioFormat(&outputFormat))) {
+            return S_OK;
+        }
+
+        if (inputFormat.dwSamplesPerFrame == 0 ||
+            inputFormat.dwSamplesPerFrame != outputFormat.dwSamplesPerFrame ||
+            inputFormat.dwBytesPerSampleContainer != sizeof(float) ||
+            outputFormat.dwBytesPerSampleContainer != sizeof(float) ||
+            inputFormat.fFramesPerSecond <= 0.0f ||
+            inputFormat.fFramesPerSecond != outputFormat.fFramesPerSecond) {
+            return S_OK;
+        }
+
+        const auto sampleRateHz = static_cast<UINT32>(inputFormat.fFramesPerSecond + 0.5f);
+        if (realtime_.start(sampleRateHz, inputFormat.dwSamplesPerFrame)) {
+            InterlockedExchange(&realtimeEligible_, 1);
+        }
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE UnlockForProcess() override {
+        InterlockedExchange(&realtimeEligible_, 0);
+        realtime_.shutdown();
+        return CBaseAudioProcessingObject::UnlockForProcess();
+    }
+
     HRESULT STDMETHODCALLTYPE GetLatency(HNSTIME* latency) override {
         if (!latency) {
             return E_POINTER;
@@ -125,20 +286,36 @@ public:
         const UINT32 frames = input->u32ValidFrameCount;
         const size_t samples = static_cast<size_t>(frames) * GetSamplesPerFrame();
         const size_t bytes = samples * sizeof(float);
-        auto* inputBuffer = reinterpret_cast<const void*>(input->pBuffer);
-        auto* outputBuffer = reinterpret_cast<void*>(output->pBuffer);
+        auto* inputBuffer = reinterpret_cast<const float*>(input->pBuffer);
+        auto* outputBuffer = reinterpret_cast<float*>(output->pBuffer);
 
         switch (input->u32BufferFlags) {
-        case BUFFER_VALID:
-            if (output->pBuffer != input->pBuffer && bytes != 0) {
+        case BUFFER_VALID: {
+            if ((!inputBuffer || !outputBuffer) && bytes != 0) {
+                output->u32BufferFlags = BUFFER_INVALID;
+                output->u32ValidFrameCount = 0;
+                break;
+            }
+
+            bool processed = false;
+            if (frames != 0 &&
+                InterlockedCompareExchange(&realtimeEligible_, 0, 0) != 0) {
+                processed = realtime_.process(inputBuffer, outputBuffer, frames);
+                if (!processed) {
+                    InterlockedExchange(&realtimeEligible_, 0);
+                }
+            }
+
+            if (!processed && output->pBuffer != input->pBuffer && bytes != 0) {
                 std::memmove(outputBuffer, inputBuffer, bytes);
             }
             output->u32BufferFlags = BUFFER_VALID;
             output->u32ValidFrameCount = frames;
             break;
+        }
         case BUFFER_SILENT:
             if (output->pBuffer && bytes != 0) {
-                std::memset(outputBuffer, 0, bytes);
+                std::memset(output->pBuffer, 0, bytes);
             }
             output->u32BufferFlags = BUFFER_SILENT;
             output->u32ValidFrameCount = frames;
@@ -162,7 +339,9 @@ public:
 
 private:
     volatile LONG references_ = 1;
+    volatile LONG realtimeEligible_ = 0;
     IUnknown* outer_ = nullptr;
+    RealtimeBridge realtime_;
 };
 
 volatile LONG OmniphonyAPO::instanceCount = 0;
