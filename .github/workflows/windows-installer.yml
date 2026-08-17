@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/windows-installer.yml'
       - 'layouts/system-h-derived-22.0-upper60-grid10.yaml'
+      - 'omniphony-renderer/.cargo/**'
       - 'omniphony-renderer/windows_installer/**'
       - 'omniphony-renderer/renderer/**'
       - 'omniphony-renderer/orender_engine/**'
@@ -104,7 +105,7 @@ jobs:
           $helper = "$env:GITHUB_WORKSPACE\omniphony\omniphony-renderer\windows_installer\build\endpoint_ctl\OmniphonyEndpointCtl.exe"
           if (-not (Test-Path $helper)) { throw "OmniphonyEndpointCtl.exe was not produced: $helper" }
 
-      - name: Verify protected AudioDG packaging contract
+      - name: Verify APO manifest contract
         shell: pwsh
         run: |
           $dll = (Resolve-Path "$env:GITHUB_WORKSPACE\build\apo\Release\OmniphonyAPO.dll").Path
@@ -142,7 +143,7 @@ jobs:
           if ($stderr) { Write-Host "mt.exe probe: $($stderr.Trim())" }
 
           if ($mtExit -eq 0 -or (Test-Path $probe)) {
-            throw 'OmniphonyAPO.dll contains an embedded manifest; protected AudioDG can reject it.'
+            throw 'OmniphonyAPO.dll contains an embedded manifest; AudioDG deployment can reject it.'
           }
           Write-Host "APO_MANIFEST_OK embedded=0 mt_exit=$mtExit"
 
@@ -199,7 +200,7 @@ jobs:
           Copy-Item $endpointCtl $support -Force
           Copy-Item "$env:GITHUB_WORKSPACE\omniphony\LICENSE" "$payload\LICENSE" -Force
 
-          Write-Host 'Installed product target:'
+          Write-Host 'Installed development product target:'
           Write-Host '  Omniphony\APO\OmniphonyAPO.dll'
           Write-Host '  Omniphony\APO\omniphony_realtime.dll'
           Write-Host '  Omniphony\support\{minimal helpers}'
@@ -230,7 +231,7 @@ jobs:
           Write-Host "OmniphonySetup.exe SHA256=$hash"
           Get-Item $setup | Format-List FullName, Length, LastWriteTimeUtc
 
-      - name: Upload single EXE installer
+      - name: Upload single EXE development installer
         uses: actions/upload-artifact@v4
         with:
           name: omniphony-for-windows-apo-setup-${{ github.sha }}
