@@ -1,0 +1,88 @@
+; Omniphony for Windows production APO component package template.
+;
+; This file intentionally installs only the APO software component. A separate
+; audio-driver extension must AddComponent for VEN_OMNI&CID_CURRENT on the
+; intended physical audio driver. Do not invent that association here.
+;
+; Windows 11 21H2+ production APO packages use Class=AudioProcessingObject and
+; driver-package-isolated HKR registration. The development Inno installer is a
+; separate bring-up path and must not be treated as this package.
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = AudioProcessingObject
+ClassGuid   = {5989fce8-9cd0-467d-8a6a-5419e31529d4}
+Provider    = %ProviderName%
+DriverVer   = 08/17/2026,0.0.4.0
+CatalogFile = OmniphonyApo.cat
+PnpLockDown = 1
+
+[Manufacturer]
+%MfgName% = ApoComponents,NTamd64.10.0...22000
+
+[ApoComponents.NTamd64.10.0...22000]
+%Apo.ComponentDesc% = ApoComponent_Install,SWC\VEN_OMNI&CID_CURRENT
+
+[ApoComponent_Install]
+CopyFiles = Apo_CopyFiles
+AddReg    = Apo_AddReg
+
+[Apo_CopyFiles]
+OmniphonyAPO.dll
+omniphony_realtime.dll
+
+[Apo_AddReg]
+; Driver-package-isolated COM registration.
+HKR,Classes\CLSID\%OMNIPHONY_APO_CLSID%,,,%Apo.FriendlyName%
+HKR,Classes\CLSID\%OMNIPHONY_APO_CLSID%\InProcServer32,,0x00020000,%13%\OmniphonyAPO.dll
+HKR,Classes\CLSID\%OMNIPHONY_APO_CLSID%\InProcServer32,ThreadingModel,,"Both"
+
+; Audio-engine APO registration mirrors the runtime CRegAPO contract.
+HKR,AudioEngine\AudioProcessingObjects\%OMNIPHONY_APO_CLSID%,FriendlyName,,%Apo.FriendlyName%
+HKR,AudioEngine\AudioProcessingObjects\%OMNIPHONY_APO_CLSID%,Copyright,,%Copyright%
+HKR,AudioEngine\AudioProcessingObjects\%OMNIPHONY_APO_CLSID%,MajorVersion,0x00010001,1
+HKR,AudioEngine\AudioProcessingObjects\%OMNIPHONY_APO_CLSID%,MinorVersion,0x00010001,0
+HKR,AudioEngine\AudioProcessingObjects\%OMNIPHONY_APO_CLSID%,Flags,0x00010001,15
+HKR,AudioEngine\AudioProcessingObjects\%OMNIPHONY_APO_CLSID%,MinInputConnections,0x00010001,1
+HKR,AudioEngine\AudioProcessingObjects\%OMNIPHONY_APO_CLSID%,MaxInputConnections,0x00010001,1
+HKR,AudioEngine\AudioProcessingObjects\%OMNIPHONY_APO_CLSID%,MinOutputConnections,0x00010001,1
+HKR,AudioEngine\AudioProcessingObjects\%OMNIPHONY_APO_CLSID%,MaxOutputConnections,0x00010001,1
+HKR,AudioEngine\AudioProcessingObjects\%OMNIPHONY_APO_CLSID%,MaxInstances,0x00010001,0xffffffff
+HKR,AudioEngine\AudioProcessingObjects\%OMNIPHONY_APO_CLSID%,NumAPOInterfaces,0x00010001,1
+HKR,AudioEngine\AudioProcessingObjects\%OMNIPHONY_APO_CLSID%,APOInterface0,,%APO_INTERFACE_SYSTEM_EFFECTS%
+
+[ApoComponent_Install.HW]
+AddReg = FriendlyName_AddReg
+
+[FriendlyName_AddReg]
+HKR,,FriendlyName,,%Apo.ComponentDesc%
+
+[ApoComponent_Install.Services]
+AddService = ,2 ; null function driver for the software component
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+OmniphonyAPO.dll        = 1
+omniphony_realtime.dll  = 1
+
+[DestinationDirs]
+Apo_CopyFiles = 13 ; DriverStore package directory
+
+[SignatureAttributes]
+OmniphonyAPO.dll       = SignatureAttributes.PETrust
+omniphony_realtime.dll = SignatureAttributes.PETrust
+
+[SignatureAttributes.PETrust]
+PETrust = true
+
+[Strings]
+ProviderName                 = "Omniphony downstream fork"
+MfgName                      = "Omniphony"
+Apo.ComponentDesc            = "Omniphony Current Audio Processing Object"
+Apo.FriendlyName             = "Omniphony Endpoint APO"
+Copyright                    = "Omniphony downstream fork"
+DiskName                     = "Omniphony APO package"
+OMNIPHONY_APO_CLSID          = "{A9333BFE-39C1-40FD-B4B0-ECC591410B47}"
+APO_INTERFACE_SYSTEM_EFFECTS = "{FD7F2B29-24D0-4B5C-B177-592C39F9CA10}"
