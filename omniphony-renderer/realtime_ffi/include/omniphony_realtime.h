@@ -11,7 +11,10 @@ extern "C" {
 #endif
 
 #define OMNIPHONY_REALTIME_ABI_MAJOR 0
-#define OMNIPHONY_REALTIME_ABI_MINOR 1
+#define OMNIPHONY_REALTIME_ABI_MINOR 2
+
+#define OMNIPHONY_REALTIME_MODE_IDENTITY 0u
+#define OMNIPHONY_REALTIME_MODE_CURRENT 1u
 
 typedef struct OmniphonyRealtimeProcessor OmniphonyRealtimeProcessor;
 
@@ -28,15 +31,26 @@ OmniphonyRealtimeProcessor *omniphony_realtime_create(
 
 void omniphony_realtime_destroy(OmniphonyRealtimeProcessor *processor);
 
+int32_t omniphony_realtime_set_mode(
+    OmniphonyRealtimeProcessor *processor,
+    uint32_t mode);
+
+uint32_t omniphony_realtime_mode(
+    const OmniphonyRealtimeProcessor *processor);
+
+uint64_t omniphony_realtime_processed_blocks(
+    const OmniphonyRealtimeProcessor *processor);
+
 int32_t omniphony_realtime_reset(OmniphonyRealtimeProcessor *processor);
 
 /*
  * Process interleaved float32 PCM. Input/output may alias for in-place audio
  * processing. Returns 0 on success and a negative error code for invalid input.
  *
- * ABI minor 1 is deliberately exact identity. Native Windows integration can
- * prove transport, callback and failure behavior against this oracle before the
- * protected Omniphony binaural renderer is attached behind the same boundary.
+ * Mode 0 is exact identity and is the deterministic transport oracle used while
+ * native Windows APO integration is proven. Mode 1 runs the retained stereo
+ * Current model on a dedicated worker thread; the host callback itself only
+ * copies PCM through preallocated SPSC rings.
  */
 int32_t omniphony_realtime_process_f32(
     OmniphonyRealtimeProcessor *processor,
