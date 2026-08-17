@@ -12,10 +12,16 @@ permissions:
   contents: read
 
 jobs:
-  native-apo:
-    name: Probe native APO targets
+  native-target:
+    name: Probe ${{ matrix.target }}
     runs-on: windows-2022
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - OmniphonyAPO
+          - OmniphonyMixProbe
 
     steps:
       - name: Checkout
@@ -40,26 +46,8 @@ jobs:
                 -A x64
           if ($LASTEXITCODE -ne 0) { throw "APO CMake configure failed: $LASTEXITCODE" }
 
-      - name: Build OmniphonyAPO
+      - name: Build target
         shell: pwsh
-        run: cmake --build "$env:GITHUB_WORKSPACE\build\apo" --config Release --target OmniphonyAPO
-
-      - name: Build OmniphonyApoCtl
-        if: always()
-        shell: pwsh
-        run: cmake --build "$env:GITHUB_WORKSPACE\build\apo" --config Release --target OmniphonyApoCtl
-
-      - name: Build OmniphonyApoSmoke
-        if: always()
-        shell: pwsh
-        run: cmake --build "$env:GITHUB_WORKSPACE\build\apo" --config Release --target OmniphonyApoSmoke
-
-      - name: Build OmniphonyRealtimeSmoke
-        if: always()
-        shell: pwsh
-        run: cmake --build "$env:GITHUB_WORKSPACE\build\apo" --config Release --target OmniphonyRealtimeSmoke
-
-      - name: Build OmniphonyMixProbe
-        if: always()
-        shell: pwsh
-        run: cmake --build "$env:GITHUB_WORKSPACE\build\apo" --config Release --target OmniphonyMixProbe
+        run: |
+          cmake --build "$env:GITHUB_WORKSPACE\build\apo" --config Release --target "${{ matrix.target }}"
+          if ($LASTEXITCODE -ne 0) { throw "${{ matrix.target }} build failed: $LASTEXITCODE" }
