@@ -1,10 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
+cmake_policy(SET CMP0091 NEW)
 project(OmniphonyEndpointApo LANGUAGES CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "The Omniphony endpoint APO is Windows-only.")
 endif()
 
+# Keep the shipped APO/helpers independent of the Visual C++ redistributable.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set(OMNIPHONY_REALTIME_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/../../realtime_ffi/include")
 
 add_library(OmniphonyAPO SHARED
