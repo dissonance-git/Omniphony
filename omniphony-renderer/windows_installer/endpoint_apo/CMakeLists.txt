@@ -24,7 +24,7 @@ target_link_libraries(OmniphonyAPO PRIVATE ole32 uuid advapi32 audioeng AudioBas
 target_link_options(OmniphonyAPO PRIVATE /MANIFEST:NO)
 set_target_properties(OmniphonyAPO PROPERTIES PREFIX "" OUTPUT_NAME "OmniphonyAPO")
 
-add_executable(OmniphonyApoCtl OmniphonyApoCtl.cpp)
+add_executable(OmniphonyApoCtl OmniphonyApoCtlAcl.cpp)
 target_compile_features(OmniphonyApoCtl PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonyApoCtl PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_options(OmniphonyApoCtl PRIVATE /W4 /WX /permissive-)
