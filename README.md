@@ -52,12 +52,18 @@ FINISHED STEREO MASTER
                └→ temporal stability
                          │
                          ▼
-                derived 7.1.4 support
+             CANONICAL 8.1.4.4 SCENE
+             17 semantic lanes
+             L R C LFE Ls Rs Lb Rb Cb
+             Tfl Tfr Tbl Tbr Bfl Bfr Bbl Bbr
                          │
-                         ├→ coherent elevation transfer
+                         ├→ stereo inference populates only earned lanes
+                         ├→ C / LFE / Cb / lower remain EMPTY
+                         └→ coherent elevation transfer
+                         │
                          ▼
-             OMNIPHONY SPEAKER STAGE
-             full-sphere virtual world
+             CURRENT 22-DIRECTION SHELL
+             System-H-derived full-sphere lattice
                          │
                          ▼
                CASCADED BINAURAL
@@ -82,6 +88,8 @@ FINISHED STEREO MASTER
                          ▼
                      headphones
 ```
+
+The **8.1.4.4 scene is the foundational product vocabulary**. The 22-direction shell is an internal expansion/rendering lattice above it, not a replacement scene format.
 
 The protected master does **not** pass through the virtual room.
 
@@ -141,7 +149,8 @@ This is a listening candidate, not yet a demonstrated improvement.
 The Current model replaces the original lightweight analytic first-order reflection panner with a bounded measured-HRTF field:
 
 ```text
-12 derived support lanes
+canonical 17-lane 8.1.4.4 scene
+(stereo Current populates only evidence-backed lanes)
         ↓
 lane-local transient evidence
         ↓
@@ -296,13 +305,13 @@ Current support policy is approximately:
 >5 kHz         slower-moving, reduced support
 ```
 
-The current 7.1.4 evidence order is:
+The canonical 8.1.4.4 scene order is:
 
 ```text
-L R C LFE Ls Rs Lb Rb Tfl Tfr Tbl Tbr
+L R C LFE Ls Rs Lb Rb Cb Tfl Tfr Tbl Tbr Bfl Bfr Bbl Bbr
 ```
 
-C and LFE remain silent in the inferred stereo support bed.
+For stereo-derived Current support, C, LFE, Cb and all four lower anchors remain EMPTY. The scene vocabulary is still 17 lanes so richer authored ingress can fill those positions without changing renderer architecture.
 
 Height is presentation permission, not recovered source metadata. A stereo recording can justify an external spatial presentation, but it cannot prove that a particular guitar, cymbal or voice was authored above or behind the listener.
 
