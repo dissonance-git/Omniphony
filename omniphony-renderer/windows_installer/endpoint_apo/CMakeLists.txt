@@ -5,6 +5,8 @@ if(NOT WIN32)
     message(FATAL_ERROR "The Omniphony endpoint APO is Windows-only.")
 endif()
 
+set(OMNIPHONY_REALTIME_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/../../realtime_ffi/include")
+
 add_library(OmniphonyAPO SHARED
     OmniphonyAPO.cpp
     OmniphonyAPO.def
@@ -12,6 +14,7 @@ add_library(OmniphonyAPO SHARED
 target_compile_features(OmniphonyAPO PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonyAPO PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_options(OmniphonyAPO PRIVATE /W4 /WX /permissive-)
+target_include_directories(OmniphonyAPO PRIVATE "${OMNIPHONY_REALTIME_INCLUDE}")
 target_link_libraries(OmniphonyAPO PRIVATE ole32 uuid advapi32 audioeng AudioBaseProcessingObject legacy_stdio_definitions audiomediatypecrt)
 set_target_properties(OmniphonyAPO PROPERTIES PREFIX "" OUTPUT_NAME "OmniphonyAPO")
 
@@ -26,3 +29,9 @@ target_compile_features(OmniphonyApoSmoke PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonyApoSmoke PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_options(OmniphonyApoSmoke PRIVATE /W4 /WX /permissive-)
 target_link_libraries(OmniphonyApoSmoke PRIVATE ole32 uuid audioeng)
+
+add_executable(OmniphonyRealtimeSmoke OmniphonyRealtimeSmoke.cpp)
+target_compile_features(OmniphonyRealtimeSmoke PRIVATE cxx_std_17)
+target_compile_definitions(OmniphonyRealtimeSmoke PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_compile_options(OmniphonyRealtimeSmoke PRIVATE /W4 /WX /permissive-)
+target_include_directories(OmniphonyRealtimeSmoke PRIVATE "${OMNIPHONY_REALTIME_INCLUDE}")
