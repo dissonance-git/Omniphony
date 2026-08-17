@@ -3,13 +3,21 @@
 //! This is deliberately separate from Omniphony's public Current-model foundation.
 //! The coefficients independently implement the same RBJ biquad / shelf-corner
 //! semantics used by the listener's former Equalizer APO profile. No Equalizer APO
-//! runtime dependency is required.
+//! runtime dependency is required. The correction is optional and defaults on to
+//! preserve the established primary listening profile; the Windows tray can switch
+//! it live without changing the Current spatial renderer.
 
+use std::env;
 use std::f64::consts::PI;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 const GLOBAL_PREAMP_DB: f64 = -4.0;
 const RIGHT_PREAMP_DB: f64 = -0.4;
 const RIGHT_DELAY_MS: f64 = 0.02;
+const SETTING_POLL_MS: u64 = 500;
+const SETTING_FILE_NAME: &str = "personal-eq.txt";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FilterKind {
@@ -198,6 +206,10 @@ impl SampleDelay {
 }
 
 pub(crate) struct NoireXPersonalEq {
+    sample_rate_hz: u32,
+    enabled: bool,
+    setting_path: PathBuf,
+    last_setting_check: Instant,
     global_gain: f32,
     right_gain: f32,
     shared: Vec<[Biquad; 2]>,
@@ -207,22 +219,41 @@ pub(crate) struct NoireXPersonalEq {
 
 impl NoireXPersonalEq {
     pub(crate) fn new(sample_rate_hz: u32) -> Self {
+        let setting_path = personal_eq_setting_path();
+        let enabled = read_personal_eq_enabled(&setting_path);
         Self {
+            sample_rate_hz,
+            enabled,
+            setting_path,
+            last_setting_check: Instant::now(),
             global_gain: db_to_gain(GLOBAL_PREAMP_DB),
             right_gain: db_to_gain(RIGHT_PREAMP_DB),
-            shared: SHARED_FILTERS
-                .iter()
-                .map(|&spec| [Biquad::new(spec, sample_rate_hz), Biquad::new(spec, sample_rate_hz)])
-                .collect(),
-            right_only: RIGHT_FILTERS
-                .iter()
-                .map(|&spec| Biquad::new(spec, sample_rate_hz))
-                .collect(),
+            shared: build_shared_filters(sample_rate_hz),
+            right_only: build_right_filters(sample_rate_hz),
             right_delay: SampleDelay::new(sample_rate_hz, RIGHT_DELAY_MS),
         }
     }
 
+    fn refresh_enabled(&mut self) {
+        if self.last_setting_check.elapsed() < Duration::from_millis(SETTING_POLL_MS) {
+            return;
+        }
+        self.last_setting_check = Instant::now();
+        let enabled = read_personal_eq_enabled(&self.setting_path);
+        if enabled != self.enabled {
+            self.enabled = enabled;
+            self.shared = build_shared_filters(self.sample_rate_hz);
+            self.right_only = build_right_filters(self.sample_rate_hz);
+            self.right_delay = SampleDelay::new(self.sample_rate_hz, RIGHT_DELAY_MS);
+        }
+    }
+
     pub(crate) fn process_interleaved(&mut self, samples: &mut [f32]) {
+        self.refresh_enabled();
+        if !self.enabled {
+            return;
+        }
+
         for frame in samples.chunks_exact_mut(2) {
             let mut left = finite_or_zero(frame[0]) * self.global_gain;
             let mut right = finite_or_zero(frame[1]) * self.global_gain;
@@ -244,6 +275,37 @@ impl NoireXPersonalEq {
     }
 }
 
+fn build_shared_filters(sample_rate_hz: u32) -> Vec<[Biquad; 2]> {
+    SHARED_FILTERS
+        .iter()
+        .map(|&spec| [Biquad::new(spec, sample_rate_hz), Biquad::new(spec, sample_rate_hz)])
+        .collect()
+}
+
+fn build_right_filters(sample_rate_hz: u32) -> Vec<Biquad> {
+    RIGHT_FILTERS
+        .iter()
+        .map(|&spec| Biquad::new(spec, sample_rate_hz))
+        .collect()
+}
+
+fn personal_eq_setting_path() -> PathBuf {
+    let root = env::var_os("ProgramData")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
+    root.join("Omniphony").join(SETTING_FILE_NAME)
+}
+
+fn parse_personal_eq_enabled(text: &str) -> bool {
+    !matches!(text.trim().to_ascii_lowercase().as_str(), "0" | "off" | "false" | "disabled")
+}
+
+fn read_personal_eq_enabled(path: &Path) -> bool {
+    fs::read_to_string(path)
+        .map(|text| parse_personal_eq_enabled(&text))
+        .unwrap_or(true)
+}
+
 fn db_to_gain(db: f64) -> f32 {
     10.0f64.powf(db / 20.0) as f32
 }
@@ -257,6 +319,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn setting_parser_defaults_to_enabled_semantics() {
+        assert!(parse_personal_eq_enabled("1"));
+        assert!(parse_personal_eq_enabled("on"));
+        assert!(parse_personal_eq_enabled("anything-else"));
+        assert!(!parse_personal_eq_enabled("0"));
+        assert!(!parse_personal_eq_enabled("OFF"));
+        assert!(!parse_personal_eq_enabled("false"));
+    }
+
+    #[test]
     fn right_compensation_delay_matches_equalizer_apo_rounding_at_48k() {
         let delay = SampleDelay::new(48_000, RIGHT_DELAY_MS);
         assert_eq!(delay.len(), 1);
@@ -265,6 +337,7 @@ mod tests {
     #[test]
     fn right_channel_is_delayed_while_left_is_immediate() {
         let mut profile = NoireXPersonalEq::new(48_000);
+        profile.enabled = true;
         let mut impulse = vec![0.0f32; 16];
         impulse[0] = 1.0;
         impulse[1] = 1.0;
@@ -298,6 +371,7 @@ mod tests {
     #[test]
     fn hot_profile_processing_remains_finite() {
         let mut profile = NoireXPersonalEq::new(48_000);
+        profile.enabled = true;
         let mut samples = vec![4.0f32; 48_000 * 2 / 10];
         profile.process_interleaved(&mut samples);
         assert!(samples.iter().all(|sample| sample.is_finite()));
