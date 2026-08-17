@@ -1,0 +1,4 @@
+LIBRARY "OmniphonySpatialProbe"
+EXPORTS
+    DllGetClassObject
+    DllCanUnloadNow

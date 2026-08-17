@@ -7,6 +7,7 @@ endif()
 
 add_library(OmniphonySpatialProbe SHARED
     OmniphonySpatialProbe.cpp
+    OmniphonySpatialProbe.def
 )
 target_compile_features(OmniphonySpatialProbe PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonySpatialProbe PRIVATE UNICODE _UNICODE)

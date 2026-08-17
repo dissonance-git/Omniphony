@@ -121,8 +121,7 @@ private:
 
 } // namespace
 
-extern "C" __declspec(dllexport) HRESULT __stdcall DllGetClassObject(
-    REFCLSID clsid, REFIID riid, void** object) {
+STDAPI DllGetClassObject(REFCLSID clsid, REFIID riid, LPVOID* object) {
     if (!object) {
         return E_POINTER;
     }
@@ -140,7 +139,7 @@ extern "C" __declspec(dllexport) HRESULT __stdcall DllGetClassObject(
     return result;
 }
 
-extern "C" __declspec(dllexport) HRESULT __stdcall DllCanUnloadNow() {
+STDAPI DllCanUnloadNow() {
     return g_liveReferences == 0 ? S_OK : S_FALSE;
 }
 
