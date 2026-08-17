@@ -29,6 +29,7 @@ jobs:
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
           rustup override set "$RUST_TOOLCHAIN"
+          rustup component add rustfmt --toolchain "$RUST_TOOLCHAIN"
 
       - name: Port upstream exact cache without replacing fork behavior
         shell: bash
