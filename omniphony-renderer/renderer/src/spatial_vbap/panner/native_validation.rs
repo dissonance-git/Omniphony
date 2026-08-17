@@ -287,6 +287,8 @@ fn current_headphone_shell_is_continuous_across_triplet_boundaries() {
 }
 
 /// The wide matrix: every shipped layout at a denser lattice, plus spread.
+/// The former MDAP spread-energy deferral is intentionally live here: the
+/// current virtual-pole/downmix path now preserves the ±0.25 dB contract.
 /// Compiled only with `--features wide-matrix`.
 ///
 /// `SpeakerLayout::preset` exposes `stereo`, `5.1`, `7.1`, `7.1.4` and `9.1.6`;
@@ -294,7 +296,6 @@ fn current_headphone_shell_is_continuous_across_triplet_boundaries() {
 /// covers the surround presets that `panner_for` can actually build.
 #[cfg(feature = "wide-matrix")]
 #[test]
-#[ignore = "engine misses this: MDAP spread does not conserve energy — 5.1 spread=0.25 is -3.0090 dB at az=-75.1 el=67.5, target ±0.25 dB. Distinct from pole coverage, which is now fixed. Tracked deferral, see docs/dsp-validation-report.md"]
 fn vbap_conserves_energy_over_the_sphere_wide() {
     const WIDE_POINTS: usize = 8192;
     for preset in ["5.1", "7.1", "7.1.4", "9.1.6"] {
