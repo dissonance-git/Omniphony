@@ -1103,10 +1103,15 @@ impl SpatialRenderer {
     /// to route their metering (ears vs speakers) without guessing from the
     /// channel count (a 2.0 speaker layout is also 2-channel).
     pub fn output_is_binaural(&self) -> bool {
-        matches!(
-            self.active_output_mode,
-            crate::live_params::OutputMode::Binaural
-        )
+        let mode = if self.has_rendered_frame {
+            self.active_output_mode
+        } else {
+            // Hosts may seed embedded/live configuration after construction.
+            // Before any PCM exists there is no active frame geometry to
+            // preserve, so queries must reflect the requested initial mode.
+            self.control.live.read().binaural.output_mode
+        };
+        matches!(mode, crate::live_params::OutputMode::Binaural)
     }
 
     /// The virtual-speaker bus of the last cascaded frame, when the cascaded
@@ -1173,7 +1178,14 @@ impl SpatialRenderer {
     /// (headphone) mode, otherwise the speaker count. Hosts must size their sink
     /// and `RenderedAudio` from this, not from [`num_speakers`](Self::num_speakers).
     pub fn output_channel_count(&self) -> usize {
-        match self.active_output_mode {
+        let mode = if self.has_rendered_frame {
+            self.active_output_mode
+        } else {
+            // Configuration is still allowed to settle before the first frame.
+            // Once rendering begins, the active/fading mode owns geometry.
+            self.control.live.read().binaural.output_mode
+        };
+        match mode {
             crate::live_params::OutputMode::Binaural => 2,
             crate::live_params::OutputMode::SpeakerArray => self.num_speakers,
         }
