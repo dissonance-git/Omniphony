@@ -1,466 +1,375 @@
-# Omniphony practical rendering plan
+# Headphone rendering research and validation map
 
-> **Scope:** renderer experiments and the path to a real Windows listening build.
+> **Scope:** research obligations for improving Omniphony's headphone presentation without replacing the protected musical baseline.
 >
-> The root `README.md` owns product intent and roadmap priority. This document must not grow into a second master plan.
+> The root `README.md` owns product identity. This document turns research into testable renderer obligations.
 
-The central engineering fact is simple:
+The practical principle is:
 
-> **Upstream Omniphony already provides a strong perceptual starting point. Renderer research exists to preserve and selectively improve that sound while the fork becomes a native Windows replacement for the current HeSuVi pipeline.**
+> **Research earns mechanisms only when they solve an isolated perceptual or fidelity problem without damaging the recording underneath them.**
 
-General artificial-hearing research belongs in `libaural`, but Omniphony is not blocked on libaural and does not need to rebuild itself around it.
+Omniphony is not a blank-sheet binaural engine. The inherited renderer and the retained Current listening path are protected starting points.
 
 ---
 
-## 1. Practical target
+## 1. Current architecture under study
 
 ```text
-ordinary Windows stereo
+finished stereo master
+        │
+        ├→ protected direct master
+        ├→ coherent foundation
+        └→ stereo evidence
+              ↓
+       canonical 8.1.4.4 scene
+              ↓
+       22-direction Current shell
+              ↓
+       cascaded binaural render
+              ↓
+       directional early field
+              ↓
+       bounded late closure
+              ↓
+master + foundation + support
+              ↓
+          headphones
+```
+
+Research should target a named link in this chain. It should not silently redefine the whole chain.
+
+---
+
+## 2. Perceptual obligations are not one axis
+
+The literature is much easier to apply when the problem is decomposed.
+
+### Externalization
+
+Question:
+
+> Does the sound appear outside the head at a plausible distance?
+
+Externalization is not identical to localization accuracy. A source can point in a plausible direction and still feel trapped near or inside the head.
+
+### Localization
+
+Question:
+
+> Is direction stable and discriminable, including front/back and elevation?
+
+### Timbre
+
+Question:
+
+> Did spatial processing preserve spectral identity rather than buying space with coloration?
+
+### Envelopment
+
+Question:
+
+> Does the environment surround the listener without smearing direct material?
+
+### Motion consistency
+
+Question:
+
+> Does the scene behave like a world rather than a pattern glued to the head or callback blocks?
+
+### Musical fidelity
+
+Question:
+
+> Did the rendering preserve center authority, transients, bass timing, dynamics and hierarchy?
+
+A candidate must state which obligation it is trying to improve.
+
+---
+
+## 3. Externalization evidence
+
+### Front and rear are hard cases
+
+Binaural research repeatedly identifies frontal and rear externalization as difficult, particularly with non-individualized HRTFs.
+
+This supports the Current development choice to treat **front scale / center directness** as its own frontier instead of assuming that adding more surround energy will solve it.
+
+### Room cues are useful but must be binaurally meaningful
+
+Catic, Santurette & Dau (2015) found that the interaction between direct and reverberant interaural cues strongly affects externalization, with frontal sources requiring more binaural reflection information than lateral sources in their tests.
+
+DOI: `10.1121/1.4928132`
+
+Leclère, Lavandier & Perrin (2019) found a close relationship between externalization and binaural cues, especially interaural coherence, and reported that reverberation helped when it introduced useful interaural differences.
+
+DOI: `10.1121/1.5128325`
+
+Engineering consequence:
+
+```text
+do not optimize room energy alone
+optimize direct + reflection cue relationship
+```
+
+This supports Omniphony's directional early-field architecture over a generic "more reverb" strategy.
+
+---
+
+## 4. Head motion evidence
+
+Brimijoin, Boyd & Akeroyd (2013) reported substantially stronger externalization when virtual sources behaved as world-stable rather than moving with the listener's head.
+
+DOI: `10.1371/journal.pone.0083068`
+
+Hendrickx et al. (2017) likewise reported substantial externalization improvements from head-tracked motion, especially for frontal and rear sources using non-individualized HRTFs.
+
+DOI: `10.1121/1.4978612`
+
+Algazi & Duda (2008) also frame dynamic head cues as an important part of practical binaural reproduction.
+
+DOI: `10.1109/ISM.2008.38`
+
+Engineering consequence:
+
+> **Head tracking is a high-value future externalization lever, but only after Current motion itself is sample-time stable and the static presentation is already trustworthy.**
+
+Do not add head tracking as decoration around a callback-quantized or unstable scene.
+
+---
+
+## 5. Timbre, localization and diffuse behavior
+
+Zaunschirm, Schörkhuber & Höldrich (2018) showed that HRIR time-alignment plus a diffuse-field constraint could improve coloration, localization accuracy and externalization together in binaural Ambisonic rendering.
+
+DOI: `10.1121/1.5040489`
+
+The important lesson for Omniphony is not to copy that renderer blindly. It is that:
+
+```text
+HRTF timing
++
+diffuse-field behavior
++
+spectral coloration
+```
+
+must be tested together.
+
+A spatial candidate that improves apparent direction while creating moving spectral coloration is not a success.
+
+---
+
+## 6. Object-aware externalization
+
+Landschoot & Jot (2023) review externalization methods for object-based binaural rendering and focus on the persistent difficulty of frontal objects appearing near or inside the head even when several common mitigating cues are present.
+
+DOI: `10.1121/10.0018389`
+
+This reinforces a useful product distinction:
+
+```text
+object direction
+≠ object externalization
+```
+
+The scene may know where an object belongs while the binaural renderer still fails to make that position perceptually convincing.
+
+---
+
+## 7. Why Current keeps direct and room energy separate
+
+Research and listening both argue against collapsing every spatial job into one wet field.
+
+```text
+DIRECT
+identity / source direction / center authority
+
+EARLY FIELD
+externalization / geometry / first-order room cues
+
+LATE FIELD
+envelopment / closure / decay
+```
+
+Current therefore keeps the protected master direct, adds spatial support separately, and uses a bounded early/late environment around the support branch.
+
+This architecture makes falsification easier. If front externalization is weak, the experiment can change early cues without simultaneously rewriting bass, direct center and late decay.
+
+---
+
+## 8. Why the 17-lane scene and 22-direction shell are separate
+
+The canonical scene answers:
+
+> **What semantic positions exist, and what is the provenance of the material assigned to them?**
+
+The shell answers:
+
+> **What rendering geometry should the binaural engine use to turn that state into a continuous headphone world?**
+
+```text
+8.1.4.4 scene
+17 semantic lanes
+AUTHORED / DERIVED / EMPTY
         ↓
-Omniphony realtime path
+22-direction shell
+rendering lattice
         ↓
-stable externalized 360° binaural world
-        ↓
-headphones
+HRTF / ITD / room
 ```
 
-while preserving:
-
-- clarity;
-- timbre;
-- bass timing and weight;
-- transients;
-- dynamics;
-- vocal/instrument identity;
-- stereo relationships that matter musically;
-- musical hierarchy;
-- long-session comfort.
-
-The current foobar + VB-Audio + HeSuVi + FiiO ASIO route remains available until Omniphony clearly earns replacement.
-
-No cold-turkey migration.
+Research on higher spatial resolution can inform render-lattice experiments without forcing a change in scene semantics.
 
 ---
 
-## 2. Protected starting sound
+## 9. Stereo inference remains bounded
 
-The upstream hosted headphone demo is the perceptual ancestor.
+Stereo evidence can estimate useful presentation state from:
 
-Local control:
-
-```text
-omniphony-renderer/assets/binaural-baselines/upstream-demo-reference.yaml
-```
-
-Published ingredients approximated by that control:
-
-```text
-stock renderer defaults
-+ SAF/KEMAR HRTF
-+ early reflections
-+ late reverb disabled
-```
-
-This is more important than any richer fork room preset.
-
-A candidate that adds spatial drama but loses the upstream sense of coherent acoustic volume does not graduate.
-
----
-
-## 3. Current incumbent is a second oracle
-
-The current daily chain proves that a large, enjoyable headphone bubble is already possible for the target listener.
-
-Current high-level route:
-
-```text
-foobar DSP
-→ 5.1-side upmix
-→ VB-Audio multichannel transport
-→ HeSuVi / DTS Virtual:X HRIR
-→ FiiO ASIO
-→ K7
-→ Noire X
-```
-
-This chain is evidence, not a template.
-
-Omniphony should reproduce or surpass the useful perceptual functions without permanently reproducing the multistage topology.
-
----
-
-## 4. The 360° target
-
-The goal is not:
-
-```text
-stereo
-+ width
-+ rear reverb
-```
-
-Useful spatial jobs remain distinct:
-
-```text
-DIRECT OBJECT
-specific source-like identity
-
-BROAD SOURCE
-coherent source-like identity with meaningful extent
-
-DIFFUSE FIELD
-musical/ambient energy better represented as a distribution
-
-ROOM FIELD
-shared acoustic context, reflections and late energy
-```
-
-And:
-
-```text
-rear direct object
-≠ rear reflection
-≠ diffuse rear field
-```
-
-The renderer may use front, side, rear, elevation and radial/depth cues when they produce a more convincing, stable presentation.
-
-Do not force a complete object ontology into the first Windows build. The distinctions are there to avoid conflating perceptual jobs, not to create an implementation prerequisite maze.
-
----
-
-## 5. Fidelity laws
-
-### Preserve music before maximizing effect
-
-A wider/deeper scene fails if matched bypass restores:
-
-- clearer transients;
-- better bass timing;
-- stronger center authority;
-- more natural timbre;
-- more intelligible mix relationships;
-- less phasey coloration;
-- less fatigue.
-
-### Cue agreement
-
-ITD, ILD, HRTF spectrum, early reflections, distance, diffuseness and motion should describe compatible geometry.
-
-Conflicting cues often create blur, instability or inside-head localization.
-
-### Original master remains authoritative
-
-Source separation, scene estimates and semantic models can provide control evidence. They do not automatically replace the master waveform or authorize a remix.
-
-### Better hardware should expose more scene, not more artifact
-
-The K7 + Noire X reference is useful because it will expose false spaciousness and smeared detail quickly.
-
----
-
-## 6. Inherited renderer path
-
-The upstream renderer already contains valuable machinery.
-
-Conceptual binaural route:
-
-```text
-source / object position
-→ head-relative direction
-→ azimuth / elevation / distance
-→ per-ear timing / HRTF
-→ early reflections
-→ optional late room field
-→ [L, R]
-```
-
-Retain mature behavior unless a test demonstrates a concrete limitation.
-
-Important inherited/fork substrate includes:
-
-- stateful binaural DSP;
-- analytic ITD;
-- measured/parametric/SOFA HRTF support;
-- moving-filter crossfades;
-- object position/size state;
-- early image-source reflections;
-- late FDN room field;
-- known-scene layout/VBAP machinery;
-- deterministic fixtures;
-- headless engine/FFI boundaries.
-
----
-
-## 7. Renderer candidates, not mandatory roadmap items
-
-These are candidate improvement lanes. They should be pulled forward only when listening or correctness work exposes the corresponding weakness.
-
-### Sample-time position / HRTF motion
-
-The inherited path still has block-start position publication that can quantize movement.
-
-Desired direction:
-
-```text
-scene trajectory
-→ authoritative sample-time position segment
-→ HRTF motion follows that segment
-```
-
-Useful when motion or callback-size changes expose audible instability.
-
-### Directional early reflections
-
-Preferred geometry:
-
-```text
-image source
-→ reflection direction
-→ delay / attenuation
-→ reflection-specific binaural cues
-→ ears
-```
-
-Acceptance:
-
-- better externalization/source body where intended;
-- no echo/doubling;
-- no obvious comb coloration;
-- transients remain intact;
-- stable localization;
-- bounded CPU;
-- upstream reference remains available.
-
-### Source extent / BroadSource
-
-The scene already carries size/extent information in places. The binaural path should not collapse every meaningful source to a point if listening demonstrates a benefit from real extent.
-
-Do not add spread by indiscriminately decorrelating direct material.
-
-### DiffuseField
-
-A late FDN is a room field, not automatically a model of diffuse musical material.
-
-If a genuine diffuse musical representation is needed, test it separately from room reverb.
-
-### Bass / foundation protection
-
-Do not buy spatial dimension by destabilizing the low-frequency groove floor.
-
----
-
-## 8. Stereo inference
-
-Ordinary stereo is the primary practical source.
-
-Current fork evidence machinery includes inspectable measures for things such as:
-
-- M/S relation;
-- pan/lateral evidence;
-- phase coherence;
-- channel asymmetry;
+- pan and level relation;
+- complex M/S structure;
+- phase/coherence;
 - directness/diffuseness;
-- persistence;
-- lateral stability;
-- foundation/bass protection.
+- temporal persistence;
+- transient behavior;
+- spectral region.
 
-This evidence should remain conservative.
+It cannot prove a hidden authored 3D mix.
 
-It does not prove a frequency region is an instrument or reveal hidden authored rear coordinates.
+Therefore:
 
-As the product matures, richer evidence may come from local algorithms or from a bounded optional libaural projection.
+```text
+stereo evidence
+→ permission / confidence
+→ bounded DERIVED support
+```
 
-Use whichever mechanism produces better, more stable decisions with less cost.
+not:
+
+```text
+stereo evidence
+→ recovered object truth
+```
+
+Future libaural analysis may improve evidence quality. It does not change this provenance law.
 
 ---
 
-## 9. HeSuVi relationship
+## 10. Current high-value experiments
 
-HeSuVi is an **end-to-end incumbent and perceptual oracle**, not the future architecture.
+### Front / center externalization
+
+Test whether front scale can grow while the protected center becomes clearer and remains stable.
+
+Measure/listen for:
+
+- frontal externalization;
+- front/back confusion;
+- center solidity;
+- spectral coloration;
+- late-field masking;
+- matched-loudness preference.
+
+### Head-tracked world stability
+
+Only after the static front is stable:
 
 ```text
-CURRENT
-stereo
-→ foobar DSP / upmix
-→ virtual multichannel route
-→ HeSuVi DTS virtualization
-→ headphones
-
-TARGET
-stereo
-→ Omniphony
-→ headphones
+same scene
+head fixed vs head-tracked
+→ externalization / localization / fatigue comparison
 ```
 
-The current chain proves that meaningful behind-head and room-scale perception is desirable.
+### HRTF personalization
 
-Omniphony should make that world more direct and coherent, not recreate the external upmix→virtualizer detour internally.
+Compare generic versus selected/personalized HRTFs without allowing loudness or EQ mismatch to dominate the result.
+
+### Interaural coherence shaping
+
+Use only when an isolated externalization or late-field problem justifies it. Do not decorrelate direct music globally.
+
+### Source extent
+
+Test `BroadSource` behavior independently from reverb and diffuse-field behavior.
 
 ---
 
-## 10. Known-scene tests
+## 11. Required objective gates
 
-Known geometry remains valuable because it isolates renderer quality from stereo inference.
+Each perceptual experiment should carry objective evidence where applicable:
 
-```text
-KNOWN RICH SCENE
-       │
-       ├→ protected/reference binaural render
-       │
-       └→ fork candidate
-```
-
-Use these tests for:
-
-- HRTF direction correctness;
-- front/back/elevation;
-- reflection geometry;
-- source extent;
+- matched level;
+- peak and RMS;
+- crest factor;
+- headroom/clipping;
+- frequency response / spectral residual;
+- ITD / interaural lag;
+- ILD where relevant;
+- interaural coherence where relevant;
+- onset/transient timing;
+- bass timing/coherence;
+- block-size invariance;
 - motion continuity;
-- room-field changes;
-- callback-size invariance where relevant.
+- non-finite detection.
 
-Do not infer product superiority from known-scene tests alone. Ordinary music and the incumbent chain remain separate gates.
-
----
-
-## 11. Development order
-
-This order is intentionally practical.
-
-### W0 · Reproducible renderer baseline — CURRENTLY ESTABLISHED
-
-- Windows x64 CI;
-- deterministic file rendering;
-- protected upstream-demo reference;
-- fork room/dry controls;
-- host-native path tests;
-- green Windows Actions after the August 2026 repair.
-
-### W1 · First coexisting native Windows listening lane — NEXT
-
-- inspect/normalize current `host_audio`, `audio_input`, `audio_output` ownership;
-- retain existing ASIO usefulness;
-- add ordinary Windows output not dependent on ASIO;
-- add practical Windows input/capture for normal playback;
-- expose development enable/bypass and device selection;
-- prove stable 48 kHz realtime playback on K7/Noire X;
-- do not disturb the existing HeSuVi route.
-
-### W2 · A/B harness
-
-- matched-loudness switching where practical;
-- stable test tracks/passages;
-- upstream reference controls;
-- incumbent-chain comparison;
-- latency/underrun diagnostics;
-- written listening dimensions.
-
-### R1 · Fix the next actual renderer weakness
-
-Only after W1/W2 make it easy to hear the renderer in context.
-
-Potential work:
-
-- sample-time motion;
-- source extent;
-- directional reflections;
-- front/back/elevation robustness;
-- room/direct separation;
-- bass integrity.
-
-### S1 · Small persistent stereo scene
-
-- wire current stereo evidence into a bounded realtime scene;
-- keep center/foundation safe;
-- permit direct/broad/diffuse distinctions only where useful;
-- prefer reversible behavior under uncertainty.
-
-### P1 · Optional adaptive music presentation
-
-- add artistic degrees of freedom one at a time;
-- use local evidence first where sufficient;
-- introduce libaural inputs only when they demonstrate an advantage;
-- always keep the protected baseline route for attribution.
-
-### C1 · Headphone/listener calibration
-
-Later:
-
-- per-device profile;
-- optional headphone correction;
-- HRTF selection/import;
-- headroom management;
-- deeper personalization only after core listening is strong.
+Objective metrics do not replace listening. They reveal what a preference result may have secretly purchased.
 
 ---
 
-## 12. Research trigger rule
+## 12. Listening protocol
 
-Do not do another broad influence sweep by default.
-
-Research starts from a concrete weakness:
+A useful listening comparison should isolate one question whenever possible.
 
 ```text
-listening/test reveals weakness
-→ formulate exact missing capability
-→ search literature / GitHub / existing systems
-→ isolate candidate mechanism
-→ implement smallest test
-→ measure + listen
+same source
+same loudness
+same route
+one candidate mechanism changed
+        ↓
+preference + failure description
 ```
 
-This keeps Steam Audio, Dolby, ImmersiveFlow, psychoacoustics, libaural and other work available without letting them steer the product merely by existing.
+Important subjective dimensions:
+
+- externalization;
+- front/back;
+- elevation;
+- width;
+- depth;
+- envelopment;
+- source body;
+- center stability;
+- transient precision;
+- bass authority;
+- timbral naturalness;
+- fatigue.
+
+A result such as "slightly better" is valid evidence if the route and level are controlled, but it should not be inflated into a universal psychoacoustic law.
 
 ---
 
-## 13. Listening scorecard
-
-Score dimensions separately:
+## 13. Research adoption rule
 
 ```text
-front externalization
-rear discrimination
-side precision
-elevation
-radial distance
-apparent source width
-listener envelopment
-source extent
-source separation
-source stability
-room presence / scale
-ambient continuity
-transient clarity
-vocal/direct clarity
-timbral fidelity
-bass stability / groove
-microdetail
-dynamics
-fatigue
-bypass-collapse strength
+paper / implementation suggests mechanism
+        ↓
+map it to a specific Omniphony obligation
+        ↓
+implement the smallest reversible candidate
+        ↓
+objective checks
+        ↓
+controlled listening
+        ↓
+retain, revise or reject
 ```
 
-The desired bypass result is a collapse in perceived acoustic volume, not discovery that bypass is cleaner, punchier, tighter, or more coherent.
+Negative results stay useful. They prevent the same attractive dead end from returning under a new name.
 
 ---
 
-## 14. Current practical north star
+## 14. Protected baseline law
 
-```text
-play ordinary Windows music
-        ↓
-Omniphony keeps the good upstream spatial character
-        ↓
-native realtime path removes external plumbing
-        ↓
-front stays anchored where it should
-sources can occupy convincing side/rear/depth/height space
-room surrounds rather than smears
-bass stays physical and timed
-transients stay sharp
-headphones stop feeling like the source
-```
+> **The existing Omniphony spatial character is the reference to improve, not debris to clear away for a more academic renderer.**
 
-Then the old chain can be retired because Omniphony **won**, not because the project plan declared it obsolete.
+Research may strengthen the model. It does not automatically outrank a perceptually successful mechanism already earned by listening and validation.

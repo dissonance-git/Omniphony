@@ -1,217 +1,224 @@
-# Speaker Layout Files
+# Omniphony layout geometry
 
-This directory contains speaker layout configurations used by Omniphony.
-Where a public reference layout is applicable, the corresponding ITU-R family is noted.
+This directory contains several different kinds of geometry. They are useful for different jobs and must not be conflated.
 
-The current convention for the checked-in layouts is:
+```text
+CANONICAL SCENE VOCABULARY
+8.1.4.4 / 17 semantic lanes
+        ↓
+CURRENT RENDER GEOMETRY
+22-direction System-H-derived shell
+        ↓
+BINAURAL OUTPUT
+stereo headphones
+```
 
-- `coord_mode: "cartesian"` for every speaker entry
-- normalized coordinates in the Omniphony Cartesian space
-- `x`, `y`, and `z` written with one decimal place
-- `LFE` speakers marked with `spatialize: false`
+Reference speaker layouts such as 7.1.4 remain valuable for regression and known-scene testing, but **7.1.4 is not the Current product base**.
 
-## Available Layouts
+---
 
-### Immersive (with height) — presets
+## 1. Current product shell
 
-These ship as the Studio presets (the only ones loaded into the layout list and
-shown by the **Presets** button).
+### `system-h-derived-22.0-upper60-grid10.yaml`
 
-#### 5.1.2.yaml
-5.1 bed plus 2 height channels, stored in normalized Cartesian coordinates. Its
-8 channels fit a standard 7.1 sound card — wire the height pair (TFL/TFR) to the
-side-surround outputs — so users without a dedicated immersive interface can try
-height rendering.
-- Speakers: 8 including LFE
+This is the Current product's 22-direction full-sphere render shell.
 
-#### 7.1.2.yaml
-7.1 bed plus 2 height channels, stored in normalized Cartesian coordinates.
-- Speakers: 10 including LFE
+It sits **above** the canonical 17-lane 8.1.4.4 scene. The scene carries semantic/provenance state; this file carries internal rendering geometry.
 
-#### 7.1.4.yaml
-7.1 bed plus 4 height channels, aligned with ITU-R BS.2051 style immersive layouts and stored in normalized Cartesian coordinates.
-- Speakers: 12 including LFE
+Current product path:
 
-#### 9.1.6.yaml
-9.1 bed plus 6 height channels, aligned with ITU-R BS.2051 style immersive layouts and stored in normalized Cartesian coordinates.
-- Speakers: 16 including LFE
+```text
+17-lane canonical scene
+→ `system-h-derived-22.0-upper60-grid10.yaml`
+→ cascaded binaural renderer
+→ stereo
+```
 
-### Legacy (no height) — `legacy/`
+The geometry is intentionally derived from the broader System-H family while remaining tailored to Omniphony's full-sphere headphone presentation and grid-aligned height work.
 
-The older surround layouts without height channels live in `legacy/`. They are
-still shipped and can be imported via *Import layout*, but they are not loaded as
-presets.
+Tests lock the Current shell at 22 named directions so accidental layout drift cannot silently redefine the product.
 
-#### legacy/2.0.yaml
-Standard stereo layout aligned with ITU-R BS.775, stored in normalized Cartesian coordinates.
-- Speakers: 2
+### `system-h-derived-22.0-upper60.yaml`
 
-#### legacy/2.1.yaml
-Stereo plus LFE draft layout for PCM bridge work, stored in normalized Cartesian coordinates.
-- Speakers: 3 including LFE
+Related experimental/reference variant of the System-H-derived shell. Keep it available for controlled comparison, but do not treat it as the Current production geometry unless the product contract is explicitly changed and revalidated.
 
-#### legacy/4.0.yaml
-Quadraphonic draft layout for PCM bridge work, stored in normalized Cartesian coordinates.
-- Speakers: 4
+---
 
-#### legacy/4.1.yaml
-Quadraphonic plus LFE draft layout for PCM bridge work, stored in normalized Cartesian coordinates.
-- Speakers: 5 including LFE
+## 2. ITU/System-H references
 
-#### legacy/5.0.yaml
-Standard 5.0 surround layout aligned with ITU-R BS.775, stored in normalized Cartesian coordinates.
-- Speakers: 5
+### `reference/itu-r-bs2051-system-h-22.0.yaml`
 
-#### legacy/5.1.yaml
-Standard 5.1 surround layout aligned with ITU-R BS.775, stored in normalized Cartesian coordinates.
-- Speakers: 6 including LFE
+Reference-oriented System-H geometry used for comparison and standards-facing work.
 
-#### legacy/6.1.yaml
-Rear-center 6.1 surround layout stored in normalized Cartesian coordinates.
-- Speakers: 7 including LFE
+### `itu-r-bs2051-system-h-22.0.yaml`
 
-#### legacy/7.1.yaml
-Standard 7.1 surround layout in the same naming family as common ITU-R speaker sets, stored in normalized Cartesian coordinates.
-- Speakers: 8 including LFE
+Repository working geometry in the System-H family. It remains useful as a known-layout surface independent of the Current shell.
 
-## Usage
+The existence of these files does not make the Current 22-direction shell a literal standards speaker layout. Current uses System-H-derived geometry as a rendering lattice.
 
-Use `--speaker-layout` to load a layout file when decoding with VBAP:
+---
+
+## 3. Immersive regression/reference layouts
+
+These layouts are useful for deterministic known-scene tests, speaker rendering and rich-input development.
+
+### `5.1.2.yaml`
+
+5.1 bed plus two height channels.
+
+### `7.1.2.yaml`
+
+7.1 bed plus two height channels.
+
+### `7.1.4.yaml`
+
+7.1 bed plus four height channels.
+
+This is an important regression/reference layout, but it is **not** the foundational Current scene. Current's semantic base is the 17-lane 8.1.4.4 vocabulary described in the root documentation.
+
+### `9.1.6.yaml`
+
+9.1 bed plus six height channels.
+
+---
+
+## 4. Legacy layouts
+
+The `legacy/` directory retains conventional no-height or older bridge-era layouts:
+
+```text
+2.0
+2.1
+4.0
+4.1
+5.0
+5.1
+6.1
+7.1
+```
+
+They remain useful for compatibility, calibration and regression work. They do not define the Current headphone product architecture.
+
+---
+
+## 5. Coordinate convention
+
+Checked-in layouts use Cartesian coordinates:
+
+```text
+x: right positive, left negative
+y: front positive, rear negative
+z: up positive, down negative
+```
+
+Repository conventions:
+
+- `coord_mode: "cartesian"` for checked-in speaker entries;
+- normalized coordinates where appropriate;
+- LFE marked `spatialize: false`;
+- unique speaker names;
+- symmetry used where the intended geometry is symmetric.
+
+Polar coordinates remain parser-supported for external/custom layouts.
+
+---
+
+## 6. Scene semantics are not stored here
+
+A layout file describes render/speaker geometry. It does **not** by itself encode whether a lane is authored, derived or empty.
+
+That provenance belongs to the scene/source contract:
+
+```text
+AUTHORED
+DERIVED
+EMPTY
+```
+
+For example, stereo-derived Current currently leaves:
+
+```text
+C LFE Cb Bfl Bfr Bbl Bbr
+```
+
+EMPTY even though the canonical scene knows those positions exist.
+
+Do not activate a canonical lane merely because some layout contains a nearby speaker direction.
+
+---
+
+## 7. Known scene versus Current shell
+
+Use known layouts to test renderer behavior independently from stereo inference.
+
+```text
+KNOWN-SCENE TEST
+7.1.4 fixture
+→ known geometry
+→ renderer validation
+
+CURRENT PRODUCT
+stereo evidence
+→ canonical 8.1.4.4 scene
+→ 22-direction Current shell
+→ binaural
+```
+
+Both are valuable. They answer different questions.
+
+---
+
+## 8. Loading a layout
+
+For generic renderer/CLI work, layouts may be loaded through the existing speaker-layout interfaces. Example:
 
 ```bash
 orender render --enable-vbap --speaker-layout layouts/7.1.4.yaml input.bin
 ```
 
-Or use a built-in preset in code:
+The Current product shell is embedded by the product rendering path and should not require users to choose a speaker preset for normal headphone listening.
 
-```rust
-use omniphony_renderer::speaker_layout::SpeakerLayout;
+---
 
-let layout = SpeakerLayout::preset("7.1.4")?;
+## 9. Custom layout requirements
+
+For custom VBAP-capable layouts:
+
+1. use at least three spatialized speakers;
+2. keep names unique;
+3. keep the coordinate system explicit;
+4. mark LFE non-spatialized;
+5. avoid degenerate or duplicate positions;
+6. validate the geometry before using it as a listening reference.
+
+Custom layouts are laboratory/rendering inputs. They do not alter the canonical scene vocabulary unless the product contract itself changes.
+
+---
+
+## 10. Validation law
+
+Changes to Current geometry should trigger both geometry and binaural tests.
+
+At minimum, Current validation should prove:
+
+```text
+canonical scene remains 17 lanes
+Current shell remains 22 directions
+EMPTY stereo lanes remain empty
+scene reaches binaural renderer
+output remains finite stereo
 ```
 
-## YAML Format
+The wide DSP validation workflow and `orender_engine/tests/current_scene_geometry.rs` are the primary product-level guards for this boundary.
 
-Speaker layout files use this format:
+---
 
-```yaml
-name: "layout name"          # Optional
-radius_m: 1                  # Optional UI scale
-speakers:
-  - name: "FL"                  # Speaker name (for reference)
-    coord_mode: "cartesian"     # Repository default
-    x: -1.0                     # Right/left
-    y: 1.0                      # Front/back
-    z: 0.0                      # Up/down
-    spatialize: true            # false for direct/non-VBAP speakers such as LFE
-    delay_ms: 0                 # Optional per-speaker delay
-  # ... more speakers
-```
+## Reference standards
 
-### Coordinate System
+Relevant standards families include:
 
-- **Cartesian**
-  - `x`: right positive, left negative
-  - `y`: front positive, rear negative
-  - `z`: up positive, down negative
-  - checked-in layouts use normalized values and keep one decimal place
+- ITU-R BS.775 for conventional multichannel stereophony;
+- ITU-R BS.2051 for advanced sound-system layouts;
+- SMPTE ST 2098-2 for immersive-audio bitstream concepts.
 
-- **Polar**
-  - still supported by the parser for external/custom layouts
-  - azimuth: `0°` = front, `-90°` = left, `+90°` = right, `±180°` = rear
-  - elevation: `0°` = horizontal, `+90°` = zenith, `-90°` = nadir
-
-## Creating Custom Layouts
-
-You can create custom layout files by copying and modifying one of these standards.
-
-**Requirements**:
-1. At least 3 speakers for VBAP-capable layouts
-2. All speaker names must be unique
-3. Cartesian coordinates should stay within the normalized Omniphony room space
-4. LFE should be marked `spatialize: false`
-
-**Tips**:
-- LFE should remain non-spatialized
-- Height speakers typically use positive `z`
-- Symmetrical layouts work best for spatial accuracy
-- Keep checked-in coordinates normalized and formatted with one decimal place
-
-## Example: Custom 5.1.2 Layout
-
-```yaml
-# 5.1 + 2 height speakers
-name: "custom 5.1.2"
-radius_m: 1
-speakers:
-  # Front layer
-  - name: "FL"
-    coord_mode: "cartesian"
-    x: -1.0
-    y: 1.0
-    z: 0.0
-    spatialize: true
-  - name: "FR"
-    coord_mode: "cartesian"
-    x: 1.0
-    y: 1.0
-    z: 0.0
-    spatialize: true
-  - name: "C"
-    coord_mode: "cartesian"
-    x: 0.0
-    y: 1.0
-    z: 0.0
-    spatialize: true
-  - name: "LFE"
-    coord_mode: "cartesian"
-    x: 0.0
-    y: 1.0
-    z: 0.0
-    spatialize: false
-
-  # Rear surround
-  - name: "BL"
-    coord_mode: "cartesian"
-    x: -1.0
-    y: -1.0
-    z: 0.0
-    spatialize: true
-  - name: "BR"
-    coord_mode: "cartesian"
-    x: 1.0
-    y: -1.0
-    z: 0.0
-    spatialize: true
-
-  # Height layer
-  - name: "TFL"
-    coord_mode: "cartesian"
-    x: -1.0
-    y: 1.0
-    z: 1.0
-    spatialize: true
-  - name: "TFR"
-    coord_mode: "cartesian"
-    x: 1.0
-    y: 1.0
-    z: 1.0
-    spatialize: true
-```
-
-## Testing Your Layout
-
-You can test if your layout file is valid by trying to load it:
-
-```bash
-# This validates the layout during startup
-orender render --enable-vbap --speaker-layout my_layout.yaml --help
-```
-
-If there are errors in the YAML format or speaker positions, orender will report them clearly.
-
-## Reference Standards
-
-- **ITU-R BS.775**: Multichannel stereophonic sound system with and without accompanying picture
-- **ITU-R BS.2051-3**: Advanced sound system for programme production
-- **SMPTE ST 2098-2**: Immersive audio bitstream specification
+Standards references are used to anchor geometry and terminology. The Current shell remains an Omniphony rendering lattice unless explicitly documented otherwise.

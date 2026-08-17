@@ -1,55 +1,30 @@
 # Omniphony
 
-Omniphony is an experimental, always-on headphone spatial processor built from the upstream `mgth/Omniphony` renderer.
+Omniphony is an experimental, always-on spatial processor for headphones, built from the upstream `mgth/Omniphony` renderer and extended around one product rule:
 
-Its perceptual target is simple:
+> **Make the headphones disappear without making the recording disappear with them.**
 
-> **Make the headphones disappear and place the listener inside the largest coherent version of the same finished recording.**
+The finished recording remains the musical authority. Omniphony may enlarge width, depth, height, distance, source extent and envelopment, but it must not need to sacrifice clarity, impact, center stability, timbre or rhythmic precision to do it.
 
-The finished stereo master remains the musical authority. Omniphony adds a bounded external spatial world around it instead of replacing it with a full-wet reconstruction.
-
-Windows is the first host. The renderer, inference and DSP core remain portable.
+Windows is the first product host. The renderer, scene contract and DSP core remain portable.
 
 ---
 
-# Current model
+## Current architecture
 
-The **Current model** is the single normal listening path. The old tray-profile matrix is retired.
-
-Physical listening on 2026-08-12 first favored the measured-HRTF early-reflection path that had temporarily been labeled `Externalization`. The preference was small enough that placebo could not be excluded, but the path was not worse, used a more physically meaningful early-field mechanism, and replaced the weaker profile matrix.
-
-A later pass added lane-local transient-aware early-room excitation. Physical listening then reported another incremental improvement, so that mechanism is now retained as part of Current model rather than treated as a provisional challenger.
-
-The current development build carries one new listening candidate on top of that retained model: **front / center refinement**. It keeps the successful side, rear and lower presentation fixed while widening the front L/R evidence sources, widening/lifting the top-front pair, reducing only the low-level late room closure, and lowering final fixed listening level by 0.7 dB.
-
-The renderer itself is installed headlessly as a Windows endpoint APO. The small tray is preference-only and currently exposes:
+The normal stereo Current path is:
 
 ```text
-EQ: Off (Current baseline)
-EQ: Legacy DTS-era
-EQ: Omniphony tuned
-Right-ear compensation
-Exit tray
-```
-
-Exiting the tray does not remove or replace the endpoint renderer. Historical spatial listening profiles are not runtime modes.
-
-The historical profile experiments and promotion history remain in `docs/listening-history.md`.
-
-## Current signal path
-
-```text
-FINISHED STEREO MASTER
+finished stereo master
         │
         ├──────────────────────────────→ protected direct master
         │
         ├→ coherent music foundation
-        │      └→ additive pressure / kick / body delta
+        │      └→ bounded pressure / punch / body support
         │
         └→ analysis-only stereo evidence
                │
-               ├→ magnitude / phase
-               ├→ M/S relation
+               ├→ level / phase / M-S relation
                ├→ pan / coherence
                ├→ directness / diffuseness
                └→ temporal stability
@@ -60,25 +35,17 @@ FINISHED STEREO MASTER
              L R C LFE Ls Rs Lb Rb Cb
              Tfl Tfr Tbl Tbr Bfl Bfr Bbl Bbr
                          │
-                         ├→ stereo inference populates only earned lanes
-                         ├→ C / LFE / Cb / lower remain EMPTY
-                         └→ coherent elevation transfer
+                         ├→ only evidence-backed lanes become active
+                         └→ missing authorship stays EMPTY
                          │
                          ▼
              CURRENT 22-DIRECTION SHELL
              System-H-derived full-sphere lattice
                          │
                          ▼
-               CASCADED BINAURAL
-           measured SAF/KEMAR HRTF
-           ITD / metric distance / air
-                         │
-                         ├→ short low-level late closure
-                         │
-                         └→ lane-local transient evidence
-                            → first-order image timing / wall tone
-                            → six directional reflection buses
-                            → measured HRTF
+                CASCADED BINAURAL
+              measured HRTF + ITD
+              distance / air / room
                          │
                          ▼
                   binaural support
@@ -86,292 +53,52 @@ FINISHED STEREO MASTER
        protected master + foundation + support
                          │
                          ▼
-          fixed makeup + peak safety only
+                peak-safe stereo
                          │
                          ▼
-                     headphones
+                    headphones
 ```
 
-The **8.1.4.4 scene is the foundational product vocabulary**. The 22-direction shell is an internal expansion/rendering lattice above it, not a replacement scene format.
+The **17-lane 8.1.4.4 scene is the foundational product vocabulary**. The **22-direction shell is an internal render lattice above it**. It does not replace the canonical scene.
 
-The protected master does **not** pass through the virtual room.
-
-That is the fidelity floor.
-
-## Current audible tuning
-
-The coherent, non-spatial foundation currently uses approximately:
+For stereo-derived Current, these lanes are currently earned by evidence:
 
 ```text
-85 Hz low shelf      +2.80 dB   pressure / mass
-110 Hz punch         +1.60 dB   kick impact
-240 Hz body          +1.20 dB   upper-bass / drum body
-800 Hz density       +0.50 dB   lower-mid density
-4.5 kHz high shelf   -0.35 dB   mild presence relaxation
+L R Ls Rs Lb Rb Tfl Tfr Tbl Tbr
 ```
 
-The additive HRTF support branch carries a static, support-only SAF/KEMAR compensation. The current dense-guitar comfort trim remains:
+These canonical lanes remain EMPTY:
 
 ```text
-3.5 kHz
--1.20 dB
-Q 0.90
+C LFE Cb Bfl Bfr Bbl Bbr
 ```
 
-The protected master is not darkened to solve spatial fatigue.
-
-Current Windows final fixed makeup is now:
-
-```text
-+2.8 dB
-```
-
-This is 0.7 dB lower than the previous +3.5 dB value. Bass, foundation, support ratios and peak-safety behavior were not changed to accomplish the level reduction.
-
-## Current front / center refinement candidate
-
-The new candidate changes only the front-facing geometry and low-level late closure:
-
-```text
-front L/R x position       +/-1.00 -> +/-1.15
-top-front x position       +/-0.96 -> +/-1.10
-top-front z position          2.15 -> 2.45
-late-room level              0.020 -> 0.016
-late-room RT60                0.14 -> 0.12 s
-final fixed makeup          +3.5 dB -> +2.8 dB
-```
-
-Side, rear and lower evidence-source poses are unchanged. The bass/foundation path is unchanged. The measured-HRTF early field is unchanged. The retained transient-aware early-room mechanism is unchanged.
-
-The center and LFE support lanes remain silent. Centered vocals therefore remain owned by the protected stereo master; the lower late-field energy is intended to let that direct center read more clearly without shrinking the early directional world around stereo material and drums.
-
-This is a listening candidate, not yet a demonstrated improvement.
-
-## Current early field
-
-The Current model replaces the original lightweight analytic first-order reflection panner with a bounded measured-HRTF field:
-
-```text
-canonical 17-lane 8.1.4.4 scene
-(stereo Current populates only evidence-backed lanes)
-        ↓
-lane-local transient evidence
-        ↓
-first-order shoebox timing
-+ source-distance / wall filtering
-        ↓
-contributions grouped by six room walls
-        ↓
-6 directional reflection buses
-        ↓
-measured SAF/KEMAR HRTF + ITD
-        ↓
-linear sum with the primary support render
-```
-
-This is deliberately not 22 virtual speakers multiplied by six separate full-HRTF reflection convolvers. Timing and wall filtering happen before wall-wise aggregation, so the HRTF cost stays fixed at six reflection buses.
-
-The field is designed to change directional structure rather than win by loudness. Engineering tests cover delayed arrival, wall-direction binaural asymmetry, protected C/LFE exclusion, transient-envelope bounds and block-boundary invariance.
-
-### Retained transient-aware early-room behavior
-
-Each existing support lane carries a small transient detector before its early-reflection delay bank:
-
-```text
-existing support lane
-        ↓
-fast energy envelope
-vs slow energy envelope
-        ↓
-positive-rise transient evidence
-        ↓
-bounded early-room gain only
-        ↓
-existing first-order wall paths
-```
-
-The detector is lane-local rather than global. A sharp rise in one support lane cannot directly turn up every other simultaneously active lane.
-
-Current constants are:
-
-```text
-fast envelope      3 ms
-slow envelope     45 ms
-release           20 ms
-maximum gain    +2.5 dB
-```
-
-This gain applies only to the signal entering the early-reflection bank. It does **not** modify:
-
-- the protected stereo master;
-- the coherent music foundation;
-- the primary spatial-support render;
-- center or LFE support.
-
-Physical listening reported an incremental improvement after this mechanism was introduced, so it is retained in Current model. That result does not prove instrument identity or a general psychoacoustic law. It only earns this bounded behavior in the present renderer.
+That distinction is deliberate. A rich coordinate system must not become fake source metadata.
 
 ---
 
-# Architectural law
+## What is implemented now
 
-> **Use Omniphony itself as the spatial core. Add custom machinery only for jobs the inherited renderer does not already own.**
+| Layer | Current state |
+| --- | --- |
+| Canonical static scene | **Implemented:** 17-lane 8.1.4.4 vocabulary |
+| Stereo evidence mapping | **Implemented:** bounded stereo-derived support into earned lanes only |
+| Current spatial shell | **Implemented:** 22-direction System-H-derived full-sphere lattice |
+| Headphone renderer | **Implemented:** cascaded binaural with measured HRTF / ITD path |
+| Directional early field | **Implemented:** bounded first-order timing and six HRTF reflection buses |
+| Windows realtime ABI | **Implemented:** `omniphony_realtime.dll` |
+| Windows endpoint APO | **Implemented for development bring-up:** stereo float32 Current path |
+| Native authored 5.1 / 7.1 ingress through the APO | **Not implemented yet** |
+| Raw Windows Spatial Audio object ingress | **Research frontier** |
+| Production APO packaging | **In progress:** isolated component package exists; final target association, signing and protected-AudioDG proof remain |
 
-Prefer inherited Omniphony machinery for:
-
-```text
-HRTF / HRIR
-ITD
-head pose / tracking
-metric distance
-speaker geometry
-VBAP / source extent
-cascaded rendering
-direct binaural rendering
-room machinery
-SOFA
-object / bed handling
-```
-
-Custom fork ownership is strongest for:
-
-```text
-source preservation
-stereo evidence
-confidence / permission laws
-music foundation
-support-field construction
-coherent elevation transfer
-bounded directional early-field adaptation
-final host summing
-validation
-Windows lifecycle / transport
-```
-
-If an inherited feature was designed for a final output bus, verify that it remains correct when used only on Omniphony's additive support branch.
+A 7.1.4 fixture or layout is therefore a useful regression input, not the product base.
 
 ---
 
-# Hard fidelity laws
+## Windows path
 
-> **Dimension may not be purchased by damaging the music.**
-
-Turning Omniphony off may collapse:
-
-- width;
-- front/back depth;
-- height;
-- radial distance;
-- source extent;
-- ambient continuity;
-- listener envelopment.
-
-Turning Omniphony off must **not** restore:
-
-- clarity;
-- kick impact;
-- bass pressure;
-- drum body;
-- transient snap;
-- tonal identity;
-- rhythmic precision;
-- center stability;
-- microdetail;
-- dynamics;
-- comfortable spectral balance.
-
-Shortest form:
-
-> **OFF may collapse the world. It may not bring the rhythm section back to life.**
-
-Additional invariants:
-
-```text
-mass         may remain anchored
-trajectory   must remain alive
-
-environment  may grow
-direct music must not blur
-```
-
-The stereo master is never STFT-resynthesized. FFT/STFT machinery in the music path is analysis-only.
-
----
-
-# Stereo evidence and support
-
-Current support policy is approximately:
-
-```text
-<320 Hz        protected master / coherent foundation only
-320–1200 Hz    restrained support body
-1.2–5 kHz      spatial support with presence restraint
->5 kHz         slower-moving, reduced support
-```
-
-The canonical 8.1.4.4 scene order is:
-
-```text
-L R C LFE Ls Rs Lb Rb Cb Tfl Tfr Tbl Tbr Bfl Bfr Bbl Bbr
-```
-
-For stereo-derived Current support, C, LFE, Cb and all four lower anchors remain EMPTY. The scene vocabulary is still 17 lanes so richer authored ingress can fill those positions without changing renderer architecture.
-
-Height is presentation permission, not recovered source metadata. A stereo recording can justify an external spatial presentation, but it cannot prove that a particular guitar, cymbal or voice was authored above or behind the listener.
-
----
-
-# Source authority
-
-The richer the source truth, the less Omniphony should infer.
-
-```text
-stereo
-→ preserve master + infer bounded support
-
-5.1 / 7.1
-→ preserve real directional channels
-
-5.1.2 / 7.1.4
-→ preserve authored height
-
-object audio
-→ preserve supplied object positions
-
-Ambisonics / HOA
-→ preserve supplied field representation
-
-already-binaural material
-→ avoid destructive double virtualization
-```
-
-This becomes especially important as source-aware analysis arrives later. A classifier is evidence, not authorship.
-
----
-
-# Realtime robustness
-
-The mature Windows path is endpoint-native. Windows owns the system mix; the Omniphony EFX APO receives the endpoint stream and calls the narrow realtime ABI in `omniphony_realtime.dll`.
-
-The AudioDG callback does not run the allocating Current renderer directly. It performs bounded PCM transfer through preallocated SPSC rings while a dedicated worker owns the existing Current DSP graph.
-
-Current runtime protections include:
-
-- native post-mix endpoint processing with no virtual cable or loopback-capture product path;
-- preallocated callback-facing PCM rings;
-- a dedicated Current worker thread using fixed 20 ms processing blocks;
-- a 40 ms aligned dry delay so callback fallback preserves timing;
-- delayed-dry fallback when Current output is not ready, rather than blocking AudioDG;
-- non-finite sample sanitization;
-- stereo-linked look-ahead peak safety plus a final callback-side ceiling guard;
-- worker failure state that fails safely back to aligned dry audio;
-- explicit Current/identity lifecycle tests, including destroy/recreate in one process;
-- APO registration/smoke tests and manifest/dependency checks in the Windows installer build.
-
-The old process-loopback `Omniphony.exe` host is migration history, not the Current product architecture.
-
----
-
-# Windows architecture
+The intended installed topology is endpoint-native:
 
 ```text
 applications / games / browsers / players
@@ -383,7 +110,7 @@ applications / games / browsers / players
         OMNIPHONY EFX APO
                  │
                  ├→ omniphony_realtime.dll
-                 │      └→ Current 8.1.4.4 → 22-dir → binaural DSP
+                 │      └→ Current scene → shell → binaural DSP
                  │
                  ▼
        physical endpoint driver
@@ -392,156 +119,247 @@ applications / games / browsers / players
           DAC / headphones
 ```
 
-The normal installed product is headless. `OmniphonySetup.exe` installs the APO and realtime DLL under the Omniphony application directory, attaches the effect to the physical endpoint, and keeps only a small support surface for status/repair/uninstall.
+The tray is preference-only. It does not host the audio engine.
 
-The optional tray does not host audio. It only writes listener preference state for the Current renderer, such as EQ preset and right-ear compensation.
+The old process-loopback and virtual-device routes are migration history, not the product architecture.
 
-The abandoned virtual-device / loopback host is explicitly removed during APO-native installation so it cannot return after upgrade.
+### Development versus production
 
-See `docs/omniphony-for-windows.md` for the Windows ingress, endpoint and source-authority contract.
-
----
-
-# Relationship to libaural, VGM Tooling and Helix
-
-The projects remain separate at runtime but deliberately feed research into each other at different layers.
+The repository intentionally keeps two Windows deployment concepts separate:
 
 ```text
-                    HELIX
-          research / provenance / method
-                       │
-                       ▼
-                    libaural
-              experimental machine hearing
-                       │
-          heard-state / validated mechanisms
-                       │
-          ┌────────────┴────────────┐
-          ▼                         ▼
-     VGM Tooling                Omniphony
-source-native synthesis     spatial presentation
- / reconstruction               testbed
+DEVELOPMENT / BRING-UP
+raw endpoint association
++ test-oriented AudioDG compatibility measures
++ rollback tooling
+
+PRODUCTION TARGET
+isolated componentized APO package
++ device-specific extension association
++ catalog / PE signing
++ protected AudioDG
++ upgrade / rollback / uninstall proof on physical hardware
 ```
 
-VGM Tooling can expose source-native structure before final stereo collapse. libaural can use that as unusually strong calibration evidence for machine hearing. Omniphony tests which distinctions actually matter when a human experiences the final headphone presentation.
+Do not treat a successful development attach as proof of production deployment readiness.
 
-No project should become a runtime dependency of another merely because it provided a useful experiment.
+See:
 
----
-
-# Listening evidence so far
-
-The listening program has produced useful compression and a sequence of retained improvements:
-
-- `hybrid` direct-height routing was not clearly distinguishable from the prior current model and did not earn its added complexity;
-- `prtf` was clearly worse in the tested system, described as tinnier, and remains a negative result;
-- several room/routing variants were not clearly distinguishable enough to justify carrying them as user-facing modes;
-- the measured-HRTF early-reflection path was heard as **slightly better**, though the first comparison could not exclude placebo, and became Current model;
-- the later transient-aware early-room pass was reported as **incrementally better again** and is therefore retained;
-- the current front / center refinement has not yet been physically adjudicated.
-
-See `docs/listening-history.md` for the retained experiment record.
+- [`docs/omniphony-for-windows.md`](docs/omniphony-for-windows.md)
+- [`omniphony-renderer/windows_installer/endpoint_apo/README.md`](omniphony-renderer/windows_installer/endpoint_apo/README.md)
+- [`omniphony-renderer/windows_installer/endpoint_apo/production/README.md`](omniphony-renderer/windows_installer/endpoint_apo/production/README.md)
 
 ---
 
-# Current frontier
+## Fidelity laws
 
-The large 360-degree world already exists. The current work should refine **directness, front scale and musical intelligence**, not add more generic spatial variants.
+> **Dimension may not be purchased by damaging the music.**
 
-## 1. Front / center refinement
+Turning Omniphony off may collapse:
 
-The current isolated listening question is:
+- width;
+- front/back depth;
+- height;
+- radial distance;
+- source extent;
+- ambient continuity;
+- envelopment.
 
-> **Can the direct center become slightly clearer while front stereo width and upper-front scale grow, without changing the already-successful side/rear/lower world or weakening bass and drums?**
+Turning Omniphony off must **not** restore:
 
-Acceptance signals:
+- clarity;
+- kick impact;
+- bass pressure;
+- transient snap;
+- tonal identity;
+- center stability;
+- microdetail;
+- dynamics;
+- comfortable spectral balance.
 
-- centered vocals feel a little cleaner and less washed;
-- stereo-panned/front material occupies a larger front face;
-- height feels taller or more open rather than merely brighter;
-- side, rear and lower wrap remain as good as before;
-- bass pressure and drum authority remain unchanged;
-- the 0.7 dB level reduction feels more comfortable rather than less alive.
+Shortest form:
 
-Rejection signals:
+> **OFF may collapse the world. It may not bring the rhythm section back to life.**
 
-- vocals become unnaturally isolated or thin;
-- the front image develops a hole;
-- widened front geometry weakens center stability;
-- height becomes detached from the mix;
-- the drier late field makes the scene noticeably smaller;
-- any successful side/rear/lower quality regresses.
+The protected stereo master never passes through the virtual room. FFT/STFT analysis may inform support decisions, but the master is not STFT-resynthesized.
 
-## 2. Source-aware control from libaural
+---
 
-Once the basic geometry/directness balance is satisfactory, libaural can tell Omniphony more about **what** generated the evidence.
+## Source authority
 
-The intended relationship is:
+The richer the source truth, the less Omniphony should infer.
 
 ```text
-original stereo master
+stereo
+→ preserve the master + infer bounded presentation support
+
+5.1 / 7.1 PCM
+→ preserve authored directional channels
+→ future native host path maps them into matching AUTHORED scene anchors
+
+height beds
+→ preserve supplied height when the host exposes it
+
+object audio
+→ preserve supplied object positions when available
+
+Ambisonics / HOA
+→ preserve the field representation rather than flattening early
+
+already-binaural material
+→ avoid destructive double HRTF virtualization
+```
+
+`AUTHORED`, `DERIVED` and `EMPTY` are not cosmetic labels. They are provenance states.
+
+---
+
+## Current perceptual model
+
+Current combines three audible layers:
+
+```text
+1. protected master
+   musical identity / center / transients / directness
+
+2. coherent foundation
+   bounded low-frequency and body reinforcement
+
+3. spatial support
+   evidence-driven external field
+   → canonical scene
+   → 22-direction shell
+   → binaural rendering
+   → early directional room support
+```
+
+The current early field uses lane-local transient evidence, first-order image timing and wall filtering, aggregates those contributions into six directional reflection buses, then applies measured HRTF rendering. The goal is directional structure with bounded cost, not a wash of generic reverb.
+
+---
+
+## Research grounding
+
+Research is used to sharpen obligations and tests, not to overrule listening evidence.
+
+The present architecture is consistent with several durable findings in binaural research:
+
+- **Externalization is not one control.** Direct HRTF cues, room cues, interaural behavior and head motion can contribute differently.
+- **Frontal externalization is especially difficult.** This justifies treating front scale and center directness as a dedicated frontier rather than assuming more surround energy solves it.
+- **Binaural room cues matter.** Work on reverberation-related binaural cues shows that the relationship between direct and reflected interaural cues can strongly affect externalization, especially for frontal sources.
+- **Timbral fidelity and spatial fidelity are coupled.** HRIR time-alignment and diffuse-field constraints have been shown to improve coloration, localization and externalization together in binaural Ambisonic rendering.
+- **Head motion is a strong future lever.** Multiple controlled studies report improved externalization when virtual scenes remain stable relative to the world during listener motion.
+
+Useful research anchors:
+
+- Zaunschirm, Schörkhuber & Höldrich, *JASA* (2018), DOI `10.1121/1.5040489`
+- Catic, Santurette & Dau, *JASA* (2015), DOI `10.1121/1.4928132`
+- Leclère, Lavandier & Perrin, *JASA* (2019), DOI `10.1121/1.5128325`
+- Brimijoin, Boyd & Akeroyd, *PLOS ONE* (2013), DOI `10.1371/journal.pone.0083068`
+- Hendrickx et al., *JASA* (2017), DOI `10.1121/1.4978612`
+- Landschoot & Jot, *JASA* (2023), DOI `10.1121/10.0018389`
+
+These papers motivate the validation axes. They do not prove that any particular Omniphony tuning is perceptually superior.
+
+---
+
+## Validation
+
+The repository separates source truth, rendering physics and product listening so one failure does not masquerade as another.
+
+Engineering gates include:
+
+- canonical 17-lane scene order and EMPTY-lane preservation;
+- 17-lane scene reaching the 22-direction shell;
+- final binaural stereo output;
+- ITD / HRTF / diffuse-response checks;
+- block-size and callback-invariance tests;
+- transient and bass preservation;
+- non-finite and peak-safety behavior;
+- Windows APO ABI / manifest / import-table checks;
+- production INF package-isolation checks.
+
+Human listening remains the final gate for:
+
+- externalization;
+- front/back discrimination;
+- elevation;
+- source body and extent;
+- envelopment;
+- radial depth;
+- center solidity;
+- room naturalness;
+- fatigue;
+- groove and bass integrity.
+
+---
+
+## Repository map
+
+```text
+renderer/
+  portable DSP, inference, HRTF and scene machinery
+
+orender_engine/
+  headless Current construction and rendering boundary
+
+realtime_ffi/
+  narrow realtime ABI used by the Windows APO
+
+windows_installer/endpoint_apo/
+  development endpoint APO, installer and diagnostics
+
+windows_installer/endpoint_apo/production/
+  isolated production-package scaffold and target-driver capture
+
+layouts/
+  reference and renderer geometry, including the Current 22-direction shell
+
+docs/
+  source authority, scene, Windows, listening and validation contracts
+```
+
+The inherited renderer remains the spatial core. Custom fork machinery should exist only where the product needs a capability the inherited core does not already own.
+
+---
+
+## Build and focused tests
+
+From `omniphony-renderer/`:
+
+```sh
+cargo test -p renderer
+cargo test -p orender_engine --test current_scene_geometry
+cargo test -p realtime_ffi
+```
+
+Windows packaging and APO validation live in the repository-level GitHub Actions workflows.
+
+---
+
+## Relationship to libaural, VGM Tooling and Helix
+
+These projects may exchange research and evidence, but they remain separate runtime systems.
+
+```text
+HELIX
+research / provenance / method
         │
-        ├→ audible truth
+        ▼
+libaural
+experimental machine hearing
         │
-        └→ libaural machine-hearing analysis DSP
-                ↓
-         time-varying source/activity evidence
-         masks / continuity / confidence
-                ↓
-         bounded Omniphony control projection
+        ├───────────────┐
+        ▼               ▼
+VGM Tooling         Omniphony
+source truth        presentation / listening testbed
 ```
 
-Separated stem waveforms do not need to enter the audible master. Modern separators, semantic activity models and open-vocabulary extractors are sensors for libaural, not replacement audio sources.
-
-This can eventually let the retained transient mechanism behave differently for drums, vocals, guitars, bass, strings and pads without hard-coded genre presets.
-
-## 3. Head motion and personalization
-
-Later controlled frontiers remain:
-
-- actual world-lock testing with live head motion;
-- listener-specific or selected HRTFs;
-- dedicated near-field HRTF behavior;
-- short-term interaural-coherence shaping where it solves a measured obligation.
-
-These should not interrupt the directness/source-awareness path unless listening exposes a more urgent failure.
+libaural may eventually provide source/activity evidence to Omniphony. That evidence must remain bounded control information unless a source-native path explicitly supplies authored audio structure. No project becomes a runtime dependency merely because it produced a useful experiment.
 
 ---
 
-# Failure signals
+## Definition of success
 
-```text
-piercing / fatigue
-moving spectral coloration
-comb-like timbral edges
-clarity loss
-source blur
-transient softening
-bass/drum power loss
-center instability
-rear gravity
-hallway coloration
-late-reverb fog
-stereo motion collapse
-height that is only brighter, not higher
-realtime crackle / underruns
-spatial pumping / twitching from analysis
-```
+> **A finished recording keeps its identity, weight, dynamics and clarity while gaining a stable external world with front distance, rear depth, extreme width, convincing height, continuous motion and enough radial scale that ordinary headphone playback feels dimensionally collapsed by comparison.**
 
-Listening outranks parameter aesthetics.
-
-A mechanism stays only if it improves the experience or solves an isolated failure without damaging the protected music underneath it.
-
----
-
-# Definition of success
-
-The goal is not "accurate surround conversion."
-
-It is:
-
-> **A finished stereo recording keeps its identity, weight, dynamics and clarity while gaining a stable external world with front distance, rear depth, extreme width, convincing overhead volume, continuous motion and enough radial scale that ordinary headphone playback feels dimensionally collapsed by comparison.**
-
-The next narrower question is:
-
-> **Can the front grow outward and upward while the protected center becomes clearer, without shrinking the successful rest of the world?**
+That is the target. The scene model, the shell, the Windows APO and the research stack are all instruments for reaching it, not substitutes for it.

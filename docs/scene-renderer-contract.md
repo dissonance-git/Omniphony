@@ -1,124 +1,154 @@
-# Source / scene → binaural renderer contract
+# Source / scene / renderer contract
 
-This document defines the boundary between source truth, optional presentation hypotheses, and binaural rendering.
+This document defines the boundary between **source truth**, **presentation state** and **binaural rendering**.
 
-It is subordinate to the root `README.md`.
+It is subordinate to the root [`README.md`](../README.md).
 
-The portable product does **not** require a complete artificial scene model before it can exist. Upstream Omniphony already provides a useful binaural renderer; stereo inference is one presentation problem among several input classes.
+The governing rule is simple:
 
-Keep three questions separate:
-
-```text
-1. What source truth/evidence actually exists?
-2. What additional presentation state is defensible?
-3. How should that state be rendered to two ears?
-```
-
-The third question must never rewrite the first two into fake certainty.
+> **Rendering may transform a scene. It may not rewrite uncertainty into fake authorship.**
 
 ---
 
-## 1. Renderer comes after source truth
-
-Correct high-level chain:
+## 1. Keep the three layers separate
 
 ```text
-logical source streams
+SOURCE TRUTH / EVIDENCE
+What did the source or host actually provide?
         ↓
-authoritative layout/object metadata where present
+PRESENTATION STATE
+What additional spatial support is defensible?
         ↓
-optional conservative presentation state where truth is missing
-        ↓
-Omniphony renderer
-        ↓
-binaural stereo
+RENDERING
+How should that state reach two ears?
 ```
 
-For a stereo master, presentation may infer useful spatial support.
+A failure in one layer must not be hidden by another.
 
-For a real 7.1/height/object source, the renderer should preserve the authored information instead of reconstructing it from stereo.
+Examples:
+
+- a stereo master can justify bounded spatial presentation without containing literal rear metadata;
+- an authored 7.1 bed should remain 7.1 truth instead of being flattened and reconstructed;
+- an already-binaural render should not receive a second HRTF stage simply because it is two channels.
 
 ---
 
-## 2. Layout is stream-local
+## 2. Canonical static scene
 
-The renderer must be able to receive more than one logical input stream with different layouts.
-
-Example:
+The product static-scene vocabulary is **8.1.4.4 with 17 semantic lanes**:
 
 ```text
-Stream A
-  stereo music
-
-Stream B
-  7.1 game
-
-Stream C
-  mono voice/chat
+L R C LFE Ls Rs Lb Rb Cb Tfl Tfr Tbl Tbr Bfl Bfr Bbl Bbr
 ```
 
-These may coexist.
-
-Do not define a global scene input mode such as:
+Every anchor must be able to carry provenance:
 
 ```text
-current_layout = stereo | 7.1
+AUTHORED
+DERIVED
+EMPTY
 ```
 
-Starting a surround source must not reinterpret unrelated stereo material.
+The scene is deliberately richer than many inputs. Rich coordinates allow different source classes to converge on one renderer without pretending that absent information was authored.
 
-The platform host may temporarily collapse sources into one mixed bed. That is a host limitation, not the desired core model.
+Dynamic sources with supplied continuous positions belong in a parallel object layer and should not be prematurely snapped to static anchors.
 
 ---
 
-## 3. Stereo does not contain rear ground truth
+## 3. Current stereo mapping
 
-A normal stereo master can provide evidence about:
+For the current stereo-derived music path, only these canonical lanes receive evidence-backed support:
 
-- L/R balance;
-- inter-channel phase/coherence;
-- complex M/S structure;
+```text
+L R Ls Rs Lb Rb Tfl Tfr Tbl Tbr
+```
+
+These remain EMPTY:
+
+```text
+C LFE Cb Bfl Bfr Bbl Bbr
+```
+
+That is a product invariant, not a temporary naming accident.
+
+Centered vocals, kick authority and other central musical information remain owned primarily by the protected stereo master and coherent foundation path. The support scene exists to enlarge presentation without fabricating a discrete center or LFE channel.
+
+---
+
+## 4. Current render shell
+
+The canonical scene is not the final spatial lattice.
+
+Current expands/renders through the repository's **22-direction System-H-derived shell** before binaural reduction:
+
+```text
+canonical 17-lane scene
+        ↓
+Current support mapping
+        ↓
+22-direction full-sphere render shell
+        ↓
+cascaded binaural renderer
+        ↓
+stereo headphones
+```
+
+Keep the distinction explicit:
+
+```text
+17 lanes = semantic scene vocabulary
+22 directions = internal rendering geometry
+```
+
+A 7.1.4 layout or fixture is a useful reference/regression surface, not the Current product base.
+
+---
+
+## 5. Stereo evidence is not recovered metadata
+
+A normal stereo master can expose evidence such as:
+
+- L/R balance and asymmetry;
+- inter-channel phase and coherence;
+- complex mid/side relationships;
 - direct versus diffuse behavior;
 - persistence through time;
+- onset and transient behavior;
 - spectral region;
-- onset/offset relations;
-- masking/audibility where measured;
-- optional later object/role evidence.
+- trajectory stability.
 
-It generally does **not** reveal a literal authored rear azimuth for an inferred source.
+It generally does **not** expose literal authored rear, overhead or below-listener coordinates for individual sources.
 
 Therefore:
 
 ```text
 stable stereo evidence
-≠
-recovered rear metadata
+≠ recovered source metadata
 ```
 
-Rear placement can still be a useful immersive presentation decision. Describe it as presentation, not forensic recovery.
+Rear or elevated support may still be a useful presentation decision. Describe it as presentation.
 
 ---
 
-## 4. Rich inputs contain stronger truth
+## 6. Rich source truth outranks inference
 
-When the source provides:
+When the host/source provides stronger geometry, preserve it.
 
 ```text
-5.1
-7.1
+stereo
+→ protected master + bounded DERIVED support
+
+5.1 / 7.1
+→ matching AUTHORED anchors
+
 height beds
-objects
+→ matching AUTHORED upper/lower anchors when exposed
+
+object audio
+→ continuous AUTHORED positions
+
 Ambisonics / HOA
-```
-
-those authored relations should survive into the scene/renderer contract.
-
-Correct:
-
-```text
-rich source
-→ layout/object adapter
-→ renderer
+→ field representation preserved until an appropriate render boundary
 ```
 
 Wrong:
@@ -126,20 +156,19 @@ Wrong:
 ```text
 rich source
 → flatten to stereo
-→ stereo inference
-→ try to recover what was discarded
+→ infer geometry that was already known
 ```
 
-A richer source generally needs **less inference**, not more.
+A richer source needs less inference, not more.
 
 ---
 
-## 5. Scene entity vocabulary
+## 7. Scene entity vocabulary
 
-Keep renderer vocabulary small and typed.
+Useful higher-level presentation entities remain distinct from channel provenance.
 
 ### `FrontalAnchor`
-Material whose relocation would destabilize center of gravity, groove floor or musical focus.
+Material whose relocation would destabilize musical focus, center of gravity or groove floor.
 
 ### `DirectObject`
 Persistent source-like material for which spatially specific presentation is justified.
@@ -148,10 +177,10 @@ Persistent source-like material for which spatially specific presentation is jus
 Coherent source-like material with meaningful apparent extent or insufficient evidence for a point representation.
 
 ### `DiffuseField`
-Musical/ambient energy better represented as a distribution than as one point.
+Musical or ambient energy better represented as a distribution than as one point.
 
 ### `RoomField`
-Presentation-environment energy such as reflections and late reverberation.
+Environmental energy such as reflections and late reverberation.
 
 Keep:
 
@@ -165,289 +194,200 @@ DirectObject
 and:
 
 ```text
-rear direct object
+rear direct support
 ≠ rear reflection
 ≠ diffuse rear field
 ```
 
-These distinctions prevent easy-but-wrong substitutions such as adding more reverb whenever something should feel broad or behind the listener.
+The renderer should not use reverb as a universal substitute for width, distance or rear placement.
 
 ---
 
-## 6. Current stereo evidence
-
-Current local work already contains useful low-level evidence:
-
-- pan/lateral relation;
-- phase coherence;
-- magnitude asymmetry;
-- directness/diffuseness;
-- complex mid/side relation;
-- persistence/maturity;
-- trajectory agreement/stability;
-- conservative object/field support;
-- low-frequency/foundation protection.
-
-Hard law:
-
-> **Measurements remain measurements.**
-
-A feature does not become an instrument identity, authored object or placement command merely because it is stable.
-
-Future libaural state may enrich classification/confidence. It is not required for baseline operation.
-
----
-
-## 7. Bass and groove law
+## 8. Bass and groove law
 
 Do not buy spatial scale by dissolving timing and weight of the groove floor.
 
 Frequency alone must not imply object identity.
 
-A diffuse low-frequency field may deserve protection without being mislabeled as a compact bass object.
+A diffuse low-frequency region may deserve protection without becoming a fake compact bass object. A melodic bass line may require contour and agency preservation rather than generic sub reinforcement.
 
-A melodic bass line may need contour/agency preserved rather than generic sub reinforcement.
-
-These are preservation laws first.
+These are preservation obligations first.
 
 ---
 
-## 8. Rendering laws retained from research
-
-### Stateful rendering per source
-HRTF convolution, delay history and movement smoothing need persistent state.
-
-### Interpolated HRTFs
-Movement should not jump between discrete HRIR directions.
-
-### Swappable HRTF providers
-Measured generic, parametric and SOFA/custom sources can change without rewriting scene semantics.
-
-### Bulk delay and HRTF spectral phase are distinct
-When analytic ITD is separate, measured-HRIR preprocessing must not erase useful ear-specific spectral phase merely to force waveform alignment.
-
-### Source and environment rendering are distinct
-Distance, air absorption, reflections and room energy do not become source identity.
-
-### Fields may need distributed representation
-Diffuse musical material should not automatically become random point sources or a fixed fake speaker bed.
-
-These are mechanism constraints, not a requirement to import another renderer wholesale.
-
----
-
-## 9. Room / externalization architecture
-
-Useful split:
+## 9. Direct, early and late fields are different jobs
 
 ```text
 DIRECT
-→ direction / ITD / HRTF
+→ direction / HRTF / ITD / distance
 
-EARLY ROOM
-→ image-source geometry
-→ directional per-ear timing/filtering
+EARLY FIELD
+→ image timing
+→ wall filtering
+→ directional binaural reflection cues
 
-LATE ROOM
-→ distributed late field / FDN behavior
+LATE FIELD
+→ bounded closure / envelopment / decay
 ```
 
-This is better than one generic `spaciousness` control because the perceptual jobs are different.
+Current uses a bounded directional early field rather than treating all externalization as generic late reverb.
 
-The first live arbitrary-audio prototype was reported as tinny/hallway-like, but that result was route-contaminated by a likely duplicate physical path and unclean bypass. Do not retune room DSP around that observation until the route is clean.
+The early path groups first-order contributions into six directional reflection buses before measured-HRTF rendering. This keeps directional evidence while avoiding a combinatorial bank of full HRTF convolvers.
 
 ---
 
-## 10. Known-scene truth remains valuable
+## 10. Research obligations
 
-Known geometry isolates renderer quality from inference quality.
+Peer-reviewed binaural literature supports treating the following as separate validation axes:
 
-### Renderer lane
+### Externalization
+Frontal and rear sources are common failure cases. Room-related binaural cues and head motion can improve out-of-head perception.
+
+### Interaural behavior
+Externalization can correlate strongly with binaural cue structure, including interaural coherence and the interaction between direct and reflected cues.
+
+### Timbre
+Spatial processing can damage coloration even when localization appears plausible. HRTF/HRIR handling should therefore be validated spectrally as well as geometrically.
+
+### Motion
+A world-stable scene during head motion can improve externalization. Head tracking is therefore a meaningful future lever, not merely a UI feature.
+
+Representative anchors:
+
+- Zaunschirm, Schörkhuber & Höldrich (2018), DOI `10.1121/1.5040489`
+- Catic, Santurette & Dau (2015), DOI `10.1121/1.4928132`
+- Leclère, Lavandier & Perrin (2019), DOI `10.1121/1.5128325`
+- Brimijoin, Boyd & Akeroyd (2013), DOI `10.1371/journal.pone.0083068`
+- Hendrickx et al. (2017), DOI `10.1121/1.4978612`
+
+These findings motivate tests. They do not automatically validate a particular Current tuning.
+
+---
+
+## 11. Current implementation status
+
+Confirmed Current architecture includes:
+
+- 17-lane canonical 8.1.4.4 scene order;
+- explicit stereo EMPTY-lane preservation;
+- 22-direction Current render shell;
+- cascaded binaural output;
+- measured/parametric/SOFA-capable HRTF infrastructure;
+- ITD and distance handling;
+- directional early-field machinery;
+- callback/motion regression work;
+- protected master and coherent foundation paths;
+- deterministic Current geometry tests.
+
+The Windows endpoint APO currently accepts **stereo float32** for Current. Native authored 5.1/7.1 APO ingress remains a separate host frontier.
+
+---
+
+## 12. Validation lanes
+
+Do not collapse every problem into one end-to-end score.
+
+### Known-scene lane
 
 ```text
-known scene / layout
-→ protected Omniphony renderer
+known source geometry
+→ canonical scene
+→ renderer
 → headphones
 ```
+
+Tests renderer correctness without stereo inference uncertainty.
 
 ### Stereo-presentation lane
 
 ```text
 controlled stereo
 → evidence
-→ bounded presentation hypothesis
+→ bounded DERIVED scene support
 → renderer
 ```
+
+Tests inference/presentation permission.
 
 ### Rich-input lane
 
 ```text
-known 5.1 / 7.1 / height / object source
-→ preserve source truth
+known multichannel / object source
+→ preserve AUTHORED geometry
 → renderer
 ```
 
-### Mixed-stream lane
-
-```text
-stereo source
-+
-surround source
-→ independent logical layouts
-→ one binaural world/output
-```
+Tests source authority and host ingress.
 
 ### Product lane
 
 ```text
-ordinary real use
-→ platform host
-→ Omniphony
-↔ incumbent
+ordinary Windows playback
+→ endpoint host
+→ Current
+→ headphones
 ```
 
-Do not collapse these lanes into one score.
+Tests integration, reliability and listening quality.
 
 ---
 
-## 11. Confidence controls specificity
+## 13. Objective and listening gates
 
-Useful policy shape:
+Useful engineering axes include:
 
-```text
-low confidence
-→ preserve mix / protected relationships
-
-medium confidence
-→ broad, modest, reversible change
-
-high confidence
-→ greater permission for specific stable placement
-```
-
-Confidence does not authorize spectacle.
-Musical/fidelity guards can veto a dramatic placement.
-
----
-
-## 12. Current confirmed renderer state
-
-Retained/fork behavior includes:
-
-- stateful binaural HRTF/ITD rendering;
-- measured/parametric/SOFA-capable HRTF providers;
-- directional interpolation/crossfades;
-- stale asynchronous HRIR rebuild rejection;
-- measured-HRIR direct-arrival validation;
-- per-ear directional early-reflection timing;
-- early reflection and late FDN machinery;
-- sample-time-oriented FDN modulation;
-- stereo evidence/persistence modules;
-- bass/foundation protection;
-- deterministic DSP/fidelity fixtures;
-- optional upstream spectral-phantom and distance-diffuse mechanisms.
-
-The native Windows app now also proves arbitrary real audio can reach this engine and the physical headphones.
-
-That proves transport viability, not yet clean product-quality sound.
-
----
-
-## 13. Current gaps that matter
-
-### A. Clean single-path product listening
-Before tuning, prove no old incumbent forwarding reaches the physical output beside Omniphony.
-
-### B. Clean bypass
-Current prototype can leave already-queued wet-selected data after OFF. Selection must move closer to physical output or otherwise invalidate stale wet history.
-
-### C. Ordinary stereo presentation
-The evidence modules exist, but normal stereo is not yet the mature full-sphere world described by the north star.
-
-### D. Multi-stream core contract
-The desired core is stream-local and supports simultaneous layouts. Current Windows loopback prototype sees a platform mix rather than ideal independent streams.
-
-### E. Position/HRTF movement
-Prefer one authoritative sample-time trajectory rather than multiple hidden motion authorities.
-
-### F. Source extent
-A mature headphone `BroadSource` primitive still needs controlled listening/measurement.
-
-### G. `DiffuseField`
-Room FDN is not automatically a musical diffuse-field renderer.
-
----
-
-## 14. Fidelity gates
-
-Useful objective axes include:
-
-- strict residual/null where identity is expected;
-- peak/RMS;
-- crest factor;
-- DC;
-- frequency response;
-- lag/ITD;
+- exact scene order;
+- provenance preservation;
+- EMPTY-lane silence;
+- shell direction count;
+- finite stereo output;
+- peak/RMS and headroom;
+- residual/null where identity is expected;
+- frequency response and coloration;
+- lag/ITD and ILD behavior;
+- interaural coherence where relevant;
 - transient timing;
 - bass timing/coherence;
-- callback-size invariance where intended;
-- state-switch continuity;
-- clipping/headroom;
-- bypass queue cleanliness.
+- block-size invariance;
+- motion continuity;
+- state-switch continuity.
 
 Human listening remains necessary for:
 
 - externalization;
 - front/back discrimination;
-- elevation/below;
-- image stability;
+- elevation and below-listener perception;
 - source body/extent;
 - envelopment;
 - radial depth;
 - room naturalness;
 - direct-source solidity;
+- center authority;
 - bass/groove integrity;
 - fatigue;
 - preference.
 
-A duplicate physical route invalidates subtle listening evidence.
-
 ---
 
-## 15. Research trigger rule
-
-Use:
+## 14. Research trigger rule
 
 ```text
-clean controlled test / real listening exposes weakness
-→ identify missing capability
-→ inspect research / implementations
-→ isolate candidate
+controlled test or listening exposes a weakness
+→ identify the missing obligation
+→ inspect research and implementations
+→ isolate one candidate mechanism
 → measure + listen
 → keep only if earned
 ```
 
-External engines, Ambisonics, libaural and learned models remain excellent sources when a concrete problem calls for them.
-
-They do not outrank the protected sound merely by being sophisticated.
+Research sophistication does not outrank the protected sound.
 
 ---
 
-## 16. North-star failure test
+## 15. North-star failure test
 
-At matched loudness, Omniphony should eventually make bypass feel spatially collapsed.
+At matched loudness, bypass should eventually feel spatially collapsed.
 
 Bypass must not restore clarity, punch, timbre, transient precision, bass definition, dynamics, center authority or musical hierarchy.
 
-And before applying that test:
-
-```text
-one physical route
-+
-clean OFF
-```
-
-must already be established.
-
-The scene is there to strengthen the headphone world.
-The recording remains more important than the scene model.
+The scene exists to strengthen the headphone world. The recording remains more important than the scene model.
