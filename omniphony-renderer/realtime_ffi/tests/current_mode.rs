@@ -8,9 +8,10 @@ use std::time::{Duration, Instant};
 
 const MODE_IDENTITY: u32 = 0;
 const MODE_CURRENT: u32 = 1;
+const BLOCK_FRAMES: usize = 960;
 
 #[test]
-fn current_worker_processes_and_can_be_recreated_in_one_process() {
+fn current_worker_round_trips_audio_and_can_be_recreated_in_one_process() {
     let config = OmniphonyRealtimeConfig {
         sample_rate_hz: 48_000,
         channels: 2,
@@ -22,17 +23,22 @@ fn current_worker_processes_and_can_be_recreated_in_one_process() {
 
         assert_eq!(omniphony_realtime_set_mode(processor, MODE_CURRENT), 0);
 
-        // Exactly one Current worker block (20 ms at 48 kHz). The callback ABI
-        // may initially return silence while the worker catches up; this test is
-        // about successful bounded handoff and worker progress, not sound tuning.
-        let input = vec![0.0f32; 960 * 2];
+        // Exactly one Current worker block (20 ms at 48 kHz). Use a quiet but
+        // nonzero stereo signal so the test can distinguish real worker output
+        // from the startup-silence fallback without turning this into a sound
+        // tuning assertion.
+        let mut input = vec![0.0f32; BLOCK_FRAMES * 2];
+        for frame in 0..BLOCK_FRAMES {
+            input[frame * 2] = 0.05;
+            input[frame * 2 + 1] = -0.025;
+        }
         let mut output = vec![f32::NAN; input.len()];
         assert_eq!(
             omniphony_realtime_process_f32(
                 processor,
                 input.as_ptr(),
                 output.as_mut_ptr(),
-                960,
+                BLOCK_FRAMES,
             ),
             0
         );
@@ -45,6 +51,35 @@ fn current_worker_processes_and_can_be_recreated_in_one_process() {
         assert!(
             omniphony_realtime_processed_blocks(processor) > 0,
             "Current worker accepted PCM but never completed a render block"
+        );
+
+        // processed_blocks is incremented just before the worker publishes the
+        // rendered block, so allow a few callback-sized polls. Each call remains
+        // bounded and the two-second input ring keeps this comfortably below its
+        // capacity even on a loaded CI runner.
+        let zeros = vec![0.0f32; BLOCK_FRAMES * 2];
+        let mut rendered_seen = false;
+        for _ in 0..20 {
+            output.fill(f32::NAN);
+            assert_eq!(
+                omniphony_realtime_process_f32(
+                    processor,
+                    zeros.as_ptr(),
+                    output.as_mut_ptr(),
+                    BLOCK_FRAMES,
+                ),
+                0
+            );
+            assert!(output.iter().all(|sample| sample.is_finite()));
+            if output.iter().any(|sample| sample.abs() > 1.0e-6) {
+                rendered_seen = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            rendered_seen,
+            "Current worker completed work but no rendered PCM crossed back through the output ring"
         );
 
         // This is the lifecycle the eventual tray control will exercise. It
