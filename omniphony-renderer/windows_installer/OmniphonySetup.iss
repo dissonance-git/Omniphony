@@ -6,7 +6,7 @@
 #endif
 
 #define MyAppName "Omniphony for Windows"
-#define MyAppVersion "0.0.2-dev"
+#define MyAppVersion "0.0.3-dev"
 #define MyAppPublisher "Omniphony downstream fork"
 
 [Setup]
@@ -54,7 +54,7 @@ Source: "{#PayloadDir}\support\*"; DestDir: "{app}\support"; Flags: ignoreversio
 Source: "{#PayloadDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [UninstallRun]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\support\Uninstall-OmniphonyAPO.ps1"" -AppRoot ""{app}"" -PhysicalOutput ""Dan Clark Noire X"""; Flags: runhidden waituntilterminated; RunOnceId: "OmniphonyApoCleanup"
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\support\Uninstall-OmniphonyAPO.ps1"" -AppRoot ""{app}"""; Flags: runhidden waituntilterminated; RunOnceId: "OmniphonyApoCleanup"
 
 [Code]
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -89,14 +89,13 @@ begin
     Params := '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
       ExpandConstant('{app}\support\Install-OmniphonyAPO.ps1') +
       '" -PackageRoot "' + ExpandConstant('{tmp}\OmniphonyAPOPayload') +
-      '" -AppRoot "' + ExpandConstant('{app}') +
-      '" -PhysicalOutput "Dan Clark Noire X"';
+      '" -AppRoot "' + ExpandConstant('{app}') + '"';
 
     if (not Exec(PowerShell, Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode)) or
        (ResultCode <> 0) then
     begin
       RaiseException(
-        'Omniphony APO installation could not finish safely. The installer performs automatic endpoint rollback on APO/WASAPI failure.'
+        'Omniphony could not finish attaching to the current Windows output. The previous endpoint state was restored automatically. Diagnostic log: C:\ProgramData\Omniphony\install-last.log'
       );
     end;
   end;
