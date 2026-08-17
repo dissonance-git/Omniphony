@@ -1,0 +1,6 @@
+# AudioDG loads omniphony_realtime.dll in-process beside OmniphonyAPO.dll.
+# Keep the Windows runtime self-contained instead of depending on a separately
+# installed Visual C++ runtime. The Windows dependency audit verifies the final
+# PE import table, so this flag is an intention backed by a binary-level gate.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
