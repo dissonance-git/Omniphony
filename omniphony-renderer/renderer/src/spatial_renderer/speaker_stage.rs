@@ -765,9 +765,6 @@ impl SpeakerRenderStage {
         total_gain: f32,
         output: &mut [f32],
     ) -> (f32, usize) {
-        // Pre-compute per-speaker total gains and update delay-line targets in a
-        // single pass over the speaker list — one HashMap lookup per speaker.
-        // Mute overrides gain to 0.0 without touching the stored gain value.
         self.speaker_gains_buf
             .iter_mut()
             .enumerate()
@@ -787,21 +784,38 @@ impl SpeakerRenderStage {
         }
         let speaker_total_gains = &self.speaker_gains_buf;
 
-        // Apply per-speaker gains and delay lines, and detect peak (tracking which
-        // speaker channel held the peak, for clip reporting).
-        let sample_length = output.len() / self.num_speakers.max(1);
+        // Speaker-major rather than sample-major: each delay ring stays hot in
+        // cache, and the zero-delay common case bypasses the fractional read
+        // while still preserving history for a later live delay change.
+        let num_speakers = self.num_speakers;
+        let sample_length = output.len() / num_speakers.max(1);
         let mut peak_sample: f32 = 0.0;
         let mut peak_speaker_idx: usize = 0;
-        for sample_idx in 0..sample_length {
-            for speaker_idx in 0..self.num_speakers {
-                let s = &mut output[sample_idx * self.num_speakers + speaker_idx];
-                *s *= speaker_total_gains[speaker_idx];
-                *s = self.delay_lines[speaker_idx].process(*s);
-                let a = s.abs();
-                if a > peak_sample {
-                    peak_sample = a;
-                    peak_speaker_idx = speaker_idx;
+        for (speaker_idx, delay_line) in self
+            .delay_lines
+            .iter_mut()
+            .enumerate()
+            .take(num_speakers)
+        {
+            let gain = speaker_total_gains[speaker_idx];
+            let mut peak: f32 = 0.0;
+            if delay_line.is_bypass() {
+                for sample_idx in 0..sample_length {
+                    let sample = &mut output[sample_idx * num_speakers + speaker_idx];
+                    *sample *= gain;
+                    delay_line.push_history(*sample);
+                    peak = peak.max(sample.abs());
                 }
+            } else {
+                for sample_idx in 0..sample_length {
+                    let sample = &mut output[sample_idx * num_speakers + speaker_idx];
+                    *sample = delay_line.process(*sample * gain);
+                    peak = peak.max(sample.abs());
+                }
+            }
+            if peak > peak_sample {
+                peak_sample = peak;
+                peak_speaker_idx = speaker_idx;
             }
         }
         (peak_sample, peak_speaker_idx)

@@ -1797,22 +1797,45 @@ fn interp_survives_speaker_cascade_width_switch() {
         sample_pos: Some(0),
     }];
 
-    let mut set_mode = |r: &mut SpatialRenderer, mode: crate::live_params::OutputMode| {
+    let set_mode = |r: &mut SpatialRenderer, mode: crate::live_params::OutputMode| {
         r.control.live.write().binaural.output_mode = mode;
     };
-    // Seed interp state on the 12-wide speaker path.
+
+    // Seed Interp state on the 12-wide speaker path.
     let out = r.render_frame(&pcm, 1, &event, Vec::new(), false).unwrap();
+    assert_eq!(out.n_channels, 12);
     assert_eq!(out.samples.len(), 40 * 12);
-    // Switch to the 13-wide cascade, render, and back — must not panic and
-    // must keep producing signal.
+
+    // A mode request first fades the active 12-wide frame to silence. Only
+    // after that completed frame does the renderer adopt the 13-wide cascade
+    // and emit stereo. Exercise enough blocks to cross the 5 ms boundary.
     set_mode(&mut r, crate::live_params::OutputMode::Binaural);
-    let out = r.render_frame(&pcm, 1, &[], Vec::new(), false).unwrap();
-    assert_eq!(out.samples.len(), 40 * 2, "cascade output must be stereo");
+    let mut reached_binaural = false;
+    for _ in 0..16 {
+        let out = r.render_frame(&pcm, 1, &[], Vec::new(), false).unwrap();
+        assert!(out.n_channels == 12 || out.n_channels == 2);
+        assert_eq!(out.samples.len(), 40 * out.n_channels);
+        if out.n_channels == 2 {
+            reached_binaural = true;
+            break;
+        }
+    }
+    assert!(reached_binaural, "cascade mode never became the active frame");
+
     set_mode(&mut r, crate::live_params::OutputMode::SpeakerArray);
-    let out = r.render_frame(&pcm, 1, &[], Vec::new(), false).unwrap();
-    assert_eq!(out.samples.len(), 40 * 12);
+    let mut speaker_out = None;
+    for _ in 0..16 {
+        let out = r.render_frame(&pcm, 1, &[], Vec::new(), false).unwrap();
+        assert!(out.n_channels == 2 || out.n_channels == 12);
+        assert_eq!(out.samples.len(), 40 * out.n_channels);
+        if out.n_channels == 12 {
+            speaker_out = Some(out);
+            break;
+        }
+    }
+    let out = speaker_out.expect("speaker mode never became the active frame");
     assert!(
-        out.samples.iter().any(|s| s.abs() > 1e-6),
+        out.samples.iter().any(|sample| sample.abs() > 1e-6),
         "speaker output must survive the round-trip"
     );
 }

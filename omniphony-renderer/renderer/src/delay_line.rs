@@ -59,6 +59,21 @@ impl DelayLine {
         self.target == 0.0 && self.current == 0.0
     }
 
+    /// Keep the ring warm without doing the fractional read.
+    ///
+    /// While [`is_bypass`](Self::is_bypass) holds, `process` is the identity.
+    /// The write still matters because a later non-zero delay must be able to
+    /// read audio that passed while the line was bypassed.
+    #[inline]
+    pub fn push_history(&mut self, input: f32) {
+        debug_assert!(
+            self.is_bypass(),
+            "push_history is only the identity while bypassed",
+        );
+        self.buf[self.write_pos] = input;
+        self.write_pos = (self.write_pos + 1) % self.buf.len();
+    }
+
     /// Reset stream-lifetime history in place. Capacity is retained so a
     /// decoder seek/track restart cannot leak old delayed samples into the new
     /// stream and does not allocate or free on the realtime thread.
@@ -118,6 +133,23 @@ mod tests {
     /// rounds to exactly `cap` in f32 and the floor()ed read index lands out
     /// of bounds. Sweep fractional targets right above 5 samples through full
     /// buffer laps — this panicked before the wrap guard.
+    #[test]
+    fn bypass_history_matches_full_processing_when_delay_turns_on() {
+        let mut fast = DelayLine::new(32);
+        let mut reference = DelayLine::new(32);
+        for i in 0..24 {
+            let x = ((i * 7 % 17) as f32 - 8.0) / 8.0;
+            fast.push_history(x);
+            assert_eq!(reference.process(x).to_bits(), x.to_bits());
+        }
+        fast.set_target_ms(4.0 / 48.0, 48_000);
+        reference.set_target_ms(4.0 / 48.0, 48_000);
+        for i in 0..32 {
+            let x = ((i * 11 % 19) as f32 - 9.0) / 9.0;
+            assert_eq!(fast.process(x).to_bits(), reference.process(x).to_bits());
+        }
+    }
+
     #[test]
     fn fractional_delay_just_above_write_pos_does_not_panic() {
         for k in 0..400 {

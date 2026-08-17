@@ -417,11 +417,9 @@ pub fn render_single_object_binaural(
     hrir_source: HrirSource,
 ) -> (Vec<f32>, Vec<f32>) {
     const PRIME_BLOCKS: usize = 64;
-    const HRIR_REBUILD_SETTLE_MS: u64 = 100;
 
     let theta = (azimuth_deg as f64).to_radians();
     let position = [theta.sin(), theta.cos(), 0.0];
-    let source_change = hrir_source != HrirSource::SafKemar;
 
     let mut r = build_renderer_binaural(
         SpeakerLayout::preset("7.1.4").expect("known preset"),
@@ -434,7 +432,7 @@ pub fn render_single_object_binaural(
         let mut live = ctrl.live.write();
         live.ramp_mode = RampMode::Frame;
         live.binaural.output_mode = OutputMode::Binaural;
-        live.binaural.hrir_source = hrir_source;
+        live.binaural.hrir_source = hrir_source.clone();
     }
 
     let event = vec![SpatialChannelEvent {
@@ -448,24 +446,43 @@ pub fn render_single_object_binaural(
     }];
 
     let mut buf = Vec::new();
-    for block in 0..PRIME_BLOCKS {
-        let f = r
-            .render_frame(&make_pcm_block(1, block), 1, &event, buf, false)
-            .expect("prime binaural ITD render");
-        buf = f.samples;
-        buf.clear();
+    let render_one = |r: &mut SpatialRenderer, buf: Vec<f32>, seed: usize| {
+        let frame = r
+            .render_frame(&make_pcm_block(1, seed), 1, &event, buf, false)
+            .expect("binaural ITD render");
+        let mut samples = frame.samples;
+        samples.clear();
+        samples
+    };
 
-        // The first frame is what calls BinauralRenderer::ensure_source and
-        // enqueues the rebuild. Wait only after that request exists.
-        if block == 0 && source_change {
-            std::thread::sleep(std::time::Duration::from_millis(HRIR_REBUILD_SETTLE_MS));
-        }
+    // Stage 1: drive the audio thread until the specifically requested HRIR
+    // grid is active. The first render issues the async request, and later
+    // renders are what consume the worker result.
+    const SETTLE_SEED_BASE: usize = 1 << 20;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut settled = 0usize;
+    buf = render_one(&mut r, buf, SETTLE_SEED_BASE);
+    while r.binaural_rebuild_pending() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "binaural HRIR rebuild for {hrir_source:?} never landed"
+        );
+        std::thread::yield_now();
+        settled += 1;
+        buf = render_one(&mut r, buf, SETTLE_SEED_BASE + settled);
+    }
+
+    // Stage 2: now prime from a fixed excitation sequence. The measured state
+    // is therefore independent of how many scheduler-dependent settle frames
+    // were needed above.
+    for block in 0..PRIME_BLOCKS {
+        buf = render_one(&mut r, buf, block);
     }
 
     let mut left = Vec::with_capacity(blocks * BLOCK_SAMPLES);
     let mut right = Vec::with_capacity(blocks * BLOCK_SAMPLES);
     for block in 0..blocks {
-        let f = r
+        let frame = r
             .render_frame(
                 &make_pcm_block(1, PRIME_BLOCKS + block),
                 1,
@@ -474,11 +491,11 @@ pub fn render_single_object_binaural(
                 false,
             )
             .expect("binaural ITD render");
-        for frame in f.samples.chunks_exact(2) {
-            left.push(frame[0]);
-            right.push(frame[1]);
+        for pair in frame.samples.chunks_exact(2) {
+            left.push(pair[0]);
+            right.push(pair[1]);
         }
-        buf = f.samples;
+        buf = frame.samples;
         buf.clear();
     }
     (left, right)

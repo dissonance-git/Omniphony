@@ -268,6 +268,9 @@ pub struct BinauralRenderer {
     /// HRIR source last *requested* (the active grid may briefly lag it while
     /// the worker builds — see [`Self::ensure_source`]).
     source: HrirSource,
+    /// Source identity of the grid currently convolving audio. Kept separate
+    /// from `source` so validation can observe the asynchronous handoff.
+    active_source: HrirSource,
     /// Finished, source-tagged grids from the rebuild worker, awaiting the
     /// audio-thread swap. Stale results are discarded rather than installed.
     incoming: std::sync::Arc<arc_swap::ArcSwapOption<BuiltHrirSet>>,
@@ -325,6 +328,7 @@ impl BinauralRenderer {
             // The initial (default) grid is built synchronously: `new` runs on
             // a control thread, and the renderer must be usable immediately.
             hrir: std::sync::Arc::new(Self::build_hrir(&source, sample_rate)),
+            active_source: source.clone(),
             source,
             incoming,
             rebuild_tx,
@@ -445,6 +449,7 @@ impl BinauralRenderer {
 
         if let Some(built) = self.incoming.swap(None) {
             if built.source == self.source {
+                self.active_source = built.source.clone();
                 self.hrir = std::sync::Arc::clone(&built.set);
                 // Same direction on a different HRTF set is a different kernel.
                 self.hrir_generation = self.hrir_generation.wrapping_add(1);
@@ -456,6 +461,12 @@ impl BinauralRenderer {
                 );
             }
         }
+    }
+
+    /// Whether the requested HRIR source is still being built or waiting
+    /// for the audio-thread swap. Steady state is one enum comparison.
+    pub fn rebuild_pending(&self) -> bool {
+        self.source != self.active_source
     }
 
     /// Render one frame to interleaved stereo.

@@ -1170,6 +1170,13 @@ impl SpatialRenderer {
         }
     }
 
+    /// True while a requested binaural HRIR grid has not yet become active.
+    /// Primarily used by deterministic validation; the production swap remains
+    /// asynchronous and never blocks the audio thread.
+    pub fn binaural_rebuild_pending(&self) -> bool {
+        self.binaural.rebuild_pending()
+    }
+
     pub fn num_speakers(&self) -> usize {
         self.num_speakers
     }
