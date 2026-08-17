@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/windows-installer.yml'
+      - 'layouts/system-h-derived-22.0-upper60-grid10.yaml'
       - 'omniphony-renderer/windows_installer/**'
       - 'omniphony-renderer/renderer/**'
       - 'omniphony-renderer/orender_engine/**'
