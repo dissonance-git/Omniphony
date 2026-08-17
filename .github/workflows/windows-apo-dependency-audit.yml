@@ -6,15 +6,26 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/windows-apo-dependency-audit.yml'
+      - 'omniphony-renderer/.cargo/**'
+      - 'omniphony-renderer/realtime_ffi/**'
+      - 'omniphony-renderer/orender_engine/**'
+      - 'omniphony-renderer/renderer/**'
+      - 'omniphony-renderer/reference_bridge/**'
+      - 'omniphony-renderer/bridge_api/**'
+      - 'omniphony-renderer/Cargo.toml'
+      - 'omniphony-renderer/Cargo.lock'
       - 'omniphony-renderer/windows_installer/endpoint_apo/**'
 
 permissions:
   contents: read
 
+env:
+  RUST_TOOLCHAIN: 1.88.0
+
 jobs:
   audit:
     runs-on: windows-2022
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -25,6 +36,16 @@ jobs:
       - uses: microsoft/setup-msbuild@v2
         with:
           vs-version: '[17.0,18.0)'
+
+      - name: Install pinned Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install $env:RUST_TOOLCHAIN --profile minimal
+          Set-Location "$env:GITHUB_WORKSPACE\omniphony-renderer"
+          rustup override set $env:RUST_TOOLCHAIN
+          rustc --version --verbose
+          cargo --version
+
       - name: Ensure Windows 11 WDK
         shell: pwsh
         run: |
@@ -49,17 +70,24 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "production APO INF failed InfVerif /w: $LASTEXITCODE" }
           Write-Host 'PRODUCTION_APO_INFVERIF_OK 1'
 
-      - name: Build native APO
+      - name: Build AudioDG runtime binaries
         shell: pwsh
         run: |
           cmake -S omniphony-renderer/windows_installer/endpoint_apo -B build/apo -A x64
           if ($LASTEXITCODE -ne 0) { throw "APO CMake configure failed: $LASTEXITCODE" }
           cmake --build build/apo --config Release --parallel
           if ($LASTEXITCODE -ne 0) { throw "APO build failed: $LASTEXITCODE" }
-      - name: Audit APO import table
+
+          Set-Location "$env:GITHUB_WORKSPACE\omniphony-renderer"
+          cargo build --release -p realtime_ffi
+          if ($LASTEXITCODE -ne 0) { throw "realtime_ffi release build failed: $LASTEXITCODE" }
+          if (-not (Test-Path 'target/release/omniphony_realtime.dll')) {
+            throw 'realtime_ffi did not produce target/release/omniphony_realtime.dll'
+          }
+
+      - name: Audit AudioDG import tables
         shell: pwsh
         run: |
-          $dll = (Resolve-Path 'build/apo/Release/OmniphonyAPO.dll').Path
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           if (-not $vs) { throw 'Visual Studio C++ tools not found' }
@@ -68,17 +96,26 @@ jobs:
             Sort-Object FullName -Descending |
             Select-Object -First 1
           if (-not $dumpbin) { throw 'dumpbin.exe not found' }
-          $deps = (& $dumpbin.FullName /DEPENDENTS $dll 2>&1 | Out-String)
-          Write-Host $deps
+
+          $binaries = @(
+            (Resolve-Path 'build/apo/Release/OmniphonyAPO.dll').Path,
+            (Resolve-Path 'omniphony-renderer/target/release/omniphony_realtime.dll').Path
+          )
           $forbidden = @(
             'AudioBaseProcessingObject.dll',
             'VCRUNTIME140.dll',
             'VCRUNTIME140_1.dll',
-            'MSVCP140.dll'
+            'MSVCP140.dll',
+            'ucrtbase.dll'
           )
-          foreach ($name in $forbidden) {
-            if ($deps -match [regex]::Escape($name)) {
-              throw "APO has non-system runtime dependency: $name"
+          foreach ($dll in $binaries) {
+            Write-Host "AUDIT_BINARY $dll"
+            $deps = (& $dumpbin.FullName /DEPENDENTS $dll 2>&1 | Out-String)
+            Write-Host $deps
+            foreach ($name in $forbidden) {
+              if ($deps -match [regex]::Escape($name)) {
+                throw "AudioDG binary $dll has non-self-contained runtime dependency: $name"
+              }
             }
           }
-          Write-Host 'APO_DEPENDENCY_AUDIT_OK 1'
+          Write-Host 'AUDIODG_DEPENDENCY_AUDIT_OK 1'
