@@ -18,7 +18,7 @@ pub(crate) enum SpatialProfile {
     Current,
 }
 
-fn current_model_config(base: &str) -> String {
+pub(crate) fn current_model_config(base: &str) -> String {
     let mut cfg = base.to_string();
     cfg = cfg.replace("      level: 0.32", "      level: 0.36");
     // Keep the transient-aware measured-HRTF early field intact, but reduce the
@@ -89,7 +89,7 @@ impl MusicSupportRenderer {
 /// while omitting config persistence, overlay preferences and bridge discovery.
 /// The reference PCM bridge is linked directly per instance, so Current can be
 /// destroyed/recreated in one process without a one-shot global registration.
-fn build_embedded_engine(
+pub(crate) fn build_embedded_engine(
     config_yaml: &str,
     layout_yaml: &str,
     sample_rate_hz: u32,
@@ -186,10 +186,15 @@ fn build_embedded_engine(
     Ok(engine)
 }
 
-fn seed_engine(engine: &mut Engine, header: &[u8], label: &str) -> anyhow::Result<()> {
+pub(crate) fn seed_engine(engine: &mut Engine, header: &[u8], label: &str) -> anyhow::Result<()> {
     let output = engine
         .process(header, RInputTransport::Raw, 0)
-        .with_context(|| format!("failed to seed {label} 12-lane PCM bridge"))?;
+        .with_context(|| {
+            format!(
+                "failed to seed {label} canonical {}-lane PCM bridge",
+                MUSIC_FIELD_CHANNELS
+            )
+        })?;
     if !output.is_empty() {
         bail!("{label} streaming WAV header unexpectedly produced audio");
     }
@@ -225,7 +230,7 @@ fn add_stereo_support(
     Ok(primary)
 }
 
-fn streaming_f32_wav_header(channels: u16, sample_rate_hz: u32) -> Vec<u8> {
+pub(crate) fn streaming_f32_wav_header(channels: u16, sample_rate_hz: u32) -> Vec<u8> {
     let block_align = channels.saturating_mul(4);
     let byte_rate = sample_rate_hz.saturating_mul(u32::from(block_align));
     let mut wav = Vec::with_capacity(44);
@@ -245,7 +250,7 @@ fn streaming_f32_wav_header(channels: u16, sample_rate_hz: u32) -> Vec<u8> {
     wav
 }
 
-fn f32_as_le_bytes(samples: &[f32], out: &mut Vec<u8>) {
+pub(crate) fn f32_as_le_bytes(samples: &[f32], out: &mut Vec<u8>) {
     out.clear();
     out.reserve(samples.len() * 4);
     for &sample in samples {
