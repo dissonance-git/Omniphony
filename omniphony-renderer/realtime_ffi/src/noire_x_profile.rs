@@ -3,15 +3,16 @@
 //! Keep two concepts separate:
 //!
 //! 1. headphone / renderer EQ, selectable as Off, the retained legacy DTS-era
-//!    profile, or a gentler experimental profile tuned for native Omniphony;
+//!    profile, or a native Omniphony profile;
 //! 2. listener-specific right-ear compensation, independently bypassable.
 //!
 //! The legacy coefficients independently implement the same RBJ biquad /
 //! shelf-corner semantics used by the listener's former Equalizer APO profile.
-//! The native Omniphony preset intentionally uses smaller broad corrections so
-//! it does not automatically compensate the spectral fingerprint of the old DTS
-//! Virtual:X HRIR a second time. The listener-specific right-ear layer is carried
-//! unchanged between presets and is not presented as medical/audiogram correction.
+//! The native Omniphony preset is tuned around the primary listening target:
+//! deep clean low bass with little upper-bass fog, energetic/present mids,
+//! restrained 3.5-5 kHz glare, and open/lush upper treble without sounding muted.
+//! The listener-specific right-ear layer is carried unchanged between presets
+//! and is not presented as medical/audiogram correction.
 
 use std::env;
 use std::f64::consts::PI;
@@ -20,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 const LEGACY_GLOBAL_PREAMP_DB: f64 = -4.0;
-const NATIVE_GLOBAL_PREAMP_DB: f64 = -2.5;
+const NATIVE_GLOBAL_PREAMP_DB: f64 = -3.5;
 const RIGHT_PREAMP_DB: f64 = -0.4;
 const RIGHT_DELAY_MS: f64 = 0.02;
 const SETTING_POLL_MS: u64 = 500;
@@ -99,21 +100,25 @@ const LEGACY_SHARED_FILTERS: [FilterSpec; 15] = [
     FilterSpec::high_shelf(7_200.0, -1.8, 0.7),
 ];
 
-// Experimental native-Omniphony comparison profile. It keeps broad useful
-// headphone/listening-target tendencies from the legacy curve while reducing
-// the magnitude of corrections most likely to have been compensating the old
-// DTS HRIR. It is intentionally broad and conservative, per the calibration law.
-const NATIVE_SHARED_FILTERS: [FilterSpec; 10] = [
-    FilterSpec::high_pass(15.0, 0.6),
-    FilterSpec::low_shelf(45.0, 2.0, 0.5),
-    FilterSpec::peaking(85.0, 1.2, 0.70),
-    FilterSpec::peaking(155.0, 0.6, 0.80),
-    FilterSpec::peaking(420.0, 0.3, 0.75),
-    FilterSpec::peaking(1_200.0, 0.3, 0.80),
-    FilterSpec::peaking(2_800.0, -0.3, 0.75),
-    FilterSpec::peaking(3_800.0, -0.9, 0.90),
-    FilterSpec::peaking(4_800.0, -1.0, 1.10),
-    FilterSpec::high_shelf(7_200.0, -0.7, 0.70),
+// Native Omniphony comparison profile. The low shelf is moved lower and paired
+// with a small upper-bass cut so extension can feel bottomless without masking
+// the groove. Broad lower/central-mid lifts add density and power. The 3.9/5 kHz
+// cuts remove glare while a nearly-flat presence shelf plus a small 10 kHz air
+// lift retains texture and openness instead of darkening the whole top octave.
+const NATIVE_SHARED_FILTERS: [FilterSpec; 13] = [
+    FilterSpec::high_pass(14.0, 0.65),
+    FilterSpec::low_shelf(38.0, 3.0, 0.55),
+    FilterSpec::peaking(72.0, 1.3, 0.70),
+    FilterSpec::peaking(150.0, 0.4, 0.80),
+    FilterSpec::peaking(260.0, -0.4, 0.85),
+    FilterSpec::peaking(520.0, 0.5, 0.75),
+    FilterSpec::peaking(1_100.0, 0.6, 0.75),
+    FilterSpec::peaking(1_900.0, 0.35, 0.90),
+    FilterSpec::peaking(3_000.0, -0.45, 0.80),
+    FilterSpec::peaking(3_900.0, -1.2, 0.90),
+    FilterSpec::peaking(5_000.0, -1.0, 1.10),
+    FilterSpec::high_shelf(7_500.0, -0.25, 0.70),
+    FilterSpec::high_shelf(10_000.0, 0.45, 0.70),
 ];
 
 // Listener-specific right-ear compensation. Keep independent from headphone /
@@ -417,6 +422,16 @@ mod tests {
         let legacy_total: f64 = LEGACY_SHARED_FILTERS.iter().map(|spec| spec.gain_db.abs()).sum();
         let native_total: f64 = NATIVE_SHARED_FILTERS.iter().map(|spec| spec.gain_db.abs()).sum();
         assert!(native_total < legacy_total);
+    }
+
+    #[test]
+    fn native_profile_has_deep_bass_and_preserved_air_shape() {
+        assert!(NATIVE_SHARED_FILTERS.iter().any(|spec| {
+            spec.kind == FilterKind::LowShelf && spec.frequency_hz <= 40.0 && spec.gain_db >= 2.5
+        }));
+        assert!(NATIVE_SHARED_FILTERS.iter().any(|spec| {
+            spec.kind == FilterKind::HighShelf && spec.frequency_hz >= 9_000.0 && spec.gain_db > 0.0
+        }));
     }
 
     #[test]
