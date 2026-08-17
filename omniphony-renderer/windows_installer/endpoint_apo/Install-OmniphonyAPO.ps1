@@ -25,24 +25,6 @@ $logPath = Join-Path $stateRoot 'install-last.log'
 
 $apoClsid = '{A9333BFE-39C1-40FD-B4B0-ECC591410B47}'
 $apoInterface = '{FD7F2B29-24D0-4B5C-B177-592C39F9CA10}'
-$defaultMode = '{C18E2F7E-933D-4965-B7D1-1EEF228D2AF3}'
-$efxValueName = '{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},7'
-$efxModesValueName = '{d3993a3f-99c2-4402-b5ec-a92a0367664b},7'
-$disableSysFxValueName = '{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5'
-$fxValueNames = @(
-    '{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},1',
-    '{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},2',
-    '{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},5',
-    '{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},6',
-    '{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},7',
-    '{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},13',
-    '{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},14',
-    '{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},15'
-)
-$knownEqualizerApoClsids = @(
-    '{EACD2258-FCAC-4FF4-B36D-419E924A6D79}',
-    '{EC1CC9CE-FAED-4822-828A-82A81A6F018F}'
-)
 
 New-Item -ItemType Directory -Force -Path $stateRoot | Out-Null
 $transcriptStarted = $false
@@ -91,18 +73,22 @@ function Open-Hklm64([string]$Path, [bool]$Writable, [bool]$Create) {
 }
 
 function Get-ValueSnapshot([string]$Path, [string]$Name) {
-    $opened = Open-Hklm64 $Path $false $false
+    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+        [Microsoft.Win32.RegistryHive]::LocalMachine,
+        [Microsoft.Win32.RegistryView]::Registry64)
     try {
-        if ($opened.Key.GetValueNames() -notcontains $Name) {
-            return [ordered]@{ Exists = $false; Kind = ''; Value = $null }
-        }
-        $kind = $opened.Key.GetValueKind($Name).ToString()
-        $value = $opened.Key.GetValue($Name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
-        if ($kind -eq 'Binary' -and $null -ne $value) { $value = [Convert]::ToBase64String([byte[]]$value) }
-        return [ordered]@{ Exists = $true; Kind = $kind; Value = $value }
-    } finally {
-        $opened.Key.Dispose(); $opened.Base.Dispose()
-    }
+        $key = $base.OpenSubKey($Path, $false)
+        if (-not $key) { return [ordered]@{ Exists = $false; Kind = ''; Value = $null } }
+        try {
+            if ($key.GetValueNames() -notcontains $Name) {
+                return [ordered]@{ Exists = $false; Kind = ''; Value = $null }
+            }
+            $kind = $key.GetValueKind($Name).ToString()
+            $value = $key.GetValue($Name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+            if ($kind -eq 'Binary' -and $null -ne $value) { $value = [Convert]::ToBase64String([byte[]]$value) }
+            return [ordered]@{ Exists = $true; Kind = $kind; Value = $value }
+        } finally { $key.Dispose() }
+    } finally { $base.Dispose() }
 }
 
 function Set-ValueSnapshot([string]$Path, [string]$Name, $Snapshot) {
@@ -124,9 +110,7 @@ function Set-ValueSnapshot([string]$Path, [string]$Name, $Snapshot) {
             'ExpandString' { $value = [string]$value }
         }
         $opened.Key.SetValue($Name, $value, $kind)
-    } finally {
-        $opened.Key.Dispose(); $opened.Base.Dispose()
-    }
+    } finally { $opened.Key.Dispose(); $opened.Base.Dispose() }
 }
 
 function Set-RegString([string]$Path, [string]$Name, [string]$Value) {
@@ -176,109 +160,29 @@ function Get-CurrentDefaultEndpoint {
     $lines = @(& $endpointCtl get-default 2>&1 | ForEach-Object { "$_" })
     $code = $LASTEXITCODE
     $line = $lines | Where-Object { $_.StartsWith("DEFAULT`t") } | Select-Object -First 1
-    if ($code -ne 0 -or -not $line) { throw "Could not resolve default render endpoint. helper=$code output=$($lines -join ' | ')" }
+    if ($code -ne 0 -or -not $line) {
+        throw "Could not resolve default render endpoint. helper=$code output=$($lines -join ' | ')"
+    }
     $parts = $line -split "`t", 3
     return [pscustomobject]@{ Id = $parts[1]; Name = $parts[2] }
 }
 
-function Get-ApoEndpointById([string]$EndpointId) {
-    $lines = @(& $ctl list 2>&1 | ForEach-Object { "$_" })
-    if ($LASTEXITCODE -ne 0) { throw "Could not enumerate render endpoints: $($lines -join ' | ')" }
-    foreach ($line in $lines) {
-        if (-not $line.StartsWith("ENDPOINT`t")) { continue }
-        $parts = $line -split "`t", 4
-        if ($parts.Count -ge 4 -and [string]::Equals($parts[3], $EndpointId, [StringComparison]::OrdinalIgnoreCase)) {
-            return [pscustomobject]@{ Name = $parts[1]; Guid = $parts[2]; Id = $parts[3] }
-        }
+function Get-ApoStatus([string]$EndpointId) {
+    $lines = @(& $ctl status-id $EndpointId 2>&1 | ForEach-Object { "$_" })
+    $code = $LASTEXITCODE
+    if ($code -ne 0 -and $code -ne 3) {
+        throw "Could not inspect endpoint APO state. helper=$code output=$($lines -join ' | ')"
     }
-    throw "Default endpoint was not found in APO endpoint list: $EndpointId"
-}
-
-function Get-StringValues($Snapshot) {
-    if (-not [bool]$Snapshot.Exists) { return @() }
-    $kind = [string]$Snapshot.Kind
-    if ($kind -eq 'String' -or $kind -eq 'ExpandString') { return @([string]$Snapshot.Value) }
-    if ($kind -eq 'MultiString') { return [string[]]@($Snapshot.Value) }
-    return @()
-}
-
-function Get-ComServerInfo([string]$Clsid) {
-    $path = "SOFTWARE\Classes\CLSID\$Clsid\InprocServer32"
-    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
-        [Microsoft.Win32.RegistryHive]::LocalMachine,
-        [Microsoft.Win32.RegistryView]::Registry64)
-    try {
-        $key = $base.OpenSubKey($path, $false)
-        if (-not $key) { return [pscustomobject]@{ Registered = $false; Path = ''; Exists = $false } }
-        try { $server = [string]$key.GetValue($null, '') } finally { $key.Dispose() }
-        if ([string]::IsNullOrWhiteSpace($server)) { return [pscustomobject]@{ Registered = $true; Path = ''; Exists = $false } }
-        $expanded = [Environment]::ExpandEnvironmentVariables($server.Trim('"'))
-        return [pscustomobject]@{ Registered = $true; Path = $expanded; Exists = (Test-Path -LiteralPath $expanded -PathType Leaf) }
-    } finally { $base.Dispose() }
-}
-
-function Find-StaleFxRepairs([string]$FxPath, [hashtable]$Snapshots) {
-    $repairs = @()
-    foreach ($name in $fxValueNames) {
-        $snapshot = Get-ValueSnapshot $FxPath $name
-        $values = @(Get-StringValues $snapshot)
-        if ($values.Count -eq 0) { continue }
-        $keep = New-Object System.Collections.Generic.List[string]
-        $changed = $false
-        foreach ($clsid in $values) {
-            if ($clsid -notmatch '^\{[0-9A-Fa-f-]{36}\}$') { $keep.Add($clsid); continue }
-            $server = Get-ComServerInfo $clsid
-            Write-Host "FX_DIAG`t$name`t$clsid`tREGISTERED=$($server.Registered)`tEXISTS=$($server.Exists)`tPATH=$($server.Path)"
-            $knownEapo = $knownEqualizerApoClsids -contains $clsid.ToUpperInvariant()
-            $stale = ($server.Registered -and -not $server.Exists) -or ((-not $server.Registered) -and $knownEapo)
-            if ($stale) {
-                Write-Warning "STALE_FX_WILL_REMOVE $name $clsid"
-                $changed = $true
-            } else {
-                $keep.Add($clsid)
-            }
-        }
-        if ($changed) {
-            if (-not $Snapshots.Contains($name)) { $Snapshots[$name] = $snapshot }
-            $repairs += [pscustomobject]@{ Name = $name; Kind = [string]$snapshot.Kind; Keep = [string[]]$keep.ToArray() }
-        }
-    }
-    return $repairs
-}
-
-function Apply-FxRepairs([string]$FxPath, $Repairs) {
-    foreach ($repair in @($Repairs)) {
-        $opened = Open-Hklm64 $FxPath $true $false
-        try {
-            $values = [string[]]@($repair.Keep)
-            if ($values.Count -eq 0) {
-                $opened.Key.DeleteValue([string]$repair.Name, $false)
-            } elseif ([string]$repair.Kind -eq 'MultiString') {
-                $opened.Key.SetValue([string]$repair.Name, $values, [Microsoft.Win32.RegistryValueKind]::MultiString)
-            } else {
-                $opened.Key.SetValue([string]$repair.Name, $values[0], [Microsoft.Win32.RegistryValueKind]::String)
-            }
-            Write-Host "STALE_FX_REPAIRED`t$($repair.Name)"
-        } finally { $opened.Key.Dispose(); $opened.Base.Dispose() }
-    }
+    $efxLine = $lines | Where-Object { $_.StartsWith("EFX`t") } | Select-Object -First 1
+    $disabledLine = $lines | Where-Object { $_.StartsWith("ENHANCEMENTS_DISABLED`t") } | Select-Object -First 1
+    $efx = if ($efxLine) { ($efxLine -split "`t", 2)[1] } else { '<unknown>' }
+    $disabled = if ($disabledLine) { [int](($disabledLine -split "`t", 2)[1]) } else { -1 }
+    return [pscustomobject]@{ Efx = $efx; EnhancementsDisabled = $disabled; IsOmniphony = ($code -eq 0) }
 }
 
 function Save-Backup($Backup) {
-    $Backup | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $backupPath -Encoding UTF8
+    $Backup | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $backupPath -Encoding UTF8
     Write-Host "ENDPOINT_BACKUP_SAVED $backupPath"
-}
-
-function Restore-Backup($Backup) {
-    if (-not $Backup) { return }
-    $fxPath = [string]$Backup.FxPath
-    if ($Backup.FxSnapshots) {
-        foreach ($property in $Backup.FxSnapshots.PSObject.Properties) {
-            Set-ValueSnapshot $fxPath $property.Name $property.Value
-        }
-    }
-    if ($Backup.AudioProtection) {
-        Set-ValueSnapshot 'SOFTWARE\Microsoft\Windows\CurrentVersion\Audio' 'DisableProtectedAudioDG' $Backup.AudioProtection
-    }
 }
 
 function Register-OmniphonyApo([string]$DllPath) {
@@ -314,43 +218,37 @@ function Unregister-OmniphonyApo {
 }
 
 $backup = $null
+$defaultEndpoint = $null
+$attached = $false
 try {
     & $realtimeSmoke $packageRealtime
     if ($LASTEXITCODE -ne 0) { throw "Realtime renderer self-test failed: $LASTEXITCODE" }
 
     Stop-LegacyOmniphonyHost
-    Restart-AudioGraph
-
+    Set-AudioServiceRunning $true
     $defaultEndpoint = Get-CurrentDefaultEndpoint
-    $apoEndpoint = Get-ApoEndpointById $defaultEndpoint.Id
-    $fxPath = "SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render\$($apoEndpoint.Guid)\FxProperties"
+    $status = Get-ApoStatus $defaultEndpoint.Id
     Write-Host "TARGET_DEFAULT`t$($defaultEndpoint.Name)`t$($defaultEndpoint.Id)"
-    Write-Host "TARGET_GUID`t$($apoEndpoint.Guid)"
+    Write-Host "PREVIOUS_EFX`t$($status.Efx)"
+    Write-Host "PREVIOUS_ENHANCEMENTS_DISABLED`t$($status.EnhancementsDisabled)"
 
-    $snapshots = [ordered]@{}
-    foreach ($name in @($efxValueName, $efxModesValueName, $disableSysFxValueName)) {
-        $snapshots[$name] = Get-ValueSnapshot $fxPath $name
+    if ($status.Efx -ne '<absent>' -and -not $status.IsOmniphony) {
+        throw "The default endpoint already has a different endpoint effect: $($status.Efx)"
     }
-    $repairs = @(Find-StaleFxRepairs $fxPath $snapshots)
+
     $backup = [ordered]@{
-        Version = 3
+        Version = 4
         EndpointId = $defaultEndpoint.Id
         EndpointName = $defaultEndpoint.Name
-        EndpointGuid = $apoEndpoint.Guid
-        FxPath = $fxPath
-        FxSnapshots = $snapshots
+        PriorOmniphonyEfx = [bool]$status.IsOmniphony
+        PriorEnhancementsDisabled = [int]$status.EnhancementsDisabled
         AudioProtection = Get-ValueSnapshot 'SOFTWARE\Microsoft\Windows\CurrentVersion\Audio' 'DisableProtectedAudioDG'
     }
     Save-Backup $backup
 
-    if ($repairs.Count -gt 0) {
-        Apply-FxRepairs $fxPath $repairs
-        Restart-AudioGraph
-    }
-
     & $mixProbe $defaultEndpoint.Name
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "PREINSTALL_WASAPI_FAILED $LASTEXITCODE; continuing so Omniphony can replace the endpoint effect."
+        Write-Warning "PREINSTALL_WASAPI_FAILED $LASTEXITCODE; continuing because the endpoint effect registration is about to be repaired."
     } else {
         Write-Host 'PREINSTALL_WASAPI_OK 1'
     }
@@ -360,23 +258,23 @@ try {
         New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
         Copy-Item -LiteralPath $packageApo -Destination $installedApo -Force
         Copy-Item -LiteralPath $packageRealtime -Destination $installedRealtime -Force
-
         Register-OmniphonyApo $installedApo
         Set-RegDword 'SOFTWARE\Microsoft\Windows\CurrentVersion\Audio' 'DisableProtectedAudioDG' 1
-
-        $opened = Open-Hklm64 $fxPath $true $false
-        try {
-            $opened.Key.SetValue($efxValueName, $apoClsid, [Microsoft.Win32.RegistryValueKind]::String)
-            if ($opened.Key.GetValueNames() -notcontains $efxModesValueName) {
-                $opened.Key.SetValue($efxModesValueName, [string[]]@($defaultMode), [Microsoft.Win32.RegistryValueKind]::MultiString)
-            }
-            $opened.Key.SetValue($disableSysFxValueName, 0, [Microsoft.Win32.RegistryValueKind]::DWord)
-        } finally { $opened.Key.Dispose(); $opened.Base.Dispose() }
     } finally {
         Set-AudioServiceRunning $true
     }
 
-    Start-Sleep -Milliseconds 1200
+    Start-Sleep -Milliseconds 500
+    $attachOutput = @(& $ctl attach-id $defaultEndpoint.Id 2>&1 | ForEach-Object { "$_" })
+    $attachCode = $LASTEXITCODE
+    $attachOutput | ForEach-Object { Write-Host $_ }
+    if ($attachCode -ne 0) {
+        throw "Windows audio policy could not attach/enable the Omniphony endpoint effect. helper=$attachCode"
+    }
+    $attached = $true
+
+    Restart-AudioGraph
+
     & $apoSmoke
     if ($LASTEXITCODE -ne 0) { throw "Omniphony APO COM/processing smoke failed: $LASTEXITCODE" }
 
@@ -393,15 +291,33 @@ try {
 catch {
     $failure = $_
     Write-Warning "OMNIPHONY_INSTALL_FAILED: $($failure.Exception.Message)"
-    try {
-        Set-AudioServiceRunning $false
-        if ($backup) { Restore-Backup $backup }
-        Unregister-OmniphonyApo
-    } catch {
-        Write-Warning "Rollback warning: $($_.Exception.Message)"
-    } finally {
-        try { Set-AudioServiceRunning $true } catch { }
+
+    if ($defaultEndpoint) {
+        try {
+            Set-AudioServiceRunning $true
+            $bypassOutput = @(& $ctl bypass-id $defaultEndpoint.Id 2>&1 | ForEach-Object { "$_" })
+            $bypassOutput | ForEach-Object { Write-Warning "FAILSAFE $($_)" }
+        } catch {
+            Write-Warning "Could not force the endpoint into system-effects bypass: $($_.Exception.Message)"
+        }
+        try {
+            $detachOutput = @(& $ctl detach-id $defaultEndpoint.Id 2>&1 | ForEach-Object { "$_" })
+            $detachOutput | ForEach-Object { Write-Warning "FAILSAFE $($_)" }
+        } catch {
+            Write-Warning "Could not detach the failed Omniphony endpoint effect: $($_.Exception.Message)"
+        }
+        try { Restart-AudioGraph } catch { Write-Warning "Audio graph restart during rollback failed: $($_.Exception.Message)" }
     }
+
+    try { Unregister-OmniphonyApo } catch { Write-Warning "Global APO rollback warning: $($_.Exception.Message)" }
+    if ($backup -and $backup.AudioProtection) {
+        try {
+            Set-ValueSnapshot 'SOFTWARE\Microsoft\Windows\CurrentVersion\Audio' 'DisableProtectedAudioDG' $backup.AudioProtection
+        } catch {
+            Write-Warning "Audio-protection rollback warning: $($_.Exception.Message)"
+        }
+    }
+
     throw $failure
 }
 finally {
