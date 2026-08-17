@@ -22,6 +22,17 @@ function Require-Replace {
     return $Text.Replace($Old, $New)
 }
 
+function Require-Contains {
+    param(
+        [string]$Text,
+        [string]$Needle,
+        [string]$Label
+    )
+    if (-not $Text.Contains($Needle)) {
+        throw "Omniphony for Windows productization source drift: $Label"
+    }
+}
+
 function Write-Utf8Bom {
     param([string]$Path, [string]$Text)
     [System.IO.File]::WriteAllText($Path, $Text, [System.Text.UTF8Encoding]::new($true))
@@ -41,82 +52,20 @@ if ($Mode -eq 'Host') {
         if (-not (Test-Path $path)) { throw "Missing host source: $path" }
     }
 
-    # User-facing product identity only. Keep upstream/internal Omniphony engine
-    # terminology and the legacy mutex/settings location stable during migration.
+    # The canonical source now owns the user-visible product shell. Productization
+    # should only add the private personal transport arguments, not silently
+    # rename or restructure the tray application at build time.
     $supervisor = Get-Content -Raw -LiteralPath $supervisorPath
-    $supervisor = $supervisor.Replace('Spatial', 'Omniphony')
-    $supervisor = Require-Replace $supervisor `
-        'const LEGACY_AUTOSTART_VALUE: &str = "Omniphony";' `
-        'const LEGACY_AUTOSTART_VALUE: &str = "Spatial";' `
-        'legacy autostart value after branding migration'
-    $supervisor = $supervisor.Replace('spatial.log', 'omniphony.log')
+    Require-Contains $supervisor 'const AUTOSTART_VALUE: &str = "Omniphony";' 'Omniphony autostart identity'
+    Require-Contains $supervisor 'const LEGACY_AUTOSTART_VALUE: &str = "Spatial";' 'legacy autostart cleanup identity'
+    Require-Contains $supervisor 'ensure_autostart();' 'automatic Windows startup registration'
+    Require-Contains $supervisor 'repair_transport_default();' 'boot-time transport self-heal'
+    Require-Contains $supervisor '"Omniphony - ON - Current model"' 'tray Current-model status'
+    Require-Contains $supervisor 'root.join("Omniphony").join("development-transport.txt")' 'installer transport-state coupling'
 
-    # Installed applications run unelevated from Program Files. Runtime logging
-    # therefore belongs under the per-user settings root, not beside the EXE.
-    # Logging is diagnostic only and must never prevent the audio-engine child
-    # from starting if the log file itself cannot be opened.
-    $oldAppendLog = @'
-fn append_log(message: &str) {
-    let Ok(root) = executable_root() else {
-        return;
-    };
-    let path = root.join("omniphony.log");
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(file, "[supervisor] {message}");
-    }
-}
-'@
-    $newAppendLog = @'
-fn append_log(message: &str) {
-    let root = settings_root();
-    let _ = create_dir_all(&root);
-    let path = root.join("omniphony.log");
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(file, "[supervisor] {message}");
-    }
-}
-'@
-    $supervisor = Require-Replace $supervisor $oldAppendLog $newAppendLog 'writable runtime supervisor log root'
-
-    $oldWorkerLog = @'
-    let log_path = root.join("omniphony.log");
-    let log = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-        .with_context(|| format!("failed to open {}", log_path.display()))?;
-    let log_err = log.try_clone().context("failed to clone Omniphony log handle")?;
-
-    let mut child = Command::new(&executable)
-'@
-    $newWorkerLog = @'
-    let log_root = settings_root();
-    let _ = create_dir_all(&log_root);
-    let log_path = log_root.join("omniphony.log");
-    let (worker_stdout, worker_stderr) = match OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-    {
-        Ok(log) => {
-            let stderr = log
-                .try_clone()
-                .map(Stdio::from)
-                .unwrap_or_else(|_| Stdio::null());
-            (Stdio::from(log), stderr)
-        }
-        Err(_) => (Stdio::null(), Stdio::null()),
-    };
-
-    let mut child = Command::new(&executable)
-'@
-    $supervisor = Require-Replace $supervisor $oldWorkerLog $newWorkerLog 'non-fatal writable worker log setup'
-
-    # Personal build only: make both sides of the development bridge explicit.
-    # Windows applications render into Steam Streaming Speakers. The worker
-    # captures that endpoint directly, while its processed output goes only to
-    # the user's physical Noire X/K7 endpoint. Neither side depends on whatever
-    # Windows happens to call the current default device after startup.
+    # Personal build: the signed Steam render sink is private plumbing. The tray
+    # application reasserts the routing default and launches the Current renderer
+    # against that exact endpoint, while processed output goes only to Noire X.
     $oldWorkerLaunch = @'
         .env("OMNIPHONY_INTERNAL_ENGINE", "1")
         .env("OMNIPHONY_PROFILE", "external")
@@ -132,21 +81,14 @@ fn append_log(message: &str) {
         .arg("--output")
         .arg("Dan Clark Noire X")
         .stdin(Stdio::piped())
-        .stdout(worker_stdout)
-        .stderr(worker_stderr)
+        .stdout(Stdio::from(log))
+        .stderr(Stdio::from(log_err))
 '@
-    $supervisor = Require-Replace $supervisor $oldWorkerLaunch $newWorkerLaunch 'explicit transport capture and physical output child launch'
+    $supervisor = Require-Replace $supervisor $oldWorkerLaunch $newWorkerLaunch 'explicit hidden transport and physical output launch'
     Write-Utf8Bom $supervisorPath $supervisor
 
-    $app = Get-Content -Raw -LiteralPath $appPath
-    $app = $app.Replace('Spatial is the private Windows-product shell.', 'Omniphony for Windows is the Windows product shell.')
-    $app = $app.Replace('Spatial is only available on Windows', 'Omniphony for Windows is only available on Windows')
-    Write-Utf8Bom $appPath $app
-
-    # Personal development build routing. This belongs to the Windows/profile
-    # layer, never the portable renderer. Prefer the user's real physical
-    # endpoint explicitly, then retain the historical FiiO fallback. Never let
-    # a virtual transport endpoint become its own output.
+    # Add explicit render-endpoint loopback to the Current worker. This is Windows
+    # host plumbing only; the portable renderer remains unchanged.
     $worker = Get-Content -Raw -LiteralPath $workerPath
 
     $worker = Require-Replace $worker `
@@ -403,7 +345,7 @@ fn looks_like_virtual_cable(device: &cpal::Device) -> bool {
     $worker = Require-Replace $worker $oldChoice $newChoice 'personal physical-output preference'
     Write-Utf8Bom $workerPath $worker
 
-    Write-Host 'Prepared Omniphony for Windows host: direct Steam endpoint loopback capture, explicit Dan Clark Noire X output, writable non-fatal logging, and hard virtual-transport rejection.'
+    Write-Host 'Prepared Omniphony personal host: autostart/tray shell validated, signed transport captured directly, and Current model pinned to the physical Noire X/FiiO output.'
     exit 0
 }
 
