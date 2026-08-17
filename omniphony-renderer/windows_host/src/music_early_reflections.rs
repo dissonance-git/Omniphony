@@ -54,9 +54,11 @@ const TRANSIENT_MAX_GAIN_DB: f32 = 2.5;
 // than simply making the early field louder.
 const HRTF_POWER_MATCH: f32 = 0.816_496_6;
 
-/// Canonical 7.1.4 evidence-lane directions, matching the current music-field
-/// meaning rather than pretending the lanes are newly inferred objects.
-/// Positive azimuth is right, positive elevation is up.
+/// Canonical 8.1.4.4 lane directions in `MUSIC_FIELD_CHANNELS` order:
+/// L R C LFE Ls Rs Lb Rb Cb Tfl Tfr Tbl Tbr Bfl Bfr Bbl Bbr.
+/// Positive azimuth is right, positive elevation is up. The stereo Current
+/// extractor leaves C/LFE/Cb/lower lanes EMPTY, but the geometry is complete so
+/// authored richer ingress can use the same portable frame later.
 const LANE_DIRECTIONS_DEG: [(f32, f32); MUSIC_FIELD_CHANNELS] = [
     (-30.0, 0.0),
     (30.0, 0.0),
@@ -66,10 +68,15 @@ const LANE_DIRECTIONS_DEG: [(f32, f32); MUSIC_FIELD_CHANNELS] = [
     (90.0, 0.0),
     (-140.0, 0.0),
     (140.0, 0.0),
+    (180.0, 0.0),
     (-40.0, 60.0),
     (40.0, 60.0),
     (-140.0, 60.0),
     (140.0, 60.0),
+    (-40.0, -60.0),
+    (40.0, -60.0),
+    (-140.0, -60.0),
+    (140.0, -60.0),
 ];
 
 #[derive(Clone, Copy, Default)]
@@ -251,12 +258,7 @@ impl HrtfWallBus {
         let mut conv_r = EarConvolver::new();
         conv_l.set_coeffs(&pair.left);
         conv_r.set_coeffs(&pair.right);
-        Self {
-            delay_l,
-            delay_r,
-            conv_l,
-            conv_r,
-        }
+        Self { delay_l, delay_r, conv_l, conv_r }
     }
 
     #[inline]
@@ -335,9 +337,7 @@ impl HrtfEarlyReflectionField {
             let mut wall_bus = [0.0f32; NUM_REFLECTIONS];
             let base = frame * MUSIC_FIELD_CHANNELS;
             for channel in 0..MUSIC_FIELD_CHANNELS {
-                let Some(source) = self.sources[channel].as_mut() else {
-                    continue;
-                };
+                let Some(source) = self.sources[channel].as_mut() else { continue; };
                 let paths = source.process(field_input[base + channel]);
                 for wall in 0..NUM_REFLECTIONS {
                     wall_bus[wall] += paths[wall];
@@ -397,6 +397,14 @@ mod tests {
     }
 
     #[test]
+    fn lane_direction_table_matches_canonical_width() {
+        assert_eq!(LANE_DIRECTIONS_DEG.len(), 17);
+        assert_eq!(LANE_DIRECTIONS_DEG[8], (180.0, 0.0));
+        assert!(LANE_DIRECTIONS_DEG[13].1 < 0.0);
+        assert!(LANE_DIRECTIONS_DEG[16].1 < 0.0);
+    }
+
+    #[test]
     fn transient_exciter_is_bounded_and_returns_to_unity() {
         let mut exciter = TransientReflectionExciter::new(48_000);
         for _ in 0..1_024 {
@@ -422,14 +430,9 @@ mod tests {
         for sample in 0..48_000 {
             let x = (std::f32::consts::TAU * 1_000.0 * sample as f32 / 48_000.0).sin() * 0.2;
             let gain = exciter.gain(x);
-            if sample > 9_600 {
-                max_tail = max_tail.max(gain);
-            }
+            if sample > 9_600 { max_tail = max_tail.max(gain); }
         }
-        assert!(
-            max_tail < 1.005,
-            "steady tone kept transient room excitation alive: {max_tail}"
-        );
+        assert!(max_tail < 1.005, "steady tone kept transient room excitation alive: {max_tail}");
     }
 
     #[test]
@@ -454,14 +457,8 @@ mod tests {
         let out = field.process(&impulse_field(6_000, 0)).unwrap();
         let early_energy: f32 = out[..960].iter().map(|x| x * x).sum();
         let tail_energy: f32 = out[960..].iter().map(|x| x * x).sum();
-        assert!(
-            early_energy < 1e-10,
-            "early reflection arrived too soon: {early_energy}"
-        );
-        assert!(
-            tail_energy > 1e-8,
-            "HRTF reflection field produced no delayed energy"
-        );
+        assert!(early_energy < 1e-10, "early reflection arrived too soon: {early_energy}");
+        assert!(tail_energy > 1e-8, "HRTF reflection field produced no delayed energy");
     }
 
     #[test]
@@ -477,15 +474,8 @@ mod tests {
         actual.extend(split.process(&input[split_at..]).unwrap());
 
         assert_eq!(expected.len(), actual.len());
-        let max_error = expected
-            .iter()
-            .zip(&actual)
-            .map(|(a, b)| (a - b).abs())
-            .fold(0.0f32, f32::max);
-        assert!(
-            max_error < 1e-6,
-            "callback boundary changed reflection field: {max_error}"
-        );
+        let max_error = expected.iter().zip(&actual).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        assert!(max_error < 1e-6, "callback boundary changed reflection field: {max_error}");
     }
 
     #[test]
@@ -505,13 +495,7 @@ mod tests {
             left_energy[0] += ll * ll;
             left_energy[1] += lr * lr;
         }
-        assert!(
-            right_energy[1] > right_energy[0],
-            "right wall lacks right-ear dominance: {right_energy:?}"
-        );
-        assert!(
-            left_energy[0] > left_energy[1],
-            "left wall lacks left-ear dominance: {left_energy:?}"
-        );
+        assert!(right_energy[1] > right_energy[0], "right wall lacks right-ear dominance: {right_energy:?}");
+        assert!(left_energy[0] > left_energy[1], "left wall lacks left-ear dominance: {left_energy:?}");
     }
 }
