@@ -47,9 +47,6 @@ jobs:
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
           rustup override set "$RUST_TOOLCHAIN"
 
-      # The feature also compiles the deliberately ignored MDAP-spread sphere
-      # sweep, so that tracked deferral cannot silently rot even though it is
-      # not allowed to turn a known engine defect into a fake green gate.
       - name: Multi-rate LR4 reconstruction
         run: >-
           cargo test -p renderer --features wide-matrix
@@ -60,4 +57,10 @@ jobs:
         run: >-
           cargo test -p renderer --features wide-matrix
           binaural::validation::itd_magnitude_tracks_the_model_wide
+          -- --exact --nocapture
+
+      - name: Full-sphere VBAP energy with MDAP spread
+        run: >-
+          cargo test -p renderer --release --features wide-matrix
+          spatial_vbap::panner::native_validation::vbap_conserves_energy_over_the_sphere_wide
           -- --exact --nocapture
