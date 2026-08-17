@@ -1,0 +1,97 @@
+name: Fix pre-render output query
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-initial-output-query.yml
+
+permissions:
+  contents: write
+
+env:
+  RUST_TOOLCHAIN: 1.88.0
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup override set "$RUST_TOOLCHAIN"
+      - name: Make pre-render geometry follow the requested mode
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('omniphony-renderer/renderer/src/spatial_renderer/mod.rs')
+          s = p.read_text()
+          old = '''    pub fn output_is_binaural(&self) -> bool {
+        matches!(
+            self.active_output_mode,
+            crate::live_params::OutputMode::Binaural
+        )
+    }
+'''
+          new = '''    pub fn output_is_binaural(&self) -> bool {
+        let mode = if self.has_rendered_frame {
+            self.active_output_mode
+        } else {
+            // Hosts may seed embedded/live configuration after construction.
+            // Before any PCM exists there is no active frame geometry to
+            // preserve, so queries must reflect the requested initial mode.
+            self.control.live.read().binaural.output_mode
+        };
+        matches!(mode, crate::live_params::OutputMode::Binaural)
+    }
+'''
+          if s.count(old) != 1:
+              raise SystemExit(f'output_is_binaural anchor count={s.count(old)}')
+          s = s.replace(old, new, 1)
+          old = '''    pub fn output_channel_count(&self) -> usize {
+        match self.active_output_mode {
+            crate::live_params::OutputMode::Binaural => 2,
+            crate::live_params::OutputMode::SpeakerArray => self.num_speakers,
+        }
+    }
+'''
+          new = '''    pub fn output_channel_count(&self) -> usize {
+        let mode = if self.has_rendered_frame {
+            self.active_output_mode
+        } else {
+            // Configuration is still allowed to settle before the first frame.
+            // Once rendering begins, the active/fading mode owns geometry.
+            self.control.live.read().binaural.output_mode
+        };
+        match mode {
+            crate::live_params::OutputMode::Binaural => 2,
+            crate::live_params::OutputMode::SpeakerArray => self.num_speakers,
+        }
+    }
+'''
+          if s.count(old) != 1:
+              raise SystemExit(f'output_channel_count anchor count={s.count(old)}')
+          p.write_text(s)
+          PY
+          git diff --check
+      - name: Verify Current initialization and mode safety
+        working-directory: omniphony-renderer
+        run: |
+          cargo test -p realtime_ffi current_reports_fixed_host_latency --lib -- --nocapture
+          cargo test -p renderer completed_frame_keeps_its_own_width_after_live_flip --lib
+          cargo test -p renderer output_mode_switch_fades_and_every_frame_describes_itself --lib
+      - name: Commit verified fix
+        shell: bash
+        run: |
+          git config user.name "dissonance"
+          git config user.email "ustreamusa@aim.com"
+          git add omniphony-renderer/renderer/src/spatial_renderer/mod.rs
+          git commit -m "fix(renderer): honor requested mode before first frame"
+          git pull --rebase origin main
+          git push origin HEAD:main
