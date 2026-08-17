@@ -15,7 +15,9 @@
 //!
 //! Scenes come from `dsp_fixtures::scene`, the same generators the null tests
 //! and the criterion benches use, so a regression here refers to the same
-//! workload they do.
+//! workload they do. The two drifting binaural cases deliberately generate
+//! their motion locally so adding a performance probe cannot perturb a shared
+//! null/golden fixture.
 //!
 //! **Release only.** `cargo test` builds in debug, where this same scene takes
 //! 97 % of the block period instead of 4 % — a ~23× difference that says
@@ -45,7 +47,12 @@
 
 use std::time::Instant;
 
-use dsp_fixtures::scene::{BLOCK_SAMPLES, RampMode, SAMPLE_RATE, make_pcm, move_events, prepared};
+use dsp_fixtures::scene::{
+    BLOCK_SAMPLES, RampMode, SAMPLE_RATE, make_pcm, move_events, prepared,
+    prepared_binaural, prepared_binaural_cascaded,
+};
+
+use super::SpatialChannelEvent;
 
 /// Wall time one block of audio occupies: 40 samples at 48 kHz ≈ 833 µs.
 const BLOCK_PERIOD_US: f64 = BLOCK_SAMPLES as f64 * 1e6 / SAMPLE_RATE as f64;
@@ -97,6 +104,52 @@ fn block_times_us(move_every: usize) -> Vec<f64> {
     times
 }
 
+/// Continuous motion counterpart to `move_events`.
+///
+/// The pathological moving gate redraws every object randomly every 0.833 ms,
+/// which is teleportation. Here each object follows a deterministic horizontal
+/// orbit at 12–96°/s and a fixed height, moving only 0.01–0.08° per block. That
+/// is small enough to expose direction-coherence wins while still requiring a
+/// real metadata/ramp update every block.
+fn drift_events(n_objects: usize, round: u64) -> Vec<SpatialChannelEvent> {
+    (0..n_objects)
+        .map(|ch| {
+            let deg_per_block = (12.0 + (ch % 8) as f64 * 12.0) / 1200.0;
+            let az = (ch as f64 * 37.0 + round as f64 * deg_per_block).to_radians();
+            SpatialChannelEvent {
+                channel_idx: ch,
+                is_bed: false,
+                gain_db: Some(0),
+                ramp_length: Some(BLOCK_SAMPLES as u32),
+                size: Some([0.0, 0.0, 0.0]),
+                position: Some([az.sin(), az.cos(), (ch % 5) as f64 * 0.25]),
+                sample_pos: Some(0),
+            }
+        })
+        .collect()
+}
+
+fn binaural_drifting_block_times_us(cascaded: bool) -> Vec<f64> {
+    let (mut r, pcm) = if cascaded {
+        prepared_binaural_cascaded(N_OBJECTS, RampMode::Frame)
+    } else {
+        prepared_binaural(N_OBJECTS, RampMode::Frame)
+    };
+    let mut buf = Vec::new();
+    let mut times = Vec::with_capacity(BLOCKS);
+    for block in 0..BLOCKS {
+        let events = drift_events(N_OBJECTS, block as u64 + 1);
+        let start = Instant::now();
+        let frame = r
+            .render_frame(&pcm, N_OBJECTS, &events, buf, false)
+            .expect("drifting binaural render_frame");
+        times.push(start.elapsed().as_secs_f64() * 1e6);
+        buf = frame.samples;
+        buf.clear();
+    }
+    times
+}
+
 fn assert_within_budget(label: &str, times: Vec<f64>) {
     let p = percentile_us(times, PERCENTILE);
     let fraction = p / BLOCK_PERIOD_US;
@@ -135,4 +188,28 @@ fn block_time_steady_is_within_budget() {
 #[test]
 fn block_time_all_objects_moving_is_within_budget() {
     assert_within_budget("all-moving", block_times_us(1));
+}
+
+/// Realistic direct-binaural motion: all objects update every block, but their
+/// directions move coherently rather than teleporting. This is the case that
+/// exposes whether HRIR update work scales with actual motion.
+#[cfg(not(debug_assertions))]
+#[test]
+fn block_time_binaural_direct_drifting_is_within_budget() {
+    assert_within_budget(
+        "binaural-direct-drifting",
+        binaural_drifting_block_times_us(false),
+    );
+}
+
+/// Current-style scalable headphone path: moving objects are first panned into
+/// the fixed virtual bed and that bed is binauralised. Keep this deadline beside
+/// the direct path so a future optimisation cannot make the product path slower.
+#[cfg(not(debug_assertions))]
+#[test]
+fn block_time_binaural_cascaded_drifting_is_within_budget() {
+    assert_within_budget(
+        "binaural-cascaded-drifting",
+        binaural_drifting_block_times_us(true),
+    );
 }
