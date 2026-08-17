@@ -1,0 +1,41 @@
+name: Fix v0.5 port workspace path
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-v050-port-workdir.yml
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Correct workspace path and remove fixer
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/port-v050-exact-hrir-cache.yml')
+          s = p.read_text()
+          old = '          cargo fmt --all\n'
+          new = '          (cd omniphony-renderer && cargo fmt --all)\n'
+          if s.count(old) != 1:
+              raise SystemExit(f'expected one cargo fmt line, found {s.count(old)}')
+          p.write_text(s.replace(old, new, 1))
+          Path('.github/workflows/fix-v050-port-workdir.yml').unlink()
+          PY
+          git config user.name "dissonance"
+          git config user.email "ustreamusa@aim.com"
+          git add -A
+          git commit -m "ci: run v0.5 port formatting in renderer workspace"
+          git pull --rebase origin main
+          git push origin HEAD:main
