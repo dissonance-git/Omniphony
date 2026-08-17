@@ -15,7 +15,7 @@ target_compile_features(OmniphonyAPO PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonyAPO PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_options(OmniphonyAPO PRIVATE /W4 /WX /permissive-)
 target_include_directories(OmniphonyAPO PRIVATE "${OMNIPHONY_REALTIME_INCLUDE}")
-target_link_libraries(OmniphonyAPO PRIVATE ole32 uuid advapi32 audioeng AudioBaseProcessingObject legacy_stdio_definitions audiomediatypecrt)
+target_link_libraries(OmniphonyAPO PRIVATE ole32 uuid advapi32 audioeng AudioBaseProcessingObjectV140 legacy_stdio_definitions audiomediatypecrt)
 # Protected AudioDG can reject custom APO DLLs that carry an embedded manifest.
 # Keep the binary manifest-free and validate that contract in CI.
 target_link_options(OmniphonyAPO PRIVATE /MANIFEST:NO)
