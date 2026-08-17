@@ -11,9 +11,7 @@ $runtimeRoot = Join-Path $AppRoot 'APO'
 $stateRoot = Join-Path $env:ProgramData 'Omniphony'
 $backupPath = Join-Path $stateRoot 'endpoint-backup.json'
 $apoClsid = '{A9333BFE-39C1-40FD-B4B0-ECC591410B47}'
-$efxValueName = '{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},7'
-$efxModesValueName = '{d3993a3f-99c2-4402-b5ec-a92a0367664b},7'
-$disableSysFxValueName = '{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5'
+$ctl = Join-Path $here 'OmniphonyApoCtl.exe'
 
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
@@ -64,6 +62,13 @@ function Set-AudioServiceRunning([bool]$Running) {
     if ((-not $Running) -and $service.Status -ne 'Stopped') { Stop-Service -Name AudioSrv -Force }
 }
 
+function Restart-AudioGraph {
+    Set-AudioServiceRunning $false
+    Start-Sleep -Milliseconds 250
+    Set-AudioServiceRunning $true
+    Start-Sleep -Milliseconds 750
+}
+
 Get-Process -Name Omniphony -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 $backup = $null
 if (Test-Path -LiteralPath $backupPath) {
@@ -71,27 +76,27 @@ if (Test-Path -LiteralPath $backupPath) {
     catch { Write-Warning "Could not read endpoint backup: $($_.Exception.Message)" }
 }
 
+Set-AudioServiceRunning $true
+if ($backup -and [int]$backup.Version -ge 4 -and $backup.EndpointId -and (Test-Path -LiteralPath $ctl)) {
+    try {
+        & $ctl bypass-id ([string]$backup.EndpointId)
+        if ($LASTEXITCODE -ne 0) { Write-Warning "Endpoint bypass returned $LASTEXITCODE" }
+    } catch { Write-Warning "Could not bypass Omniphony before removal: $($_.Exception.Message)" }
+
+    try {
+        & $ctl detach-id ([string]$backup.EndpointId)
+        if ($LASTEXITCODE -ne 0) { Write-Warning "Endpoint detach returned $LASTEXITCODE" }
+    } catch { Write-Warning "Could not detach Omniphony before removal: $($_.Exception.Message)" }
+}
+
 Set-AudioServiceRunning $false
 try {
-    if ($backup) {
-        if ([int]$backup.Version -ge 3 -and $backup.FxPath -and $backup.FxSnapshots) {
-            $fxPath = [string]$backup.FxPath
-            foreach ($property in $backup.FxSnapshots.PSObject.Properties) {
-                Set-ValueSnapshot $fxPath $property.Name $property.Value
-            }
-            if ($backup.AudioProtection) {
-                Set-ValueSnapshot 'SOFTWARE\Microsoft\Windows\CurrentVersion\Audio' 'DisableProtectedAudioDG' $backup.AudioProtection
-            }
-        } elseif ($backup.EndpointGuid) {
-            $fxPath = "SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render\$($backup.EndpointGuid)\FxProperties"
-            if ($backup.Efx) { Set-ValueSnapshot $fxPath $efxValueName $backup.Efx }
-            if ($backup.EfxModes) { Set-ValueSnapshot $fxPath $efxModesValueName $backup.EfxModes }
-            if ($backup.DisableSysFx) { Set-ValueSnapshot $fxPath $disableSysFxValueName $backup.DisableSysFx }
-        }
-    }
-
     Remove-HklmTree "SOFTWARE\Classes\AudioEngine\AudioProcessingObjects\$apoClsid"
     Remove-HklmTree "SOFTWARE\Classes\CLSID\$apoClsid"
+
+    if ($backup -and $backup.AudioProtection) {
+        Set-ValueSnapshot 'SOFTWARE\Microsoft\Windows\CurrentVersion\Audio' 'DisableProtectedAudioDG' $backup.AudioProtection
+    }
 
     if (Test-Path -LiteralPath $runtimeRoot) {
         Remove-Item -LiteralPath $runtimeRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -99,7 +104,17 @@ try {
 } finally {
     Set-AudioServiceRunning $true
 }
-Start-Sleep -Milliseconds 750
+
+if ($backup -and [int]$backup.Version -ge 4 -and $backup.EndpointId -and (Test-Path -LiteralPath $ctl)) {
+    if ([int]$backup.PriorEnhancementsDisabled -eq 0) {
+        try {
+            & $ctl enable-effects-id ([string]$backup.EndpointId)
+            if ($LASTEXITCODE -ne 0) { Write-Warning "Restoring the prior enhancements setting returned $LASTEXITCODE" }
+        } catch { Write-Warning "Could not restore the prior enhancements setting: $($_.Exception.Message)" }
+    }
+}
+
+try { Restart-AudioGraph } catch { Write-Warning "Final audio graph restart failed: $($_.Exception.Message)" }
 
 if (Test-Path -LiteralPath $backupPath) { Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue }
-Write-Host 'Omniphony APO removed and the previous endpoint/audio state was restored.'
+Write-Host 'Omniphony APO removed. Endpoint effects were detached through Windows audio policy and plain audio remains available.'
