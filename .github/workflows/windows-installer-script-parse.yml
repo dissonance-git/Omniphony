@@ -21,7 +21,8 @@ jobs:
           $failed = $false
           $files = @(
             'omniphony-renderer\windows_installer\endpoint_apo\Install-OmniphonyAPO.ps1',
-            'omniphony-renderer\windows_installer\endpoint_apo\Uninstall-OmniphonyAPO.ps1'
+            'omniphony-renderer\windows_installer\endpoint_apo\Uninstall-OmniphonyAPO.ps1',
+            'omniphony-renderer\windows_installer\endpoint_apo\OmniphonyTray.ps1'
           )
           foreach ($file in $files) {
             $tokens = $null
