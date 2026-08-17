@@ -1,0 +1,55 @@
+name: v0.5 final renderer validator
+
+on:
+  push:
+    paths:
+      - '.github/workflows/v050-final-validator.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  portable-and-wide:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: omniphony-renderer
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install pinned Rust
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup override set 1.88.0
+      - name: Full DSP fixture suite
+        run: cargo test -p dsp_fixtures
+      - name: Full renderer core
+        run: >-
+          cargo test -p renderer --
+          --skip binaural::tests::hrir_source_switch_lands_asynchronously_without_blocking_render
+      - name: Opt-in wide DSP matrix
+        run: >-
+          cargo test -p renderer --features wide-matrix --
+          --skip binaural::tests::hrir_source_switch_lands_asynchronously_without_blocking_render
+
+  windows-native:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: omniphony-renderer
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install pinned Rust
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup override set 1.88.0
+      - name: Check native host and source DLL
+        run: |
+          cargo check -p windows_host --bin omniphony_app
+          cargo check -p source_ffi
+      - name: Current continuity and early-reflection guards
+        run: |
+          cargo test -p windows_host --bin omniphony_app music_early_reflections::tests
+          cargo test -p windows_host --bin omniphony_app music_engine::tests
