@@ -8,7 +8,10 @@ fn source_evidence_v1_layout_matches_c_and_gmi_transport() {
     assert_eq!(offset_of!(OmniphonySourceEvidenceV1, lane_kind), 0);
     assert_eq!(offset_of!(OmniphonySourceEvidenceV1, flags), 4);
     assert_eq!(offset_of!(OmniphonySourceEvidenceV1, source_id), 8);
-    assert_eq!(offset_of!(OmniphonySourceEvidenceV1, persistent_part_id), 16);
+    assert_eq!(
+        offset_of!(OmniphonySourceEvidenceV1, persistent_part_id),
+        16
+    );
     assert_eq!(offset_of!(OmniphonySourceEvidenceV1, left_gain), 24);
     assert_eq!(offset_of!(OmniphonySourceEvidenceV1, authored_x), 32);
     assert_eq!(offset_of!(OmniphonySourceEvidenceV1, foundation), 44);

@@ -286,7 +286,10 @@ mod tests {
         for i in 0..FADE {
             let y = c.process(1.0);
             let expected = 1.0 - 0.5 * (i + 1) as f32 / FADE as f32;
-            assert!((y - expected).abs() < 1e-6, "sample {i}: got {y}, expected {expected}");
+            assert!(
+                (y - expected).abs() < 1e-6,
+                "sample {i}: got {y}, expected {expected}"
+            );
             assert!(y < prev);
             prev = y;
         }

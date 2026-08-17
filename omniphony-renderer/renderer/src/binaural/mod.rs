@@ -39,7 +39,7 @@ pub use tracking::{HeadTracking, HeadTrackingFormat};
 use crate::delay_line::DelayLine;
 use crate::live_params::{BinauralReflections, BinauralReverb};
 use convolver::EarConvolver;
-use hrir::{HRIR_LEN, HrirPair, HrirSet, ParametricPinnaHrir};
+use hrir::{DirectionKey, HRIR_LEN, HrirPair, HrirSet, ParametricPinnaHrir};
 use measured::MeasuredHrirData;
 use prtf::SpagnolPrtfHrir;
 use reflections::ReflectionBank;
@@ -201,6 +201,9 @@ struct ChannelDsp {
     /// Air-absorption smoothing coefficient for the current block
     /// (0 = bypass, →1 = heavy low-pass). Updated per block from distance.
     air_coeff: f32,
+    /// Exact direction whose HRIR kernels are currently loaded, tagged
+    /// with the active grid generation so source swaps cannot reuse stale kernels.
+    last_dir: Option<(u32, DirectionKey)>,
 }
 
 impl ChannelDsp {
@@ -214,6 +217,7 @@ impl ChannelDsp {
             refl: None,
             air_state: 0.0,
             air_coeff: 0.0,
+            last_dir: None,
         }
     }
 }
@@ -229,6 +233,7 @@ impl ChannelDsp {
         }
         self.air_state = 0.0;
         self.air_coeff = 0.0;
+        self.last_dir = None;
     }
 }
 
@@ -280,6 +285,9 @@ pub struct BinauralRenderer {
     channel_gain_boundary: Vec<f32>,
     /// Reusable HRIR scratch so `at()` writes in place (no per-channel alloc).
     hrir_scratch: HrirPair,
+    /// Bumped whenever a newly built HRIR grid becomes active.
+    /// This invalidates every channel cache without walking the channel vector.
+    hrir_generation: u32,
     /// Shared late-reverb tail; allocated lazily while enabled.
     fdn: Option<Fdn>,
     /// Mono reverb send bus, one sample per frame (reused).
@@ -326,6 +334,7 @@ impl BinauralRenderer {
                 left: [0.0; HRIR_LEN],
                 right: [0.0; HRIR_LEN],
             },
+            hrir_generation: 0,
             fdn: None,
             reverb_bus: Vec::new(),
         }
@@ -437,6 +446,8 @@ impl BinauralRenderer {
         if let Some(built) = self.incoming.swap(None) {
             if built.source == self.source {
                 self.hrir = std::sync::Arc::clone(&built.set);
+                // Same direction on a different HRTF set is a different kernel.
+                self.hrir_generation = self.hrir_generation.wrapping_add(1);
             } else {
                 log::debug!(
                     "binaural: discarding stale HRIR rebuild for '{}' while '{}' is requested",
@@ -559,21 +570,29 @@ impl BinauralRenderer {
             let dist_norm = ((pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2]).sqrt()) as f32;
             let dist_m = (dist_norm * unit_scale_m).max(0.0);
 
-            // Per-frame HRIR + ITD update (continuous: delay/convolver state persists).
-            self.hrir.at(
-                az_rad.to_degrees(),
-                el_rad.to_degrees(),
-                &mut self.hrir_scratch,
-            );
+            // ITD remains continuous and cheap. HRIR interpolation is much more
+            // expensive, so cache the exact direction that produced the loaded kernels.
+            // `None` means no angular quantisation: unchanged directions are bit-identical
+            // skips, while any real movement still rebuilds exactly as before.
             let (itd_l, itd_r) = itd::ear_delays_seconds(az_rad, el_rad, head_radius_m);
+            let dir = (
+                self.hrir_generation,
+                self.hrir
+                    .quantize_direction(az_rad.to_degrees(), el_rad.to_degrees(), None),
+            );
 
-            let dsp = self.channels[c].get_or_insert_with(|| ChannelDsp::new(self.sample_rate));
-            // Kernel changes (moving object / head) crossfade over the block
-            // — capped at HRIR_LEN samples for large offline blocks — so the
-            // transfer function never jumps at a block boundary (issue #155).
-            let fade = sample_length.min(HRIR_LEN);
-            dsp.conv_l.set_coeffs_smooth(&self.hrir_scratch.left, fade);
-            dsp.conv_r.set_coeffs_smooth(&self.hrir_scratch.right, fade);
+            let rate = self.sample_rate;
+            let dsp = self.channels[c].get_or_insert_with(|| ChannelDsp::new(rate));
+            if dsp.last_dir != Some(dir) {
+                self.hrir.at_key(dir.1, &mut self.hrir_scratch);
+                // Kernel changes (moving object / head) crossfade over the block
+                // — capped at HRIR_LEN samples for large offline blocks — so the
+                // transfer function never jumps at a block boundary (issue #155).
+                let fade = sample_length.min(HRIR_LEN);
+                dsp.conv_l.set_coeffs_smooth(&self.hrir_scratch.left, fade);
+                dsp.conv_r.set_coeffs_smooth(&self.hrir_scratch.right, fade);
+                dsp.last_dir = Some(dir);
+            }
             dsp.delay_l.set_target_ms(itd_l * 1000.0, self.sample_rate);
             dsp.delay_r.set_target_ms(itd_r * 1000.0, self.sample_rate);
 

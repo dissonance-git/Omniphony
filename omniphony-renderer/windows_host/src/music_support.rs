@@ -101,14 +101,8 @@ fn build_engine(
     sample_rate_hz: u32,
     label: &str,
 ) -> anyhow::Result<Engine> {
-    let mut engine = Engine::from_paths(
-        Some(config),
-        Some(layout),
-        None,
-        None,
-        sample_rate_hz,
-    )
-    .with_context(|| format!("failed to construct Omniphony {label} engine"))?;
+    let mut engine = Engine::from_paths(Some(config), Some(layout), None, None, sample_rate_hz)
+        .with_context(|| format!("failed to construct Omniphony {label} engine"))?;
     engine.set_channel_render_mode_code(1);
     if engine.channel_count() != 2 {
         bail!(

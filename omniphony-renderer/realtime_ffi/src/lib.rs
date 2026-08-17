@@ -16,8 +16,8 @@ use renderer::music_foundation::MusicFoundationProcessor;
 use std::cell::UnsafeCell;
 use std::collections::VecDeque;
 use std::ptr;
-use std::sync::{Arc, mpsc::sync_channel};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, mpsc::sync_channel};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -73,7 +73,8 @@ impl AudioRing {
     }
 
     fn free(&self) -> usize {
-        self.capacity.saturating_sub(self.available().min(self.capacity))
+        self.capacity
+            .saturating_sub(self.available().min(self.capacity))
     }
 
     unsafe fn push_ptr(&self, input: *const f32, count: usize) -> bool {
@@ -85,7 +86,8 @@ impl AudioRing {
             let slot = (write.wrapping_add(i)) % self.capacity;
             unsafe { *self.cells[slot].get() = *input.add(i) };
         }
-        self.write.store(write.wrapping_add(count), Ordering::Release);
+        self.write
+            .store(write.wrapping_add(count), Ordering::Release);
         true
     }
 
@@ -174,7 +176,11 @@ impl StereoLookaheadPeakGuard {
             }
 
             let oldest_index = frame_index - self.lookahead_frames as u64;
-            while self.peaks.front().is_some_and(|&(index, _)| index < oldest_index) {
+            while self
+                .peaks
+                .front()
+                .is_some_and(|&(index, _)| index < oldest_index)
+            {
                 self.peaks.pop_front();
             }
             let (peak_frame_index, future_peak) = self.peaks.front().copied().unwrap();
@@ -255,7 +261,10 @@ impl CurrentPipeline {
         }
         self.height.apply(&mut field);
 
-        let rendered = self.support.process(&field).map_err(|error| error.to_string())?;
+        let rendered = self
+            .support
+            .process(&field)
+            .map_err(|error| error.to_string())?;
         let mut out = Vec::new();
         for block in rendered {
             if block.n_channels != 2 {
@@ -431,12 +440,7 @@ impl AsyncCurrent {
         self.dry_delay.delay_frames()
     }
 
-    unsafe fn process_raw(
-        &mut self,
-        input: *const f32,
-        output: *mut f32,
-        samples: usize,
-    ) -> i32 {
+    unsafe fn process_raw(&mut self, input: *const f32, output: *mut f32, samples: usize) -> i32 {
         if samples % 2 != 0 {
             return -10;
         }
@@ -484,8 +488,16 @@ impl AsyncCurrent {
                 }
             }
 
-            rendered[0] = if rendered[0].is_finite() { rendered[0] } else { 0.0 };
-            rendered[1] = if rendered[1].is_finite() { rendered[1] } else { 0.0 };
+            rendered[0] = if rendered[0].is_finite() {
+                rendered[0]
+            } else {
+                0.0
+            };
+            rendered[1] = if rendered[1].is_finite() {
+                rendered[1]
+            } else {
+                0.0
+            };
             let peak = rendered[0].abs().max(rendered[1].abs());
             if peak > OUTPUT_CEILING {
                 let gain = OUTPUT_CEILING / peak;
@@ -523,10 +535,14 @@ pub struct OmniphonyRealtimeProcessor {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn omniphony_realtime_abi_major() -> u32 { ABI_MAJOR }
+pub extern "C" fn omniphony_realtime_abi_major() -> u32 {
+    ABI_MAJOR
+}
 
 #[unsafe(no_mangle)]
-pub extern "C" fn omniphony_realtime_abi_minor() -> u32 { ABI_MINOR }
+pub extern "C" fn omniphony_realtime_abi_minor() -> u32 {
+    ABI_MINOR
+}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn omniphony_realtime_create(
@@ -668,14 +684,22 @@ pub unsafe extern "C" fn omniphony_realtime_process_f32(
 pub unsafe extern "C" fn omniphony_realtime_sample_rate_hz(
     processor: *const OmniphonyRealtimeProcessor,
 ) -> u32 {
-    if processor.is_null() { 0 } else { unsafe { (*processor).sample_rate_hz } }
+    if processor.is_null() {
+        0
+    } else {
+        unsafe { (*processor).sample_rate_hz }
+    }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn omniphony_realtime_channels(
     processor: *const OmniphonyRealtimeProcessor,
 ) -> u32 {
-    if processor.is_null() { 0 } else { unsafe { (*processor).channels } }
+    if processor.is_null() {
+        0
+    } else {
+        unsafe { (*processor).channels }
+    }
 }
 
 #[cfg(test)]
@@ -683,13 +707,22 @@ mod tests {
     use super::*;
 
     fn config() -> OmniphonyRealtimeConfig {
-        OmniphonyRealtimeConfig { sample_rate_hz: 48_000, channels: 2 }
+        OmniphonyRealtimeConfig {
+            sample_rate_hz: 48_000,
+            channels: 2,
+        }
     }
 
     #[test]
     fn rejects_invalid_configuration() {
-        let bad_rate = OmniphonyRealtimeConfig { sample_rate_hz: 0, channels: 2 };
-        let bad_channels = OmniphonyRealtimeConfig { sample_rate_hz: 48_000, channels: 0 };
+        let bad_rate = OmniphonyRealtimeConfig {
+            sample_rate_hz: 0,
+            channels: 2,
+        };
+        let bad_channels = OmniphonyRealtimeConfig {
+            sample_rate_hz: 48_000,
+            channels: 0,
+        };
         unsafe {
             assert!(omniphony_realtime_create(std::ptr::null()).is_null());
             assert!(omniphony_realtime_create(&bad_rate).is_null());
@@ -705,7 +738,10 @@ mod tests {
         unsafe {
             let processor = omniphony_realtime_create(&cfg);
             assert!(!processor.is_null());
-            assert_eq!(omniphony_realtime_process_f32(processor, input.as_ptr(), output.as_mut_ptr(), 4), 0);
+            assert_eq!(
+                omniphony_realtime_process_f32(processor, input.as_ptr(), output.as_mut_ptr(), 4),
+                0
+            );
             omniphony_realtime_destroy(processor);
         }
         for (before, after) in input.iter().zip(output.iter()) {
@@ -721,7 +757,15 @@ mod tests {
         unsafe {
             let processor = omniphony_realtime_create(&cfg);
             assert!(!processor.is_null());
-            assert_eq!(omniphony_realtime_process_f32(processor, samples.as_ptr(), samples.as_mut_ptr(), 4), 0);
+            assert_eq!(
+                omniphony_realtime_process_f32(
+                    processor,
+                    samples.as_ptr(),
+                    samples.as_mut_ptr(),
+                    4
+                ),
+                0
+            );
             omniphony_realtime_destroy(processor);
         }
         assert_eq!(before, samples.map(f32::to_bits));
@@ -733,7 +777,15 @@ mod tests {
         unsafe {
             let processor = omniphony_realtime_create(&cfg);
             assert!(!processor.is_null());
-            assert_eq!(omniphony_realtime_process_f32(processor, std::ptr::null(), std::ptr::null_mut(), 0), 0);
+            assert_eq!(
+                omniphony_realtime_process_f32(
+                    processor,
+                    std::ptr::null(),
+                    std::ptr::null_mut(),
+                    0
+                ),
+                0
+            );
             omniphony_realtime_destroy(processor);
         }
     }

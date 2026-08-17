@@ -107,9 +107,9 @@ fn render_impulse(cascaded: bool) -> Vec<f32> {
 }
 
 fn first_arrival_frame(stereo: &[f32]) -> Option<usize> {
-    stereo.chunks_exact(2).position(|frame| {
-        frame[0].abs().max(frame[1].abs()) >= ARRIVAL_THRESHOLD
-    })
+    stereo
+        .chunks_exact(2)
+        .position(|frame| frame[0].abs().max(frame[1].abs()) >= ARRIVAL_THRESHOLD)
 }
 
 #[test]

@@ -87,7 +87,10 @@ impl CurrentAuthoredBedRenderer {
 }
 
 fn map_frame_to_canonical(source: &[f32], target: &mut [f32]) -> anyhow::Result<()> {
-    ensure!(target.len() == MUSIC_FIELD_CHANNELS, "canonical scene width mismatch");
+    ensure!(
+        target.len() == MUSIC_FIELD_CHANNELS,
+        "canonical scene width mismatch"
+    );
     target.fill(0.0);
 
     match source.len() {

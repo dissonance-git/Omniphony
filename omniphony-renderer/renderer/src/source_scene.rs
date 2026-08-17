@@ -90,16 +90,26 @@ pub struct SourcePresentation {
 }
 
 fn clamp01(value: f32) -> f32 {
-    if value.is_finite() { value.clamp(0.0, 1.0) } else { 0.0 }
+    if value.is_finite() {
+        value.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
 }
 
 fn clamp_signed(value: f32) -> f32 {
-    if value.is_finite() { value.clamp(-1.0, 1.0) } else { 0.0 }
+    if value.is_finite() {
+        value.clamp(-1.0, 1.0)
+    } else {
+        0.0
+    }
 }
 
 /// -1 = left, +1 = right. Polarity does not swap sides.
 pub fn route_pan(route: Option<NativeStereoRoute>) -> f32 {
-    let Some(route) = route else { return 0.0; };
+    let Some(route) = route else {
+        return 0.0;
+    };
     let left = route.left_gain.abs();
     let right = route.right_gain.abs();
     let sum = left + right;
@@ -120,7 +130,9 @@ pub fn route_pan(route: Option<NativeStereoRoute>) -> f32 {
 /// elevation. The magnitude-balance term keeps strongly one-sided inverted
 /// routes from being promoted into a rear cue merely because one sign differs.
 pub fn matrix_surround_phase_cue(route: Option<NativeStereoRoute>) -> f32 {
-    let Some(route) = route else { return 0.0; };
+    let Some(route) = route else {
+        return 0.0;
+    };
     if !route.left_gain.is_finite() || !route.right_gain.is_finite() {
         return 0.0;
     }
@@ -177,11 +189,8 @@ fn present_shared_wet(
     let native_azimuth = pan * 70.0;
     let rear_target = side * 135.0_f32.min(policy.max_rear_azimuth_deg.clamp(90.0, 179.0));
     let azimuth = native_azimuth + (rear_target - native_azimuth) * strength;
-    let elevation = 40.0_f32
-        .min(policy.max_elevation_deg.max(0.0))
-        * strength;
-    let distance = 1.0
-        + (policy.max_distance.max(1.0) - 1.0) * strength;
+    let elevation = 40.0_f32.min(policy.max_elevation_deg.max(0.0)) * strength;
+    let distance = 1.0 + (policy.max_distance.max(1.0) - 1.0) * strength;
 
     SourcePresentation {
         render_as_object: true,
@@ -243,10 +252,8 @@ fn inferred_presentation(
     let identity_azimuth = identity * 28.0 * movable * (1.0 - pan.abs());
     let frontal_azimuth = (route_azimuth + identity_azimuth).clamp(-78.0, 78.0);
 
-    let inferred_rear_weight = (movable
-        * (0.72 * diffuse + 0.42 * support)
-        * (1.0 - 0.85 * foreground))
-        .clamp(0.0, 1.0);
+    let inferred_rear_weight =
+        (movable * (0.72 * diffuse + 0.42 * support) * (1.0 - 0.85 * foreground)).clamp(0.0, 1.0);
 
     // Opposite-polarity, magnitude-balanced native routing is authored phase
     // evidence that historically fed matrix-surround decoders. It outranks our
@@ -262,9 +269,8 @@ fn inferred_presentation(
     } else {
         1.0
     };
-    let rear_target = side
-        * (110.0 + 35.0 * identity.abs())
-            .min(policy.max_rear_azimuth_deg.clamp(90.0, 179.0));
+    let rear_target =
+        side * (110.0 + 35.0 * identity.abs()).min(policy.max_rear_azimuth_deg.clamp(90.0, 179.0));
     let azimuth = frontal_azimuth + (rear_target - frontal_azimuth) * rear_weight;
 
     // Matrix-surround phase evidence still carries no vertical coordinate.
@@ -273,17 +279,13 @@ fn inferred_presentation(
     // most of its height. Diffuse/support can strengthen the elevation, while
     // sphere strength, confidence and the foundation lock remain authoritative.
     let vertical_context = 0.72 + 0.28 * diffuse.max(support);
-    let elevation = vertical
-        * policy.max_elevation_deg.clamp(0.0, 80.0)
-        * movable
-        * vertical_context;
+    let elevation =
+        vertical * policy.max_elevation_deg.clamp(0.0, 80.0) * movable * vertical_context;
 
-    let inferred_depth_weight = movable
-        * (0.55 * support + 0.70 * diffuse)
-        * (1.0 - 0.65 * foreground);
+    let inferred_depth_weight =
+        movable * (0.55 * support + 0.70 * diffuse) * (1.0 - 0.65 * foreground);
     let depth_weight = inferred_depth_weight.max(0.30 * sphere * matrix_surround);
-    let distance = 1.0
-        + (policy.max_distance.max(1.0) - 1.0) * depth_weight.clamp(0.0, 1.0);
+    let distance = 1.0 + (policy.max_distance.max(1.0) - 1.0) * depth_weight.clamp(0.0, 1.0);
 
     let horizontal_size = (0.08 + 0.72 * width + 0.45 * diffuse)
         .max(0.82 * matrix_surround)
@@ -329,7 +331,13 @@ pub fn present_source(
         let distance = (horizontal * horizontal + z * z).sqrt();
         let azimuth = x.atan2(y).to_degrees();
         let elevation = if horizontal <= 1.0e-6 {
-            if z > 0.0 { 90.0 } else if z < 0.0 { -90.0 } else { 0.0 }
+            if z > 0.0 {
+                90.0
+            } else if z < 0.0 {
+                -90.0
+            } else {
+                0.0
+            }
         } else {
             z.atan2(horizontal).to_degrees()
         };
@@ -366,8 +374,14 @@ mod tests {
 
     #[test]
     fn route_pan_uses_magnitude_not_polarity() {
-        let positive = route_pan(Some(NativeStereoRoute { left_gain: 1.0, right_gain: 0.25 }));
-        let inverted = route_pan(Some(NativeStereoRoute { left_gain: -1.0, right_gain: 0.25 }));
+        let positive = route_pan(Some(NativeStereoRoute {
+            left_gain: 1.0,
+            right_gain: 0.25,
+        }));
+        let inverted = route_pan(Some(NativeStereoRoute {
+            left_gain: -1.0,
+            right_gain: 0.25,
+        }));
         assert!(positive < 0.0);
         assert_eq!(positive, inverted);
     }
@@ -375,25 +389,40 @@ mod tests {
     #[test]
     fn matrix_surround_phase_cue_requires_opposite_polarity_and_balance() {
         assert_eq!(
-            matrix_surround_phase_cue(Some(NativeStereoRoute { left_gain: 1.0, right_gain: 1.0 })),
+            matrix_surround_phase_cue(Some(NativeStereoRoute {
+                left_gain: 1.0,
+                right_gain: 1.0
+            })),
             0.0
         );
         assert_eq!(
-            matrix_surround_phase_cue(Some(NativeStereoRoute { left_gain: -1.0, right_gain: -1.0 })),
+            matrix_surround_phase_cue(Some(NativeStereoRoute {
+                left_gain: -1.0,
+                right_gain: -1.0
+            })),
             0.0
         );
         assert_eq!(
-            matrix_surround_phase_cue(Some(NativeStereoRoute { left_gain: -1.0, right_gain: 1.0 })),
+            matrix_surround_phase_cue(Some(NativeStereoRoute {
+                left_gain: -1.0,
+                right_gain: 1.0
+            })),
             1.0
         );
-        let weak = matrix_surround_phase_cue(Some(NativeStereoRoute { left_gain: -1.0, right_gain: 0.1 }));
+        let weak = matrix_surround_phase_cue(Some(NativeStereoRoute {
+            left_gain: -1.0,
+            right_gain: 0.1,
+        }));
         assert!(weak > 0.0 && weak < 0.25);
     }
 
     #[test]
     fn protected_reference_mix_is_not_an_extra_object() {
         let out = present_source(
-            SourceSceneEvidence { lane_kind: SourceLaneKind::ReferenceMix, ..dry(1) },
+            SourceSceneEvidence {
+                lane_kind: SourceLaneKind::ReferenceMix,
+                ..dry(1)
+            },
             SourcePresentationPolicy::default(),
         );
         assert!(!out.render_as_object);
@@ -406,7 +435,10 @@ mod tests {
                 foundation: 1.0,
                 diffuse: 1.0,
                 vertical_affinity: 1.0,
-                native_stereo_route: Some(NativeStereoRoute { left_gain: 1.0, right_gain: 1.0 }),
+                native_stereo_route: Some(NativeStereoRoute {
+                    left_gain: 1.0,
+                    right_gain: 1.0,
+                }),
                 ..dry(2)
             },
             SourcePresentationPolicy::default(),
@@ -422,7 +454,10 @@ mod tests {
         let out = present_source(
             SourceSceneEvidence {
                 foundation: 1.0,
-                native_stereo_route: Some(NativeStereoRoute { left_gain: -1.0, right_gain: 1.0 }),
+                native_stereo_route: Some(NativeStereoRoute {
+                    left_gain: -1.0,
+                    right_gain: 1.0,
+                }),
                 ..dry(20)
             },
             SourcePresentationPolicy::default(),
@@ -437,7 +472,10 @@ mod tests {
     fn native_routes_bias_expected_sides() {
         let left = present_source(
             SourceSceneEvidence {
-                native_stereo_route: Some(NativeStereoRoute { left_gain: 1.0, right_gain: 0.0 }),
+                native_stereo_route: Some(NativeStereoRoute {
+                    left_gain: 1.0,
+                    right_gain: 0.0,
+                }),
                 foreground: 1.0,
                 ..dry(3)
             },
@@ -445,7 +483,10 @@ mod tests {
         );
         let right = present_source(
             SourceSceneEvidence {
-                native_stereo_route: Some(NativeStereoRoute { left_gain: 0.0, right_gain: 1.0 }),
+                native_stereo_route: Some(NativeStereoRoute {
+                    left_gain: 0.0,
+                    right_gain: 1.0,
+                }),
                 foreground: 1.0,
                 ..dry(4)
             },

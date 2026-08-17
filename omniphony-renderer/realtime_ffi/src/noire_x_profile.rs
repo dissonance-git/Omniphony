@@ -40,7 +40,9 @@ impl EqPreset {
     fn from_text(text: &str) -> Self {
         match text.trim().to_ascii_lowercase().as_str() {
             "0" | "off" | "false" | "disabled" | "none" => Self::Off,
-            "native" | "omniphony" | "omniphony-native" | "omniphony_tuned" => Self::OmniphonyNative,
+            "native" | "omniphony" | "omniphony-native" | "omniphony_tuned" => {
+                Self::OmniphonyNative
+            }
             _ => Self::LegacyDts,
         }
     }
@@ -64,19 +66,39 @@ struct FilterSpec {
 
 impl FilterSpec {
     const fn high_pass(frequency_hz: f64, q: f64) -> Self {
-        Self { kind: FilterKind::HighPass, frequency_hz, gain_db: 0.0, q }
+        Self {
+            kind: FilterKind::HighPass,
+            frequency_hz,
+            gain_db: 0.0,
+            q,
+        }
     }
 
     const fn peaking(frequency_hz: f64, gain_db: f64, q: f64) -> Self {
-        Self { kind: FilterKind::Peaking, frequency_hz, gain_db, q }
+        Self {
+            kind: FilterKind::Peaking,
+            frequency_hz,
+            gain_db,
+            q,
+        }
     }
 
     const fn low_shelf(frequency_hz: f64, gain_db: f64, q: f64) -> Self {
-        Self { kind: FilterKind::LowShelf, frequency_hz, gain_db, q }
+        Self {
+            kind: FilterKind::LowShelf,
+            frequency_hz,
+            gain_db,
+            q,
+        }
     }
 
     const fn high_shelf(frequency_hz: f64, gain_db: f64, q: f64) -> Self {
-        Self { kind: FilterKind::HighShelf, frequency_hz, gain_db, q }
+        Self {
+            kind: FilterKind::HighShelf,
+            frequency_hz,
+            gain_db,
+            q,
+        }
     }
 }
 
@@ -220,7 +242,8 @@ impl Biquad {
     fn process(&mut self, input: f32) -> f32 {
         let x = if input.is_finite() { input as f64 } else { 0.0 };
         let y = self.b0 * x + self.b1 * self.x1 + self.b2 * self.x2
-            - self.a1 * self.y1 - self.a2 * self.y2;
+            - self.a1 * self.y1
+            - self.a2 * self.y2;
         self.x2 = self.x1;
         self.x1 = x;
         self.y2 = self.y1;
@@ -237,7 +260,10 @@ struct SampleDelay {
 impl SampleDelay {
     fn new(sample_rate_hz: u32, delay_ms: f64) -> Self {
         let count = ((sample_rate_hz as f64 * delay_ms / 1000.0) + 0.5).floor() as usize;
-        Self { samples: vec![0.0; count], offset: 0 }
+        Self {
+            samples: vec![0.0; count],
+            offset: 0,
+        }
     }
 
     fn process(&mut self, input: f32) -> f32 {
@@ -254,7 +280,9 @@ impl SampleDelay {
     }
 
     #[cfg(test)]
-    fn len(&self) -> usize { self.samples.len() }
+    fn len(&self) -> usize {
+        self.samples.len()
+    }
 }
 
 pub(crate) struct NoireXPersonalEq {
@@ -359,7 +387,12 @@ fn build_eq_preset(preset: EqPreset, sample_rate_hz: u32) -> (f32, Vec<[Biquad; 
     };
     let filters = specs
         .iter()
-        .map(|&spec| [Biquad::new(spec, sample_rate_hz), Biquad::new(spec, sample_rate_hz)])
+        .map(|&spec| {
+            [
+                Biquad::new(spec, sample_rate_hz),
+                Biquad::new(spec, sample_rate_hz),
+            ]
+        })
         .collect();
     (db_to_gain(preamp_db), filters)
 }
@@ -390,7 +423,12 @@ fn read_eq_preset(path: &Path, legacy_path: &Path) -> EqPreset {
 
 fn read_bool_setting(path: &Path, default: bool) -> bool {
     fs::read_to_string(path)
-        .map(|text| !matches!(text.trim().to_ascii_lowercase().as_str(), "0" | "off" | "false" | "disabled"))
+        .map(|text| {
+            !matches!(
+                text.trim().to_ascii_lowercase().as_str(),
+                "0" | "off" | "false" | "disabled"
+            )
+        })
         .unwrap_or(default)
 }
 
@@ -419,8 +457,14 @@ mod tests {
     #[test]
     fn native_profile_is_deliberately_gentler_than_legacy() {
         assert!(NATIVE_GLOBAL_PREAMP_DB > LEGACY_GLOBAL_PREAMP_DB);
-        let legacy_total: f64 = LEGACY_SHARED_FILTERS.iter().map(|spec| spec.gain_db.abs()).sum();
-        let native_total: f64 = NATIVE_SHARED_FILTERS.iter().map(|spec| spec.gain_db.abs()).sum();
+        let legacy_total: f64 = LEGACY_SHARED_FILTERS
+            .iter()
+            .map(|spec| spec.gain_db.abs())
+            .sum();
+        let native_total: f64 = NATIVE_SHARED_FILTERS
+            .iter()
+            .map(|spec| spec.gain_db.abs())
+            .sum();
         assert!(native_total < legacy_total);
     }
 
@@ -467,7 +511,8 @@ mod tests {
         let mut out_energy = 0.0f64;
         let frames = sample_rate as usize;
         for frame in 0..frames {
-            let sample = (2.0 * PI * frequency * frame as f64 / sample_rate as f64).sin() as f32 * 0.1;
+            let sample =
+                (2.0 * PI * frequency * frame as f64 / sample_rate as f64).sin() as f32 * 0.1;
             let output = filter.process(sample);
             if frame >= frames / 2 {
                 in_energy += (sample as f64).powi(2);
@@ -476,7 +521,10 @@ mod tests {
         }
         let gain = (out_energy / in_energy).sqrt();
         let expected = 10.0f64.powf(6.0 / 20.0);
-        assert!((gain - expected).abs() < 0.02, "gain={gain} expected={expected}");
+        assert!(
+            (gain - expected).abs() < 0.02,
+            "gain={gain} expected={expected}"
+        );
     }
 
     #[test]

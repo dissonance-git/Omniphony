@@ -101,18 +101,15 @@ struct TransientReflectionExciter {
 impl TransientReflectionExciter {
     fn new(sample_rate_hz: u32) -> Self {
         let sample_rate_hz = sample_rate_hz.max(1) as f32;
-        let one_pole_alpha = |time_ms: f32| {
-            1.0 - (-1.0 / (0.001 * time_ms.max(0.01) * sample_rate_hz)).exp()
-        };
+        let one_pole_alpha =
+            |time_ms: f32| 1.0 - (-1.0 / (0.001 * time_ms.max(0.01) * sample_rate_hz)).exp();
         Self {
             fast_energy: 0.0,
             slow_energy: 0.0,
             envelope: 0.0,
             fast_alpha: one_pole_alpha(TRANSIENT_FAST_MS),
             slow_alpha: one_pole_alpha(TRANSIENT_SLOW_MS),
-            release_coeff: (-1.0
-                / (0.001 * TRANSIENT_RELEASE_MS.max(0.01) * sample_rate_hz))
-                .exp(),
+            release_coeff: (-1.0 / (0.001 * TRANSIENT_RELEASE_MS.max(0.01) * sample_rate_hz)).exp(),
             max_delta: 10.0_f32.powf(TRANSIENT_MAX_GAIN_DB / 20.0) - 1.0,
         }
     }
@@ -258,7 +255,12 @@ impl HrtfWallBus {
         let mut conv_r = EarConvolver::new();
         conv_l.set_coeffs(&pair.left);
         conv_r.set_coeffs(&pair.right);
-        Self { delay_l, delay_r, conv_l, conv_r }
+        Self {
+            delay_l,
+            delay_r,
+            conv_l,
+            conv_r,
+        }
     }
 
     #[inline]
@@ -317,9 +319,8 @@ impl HrtfEarlyReflectionField {
                 fallback[wall]
             }
         });
-        let buses: [HrtfWallBus; NUM_REFLECTIONS] = std::array::from_fn(|wall| {
-            HrtfWallBus::new(sample_rate_hz, &hrir, directions[wall])
-        });
+        let buses: [HrtfWallBus; NUM_REFLECTIONS] =
+            std::array::from_fn(|wall| HrtfWallBus::new(sample_rate_hz, &hrir, directions[wall]));
         Self { sources, buses }
     }
 
@@ -337,7 +338,9 @@ impl HrtfEarlyReflectionField {
             let mut wall_bus = [0.0f32; NUM_REFLECTIONS];
             let base = frame * MUSIC_FIELD_CHANNELS;
             for channel in 0..MUSIC_FIELD_CHANNELS {
-                let Some(source) = self.sources[channel].as_mut() else { continue; };
+                let Some(source) = self.sources[channel].as_mut() else {
+                    continue;
+                };
                 let paths = source.process(field_input[base + channel]);
                 for wall in 0..NUM_REFLECTIONS {
                     wall_bus[wall] += paths[wall];
@@ -413,14 +416,23 @@ mod tests {
 
         let peak = exciter.gain(0.5);
         let maximum = 10.0_f32.powf(TRANSIENT_MAX_GAIN_DB / 20.0);
-        assert!(peak > 1.25, "impulse did not excite early room enough: {peak}");
-        assert!(peak <= maximum + 1.0e-6, "transient gain exceeded bound: {peak}");
+        assert!(
+            peak > 1.25,
+            "impulse did not excite early room enough: {peak}"
+        );
+        assert!(
+            peak <= maximum + 1.0e-6,
+            "transient gain exceeded bound: {peak}"
+        );
 
         let mut settled = peak;
         for _ in 0..4_800 {
             settled = exciter.gain(0.0);
         }
-        assert!(settled < 1.01, "transient room gain did not decay: {settled}");
+        assert!(
+            settled < 1.01,
+            "transient room gain did not decay: {settled}"
+        );
     }
 
     #[test]
@@ -430,9 +442,14 @@ mod tests {
         for sample in 0..48_000 {
             let x = (std::f32::consts::TAU * 1_000.0 * sample as f32 / 48_000.0).sin() * 0.2;
             let gain = exciter.gain(x);
-            if sample > 9_600 { max_tail = max_tail.max(gain); }
+            if sample > 9_600 {
+                max_tail = max_tail.max(gain);
+            }
         }
-        assert!(max_tail < 1.005, "steady tone kept transient room excitation alive: {max_tail}");
+        assert!(
+            max_tail < 1.005,
+            "steady tone kept transient room excitation alive: {max_tail}"
+        );
     }
 
     #[test]
@@ -457,8 +474,14 @@ mod tests {
         let out = field.process(&impulse_field(6_000, 0)).unwrap();
         let early_energy: f32 = out[..960].iter().map(|x| x * x).sum();
         let tail_energy: f32 = out[960..].iter().map(|x| x * x).sum();
-        assert!(early_energy < 1e-10, "early reflection arrived too soon: {early_energy}");
-        assert!(tail_energy > 1e-8, "HRTF reflection field produced no delayed energy");
+        assert!(
+            early_energy < 1e-10,
+            "early reflection arrived too soon: {early_energy}"
+        );
+        assert!(
+            tail_energy > 1e-8,
+            "HRTF reflection field produced no delayed energy"
+        );
     }
 
     #[test]
@@ -474,8 +497,15 @@ mod tests {
         actual.extend(split.process(&input[split_at..]).unwrap());
 
         assert_eq!(expected.len(), actual.len());
-        let max_error = expected.iter().zip(&actual).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
-        assert!(max_error < 1e-6, "callback boundary changed reflection field: {max_error}");
+        let max_error = expected
+            .iter()
+            .zip(&actual)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        assert!(
+            max_error < 1e-6,
+            "callback boundary changed reflection field: {max_error}"
+        );
     }
 
     #[test]
@@ -495,7 +525,13 @@ mod tests {
             left_energy[0] += ll * ll;
             left_energy[1] += lr * lr;
         }
-        assert!(right_energy[1] > right_energy[0], "right wall lacks right-ear dominance: {right_energy:?}");
-        assert!(left_energy[0] > left_energy[1], "left wall lacks left-ear dominance: {left_energy:?}");
+        assert!(
+            right_energy[1] > right_energy[0],
+            "right wall lacks right-ear dominance: {right_energy:?}"
+        );
+        assert!(
+            left_energy[0] > left_energy[1],
+            "left wall lacks left-ear dominance: {left_energy:?}"
+        );
     }
 }

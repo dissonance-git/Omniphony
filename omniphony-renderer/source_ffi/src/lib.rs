@@ -10,9 +10,7 @@ use orender_engine::{
 };
 use renderer::binaural::HrirSource;
 use renderer::source_frame::SourceFrameRenderer;
-use renderer::source_scene::{
-    NativeStereoRoute, SourceLaneKind, SourceSceneEvidence,
-};
+use renderer::source_scene::{NativeStereoRoute, SourceLaneKind, SourceSceneEvidence};
 use std::ptr;
 
 const ABI_MAJOR: u32 = 0;
@@ -111,14 +109,13 @@ fn convert_source(raw: OmniphonySourceEvidenceV1) -> Option<SourceSceneEvidence>
         SOURCE_LANE_REFERENCE_MIX => SourceLaneKind::ReferenceMix,
         _ => return None,
     };
-    let persistent_part_id = (raw.flags & SOURCE_FLAG_PERSISTENT_PART != 0)
-        .then_some(raw.persistent_part_id);
-    let native_stereo_route = (raw.flags & SOURCE_FLAG_NATIVE_STEREO_ROUTE != 0).then_some(
-        NativeStereoRoute {
+    let persistent_part_id =
+        (raw.flags & SOURCE_FLAG_PERSISTENT_PART != 0).then_some(raw.persistent_part_id);
+    let native_stereo_route =
+        (raw.flags & SOURCE_FLAG_NATIVE_STEREO_ROUTE != 0).then_some(NativeStereoRoute {
             left_gain: raw.left_gain,
             right_gain: raw.right_gain,
-        },
-    );
+        });
     let authored_position = (raw.flags & SOURCE_FLAG_AUTHORED_POSITION != 0).then_some([
         raw.authored_x as f64,
         raw.authored_y as f64,
@@ -254,9 +251,7 @@ pub unsafe extern "C" fn omniphony_source_create(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn omniphony_source_destroy(
-    processor: *mut OmniphonySourceProcessor,
-) {
+pub unsafe extern "C" fn omniphony_source_destroy(processor: *mut OmniphonySourceProcessor) {
     if !processor.is_null() {
         // SAFETY: ABI requires a pointer returned by create, exactly once.
         unsafe { drop(Box::from_raw(processor)) };
@@ -264,9 +259,7 @@ pub unsafe extern "C" fn omniphony_source_destroy(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn omniphony_source_reset(
-    processor: *mut OmniphonySourceProcessor,
-) -> i32 {
+pub unsafe extern "C" fn omniphony_source_reset(processor: *mut OmniphonySourceProcessor) -> i32 {
     if processor.is_null() {
         return -1;
     }
@@ -293,7 +286,9 @@ pub unsafe extern "C" fn omniphony_source_set_spatial_mode(
     };
     // SAFETY: null was rejected above.
     let processor = unsafe { &mut *processor };
-    processor.renderer.set_policy(source_presentation_policy(mode));
+    processor
+        .renderer
+        .set_policy(source_presentation_policy(mode));
     0
 }
 
@@ -364,7 +359,10 @@ pub unsafe extern "C" fn omniphony_source_process_events_f32(
     if frames == 0 {
         return 0;
     }
-    if source_count == 0 || input.is_null() || sources.is_null() || output.is_null()
+    if source_count == 0
+        || input.is_null()
+        || sources.is_null()
+        || output.is_null()
         || (event_count != 0 && events.is_null())
     {
         return -2;
@@ -513,7 +511,9 @@ mod tests {
         };
         assert_ne!(raw.flags & SOURCE_FLAG_ROUTE_GAIN_PREAPPLIED, 0);
         let converted = convert_source(raw).expect("valid source");
-        let route = converted.native_stereo_route.expect("route remains pose evidence");
+        let route = converted
+            .native_stereo_route
+            .expect("route remains pose evidence");
         assert_eq!(route.left_gain, 1.0);
         assert_eq!(route.right_gain, 0.0);
     }
@@ -551,9 +551,21 @@ mod tests {
             ..OmniphonySourceEvidenceV1::default()
         };
         let valid = [
-            OmniphonySourceEvidenceEventV1 { frame_offset: 12, lane_index: 0, evidence },
-            OmniphonySourceEvidenceEventV1 { frame_offset: 12, lane_index: 1, evidence },
-            OmniphonySourceEvidenceEventV1 { frame_offset: 64, lane_index: 0, evidence },
+            OmniphonySourceEvidenceEventV1 {
+                frame_offset: 12,
+                lane_index: 0,
+                evidence,
+            },
+            OmniphonySourceEvidenceEventV1 {
+                frame_offset: 12,
+                lane_index: 1,
+                evidence,
+            },
+            OmniphonySourceEvidenceEventV1 {
+                frame_offset: 64,
+                lane_index: 0,
+                evidence,
+            },
         ];
         assert!(validate_event_headers(&valid, 2, 64));
 
