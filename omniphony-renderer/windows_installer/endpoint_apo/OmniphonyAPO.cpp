@@ -3,10 +3,12 @@
 #include <audioenginebaseapo.h>
 #include <audioengineextensionapo.h>
 #include <BaseAudioProcessingObject.h>
+#include <ksmedia.h>
 
 #include "omniphony_realtime.h"
 
 #include <cstring>
+#include <limits>
 #include <new>
 #include <string>
 
@@ -149,6 +151,7 @@ public:
 
     ~OmniphonyAPO() override {
         InterlockedExchange(&realtimeEligible_, 0);
+        bytesPerFrame_ = 0;
         realtime_.shutdown();
         InterlockedDecrement(&instanceCount);
     }
@@ -222,6 +225,7 @@ public:
         UINT32 outputCount,
         APO_CONNECTION_DESCRIPTOR** outputs) override {
         InterlockedExchange(&realtimeEligible_, 0);
+        bytesPerFrame_ = 0;
         realtime_.shutdown();
 
         const HRESULT hr = CBaseAudioProcessingObject::LockForProcess(
@@ -244,10 +248,28 @@ public:
 
         if (inputFormat.dwSamplesPerFrame == 0 ||
             inputFormat.dwSamplesPerFrame != outputFormat.dwSamplesPerFrame ||
-            inputFormat.dwBytesPerSampleContainer != sizeof(float) ||
-            outputFormat.dwBytesPerSampleContainer != sizeof(float) ||
+            inputFormat.dwBytesPerSampleContainer == 0 ||
+            inputFormat.dwBytesPerSampleContainer != outputFormat.dwBytesPerSampleContainer ||
             inputFormat.fFramesPerSecond <= 0.0f ||
             inputFormat.fFramesPerSecond != outputFormat.fFramesPerSecond) {
+            return S_OK;
+        }
+
+        const size_t channels = inputFormat.dwSamplesPerFrame;
+        const size_t bytesPerSample = inputFormat.dwBytesPerSampleContainer;
+        if (channels > std::numeric_limits<size_t>::max() / bytesPerSample) {
+            return S_OK;
+        }
+        bytesPerFrame_ = channels * bytesPerSample;
+
+        const bool float32 =
+            IsEqualGUID(inputFormat.guidFormatType, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT) &&
+            IsEqualGUID(outputFormat.guidFormatType, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT) &&
+            inputFormat.dwBytesPerSampleContainer == sizeof(float) &&
+            outputFormat.dwBytesPerSampleContainer == sizeof(float) &&
+            inputFormat.dwValidBitsPerSample == 32 &&
+            outputFormat.dwValidBitsPerSample == 32;
+        if (!float32) {
             return S_OK;
         }
 
@@ -260,6 +282,7 @@ public:
 
     HRESULT STDMETHODCALLTYPE UnlockForProcess() override {
         InterlockedExchange(&realtimeEligible_, 0);
+        bytesPerFrame_ = 0;
         realtime_.shutdown();
         return CBaseAudioProcessingObject::UnlockForProcess();
     }
@@ -284,10 +307,15 @@ public:
         auto* input = inputs[0];
         auto* output = outputs[0];
         const UINT32 frames = input->u32ValidFrameCount;
-        const size_t samples = static_cast<size_t>(frames) * GetSamplesPerFrame();
-        const size_t bytes = samples * sizeof(float);
-        auto* inputBuffer = reinterpret_cast<const float*>(input->pBuffer);
-        auto* outputBuffer = reinterpret_cast<float*>(output->pBuffer);
+        if (bytesPerFrame_ == 0 ||
+            static_cast<size_t>(frames) > std::numeric_limits<size_t>::max() / bytesPerFrame_) {
+            output->u32BufferFlags = BUFFER_INVALID;
+            output->u32ValidFrameCount = 0;
+            return;
+        }
+        const size_t bytes = static_cast<size_t>(frames) * bytesPerFrame_;
+        auto* inputBuffer = reinterpret_cast<const void*>(input->pBuffer);
+        auto* outputBuffer = reinterpret_cast<void*>(output->pBuffer);
 
         switch (input->u32BufferFlags) {
         case BUFFER_VALID: {
@@ -300,7 +328,10 @@ public:
             bool processed = false;
             if (frames != 0 &&
                 InterlockedCompareExchange(&realtimeEligible_, 0, 0) != 0) {
-                processed = realtime_.process(inputBuffer, outputBuffer, frames);
+                processed = realtime_.process(
+                    static_cast<const float*>(inputBuffer),
+                    static_cast<float*>(outputBuffer),
+                    frames);
                 if (!processed) {
                     InterlockedExchange(&realtimeEligible_, 0);
                 }
@@ -314,7 +345,7 @@ public:
             break;
         }
         case BUFFER_SILENT:
-            if (output->pBuffer && bytes != 0) {
+            if (outputBuffer && bytes != 0) {
                 std::memset(outputBuffer, 0, bytes);
             }
             output->u32BufferFlags = BUFFER_SILENT;
@@ -340,6 +371,7 @@ public:
 private:
     volatile LONG references_ = 1;
     volatile LONG realtimeEligible_ = 0;
+    size_t bytesPerFrame_ = 0;
     IUnknown* outer_ = nullptr;
     RealtimeBridge realtime_;
 };
