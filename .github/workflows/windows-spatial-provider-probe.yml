@@ -1,0 +1,80 @@
+name: Windows Spatial Sound provider probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/windows-spatial-provider-probe.yml'
+      - 'omniphony-renderer/windows_installer/spatial_provider_probe/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build-probe:
+    name: Build inert provider-registration probe
+    runs-on: windows-2022
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Omniphony
+        uses: actions/checkout@v4
+
+      - name: Configure probe
+        shell: pwsh
+        run: |
+          $source = "$env:GITHUB_WORKSPACE\omniphony-renderer\windows_installer\spatial_provider_probe"
+          $build = "$env:GITHUB_WORKSPACE\build\spatial-provider-probe"
+          cmake -S $source -B $build -A x64
+          if ($LASTEXITCODE -ne 0) { throw "Spatial provider probe configure failed: $LASTEXITCODE" }
+
+      - name: Build probe
+        shell: pwsh
+        run: |
+          $build = "$env:GITHUB_WORKSPACE\build\spatial-provider-probe"
+          cmake --build $build --config Release --parallel
+          if ($LASTEXITCODE -ne 0) { throw "Spatial provider probe build failed: $LASTEXITCODE" }
+
+      - name: Validate read-only probe contract
+        shell: pwsh
+        run: |
+          $release = "$env:GITHUB_WORKSPACE\build\spatial-provider-probe\Release"
+          $ctl = Join-Path $release 'OmniphonySpatialProbeCtl.exe'
+          $dll = Join-Path $release 'OmniphonySpatialProbe.dll'
+          if (-not (Test-Path $ctl)) { throw "Missing probe control executable: $ctl" }
+          if (-not (Test-Path $dll)) { throw "Missing inert probe COM DLL: $dll" }
+
+          $contract = & $ctl contract
+          if ($LASTEXITCODE -ne 0) { throw "Probe contract failed: $LASTEXITCODE" }
+          $contract | Write-Host
+          $text = $contract -join "`n"
+          if ($text -notmatch '\{4BD75423-A66C-4586-B782-1FCBBDF2AE74\}') { throw 'Spatial format GUID drifted' }
+          if ($text -notmatch '\{F3CDF827-20C4-405E-A430-8F739343FC89\}') { throw 'Probe COM CLSID drifted' }
+          if ($text -notmatch 'NO_AUDIO_PROCESSING\s+1') { throw 'Probe safety contract missing' }
+          if ($text -notmatch 'NO_MMDEVICES_WRITES\s+1') { throw 'MMDevices safety contract missing' }
+          if ($text -notmatch 'NO_DEFAULT_ENDPOINT_CHANGE\s+1') { throw 'Default-endpoint safety contract missing' }
+
+          # Read-only enumeration may legitimately find no third-party providers
+          # on a clean GitHub-hosted runner. It must not crash or require elevation.
+          & $ctl list
+          if ($LASTEXITCODE -ne 0) { throw "Read-only provider enumeration failed: $LASTEXITCODE" }
+
+      - name: Assemble probe artifact
+        shell: pwsh
+        run: |
+          $release = "$env:GITHUB_WORKSPACE\build\spatial-provider-probe\Release"
+          $payload = "$env:GITHUB_WORKSPACE\dist\Omniphony-Spatial-Provider-Probe"
+          New-Item -ItemType Directory -Force $payload | Out-Null
+          Copy-Item (Join-Path $release 'OmniphonySpatialProbeCtl.exe') $payload -Force
+          Copy-Item (Join-Path $release 'OmniphonySpatialProbe.dll') $payload -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\omniphony-renderer\windows_installer\spatial_provider_probe\README.md" $payload -Force
+          Get-ChildItem $payload -File | Select-Object Name, Length
+
+      - name: Upload probe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: omniphony-spatial-provider-probe-${{ github.sha }}
+          path: dist/Omniphony-Spatial-Provider-Probe
+          if-no-files-found: error
+          retention-days: 14
