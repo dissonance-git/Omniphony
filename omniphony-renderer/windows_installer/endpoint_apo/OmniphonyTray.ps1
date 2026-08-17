@@ -8,6 +8,7 @@ $stateRoot = Join-Path $programData 'Omniphony'
 $eqPresetPath = Join-Path $stateRoot 'eq-preset.txt'
 $legacyEqPath = Join-Path $stateRoot 'personal-eq.txt'
 $rightCompPath = Join-Path $stateRoot 'right-ear-comp.txt'
+$heightPlusPath = Join-Path $stateRoot 'height-plus.txt'
 $stopPath = Join-Path $stateRoot 'tray.stop'
 
 New-Item -ItemType Directory -Force -Path $stateRoot | Out-Null
@@ -41,19 +42,19 @@ function Set-EqPreset([string]$Preset) {
     [IO.File]::WriteAllText($eqPresetPath, "$Preset`r`n", [Text.Encoding]::ASCII)
 }
 
-function Get-RightCompEnabled {
-    if (-not (Test-Path -LiteralPath $rightCompPath)) { return $true }
+function Get-BoolSetting([string]$Path, [bool]$Default) {
+    if (-not (Test-Path -LiteralPath $Path)) { return $Default }
     try {
-        $value = ([IO.File]::ReadAllText($rightCompPath)).Trim().ToLowerInvariant()
+        $value = ([IO.File]::ReadAllText($Path)).Trim().ToLowerInvariant()
         return $value -notin @('0', 'off', 'false', 'disabled')
     } catch {
-        return $true
+        return $Default
     }
 }
 
-function Set-RightCompEnabled([bool]$Enabled) {
+function Set-BoolSetting([string]$Path, [bool]$Enabled) {
     $text = if ($Enabled) { "1`r`n" } else { "0`r`n" }
-    [IO.File]::WriteAllText($rightCompPath, $text, [Text.Encoding]::ASCII)
+    [IO.File]::WriteAllText($Path, $text, [Text.Encoding]::ASCII)
 }
 
 $notify = New-Object System.Windows.Forms.NotifyIcon
@@ -80,6 +81,10 @@ $nativeItem.Text = 'EQ: Omniphony tuned'
 
 [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
 
+$heightItem = New-Object System.Windows.Forms.ToolStripMenuItem
+$heightItem.Text = 'Height+'
+[void]$menu.Items.Add($heightItem)
+
 $rightCompItem = New-Object System.Windows.Forms.ToolStripMenuItem
 $rightCompItem.Text = 'Right-ear compensation'
 [void]$menu.Items.Add($rightCompItem)
@@ -93,11 +98,13 @@ $notify.ContextMenuStrip = $menu
 
 function Update-TrayState {
     $preset = Get-EqPreset
-    $rightComp = Get-RightCompEnabled
+    $rightComp = Get-BoolSetting $rightCompPath $true
+    $heightPlus = Get-BoolSetting $heightPlusPath $false
 
     $offItem.Checked = $preset -eq 'off'
     $legacyItem.Checked = $preset -eq 'legacy'
     $nativeItem.Checked = $preset -eq 'native'
+    $heightItem.Checked = $heightPlus
     $rightCompItem.Checked = $rightComp
 
     $presetLabel = switch ($preset) {
@@ -105,8 +112,9 @@ function Update-TrayState {
         'native' { 'Native' }
         default { 'Legacy' }
     }
-    $rightLabel = if ($rightComp) { 'On' } else { 'Off' }
-    $notify.Text = "Omniphony | EQ: $presetLabel | Right comp: $rightLabel"
+    $heightLabel = if ($heightPlus) { 'H+' } else { 'H' }
+    $rightLabel = if ($rightComp) { 'R+' } else { 'R0' }
+    $notify.Text = "Omniphony | EQ: $presetLabel | $heightLabel | $rightLabel"
 }
 
 function Select-EqPreset([string]$Preset) {
@@ -124,9 +132,20 @@ $offItem.Add_Click({ Select-EqPreset 'off' })
 $legacyItem.Add_Click({ Select-EqPreset 'legacy' })
 $nativeItem.Add_Click({ Select-EqPreset 'native' })
 
+$heightItem.Add_Click({
+    try {
+        Set-BoolSetting $heightPlusPath (-not (Get-BoolSetting $heightPlusPath $false))
+        Update-TrayState
+    } catch {
+        $notify.BalloonTipTitle = 'Omniphony'
+        $notify.BalloonTipText = "Could not change Height+: $($_.Exception.Message)"
+        $notify.ShowBalloonTip(2500)
+    }
+})
+
 $rightCompItem.Add_Click({
     try {
-        Set-RightCompEnabled (-not (Get-RightCompEnabled))
+        Set-BoolSetting $rightCompPath (-not (Get-BoolSetting $rightCompPath $true))
         Update-TrayState
     } catch {
         $notify.BalloonTipTitle = 'Omniphony'
