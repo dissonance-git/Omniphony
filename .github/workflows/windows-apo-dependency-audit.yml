@@ -33,6 +33,19 @@ jobs:
         shell: pwsh
         run: python omniphony-renderer/windows_installer/endpoint_apo/production/check_package_contract.py
 
+      - name: Parse production target-capture PowerShell
+        shell: pwsh
+        run: |
+          $path = 'omniphony-renderer/windows_installer/endpoint_apo/production/Capture-TargetAudioDriver.ps1'
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw "production target capture script has $($errors.Count) PowerShell parse error(s)"
+          }
+          Write-Host 'PRODUCTION_TARGET_CAPTURE_PARSE_OK 1'
+
       - uses: microsoft/setup-msbuild@v2
         with:
           vs-version: '[17.0,18.0)'
