@@ -1,36 +1,96 @@
-use renderer::live_params::RampMode;
-use renderer::speaker_layout::SpeakerLayout;
-use renderer::spatial_renderer::SpatialRenderer;
+//! Deterministic scene generation, shared by the null tests, the criterion
+//! benches, and the future worst-case-block-time gate.
+//!
+//! Everything here is a pure function of its arguments and a fixed seed: the
+//! same call sequence produces byte-identical PCM and event streams on every
+//! machine. That is what makes committed goldens meaningful.
+//!
+//! Moved here from `renderer/benches/render_frame.rs` so the benches and the
+//! validation tests cannot drift apart.
+
+use renderer::live_params::{LiveEvaluationMode, PreferredEvaluationMode};
+// Re-exported: tests living *inside* `renderer` see a second instantiation of
+// that crate (the `--test` build), whose `RampMode` is a distinct type from the
+// rlib one these fixtures are compiled against. Callers must name the type
+// through this crate or the argument types will not match.
+pub use renderer::live_params::RampMode;
+use renderer::spatial_renderer::{SpatialChannelEvent, SpatialRenderer};
 use renderer::spatial_vbap::{DistanceModel, VbapTableMode};
-use renderer::SpatialChannelEvent;
+use renderer::speaker_layout::SpeakerLayout;
 
-pub const SAMPLE_RATE: u32 = 48_000;
+/// Samples per access unit fed to `render_frame`. Measured from a real TrueHD
+/// Atmos stream through the engine (`ORENDER_PERF_LOG`): the bridge emits a
+/// constant 40-sample block at 48 kHz, so this matches the live per-call cost.
 pub const BLOCK_SAMPLES: usize = 40;
+pub const SAMPLE_RATE: u32 = 48_000;
 
+/// Build a renderer with defaults matching the live decode path for `preset`.
+/// `cartesian` selects the precomputed cartesian table/evaluator (vs polar).
 pub fn make_renderer(
     preset: &str,
     position_interpolation: bool,
     cartesian: bool,
 ) -> SpatialRenderer {
-    let layout = SpeakerLayout::preset(preset).expect("fixture speaker preset");
-    let (x_size, y_size, z_size, z_neg_size) = if cartesian {
-        (21, 21, 11, 5)
+    build_renderer(
+        SpeakerLayout::preset(preset).expect("known preset"),
+        position_interpolation,
+        cartesian,
+    )
+}
+
+/// A "mixed speaker sizes" layout: a few speakers are band-limited (finite
+/// `freq_low`), which makes `compute_bands` split rendering into several
+/// frequency bands. Every band shares the same VBAP grid, so the per-band table
+/// lookups localise the same cell — the case the crossover concept targets.
+pub fn crossover_layout() -> SpeakerLayout {
+    let mut layout = SpeakerLayout::preset("7.1.4").expect("known preset");
+    // Band-limit the first three speakers at distinct cutoffs → edges {80,200,500}
+    // → 4 bands; the remaining full-range speakers populate every band.
+    for (sp, cutoff) in layout.speakers.iter_mut().zip([80.0, 200.0, 500.0]) {
+        sp.freq_low = Some(cutoff);
+    }
+    layout
+}
+
+/// A renderer for **binaural-only** scenes, built with a coarse VBAP table.
+///
+/// `render_frame` takes the independent binaural branch before touching the
+/// VBAP/crossover chain, so the precomputed panning tables are dead weight
+/// here — and at the 1°×1° resolution [`build_renderer`] uses they cost
+/// ~730 ms per construction, which dominated the ITD tests entirely. Coarsening
+/// them changes nothing the binaural path can observe.
+pub fn build_renderer_binaural(
+    layout: SpeakerLayout,
+    position_interpolation: bool,
+    cartesian: bool,
+) -> SpatialRenderer {
+    let (table_mode, preferred, initial) = if cartesian {
+        (
+            VbapTableMode::Cartesian {
+                x_size: 31,
+                y_size: 31,
+                z_size: 15,
+                z_neg_size: 15,
+            },
+            PreferredEvaluationMode::PrecomputedCartesian,
+            LiveEvaluationMode::PrecomputedCartesian,
+        )
     } else {
-        (31, 31, 15, 15)
+        (
+            VbapTableMode::Polar,
+            PreferredEvaluationMode::PrecomputedPolar,
+            LiveEvaluationMode::PrecomputedPolar,
+        )
     };
     SpatialRenderer::new(
         layout,
         SAMPLE_RATE,
-        1,
-        1,
+        15, // az_res_deg — coarse: the binaural path never reads the VBAP table
+        15, // el_res_deg
         0.0,
         2.0,
-        if cartesian {
-            VbapTableMode::Cartesian
-        } else {
-            VbapTableMode::Polar
-        },
-        false,
+        table_mode,
+        false, // allow_negative_z
         position_interpolation,
         DistanceModel::Linear,
         false,
@@ -38,45 +98,85 @@ pub fn make_renderer(
         1.0,
         0.0,
         1.0,
-        false,
-        [1.0, 2.0, 0.5],
+        false,           // log_object_positions
+        [1.0, 2.0, 0.5], // room_ratio
         2.0,
         0.5,
         0.0,
-        0.0,
-        false,
-        false,
-        false,
+        0.0,   // master_gain_db
+        false, // auto_gain
+        false, // use_loudness
+        false, // distance_diffuse
         1.0,
         1.0,
-        if cartesian {
-            renderer::spatial_renderer::PreferredEvaluationMode::PrecomputedCartesian
-        } else {
-            renderer::spatial_renderer::PreferredEvaluationMode::PrecomputedPolar
-        },
-        if cartesian {
-            renderer::spatial_renderer::LiveEvaluationMode::PrecomputedCartesian
-        } else {
-            renderer::spatial_renderer::LiveEvaluationMode::PrecomputedPolar
-        },
-        x_size,
-        y_size,
-        z_size,
-        z_neg_size,
+        preferred,
+        initial,
+        31,
+        31,
+        15,
+        15,
     )
-    .expect("fixture renderer")
+    .expect("renderer build")
 }
 
-/// Build a renderer with a deterministic crossover layout. The exact cutoffs are
-/// intentionally not psychoacoustic policy; they merely force the crossover and
-/// per-band gain-table machinery to participate in tests and benchmarks.
-pub fn crossover_layout() -> renderer::CrossoverLayout {
-    renderer::CrossoverLayout::new(vec![
-        renderer::CrossoverBand::new(0, 0.0, 250.0),
-        renderer::CrossoverBand::new(1, 250.0, 2_500.0),
-        renderer::CrossoverBand::new(2, 2_500.0, 24_000.0),
-    ])
-    .expect("fixture crossover layout")
+pub fn build_renderer(
+    layout: SpeakerLayout,
+    position_interpolation: bool,
+    cartesian: bool,
+) -> SpatialRenderer {
+    let (table_mode, preferred, initial) = if cartesian {
+        (
+            VbapTableMode::Cartesian {
+                x_size: 31,
+                y_size: 31,
+                z_size: 15,
+                z_neg_size: 15,
+            },
+            PreferredEvaluationMode::PrecomputedCartesian,
+            LiveEvaluationMode::PrecomputedCartesian,
+        )
+    } else {
+        (
+            VbapTableMode::Polar,
+            PreferredEvaluationMode::PrecomputedPolar,
+            LiveEvaluationMode::PrecomputedPolar,
+        )
+    };
+    SpatialRenderer::new(
+        layout,
+        SAMPLE_RATE,
+        1, // az_res_deg
+        1, // el_res_deg
+        0.0,
+        2.0,
+        table_mode,
+        false, // allow_negative_z
+        position_interpolation,
+        DistanceModel::Linear,
+        false,
+        1.0,
+        1.0,
+        0.0,
+        1.0,
+        false,           // log_object_positions
+        [1.0, 2.0, 0.5], // room_ratio
+        2.0,
+        0.5,
+        0.0,
+        0.0,   // master_gain_db
+        false, // auto_gain
+        false, // use_loudness
+        false, // distance_diffuse
+        1.0,
+        1.0,
+        preferred,
+        initial,
+        31,
+        31,
+        15,
+        15,
+    )
+    .expect("renderer build")
 }
 
 /// Deterministic pseudo-random in [-1, 1] from an integer seed (no rng dep).
@@ -130,33 +230,6 @@ pub fn move_events(n_objects: usize, seed_round: u64) -> Vec<SpatialChannelEvent
                     pseudo(p ^ 0x1111) as f64,
                     (pseudo(p ^ 0x2222).abs()) as f64,
                 ]),
-                sample_pos: Some(0),
-            }
-        })
-        .collect()
-}
-
-/// One movement event per object on a continuous trajectory.
-///
-/// This is the realistic counterpart to [`move_events`], which redraws every
-/// position at random each round. Random redraw remains a useful pathological
-/// upper bound, but real content moves coherently. Rates span 12°/s to 96°/s;
-/// at 1200 forty-sample blocks per second that is 0.01° to 0.08° per block.
-/// The fixture therefore exposes optimisations that preserve direction
-/// coherence, such as the exact HRIR-direction cache, without changing the
-/// renderer's geometry or inventing an audible quantisation policy.
-pub fn drift_events(n_objects: usize, seed_round: u64) -> Vec<SpatialChannelEvent> {
-    (0..n_objects)
-        .map(|ch| {
-            let deg_per_block = (12.0 + (ch % 8) as f64 * 12.0) / 1200.0;
-            let az = (ch as f64 * 37.0 + seed_round as f64 * deg_per_block).to_radians();
-            SpatialChannelEvent {
-                channel_idx: ch,
-                is_bed: false,
-                gain_db: Some(0),
-                ramp_length: Some(BLOCK_SAMPLES as u32),
-                size: Some([0.0, 0.0, 0.0]),
-                position: Some([az.sin(), az.cos(), (ch % 5) as f64 * 0.25]),
                 sample_pos: Some(0),
             }
         })
@@ -226,62 +299,200 @@ pub fn prepared_binaural(n_objects: usize, ramp_mode: RampMode) -> (SpatialRende
     for _ in 0..4 {
         let f = r
             .render_frame(&pcm, n_objects, &init, buf, false)
-            .expect("binaural prime");
+            .expect("prime binaural render");
         buf = f.samples;
     }
     (r, pcm)
 }
 
-/// A renderer switched to the cascaded binaural path, where arbitrary object
-/// count is first mixed to the fixed virtual 7.1.4 speaker bed and then that bed
-/// is HRTF-rendered. This is the current scalable binaural architecture.
-pub fn prepared_binaural_cascaded(
-    n_objects: usize,
-    ramp_mode: RampMode,
-) -> (SpatialRenderer, Vec<f32>) {
-    let mut r = make_renderer("7.1.4", true, false);
-    {
-        let ctrl = r.renderer_control();
-        ctrl.set_requested_ramp_mode(ramp_mode);
-        let mut live = ctrl.live.write();
-        live.ramp_mode = ramp_mode;
-        live.binaural.output_mode = OutputMode::Binaural;
-        live.binaural.mode = renderer::live_params::BinauralMode::Cascaded;
-    }
-    let pcm = make_pcm(n_objects);
-    let init = move_events(n_objects, 0);
-    let mut buf = Vec::new();
-    for _ in 0..4 {
-        let f = r
-            .render_frame(&pcm, n_objects, &init, buf, false)
-            .expect("cascaded binaural prime");
-        buf = f.samples;
-    }
-    (r, pcm)
-}
-
-/// Build a renderer configured with an explicit crossover layout.
-pub fn prepared_crossover(
-    preset: &str,
-    n_objects: usize,
-    ramp_mode: RampMode,
-) -> (SpatialRenderer, Vec<f32>) {
-    let mut r = make_renderer(preset, true, false);
+/// A renderer on the band-limited [`crossover_layout`], so `compute_bands`
+/// splits rendering across four frequency bands and the LR4 bank runs.
+pub fn prepared_crossover(n_objects: usize, ramp_mode: RampMode) -> (SpatialRenderer, Vec<f32>) {
+    let mut r = build_renderer(crossover_layout(), true, false);
     {
         let ctrl = r.renderer_control();
         ctrl.set_requested_ramp_mode(ramp_mode);
         ctrl.live.write().ramp_mode = ramp_mode;
     }
-    r.configure_crossover(Some(crossover_layout()))
-        .expect("fixture crossover configure");
     let pcm = make_pcm(n_objects);
     let init = move_events(n_objects, 0);
     let mut buf = Vec::new();
     for _ in 0..4 {
         let f = r
             .render_frame(&pcm, n_objects, &init, buf, false)
-            .expect("crossover prime");
+            .expect("prime crossover render");
         buf = f.samples;
     }
     (r, pcm)
+}
+
+/// Render `blocks` consecutive blocks, concatenating the interleaved output.
+///
+/// `move_every` controls how often fresh movement events are injected: every
+/// `move_every`-th block gets `move_events(n_objects, round)`, the others carry
+/// no events. `move_every = 0` means "never move after priming". This is what
+/// makes a golden exercise both the ramping and the steady path.
+pub fn render_blocks(
+    r: &mut SpatialRenderer,
+    pcm: &[f32],
+    n_objects: usize,
+    blocks: usize,
+    move_every: usize,
+) -> Vec<f32> {
+    let mut out = Vec::new();
+    let mut buf = Vec::new();
+    for round in 0..blocks {
+        let events = if move_every > 0 && round % move_every == 0 {
+            move_events(n_objects, round as u64 + 1)
+        } else {
+            Vec::new()
+        };
+        let frame = r
+            .render_frame(pcm, n_objects, &events, buf, false)
+            .expect("render_frame in fixture scene");
+        out.extend_from_slice(&frame.samples);
+        buf = frame.samples;
+        buf.clear();
+    }
+    out
+}
+
+/// Render blocks where only *some* channels ever receive metadata.
+///
+/// `metadata_channels` gives events; the rest never do. This exercises the
+/// branch a channel takes when it has no cached metadata — a path the other
+/// null scenes never reach, because they send events for every object. A
+/// refactor once made that branch skip such channels entirely and every
+/// existing golden still matched.
+pub fn render_blocks_partial_metadata(
+    r: &mut SpatialRenderer,
+    pcm: &[f32],
+    n_objects: usize,
+    metadata_channels: usize,
+    blocks: usize,
+    move_every: usize,
+) -> Vec<f32> {
+    let mut out = Vec::new();
+    let mut buf = Vec::new();
+    for round in 0..blocks {
+        let events = if move_every > 0 && round % move_every == 0 {
+            move_events(metadata_channels, round as u64 + 1)
+        } else {
+            Vec::new()
+        };
+        let frame = r
+            .render_frame(pcm, n_objects, &events, buf, false)
+            .expect("render_frame in partial-metadata scene");
+        out.extend_from_slice(&frame.samples);
+        buf = frame.samples;
+        buf.clear();
+    }
+    out
+}
+
+/// Render one object at a fixed horizontal azimuth through the binaural path,
+/// returning deinterleaved `(left, right)`.
+///
+/// Position is set in Omniphony normalized Cartesian, where +x is right, +y is
+/// front and +z is up (see `layouts/7.1.4.yaml`), so azimuth θ measured from
+/// front toward the right is `(sin θ, cos θ, 0)`.
+///
+/// The binaural path uses `unit_scale_m` and ignores the anisotropic
+/// `room_ratio` (see `BINAURAL.md`), so the azimuth is not distorted by the
+/// `[1.0, 2.0, 0.5]` ratio the fixture renderer is built with.
+///
+/// The first `PRIME_BLOCKS` blocks are discarded: the 20 ms gain slew and the
+/// position ramp must settle before the lag measurement is meaningful.
+///
+/// HRIR source changes are asynchronous in production so grid construction and
+/// SOFA I/O never block the audio thread. A test fixture cannot treat "64 audio
+/// blocks rendered as fast as possible" as 53 ms of wall-clock time: under
+/// parallel CI the rebuild worker may not have run at all yet. The first prime
+/// block therefore issues the request, then the fixture yields a bounded
+/// control-plane settling interval before continuing. This removes scheduler
+/// timing from the captured PCM while preserving the production async path.
+pub fn render_single_object_binaural(
+    azimuth_deg: f32,
+    blocks: usize,
+    hrir_source: HrirSource,
+) -> (Vec<f32>, Vec<f32>) {
+    const PRIME_BLOCKS: usize = 64;
+    const HRIR_REBUILD_SETTLE_MS: u64 = 100;
+
+    let theta = (azimuth_deg as f64).to_radians();
+    let position = [theta.sin(), theta.cos(), 0.0];
+    let source_change = hrir_source != HrirSource::SafKemar;
+
+    let mut r = build_renderer_binaural(
+        SpeakerLayout::preset("7.1.4").expect("known preset"),
+        true,
+        false,
+    );
+    {
+        let ctrl = r.renderer_control();
+        ctrl.set_requested_ramp_mode(RampMode::Frame);
+        let mut live = ctrl.live.write();
+        live.ramp_mode = RampMode::Frame;
+        live.binaural.output_mode = OutputMode::Binaural;
+        live.binaural.hrir_source = hrir_source;
+    }
+
+    let event = vec![SpatialChannelEvent {
+        channel_idx: 0,
+        is_bed: false,
+        gain_db: Some(0),
+        ramp_length: Some(BLOCK_SAMPLES as u32),
+        size: Some([0.0, 0.0, 0.0]),
+        position: Some(position),
+        sample_pos: Some(0),
+    }];
+
+    let mut buf = Vec::new();
+    for block in 0..PRIME_BLOCKS {
+        let f = r
+            .render_frame(&make_pcm_block(1, block), 1, &event, buf, false)
+            .expect("prime binaural ITD render");
+        buf = f.samples;
+        buf.clear();
+
+        // The first frame is what calls BinauralRenderer::ensure_source and
+        // enqueues the rebuild. Wait only after that request exists.
+        if block == 0 && source_change {
+            std::thread::sleep(std::time::Duration::from_millis(HRIR_REBUILD_SETTLE_MS));
+        }
+    }
+
+    let mut left = Vec::with_capacity(blocks * BLOCK_SAMPLES);
+    let mut right = Vec::with_capacity(blocks * BLOCK_SAMPLES);
+    for block in 0..blocks {
+        let f = r
+            .render_frame(
+                &make_pcm_block(1, PRIME_BLOCKS + block),
+                1,
+                &event,
+                buf,
+                false,
+            )
+            .expect("binaural ITD render");
+        for frame in f.samples.chunks_exact(2) {
+            left.push(frame[0]);
+            right.push(frame[1]);
+        }
+        buf = f.samples;
+        buf.clear();
+    }
+    (left, right)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repeated_synthetic_binaural_fixture_is_deterministic() {
+        let a = render_single_object_binaural(37.0, 16, HrirSource::Synthetic);
+        let b = render_single_object_binaural(37.0, 16, HrirSource::Synthetic);
+        assert_eq!(a.0, b.0, "left channel changed across identical renders");
+        assert_eq!(a.1, b.1, "right channel changed across identical renders");
+    }
 }
