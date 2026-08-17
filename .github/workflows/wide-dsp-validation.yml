@@ -4,14 +4,18 @@ on:
   push:
     branches: [main]
     paths:
+      - 'layouts/system-h-derived-22.0-upper60-grid10.yaml'
       - 'omniphony-renderer/renderer/**'
+      - 'omniphony-renderer/orender_engine/tests/current_scene_geometry.rs'
       - 'omniphony-renderer/dsp_fixtures/**'
       - 'omniphony-renderer/Cargo.toml'
       - '.github/workflows/wide-dsp-validation.yml'
   pull_request:
     branches: [main]
     paths:
+      - 'layouts/system-h-derived-22.0-upper60-grid10.yaml'
       - 'omniphony-renderer/renderer/**'
+      - 'omniphony-renderer/orender_engine/tests/current_scene_geometry.rs'
       - 'omniphony-renderer/dsp_fixtures/**'
       - 'omniphony-renderer/Cargo.toml'
       - '.github/workflows/wide-dsp-validation.yml'
@@ -46,6 +50,9 @@ jobs:
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
           rustup override set "$RUST_TOOLCHAIN"
+
+      - name: Current 8.1.4.4 scene through 22-direction shell
+        run: cargo test -p orender_engine --test current_scene_geometry -- --nocapture
 
       - name: Multi-rate LR4 reconstruction
         run: >-
