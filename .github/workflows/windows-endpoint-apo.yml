@@ -9,15 +9,27 @@ on:
       - 'omniphony-renderer/windows_installer/endpoint_apo/**'
       - 'omniphony-renderer/windows_installer/OmniphonyEndpointCtl.cpp'
       - 'omniphony-renderer/windows_installer/OmniphonyEndpointCtl.vcxproj'
+      - 'omniphony-renderer/realtime_ffi/**'
+      - 'omniphony-renderer/renderer/**'
+      - 'omniphony-renderer/orender_engine/**'
+      - 'omniphony-renderer/reference_bridge/**'
+      - 'omniphony-renderer/bridge_api/**'
+      - 'omniphony-renderer/Cargo.toml'
+      - 'omniphony-renderer/Cargo.lock'
 
 permissions:
   contents: read
+
+env:
+  RUST_TOOLCHAIN: 1.88.0
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
   build-apoprobe:
     name: Build and activate x64 endpoint APO
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -28,6 +40,27 @@ jobs:
         run: |
           Write-Host "source=$(git rev-parse HEAD)"
           git status --short
+
+      - name: Install pinned Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install $env:RUST_TOOLCHAIN --profile minimal
+          Set-Location "$env:GITHUB_WORKSPACE\omniphony-renderer"
+          rustup override set $env:RUST_TOOLCHAIN
+          rustc --version --verbose
+          cargo --version
+
+      - name: Build and test realtime ABI
+        shell: pwsh
+        working-directory: omniphony-renderer
+        run: |
+          cargo test -p realtime_ffi
+          if ($LASTEXITCODE -ne 0) { throw "realtime_ffi tests failed: $LASTEXITCODE" }
+          cargo build --release -p realtime_ffi
+          if ($LASTEXITCODE -ne 0) { throw "realtime_ffi release build failed: $LASTEXITCODE" }
+          if (-not (Test-Path 'target/release/omniphony_realtime.dll')) {
+            throw 'realtime_ffi did not produce target/release/omniphony_realtime.dll'
+          }
 
       - name: Setup VS2022 MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -58,9 +91,21 @@ jobs:
           msbuild $project /m /p:Configuration=Release /p:Platform=x64
           if ($LASTEXITCODE -ne 0) { throw "EndpointCtl build failed: $LASTEXITCODE" }
 
+      - name: Validate realtime DLL ABI
+        shell: pwsh
+        run: |
+          $smoke = (Resolve-Path 'build/endpoint_apo/Release/OmniphonyRealtimeSmoke.exe').Path
+          $realtime = (Resolve-Path 'omniphony-renderer/target/release/omniphony_realtime.dll').Path
+          & $smoke $realtime
+          if ($LASTEXITCODE -ne 0) { throw "Realtime DLL smoke failed: $LASTEXITCODE" }
+
       - name: Register and activate APO
         shell: pwsh
         run: |
+          $release = (Resolve-Path 'build/endpoint_apo/Release').Path
+          $realtime = (Resolve-Path 'omniphony-renderer/target/release/omniphony_realtime.dll').Path
+          Copy-Item $realtime (Join-Path $release 'omniphony_realtime.dll') -Force
+
           $dll = (Resolve-Path 'build/endpoint_apo/Release/OmniphonyAPO.dll').Path
           $smoke = (Resolve-Path 'build/endpoint_apo/Release/OmniphonyApoSmoke.exe').Path
           $regsvr32 = "$env:WINDIR\System32\regsvr32.exe"
@@ -85,6 +130,8 @@ jobs:
           Copy-Item 'build/endpoint_apo/Release/OmniphonyAPO.dll' $dist
           Copy-Item 'build/endpoint_apo/Release/OmniphonyApoCtl.exe' $dist
           Copy-Item 'build/endpoint_apo/Release/OmniphonyApoSmoke.exe' $dist
+          Copy-Item 'build/endpoint_apo/Release/OmniphonyRealtimeSmoke.exe' $dist
+          Copy-Item 'omniphony-renderer/target/release/omniphony_realtime.dll' $dist
           Copy-Item 'omniphony-renderer/windows_installer/build/endpoint_ctl/OmniphonyEndpointCtl.exe' $dist
           Copy-Item 'omniphony-renderer/windows_installer/endpoint_apo/Install-OmniphonyAPO.ps1' $dist
           Copy-Item 'omniphony-renderer/windows_installer/endpoint_apo/Uninstall-OmniphonyAPO.ps1' $dist
@@ -94,8 +141,10 @@ jobs:
           Source: $env:GITHUB_SHA
           Target: Windows 11 x64
           APO CLSID: {A9333BFE-39C1-40FD-B4B0-ECC591410B47}
-          Processing: identity only
+          Realtime ABI: 0.2
+          Processing: identity through omniphony_realtime.dll
           Added APO latency: 0 hns
+          Failure behavior: deterministic in-APO identity fallback
           Physical endpoint association is intentionally not performed on CI.
           "@ | Set-Content -Encoding utf8 "$dist/BUILD-METADATA.txt"
 
