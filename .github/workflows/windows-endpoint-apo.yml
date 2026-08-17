@@ -63,14 +63,18 @@ jobs:
         run: |
           $dll = (Resolve-Path 'build/endpoint_apo/Release/OmniphonyAPO.dll').Path
           $smoke = (Resolve-Path 'build/endpoint_apo/Release/OmniphonyApoSmoke.exe').Path
+          $regsvr32 = "$env:WINDIR\System32\regsvr32.exe"
           try {
-            & "$env:WINDIR\System32\regsvr32.exe" /s $dll
-            if ($LASTEXITCODE -ne 0) { throw "regsvr32 registration failed: $LASTEXITCODE" }
+            $register = Start-Process -FilePath $regsvr32 -ArgumentList @('/s', $dll) -Wait -PassThru
+            if ($register.ExitCode -ne 0) { throw "regsvr32 registration failed: $($register.ExitCode)" }
             & $smoke
             if ($LASTEXITCODE -ne 0) { throw "APO COM smoke failed: $LASTEXITCODE" }
           }
           finally {
-            & "$env:WINDIR\System32\regsvr32.exe" /u /s $dll
+            $unregister = Start-Process -FilePath $regsvr32 -ArgumentList @('/u', '/s', $dll) -Wait -PassThru
+            if ($unregister.ExitCode -ne 0) {
+              Write-Warning "regsvr32 cleanup returned $($unregister.ExitCode)"
+            }
           }
 
       - name: Assemble test artifact

@@ -6,6 +6,7 @@ $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $apo = Join-Path $here 'OmniphonyAPO.dll'
 $ctl = Join-Path $here 'OmniphonyApoCtl.exe'
+$regsvr32 = "$env:WINDIR\System32\regsvr32.exe"
 
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
@@ -24,8 +25,8 @@ Restart-Service -Name AudioSrv -Force
 Start-Sleep -Milliseconds 500
 
 if (Test-Path -LiteralPath $apo) {
-    & "$env:WINDIR\System32\regsvr32.exe" /u /s $apo
-    if ($LASTEXITCODE -ne 0) { throw "APO COM unregistration failed: $LASTEXITCODE" }
+    $unregister = Start-Process -FilePath $regsvr32 -ArgumentList @('/u', '/s', $apo) -Wait -PassThru
+    if ($unregister.ExitCode -ne 0) { throw "APO COM unregistration failed: $($unregister.ExitCode)" }
 }
 
 Write-Host 'Omniphony endpoint APO removed. No other endpoint effect was changed.'

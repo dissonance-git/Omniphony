@@ -7,6 +7,7 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $apo = Join-Path $here 'OmniphonyAPO.dll'
 $ctl = Join-Path $here 'OmniphonyApoCtl.exe'
 $endpointCtl = Join-Path $here 'OmniphonyEndpointCtl.exe'
+$regsvr32 = "$env:WINDIR\System32\regsvr32.exe"
 
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
@@ -20,19 +21,19 @@ foreach ($path in @($apo, $ctl, $endpointCtl)) {
 
 Get-Process -Name Omniphony -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
-& "$env:WINDIR\System32\regsvr32.exe" /s $apo
-if ($LASTEXITCODE -ne 0) { throw "APO COM registration failed: $LASTEXITCODE" }
+$register = Start-Process -FilePath $regsvr32 -ArgumentList @('/s', $apo) -Wait -PassThru
+if ($register.ExitCode -ne 0) { throw "APO COM registration failed: $($register.ExitCode)" }
 
 & $ctl attach $PhysicalOutput 'FiiO' 'Noire'
 if ($LASTEXITCODE -ne 0) {
-    & "$env:WINDIR\System32\regsvr32.exe" /u /s $apo
+    Start-Process -FilePath $regsvr32 -ArgumentList @('/u', '/s', $apo) -Wait | Out-Null
     throw "Physical-endpoint APO attachment failed: $LASTEXITCODE"
 }
 
 & $endpointCtl set-default-name $PhysicalOutput 'FiiO' 'Noire'
 if ($LASTEXITCODE -ne 0) {
     & $ctl detach $PhysicalOutput 'FiiO' 'Noire' | Out-Null
-    & "$env:WINDIR\System32\regsvr32.exe" /u /s $apo
+    Start-Process -FilePath $regsvr32 -ArgumentList @('/u', '/s', $apo) -Wait | Out-Null
     throw "Could not restore the physical output as Windows default: $LASTEXITCODE"
 }
 
