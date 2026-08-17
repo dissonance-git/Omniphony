@@ -39,8 +39,8 @@ const ID_AUTOSTART: usize = 2004;
 const ID_EXIT: usize = 2005;
 
 const RESTART_DELAY: Duration = Duration::from_secs(2);
-const AUTOSTART_VALUE: &str = "Spatial";
-const LEGACY_AUTOSTART_VALUE: &str = "Omniphony";
+const AUTOSTART_VALUE: &str = "Omniphony";
+const LEGACY_AUTOSTART_VALUE: &str = "Spatial";
 const AUTOSTART_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 
 struct AppState {
@@ -104,12 +104,12 @@ fn taskbar_created_message() -> u32 {
 }
 
 fn claim_single_instance() -> anyhow::Result<Option<HandleGuard>> {
-    // Keep the legacy mutex name during the private-name transition so an old
-    // Omniphony supervisor and a new Spatial supervisor cannot run together.
+    // Keep the long-lived mutex name so older private builds cannot run beside
+    // the installed tray supervisor.
     let name = wide("Local\\OmniphonyForHeadphones.Singleton");
     let handle = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
     if handle.is_null() {
-        bail!("CreateMutexW failed for Spatial single-instance guard");
+        bail!("CreateMutexW failed for Omniphony single-instance guard");
     }
     if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
         unsafe {
@@ -121,27 +121,28 @@ fn claim_single_instance() -> anyhow::Result<Option<HandleGuard>> {
 }
 
 fn executable_root() -> anyhow::Result<PathBuf> {
-    let exe = std::env::current_exe().context("failed to resolve Spatial executable path")?;
+    let exe = std::env::current_exe().context("failed to resolve Omniphony executable path")?;
     Ok(exe
         .parent()
-        .context("Spatial executable has no parent directory")?
+        .context("Omniphony executable has no parent directory")?
         .to_path_buf())
 }
 
 fn settings_root() -> PathBuf {
-    // Preserve the existing private preference location so an already-disabled
-    // autostart preference does not silently turn itself back on after renaming.
     std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir)
         .join("Omniphony")
 }
 
+fn runtime_log_path() -> PathBuf {
+    let root = settings_root();
+    let _ = create_dir_all(&root);
+    root.join("omniphony.log")
+}
+
 fn append_log(message: &str) {
-    let Ok(root) = executable_root() else {
-        return;
-    };
-    let path = root.join("spatial.log");
+    let path = runtime_log_path();
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(file, "[supervisor] {message}");
     }
@@ -169,7 +170,7 @@ fn delete_run_value(name: &str) {
 
 fn set_run_entry(enabled: bool) -> anyhow::Result<()> {
     if enabled {
-        let exe = std::env::current_exe().context("failed to resolve Spatial autostart executable")?;
+        let exe = std::env::current_exe().context("failed to resolve Omniphony autostart executable")?;
         let value = format!("\"{}\"", exe.display());
         let mut command = Command::new("reg.exe");
         command
@@ -185,9 +186,8 @@ fn set_run_entry(enabled: bool) -> anyhow::Result<()> {
             .arg("/f");
         let status = command.status().context("failed to launch reg.exe")?;
         if !status.success() {
-            bail!("reg.exe could not register Spatial autostart");
+            bail!("reg.exe could not register Omniphony autostart");
         }
-        // Prevent the legacy private build from launching a second supervisor.
         delete_run_value(LEGACY_AUTOSTART_VALUE);
     } else {
         delete_run_value(AUTOSTART_VALUE);
@@ -204,7 +204,7 @@ fn set_autostart(enabled: bool) -> anyhow::Result<()> {
     } else {
         let _ = set_run_entry(false);
         if let Some(parent) = marker.parent() {
-            create_dir_all(parent).context("failed to create Spatial settings directory")?;
+            create_dir_all(parent).context("failed to create Omniphony settings directory")?;
         }
         std::fs::write(marker, b"disabled\n")
             .context("failed to persist disabled autostart preference")?;
@@ -218,34 +218,93 @@ fn ensure_autostart() {
             append_log(&format!("autostart registration failed: {err:#}"));
         }
     } else {
-        // A stale legacy Run value must not override the persisted preference.
         let _ = set_run_entry(false);
+    }
+}
+
+fn transport_state_path() -> Option<PathBuf> {
+    std::env::var_os("PROGRAMDATA")
+        .map(PathBuf::from)
+        .map(|root| root.join("Omniphony").join("development-transport.txt"))
+}
+
+fn repair_transport_default() {
+    let Some(state_path) = transport_state_path() else {
+        append_log("PROGRAMDATA unavailable; transport default was not reasserted");
+        return;
+    };
+    let Ok(transport) = std::fs::read_to_string(&state_path) else {
+        append_log("transport state unavailable; leaving Windows default endpoint unchanged");
+        return;
+    };
+    let needles: &[&str] = match transport.trim() {
+        "steam-streaming-speakers" => &["Steam Streaming Speakers"],
+        "omniphony-development-endpoint" => &["Omniphony", "Spatial"],
+        other => {
+            append_log(&format!("unknown transport state '{other}'; default endpoint unchanged"));
+            return;
+        }
+    };
+
+    let Ok(root) = executable_root() else {
+        append_log("could not resolve install root for transport repair");
+        return;
+    };
+    let helper = root.join("support").join("OmniphonyEndpointCtl.exe");
+    if !helper.is_file() {
+        append_log(&format!("transport helper missing: {}", helper.display()));
+        return;
+    }
+
+    let mut command = Command::new(&helper);
+    command
+        .creation_flags(CREATE_NO_WINDOW)
+        .arg("set-default-name");
+    for needle in needles {
+        command.arg(needle);
+    }
+    match command.output() {
+        Ok(output) if output.status.success() => {
+            append_log(&format!("reasserted Windows transport default: {}", needles.join(" / ")));
+        }
+        Ok(output) => {
+            append_log(&format!(
+                "transport default repair failed with exit code {:?}: {}",
+                output.status.code(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        Err(err) => append_log(&format!("transport default repair could not launch: {err}")),
     }
 }
 
 fn spawn_worker() -> anyhow::Result<()> {
     {
-        let app = state().lock().expect("Spatial supervisor state poisoned");
+        let app = state().lock().expect("Omniphony supervisor state poisoned");
         if !app.enabled || app.quitting || app.child.is_some() {
             return Ok(());
         }
     }
 
-    let root = executable_root()?;
-    let executable = std::env::current_exe().context("failed to resolve Spatial engine executable")?;
+    // The installer chooses and records the hidden routing endpoint once. Every
+    // engine start reasserts that choice before capture begins so boot/device
+    // churn cannot silently bypass Omniphony and send a second dry stream to the
+    // physical FiiO endpoint.
+    repair_transport_default();
 
-    let log_path = root.join("spatial.log");
+    let root = executable_root()?;
+    let executable = std::env::current_exe().context("failed to resolve Omniphony engine executable")?;
+
+    let log_path = runtime_log_path();
     let log = OpenOptions::new()
         .create(true)
         .append(true)
         .open(&log_path)
         .with_context(|| format!("failed to open {}", log_path.display()))?;
-    let log_err = log.try_clone().context("failed to clone Spatial log handle")?;
+    let log_err = log.try_clone().context("failed to clone Omniphony log handle")?;
 
     let mut child = Command::new(&executable)
         .current_dir(&root)
-        // Internal renderer identity remains Omniphony-derived. Spatial is only
-        // the private Windows-product shell at this stage.
         .env("OMNIPHONY_INTERNAL_ENGINE", "1")
         .env("OMNIPHONY_PROFILE", "external")
         .stdin(Stdio::piped())
@@ -261,7 +320,7 @@ fn spawn_worker() -> anyhow::Result<()> {
         })?;
     let stdin = child.stdin.take().context("audio engine stdin was not piped")?;
 
-    let mut app = state().lock().expect("Spatial supervisor state poisoned");
+    let mut app = state().lock().expect("Omniphony supervisor state poisoned");
     if !app.enabled || app.quitting {
         drop(app);
         let _ = child.kill();
@@ -277,7 +336,7 @@ fn spawn_worker() -> anyhow::Result<()> {
 
 fn stop_worker() {
     let (mut child, mut stdin) = {
-        let mut app = state().lock().expect("Spatial supervisor state poisoned");
+        let mut app = state().lock().expect("Omniphony supervisor state poisoned");
         app.next_restart = None;
         (app.child.take(), app.stdin.take())
     };
@@ -302,7 +361,7 @@ fn stop_worker() {
 
 fn schedule_restart(detail: &str) {
     append_log(detail);
-    let mut app = state().lock().expect("Spatial supervisor state poisoned");
+    let mut app = state().lock().expect("Omniphony supervisor state poisoned");
     if app.enabled && !app.quitting {
         app.next_restart = Some(Instant::now() + RESTART_DELAY);
         app.restart_count = app.restart_count.saturating_add(1);
@@ -313,20 +372,18 @@ fn schedule_restart(detail: &str) {
 
 fn set_enabled(hwnd: HWND, enabled: bool) {
     {
-        let mut app = state().lock().expect("Spatial supervisor state poisoned");
+        let mut app = state().lock().expect("Omniphony supervisor state poisoned");
         app.enabled = enabled;
         app.next_restart = None;
     }
 
     if enabled {
-        append_log("Spatial ON requested");
+        append_log("Omniphony ON requested");
         if let Err(err) = spawn_worker() {
             schedule_restart(&format!("audio engine start failed: {err:#}"));
         }
     } else {
-        // OFF is intentionally a hard lifecycle state, not DSP bypass. Taking
-        // down the child releases both process-loopback capture and K7 output.
-        append_log("Spatial OFF requested; stopping audio engine");
+        append_log("Omniphony OFF requested; stopping audio engine");
         stop_worker();
     }
     update_tray_tip(hwnd);
@@ -335,7 +392,7 @@ fn set_enabled(hwnd: HWND, enabled: bool) {
 fn restart_worker(hwnd: HWND) {
     let enabled = state()
         .lock()
-        .expect("Spatial supervisor state poisoned")
+        .expect("Omniphony supervisor state poisoned")
         .enabled;
     if !enabled {
         update_tray_tip(hwnd);
@@ -343,7 +400,7 @@ fn restart_worker(hwnd: HWND) {
     }
 
     {
-        let mut app = state().lock().expect("Spatial supervisor state poisoned");
+        let mut app = state().lock().expect("Omniphony supervisor state poisoned");
         app.next_restart = None;
     }
     stop_worker();
@@ -358,7 +415,7 @@ fn poll_worker(hwnd: HWND) {
     let mut exited: Option<String> = None;
     {
         let now = Instant::now();
-        let mut app = state().lock().expect("Spatial supervisor state poisoned");
+        let mut app = state().lock().expect("Omniphony supervisor state poisoned");
         if let Some(child) = app.child.as_mut() {
             match child.try_wait() {
                 Ok(Some(status)) => {
@@ -409,15 +466,15 @@ fn poll_worker(hwnd: HWND) {
 }
 
 fn tray_status() -> String {
-    let app = state().lock().expect("Spatial supervisor state poisoned");
+    let app = state().lock().expect("Omniphony supervisor state poisoned");
     if app.quitting {
-        "Spatial - stopping".to_string()
+        "Omniphony - stopping".to_string()
     } else if !app.enabled {
-        "Spatial - OFF".to_string()
+        "Omniphony - OFF".to_string()
     } else if app.child.is_some() {
-        "Spatial - ON - Current model".to_string()
+        "Omniphony - ON - Current model".to_string()
     } else {
-        format!("Spatial - recovering audio ({})", app.restart_count)
+        format!("Omniphony - recovering audio ({})", app.restart_count)
     }
 }
 
@@ -471,15 +528,15 @@ fn show_tray_menu(hwnd: HWND) {
     }
 
     let (running, enabled, restarts) = {
-        let app = state().lock().expect("Spatial supervisor state poisoned");
+        let app = state().lock().expect("Omniphony supervisor state poisoned");
         (app.child.is_some(), app.enabled, app.restart_count)
     };
     let status = if !enabled {
-        "Spatial: OFF".to_string()
+        "Omniphony: OFF".to_string()
     } else if running {
-        "Spatial: ON | Current model".to_string()
+        "Omniphony: ON | Current model".to_string()
     } else {
-        format!("Spatial: recovering ({restarts})")
+        format!("Omniphony: recovering ({restarts})")
     };
 
     append_menu_item(menu, MF_STRING | MF_GRAYED, ID_STATUS, &status);
@@ -488,9 +545,9 @@ fn show_tray_menu(hwnd: HWND) {
         MF_STRING,
         ID_TOGGLE,
         if enabled {
-            "Turn Spatial off"
+            "Turn Omniphony off"
         } else {
-            "Turn Spatial on"
+            "Turn Omniphony on"
         },
     );
     append_menu_item(
@@ -508,7 +565,7 @@ fn show_tray_menu(hwnd: HWND) {
     unsafe {
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
     }
-    append_menu_item(menu, MF_STRING, ID_EXIT, "Exit Spatial");
+    append_menu_item(menu, MF_STRING, ID_EXIT, "Exit Omniphony");
 
     let mut point = POINT { x: 0, y: 0 };
     unsafe {
@@ -530,7 +587,7 @@ fn show_tray_menu(hwnd: HWND) {
 
 fn shutdown(hwnd: HWND) {
     {
-        let mut app = state().lock().expect("Spatial supervisor state poisoned");
+        let mut app = state().lock().expect("Omniphony supervisor state poisoned");
         app.quitting = true;
         app.enabled = false;
         app.next_restart = None;
@@ -576,7 +633,7 @@ unsafe extern "system" fn window_proc(
                 ID_TOGGLE => {
                     let enabled = state()
                         .lock()
-                        .expect("Spatial supervisor state poisoned")
+                        .expect("Omniphony supervisor state poisoned")
                         .enabled;
                     set_enabled(hwnd, !enabled);
                 }
@@ -632,8 +689,8 @@ pub fn run() -> anyhow::Result<()> {
         bail!("GetModuleHandleW failed");
     }
 
-    let class_name = wide("SpatialAudioSupervisor");
-    let title = wide("Spatial");
+    let class_name = wide("OmniphonyAudioSupervisor");
+    let title = wide("Omniphony");
     let mut class: WNDCLASSW = unsafe { std::mem::zeroed() };
     class.lpfnWndProc = Some(window_proc);
     class.hInstance = instance;
