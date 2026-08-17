@@ -1,0 +1,62 @@
+name: Port Current-shell full-sphere validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/port-current-shell-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  port-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal --component rustfmt
+          rustup override set 1.88.0
+        working-directory: omniphony-renderer
+
+      - name: Add Current-shell validation
+        run: python3 .github/ci/port_current_shell_validation.py
+
+      - name: Format touched validation module
+        run: rustfmt --edition 2024 omniphony-renderer/renderer/src/spatial_vbap/panner/native_validation.rs
+
+      - name: Verify patch scope
+        run: |
+          git diff --check
+          git diff --stat
+          test "$(git diff --name-only | wc -l)" -eq 1
+          test "$(git diff --name-only)" = "omniphony-renderer/renderer/src/spatial_vbap/panner/native_validation.rs"
+
+      - name: Run Current-shell energy gate
+        run: cargo test -p renderer current_headphone_shell_conserves_energy_over_the_sphere -- --nocapture
+        working-directory: omniphony-renderer
+
+      - name: Run Current-shell seam gate
+        run: cargo test -p renderer current_headphone_shell_is_continuous_across_triplet_boundaries -- --nocapture
+        working-directory: omniphony-renderer
+
+      - name: Re-run native VBAP validation module
+        run: cargo test -p renderer spatial_vbap::panner::native_validation:: -- --nocapture
+        working-directory: omniphony-renderer
+
+      - name: Run DSP fixtures
+        run: cargo test -p dsp_fixtures
+        working-directory: omniphony-renderer
+
+      - name: Publish validated product-geometry gates
+        run: |
+          git config user.name "omniphony-ci"
+          git config user.email "actions@users.noreply.github.com"
+          git add omniphony-renderer/renderer/src/spatial_vbap/panner/native_validation.rs
+          git commit -m "test(dsp): validate Current 22-direction shell over full sphere"
+          git push origin HEAD:main
