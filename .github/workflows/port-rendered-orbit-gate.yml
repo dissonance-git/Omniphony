@@ -1,0 +1,58 @@
+name: Port rendered orbit continuity gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/port-rendered-orbit-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  port-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal --component rustfmt
+          rustup override set 1.88.0
+        working-directory: omniphony-renderer
+
+      - name: Add rendered orbit gate
+        run: python3 .github/ci/port_rendered_orbit_gate.py
+
+      - name: Format touched fixture
+        run: rustfmt --edition 2024 omniphony-renderer/dsp_fixtures/src/end_to_end_spatial.rs
+
+      - name: Verify patch scope
+        run: |
+          git diff --check
+          git diff --stat
+          test "$(git diff --name-only | wc -l)" -eq 1
+          test "$(git diff --name-only)" = "omniphony-renderer/dsp_fixtures/src/end_to_end_spatial.rs"
+
+      - name: Run rendered orbit acceptance gate
+        run: cargo test -p dsp_fixtures rendered_x_orbit_stays_audible_and_continuous_through_virtual_poles -- --nocapture
+        working-directory: omniphony-renderer
+
+      - name: Run full DSP fixture suite
+        run: cargo test -p dsp_fixtures
+        working-directory: omniphony-renderer
+
+      - name: Recheck virtual-pole renderer gates
+        run: cargo test -p renderer spatial_vbap::panner::native_backend::tests::test_virtual_poles -- --nocapture
+        working-directory: omniphony-renderer
+
+      - name: Publish validated gate
+        run: |
+          git config user.name "omniphony-ci"
+          git config user.email "actions@users.noreply.github.com"
+          git add omniphony-renderer/dsp_fixtures/src/end_to_end_spatial.rs
+          git commit -m "test(dsp): gate rendered orbit continuity across virtual poles"
+          git push origin HEAD:main
