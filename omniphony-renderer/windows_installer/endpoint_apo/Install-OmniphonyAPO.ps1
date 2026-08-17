@@ -26,6 +26,25 @@ foreach ($path in @($packageApo, $ctl, $endpointCtl, $packageRealtime, $realtime
     if (-not (Test-Path -LiteralPath $path)) { throw "Missing package file: $path" }
 }
 
+function Stop-LegacyOmniphonyHost {
+    $running = @(Get-Process -Name Omniphony -ErrorAction SilentlyContinue)
+    if ($running.Count -eq 0) {
+        Write-Host 'LEGACY_HOST_RUNNING 0'
+        return
+    }
+
+    foreach ($process in $running) {
+        Write-Host "STOP_LEGACY_HOST PID=$($process.Id) PATH=$($process.Path)"
+        Stop-Process -Id $process.Id -Force -ErrorAction Stop
+    }
+    Start-Sleep -Milliseconds 250
+
+    if (Get-Process -Name Omniphony -ErrorAction SilentlyContinue) {
+        throw 'A legacy Omniphony process is still running after the installer attempted to stop it.'
+    }
+    Write-Host 'LEGACY_HOST_RUNNING 0'
+}
+
 function Unregister-InstalledApoBestEffort {
     if (Test-Path -LiteralPath $installedApo) {
         try {
@@ -60,7 +79,10 @@ if ($LASTEXITCODE -ne 0) {
     throw "Omniphony realtime ABI self-test failed before installation: $LASTEXITCODE"
 }
 
-Get-Process -Name Omniphony -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+# The old loopback/tray host must never coexist with the endpoint APO during a
+# migration. It can otherwise keep repairing old routing or hold audio state
+# while the physical endpoint is being reconfigured.
+Stop-LegacyOmniphonyHost
 
 # AudioDG hosts endpoint APOs out of process. Never register the development APO
 # from Downloads/Desktop/a temporary extraction directory. Stage the runtime in
@@ -124,4 +146,5 @@ Write-Host "Runtime installed at: $runtimeRoot"
 Write-Host 'Current includes the primary Noire X personal output-EQ and right-ear correction profile.'
 Write-Host 'The native endpoint remains the Windows default; no Omniphony playback device is required.'
 Write-Host 'The physical endpoint passed a post-restart WASAPI GetMixFormat probe.'
+Write-Host 'The legacy Omniphony host is not running.'
 Write-Host 'This is now an audible listening candidate. Physical listening decides whether it is retained.'
