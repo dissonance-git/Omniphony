@@ -92,6 +92,18 @@ pub(super) struct SpeakerStageDiagnostics {
     pub(super) crossover_elapsed: std::time::Duration,
 }
 
+/// Scale-accumulate one band's speaker gains onto a single output frame.
+///
+/// Kept as a slice-to-slice loop rather than index arithmetic: it is the one
+/// shape in this loop nest that carries no bounds check and no reduction, so a
+/// compiler is free to widen it. Every ramp arm funnels through here.
+#[inline(always)]
+fn accumulate_band(out_frame: &mut [f32], gains: &[f32], sample: f32) {
+    for (out, &gain) in out_frame.iter_mut().zip(gains.iter()) {
+        *out += sample * gain;
+    }
+}
+
 impl SpeakerRenderStage {
     /// Fill `out` with one full-size `Gains` per render band at `position`. Uses
     /// the unified multi-band table (one cell localisation for all bands) when
@@ -344,11 +356,13 @@ impl SpeakerRenderStage {
                             crossover_elapsed += started_at.elapsed();
                             for sample_idx in 0..sample_length {
                                 let out_base = sample_idx * self.num_speakers;
+                                let out_frame = &mut output[out_base..out_base + self.num_speakers];
                                 for (b, gains) in band_gains.iter().enumerate() {
-                                    let s = self.crossover_band_scratch[b][sample_idx];
-                                    for (spk, &g) in gains.iter().enumerate() {
-                                        output[out_base + spk] += s * g;
-                                    }
+                                    accumulate_band(
+                                        out_frame,
+                                        gains,
+                                        self.crossover_band_scratch[b][sample_idx],
+                                    );
                                 }
                             }
                         } else {
@@ -362,11 +376,9 @@ impl SpeakerRenderStage {
                                     fst.as_mut().map(|v| v.as_mut_slice()),
                                 );
                                 let out_base = sample_idx * self.num_speakers;
+                                let out_frame = &mut output[out_base..out_base + self.num_speakers];
                                 for (b, gains) in band_gains.iter().enumerate() {
-                                    let s = split.get(b);
-                                    for (spk, &g) in gains.iter().enumerate() {
-                                        output[out_base + spk] += s * g;
-                                    }
+                                    accumulate_band(out_frame, gains, split.get(b));
                                 }
                             }
                         }
@@ -405,11 +417,13 @@ impl SpeakerRenderStage {
                             crossover_elapsed += started_at.elapsed();
                             for sample_idx in 0..sample_length {
                                 let out_base = sample_idx * self.num_speakers;
+                                let out_frame = &mut output[out_base..out_base + self.num_speakers];
                                 for (b, gains) in band_gains.iter().enumerate() {
-                                    let s = self.crossover_band_scratch[b][sample_idx];
-                                    for (spk, &g) in gains.iter().enumerate() {
-                                        output[out_base + spk] += s * g;
-                                    }
+                                    accumulate_band(
+                                        out_frame,
+                                        gains,
+                                        self.crossover_band_scratch[b][sample_idx],
+                                    );
                                 }
                             }
                         } else {
@@ -423,11 +437,9 @@ impl SpeakerRenderStage {
                                     fst.as_mut().map(|v| v.as_mut_slice()),
                                 );
                                 let out_base = sample_idx * self.num_speakers;
+                                let out_frame = &mut output[out_base..out_base + self.num_speakers];
                                 for (b, gains) in band_gains.iter().enumerate() {
-                                    let s = split.get(b);
-                                    for (spk, &g) in gains.iter().enumerate() {
-                                        output[out_base + spk] += s * g;
-                                    }
+                                    accumulate_band(out_frame, gains, split.get(b));
                                 }
                             }
                         }
@@ -481,11 +493,13 @@ impl SpeakerRenderStage {
                                     last_size = size;
                                 }
                                 let out_base = sample_idx * self.num_speakers;
+                                let out_frame = &mut output[out_base..out_base + self.num_speakers];
                                 for (b, gains) in band_gains.iter().enumerate() {
-                                    let s = self.crossover_band_scratch[b][sample_idx];
-                                    for (spk, &g) in gains.iter().enumerate() {
-                                        output[out_base + spk] += s * g;
-                                    }
+                                    accumulate_band(
+                                        out_frame,
+                                        gains,
+                                        self.crossover_band_scratch[b][sample_idx],
+                                    );
                                 }
                                 state.ramp.commit_output_position();
                                 state.ramp.advance_ramp(1);
@@ -529,11 +543,9 @@ impl SpeakerRenderStage {
                                     fst.as_mut().map(|v| v.as_mut_slice()),
                                 );
                                 let out_base = sample_idx * self.num_speakers;
+                                let out_frame = &mut output[out_base..out_base + self.num_speakers];
                                 for (b, gains) in band_gains.iter().enumerate() {
-                                    let s = split.get(b);
-                                    for (spk, &g) in gains.iter().enumerate() {
-                                        output[out_base + spk] += s * g;
-                                    }
+                                    accumulate_band(out_frame, gains, split.get(b));
                                 }
                                 state.ramp.commit_output_position();
                                 state.ramp.advance_ramp(1);
@@ -600,11 +612,13 @@ impl SpeakerRenderStage {
                                     }
                                 }
                                 let out_base = sample_idx * self.num_speakers;
+                                let out_frame = &mut output[out_base..out_base + self.num_speakers];
                                 for (b, gains) in band_gains.iter().enumerate() {
-                                    let s = self.crossover_band_scratch[b][sample_idx];
-                                    for (spk, &g) in gains.iter().enumerate() {
-                                        output[out_base + spk] += s * g;
-                                    }
+                                    accumulate_band(
+                                        out_frame,
+                                        gains,
+                                        self.crossover_band_scratch[b][sample_idx],
+                                    );
                                 }
                             }
                         } else {
@@ -627,11 +641,9 @@ impl SpeakerRenderStage {
                                     fst.as_mut().map(|v| v.as_mut_slice()),
                                 );
                                 let out_base = sample_idx * self.num_speakers;
+                                let out_frame = &mut output[out_base..out_base + self.num_speakers];
                                 for (b, gains) in band_gains.iter().enumerate() {
-                                    let s = split.get(b);
-                                    for (spk, &g) in gains.iter().enumerate() {
-                                        output[out_base + spk] += s * g;
-                                    }
+                                    accumulate_band(out_frame, gains, split.get(b));
                                 }
                             }
                         }
@@ -791,11 +803,7 @@ impl SpeakerRenderStage {
         let sample_length = output.len() / num_speakers.max(1);
         let mut peak_sample: f32 = 0.0;
         let mut peak_speaker_idx: usize = 0;
-        for (speaker_idx, delay_line) in self
-            .delay_lines
-            .iter_mut()
-            .enumerate()
-            .take(num_speakers)
+        for (speaker_idx, delay_line) in self.delay_lines.iter_mut().enumerate().take(num_speakers)
         {
             let gain = speaker_total_gains[speaker_idx];
             let mut peak: f32 = 0.0;
