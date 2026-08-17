@@ -1,6 +1,7 @@
 #include <windows.h>
 #include <unknwn.h>
 #include <audioenginebaseapo.h>
+#include <audioengineextensionapo.h>
 #include <BaseAudioProcessingObject.h>
 
 #include <cstring>
@@ -96,7 +97,7 @@ public:
             return E_INVALIDARG;
         }
         if (m_bIsInitialized) {
-            return AEERR_ALREADY_INITIALIZED;
+            return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
         }
         m_bIsInitialized = true;
         return S_OK;
@@ -124,18 +125,20 @@ public:
         const UINT32 frames = input->u32ValidFrameCount;
         const size_t samples = static_cast<size_t>(frames) * GetSamplesPerFrame();
         const size_t bytes = samples * sizeof(float);
+        auto* inputBuffer = reinterpret_cast<const void*>(input->pBuffer);
+        auto* outputBuffer = reinterpret_cast<void*>(output->pBuffer);
 
         switch (input->u32BufferFlags) {
         case BUFFER_VALID:
             if (output->pBuffer != input->pBuffer && bytes != 0) {
-                std::memmove(output->pBuffer, input->pBuffer, bytes);
+                std::memmove(outputBuffer, inputBuffer, bytes);
             }
             output->u32BufferFlags = BUFFER_VALID;
             output->u32ValidFrameCount = frames;
             break;
         case BUFFER_SILENT:
             if (output->pBuffer && bytes != 0) {
-                std::memset(output->pBuffer, 0, bytes);
+                std::memset(outputBuffer, 0, bytes);
             }
             output->u32BufferFlags = BUFFER_SILENT;
             output->u32ValidFrameCount = frames;
@@ -147,7 +150,8 @@ public:
         }
     }
 
-    HRESULT STDMETHODCALLTYPE GetEffectsList(LPGUID* effects, UINT* effectCount, HANDLE) override {
+    STDMETHODIMP GetEffectsList(LPGUID* effects, UINT* effectCount, HANDLE eventHandle) {
+        UNREFERENCED_PARAMETER(eventHandle);
         if (!effects || !effectCount) {
             return E_POINTER;
         }
@@ -162,6 +166,7 @@ private:
 };
 
 volatile LONG OmniphonyAPO::instanceCount = 0;
+#pragma warning(disable : 4815)
 const CRegAPOProperties<1> OmniphonyAPO::registration(
     kOmniphonyApoClsid,
     L"Omniphony Endpoint APO",
