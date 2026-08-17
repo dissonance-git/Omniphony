@@ -1,11 +1,17 @@
-//! Personal Dan Clark Noire X output correction used by the primary listening profile.
+//! Dan Clark Noire X / primary-listener output calibration for the Windows path.
 //!
-//! This is deliberately separate from Omniphony's public Current-model foundation.
-//! The coefficients independently implement the same RBJ biquad / shelf-corner
-//! semantics used by the listener's former Equalizer APO profile. No Equalizer APO
-//! runtime dependency is required. The correction is optional and defaults on to
-//! preserve the established primary listening profile; the Windows tray can switch
-//! it live without changing the Current spatial renderer.
+//! Keep two concepts separate:
+//!
+//! 1. headphone / renderer EQ, selectable as Off, the retained legacy DTS-era
+//!    profile, or a gentler experimental profile tuned for native Omniphony;
+//! 2. listener-specific right-ear compensation, independently bypassable.
+//!
+//! The legacy coefficients independently implement the same RBJ biquad /
+//! shelf-corner semantics used by the listener's former Equalizer APO profile.
+//! The native Omniphony preset intentionally uses smaller broad corrections so
+//! it does not automatically compensate the spectral fingerprint of the old DTS
+//! Virtual:X HRIR a second time. The listener-specific right-ear layer is carried
+//! unchanged between presets and is not presented as medical/audiogram correction.
 
 use std::env;
 use std::f64::consts::PI;
@@ -13,11 +19,31 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-const GLOBAL_PREAMP_DB: f64 = -4.0;
+const LEGACY_GLOBAL_PREAMP_DB: f64 = -4.0;
+const NATIVE_GLOBAL_PREAMP_DB: f64 = -2.5;
 const RIGHT_PREAMP_DB: f64 = -0.4;
 const RIGHT_DELAY_MS: f64 = 0.02;
 const SETTING_POLL_MS: u64 = 500;
-const SETTING_FILE_NAME: &str = "personal-eq.txt";
+const EQ_PRESET_FILE_NAME: &str = "eq-preset.txt";
+const LEGACY_EQ_FILE_NAME: &str = "personal-eq.txt";
+const RIGHT_COMP_FILE_NAME: &str = "right-ear-comp.txt";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EqPreset {
+    Off,
+    LegacyDts,
+    OmniphonyNative,
+}
+
+impl EqPreset {
+    fn from_text(text: &str) -> Self {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "0" | "off" | "false" | "disabled" | "none" => Self::Off,
+            "native" | "omniphony" | "omniphony-native" | "omniphony_tuned" => Self::OmniphonyNative,
+            _ => Self::LegacyDts,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FilterKind {
@@ -53,7 +79,9 @@ impl FilterSpec {
     }
 }
 
-const SHARED_FILTERS: [FilterSpec; 15] = [
+// Retained former Equalizer APO profile. This was listened to alongside the DTS
+// Virtual:X HRIR, so it remains a comparison/control rather than the native default.
+const LEGACY_SHARED_FILTERS: [FilterSpec; 15] = [
     FilterSpec::high_pass(15.0, 0.6),
     FilterSpec::low_shelf(45.0, 3.5, 0.5),
     FilterSpec::peaking(30.0, 1.2, 0.8),
@@ -71,6 +99,25 @@ const SHARED_FILTERS: [FilterSpec; 15] = [
     FilterSpec::high_shelf(7_200.0, -1.8, 0.7),
 ];
 
+// Experimental native-Omniphony comparison profile. It keeps broad useful
+// headphone/listening-target tendencies from the legacy curve while reducing
+// the magnitude of corrections most likely to have been compensating the old
+// DTS HRIR. It is intentionally broad and conservative, per the calibration law.
+const NATIVE_SHARED_FILTERS: [FilterSpec; 10] = [
+    FilterSpec::high_pass(15.0, 0.6),
+    FilterSpec::low_shelf(45.0, 2.0, 0.5),
+    FilterSpec::peaking(85.0, 1.2, 0.70),
+    FilterSpec::peaking(155.0, 0.6, 0.80),
+    FilterSpec::peaking(420.0, 0.3, 0.75),
+    FilterSpec::peaking(1_200.0, 0.3, 0.80),
+    FilterSpec::peaking(2_800.0, -0.3, 0.75),
+    FilterSpec::peaking(3_800.0, -0.9, 0.90),
+    FilterSpec::peaking(4_800.0, -1.0, 1.10),
+    FilterSpec::high_shelf(7_200.0, -0.7, 0.70),
+];
+
+// Listener-specific right-ear compensation. Keep independent from headphone /
+// renderer EQ so either tonal preset can be auditioned with the same asymmetry.
 const RIGHT_FILTERS: [FilterSpec; 3] = [
     FilterSpec::peaking(180.0, -0.3, 0.9),
     FilterSpec::peaking(3_000.0, -1.1, 1.0),
@@ -207,67 +254,91 @@ impl SampleDelay {
 
 pub(crate) struct NoireXPersonalEq {
     sample_rate_hz: u32,
-    enabled: bool,
-    setting_path: PathBuf,
+    preset: EqPreset,
+    right_comp_enabled: bool,
+    eq_setting_path: PathBuf,
+    legacy_eq_setting_path: PathBuf,
+    right_comp_setting_path: PathBuf,
     last_setting_check: Instant,
     global_gain: f32,
-    right_gain: f32,
     shared: Vec<[Biquad; 2]>,
+    right_gain: f32,
     right_only: Vec<Biquad>,
     right_delay: SampleDelay,
 }
 
 impl NoireXPersonalEq {
     pub(crate) fn new(sample_rate_hz: u32) -> Self {
-        let setting_path = personal_eq_setting_path();
-        let enabled = read_personal_eq_enabled(&setting_path);
+        let root = omniphony_state_root();
+        let eq_setting_path = root.join(EQ_PRESET_FILE_NAME);
+        let legacy_eq_setting_path = root.join(LEGACY_EQ_FILE_NAME);
+        let right_comp_setting_path = root.join(RIGHT_COMP_FILE_NAME);
+        let preset = read_eq_preset(&eq_setting_path, &legacy_eq_setting_path);
+        let right_comp_enabled = read_bool_setting(&right_comp_setting_path, true);
+        let (global_gain, shared) = build_eq_preset(preset, sample_rate_hz);
         Self {
             sample_rate_hz,
-            enabled,
-            setting_path,
+            preset,
+            right_comp_enabled,
+            eq_setting_path,
+            legacy_eq_setting_path,
+            right_comp_setting_path,
             last_setting_check: Instant::now(),
-            global_gain: db_to_gain(GLOBAL_PREAMP_DB),
+            global_gain,
+            shared,
             right_gain: db_to_gain(RIGHT_PREAMP_DB),
-            shared: build_shared_filters(sample_rate_hz),
             right_only: build_right_filters(sample_rate_hz),
             right_delay: SampleDelay::new(sample_rate_hz, RIGHT_DELAY_MS),
         }
     }
 
-    fn refresh_enabled(&mut self) {
+    fn refresh_settings(&mut self) {
         if self.last_setting_check.elapsed() < Duration::from_millis(SETTING_POLL_MS) {
             return;
         }
         self.last_setting_check = Instant::now();
-        let enabled = read_personal_eq_enabled(&self.setting_path);
-        if enabled != self.enabled {
-            self.enabled = enabled;
-            self.shared = build_shared_filters(self.sample_rate_hz);
-            self.right_only = build_right_filters(self.sample_rate_hz);
-            self.right_delay = SampleDelay::new(self.sample_rate_hz, RIGHT_DELAY_MS);
+
+        let preset = read_eq_preset(&self.eq_setting_path, &self.legacy_eq_setting_path);
+        let right_comp_enabled = read_bool_setting(&self.right_comp_setting_path, true);
+        if preset == self.preset && right_comp_enabled == self.right_comp_enabled {
+            return;
         }
+
+        self.preset = preset;
+        self.right_comp_enabled = right_comp_enabled;
+        let (global_gain, shared) = build_eq_preset(self.preset, self.sample_rate_hz);
+        self.global_gain = global_gain;
+        self.shared = shared;
+        self.right_only = build_right_filters(self.sample_rate_hz);
+        self.right_delay = SampleDelay::new(self.sample_rate_hz, RIGHT_DELAY_MS);
     }
 
     pub(crate) fn process_interleaved(&mut self, samples: &mut [f32]) {
-        self.refresh_enabled();
-        if !self.enabled {
+        self.refresh_settings();
+        if self.preset == EqPreset::Off && !self.right_comp_enabled {
             return;
         }
 
         for frame in samples.chunks_exact_mut(2) {
-            let mut left = finite_or_zero(frame[0]) * self.global_gain;
-            let mut right = finite_or_zero(frame[1]) * self.global_gain;
+            let mut left = finite_or_zero(frame[0]);
+            let mut right = finite_or_zero(frame[1]);
 
-            for pair in &mut self.shared {
-                left = pair[0].process(left);
-                right = pair[1].process(right);
+            if self.preset != EqPreset::Off {
+                left *= self.global_gain;
+                right *= self.global_gain;
+                for pair in &mut self.shared {
+                    left = pair[0].process(left);
+                    right = pair[1].process(right);
+                }
             }
 
-            right *= self.right_gain;
-            for filter in &mut self.right_only {
-                right = filter.process(right);
+            if self.right_comp_enabled {
+                right *= self.right_gain;
+                for filter in &mut self.right_only {
+                    right = filter.process(right);
+                }
+                right = self.right_delay.process(right);
             }
-            right = self.right_delay.process(right);
 
             frame[0] = finite_or_zero(left);
             frame[1] = finite_or_zero(right);
@@ -275,11 +346,17 @@ impl NoireXPersonalEq {
     }
 }
 
-fn build_shared_filters(sample_rate_hz: u32) -> Vec<[Biquad; 2]> {
-    SHARED_FILTERS
+fn build_eq_preset(preset: EqPreset, sample_rate_hz: u32) -> (f32, Vec<[Biquad; 2]>) {
+    let (preamp_db, specs): (f64, &[FilterSpec]) = match preset {
+        EqPreset::Off => (0.0, &[]),
+        EqPreset::LegacyDts => (LEGACY_GLOBAL_PREAMP_DB, &LEGACY_SHARED_FILTERS),
+        EqPreset::OmniphonyNative => (NATIVE_GLOBAL_PREAMP_DB, &NATIVE_SHARED_FILTERS),
+    };
+    let filters = specs
         .iter()
         .map(|&spec| [Biquad::new(spec, sample_rate_hz), Biquad::new(spec, sample_rate_hz)])
-        .collect()
+        .collect();
+    (db_to_gain(preamp_db), filters)
 }
 
 fn build_right_filters(sample_rate_hz: u32) -> Vec<Biquad> {
@@ -289,21 +366,27 @@ fn build_right_filters(sample_rate_hz: u32) -> Vec<Biquad> {
         .collect()
 }
 
-fn personal_eq_setting_path() -> PathBuf {
-    let root = env::var_os("ProgramData")
+fn omniphony_state_root() -> PathBuf {
+    env::var_os("ProgramData")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
-    root.join("Omniphony").join(SETTING_FILE_NAME)
+        .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"))
+        .join("Omniphony")
 }
 
-fn parse_personal_eq_enabled(text: &str) -> bool {
-    !matches!(text.trim().to_ascii_lowercase().as_str(), "0" | "off" | "false" | "disabled")
+fn read_eq_preset(path: &Path, legacy_path: &Path) -> EqPreset {
+    if let Ok(text) = fs::read_to_string(path) {
+        return EqPreset::from_text(&text);
+    }
+    if let Ok(text) = fs::read_to_string(legacy_path) {
+        return EqPreset::from_text(&text);
+    }
+    EqPreset::LegacyDts
 }
 
-fn read_personal_eq_enabled(path: &Path) -> bool {
+fn read_bool_setting(path: &Path, default: bool) -> bool {
     fs::read_to_string(path)
-        .map(|text| parse_personal_eq_enabled(&text))
-        .unwrap_or(true)
+        .map(|text| !matches!(text.trim().to_ascii_lowercase().as_str(), "0" | "off" | "false" | "disabled"))
+        .unwrap_or(default)
 }
 
 fn db_to_gain(db: f64) -> f32 {
@@ -319,13 +402,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn setting_parser_defaults_to_enabled_semantics() {
-        assert!(parse_personal_eq_enabled("1"));
-        assert!(parse_personal_eq_enabled("on"));
-        assert!(parse_personal_eq_enabled("anything-else"));
-        assert!(!parse_personal_eq_enabled("0"));
-        assert!(!parse_personal_eq_enabled("OFF"));
-        assert!(!parse_personal_eq_enabled("false"));
+    fn preset_parser_preserves_legacy_boolean_compatibility() {
+        assert_eq!(EqPreset::from_text("0"), EqPreset::Off);
+        assert_eq!(EqPreset::from_text("off"), EqPreset::Off);
+        assert_eq!(EqPreset::from_text("1"), EqPreset::LegacyDts);
+        assert_eq!(EqPreset::from_text("legacy"), EqPreset::LegacyDts);
+        assert_eq!(EqPreset::from_text("omniphony"), EqPreset::OmniphonyNative);
+        assert_eq!(EqPreset::from_text("native"), EqPreset::OmniphonyNative);
+    }
+
+    #[test]
+    fn native_profile_is_deliberately_gentler_than_legacy() {
+        assert!(NATIVE_GLOBAL_PREAMP_DB > LEGACY_GLOBAL_PREAMP_DB);
+        let legacy_total: f64 = LEGACY_SHARED_FILTERS.iter().map(|spec| spec.gain_db.abs()).sum();
+        let native_total: f64 = NATIVE_SHARED_FILTERS.iter().map(|spec| spec.gain_db.abs()).sum();
+        assert!(native_total < legacy_total);
     }
 
     #[test]
@@ -335,14 +426,19 @@ mod tests {
     }
 
     #[test]
-    fn right_channel_is_delayed_while_left_is_immediate() {
+    fn right_compensation_is_independent_of_headphone_preset() {
         let mut profile = NoireXPersonalEq::new(48_000);
-        profile.enabled = true;
+        profile.preset = EqPreset::Off;
+        profile.right_comp_enabled = true;
+        profile.global_gain = 1.0;
+        profile.shared.clear();
+        profile.right_only = build_right_filters(48_000);
+        profile.right_delay = SampleDelay::new(48_000, RIGHT_DELAY_MS);
         let mut impulse = vec![0.0f32; 16];
         impulse[0] = 1.0;
         impulse[1] = 1.0;
         profile.process_interleaved(&mut impulse);
-        assert!(impulse[0].abs() > 1.0e-6);
+        assert_eq!(impulse[0], 1.0);
         assert_eq!(impulse[1], 0.0);
         assert!(impulse[3].abs() > 1.0e-6);
     }
@@ -369,9 +465,15 @@ mod tests {
     }
 
     #[test]
-    fn hot_profile_processing_remains_finite() {
+    fn hot_legacy_profile_processing_remains_finite() {
         let mut profile = NoireXPersonalEq::new(48_000);
-        profile.enabled = true;
+        profile.preset = EqPreset::LegacyDts;
+        profile.right_comp_enabled = true;
+        let (gain, shared) = build_eq_preset(EqPreset::LegacyDts, 48_000);
+        profile.global_gain = gain;
+        profile.shared = shared;
+        profile.right_only = build_right_filters(48_000);
+        profile.right_delay = SampleDelay::new(48_000, RIGHT_DELAY_MS);
         let mut samples = vec![4.0f32; 48_000 * 2 / 10];
         profile.process_interleaved(&mut samples);
         assert!(samples.iter().all(|sample| sample.is_finite()));
