@@ -28,7 +28,7 @@ add_executable(OmniphonyApoSmoke OmniphonyApoSmoke.cpp)
 target_compile_features(OmniphonyApoSmoke PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonyApoSmoke PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_options(OmniphonyApoSmoke PRIVATE /W4 /WX /permissive-)
-target_link_libraries(OmniphonyApoSmoke PRIVATE ole32 uuid audioeng)
+target_link_libraries(OmniphonyApoSmoke PRIVATE ole32 uuid audioeng audiomediatypecrt)
 
 add_executable(OmniphonyRealtimeSmoke OmniphonyRealtimeSmoke.cpp)
 target_compile_features(OmniphonyRealtimeSmoke PRIVATE cxx_std_17)
