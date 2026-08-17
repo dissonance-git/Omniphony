@@ -15,12 +15,41 @@
 
 using Microsoft::WRL::ComPtr;
 
+struct DeviceShareMode;
+
+// Windows does not publish IPolicyConfig as a supported SDK interface, but the
+// ABI is long-lived and is already used by OmniphonyEndpointCtl for endpoint
+// policy operations. Crucially, SetPropertyValue goes through the Windows audio
+// service instead of trying to write the protected MMDevices FxProperties ACL.
+struct __declspec(uuid("F8679F50-850A-41CF-9C72-430F290290C8")) IPolicyConfig : IUnknown {
+    virtual HRESULT STDMETHODCALLTYPE GetMixFormat(PCWSTR, WAVEFORMATEX**) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetDeviceFormat(PCWSTR, INT, WAVEFORMATEX**) = 0;
+    virtual HRESULT STDMETHODCALLTYPE ResetDeviceFormat(PCWSTR) = 0;
+    virtual HRESULT STDMETHODCALLTYPE SetDeviceFormat(PCWSTR, WAVEFORMATEX*, WAVEFORMATEX*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetProcessingPeriod(PCWSTR, INT, PINT64, PINT64) = 0;
+    virtual HRESULT STDMETHODCALLTYPE SetProcessingPeriod(PCWSTR, PINT64) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetShareMode(PCWSTR, DeviceShareMode*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE SetShareMode(PCWSTR, DeviceShareMode*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetPropertyValue(PCWSTR, const PROPERTYKEY&, PROPVARIANT*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE SetPropertyValue(PCWSTR, const PROPERTYKEY&, PROPVARIANT*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE SetDefaultEndpoint(PCWSTR, ERole) = 0;
+    virtual HRESULT STDMETHODCALLTYPE SetEndpointVisibility(PCWSTR, INT) = 0;
+};
+
+class __declspec(uuid("870AF99C-171D-4F9E-AF0D-E63DF40C2BC9")) CPolicyConfigClient;
+
 namespace {
 
 constexpr GUID kOmniphonyApoClsid = {
     0xa9333bfe, 0x39c1, 0x40fd, {0xb4, 0xb0, 0xec, 0xc5, 0x91, 0x41, 0x0b, 0x47}};
 constexpr PROPERTYKEY kEndpointGuid = {
     {0x1da5d803, 0xd492, 0x4edd, {0x8c, 0x23, 0xe0, 0xc0, 0xff, 0xee, 0x7f, 0x0e}}, 4};
+constexpr PROPERTYKEY kEfxKey = {
+    {0xd04e05a6, 0x594b, 0x4fb6, {0xa8, 0x0d, 0x01, 0xaf, 0x5e, 0xed, 0x7d, 0x1d}}, 7};
+constexpr PROPERTYKEY kEfxModesKey = {
+    {0xd3993a3f, 0x99c2, 0x4402, {0xb5, 0xec, 0xa9, 0x2a, 0x03, 0x67, 0x66, 0x4b}}, 7};
+constexpr PROPERTYKEY kDisableSysFxKey = {
+    {0x1da5d803, 0xd492, 0x4edd, {0x8c, 0x23, 0xe0, 0xc0, 0xff, 0xee, 0x7f, 0x0e}}, 5};
 
 constexpr wchar_t kRenderBase[] = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render\\";
 constexpr wchar_t kEfxValue[] = L"{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},7";
@@ -49,6 +78,12 @@ bool ContainsInsensitive(const std::wstring& haystack, const std::wstring& needl
 std::wstring GuidText(REFGUID guid) {
     wchar_t text[64] = {};
     StringFromGUID2(guid, text, 64);
+    return text;
+}
+
+std::wstring HResultText(HRESULT hr) {
+    wchar_t text[32] = {};
+    swprintf_s(text, L"0x%08lX", static_cast<unsigned long>(hr));
     return text;
 }
 
@@ -110,6 +145,18 @@ bool FindEndpoint(const std::vector<std::wstring>& needles, Endpoint& result) {
     return false;
 }
 
+bool FindEndpointById(const std::wstring& id, Endpoint& result) {
+    std::vector<Endpoint> endpoints;
+    if (FAILED(Enumerate(endpoints))) return false;
+    for (const auto& endpoint : endpoints) {
+        if (_wcsicmp(endpoint.id.c_str(), id.c_str()) == 0) {
+            result = endpoint;
+            return true;
+        }
+    }
+    return false;
+}
+
 std::vector<std::wstring> Needles(int argc, wchar_t** argv, int start) {
     std::vector<std::wstring> values;
     for (int i = start; i < argc; ++i) {
@@ -154,52 +201,84 @@ bool ReadRegDword(const std::wstring& path, const wchar_t* name, DWORD& value) {
     return status == ERROR_SUCCESS && type == REG_DWORD;
 }
 
-LSTATUS OpenWritable(const std::wstring& path, HKEY& key) {
+LSTATUS OpenStateWritable(const std::wstring& path, HKEY& key) {
     return RegCreateKeyExW(HKEY_LOCAL_MACHINE, path.c_str(), 0, nullptr, 0,
                            KEY_QUERY_VALUE | KEY_SET_VALUE | KEY_WOW64_64KEY,
                            nullptr, &key, nullptr);
 }
 
-LSTATUS WriteRegString(const std::wstring& path, const wchar_t* name, const std::wstring& value) {
+LSTATUS WriteStateDword(const std::wstring& path, const wchar_t* name, DWORD value) {
     HKEY key = nullptr;
-    LSTATUS status = OpenWritable(path, key);
-    if (status != ERROR_SUCCESS) return status;
-    status = RegSetValueExW(key, name, 0, REG_SZ, reinterpret_cast<const BYTE*>(value.c_str()),
-                            static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
-    RegCloseKey(key);
-    return status;
-}
-
-LSTATUS WriteRegDword(const std::wstring& path, const wchar_t* name, DWORD value) {
-    HKEY key = nullptr;
-    LSTATUS status = OpenWritable(path, key);
+    LSTATUS status = OpenStateWritable(path, key);
     if (status != ERROR_SUCCESS) return status;
     status = RegSetValueExW(key, name, 0, REG_DWORD, reinterpret_cast<const BYTE*>(&value), sizeof(value));
     RegCloseKey(key);
     return status;
 }
 
-LSTATUS WriteDefaultMode(const std::wstring& path) {
-    HKEY key = nullptr;
-    LSTATUS status = OpenWritable(path, key);
-    if (status != ERROR_SUCCESS) return status;
-    const size_t chars = wcslen(kDefaultMode) + 2;
-    std::vector<wchar_t> value(chars, L'\0');
-    std::copy(kDefaultMode, kDefaultMode + wcslen(kDefaultMode), value.begin());
-    status = RegSetValueExW(key, kEfxModesValue, 0, REG_MULTI_SZ,
-                            reinterpret_cast<const BYTE*>(value.data()),
-                            static_cast<DWORD>(value.size() * sizeof(wchar_t)));
-    RegCloseKey(key);
-    return status;
+HRESULT CreatePolicyConfig(ComPtr<IPolicyConfig>& policy) {
+    return CoCreateInstance(
+        __uuidof(CPolicyConfigClient), nullptr, CLSCTX_ALL, __uuidof(IPolicyConfig),
+        reinterpret_cast<void**>(policy.ReleaseAndGetAddressOf()));
 }
 
-LSTATUS DeleteValue(const std::wstring& path, const wchar_t* name) {
-    HKEY key = nullptr;
-    LSTATUS status = RegOpenKeyExW(HKEY_LOCAL_MACHINE, path.c_str(), 0, KEY_SET_VALUE | KEY_WOW64_64KEY, &key);
-    if (status != ERROR_SUCCESS) return status;
-    status = RegDeleteValueW(key, name);
-    RegCloseKey(key);
-    return status;
+HRESULT SetPolicyProperty(IPolicyConfig* policy,
+                          const Endpoint& endpoint,
+                          REFPROPERTYKEY key,
+                          PROPVARIANT& value) {
+    if (!policy) return E_POINTER;
+    return policy->SetPropertyValue(endpoint.id.c_str(), key, &value);
+}
+
+HRESULT SetStringProperty(IPolicyConfig* policy,
+                          const Endpoint& endpoint,
+                          REFPROPERTYKEY key,
+                          const std::wstring& value) {
+    PROPVARIANT property;
+    PropVariantInit(&property);
+    HRESULT hr = InitPropVariantFromString(value.c_str(), &property);
+    if (SUCCEEDED(hr)) hr = SetPolicyProperty(policy, endpoint, key, property);
+    PropVariantClear(&property);
+    return hr;
+}
+
+HRESULT SetStringVectorProperty(IPolicyConfig* policy,
+                                const Endpoint& endpoint,
+                                REFPROPERTYKEY key,
+                                const std::vector<std::wstring>& values) {
+    std::vector<PCWSTR> pointers;
+    pointers.reserve(values.size());
+    for (const auto& value : values) pointers.push_back(value.c_str());
+
+    PROPVARIANT property;
+    PropVariantInit(&property);
+    HRESULT hr = InitPropVariantFromStringVector(
+        pointers.empty() ? nullptr : pointers.data(),
+        static_cast<ULONG>(pointers.size()),
+        &property);
+    if (SUCCEEDED(hr)) hr = SetPolicyProperty(policy, endpoint, key, property);
+    PropVariantClear(&property);
+    return hr;
+}
+
+HRESULT SetDwordProperty(IPolicyConfig* policy,
+                         const Endpoint& endpoint,
+                         REFPROPERTYKEY key,
+                         DWORD value) {
+    PROPVARIANT property;
+    PropVariantInit(&property);
+    HRESULT hr = InitPropVariantFromUInt32(value, &property);
+    if (SUCCEEDED(hr)) hr = SetPolicyProperty(policy, endpoint, key, property);
+    PropVariantClear(&property);
+    return hr;
+}
+
+HRESULT ClearProperty(IPolicyConfig* policy, const Endpoint& endpoint, REFPROPERTYKEY key) {
+    PROPVARIANT property;
+    PropVariantInit(&property);
+    const HRESULT hr = SetPolicyProperty(policy, endpoint, key, property);
+    PropVariantClear(&property);
+    return hr;
 }
 
 int Show(const Endpoint& endpoint) {
@@ -208,7 +287,7 @@ int Show(const Endpoint& endpoint) {
     DWORD disabled = 0;
     const bool hasEfx = ReadRegString(fx, kEfxValue, efx);
     const bool hasDisabled = ReadRegDword(fx, kDisableSysFxValue, disabled);
-    std::wcout << L"ENDPOINT\t" << endpoint.name << L"\t" << endpoint.guid << L"\n";
+    std::wcout << L"ENDPOINT\t" << endpoint.name << L"\t" << endpoint.guid << L"\t" << endpoint.id << L"\n";
     std::wcout << L"EFX\t" << (hasEfx ? efx : L"<absent>") << L"\n";
     std::wcout << L"ENHANCEMENTS_DISABLED\t" << (hasDisabled ? disabled : 0) << L"\n";
     return hasEfx && _wcsicmp(efx.c_str(), GuidText(kOmniphonyApoClsid).c_str()) == 0 ? 0 : 3;
@@ -226,27 +305,42 @@ int Attach(const Endpoint& endpoint) {
     std::wstring modes;
     const bool modesExisted = ReadRegString(fx, kEfxModesValue, modes);
     const std::wstring state = std::wstring(kStateBase) + endpoint.guid;
-    LSTATUS status = WriteRegDword(state, L"ModesExisted", modesExisted ? 1u : 0u);
+    LSTATUS status = WriteStateDword(state, L"ModesExisted", modesExisted ? 1u : 0u);
     if (status != ERROR_SUCCESS) {
         std::wcerr << L"ERROR\tSTATE_WRITE\t" << status << L"\n";
         return 5;
     }
 
-    status = WriteRegString(fx, kEfxValue, ours);
-    if (status != ERROR_SUCCESS) {
-        std::wcerr << L"ERROR\tFX_WRITE\t" << status << L"\n";
-        return status == ERROR_ACCESS_DENIED ? 5 : 6;
+    ComPtr<IPolicyConfig> policy;
+    HRESULT hr = CreatePolicyConfig(policy);
+    if (FAILED(hr)) {
+        std::wcerr << L"ERROR\tPOLICY_CREATE\t" << HResultText(hr) << L"\n";
+        return 5;
     }
+
+    hr = SetStringProperty(policy.Get(), endpoint, kEfxKey, ours);
+    if (FAILED(hr)) {
+        std::wcerr << L"ERROR\tFX_POLICY_WRITE\t" << HResultText(hr) << L"\n";
+        return 5;
+    }
+
     if (!modesExisted) {
-        status = WriteDefaultMode(fx);
-        if (status != ERROR_SUCCESS) {
-            DeleteValue(fx, kEfxValue);
-            std::wcerr << L"ERROR\tMODE_WRITE\t" << status << L"\n";
+        hr = SetStringVectorProperty(policy.Get(), endpoint, kEfxModesKey, {kDefaultMode});
+        if (FAILED(hr)) {
+            ClearProperty(policy.Get(), endpoint, kEfxKey);
+            std::wcerr << L"ERROR\tMODE_POLICY_WRITE\t" << HResultText(hr) << L"\n";
             return 6;
         }
     }
 
-    std::wcout << L"APO_ATTACHED\t" << endpoint.name << L"\t" << endpoint.guid << L"\n";
+    hr = SetDwordProperty(policy.Get(), endpoint, kDisableSysFxKey, 0);
+    if (FAILED(hr)) {
+        std::wcerr << L"ERROR\tENABLE_SYSFX_POLICY_WRITE\t" << HResultText(hr) << L"\n";
+        return 6;
+    }
+
+    std::wcout << L"APO_ATTACHED\t" << endpoint.name << L"\t" << endpoint.guid << L"\t" << endpoint.id << L"\n";
+    std::wcout << L"SYSTEM_EFFECTS_ENABLED\t1\n";
     std::wcout << L"RESTART_AUDIO_REQUIRED\t1\n";
     return 0;
 }
@@ -255,10 +349,18 @@ int Detach(const Endpoint& endpoint) {
     const std::wstring fx = FxPath(endpoint);
     const std::wstring ours = GuidText(kOmniphonyApoClsid);
     std::wstring existing;
+
+    ComPtr<IPolicyConfig> policy;
+    HRESULT hr = CreatePolicyConfig(policy);
+    if (FAILED(hr)) {
+        std::wcerr << L"ERROR\tPOLICY_CREATE\t" << HResultText(hr) << L"\n";
+        return 5;
+    }
+
     if (ReadRegString(fx, kEfxValue, existing) && _wcsicmp(existing.c_str(), ours.c_str()) == 0) {
-        const LSTATUS status = DeleteValue(fx, kEfxValue);
-        if (status != ERROR_SUCCESS && status != ERROR_FILE_NOT_FOUND) {
-            std::wcerr << L"ERROR\tFX_DELETE\t" << status << L"\n";
+        hr = ClearProperty(policy.Get(), endpoint, kEfxKey);
+        if (FAILED(hr)) {
+            std::wcerr << L"ERROR\tFX_POLICY_CLEAR\t" << HResultText(hr) << L"\n";
             return 6;
         }
     }
@@ -266,19 +368,47 @@ int Detach(const Endpoint& endpoint) {
     const std::wstring state = std::wstring(kStateBase) + endpoint.guid;
     DWORD modesExisted = 1;
     if (ReadRegDword(state, L"ModesExisted", modesExisted) && modesExisted == 0) {
-        DeleteValue(fx, kEfxModesValue);
+        hr = ClearProperty(policy.Get(), endpoint, kEfxModesKey);
+        if (FAILED(hr)) {
+            std::wcerr << L"ERROR\tMODE_POLICY_CLEAR\t" << HResultText(hr) << L"\n";
+            return 6;
+        }
     }
     RegDeleteTreeW(HKEY_LOCAL_MACHINE, state.c_str());
-    std::wcout << L"APO_DETACHED\t" << endpoint.name << L"\t" << endpoint.guid << L"\n";
+
+    std::wcout << L"APO_DETACHED\t" << endpoint.name << L"\t" << endpoint.guid << L"\t" << endpoint.id << L"\n";
     std::wcout << L"RESTART_AUDIO_REQUIRED\t1\n";
     return 0;
+}
+
+int SetBypass(const Endpoint& endpoint, bool bypass) {
+    ComPtr<IPolicyConfig> policy;
+    HRESULT hr = CreatePolicyConfig(policy);
+    if (FAILED(hr)) {
+        std::wcerr << L"ERROR\tPOLICY_CREATE\t" << HResultText(hr) << L"\n";
+        return 5;
+    }
+    hr = SetDwordProperty(policy.Get(), endpoint, kDisableSysFxKey, bypass ? 1u : 0u);
+    if (FAILED(hr)) {
+        std::wcerr << L"ERROR\tSYSFX_POLICY_WRITE\t" << HResultText(hr) << L"\n";
+        return 6;
+    }
+    std::wcout << (bypass ? L"SYSTEM_EFFECTS_BYPASSED" : L"SYSTEM_EFFECTS_ENABLED")
+               << L"\t" << endpoint.name << L"\t" << endpoint.id << L"\n";
+    std::wcout << L"RESTART_AUDIO_REQUIRED\t1\n";
+    return 0;
+}
+
+bool IsIdCommand(const std::wstring& command) {
+    return command == L"status-id" || command == L"attach-id" || command == L"detach-id" ||
+           command == L"bypass-id" || command == L"enable-effects-id";
 }
 
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
     if (argc < 2) {
-        std::wcerr << L"usage: OmniphonyApoCtl <list|status|attach|detach> [endpoint-name-fragments...]\n";
+        std::wcerr << L"usage: OmniphonyApoCtl <list|status|attach|detach|bypass|enable-effects|status-id|attach-id|detach-id|bypass-id|enable-effects-id> ...\n";
         return 2;
     }
 
@@ -301,16 +431,24 @@ int wmain(int argc, wchar_t** argv) {
     }
 
     Endpoint endpoint;
-    if (!FindEndpoint(Needles(argc, argv, 2), endpoint)) {
+    if (IsIdCommand(command)) {
+        if (argc != 3 || !argv[2] || !*argv[2] || !FindEndpointById(argv[2], endpoint)) {
+            std::wcerr << L"ERROR\tENDPOINT_ID_NOT_FOUND\n";
+            CoUninitialize();
+            return 3;
+        }
+    } else if (!FindEndpoint(Needles(argc, argv, 2), endpoint)) {
         std::wcerr << L"ERROR\tENDPOINT_NOT_FOUND\n";
         CoUninitialize();
         return 3;
     }
 
     int result = 2;
-    if (command == L"status") result = Show(endpoint);
-    else if (command == L"attach") result = Attach(endpoint);
-    else if (command == L"detach") result = Detach(endpoint);
+    if (command == L"status" || command == L"status-id") result = Show(endpoint);
+    else if (command == L"attach" || command == L"attach-id") result = Attach(endpoint);
+    else if (command == L"detach" || command == L"detach-id") result = Detach(endpoint);
+    else if (command == L"bypass" || command == L"bypass-id") result = SetBypass(endpoint, true);
+    else if (command == L"enable-effects" || command == L"enable-effects-id") result = SetBypass(endpoint, false);
     else std::wcerr << L"ERROR\tUNKNOWN_COMMAND\n";
 
     CoUninitialize();
