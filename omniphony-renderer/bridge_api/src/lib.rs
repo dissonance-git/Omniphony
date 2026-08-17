@@ -29,7 +29,7 @@ pub enum RLogLevel {
     Trace = 5,
 }
 
-/// Host-installed callback used by bridges to inject logs into the renderer pipeline.
+/// Host-installed callback used for bridges to inject logs into the renderer pipeline.
 pub type BridgeHostLogSink = extern "C" fn(level: RLogLevel, target: RStr<'_>, message: RStr<'_>);
 
 /// ABI-stable spatial event (single object update for one frame).
@@ -67,6 +67,10 @@ pub struct RNameUpdate {
 }
 
 /// ABI-stable channel label (speaker position), encoded as u8.
+///
+/// Existing discriminants are never renumbered. The four lower-layer anchors
+/// were appended when Omniphony adopted the complete Windows 8.1.4.4 static
+/// vocabulary, preserving binary compatibility with older bridges.
 #[repr(u8)]
 #[derive(StableAbi, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RChannelLabel {
@@ -97,6 +101,14 @@ pub enum RChannelLabel {
     /// The channel carries dynamic-object audio; its position comes from the
     /// metadata events of the object bound to it via `RObjectChannel`.
     Object = 24,
+    /// Bottom/front-left static anchor in the canonical 8.1.4.4 frame.
+    Bfl = 25,
+    /// Bottom/front-right static anchor in the canonical 8.1.4.4 frame.
+    Bfr = 26,
+    /// Bottom/back-left static anchor in the canonical 8.1.4.4 frame.
+    Bbl = 27,
+    /// Bottom/back-right static anchor in the canonical 8.1.4.4 frame.
+    Bbr = 28,
     Unknown = 255,
 }
 
