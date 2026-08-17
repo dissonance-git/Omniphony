@@ -24,6 +24,7 @@ jobs:
           rustup override set 1.88.0
         working-directory: omniphony-renderer
 
+      # Re-run the historical deferral against today's virtual-pole/downmix path.
       - name: Run currently ignored wide MDAP sweep
         id: probe
         shell: bash
