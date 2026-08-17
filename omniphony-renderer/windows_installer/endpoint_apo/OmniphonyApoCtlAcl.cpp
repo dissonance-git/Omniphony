@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <aclapi.h>
+#include <propkeydef.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <mmdeviceapi.h>
 #include <propsys.h>
@@ -47,7 +48,7 @@ bool ContainsInsensitive(const std::wstring& haystack, const std::wstring& needl
 
 std::wstring GuidText(REFGUID guid) {
     wchar_t text[64] = {};
-    StringFromGUID2(guid, text, static_cast<int>(std::size(text)));
+    StringFromGUID2(guid, text, static_cast<int>(sizeof(text) / sizeof(text[0])));
     return text;
 }
 
