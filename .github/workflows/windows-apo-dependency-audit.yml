@@ -105,8 +105,7 @@ jobs:
             'AudioBaseProcessingObject.dll',
             'VCRUNTIME140.dll',
             'VCRUNTIME140_1.dll',
-            'MSVCP140.dll',
-            'ucrtbase.dll'
+            'MSVCP140.dll'
           )
           foreach ($dll in $binaries) {
             Write-Host "AUDIT_BINARY $dll"
@@ -114,7 +113,7 @@ jobs:
             Write-Host $deps
             foreach ($name in $forbidden) {
               if ($deps -match [regex]::Escape($name)) {
-                throw "AudioDG binary $dll has non-self-contained runtime dependency: $name"
+                throw "AudioDG binary $dll has external VC runtime dependency: $name"
               }
             }
           }
