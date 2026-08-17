@@ -5,8 +5,10 @@
 //! callback only copies PCM into/out of preallocated SPSC rings; the existing
 //! allocating renderer never runs on the audio callback thread.
 
+mod height_preference;
 mod noire_x_profile;
 
+use height_preference::HeightPreference;
 use noire_x_profile::NoireXPersonalEq;
 use orender_engine::current_music_support::CurrentMusicSupportRenderer;
 use renderer::music_field::{MUSIC_FIELD_CHANNELS, MusicFieldProcessor};
@@ -211,6 +213,7 @@ impl StereoLookaheadPeakGuard {
 
 struct CurrentPipeline {
     field: MusicFieldProcessor,
+    height: HeightPreference,
     foundation: MusicFoundationProcessor,
     support: CurrentMusicSupportRenderer,
     dry_fifo: VecDeque<f32>,
@@ -223,6 +226,7 @@ impl CurrentPipeline {
     fn new(sample_rate_hz: u32) -> Result<Self, String> {
         Ok(Self {
             field: MusicFieldProcessor::new(sample_rate_hz),
+            height: HeightPreference::new(),
             foundation: MusicFoundationProcessor::new(sample_rate_hz),
             support: CurrentMusicSupportRenderer::new(sample_rate_hz)
                 .map_err(|error| error.to_string())?,
@@ -245,10 +249,11 @@ impl CurrentPipeline {
         }
         self.foundation_fifo.extend(foundation);
 
-        let field = self.field.process_interleaved_stereo(input);
+        let mut field = self.field.process_interleaved_stereo(input);
         if field.len() != (input.len() / 2) * MUSIC_FIELD_CHANNELS {
             return Err("field width mismatch".to_string());
         }
+        self.height.apply(&mut field);
 
         let rendered = self.support.process(&field).map_err(|error| error.to_string())?;
         let mut out = Vec::new();
