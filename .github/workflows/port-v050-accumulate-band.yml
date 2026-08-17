@@ -1,0 +1,62 @@
+name: Port upstream band mixer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/port-v050-accumulate-band.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  port-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal --component rustfmt
+          rustup override set 1.88.0
+        working-directory: omniphony-renderer
+
+      - name: Port slice-to-slice band accumulation
+        run: python3 .github/ci/port_accumulate_band.py
+
+      - name: Format only the touched Rust file
+        run: rustfmt --edition 2024 omniphony-renderer/renderer/src/spatial_renderer/speaker_stage.rs
+
+      - name: Verify patch scope
+        run: |
+          git diff --check
+          git diff --stat
+          test "$(git diff --name-only | wc -l)" -eq 1
+          test "$(git diff --name-only)" = "omniphony-renderer/renderer/src/spatial_renderer/speaker_stage.rs"
+
+      - name: Test cascade width safety
+        run: cargo test -p renderer interp_survives_speaker_cascade_width_switch -- --nocapture
+        working-directory: omniphony-renderer
+
+      - name: Test crossover equivalence
+        run: cargo test -p renderer unified_crossover_matches_per_band -- --nocapture
+        working-directory: omniphony-renderer
+
+      - name: Test DSP fixtures
+        run: cargo test -p dsp_fixtures
+        working-directory: omniphony-renderer
+
+      - name: Compile release perf gate
+        run: cargo check --release -p renderer --features perf-gate --tests
+        working-directory: omniphony-renderer
+
+      - name: Publish validated port
+        run: |
+          git config user.name "omniphony-ci"
+          git config user.email "actions@users.noreply.github.com"
+          git add omniphony-renderer/renderer/src/spatial_renderer/speaker_stage.rs
+          git commit -m "perf(renderer): vectorize band accumulation hot loops"
+          git push origin HEAD:main
