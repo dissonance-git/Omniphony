@@ -12,7 +12,7 @@ add_library(OmniphonyAPO SHARED
 target_compile_features(OmniphonyAPO PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonyAPO PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_options(OmniphonyAPO PRIVATE /W4 /WX /permissive-)
-target_link_libraries(OmniphonyAPO PRIVATE ole32 uuid advapi32 audioeng AudioBaseProcessingObject audiomediatypecrt)
+target_link_libraries(OmniphonyAPO PRIVATE ole32 uuid advapi32 audioeng AudioBaseProcessingObject legacy_stdio_definitions audiomediatypecrt)
 set_target_properties(OmniphonyAPO PROPERTIES PREFIX "" OUTPUT_NAME "OmniphonyAPO")
 
 add_executable(OmniphonyApoCtl OmniphonyApoCtl.cpp)
