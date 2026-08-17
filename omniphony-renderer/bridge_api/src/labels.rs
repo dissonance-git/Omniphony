@@ -15,10 +15,6 @@ use crate::RChannelLabel;
 /// Accepted spellings per label, in normalised form (uppercase, no
 /// whitespace/`_`/`-`). The first entry of each list is only an alias like
 /// the others; canonical display names come from [`canonical_name`].
-///
-/// This table is the union of the historical matchers it replaces; parity
-/// with both is pinned by tests here and in the consuming crates
-/// (`renderer::speaker_layout` keeps the legacy-alias parity net).
 const ALIASES: &[(RChannelLabel, &[&str])] = &[
     (RChannelLabel::L, &["FL", "L", "FRONTLEFT", "LEFTFRONT"]),
     (RChannelLabel::R, &["FR", "R", "FRONTRIGHT", "RIGHTFRONT"]),
@@ -124,12 +120,29 @@ const ALIASES: &[(RChannelLabel, &[&str])] = &[
         &["TC", "TPC", "TOPCENTER", "TOPMIDDLECENTER"],
     ),
     (RChannelLabel::Tfc, &["TFC", "TOPFRONTCENTER"]),
+    // Complete Windows 8.1.4.4 lower tier. These are semantic source anchors,
+    // not a requirement that a renderer invent bottom-layer content.
+    (
+        RChannelLabel::Bfl,
+        &["BFL", "BOTTOMFRONTLEFT", "LOWERFRONTLEFT", "LBF"],
+    ),
+    (
+        RChannelLabel::Bfr,
+        &["BFR", "BOTTOMFRONTRIGHT", "LOWERFRONTRIGHT", "RBF"],
+    ),
+    (
+        RChannelLabel::Bbl,
+        &["BBL", "BOTTOMBACKLEFT", "BOTTOMREARLEFT", "LOWERBACKLEFT", "LBB"],
+    ),
+    (
+        RChannelLabel::Bbr,
+        &["BBR", "BOTTOMBACKRIGHT", "BOTTOMREARRIGHT", "LOWERBACKRIGHT", "RBB"],
+    ),
 ];
 
 /// Canonical short name for a label — the form used in bundled layout YAMLs,
 /// Studio source lists and diagnostics. Lower-tier names follow the compact
-/// convention (`L`, `Ls`, `Lb`); the top tier keeps its uppercase trigrams
-/// (`TFL`, `TBR`) to match the bundled layouts.
+/// convention (`L`, `Ls`, `Lb`); top/bottom tiers use uppercase trigrams.
 pub fn canonical_name(label: RChannelLabel) -> &'static str {
     use RChannelLabel::*;
     match label {
@@ -157,6 +170,10 @@ pub fn canonical_name(label: RChannelLabel) -> &'static str {
         Tbr => "TBR",
         Tc => "TC",
         Tfc => "TFC",
+        Bfl => "BFL",
+        Bfr => "BFR",
+        Bbl => "BBL",
+        Bbr => "BBR",
         Object => "Object",
         Unknown => "Unknown",
     }
@@ -217,6 +234,8 @@ mod tests {
         assert_eq!(label_for_name("TOP_FRONT_LEFT"), Tfl);
         assert_eq!(label_for_name("tfl"), Tfl);
         assert_eq!(label_for_name("height-right"), Tfr);
+        assert_eq!(label_for_name("bottom-front-left"), Bfl);
+        assert_eq!(label_for_name("Lower Back Right"), Bbr);
         assert_eq!(label_for_name("nonsense"), Unknown);
     }
 }
