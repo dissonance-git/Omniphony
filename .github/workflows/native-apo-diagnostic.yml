@@ -1,0 +1,65 @@
+name: Omniphony native APO diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/native-apo-diagnostic.yml'
+      - 'omniphony-renderer/windows_installer/endpoint_apo/**'
+
+permissions:
+  contents: read
+
+jobs:
+  native-apo:
+    name: Probe native APO targets
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup VS2022 MSBuild
+        uses: microsoft/setup-msbuild@v2
+        with:
+          vs-version: '[17.0,18.0)'
+
+      - name: Ensure Windows 11 WDK
+        shell: pwsh
+        run: |
+          choco install windowsdriverkit11 -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "WDK installation failed: $LASTEXITCODE" }
+
+      - name: Configure native APO
+        shell: pwsh
+        run: |
+          cmake -S "$env:GITHUB_WORKSPACE\omniphony-renderer\windows_installer\endpoint_apo" `
+                -B "$env:GITHUB_WORKSPACE\build\apo" `
+                -A x64
+          if ($LASTEXITCODE -ne 0) { throw "APO CMake configure failed: $LASTEXITCODE" }
+
+      - name: Build OmniphonyAPO
+        shell: pwsh
+        run: cmake --build "$env:GITHUB_WORKSPACE\build\apo" --config Release --target OmniphonyAPO
+
+      - name: Build OmniphonyApoCtl
+        if: always()
+        shell: pwsh
+        run: cmake --build "$env:GITHUB_WORKSPACE\build\apo" --config Release --target OmniphonyApoCtl
+
+      - name: Build OmniphonyApoSmoke
+        if: always()
+        shell: pwsh
+        run: cmake --build "$env:GITHUB_WORKSPACE\build\apo" --config Release --target OmniphonyApoSmoke
+
+      - name: Build OmniphonyRealtimeSmoke
+        if: always()
+        shell: pwsh
+        run: cmake --build "$env:GITHUB_WORKSPACE\build\apo" --config Release --target OmniphonyRealtimeSmoke
+
+      - name: Build OmniphonyMixProbe
+        if: always()
+        shell: pwsh
+        run: cmake --build "$env:GITHUB_WORKSPACE\build\apo" --config Release --target OmniphonyMixProbe
