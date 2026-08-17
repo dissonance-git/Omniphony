@@ -47,11 +47,10 @@
 
 use std::time::Instant;
 
+use dsp_fixtures::{BinauralMode, SpatialChannelEvent};
 use dsp_fixtures::scene::{
     BLOCK_SAMPLES, RampMode, SAMPLE_RATE, make_pcm, move_events, prepared, prepared_binaural,
 };
-
-use super::SpatialChannelEvent;
 
 /// Wall time one block of audio occupies: 40 samples at 48 kHz ≈ 833 µs.
 const BLOCK_PERIOD_US: f64 = BLOCK_SAMPLES as f64 * 1e6 / SAMPLE_RATE as f64;
@@ -131,19 +130,14 @@ fn drift_events(n_objects: usize, round: u64) -> Vec<SpatialChannelEvent> {
 fn binaural_drifting_block_times_us(cascaded: bool) -> Vec<f64> {
     let (mut r, pcm) = prepared_binaural(N_OBJECTS, RampMode::Frame);
     if cascaded {
-        r.renderer_control().live.write().binaural.mode = crate::live_params::BinauralMode::Cascaded;
+        r.renderer_control().live.write().binaural.mode = BinauralMode::Cascaded;
         // Prime the fixed virtual bed/convolvers outside the timed window. The
         // benchmark is about steady realtime motion cost, not one-time topology setup.
         let mut prime_buf = Vec::new();
         for round in 0..4 {
+            let events = drift_events(N_OBJECTS, round + 1);
             let frame = r
-                .render_frame(
-                    &pcm,
-                    N_OBJECTS,
-                    &drift_events(N_OBJECTS, round + 1),
-                    prime_buf,
-                    false,
-                )
+                .render_frame(&pcm, N_OBJECTS, &events, prime_buf, false)
                 .expect("prime cascaded drifting renderer");
             prime_buf = frame.samples;
             prime_buf.clear();
