@@ -1,0 +1,63 @@
+name: Wide DSP validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'omniphony-renderer/renderer/**'
+      - 'omniphony-renderer/dsp_fixtures/**'
+      - 'omniphony-renderer/Cargo.toml'
+      - '.github/workflows/wide-dsp-validation.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'omniphony-renderer/renderer/**'
+      - 'omniphony-renderer/dsp_fixtures/**'
+      - 'omniphony-renderer/Cargo.toml'
+      - '.github/workflows/wide-dsp-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: omniphony-wide-dsp-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: 1.88.0
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  wide-dsp:
+    name: Wide DSP matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: omniphony-renderer
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup override set "$RUST_TOOLCHAIN"
+
+      # The feature also compiles the deliberately ignored MDAP-spread sphere
+      # sweep, so that tracked deferral cannot silently rot even though it is
+      # not allowed to turn a known engine defect into a fake green gate.
+      - name: Multi-rate LR4 reconstruction
+        run: >-
+          cargo test -p renderer --features wide-matrix
+          crossover::validation::lr4_reconstruction_is_magnitude_flat_wide
+          -- --exact --nocapture
+
+      - name: Full-azimuth ITD model agreement
+        run: >-
+          cargo test -p renderer --features wide-matrix
+          binaural::validation::itd_magnitude_tracks_the_model_wide
+          -- --exact --nocapture
