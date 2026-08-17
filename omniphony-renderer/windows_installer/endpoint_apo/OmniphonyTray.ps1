@@ -8,7 +8,6 @@ $stateRoot = Join-Path $programData 'Omniphony'
 $eqPresetPath = Join-Path $stateRoot 'eq-preset.txt'
 $legacyEqPath = Join-Path $stateRoot 'personal-eq.txt'
 $rightCompPath = Join-Path $stateRoot 'right-ear-comp.txt'
-$heightPlusPath = Join-Path $stateRoot 'height-plus.txt'
 $stopPath = Join-Path $stateRoot 'tray.stop'
 
 New-Item -ItemType Directory -Force -Path $stateRoot | Out-Null
@@ -81,10 +80,6 @@ $nativeItem.Text = 'EQ: Omniphony tuned'
 
 [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
 
-$heightItem = New-Object System.Windows.Forms.ToolStripMenuItem
-$heightItem.Text = 'Height+'
-[void]$menu.Items.Add($heightItem)
-
 $rightCompItem = New-Object System.Windows.Forms.ToolStripMenuItem
 $rightCompItem.Text = 'Right-ear compensation'
 [void]$menu.Items.Add($rightCompItem)
@@ -99,12 +94,10 @@ $notify.ContextMenuStrip = $menu
 function Update-TrayState {
     $preset = Get-EqPreset
     $rightComp = Get-BoolSetting $rightCompPath $true
-    $heightPlus = Get-BoolSetting $heightPlusPath $false
 
     $offItem.Checked = $preset -eq 'off'
     $legacyItem.Checked = $preset -eq 'legacy'
     $nativeItem.Checked = $preset -eq 'native'
-    $heightItem.Checked = $heightPlus
     $rightCompItem.Checked = $rightComp
 
     $presetLabel = switch ($preset) {
@@ -112,9 +105,8 @@ function Update-TrayState {
         'native' { 'Native' }
         default { 'Legacy' }
     }
-    $heightLabel = if ($heightPlus) { 'H+' } else { 'H' }
     $rightLabel = if ($rightComp) { 'R+' } else { 'R0' }
-    $notify.Text = "Omniphony | EQ: $presetLabel | $heightLabel | $rightLabel"
+    $notify.Text = "Omniphony Current | EQ: $presetLabel | $rightLabel"
 }
 
 function Select-EqPreset([string]$Preset) {
@@ -131,17 +123,6 @@ function Select-EqPreset([string]$Preset) {
 $offItem.Add_Click({ Select-EqPreset 'off' })
 $legacyItem.Add_Click({ Select-EqPreset 'legacy' })
 $nativeItem.Add_Click({ Select-EqPreset 'native' })
-
-$heightItem.Add_Click({
-    try {
-        Set-BoolSetting $heightPlusPath (-not (Get-BoolSetting $heightPlusPath $false))
-        Update-TrayState
-    } catch {
-        $notify.BalloonTipTitle = 'Omniphony'
-        $notify.BalloonTipText = "Could not change Height+: $($_.Exception.Message)"
-        $notify.ShowBalloonTip(2500)
-    }
-})
 
 $rightCompItem.Add_Click({
     try {
