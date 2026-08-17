@@ -1,3 +1,4 @@
+// WIN32_LEAN_AND_MEAN and NOMINMAX are supplied by CMake so /WX sees no macro redefinitions.
 #include <windows.h>
 #include <audioclient.h>
 #include <functiondiscoverykeys_devpkey.h>
