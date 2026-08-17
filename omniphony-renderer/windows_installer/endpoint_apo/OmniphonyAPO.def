@@ -1,0 +1,6 @@
+LIBRARY "OmniphonyAPO"
+EXPORTS
+    DllCanUnloadNow
+    DllGetClassObject
+    DllRegisterServer
+    DllUnregisterServer

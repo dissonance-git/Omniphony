@@ -1,0 +1,104 @@
+name: Windows native endpoint APO
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/windows-endpoint-apo.yml'
+      - 'omniphony-renderer/windows_installer/endpoint_apo/**'
+      - 'omniphony-renderer/windows_installer/OmniphonyEndpointCtl.cpp'
+      - 'omniphony-renderer/windows_installer/OmniphonyEndpointCtl.vcxproj'
+
+permissions:
+  contents: read
+
+jobs:
+  build-apoprobe:
+    name: Build and activate x64 endpoint APO
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Record source revision
+        shell: pwsh
+        run: |
+          Write-Host "source=$(git rev-parse HEAD)"
+          git status --short
+
+      - name: Setup VS2022 MSBuild
+        uses: microsoft/setup-msbuild@v2
+        with:
+          vs-version: '[17.0,18.0)'
+
+      - name: Ensure Windows 11 WDK
+        shell: pwsh
+        run: |
+          choco install windowsdriverkit11 -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "WDK installation failed: $LASTEXITCODE" }
+
+      - name: Configure endpoint APO
+        shell: pwsh
+        run: |
+          cmake -S omniphony-renderer/windows_installer/endpoint_apo `
+                -B build/endpoint_apo `
+                -A x64
+          if ($LASTEXITCODE -ne 0) { throw "APO CMake configure failed: $LASTEXITCODE" }
+
+      - name: Build endpoint APO and controls
+        shell: pwsh
+        run: |
+          cmake --build build/endpoint_apo --config Release --parallel
+          if ($LASTEXITCODE -ne 0) { throw "APO build failed: $LASTEXITCODE" }
+
+          $project = 'omniphony-renderer/windows_installer/OmniphonyEndpointCtl.vcxproj'
+          msbuild $project /m /p:Configuration=Release /p:Platform=x64
+          if ($LASTEXITCODE -ne 0) { throw "EndpointCtl build failed: $LASTEXITCODE" }
+
+      - name: Register and activate APO
+        shell: pwsh
+        run: |
+          $dll = (Resolve-Path 'build/endpoint_apo/Release/OmniphonyAPO.dll').Path
+          $smoke = (Resolve-Path 'build/endpoint_apo/Release/OmniphonyApoSmoke.exe').Path
+          try {
+            & "$env:WINDIR\System32\regsvr32.exe" /s $dll
+            if ($LASTEXITCODE -ne 0) { throw "regsvr32 registration failed: $LASTEXITCODE" }
+            & $smoke
+            if ($LASTEXITCODE -ne 0) { throw "APO COM smoke failed: $LASTEXITCODE" }
+          }
+          finally {
+            & "$env:WINDIR\System32\regsvr32.exe" /u /s $dll
+          }
+
+      - name: Assemble test artifact
+        shell: pwsh
+        run: |
+          $dist = 'dist/Omniphony-Endpoint-APO'
+          New-Item -ItemType Directory -Force $dist | Out-Null
+          Copy-Item 'build/endpoint_apo/Release/OmniphonyAPO.dll' $dist
+          Copy-Item 'build/endpoint_apo/Release/OmniphonyApoCtl.exe' $dist
+          Copy-Item 'build/endpoint_apo/Release/OmniphonyApoSmoke.exe' $dist
+          Copy-Item 'omniphony-renderer/windows_installer/build/endpoint_ctl/OmniphonyEndpointCtl.exe' $dist
+          Copy-Item 'omniphony-renderer/windows_installer/endpoint_apo/Install-OmniphonyAPO.ps1' $dist
+          Copy-Item 'omniphony-renderer/windows_installer/endpoint_apo/Uninstall-OmniphonyAPO.ps1' $dist
+          Copy-Item 'omniphony-renderer/windows_installer/endpoint_apo/README.md' $dist
+          @"
+          Omniphony native endpoint APO identity bootstrap
+          Source: $env:GITHUB_SHA
+          Target: Windows 11 x64
+          APO CLSID: {A9333BFE-39C1-40FD-B4B0-ECC591410B47}
+          Processing: identity only
+          Added APO latency: 0 hns
+          Physical endpoint association is intentionally not performed on CI.
+          "@ | Set-Content -Encoding utf8 "$dist/BUILD-METADATA.txt"
+
+      - name: Upload endpoint APO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: omniphony-endpoint-apo-x64-${{ github.sha }}
+          path: dist/Omniphony-Endpoint-APO
+          if-no-files-found: error
+          retention-days: 14
