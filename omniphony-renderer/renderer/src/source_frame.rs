@@ -35,9 +35,7 @@ pub struct SourceFrameRenderer {
 /// unity, while a unity hard-left/right source carries sqrt(1/2) of that stereo
 /// RMS energy.
 pub fn route_energy_gain(route: Option<NativeStereoRoute>) -> f32 {
-    let Some(route) = route else {
-        return 1.0;
-    };
+    let Some(route) = route else { return 1.0; };
     if !route.left_gain.is_finite() || !route.right_gain.is_finite() {
         return 0.0;
     }
@@ -138,9 +136,13 @@ impl SourceFrameRenderer {
             if !input_pcm.is_empty() {
                 bail!("source PCM is non-empty but source channel list is empty");
             }
-            return self
-                .renderer
-                .render_frame(input_pcm, 0, &[], samples_buf, measure_breakdown);
+            return self.renderer.render_frame(
+                input_pcm,
+                0,
+                &[],
+                samples_buf,
+                measure_breakdown,
+            );
         }
         if input_pcm.len() % channels != 0 {
             bail!(
@@ -167,8 +169,7 @@ impl SourceFrameRenderer {
             self.presentation_identities.clear();
             self.presentation_identities.resize(channels, None);
             self.presentation_identity_initialized.clear();
-            self.presentation_identity_initialized
-                .resize(channels, false);
+            self.presentation_identity_initialized.resize(channels, false);
             // A width change is also a source-scene discontinuity. Do not let a
             // previous channel's pose/ramp survive into a newly admitted lane.
             self.renderer.reset_runtime_state();
@@ -214,8 +215,9 @@ impl SourceFrameRenderer {
         // Preserve historical source energy unless the host explicitly applied
         // a more precise trajectory already. This stays at float precision
         // rather than quantizing source level into integer-dB object metadata.
-        let needs_scaling =
-            (0..channels).any(|channel_idx| (gain_for(channel_idx) - 1.0).abs() > 1.0e-7);
+        let needs_scaling = (0..channels).any(|channel_idx| {
+            (gain_for(channel_idx) - 1.0).abs() > 1.0e-7
+        });
         let render_input: &[f32] = if needs_scaling {
             self.scaled_input.resize(input_pcm.len(), 0.0);
             for (frame_in, frame_out) in input_pcm
@@ -285,47 +287,29 @@ mod tests {
     #[test]
     fn authored_stereo_route_preserves_source_energy_and_not_polarity_as_level() {
         assert_eq!(route_energy_gain(None), 1.0);
-        assert!(
-            (route_energy_gain(Some(NativeStereoRoute {
-                left_gain: 1.0,
-                right_gain: 1.0,
-            })) - 1.0)
-                .abs()
-                < 1.0e-7
-        );
-        assert!(
-            (route_energy_gain(Some(NativeStereoRoute {
-                left_gain: 1.0,
-                right_gain: 0.0,
-            })) - std::f32::consts::FRAC_1_SQRT_2)
-                .abs()
-                < 1.0e-7
-        );
-        assert!(
-            (route_energy_gain(Some(NativeStereoRoute {
-                left_gain: -1.0,
-                right_gain: 0.5,
-            })) - ((1.0_f32 + 0.25) * 0.5).sqrt())
-            .abs()
-                < 1.0e-7
-        );
-        assert_eq!(
-            route_energy_gain(Some(NativeStereoRoute {
-                left_gain: 0.0,
-                right_gain: 0.0,
-            })),
-            0.0
-        );
+        assert!((route_energy_gain(Some(NativeStereoRoute {
+            left_gain: 1.0,
+            right_gain: 1.0,
+        })) - 1.0).abs() < 1.0e-7);
+        assert!((route_energy_gain(Some(NativeStereoRoute {
+            left_gain: 1.0,
+            right_gain: 0.0,
+        })) - std::f32::consts::FRAC_1_SQRT_2).abs() < 1.0e-7);
+        assert!((route_energy_gain(Some(NativeStereoRoute {
+            left_gain: -1.0,
+            right_gain: 0.5,
+        })) - ((1.0_f32 + 0.25) * 0.5).sqrt()).abs() < 1.0e-7);
+        assert_eq!(route_energy_gain(Some(NativeStereoRoute {
+            left_gain: 0.0,
+            right_gain: 0.0,
+        })), 0.0);
     }
 
     #[test]
     fn preapplied_gain_policy_is_width_checked_and_semantically_unity() {
         let sources = [
             SourceSceneEvidence {
-                native_stereo_route: Some(NativeStereoRoute {
-                    left_gain: 1.0,
-                    right_gain: 0.0,
-                }),
+                native_stereo_route: Some(NativeStereoRoute { left_gain: 1.0, right_gain: 0.0 }),
                 ..SourceSceneEvidence::default()
             },
             SourceSceneEvidence::default(),
@@ -333,17 +317,10 @@ mod tests {
         let flags = [true, false];
         assert_eq!(flags.len(), sources.len());
         assert_eq!(
-            if flags[0] {
-                1.0
-            } else {
-                route_energy_gain(sources[0].native_stereo_route)
-            },
+            if flags[0] { 1.0 } else { route_energy_gain(sources[0].native_stereo_route) },
             1.0
         );
-        assert_eq!(
-            route_energy_gain(sources[0].native_stereo_route),
-            std::f32::consts::FRAC_1_SQRT_2
-        );
+        assert_eq!(route_energy_gain(sources[0].native_stereo_route), std::f32::consts::FRAC_1_SQRT_2);
     }
 
     #[test]
@@ -367,13 +344,7 @@ mod tests {
             source_presentation_identity(&a),
             Some(SourcePresentationIdentity::PersistentPart(77))
         );
-        assert_eq!(
-            source_presentation_identity(&a),
-            source_presentation_identity(&b)
-        );
-        assert_ne!(
-            source_presentation_identity(&b),
-            source_presentation_identity(&unrelated)
-        );
+        assert_eq!(source_presentation_identity(&a), source_presentation_identity(&b));
+        assert_ne!(source_presentation_identity(&b), source_presentation_identity(&unrelated));
     }
 }

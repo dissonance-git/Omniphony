@@ -1,5 +1,5 @@
-use renderer::spatial_vbap::VbapPanner;
 use renderer::speaker_layout::SpeakerLayout;
+use renderer::spatial_vbap::VbapPanner;
 
 // Historical runtime compatibility path: currently the controlled headphone
 // height A/B with the upper ring moved to +60 degrees.
@@ -65,7 +65,10 @@ fn active_headphone_shell_is_a_real_three_layer_unit_sphere() {
         assert!(speaker.x.is_finite());
         assert!(speaker.y.is_finite());
         assert!(speaker.z.is_finite());
-        let radius = (speaker.x * speaker.x + speaker.y * speaker.y + speaker.z * speaker.z).sqrt();
+        let radius = (speaker.x * speaker.x
+            + speaker.y * speaker.y
+            + speaker.z * speaker.z)
+            .sqrt();
         assert!(
             (radius - 1.0).abs() < 2.0e-4,
             "{} is off the unit sphere: radius={radius}",

@@ -189,12 +189,7 @@ fn channel_labels(channel_count: u16) -> Vec<RChannelLabel> {
         L, R, C, LFE, Ls, Rs, Lb, Rb, Cb, Tfl, Tfr, Tbl, Tbr, Bfl, Bfr, Bbl, Bbr,
     ];
     (0..channel_count as usize)
-        .map(|i| {
-            BEST_EFFORT
-                .get(i)
-                .copied()
-                .unwrap_or(RChannelLabel::Unknown)
-        })
+        .map(|i| BEST_EFFORT.get(i).copied().unwrap_or(RChannelLabel::Unknown))
         .collect()
 }
 
@@ -302,15 +297,11 @@ mod tests {
         );
         assert_eq!(
             channel_labels(16),
-            vec![
-                L, R, C, LFE, Ls, Rs, Lb, Rb, Tfl, Tfr, Tbl, Tbr, Bfl, Bfr, Bbl, Bbr
-            ]
+            vec![L, R, C, LFE, Ls, Rs, Lb, Rb, Tfl, Tfr, Tbl, Tbr, Bfl, Bfr, Bbl, Bbr]
         );
         assert_eq!(
             channel_labels(17),
-            vec![
-                L, R, C, LFE, Ls, Rs, Lb, Rb, Cb, Tfl, Tfr, Tbl, Tbr, Bfl, Bfr, Bbl, Bbr
-            ]
+            vec![L, R, C, LFE, Ls, Rs, Lb, Rb, Cb, Tfl, Tfr, Tbl, Tbr, Bfl, Bfr, Bbl, Bbr]
         );
 
         let three = channel_labels(3);

@@ -116,11 +116,7 @@ fn slew_with_rates(current: f32, target: f32, rise: f32, fall: f32) -> f32 {
 }
 
 fn slew_signed_with_rates(current: f32, target: f32, rise: f32, fall: f32) -> f32 {
-    let coefficient = if target.abs() > current.abs() {
-        rise
-    } else {
-        fall
-    };
+    let coefficient = if target.abs() > current.abs() { rise } else { fall };
     (current + coefficient * (target - current)).clamp(-1.0, 1.0)
 }
 
@@ -141,10 +137,7 @@ impl OnePoleLowPass {
     fn new(sample_rate_hz: u32, cutoff_hz: f32) -> Self {
         let dt = 1.0 / sample_rate_hz.max(1) as f32;
         let rc = 1.0 / (2.0 * PI * cutoff_hz.max(1.0));
-        Self {
-            alpha: dt / (rc + dt),
-            state: 0.0,
-        }
+        Self { alpha: dt / (rc + dt), state: 0.0 }
     }
 
     fn process(&mut self, sample: f32) -> f32 {
@@ -215,9 +208,7 @@ impl MusicFieldProcessor {
         }
     }
 
-    pub fn snapshot(&self) -> MusicFieldSnapshot {
-        self.snapshot
-    }
+    pub fn snapshot(&self) -> MusicFieldSnapshot { self.snapshot }
 
     pub fn process_interleaved_stereo(&mut self, input: &[f32]) -> Vec<f32> {
         if input.len() < 2 || input.len() % 2 != 0 {
@@ -278,11 +269,7 @@ impl MusicFieldProcessor {
                 // Duplicating bright correlated mid directly into top-front can
                 // comb against that master after the cascaded room. Above 5 kHz
                 // require height to come from relational/lateral/diffuse evidence.
-                let front_height_mid = if band == 3 {
-                    0.0
-                } else {
-                    mid * control.broad * 0.08
-                };
+                let front_height_mid = if band == 3 { 0.0 } else { mid * control.broad * 0.08 };
                 let mut band_top_front_l = height
                     * (0.62 * broad_l + 0.22 * lateral_l + 0.08 * diffuse_l + front_height_mid);
                 let mut band_top_front_r = height
@@ -339,23 +326,10 @@ impl MusicFieldProcessor {
             // Canonical 8.1.4.4. Stereo inference earns horizontal wrap and
             // upper support only; center/LFE/back-center/lower stay EMPTY.
             out.extend_from_slice(&[
-                front_l,
-                front_r,
-                0.0,
-                0.0,
-                side_l,
-                side_r,
-                rear_l,
-                rear_r,
-                0.0,
-                top_front_l,
-                top_front_r,
-                top_rear_l,
-                top_rear_r,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
+                front_l, front_r, 0.0, 0.0,
+                side_l, side_r, rear_l, rear_r, 0.0,
+                top_front_l, top_front_r, top_rear_l, top_rear_r,
+                0.0, 0.0, 0.0, 0.0,
             ]);
         }
         out
@@ -391,16 +365,11 @@ impl MusicFieldProcessor {
 
         let elapsed_ms = frames as f32 * 1000.0 / self.sample_rate_hz.max(1) as f32;
         let mut accum = [BandAccum::default(); 3];
-        let params = StereoInferenceParams {
-            focus: 0.05,
-            object_separation: 0.15,
-        };
+        let params = StereoInferenceParams { focus: 0.05, object_separation: 0.15 };
 
         for bin in 1..=FFT_SIZE / 2 {
             let frequency_hz = bin as f32 * self.sample_rate_hz as f32 / FFT_SIZE as f32;
-            if frequency_hz < CROSSOVER_HZ[0] {
-                continue;
-            }
+            if frequency_hz < CROSSOVER_HZ[0] { continue; }
             let band = if frequency_hz < CROSSOVER_HZ[1] {
                 0
             } else if frequency_hz < CROSSOVER_HZ[2] {
@@ -439,9 +408,7 @@ impl MusicFieldProcessor {
             let movable = (1.0 - 0.92 * anchor).clamp(0.0, 1.0);
 
             let lateral = if matches!(candidate.kind, SceneEvidenceKind::LateralObjectCandidate) {
-                candidate
-                    .reassignment_safety
-                    .max(0.62 * candidate.object_support)
+                candidate.reassignment_safety.max(0.62 * candidate.object_support)
             } else {
                 0.28 * candidate.reassignment_safety
             } * movable;
@@ -478,8 +445,7 @@ impl MusicFieldProcessor {
                 let broad = ((a.broad / a.weight) * 1.65).clamp(0.0, 1.0);
                 let lateral = ((a.lateral / a.weight) * 2.00).clamp(0.0, 1.0);
                 let diffuse = ((a.diffuse / a.weight) * 1.70).clamp(0.0, 1.0);
-                let shell_evidence =
-                    (0.45 * broad + 0.25 * lateral + 0.65 * diffuse).clamp(0.0, 1.0);
+                let shell_evidence = (0.45 * broad + 0.25 * lateral + 0.65 * diffuse).clamp(0.0, 1.0);
                 let height = (HEIGHT_PRIOR[index] * (0.35 + 0.65 * shell_evidence)).clamp(0.0, 1.0);
                 BandControl {
                     anchor: (a.anchor / a.weight).clamp(0.0, 1.0),
@@ -489,9 +455,7 @@ impl MusicFieldProcessor {
                     height,
                     pan: if a.pan_weight > 1.0e-9 {
                         (a.pan_num / a.pan_weight).clamp(-1.0, 1.0)
-                    } else {
-                        0.0
-                    },
+                    } else { 0.0 },
                     side_fraction: (a.side_fraction / a.weight).clamp(0.0, 1.0),
                 }
             } else {
@@ -639,10 +603,7 @@ mod tests {
         let mut lfe_energy = 0.0;
         for chunk in input.chunks(2048) {
             let out = processor.process_interleaved_stereo(chunk);
-            for (frame, direct) in out
-                .chunks_exact(MUSIC_FIELD_CHANNELS)
-                .zip(chunk.chunks_exact(2))
-            {
+            for (frame, direct) in out.chunks_exact(MUSIC_FIELD_CHANNELS).zip(chunk.chunks_exact(2)) {
                 support_energy += frame.iter().map(|x| x * x).sum::<f32>();
                 direct_energy += direct[0] * direct[0] + direct[1] * direct[1];
                 lfe_energy += frame[3] * frame[3];

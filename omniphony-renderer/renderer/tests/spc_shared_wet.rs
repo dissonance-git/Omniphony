@@ -1,22 +1,14 @@
 use renderer::source_scene::{
-    NativeStereoRoute, SourceLaneKind, SourcePresentationPolicy, SourceSceneEvidence,
-    present_source,
+    present_source, NativeStereoRoute, SourceLaneKind, SourcePresentationPolicy,
+    SourceSceneEvidence,
 };
 
-fn echo_half(
-    source_id: u64,
-    persistent_part_id: u64,
-    left_gain: f32,
-    right_gain: f32,
-) -> SourceSceneEvidence {
+fn echo_half(source_id: u64, persistent_part_id: u64, left_gain: f32, right_gain: f32) -> SourceSceneEvidence {
     SourceSceneEvidence {
         lane_kind: SourceLaneKind::SharedWetReturn,
         source_id,
         persistent_part_id: Some(persistent_part_id),
-        native_stereo_route: Some(NativeStereoRoute {
-            left_gain,
-            right_gain,
-        }),
+        native_stereo_route: Some(NativeStereoRoute { left_gain, right_gain }),
         diffuse: 1.0,
         width: 1.0,
         confidence: 1.0,

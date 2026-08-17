@@ -3,10 +3,7 @@
 //! The implementation is the same support/early-field code used by the Windows
 //! listening worker. Native hosts call this wrapper instead of cloning the DSP.
 
-use crate::{
-    RenderedAudio,
-    music_support::{MusicSupportRenderer, SpatialProfile},
-};
+use crate::{RenderedAudio, music_support::{MusicSupportRenderer, SpatialProfile}};
 
 pub struct CurrentMusicSupportRenderer {
     inner: MusicSupportRenderer,

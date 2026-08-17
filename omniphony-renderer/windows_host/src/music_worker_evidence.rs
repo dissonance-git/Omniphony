@@ -748,36 +748,16 @@ fn build_playback_stream(
     stream_failed: Arc<AtomicBool>,
 ) -> anyhow::Result<cpal::Stream> {
     match format {
-        cpal::SampleFormat::I8 => {
-            build_typed_playback::<i8>(device, config, rx, telemetry, stream_failed)
-        }
-        cpal::SampleFormat::I16 => {
-            build_typed_playback::<i16>(device, config, rx, telemetry, stream_failed)
-        }
-        cpal::SampleFormat::I32 => {
-            build_typed_playback::<i32>(device, config, rx, telemetry, stream_failed)
-        }
-        cpal::SampleFormat::I64 => {
-            build_typed_playback::<i64>(device, config, rx, telemetry, stream_failed)
-        }
-        cpal::SampleFormat::U8 => {
-            build_typed_playback::<u8>(device, config, rx, telemetry, stream_failed)
-        }
-        cpal::SampleFormat::U16 => {
-            build_typed_playback::<u16>(device, config, rx, telemetry, stream_failed)
-        }
-        cpal::SampleFormat::U32 => {
-            build_typed_playback::<u32>(device, config, rx, telemetry, stream_failed)
-        }
-        cpal::SampleFormat::U64 => {
-            build_typed_playback::<u64>(device, config, rx, telemetry, stream_failed)
-        }
-        cpal::SampleFormat::F32 => {
-            build_typed_playback::<f32>(device, config, rx, telemetry, stream_failed)
-        }
-        cpal::SampleFormat::F64 => {
-            build_typed_playback::<f64>(device, config, rx, telemetry, stream_failed)
-        }
+        cpal::SampleFormat::I8 => build_typed_playback::<i8>(device, config, rx, telemetry, stream_failed),
+        cpal::SampleFormat::I16 => build_typed_playback::<i16>(device, config, rx, telemetry, stream_failed),
+        cpal::SampleFormat::I32 => build_typed_playback::<i32>(device, config, rx, telemetry, stream_failed),
+        cpal::SampleFormat::I64 => build_typed_playback::<i64>(device, config, rx, telemetry, stream_failed),
+        cpal::SampleFormat::U8 => build_typed_playback::<u8>(device, config, rx, telemetry, stream_failed),
+        cpal::SampleFormat::U16 => build_typed_playback::<u16>(device, config, rx, telemetry, stream_failed),
+        cpal::SampleFormat::U32 => build_typed_playback::<u32>(device, config, rx, telemetry, stream_failed),
+        cpal::SampleFormat::U64 => build_typed_playback::<u64>(device, config, rx, telemetry, stream_failed),
+        cpal::SampleFormat::F32 => build_typed_playback::<f32>(device, config, rx, telemetry, stream_failed),
+        cpal::SampleFormat::F64 => build_typed_playback::<f64>(device, config, rx, telemetry, stream_failed),
         other => bail!("unsupported WASAPI output sample format: {other:?}"),
     }
 }
@@ -834,8 +814,12 @@ impl PlaybackLatencyGovernor {
                 self.audible = true;
             }
         } else if buffered > high_frames {
-            trimmed_frames =
-                discard_oldest_playback_frames(current, cursor, pending, buffered - target_frames);
+            trimmed_frames = discard_oldest_playback_frames(
+                current,
+                cursor,
+                pending,
+                buffered - target_frames,
+            );
             buffered = buffered.saturating_sub(trimmed_frames);
         }
 
@@ -848,9 +832,18 @@ impl PlaybackLatencyGovernor {
     }
 }
 
-fn buffered_playback_frames(current: &[f32], cursor: usize, pending: &VecDeque<Vec<f32>>) -> usize {
+fn buffered_playback_frames(
+    current: &[f32],
+    cursor: usize,
+    pending: &VecDeque<Vec<f32>>,
+) -> usize {
     let current_frames = current.len().saturating_sub(cursor) / 2;
-    current_frames.saturating_add(pending.iter().map(|block| block.len() / 2).sum::<usize>())
+    current_frames.saturating_add(
+        pending
+            .iter()
+            .map(|block| block.len() / 2)
+            .sum::<usize>(),
+    )
 }
 
 fn discard_oldest_playback_frames(
@@ -944,7 +937,8 @@ impl PlaybackContinuity {
                 }
                 self.starvation_frames = self.starvation_frames.saturating_add(1);
                 let missing = self.starvation_frames.min(PLAYBACK_CONCEAL_FRAMES);
-                let gain = (1.0 - missing as f32 / PLAYBACK_CONCEAL_FRAMES as f32).max(0.0);
+                let gain =
+                    (1.0 - missing as f32 / PLAYBACK_CONCEAL_FRAMES as f32).max(0.0);
                 let output = [self.conceal_anchor[0] * gain, self.conceal_anchor[1] * gain];
                 self.last_output = output;
                 (output[0], output[1])
@@ -1135,10 +1129,7 @@ mod tests {
         let preparation = governor.prepare(&rx, &mut current, &mut cursor, &mut pending);
 
         assert!(preparation.audible);
-        assert_eq!(
-            preparation.buffered_frames,
-            playback_frames_for_ms(PLAYBACK_TARGET_LATENCY_MS)
-        );
+        assert_eq!(preparation.buffered_frames, playback_frames_for_ms(PLAYBACK_TARGET_LATENCY_MS));
         assert!(preparation.trimmed_frames >= playback_frames_for_ms(400));
     }
 
@@ -1160,10 +1151,7 @@ mod tests {
         let second = governor.prepare(&rx, &mut current, &mut cursor, &mut pending);
         assert!(second.audible);
         assert!(second.became_audible);
-        assert_eq!(
-            second.buffered_frames,
-            playback_frames_for_ms(PLAYBACK_TARGET_LATENCY_MS)
-        );
+        assert_eq!(second.buffered_frames, playback_frames_for_ms(PLAYBACK_TARGET_LATENCY_MS));
         assert_eq!(second.trimmed_frames, 0);
     }
 
@@ -1188,10 +1176,7 @@ mod tests {
         let recovered = governor.prepare(&rx, &mut current, &mut cursor, &mut pending);
         assert!(recovered.audible);
         assert!(recovered.trimmed_frames > 0);
-        assert_eq!(
-            recovered.buffered_frames,
-            playback_frames_for_ms(PLAYBACK_TARGET_LATENCY_MS)
-        );
+        assert_eq!(recovered.buffered_frames, playback_frames_for_ms(PLAYBACK_TARGET_LATENCY_MS));
     }
 
     #[test]
@@ -1206,31 +1191,23 @@ mod tests {
         for _ in 0..2 {
             tx.try_send(stereo_block(packet_frames, 0.1)).unwrap();
         }
-        assert!(
-            governor
-                .prepare(&rx, &mut current, &mut cursor, &mut pending)
-                .audible
-        );
+        assert!(governor.prepare(&rx, &mut current, &mut cursor, &mut pending).audible);
 
         let available = buffered_playback_frames(&current, cursor, &pending);
-        let dropped =
-            discard_oldest_playback_frames(&mut current, &mut cursor, &mut pending, available);
+        let dropped = discard_oldest_playback_frames(
+            &mut current,
+            &mut cursor,
+            &mut pending,
+            available,
+        );
         assert_eq!(dropped, available);
 
         let empty = governor.prepare(&rx, &mut current, &mut cursor, &mut pending);
         assert!(!empty.audible);
 
         tx.try_send(stereo_block(packet_frames, 0.2)).unwrap();
-        assert!(
-            !governor
-                .prepare(&rx, &mut current, &mut cursor, &mut pending)
-                .audible
-        );
+        assert!(!governor.prepare(&rx, &mut current, &mut cursor, &mut pending).audible);
         tx.try_send(stereo_block(packet_frames, 0.3)).unwrap();
-        assert!(
-            governor
-                .prepare(&rx, &mut current, &mut cursor, &mut pending)
-                .audible
-        );
+        assert!(governor.prepare(&rx, &mut current, &mut cursor, &mut pending).audible);
     }
 }

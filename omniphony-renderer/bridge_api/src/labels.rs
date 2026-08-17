@@ -132,23 +132,11 @@ const ALIASES: &[(RChannelLabel, &[&str])] = &[
     ),
     (
         RChannelLabel::Bbl,
-        &[
-            "BBL",
-            "BOTTOMBACKLEFT",
-            "BOTTOMREARLEFT",
-            "LOWERBACKLEFT",
-            "LBB",
-        ],
+        &["BBL", "BOTTOMBACKLEFT", "BOTTOMREARLEFT", "LOWERBACKLEFT", "LBB"],
     ),
     (
         RChannelLabel::Bbr,
-        &[
-            "BBR",
-            "BOTTOMBACKRIGHT",
-            "BOTTOMREARRIGHT",
-            "LOWERBACKRIGHT",
-            "RBB",
-        ],
+        &["BBR", "BOTTOMBACKRIGHT", "BOTTOMREARRIGHT", "LOWERBACKRIGHT", "RBB"],
     ),
 ];
 

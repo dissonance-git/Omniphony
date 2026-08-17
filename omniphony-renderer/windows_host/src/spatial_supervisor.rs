@@ -22,10 +22,11 @@ use windows_sys::Win32::UI::Shell::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
     DispatchMessageW, GetCursorPos, GetMessageW, IDC_ARROW, IDI_APPLICATION, LoadCursorW,
-    LoadIconW, MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, PostMessageW, PostQuitMessage,
-    RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, SetTimer, TPM_LEFTALIGN,
-    TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage, WM_APP, WM_CLOSE, WM_COMMAND, WM_CREATE,
-    WM_DESTROY, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
+    LoadIconW, MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, PostMessageW,
+    PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, SetTimer,
+    TPM_LEFTALIGN, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage, WM_APP, WM_CLOSE,
+    WM_COMMAND, WM_CREATE, WM_DESTROY, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WM_TIMER, WNDCLASSW,
+    WS_OVERLAPPED,
 };
 
 const TRAY_ID: u32 = 1;
@@ -169,8 +170,7 @@ fn delete_run_value(name: &str) {
 
 fn set_run_entry(enabled: bool) -> anyhow::Result<()> {
     if enabled {
-        let exe =
-            std::env::current_exe().context("failed to resolve Omniphony autostart executable")?;
+        let exe = std::env::current_exe().context("failed to resolve Omniphony autostart executable")?;
         let value = format!("\"{}\"", exe.display());
         let mut command = Command::new("reg.exe");
         command
@@ -241,9 +241,7 @@ fn repair_transport_default() {
         "steam-streaming-speakers" => &["Steam Streaming Speakers"],
         "omniphony-development-endpoint" => &["Omniphony", "Spatial"],
         other => {
-            append_log(&format!(
-                "unknown transport state '{other}'; default endpoint unchanged"
-            ));
+            append_log(&format!("unknown transport state '{other}'; default endpoint unchanged"));
             return;
         }
     };
@@ -267,10 +265,7 @@ fn repair_transport_default() {
     }
     match command.output() {
         Ok(output) if output.status.success() => {
-            append_log(&format!(
-                "reasserted Windows transport default: {}",
-                needles.join(" / ")
-            ));
+            append_log(&format!("reasserted Windows transport default: {}", needles.join(" / ")));
         }
         Ok(output) => {
             append_log(&format!(
@@ -298,8 +293,7 @@ fn spawn_worker() -> anyhow::Result<()> {
     repair_transport_default();
 
     let root = executable_root()?;
-    let executable =
-        std::env::current_exe().context("failed to resolve Omniphony engine executable")?;
+    let executable = std::env::current_exe().context("failed to resolve Omniphony engine executable")?;
 
     let log_path = runtime_log_path();
     let log = OpenOptions::new()
@@ -307,9 +301,7 @@ fn spawn_worker() -> anyhow::Result<()> {
         .append(true)
         .open(&log_path)
         .with_context(|| format!("failed to open {}", log_path.display()))?;
-    let log_err = log
-        .try_clone()
-        .context("failed to clone Omniphony log handle")?;
+    let log_err = log.try_clone().context("failed to clone Omniphony log handle")?;
 
     let mut child = Command::new(&executable)
         .current_dir(&root)
@@ -326,10 +318,7 @@ fn spawn_worker() -> anyhow::Result<()> {
                 executable.display()
             )
         })?;
-    let stdin = child
-        .stdin
-        .take()
-        .context("audio engine stdin was not piped")?;
+    let stdin = child.stdin.take().context("audio engine stdin was not piped")?;
 
     let mut app = state().lock().expect("Omniphony supervisor state poisoned");
     if !app.enabled || app.quitting {
