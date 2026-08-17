@@ -8,7 +8,6 @@ use renderer::config::Config;
 use renderer::music_field::MUSIC_FIELD_CHANNELS;
 use renderer::speaker_layout::SpeakerLayout;
 use std::path::PathBuf;
-use std::str::FromStr;
 
 /// The normal Windows host has one listening model.
 ///
@@ -17,21 +16,6 @@ use std::str::FromStr;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SpatialProfile {
     Current,
-}
-
-impl SpatialProfile {
-    pub(crate) fn from_env() -> anyhow::Result<Self> {
-        // Intentionally ignore historical OMNIPHONY_PROFILE values. The shipped
-        // Windows host has one model so stale environment variables cannot
-        // silently select a retired experiment.
-        Ok(Self::Current)
-    }
-
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Current => "current",
-        }
-    }
 }
 
 fn current_model_config(base: &str) -> String {
@@ -86,12 +70,6 @@ impl MusicSupportRenderer {
             early_reflections,
             primary_pcm: Vec::new(),
         })
-    }
-
-    /// Retained temporarily for the existing diagnostic print path. The Current
-    /// model no longer has a hybrid branch.
-    pub(crate) fn is_hybrid(&self) -> bool {
-        false
     }
 
     pub(crate) fn process(&mut self, field_input: &[f32]) -> anyhow::Result<Vec<RenderedAudio>> {
@@ -197,7 +175,7 @@ fn build_embedded_engine(
             .clamp(0.0, 1.0);
     }
 
-    let mut engine = Engine::new(bridge, spatial_renderer, sample_rate_hz);
+    let engine = Engine::new(bridge, spatial_renderer, sample_rate_hz);
     engine.set_channel_render_mode_code(1);
     if engine.channel_count() != 2 {
         bail!(
