@@ -355,6 +355,7 @@ const CRegAPOProperties<1> OmniphonyAPO::registration(
     __uuidof(IAudioProcessingObject),
     static_cast<APO_FLAG>(APO_FLAG_FRAMESPERSECOND_MUST_MATCH |
                           APO_FLAG_BITSPERSAMPLE_MUST_MATCH |
+                          APO_FLAG_SAMPLESPERFRAME_MUST_MATCH |
                           APO_FLAG_INPLACE));
 
 class ApoClassFactory final : public IClassFactory {
