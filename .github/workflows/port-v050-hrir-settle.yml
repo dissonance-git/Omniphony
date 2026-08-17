@@ -1,0 +1,52 @@
+name: Port v0.5 deterministic HRIR settle
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/port-v050-hrir-settle.yml
+
+permissions:
+  contents: write
+
+env:
+  RUST_TOOLCHAIN: 1.88.0
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  validate-and-land:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup override set "$RUST_TOOLCHAIN"
+      - name: Apply deterministic settle port
+        shell: bash
+        run: |
+          python scripts/ci/port_v050_hrir_settle.py
+          git diff --check
+      - name: Verify ITD and fixture determinism
+        working-directory: omniphony-renderer
+        shell: bash
+        run: |
+          cargo check -p renderer -p dsp_fixtures
+          cargo test -p dsp_fixtures repeated_synthetic_binaural_fixture_is_deterministic --lib -- --nocapture
+          cargo test -p renderer measured_itd --lib -- --nocapture
+      - name: Commit verified port
+        shell: bash
+        run: |
+          git config user.name "dissonance"
+          git config user.email "ustreamusa@aim.com"
+          git add omniphony-renderer/renderer/src/binaural/mod.rs \
+                  omniphony-renderer/renderer/src/spatial_renderer/mod.rs \
+                  omniphony-renderer/dsp_fixtures/src/scene.rs
+          git commit -m "test(binaural): settle requested HRIR grid deterministically"
+          git pull --rebase origin main
+          git push origin HEAD:main
