@@ -21,6 +21,7 @@ pub mod binaural_block_size;
 pub mod binaural_groove_fidelity;
 pub mod diagnostic_signals;
 pub mod dirs;
+pub mod end_to_end_spatial;
 pub mod golden;
 pub mod orbit;
 pub mod residual;
