@@ -22,14 +22,17 @@ A later pass added lane-local transient-aware early-room excitation. Physical li
 
 The current development build carries one new listening candidate on top of that retained model: **front / center refinement**. It keeps the successful side, rear and lower presentation fixed while widening the front L/R evidence sources, widening/lifting the top-front pair, reducing only the low-level late room closure, and lowering final fixed listening level by 0.7 dB.
 
-Normal runtime exposes only:
+The renderer itself is installed headlessly as a Windows endpoint APO. The small tray is preference-only and currently exposes:
 
 ```text
-On / clean bypass
-Restart audio engine
-Start with Windows
-Exit
+EQ: Off (Current baseline)
+EQ: Legacy DTS-era
+EQ: Omniphony tuned
+Right-ear compensation
+Exit tray
 ```
+
+Exiting the tray does not remove or replace the endpoint renderer. Historical spatial listening profiles are not runtime modes.
 
 The historical profile experiments and promotion history remain in `docs/listening-history.md`.
 
@@ -347,51 +350,55 @@ This becomes especially important as source-aware analysis arrives later. A clas
 
 # Realtime robustness
 
-The Windows path is designed to stay boring and reliable even as the research layer becomes more intelligent.
+The mature Windows path is endpoint-native. Windows owns the system mix; the Omniphony EFX APO receives the endpoint stream and calls the narrow realtime ABI in `omniphony_realtime.dll`.
+
+The AudioDG callback does not run the allocating Current renderer directly. It performs bounded PCM transfer through preallocated SPSC rings while a dedicated worker owns the existing Current DSP graph.
 
 Current runtime protections include:
 
-- process-specific Windows loopback capture;
-- MMCSS priority for producer and playback callback;
-- bounded playback queue;
-- underrun telemetry;
-- short continuity concealment when the playback queue briefly starves;
-- stereo-linked 5 ms look-ahead peak safety;
-- amortized sliding maximum in the peak guard instead of rescanning the full look-ahead window every frame;
-- automatic worker restart after output-stream failure;
-- invisible supervisor/watchdog;
-- per-user autostart;
-- tray recovery after Explorer/taskbar restart.
+- native post-mix endpoint processing with no virtual cable or loopback-capture product path;
+- preallocated callback-facing PCM rings;
+- a dedicated Current worker thread using fixed 20 ms processing blocks;
+- a 40 ms aligned dry delay so callback fallback preserves timing;
+- delayed-dry fallback when Current output is not ready, rather than blocking AudioDG;
+- non-finite sample sanitization;
+- stereo-linked look-ahead peak safety plus a final callback-side ceiling guard;
+- worker failure state that fails safely back to aligned dry audio;
+- explicit Current/identity lifecycle tests, including destroy/recreate in one process;
+- APO registration/smoke tests and manifest/dependency checks in the Windows installer build.
 
-The underrun concealment is not an audible effect under normal operation. It exists so a rare scheduling gap becomes a short smooth continuity event instead of a one-sample waveform cliff that can sound like a crackle.
-
-If crackle reproduces, inspect `omniphony.log` and the underrun telemetry before blaming HRTF complexity.
+The old process-loopback `Omniphony.exe` host is migration history, not the Current product architecture.
 
 ---
 
 # Windows architecture
 
 ```text
-PORTABLE OMNIPHONY CORE
-renderer / inference / DSP
-          │
-          ▼
-WINDOWS HOST
-process loopback / output / lifecycle
-          │
-          ▼
-Omniphony.exe
+applications / games / browsers / players
+                 │
+                 ▼
+         Windows Audio Engine
+                 │
+                 ▼
+        OMNIPHONY EFX APO
+                 │
+                 ├→ omniphony_realtime.dll
+                 │      └→ Current 8.1.4.4 → 22-dir → binaural DSP
+                 │
+                 ▼
+       physical endpoint driver
+                 │
+                 ▼
+          DAC / headphones
 ```
 
-The shipped runtime remains one executable with two internal roles:
+The normal installed product is headless. `OmniphonySetup.exe` installs the APO and realtime DLL under the Omniphony application directory, attaches the effect to the physical endpoint, and keeps only a small support surface for status/repair/uninstall.
 
-```text
-Omniphony.exe
-├→ invisible supervisor / tray / watchdog
-└→ internal audio-engine child process
-```
+The optional tray does not host audio. It only writes listener preference state for the Current renderer, such as EQ preset and right-ear compensation.
 
-The normal child process is pinned to the Current model. Historical listening profiles are no longer selectable from the tray or launcher.
+The abandoned virtual-device / loopback host is explicitly removed during APO-native installation so it cannot return after upgrade.
+
+See `docs/omniphony-for-windows.md` for the Windows ingress, endpoint and source-authority contract.
 
 ---
 
