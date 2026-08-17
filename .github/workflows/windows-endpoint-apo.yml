@@ -103,6 +103,19 @@ jobs:
           msbuild $project /m /p:Configuration=Release /p:Platform=x64
           if ($LASTEXITCODE -ne 0) { throw "EndpointCtl build failed: $LASTEXITCODE" }
 
+      - name: Verify protected AudioDG packaging contract
+        shell: pwsh
+        run: |
+          $dll = (Resolve-Path 'build/endpoint_apo/Release/OmniphonyAPO.dll').Path
+          $mt = (Get-Command mt.exe -ErrorAction Stop).Source
+          $probe = Join-Path $env:RUNNER_TEMP 'omniphony-embedded-manifest.xml'
+          Remove-Item $probe -Force -ErrorAction SilentlyContinue
+          & $mt "-inputresource:$dll;#2" "-out:$probe" 2>$null
+          if ($LASTEXITCODE -eq 0 -or (Test-Path $probe)) {
+            throw 'OmniphonyAPO.dll contains an embedded manifest; protected AudioDG can reject it.'
+          }
+          Write-Host 'APO_MANIFEST_OK embedded=0'
+
       - name: Validate realtime DLL ABI
         shell: pwsh
         run: |
@@ -137,19 +150,20 @@ jobs:
       - name: Assemble test artifact
         shell: pwsh
         run: |
-          $dist = 'dist/Omniphony-Endpoint-APO'
+          $dist = 'dist/Omniphony-APO'
           New-Item -ItemType Directory -Force $dist | Out-Null
           Copy-Item 'build/endpoint_apo/Release/OmniphonyAPO.dll' $dist
           Copy-Item 'build/endpoint_apo/Release/OmniphonyApoCtl.exe' $dist
           Copy-Item 'build/endpoint_apo/Release/OmniphonyApoSmoke.exe' $dist
           Copy-Item 'build/endpoint_apo/Release/OmniphonyRealtimeSmoke.exe' $dist
+          Copy-Item 'build/endpoint_apo/Release/OmniphonyMixProbe.exe' $dist
           Copy-Item 'omniphony-renderer/target/release/omniphony_realtime.dll' $dist
           Copy-Item 'omniphony-renderer/windows_installer/build/endpoint_ctl/OmniphonyEndpointCtl.exe' $dist
           Copy-Item 'omniphony-renderer/windows_installer/endpoint_apo/Install-OmniphonyAPO.ps1' $dist
           Copy-Item 'omniphony-renderer/windows_installer/endpoint_apo/Uninstall-OmniphonyAPO.ps1' $dist
           Copy-Item 'omniphony-renderer/windows_installer/endpoint_apo/README.md' $dist
           @"
-          Omniphony native endpoint APO Current listening candidate
+          Omniphony native APO Current listening candidate
           Source: $env:GITHUB_SHA
           Target: Windows 11 x64
           APO CLSID: {A9333BFE-39C1-40FD-B4B0-ECC591410B47}
@@ -158,13 +172,15 @@ jobs:
           Current host latency: 40 ms / 1920 frames at 48 kHz
           Failure behavior: time-aligned delayed-dry fallback
           Final safety: retained stereo-linked -1.0 dBFS peak ceiling
-          Physical endpoint association is intentionally not performed on CI.
+          Protected AudioDG: embedded manifest disabled
+          Runtime install path: Program Files\Omniphony\APO
+          Physical gate: post-restart WASAPI GetMixFormat probe
           "@ | Set-Content -Encoding utf8 "$dist/BUILD-METADATA.txt"
 
       - name: Upload endpoint APO artifact
         uses: actions/upload-artifact@v4
         with:
-          name: omniphony-endpoint-apo-current-x64-${{ github.sha }}
-          path: dist/Omniphony-Endpoint-APO
+          name: omniphony-apo-current-x64-${{ github.sha }}
+          path: dist/Omniphony-APO
           if-no-files-found: error
           retention-days: 14

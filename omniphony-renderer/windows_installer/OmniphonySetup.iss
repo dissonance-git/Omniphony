@@ -6,9 +6,8 @@
 #endif
 
 #define MyAppName "Omniphony for Windows"
-#define MyAppVersion "0.0.1-dev"
+#define MyAppVersion "0.0.2-dev"
 #define MyAppPublisher "Omniphony downstream fork"
-#define MyAppExeName "Omniphony.exe"
 
 [Setup]
 AppId={{6A6873B9-1199-4D6B-AC3E-9415E5BC6BB1}
@@ -33,26 +32,51 @@ SetupLogging=yes
 OutputDir={#OutputDir}
 OutputBaseFilename=OmniphonySetup
 UninstallDisplayName={#MyAppName}
-UninstallDisplayIcon={app}\{#MyAppExeName}
 CloseApplications=yes
 RestartApplications=no
 
-[Files]
-Source: "{#PayloadDir}\app\Omniphony.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#PayloadDir}\driver\*"; DestDir: "{app}\driver"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#PayloadDir}\support\Install-OmniphonyForWindows.ps1"; DestDir: "{app}\support"; Flags: ignoreversion
-Source: "{#PayloadDir}\support\OmniphonyEndpointCtl.exe"; DestDir: "{app}\support"; Flags: ignoreversion
-Source: "Invoke-OmniphonyInstaller.ps1"; DestDir: "{app}\support"; Flags: ignoreversion
-Source: "{#PayloadDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#PayloadDir}\PRODUCT-CONTEXT.md"; DestDir: "{app}"; Flags: ignoreversion
+; Migration cleanup from the abandoned virtual-device / loopback host product.
+; These run before the new files are copied, after PrepareToInstall has killed
+; any legacy Omniphony.exe instance.
+[InstallDelete]
+Type: files; Name: "{app}\Omniphony.exe"
+Type: files; Name: "{app}\PRODUCT-CONTEXT.md"
+Type: filesandordirs; Name: "{app}\driver"
+Type: filesandordirs; Name: "{app}\EndpointAPO"
+Type: filesandordirs; Name: "{app}\support"
 
-[Run]
-Filename: "{app}\Omniphony.exe"; Description: "Start Omniphony"; Flags: nowait runasoriginaluser skipifsilent
+[Files]
+; Runtime files are staged only for the duration of setup. The APO installer
+; stops AudioSrv and copies them into {app}\APO, which also makes future upgrades
+; safe when AudioDG has the old DLL loaded.
+Source: "{#PayloadDir}\runtime\*"; DestDir: "{tmp}\OmniphonyAPOPayload"; Flags: ignoreversion recursesubdirs createallsubdirs deleteafterinstall
+Source: "{#PayloadDir}\support\*"; DestDir: "{app}\support"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#PayloadDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [UninstallRun]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\support\Invoke-OmniphonyInstaller.ps1"" -Action Uninstall -AppRoot ""{app}"" -PhysicalOutput ""Dan Clark Noire X"""; Flags: runhidden waituntilterminated; RunOnceId: "OmniphonyForWindowsCleanup"
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\support\Uninstall-OmniphonyAPO.ps1"" -AppRoot ""{app}"" -PhysicalOutput ""Dan Clark Noire X"""; Flags: runhidden waituntilterminated; RunOnceId: "OmniphonyApoCleanup"
 
 [Code]
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+  TaskKill: String;
+begin
+  { Explicit migration invariant: the old tray/loopback host must be gone before
+    stale files are deleted or the physical endpoint is reconfigured. taskkill
+    returns a nonzero code when no matching process exists, which is harmless. }
+  TaskKill := ExpandConstant('{sys}\taskkill.exe');
+  Exec(TaskKill, '/F /T /IM Omniphony.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  { Retire both historical autostart names so the obsolete host cannot return on
+    the next login after an APO-native upgrade. }
+  RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Omniphony');
+  RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Spatial');
+
+  NeedsRestart := False;
+  Result := '';
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
@@ -63,16 +87,16 @@ begin
   begin
     PowerShell := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
     Params := '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
-      ExpandConstant('{app}\support\Invoke-OmniphonyInstaller.ps1') +
-      '" -Action Install -AppRoot "' + ExpandConstant('{app}') +
+      ExpandConstant('{app}\support\Install-OmniphonyAPO.ps1') +
+      '" -PackageRoot "' + ExpandConstant('{tmp}\OmniphonyAPOPayload') +
+      '" -AppRoot "' + ExpandConstant('{app}') +
       '" -PhysicalOutput "Dan Clark Noire X"';
 
     if (not Exec(PowerShell, Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode)) or
        (ResultCode <> 0) then
     begin
       RaiseException(
-        'Omniphony installation could not finish. ' +
-        'See C:\ProgramData\Omniphony\installer.log for the exact boundary, then run this same installer again after resolving it.'
+        'Omniphony APO installation could not finish safely. The installer performs automatic endpoint rollback on APO/WASAPI failure.'
       );
     end;
   end;

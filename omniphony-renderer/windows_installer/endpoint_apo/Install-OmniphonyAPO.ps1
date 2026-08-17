@@ -1,28 +1,49 @@
 param(
-    [string]$PhysicalOutput = 'Dan Clark Noire X'
+    [string]$PhysicalOutput = 'Dan Clark Noire X',
+    [string]$PackageRoot = '',
+    [string]$AppRoot = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$packageApo = Join-Path $here 'OmniphonyAPO.dll'
-$ctl = Join-Path $here 'OmniphonyApoCtl.exe'
-$endpointCtl = Join-Path $here 'OmniphonyEndpointCtl.exe'
-$packageRealtime = Join-Path $here 'omniphony_realtime.dll'
-$realtimeSmoke = Join-Path $here 'OmniphonyRealtimeSmoke.exe'
-$apoSmoke = Join-Path $here 'OmniphonyApoSmoke.exe'
-$mixProbe = Join-Path $here 'OmniphonyMixProbe.exe'
-$regsvr32 = "$env:WINDIR\System32\regsvr32.exe"
-$runtimeRoot = Join-Path $env:ProgramFiles 'Omniphony\APO'
+
+if ([string]::IsNullOrWhiteSpace($PackageRoot)) { $PackageRoot = $here }
+if ([string]::IsNullOrWhiteSpace($AppRoot)) {
+    $AppRoot = Join-Path $env:ProgramFiles 'Omniphony'
+    $supportRoot = $here
+} else {
+    $supportRoot = Join-Path $AppRoot 'support'
+}
+
+$runtimeRoot = Join-Path $AppRoot 'APO'
+$legacyRuntimeRoot = Join-Path $AppRoot 'EndpointAPO'
+$packageApo = Join-Path $PackageRoot 'OmniphonyAPO.dll'
+$packageRealtime = Join-Path $PackageRoot 'omniphony_realtime.dll'
 $installedApo = Join-Path $runtimeRoot 'OmniphonyAPO.dll'
 $installedRealtime = Join-Path $runtimeRoot 'omniphony_realtime.dll'
+
+function Resolve-Tool([string]$Name) {
+    $fromPackage = Join-Path $PackageRoot $Name
+    if (Test-Path -LiteralPath $fromPackage) { return $fromPackage }
+    $fromSupport = Join-Path $supportRoot $Name
+    if (Test-Path -LiteralPath $fromSupport) { return $fromSupport }
+    throw "Missing Omniphony installation helper: $Name"
+}
+
+$ctl = Resolve-Tool 'OmniphonyApoCtl.exe'
+$endpointCtl = Resolve-Tool 'OmniphonyEndpointCtl.exe'
+$realtimeSmoke = Resolve-Tool 'OmniphonyRealtimeSmoke.exe'
+$apoSmoke = Resolve-Tool 'OmniphonyApoSmoke.exe'
+$mixProbe = Resolve-Tool 'OmniphonyMixProbe.exe'
+$regsvr32 = "$env:WINDIR\System32\regsvr32.exe"
 
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    throw 'Run Install-OmniphonyAPO.ps1 from an elevated PowerShell window.'
+    throw 'Run the Omniphony installer from an elevated context.'
 }
 
-foreach ($path in @($packageApo, $ctl, $endpointCtl, $packageRealtime, $realtimeSmoke, $apoSmoke, $mixProbe)) {
+foreach ($path in @($packageApo, $packageRealtime, $ctl, $endpointCtl, $realtimeSmoke, $apoSmoke, $mixProbe)) {
     if (-not (Test-Path -LiteralPath $path)) { throw "Missing package file: $path" }
 }
 
@@ -34,7 +55,9 @@ function Stop-LegacyOmniphonyHost {
     }
 
     foreach ($process in $running) {
-        Write-Host "STOP_LEGACY_HOST PID=$($process.Id) PATH=$($process.Path)"
+        $path = $null
+        try { $path = $process.Path } catch { }
+        Write-Host "STOP_LEGACY_HOST PID=$($process.Id) PATH=$path"
         Stop-Process -Id $process.Id -Force -ErrorAction Stop
     }
     Start-Sleep -Milliseconds 250
@@ -43,6 +66,19 @@ function Stop-LegacyOmniphonyHost {
         throw 'A legacy Omniphony process is still running after the installer attempted to stop it.'
     }
     Write-Host 'LEGACY_HOST_RUNNING 0'
+}
+
+function Set-AudioServiceRunning([bool]$Running) {
+    $service = Get-Service -Name AudioSrv -ErrorAction Stop
+    if ($Running) {
+        if ($service.Status -ne 'Running') {
+            Start-Service -Name AudioSrv
+        }
+    } else {
+        if ($service.Status -ne 'Stopped') {
+            Stop-Service -Name AudioSrv -Force
+        }
+    }
 }
 
 function Unregister-InstalledApoBestEffort {
@@ -59,49 +95,57 @@ function Unregister-InstalledApoBestEffort {
 }
 
 function Rollback-EndpointAttachment {
-    Write-Warning 'Rolling back Omniphony endpoint attachment.'
+    Write-Warning 'Rolling back Omniphony APO attachment.'
     try {
         & $ctl detach $PhysicalOutput 'FiiO' 'Noire' | Out-Host
     } catch {
-        Write-Warning "Endpoint detach rollback failed: $($_.Exception.Message)"
+        Write-Warning "APO detach rollback failed: $($_.Exception.Message)"
     }
     try {
-        Restart-Service -Name AudioSrv -Force
+        Set-AudioServiceRunning $false
+        Unregister-InstalledApoBestEffort
+        Set-AudioServiceRunning $true
         Start-Sleep -Milliseconds 750
     } catch {
-        Write-Warning "AudioSrv rollback restart failed: $($_.Exception.Message)"
+        Write-Warning "Audio rollback failed: $($_.Exception.Message)"
+        try { Set-AudioServiceRunning $true } catch { }
     }
-    Unregister-InstalledApoBestEffort
 }
 
+# Fail before touching Windows audio if the portable engine cannot initialize.
 & $realtimeSmoke $packageRealtime
 if ($LASTEXITCODE -ne 0) {
     throw "Omniphony realtime ABI self-test failed before installation: $LASTEXITCODE"
 }
 
-# The old loopback/tray host must never coexist with the endpoint APO during a
-# migration. It can otherwise keep repairing old routing or hold audio state
-# while the physical endpoint is being reconfigured.
+# Migration invariant: the old loopback/tray process must not coexist with the
+# native APO. It can otherwise repair obsolete routing or hold audio state while
+# the physical endpoint is being reconfigured.
 Stop-LegacyOmniphonyHost
 
-# AudioDG hosts endpoint APOs out of process. Never register the development APO
-# from Downloads/Desktop/a temporary extraction directory. Stage the runtime in
-# Program Files so the audio service has a stable, machine-readable path and so
-# future updates do not depend on the ZIP remaining in place.
-Stop-Service -Name AudioSrv -Force
-New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
-Copy-Item -LiteralPath $packageApo -Destination $installedApo -Force
-Copy-Item -LiteralPath $packageRealtime -Destination $installedRealtime -Force
+# Future upgrades are safe even if AudioDG currently has the installed APO DLL
+# loaded: stop AudioSrv before replacing the two runtime files.
+Set-AudioServiceRunning $false
+try {
+    New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
+    Copy-Item -LiteralPath $packageApo -Destination $installedApo -Force
+    Copy-Item -LiteralPath $packageRealtime -Destination $installedRealtime -Force
 
-$register = Start-Process -FilePath $regsvr32 -ArgumentList @('/s', $installedApo) -Wait -PassThru
-if ($register.ExitCode -ne 0) {
-    Start-Service -Name AudioSrv
-    throw "APO COM registration failed from installed runtime path: $($register.ExitCode)"
+    if (Test-Path -LiteralPath $legacyRuntimeRoot) {
+        Remove-Item -LiteralPath $legacyRuntimeRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    $register = Start-Process -FilePath $regsvr32 -ArgumentList @('/s', $installedApo) -Wait -PassThru
+    if ($register.ExitCode -ne 0) {
+        throw "APO COM registration failed from installed runtime path: $($register.ExitCode)"
+    }
 }
-
-Start-Service -Name AudioSrv
+finally {
+    Set-AudioServiceRunning $true
+}
 Start-Sleep -Milliseconds 500
 
+# Exercise the registered Program Files copy before endpoint association.
 & $apoSmoke
 if ($LASTEXITCODE -ne 0) {
     Unregister-InstalledApoBestEffort
@@ -129,10 +173,8 @@ if ($LASTEXITCODE -ne 0) {
     throw 'APO registry state did not survive Windows Audio restart.'
 }
 
-# This is the real-world gate the earlier bootstrap was missing. It asks the
-# physical endpoint for the shared-mode mix format after AudioSrv has loaded the
-# installed APO. Failure rolls the EFX association back instead of leaving the
-# endpoint unusable.
+# This is the physical Windows-audio gate that the first Current package lacked.
+# It exercises the same shared-mode GetMixFormat boundary that foobar hits.
 & $mixProbe $PhysicalOutput 'FiiO' 'Noire'
 if ($LASTEXITCODE -ne 0) {
     $probeExit = $LASTEXITCODE
@@ -141,10 +183,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host ''
-Write-Host 'Omniphony Current is attached to the physical endpoint.'
+Write-Host 'OMNIPHONY_APO_INSTALL_OK 1'
 Write-Host "Runtime installed at: $runtimeRoot"
 Write-Host 'Current includes the primary Noire X personal output-EQ and right-ear correction profile.'
-Write-Host 'The native endpoint remains the Windows default; no Omniphony playback device is required.'
-Write-Host 'The physical endpoint passed a post-restart WASAPI GetMixFormat probe.'
-Write-Host 'The legacy Omniphony host is not running.'
-Write-Host 'This is now an audible listening candidate. Physical listening decides whether it is retained.'
+Write-Host 'The FiiO / Noire endpoint remains the Windows default.'
+Write-Host 'No Omniphony playback device or virtual audio driver is required.'
+Write-Host 'The physical endpoint passed the post-restart WASAPI GetMixFormat gate.'
+Write-Host 'The legacy Omniphony process is not running.'
