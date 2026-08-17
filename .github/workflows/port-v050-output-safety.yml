@@ -1,0 +1,166 @@
+name: Port v0.5 output safety
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/port-v050-output-safety.yml
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: 1.88.0
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  port:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup override set "$RUST_TOOLCHAIN"
+      - name: Adapt upstream frame-owned geometry and output-mode fade
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              p = Path(path)
+              s = p.read_text(encoding='utf-8')
+              n = s.count(old)
+              if n != 1:
+                  raise SystemExit(f'{label}: expected 1 match in {path}, found {n}')
+              p.write_text(s.replace(old, new, 1), encoding='utf-8')
+
+          components = 'omniphony-renderer/renderer/src/spatial_renderer/components.rs'
+          replace_once(
+              components,
+              '    pub samples: Vec<f32>,\n    /// VBAP gains at the final sample for each rendered object channel.\n',
+              '    pub samples: Vec<f32>,\n    /// Channels interleaved in `samples`, owned by this completed render.\n    /// This must never be reconstructed by re-reading asynchronously mutable live state.\n    pub n_channels: usize,\n    /// VBAP gains at the final sample for each rendered object channel.\n',
+              'RenderedFrame n_channels',
+          )
+
+          mod = 'omniphony-renderer/renderer/src/spatial_renderer/mod.rs'
+          replace_once(
+              mod,
+              '''pub enum ChannelRoute {\n    Direct(bridge_api::RChannelLabel),\n    Virtual,\n}\n\npub struct SpatialRenderer {\n    /// Number of output speakers (total, including non-spatialized like LFE)\n    num_speakers: usize,\n''',
+              '''pub enum ChannelRoute {\n    Direct(bridge_api::RChannelLabel),\n    Virtual,\n}\n\n/// Cross-fade covering a live output-mode change. The outgoing DSP chain\n/// reaches silence before the renderer adopts the incoming chain, then the\n/// incoming chain rises from the same zero crossing.\nstruct OutputModeFade {\n    remaining: usize,\n    total: usize,\n    fading_out: bool,\n}\n\npub struct SpatialRenderer {\n    /// Number of output speakers (total, including non-spatialized like LFE)\n    num_speakers: usize,\n\n    /// Mode actually producing samples. It may lag the requested live mode\n    /// while the 5 ms transition is in flight.\n    active_output_mode: crate::live_params::OutputMode,\n    mode_fade: Option<OutputModeFade>,\n    mode_fade_samples: usize,\n    has_rendered_frame: bool,\n''',
+              'output fade fields',
+          )
+
+          replace_once(
+              mod,
+              '''        let (binaural_active, cascade_active) = {\n            let g = self.control.live.read();\n            (\n                matches!(\n                    g.binaural.output_mode,\n                    crate::live_params::OutputMode::Binaural\n                ),\n                matches!(g.binaural.mode, crate::live_params::BinauralMode::Cascaded),\n            )\n        };\n''',
+              '''        let (requested_output_mode, cascade_active) = {\n            let g = self.control.live.read();\n            (\n                g.binaural.output_mode,\n                matches!(g.binaural.mode, crate::live_params::BinauralMode::Cascaded),\n            )\n        };\n        if requested_output_mode != self.active_output_mode {\n            if !self.has_rendered_frame {\n                // Before the first frame there is no discontinuity to conceal.\n                self.active_output_mode = requested_output_mode;\n            } else if self.mode_fade.is_none() {\n                self.mode_fade = Some(OutputModeFade {\n                    remaining: self.mode_fade_samples,\n                    total: self.mode_fade_samples,\n                    fading_out: true,\n                });\n            }\n        }\n        self.has_rendered_frame = true;\n        let binaural_active = matches!(\n            self.active_output_mode,\n            crate::live_params::OutputMode::Binaural\n        );\n''',
+              'mode selection',
+          )
+
+          replace_once(
+              mod,
+              '''            // Cascaded mode returns the virtual mix diagnostics: they index\n            // the app layout, so the object meters stay valid on headphones.\n            return Ok(match cascade_diag {\n''',
+              '''            self.apply_output_mode_fade(&mut output, 2);\n            // Cascaded mode returns the virtual mix diagnostics: they index\n            // the app layout, so the object meters stay valid on headphones.\n            return Ok(match cascade_diag {\n''',
+              'binaural fade call',
+          )
+          # The two binaural frame literals occur back-to-back and are the first
+          # RenderedFrame literals in the function.
+          p = Path(mod)
+          s = p.read_text(encoding='utf-8')
+          needle = '                    RenderedFrame {\n                        samples: output,\n'
+          if s.count(needle) != 1:
+              raise SystemExit(f'binaural diag frame literal: found {s.count(needle)}')
+          s = s.replace(needle, needle + '                        n_channels: 2,\n', 1)
+          needle2 = '                None => RenderedFrame {\n                    samples: output,\n'
+          if s.count(needle2) != 1:
+              raise SystemExit(f'binaural plain frame literal: found {s.count(needle2)}')
+          s = s.replace(needle2, needle2 + '                    n_channels: 2,\n', 1)
+          p.write_text(s, encoding='utf-8')
+
+          replace_once(
+              mod,
+              '''        diag.object_gains.sort_by_key(|(idx, _)| *idx);\n        diag.object_band_gains.sort_by_key(|(idx, _)| *idx);\n        diag.object_band_sq.sort_by_key(|(idx, _)| *idx);\n        Ok(RenderedFrame {\n            samples: output,\n''',
+              '''        let speaker_channels = self.num_speakers;\n        self.apply_output_mode_fade(&mut output, speaker_channels);\n        diag.object_gains.sort_by_key(|(idx, _)| *idx);\n        diag.object_band_gains.sort_by_key(|(idx, _)| *idx);\n        diag.object_band_sq.sort_by_key(|(idx, _)| *idx);\n        Ok(RenderedFrame {\n            samples: output,\n            n_channels: self.num_speakers,\n''',
+              'speaker frame width and fade',
+          )
+
+          replace_once(
+              mod,
+              '''    pub fn output_is_binaural(&self) -> bool {\n        matches!(\n            self.control.live.read().binaural.output_mode,\n            crate::live_params::OutputMode::Binaural\n        )\n    }\n''',
+              '''    pub fn output_is_binaural(&self) -> bool {\n        matches!(\n            self.active_output_mode,\n            crate::live_params::OutputMode::Binaural\n        )\n    }\n''',
+              'active output_is_binaural',
+          )
+
+          replace_once(
+              mod,
+              '''    pub fn num_speakers(&self) -> usize {\n        self.num_speakers\n    }\n''',
+              '''    /// Apply an in-flight output-mode cross-fade and adopt the newest\n    /// requested mode only at the silent midpoint.\n    fn apply_output_mode_fade(&mut self, output: &mut [f32], n_channels: usize) {\n        let Some(fade) = self.mode_fade.as_mut() else {\n            return;\n        };\n        if n_channels == 0 || fade.total == 0 {\n            self.mode_fade = None;\n            return;\n        }\n        let frames = output.len() / n_channels;\n        let total = fade.total as f32;\n        for frame in 0..frames {\n            let left = fade.remaining.saturating_sub(frame) as f32;\n            let ramp = left / total;\n            let gain = if fade.fading_out { ramp } else { 1.0 - ramp };\n            let base = frame * n_channels;\n            for sample in &mut output[base..base + n_channels] {\n                *sample *= gain;\n            }\n        }\n        fade.remaining = fade.remaining.saturating_sub(frames);\n        if fade.remaining > 0 {\n            return;\n        }\n        if fade.fading_out {\n            self.active_output_mode = self.control.live.read().binaural.output_mode;\n            fade.remaining = fade.total;\n            fade.fading_out = false;\n        } else {\n            self.mode_fade = None;\n        }\n    }\n\n    pub fn num_speakers(&self) -> usize {\n        self.num_speakers\n    }\n''',
+              'apply_output_mode_fade method',
+          )
+
+          replace_once(
+              mod,
+              '''    pub fn output_channel_count(&self) -> usize {\n        match self.control.live.read().binaural.output_mode {\n            crate::live_params::OutputMode::Binaural => 2,\n            crate::live_params::OutputMode::SpeakerArray => self.num_speakers,\n        }\n    }\n''',
+              '''    pub fn output_channel_count(&self) -> usize {\n        match self.active_output_mode {\n            crate::live_params::OutputMode::Binaural => 2,\n            crate::live_params::OutputMode::SpeakerArray => self.num_speakers,\n        }\n    }\n''',
+              'active output_channel_count',
+          )
+
+          construction = 'omniphony-renderer/renderer/src/spatial_renderer/construction.rs'
+          replace_once(
+              construction,
+              '''        Ok(Self {\n            num_speakers,\n            spread_resolution,\n''',
+              '''        // Begin settled on the configured mode. The fade is only for\n        // changes after audio has actually been emitted.\n        let initial_output_mode = control.live.read().binaural.output_mode;\n\n        Ok(Self {\n            num_speakers,\n            active_output_mode: initial_output_mode,\n            mode_fade: None,\n            mode_fade_samples: ((sample_rate as f32) * 0.005).round().max(1.0) as usize,\n            has_rendered_frame: false,\n            spread_resolution,\n''',
+              'construction output mode state',
+          )
+
+          engine = 'omniphony-renderer/orender_engine/src/engine.rs'
+          replace_once(
+              engine,
+              '        let n_channels = self.renderer.output_channel_count() as u32;\n\n        if want_metering {\n',
+              '''        // Geometry belongs to the completed render, not to a second\n        // asynchronous live-state read after the samples were produced.\n        let n_channels = rendered.n_channels as u32;\n\n        if want_metering {\n''',
+              'engine frame-owned width',
+          )
+          replace_once(
+              engine,
+              '''        Ok(Some(RenderedAudio {\n            samples: rendered.samples,\n''',
+              '''        debug_assert_eq!(\n            rendered.samples.len(),\n            sample_count * n_channels as usize,\n            "RenderedAudio contract: samples.len() must equal n_frames * n_channels"\n        );\n        Ok(Some(RenderedAudio {\n            samples: rendered.samples,\n''',
+              'engine geometry assertion',
+          )
+
+          tests = Path('omniphony-renderer/renderer/src/spatial_renderer/tests.rs')
+          ts = tests.read_text(encoding='utf-8')
+          marker = 'fn v050_output_safety_renderer() -> SpatialRenderer'
+          if marker not in ts:
+              ts += r'''\n\n// v0.5 regression: the completed frame owns its geometry even if the live\n// request changes immediately afterwards, and a post-startup mode change\n// transitions through a bounded fade rather than swapping DSP chains at full scale.\nfn v050_output_safety_renderer() -> SpatialRenderer {\n    SpatialRenderer::new(\n        SpeakerLayout::preset("7.1.4").unwrap(),\n        48_000, 1, 1, 0.0, 2.0, VbapTableMode::Polar, false, true,\n        DistanceModel::Linear, false, 1.0, 1.0, 0.0, 1.0, false,\n        [1.0, 2.0, 0.5], 2.0, 0.5, 0.0, 0.0, false, false, false,\n        1.0, 1.0, PreferredEvaluationMode::PrecomputedPolar,\n        LiveEvaluationMode::PrecomputedPolar, 31, 31, 15, 15,\n    ).unwrap()\n}\n\n#[test]\nfn completed_frame_keeps_its_own_width_after_live_flip() {\n    let mut renderer = v050_output_safety_renderer();\n    renderer.renderer_control().live.write().binaural.output_mode =\n        crate::live_params::OutputMode::Binaural;\n    let pcm = vec![0.0f32; 40];\n    let frame = renderer.render_frame(&pcm, 1, &[], Vec::new(), false).unwrap();\n    assert_eq!(frame.n_channels, 2);\n    assert_eq!(frame.samples.len(), 40 * frame.n_channels);\n\n    renderer.renderer_control().live.write().binaural.output_mode =\n        crate::live_params::OutputMode::SpeakerArray;\n    assert_eq!(frame.n_channels, 2, "completed frame geometry must be immutable");\n    assert_eq!(frame.samples.len(), 40 * frame.n_channels);\n}\n\n#[test]\nfn output_mode_switch_fades_and_every_frame_describes_itself() {\n    let mut renderer = v050_output_safety_renderer();\n    renderer.renderer_control().live.write().binaural.output_mode =\n        crate::live_params::OutputMode::Binaural;\n    let pcm = vec![0.0f32; 40];\n    let first = renderer.render_frame(&pcm, 1, &[], Vec::new(), false).unwrap();\n    assert_eq!(first.n_channels, 2);\n\n    renderer.renderer_control().live.write().binaural.output_mode =\n        crate::live_params::OutputMode::SpeakerArray;\n    let mut saw_speaker = false;\n    for _ in 0..16 {\n        let frame = renderer.render_frame(&pcm, 1, &[], Vec::new(), false).unwrap();\n        assert_eq!(frame.samples.len(), 40 * frame.n_channels);\n        assert!(frame.n_channels == 2 || frame.n_channels == renderer.num_speakers());\n        saw_speaker |= frame.n_channels == renderer.num_speakers();\n    }\n    assert!(saw_speaker, "5 ms transition never reached the requested speaker path");\n}\n'''
+              tests.write_text(ts, encoding='utf-8')
+          PY
+
+      - name: Compile and test the adapted safety contract
+        working-directory: omniphony-renderer
+        shell: bash
+        run: |
+          cargo check -p renderer -p orender_engine
+          cargo test -p renderer completed_frame_keeps_its_own_width_after_live_flip --lib
+          cargo test -p renderer output_mode_switch_fades_and_every_frame_describes_itself --lib
+          cargo test -p renderer binaural --lib
+      - name: Commit verified port
+        shell: bash
+        run: |
+          git diff --check
+          git config user.name "dissonance"
+          git config user.email "ustreamusa@aim.com"
+          git add omniphony-renderer/renderer/src/spatial_renderer/components.rs \
+                  omniphony-renderer/renderer/src/spatial_renderer/mod.rs \
+                  omniphony-renderer/renderer/src/spatial_renderer/construction.rs \
+                  omniphony-renderer/renderer/src/spatial_renderer/tests.rs \
+                  omniphony-renderer/orender_engine/src/engine.rs
+          git commit -m "fix(renderer): port v0.5 frame geometry and mode fade"
+          git pull --rebase origin main
+          git push origin HEAD:main
