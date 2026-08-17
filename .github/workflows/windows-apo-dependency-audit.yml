@@ -1,0 +1,60 @@
+name: Windows APO dependency audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/windows-apo-dependency-audit.yml'
+      - 'omniphony-renderer/windows_installer/endpoint_apo/**'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+        with:
+          vs-version: '[17.0,18.0)'
+      - name: Ensure Windows 11 WDK
+        shell: pwsh
+        run: |
+          choco install windowsdriverkit11 -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "WDK installation failed: $LASTEXITCODE" }
+      - name: Build native APO
+        shell: pwsh
+        run: |
+          cmake -S omniphony-renderer/windows_installer/endpoint_apo -B build/apo -A x64
+          if ($LASTEXITCODE -ne 0) { throw "APO CMake configure failed: $LASTEXITCODE" }
+          cmake --build build/apo --config Release --parallel
+          if ($LASTEXITCODE -ne 0) { throw "APO build failed: $LASTEXITCODE" }
+      - name: Audit APO import table
+        shell: pwsh
+        run: |
+          $dll = (Resolve-Path 'build/apo/Release/OmniphonyAPO.dll').Path
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw 'Visual Studio C++ tools not found' }
+          $dumpbin = Get-ChildItem (Join-Path $vs 'VC\Tools\MSVC') -Recurse -Filter dumpbin.exe -File |
+            Where-Object { $_.FullName -match '\\Hostx64\\x64\\dumpbin\.exe$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $dumpbin) { throw 'dumpbin.exe not found' }
+          $deps = (& $dumpbin.FullName /DEPENDENTS $dll 2>&1 | Out-String)
+          Write-Host $deps
+          $forbidden = @(
+            'AudioBaseProcessingObject.dll',
+            'VCRUNTIME140.dll',
+            'VCRUNTIME140_1.dll',
+            'MSVCP140.dll'
+          )
+          foreach ($name in $forbidden) {
+            if ($deps -match [regex]::Escape($name)) {
+              throw "APO has non-system runtime dependency: $name"
+            }
+          }
+          Write-Host 'APO_DEPENDENCY_AUDIT_OK 1'
