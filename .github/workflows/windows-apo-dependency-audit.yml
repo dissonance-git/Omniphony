@@ -30,6 +30,25 @@ jobs:
         run: |
           choco install windowsdriverkit11 -y --no-progress
           if ($LASTEXITCODE -ne 0) { throw "WDK installation failed: $LASTEXITCODE" }
+
+      - name: Verify production APO INF with InfVerif
+        shell: pwsh
+        run: |
+          $source = 'omniphony-renderer/windows_installer/endpoint_apo/production/OmniphonyApoComponent.inx'
+          $inf = Join-Path $env:RUNNER_TEMP 'OmniphonyApoComponent.inf'
+          Copy-Item $source $inf -Force
+          $kitsRoot = 'C:\Program Files (x86)\Windows Kits\10'
+          $infverif = Get-ChildItem $kitsRoot -Recurse -Filter 'InfVerif.exe' -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\x64\\InfVerif\.exe$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 |
+            ForEach-Object FullName
+          if (-not $infverif) { throw 'x64 InfVerif.exe not found in Windows Kits' }
+          Write-Host "InfVerif=$infverif"
+          & $infverif /w /v $inf
+          if ($LASTEXITCODE -ne 0) { throw "production APO INF failed InfVerif /w: $LASTEXITCODE" }
+          Write-Host 'PRODUCTION_APO_INFVERIF_OK 1'
+
       - name: Build native APO
         shell: pwsh
         run: |
