@@ -5,9 +5,8 @@
 //! RIFF/WAVE header once, then converts the accumulated PCM into
 //! [`RDecodedFrame`]s. Each frame carries one [`RChannelLabel`] per channel and
 //! **empty** metadata: that is exactly how the renderer recognises a plain
-//! channel bed (`Engine::process_decoded_frame` treats any non-empty metadata as
-//! object content and skips the bed path). The renderer then spatialises the bed
-//! through its virtual-bed / VBAP stage according to the per-channel labels.
+//! channel bed. Known legacy layouts remain accepted unchanged, while 16- and
+//! 17-channel internal beds expose the complete 7.1.4.4 / 8.1.4.4 vocabulary.
 
 use abi_stable::std_types::{RSlice, RStr, RString, RVec};
 use bridge_api::{
@@ -18,26 +17,16 @@ use bridge_api::{
 use crate::logging::bridge_diag_log;
 use crate::wav::{HeaderParse, WavFormat, parse_header};
 
-/// Maximum number of sample-frames emitted in a single [`RDecodedFrame`].
-/// Bounds per-frame allocation and keeps the renderer's per-frame work modest
-/// while staying large enough to avoid per-call overhead dominating.
 const BLOCK_FRAMES: usize = 2048;
 
-/// Streaming parse state.
 enum State {
-    /// Still accumulating bytes until the WAVE header can be parsed.
     Header,
-    /// Header parsed; `format` known and PCM is being streamed. `remaining`
-    /// counts the data-chunk bytes still expected (`u64::MAX` = until EOF).
     Data { format: WavFormat, remaining: u64 },
 }
 
 pub(crate) struct WavBridge {
-    /// Accumulates raw input bytes across `push_packet` calls.
     buf: Vec<u8>,
     state: State,
-    /// Cached per-channel labels for the active format (computed once, cloned
-    /// per emitted frame — never per sample).
     labels: Vec<RChannelLabel>,
     strict: bool,
     frames_emitted: u64,
@@ -60,8 +49,6 @@ impl WavBridge {
         self.labels.clear();
     }
 
-    /// Emit one error into `result`, resetting the parser. In strict mode the
-    /// message is surfaced via `error_message`; otherwise it is logged only.
     fn fail(&mut self, result: &mut RPushResult, message: &str) {
         bridge_diag_log(log::Level::Warn, message);
         self.reset_state();
@@ -71,9 +58,6 @@ impl WavBridge {
         }
     }
 
-    /// Try to parse the header from the front of `buf`. On success transitions to
-    /// [`State::Data`] and drains the consumed header bytes. Returns `true` once
-    /// streaming can proceed.
     fn try_parse_header(&mut self, result: &mut RPushResult) -> bool {
         match parse_header(&self.buf) {
             HeaderParse::NeedMore => false,
@@ -104,7 +88,6 @@ impl WavBridge {
         }
     }
 
-    /// Convert all complete sample-frames currently buffered into decoded frames.
     fn drain_pcm(&mut self, result: &mut RPushResult) {
         let State::Data { format, remaining } = &mut self.state else {
             return;
@@ -117,7 +100,6 @@ impl WavBridge {
             return;
         }
 
-        // Honour the declared data size: never read past the data chunk.
         let available_bytes = if *remaining == u64::MAX {
             self.buf.len()
         } else {
@@ -128,15 +110,13 @@ impl WavBridge {
             return;
         }
 
-        let mut frame_start = 0usize; // running byte cursor into `self.buf`
+        let mut frame_start = 0usize;
         let mut frames_left = total_frames;
         while frames_left > 0 {
             let n = frames_left.min(BLOCK_FRAMES);
             let sample_total = n * channels;
             let mut pcm: RVec<i32> = RVec::with_capacity(sample_total);
 
-            // Interleaved conversion. One reserved allocation for the whole
-            // block; no per-sample heap activity.
             let mut byte_idx = frame_start;
             for _ in 0..sample_total {
                 let s = format
@@ -152,7 +132,6 @@ impl WavBridge {
                 channel_count: format.channels as u32,
                 pcm,
                 channel_labels: RVec::from(self.labels.clone()),
-                // Empty metadata ⇒ the renderer treats this as a channel bed.
                 metadata: RVec::<RMetadataFrame>::new(),
                 drc_gain: 1.0,
                 drc_ramp_duration: 0,
@@ -171,16 +150,21 @@ impl WavBridge {
                 *remaining -= consumed as u64;
             }
         }
-        // Single O(remaining) compaction per call; leftover is < one block.
         self.buf.drain(0..consumed);
     }
 }
 
-/// Map a channel count to canonical [`RChannelLabel`]s.
+/// Map an unambiguous channel count to canonical labels.
 ///
-/// Known layouts use the conventional interleave order; any unrecognised count
-/// labels as many leading channels as it can and marks the rest `Unknown` (still
-/// rendered, just without a canonical position).
+/// Historical 1/2/5.1/7.1/7.1.4 mappings are preserved exactly. The two richer
+/// internal orders are:
+///
+/// - 16ch 7.1.4.4: `L R C LFE Ls Rs Lb Rb Tfl Tfr Tbl Tbr Bfl Bfr Bbl Bbr`
+/// - 17ch 8.1.4.4: `L R C LFE Ls Rs Lb Rb Cb Tfl Tfr Tbl Tbr Bfl Bfr Bbl Bbr`
+///
+/// A real external WAVE_FORMAT_EXTENSIBLE channel mask should be preferred when
+/// available; these count-only orders are primarily the linked Current bridge
+/// and deterministic compatibility fixtures.
 fn channel_labels(channel_count: u16) -> Vec<RChannelLabel> {
     use RChannelLabel::*;
     let canonical: &[RChannelLabel] = match channel_count {
@@ -189,20 +173,23 @@ fn channel_labels(channel_count: u16) -> Vec<RChannelLabel> {
         6 => &[L, R, C, LFE, Ls, Rs],
         8 => &[L, R, C, LFE, Ls, Rs, Lb, Rb],
         12 => &[L, R, C, LFE, Ls, Rs, Lb, Rb, Tfl, Tfr, Tbl, Tbr],
+        16 => &[
+            L, R, C, LFE, Ls, Rs, Lb, Rb, Tfl, Tfr, Tbl, Tbr, Bfl, Bfr, Bbl, Bbr,
+        ],
+        17 => &[
+            L, R, C, LFE, Ls, Rs, Lb, Rb, Cb, Tfl, Tfr, Tbl, Tbr, Bfl, Bfr, Bbl, Bbr,
+        ],
         _ => &[],
     };
     if !canonical.is_empty() {
         return canonical.to_vec();
     }
-    // Best-effort fallback for unsupported counts.
-    const BEST_EFFORT: &[RChannelLabel] = &[L, R, C, LFE, Ls, Rs, Lb, Rb, Tfl, Tfr, Tbl, Tbr];
+
+    const BEST_EFFORT: &[RChannelLabel] = &[
+        L, R, C, LFE, Ls, Rs, Lb, Rb, Cb, Tfl, Tfr, Tbl, Tbr, Bfl, Bfr, Bbl, Bbr,
+    ];
     (0..channel_count as usize)
-        .map(|i| {
-            BEST_EFFORT
-                .get(i)
-                .copied()
-                .unwrap_or(RChannelLabel::Unknown)
-        })
+        .map(|i| BEST_EFFORT.get(i).copied().unwrap_or(RChannelLabel::Unknown))
         .collect()
 }
 
@@ -219,10 +206,7 @@ impl FormatBridge for WavBridge {
             did_reset: false,
         };
 
-        // The bridge is byte-stream oriented; both Raw and any extracted payload
-        // are simply appended. (The orender file-decode path always uses Raw.)
         self.buf.extend_from_slice(data.as_slice());
-
         if matches!(self.state, State::Header) && !self.try_parse_header(&mut result) {
             return result;
         }
@@ -239,15 +223,10 @@ impl FormatBridge for WavBridge {
     }
 
     fn has_objects(&self) -> bool {
-        // A WAV file carries fixed channels only: no dynamic objects.
         false
     }
 
     fn configure(&mut self, key: RStr<'_>, _value: RStr<'_>) -> bool {
-        // A WAV file exposes a single presentation, so the host's mandatory
-        // `presentation` selection is accepted (and ignored) — returning false
-        // here makes the CLI abort with "Bridge rejected presentation value".
-        // All other keys are unrecognised.
         key.as_str() == "presentation"
     }
 
@@ -256,7 +235,6 @@ impl FormatBridge for WavBridge {
     }
 
     fn vbap_cartesian_defaults(&self) -> RVbapCartesianDefaults {
-        // Balanced default grid, matching the production bridge's hint.
         RVbapCartesianDefaults {
             x_size: 62,
             y_size: 62,
@@ -270,7 +248,6 @@ impl FormatBridge for WavBridge {
     }
 
     fn supported_drc_modes(&self) -> RVec<RString> {
-        // Linear PCM carries no dynamic-range metadata.
         RVec::new()
     }
 
@@ -313,11 +290,20 @@ mod tests {
         use RChannelLabel::*;
         assert_eq!(channel_labels(2), vec![L, R]);
         assert_eq!(channel_labels(6), vec![L, R, C, LFE, Ls, Rs]);
+        assert_eq!(channel_labels(8), vec![L, R, C, LFE, Ls, Rs, Lb, Rb]);
         assert_eq!(
             channel_labels(12),
             vec![L, R, C, LFE, Ls, Rs, Lb, Rb, Tfl, Tfr, Tbl, Tbr]
         );
-        // Unsupported count: best-effort prefix then Unknown.
+        assert_eq!(
+            channel_labels(16),
+            vec![L, R, C, LFE, Ls, Rs, Lb, Rb, Tfl, Tfr, Tbl, Tbr, Bfl, Bfr, Bbl, Bbr]
+        );
+        assert_eq!(
+            channel_labels(17),
+            vec![L, R, C, LFE, Ls, Rs, Lb, Rb, Cb, Tfl, Tfr, Tbl, Tbr, Bfl, Bfr, Bbl, Bbr]
+        );
+
         let three = channel_labels(3);
         assert_eq!(three, vec![L, R, C]);
         let seven = channel_labels(7);
@@ -339,7 +325,6 @@ mod tests {
         assert_eq!(f.channel_count, 2);
         assert_eq!(f.sampling_frequency, 48_000);
         assert!(f.metadata.is_empty(), "bed frames must carry no metadata");
-        // 16-bit value 100 → 24-bit scaled (<< 8).
         assert_eq!(f.pcm[0], 100 << 8);
         assert_eq!(f.pcm[1], -100 << 8);
     }
@@ -350,7 +335,6 @@ mod tests {
         let wav = write_wav(2, 48_000, &frames);
         let mut bridge = WavBridge::new(false);
         let mut total = 0u32;
-        // Feed 7 bytes at a time to exercise header/PCM straddling.
         for chunk in wav.chunks(7) {
             let r = bridge.push_packet(RSlice::from_slice(chunk), RInputTransport::Raw, 0);
             assert!(r.error_message.is_empty());
@@ -361,7 +345,6 @@ mod tests {
 
     #[test]
     fn honours_declared_data_size() {
-        // Append trailing bytes after the data chunk; they must not be decoded.
         let frames = vec![vec![1i16, 2], vec![3, 4]];
         let mut wav = write_wav(2, 48_000, &frames);
         wav.extend_from_slice(b"LIST\x04\x00\x00\x00junk");
