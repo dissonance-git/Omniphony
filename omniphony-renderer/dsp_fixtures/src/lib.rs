@@ -14,6 +14,7 @@ pub mod binaural_groove_fidelity;
 pub mod diagnostic_signals;
 pub mod dirs;
 pub mod golden;
+pub mod orbit;
 pub mod residual;
 pub mod scene;
 pub mod stream_reset;
