@@ -4,205 +4,215 @@
 
 This repository remains a downstream fork of `mgth/Omniphony`.
 
-**Omniphony is the renderer/engine family. Omniphony for Windows is an operating-system host around that engine, not a second renderer.**
+**Omniphony is the renderer/engine family. Omniphony for Windows is the Windows operating-system integration of that engine, not a second renderer and not a virtual-cable product.**
 
-The long-term shape is:
+The Windows product should live as close as practical to the final Windows render boundary:
 
 ```text
-Omniphony portable engine / rendering contracts
-        │
-        ├── Omniphony Studio
-        │     visualization / supervision / advanced control
-        │
-        ├── Omniphony for Windows
-        │     installation
-        │     virtual render endpoint
-        │     system-wide routing
-        │     physical-device selection
-        │     lifecycle / watchdog / recovery
-        │     autostart / updates / uninstall
-        │     lightweight tray controls
-        │     optional access to the same advanced controls Studio exposes
-        │
-        ├── future operating-system hosts
-        │     replace the host shell without replacing the engine
-        │
-        └── application-specific hosts such as foo_omniphony
+applications / games / browsers / players
+        ↓
+Windows Audio Engine
+        ↓
+Omniphony endpoint effect (EFX APO)
+        ↓
+physical endpoint driver
+        ↓
+DAC / headphones
 ```
 
-The Windows host may be replaced later. Windows concepts must not leak into the portable renderer merely because Windows is the first productized host.
-
-## Why this boundary exists
-
-Upstream already separates the real-time renderer from Studio and from platform output backends. This fork should preserve that separation while adding a Windows integration layer suitable for ordinary daily use.
-
-The Windows wrapper should make Omniphony behave like installed system audio software:
+For the primary development system that means:
 
 ```text
-install once
-→ choose/remember physical headphone output
-→ create Omniphony system endpoint
-→ make it the ordinary Windows output
-→ render headlessly in the background
-→ recover automatically
-→ uninstall cleanly
+Windows Audio Engine
+        ↓
+Omniphony EFX
+        ↓
+Dan Clark Noire X (FiiO Q series)
+        ↓
+FiiO K7 / headphones
 ```
 
-Normal use must not require ASIO Bridge, HeSuVi, Hi-Fi Cable, manual device switching, command files, PowerShell, a terminal, or Studio.
+No virtual cable, loopback capture, duplicated dry stream, or second user-visible playback endpoint belongs in the mature path.
 
-Studio remains valuable as an advanced control and visualization surface. Omniphony for Windows should eventually expose or forward the same useful engine controls without duplicating the renderer or inventing a parallel control model.
+## Why EFX is the correct Windows boundary
 
-## Portable core vs host adapters
+Windows already defines an Audio Processing Object architecture for system audio effects. An endpoint effect (EFX) is applied to all streams that use one endpoint and is positioned after the render mix. That is the exact product role Omniphony for Windows needs: one post-mix DSP layer immediately before the physical endpoint.
 
-The architectural boundary is:
+The intended topology is therefore:
 
 ```text
-PORTABLE
-Omniphony renderer
+many Windows streams
+        ↓
+Windows mixing / normal app volume / normal device policy
+        ↓
+ONE Omniphony processing graph
+        ↓
+physical FiiO endpoint
+```
+
+This eliminates the architectural problem that caused the temporary bridge to become fragile: capture and playback no longer need to be separated by a borrowed virtual sink. Windows owns the mix; Omniphony owns the final endpoint processing; the FiiO owns physical playback.
+
+## Windows APO constraint
+
+The correct architecture does not remove Windows deployment requirements.
+
+Custom APOs are user-mode COM DSP components loaded by the Windows audio engine, but modern Windows associates them with a specific audio device through the componentized audio-driver model. Windows does not support registering one global custom APO and automatically attaching it to arbitrary third-party audio drivers.
+
+For the current development target, Omniphony for Windows should therefore build and validate an endpoint-effect package associated with the FiiO render device. A future general-public product needs a supported device-association and signing strategy rather than registry hacks or a hidden virtual cable.
+
+Do not weaken Secure Boot, protected audio, driver signing, or other Windows integrity protections to make development easier.
+
+## Retired bootstrap transport
+
+The Steam Streaming Speakers / process-loopback / endpoint-loopback work was a temporary bootstrap used to exercise installer, routing, watchdog, and installed-runtime behavior while the real Windows boundary was unresolved.
+
+It is now retired as a product direction.
+
+Historical lessons remain useful:
+
+```text
+KEEP
+single EXE installation goal
+headless lifecycle
+writable per-user runtime logs
+explicit physical endpoint identity
+watchdog / restart behavior
+transactional rollback
+safe uninstall
+profile separation
+
+RETIRE
+Steam Streaming Speakers as transport
+virtual-cable-style default-device routing
+process loopback as normal ingestion
+endpoint loopback as normal ingestion
+borrowed virtual endpoint as product foundation
+```
+
+Do not spend new stabilization effort polishing the retired transport unless needed only as a bounded diagnostic control.
+
+## Portable core vs Windows adapter
+
+The portable renderer remains independent of Windows.
+
+```text
+PORTABLE CORE
+Omniphony rendering laws
 source authority
-PCM + source-layout contracts
-binaural / speaker rendering
+PCM / channel-layout contracts
+stereo inference
+multichannel / object preservation
+binaural rendering
 HRTF / ITD / geometry
 room / reflection machinery
-profile parameters that describe rendering
+profile parameters
 validation / measurement
 
-HOST-SPECIFIC
-Windows virtual endpoint
-WASAPI / Windows audio-session integration
-installer / driver package
-physical endpoint discovery
-set-default-device behavior
-tray / service / watchdog
-startup / update / uninstall
+WINDOWS ADAPTER
+EFX APO host
+Windows audio format negotiation
+endpoint/device association
+profile/config loading
+realtime-safe call into the portable core
+installer / servicing package
+lifecycle / diagnostics
+update / uninstall
 ```
 
-A future macOS or Linux product should be able to replace the host-specific half while reusing the same renderer and profile semantics.
+The APO is a host seam, not a place to fork the renderer.
+
+The realtime portable ABI should evolve until the APO, `foo_omniphony`, future macOS/Linux hosts, and test harnesses can all call the same processing contracts without duplicating Omniphony DSP.
+
+## Realtime law for the APO
+
+The endpoint effect runs in the Windows audio engine's realtime path. It must therefore remain a thin, deterministic host around preallocated portable DSP.
+
+The realtime processing callback must not:
+
+- block;
+- allocate unpredictably;
+- perform filesystem or network I/O;
+- launch subprocesses;
+- acquire unbounded locks;
+- perform device discovery;
+- perform research/analysis work that is not already converted into bounded realtime state.
+
+Configuration, HRTF/profile preparation, device discovery, updates, and heavy initialization belong outside the realtime callback.
 
 ## Source authority remains unchanged
 
-More source truth means less inference:
+Moving Omniphony into an EFX does not change the fidelity laws.
 
 ```text
 stereo
 → preserve the finished stereo master + bounded inferred support
 
 5.1 / 7.1
-→ preserve authored directional channels
+→ preserve authored directional channels when the Windows graph supplies them
 
-5.1.2 / 7.1.4
-→ preserve authored height
+height / richer spatial input
+→ preserve authored geometry where the Windows path exposes trustworthy metadata
 
 object audio
-→ preserve supplied object positions
-
-Ambisonics / HOA
-→ preserve the supplied field representation
+→ preserve supplied positions when available at a suitable host boundary
 
 already-binaural
 → avoid destructive double virtualization
 ```
 
-The physical headphone DAC remains stereo. The Windows-facing Omniphony endpoint is the place that should eventually advertise the richer source-side capabilities.
+The physical DAC remains stereo. Omniphony converts the source representation available at its host boundary into final headphone stereo.
+
+An EFX is ideal for the ordinary post-mix Windows path. Rich object metadata that Windows has already flattened before the endpoint effect may require an additional richer host integration later. Do not pretend an endpoint effect can recover source metadata that the platform no longer supplies at that stage.
 
 ## Profile boundary
 
-The publishable product and a listener's personal tuning are different objects.
+The publishable product and a listener's personal tuning remain separate objects.
 
 ```text
 Omniphony for Windows
         │
         ├── public/default profile
-        │     hardware-agnostic
+        │     hardware-agnostic where possible
         │     listener-agnostic
-        │     no private hearing compensation
-        │     no device-specific personal EQ
-        │     conservative, documented defaults
+        │     conservative documented defaults
         │
-        └── user profiles
+        └── user profile
               headphone/device correction
               listener-specific balance
-              HRTF selection/personalization
+              HRTF personalization
+              hearing-asymmetry compensation
               geometry preferences
-              comfort/listening-level choices
-              source-aware personalization
+              comfort / listening-level choices
 ```
 
-The current primary listening profile is the first strong customization case and an engineering testbed. It is **not** the definition of the public default.
+The current primary listening profile is a strong customization case and engineering testbed. It is not automatically the public default.
 
-Personal profile evidence may justify a general mechanism only after the mechanism is separated from the personal parameter values and survives the project's normal research, validation, and listening gates.
-
-Private or sensitive listener-specific values do not need to live in the public repository merely to prove that the profile mechanism exists.
-
-## Current listening evidence vs public defaults
-
-Existing listening work in this fork remains valuable, but it must be interpreted in the correct layer:
-
-- source-preservation and fidelity laws are product/core laws;
-- portable rendering mechanisms may become product mechanisms when validated;
-- listener-approved geometry, level, comfort, headphone correction, or asymmetric compensation belong to a profile unless separately generalized;
-- experimental candidates remain experimental until adjudicated;
-- a successful personal profile is evidence that the system is customizable, not evidence that every listener should receive the same settings.
-
-## Windows 11 first target
-
-The first product target is Windows 11 x64.
-
-The target daily path is:
-
-```text
-Windows / games / music players / browsers
-        ↓
-Omniphony virtual render endpoint
-        ↓
-Windows host adapter
-        ↓
-portable Omniphony renderer
-        ↓
-selected user profile
-        ↓
-binaural stereo
-        ↓
-physical headphone endpoint
-```
-
-The initial endpoint may begin as stereo-only to establish a single stable Windows-wide stream. The same endpoint architecture should then grow to accept conventional 5.1/7.1 PCM and richer spatial/object input without replacing the core or creating a second audio path.
-
-48 kHz float is the normal Windows rendering target unless source/host evidence justifies another rate. Higher nominal sample rates are not themselves a spatial-quality feature.
+The Windows EFX association may be device-specific while the audible profile remains a separate layer. Do not confuse "this APO is attached to the FiiO endpoint" with "the renderer's public tuning is FiiO-specific."
 
 ## Installer contract
 
-The product-facing artifact is a **single installer executable**.
+The user-facing artifact remains one installer executable.
 
-Normal installation target:
+Target experience:
 
 ```text
 OmniphonySetup.exe
         ↓
 one UAC elevation
         ↓
-install/upgrade the Windows endpoint
-install the Omniphony host
-remember the physical output
-configure routing
-make Omniphony the Windows default output
-configure autostart
-start the host
+install / update Omniphony APO package
+associate it with the selected physical render endpoint
+install profile/config/control support
+restart/rebuild the endpoint graph when required
         ↓
 done
 ```
 
-Normal users should not see internal driver files, certificates, command scripts, DevCon/DevGen, WDK artifacts, or manual endpoint plumbing.
+Normal use should leave Windows' ordinary physical output selected. The user should not select an Omniphony virtual device because the mature design has no Omniphony virtual playback endpoint.
 
-Uninstall must reverse the owned machine state cleanly and must not remove unrelated audio devices or user configuration.
+The installer should remember the intended physical endpoint by stable device identity, verify that the APO is actually active in the endpoint graph, and roll back cleanly if installation fails.
 
-### Development-signing boundary
-
-During private development, the custom kernel audio endpoint may be WDK development/test signed rather than Microsoft production signed. Windows 11 kernel-signing policy is an external security boundary and must not be bypassed or silently weakened by the installer.
-
-The development installer may automate every legitimate step around that boundary, detect when the driver cannot load under the current boot policy, and report that condition clearly. It must not silently disable Secure Boot, BitLocker, driver-signature enforcement, or boot integrity protections.
-
-A publishable installer requires an appropriately Microsoft-signed driver package so installation becomes the ordinary one-UAC experience described above.
+Uninstall should remove only Omniphony-owned components and restore the endpoint to its pre-Omniphony processing state.
 
 ## Headless and reliability law
 
@@ -210,68 +220,107 @@ Omniphony for Windows should be nearly invisible in normal use.
 
 Required behavior:
 
-- one installed app/host, not a pile of helper programs;
-- no console windows;
-- no manual routing after installation;
-- automatic recovery from renderer/output failure;
-- hard OFF means the audio engine is actually stopped and releases its owned path;
-- crash/exit cannot intentionally leave a ghost child renderer running;
-- the physical output can never resolve to the Omniphony virtual endpoint itself;
-- installer/updater operations are idempotent and reversible;
-- logs/telemetry exist for diagnosis but do not become a user workflow;
-- sound-changing work remains separate from packaging/host mechanics.
+```text
+Windows output remains the real physical device
+Omniphony processing is automatically present in that endpoint graph
+no console
+no virtual-device selection
+no loopback routing
+no duplicate dry stream
+no daily device configuration
+no user-managed helper program
+```
+
+Diagnostics must be available, but diagnostics are not the product workflow.
+
+A useful health check should be able to prove independently that:
+
+```text
+APO registered
+→ APO associated with expected endpoint
+→ Windows loaded APO
+→ realtime callbacks are occurring
+→ non-silent input reached the APO
+→ non-silent output left the APO
+```
+
+Installation success is not listening success. Physical listening remains the final audible gate.
+
+## Studio and control relationship
+
+Omniphony Studio remains the advanced visualization/control frontend. Omniphony for Windows should eventually expose or forward compatible engine controls rather than inventing a second incompatible control model.
+
+The realtime APO must not depend on Studio being open.
+
+## Future operating-system hosts
+
+The Windows EFX is one operating-system adapter around the portable renderer.
+
+```text
+portable Omniphony core
+        │
+        ├── Windows endpoint-effect host
+        ├── future macOS host
+        ├── future Linux host
+        ├── foo_omniphony
+        └── deterministic test/file hosts
+```
+
+Other platforms may have a different native insertion point. They should reuse the same portable processing contracts rather than copying Windows APO concepts into the core.
 
 ## Naming
 
-Use **Omniphony for Windows** for the Windows product/host.
+Use **Omniphony for Windows** for the Windows product.
 
-Prefer these user-facing names unless a later upstream-aligned convention supersedes them:
+Preferred user-facing names:
 
 ```text
 installer     OmniphonySetup.exe
 application   Omniphony
-endpoint      Omniphony
+endpoint      the user's real physical endpoint
+Windows DSP   Omniphony endpoint effect
 product       Omniphony for Windows
 ```
 
-Historical `Spatial` labels are temporary private bootstrap names and should disappear as the Windows shell is consolidated. Internal renderer names may retain upstream Omniphony terminology.
+Historical `Spatial` labels and the Steam transport are bootstrap provenance, not mature product identity.
 
 ## Upstream and fork discipline
 
 Keep the relationship to `mgth/Omniphony` explicit.
 
-- prefer upstream renderer machinery when it already owns the job;
-- keep Windows integration in the downstream host layer;
-- keep local extensions bounded and attributable;
-- do not copy Studio's rendering-independent control model into a new incompatible model;
-- periodically compare upstream changes before deepening a fork-specific seam;
-- preserve the GPL-3.0-or-later obligations of the upstream project when distributing derivative work.
+Prefer upstream renderer machinery when it already owns the job. Keep Windows association, APO lifecycle, installation, and endpoint policy in the downstream Windows host. Do not copy Studio's control model into a second incompatible renderer. Preserve applicable GPL-3.0-or-later obligations when distributing derivative work.
 
 ## Immediate frontier
 
-The next sequence is intentionally narrow:
+The stabilization frontier is now deliberately smaller:
 
 ```text
 P0
-single Windows-wide stream
-single EXE development installer
-headless lifecycle
-stable physical-output routing
+compile a minimal Omniphony EFX APO
+associate it with the FiiO render endpoint on Windows 11
+prove transparent identity/bypass first
+prove one processed stereo stream reaches the FiiO
+prove clean install/update/uninstall
 
 P1
-5.1 / 7.1 source-side endpoint formats
-explicit channel/layout semantics through the host ABI
+connect the protected Current-model portable stereo renderer behind the APO
+realtime-safety + block-size + latency regression gates
+physical listening
 
 P2
-richer Windows spatial/object input where the platform exposes trustworthy metadata
+profile/config servicing without disturbing the realtime graph
+sleep/resume, DAC reconnect, audio-engine restart, upgrade recovery
 
 P3
-Studio-control parity / advanced optional control surface
+preserve richer 5.1 / 7.1 channel semantics wherever the endpoint graph exposes them without premature flattening
+
+P4
+investigate richer Windows spatial/object host paths for metadata that cannot survive to a post-mix endpoint effect
 
 parallel
-profile system maturation
-personalized listening profile as a strong test case
-public/default profile kept independent
+public/default profile separation
+personalized profile maturation
+Studio-control compatibility
 ```
 
-Do not create a second renderer to achieve any of these milestones.
+Do not create a second renderer to achieve these milestones, and do not revive the virtual-sink architecture merely because it is easier to prototype.
