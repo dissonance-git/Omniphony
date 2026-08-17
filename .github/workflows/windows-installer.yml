@@ -120,11 +120,30 @@ jobs:
           Write-Host "mt.exe=$mt"
           $probe = Join-Path $env:RUNNER_TEMP 'omniphony-embedded-manifest.xml'
           Remove-Item $probe -Force -ErrorAction SilentlyContinue
-          & $mt "-inputresource:$dll;#2" "-out:$probe" 2>$null
-          if ($LASTEXITCODE -eq 0 -or (Test-Path $probe)) {
+
+          # mt.exe returns nonzero when the requested manifest resource does not
+          # exist. That is the success condition for this APO. Launch it through
+          # ProcessStartInfo so pwsh does not promote the expected native exit
+          # code into a workflow failure before we can inspect it.
+          $psi = [System.Diagnostics.ProcessStartInfo]::new()
+          $psi.FileName = $mt
+          $psi.UseShellExecute = $false
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError = $true
+          $null = $psi.ArgumentList.Add("-inputresource:$dll;#2")
+          $null = $psi.ArgumentList.Add("-out:$probe")
+          $process = [System.Diagnostics.Process]::Start($psi)
+          $stdout = $process.StandardOutput.ReadToEnd()
+          $stderr = $process.StandardError.ReadToEnd()
+          $process.WaitForExit()
+          $mtExit = $process.ExitCode
+          if ($stdout) { Write-Host $stdout.Trim() }
+          if ($stderr) { Write-Host "mt.exe probe: $($stderr.Trim())" }
+
+          if ($mtExit -eq 0 -or (Test-Path $probe)) {
             throw 'OmniphonyAPO.dll contains an embedded manifest; protected AudioDG can reject it.'
           }
-          Write-Host 'APO_MANIFEST_OK embedded=0'
+          Write-Host "APO_MANIFEST_OK embedded=0 mt_exit=$mtExit"
 
       - name: Validate realtime ABI and Current APO lifecycle
         shell: pwsh
