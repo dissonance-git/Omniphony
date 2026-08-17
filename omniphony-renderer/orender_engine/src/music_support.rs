@@ -1,7 +1,7 @@
 use crate::music_early_reflections::HrtfEarlyReflectionField;
+use crate::{Engine, RenderedAudio};
 use anyhow::{Context, bail};
 use bridge_api::RInputTransport;
-use orender_engine::{Engine, RenderedAudio};
 use renderer::music_field::MUSIC_FIELD_CHANNELS;
 use std::path::{Path, PathBuf};
 
@@ -57,7 +57,7 @@ pub(crate) struct MusicSupportRenderer {
 impl MusicSupportRenderer {
     pub(crate) fn new(_profile: SpatialProfile, sample_rate_hz: u32) -> anyhow::Result<Self> {
         let bundle = Bundle::embedded()?;
-        orender_engine::bridge_loader::register_linked_bridge(reference_bridge::linked_library)
+        crate::bridge_loader::register_linked_bridge(reference_bridge::linked_library)
             .context("failed to register linked reference PCM bridge")?;
 
         let mut primary = build_engine(
