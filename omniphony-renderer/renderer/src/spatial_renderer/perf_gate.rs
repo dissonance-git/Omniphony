@@ -16,8 +16,8 @@
 //! Scenes come from `dsp_fixtures::scene`, the same generators the null tests
 //! and the criterion benches use, so a regression here refers to the same
 //! workload they do. The two drifting binaural cases deliberately generate
-//! their motion locally so adding a performance probe cannot perturb a shared
-//! null/golden fixture.
+//! their motion and cascaded-mode setup locally so adding a performance probe
+//! cannot perturb a shared null/golden fixture.
 //!
 //! **Release only.** `cargo test` builds in debug, where this same scene takes
 //! 97 % of the block period instead of 4 % — a ~23× difference that says
@@ -48,8 +48,7 @@
 use std::time::Instant;
 
 use dsp_fixtures::scene::{
-    BLOCK_SAMPLES, RampMode, SAMPLE_RATE, make_pcm, move_events, prepared,
-    prepared_binaural, prepared_binaural_cascaded,
+    BLOCK_SAMPLES, RampMode, SAMPLE_RATE, make_pcm, move_events, prepared, prepared_binaural,
 };
 
 use super::SpatialChannelEvent;
@@ -130,11 +129,27 @@ fn drift_events(n_objects: usize, round: u64) -> Vec<SpatialChannelEvent> {
 }
 
 fn binaural_drifting_block_times_us(cascaded: bool) -> Vec<f64> {
-    let (mut r, pcm) = if cascaded {
-        prepared_binaural_cascaded(N_OBJECTS, RampMode::Frame)
-    } else {
-        prepared_binaural(N_OBJECTS, RampMode::Frame)
-    };
+    let (mut r, pcm) = prepared_binaural(N_OBJECTS, RampMode::Frame);
+    if cascaded {
+        r.renderer_control().live.write().binaural.mode = crate::live_params::BinauralMode::Cascaded;
+        // Prime the fixed virtual bed/convolvers outside the timed window. The
+        // benchmark is about steady realtime motion cost, not one-time topology setup.
+        let mut prime_buf = Vec::new();
+        for round in 0..4 {
+            let frame = r
+                .render_frame(
+                    &pcm,
+                    N_OBJECTS,
+                    &drift_events(N_OBJECTS, round + 1),
+                    prime_buf,
+                    false,
+                )
+                .expect("prime cascaded drifting renderer");
+            prime_buf = frame.samples;
+            prime_buf.clear();
+        }
+    }
+
     let mut buf = Vec::new();
     let mut times = Vec::with_capacity(BLOCKS);
     for block in 0..BLOCKS {
