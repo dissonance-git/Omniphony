@@ -1,9 +1,14 @@
+use crate::bridge_loader::LoadedBridge;
 use crate::music_early_reflections::HrtfEarlyReflectionField;
+use crate::renderer_build::{SpatialRendererParams, build_spatial_renderer};
 use crate::{Engine, RenderedAudio};
 use anyhow::{Context, bail};
 use bridge_api::RInputTransport;
+use renderer::config::Config;
 use renderer::music_field::MUSIC_FIELD_CHANNELS;
-use std::path::{Path, PathBuf};
+use renderer::speaker_layout::SpeakerLayout;
+use std::path::PathBuf;
+use std::str::FromStr;
 
 /// The normal Windows host has one listening model.
 ///
@@ -56,13 +61,18 @@ pub(crate) struct MusicSupportRenderer {
 
 impl MusicSupportRenderer {
     pub(crate) fn new(_profile: SpatialProfile, sample_rate_hz: u32) -> anyhow::Result<Self> {
-        let bundle = Bundle::embedded()?;
-        crate::bridge_loader::register_linked_bridge(reference_bridge::linked_library)
-            .context("failed to register linked reference PCM bridge")?;
+        const FIELD_CONFIG: &str =
+            include_str!("../../assets/binaural-baselines/stereo-field-prototype.yaml");
+        const GRID_LAYOUT: &str =
+            include_str!("../../../layouts/system-h-derived-22.0-upper60-grid10.yaml");
 
-        let mut primary = build_engine(
-            &bundle.primary_config,
-            &bundle.layout,
+        // Current is fully embedded. Do not materialize YAML into LOCALAPPDATA:
+        // this constructor is also used by the native endpoint realtime worker,
+        // which must not depend on a writable interactive-user profile.
+        let current_config = current_model_config(FIELD_CONFIG);
+        let mut primary = build_embedded_engine(
+            &current_config,
+            GRID_LAYOUT,
             sample_rate_hz,
             "Current model support",
         )?;
@@ -95,20 +105,99 @@ impl MusicSupportRenderer {
     }
 }
 
-fn build_engine(
-    config: &Path,
-    layout: &Path,
+/// Construct the exact Current support engine directly from embedded YAML.
+///
+/// This intentionally mirrors the sound-affecting parts of `Engine::from_paths`
+/// while omitting config persistence, overlay preferences and bridge discovery.
+/// The reference PCM bridge is linked directly per instance, so Current can be
+/// destroyed/recreated in one process without a one-shot global registration.
+fn build_embedded_engine(
+    config_yaml: &str,
+    layout_yaml: &str,
     sample_rate_hz: u32,
     label: &str,
 ) -> anyhow::Result<Engine> {
-    let mut engine = Engine::from_paths(
-        Some(config),
-        Some(layout),
-        None,
-        None,
+    let mut config: Config = serde_yaml_ng::from_str(config_yaml)
+        .with_context(|| format!("failed to parse embedded Omniphony {label} config"))?;
+    if let Some(render) = config.render.as_mut() {
+        render.normalize_room_meters();
+    }
+    let render_cfg = config.render;
+    let layout = SpeakerLayout::from_yaml_str(layout_yaml)
+        .with_context(|| format!("failed to parse embedded Omniphony {label} layout"))?;
+
+    let mut bridge = LoadedBridge::from_library(reference_bridge::linked_library());
+    bridge.configure("presentation", "best");
+    let vbap_defaults = bridge.vbap_cartesian_defaults();
+    let preferred = bridge.preferred_vbap_table_mode();
+
+    let params = SpatialRendererParams::from_render_config(render_cfg.as_ref());
+    let mut spatial_renderer = build_spatial_renderer(
+        &params,
+        layout,
         sample_rate_hz,
+        vbap_defaults,
+        preferred,
+        render_cfg.as_ref(),
     )
-    .with_context(|| format!("failed to construct Omniphony {label} engine"))?;
+    .with_context(|| format!("failed to construct Omniphony {label} renderer"))?;
+
+    let cascade_spectral_compensation = render_cfg
+        .as_ref()
+        .and_then(|render| render.binaural.as_ref())
+        .and_then(|binaural| binaural.spectral_compensation.as_deref())
+        .is_some_and(|mode| mode.eq_ignore_ascii_case("saf_partial"));
+    spatial_renderer.set_cascade_spectral_compensation(cascade_spectral_compensation);
+
+    let control = spatial_renderer.renderer_control();
+    control.set_bridge_path(Some(PathBuf::from("<linked-reference-bridge>")));
+    control.set_meter_rate_hz(
+        render_cfg
+            .as_ref()
+            .and_then(|c| c.meter_rate)
+            .unwrap_or(10.0),
+    );
+    control.set_diag_rate_hz(
+        render_cfg
+            .as_ref()
+            .and_then(|c| c.diag_rate)
+            .unwrap_or(10.0),
+    );
+
+    let ramp_mode = render_cfg
+        .as_ref()
+        .and_then(renderer::config_fields::ramp_mode::get)
+        .as_deref()
+        .and_then(renderer::live_params::RampMode::from_str)
+        .unwrap_or(renderer::live_params::RampMode::Frame);
+    control.set_requested_ramp_mode(ramp_mode);
+    control.live.write().ramp_mode = ramp_mode;
+
+    if let Some(render) = render_cfg.as_ref() {
+        renderer::options::seed_live_from_config(&mut control.live.write(), render);
+    }
+
+    let supported_drc: Vec<String> = bridge
+        .bridge
+        .supported_drc_modes()
+        .iter()
+        .map(|mode| mode.as_str().to_string())
+        .collect();
+    control.set_bridge_supported_drc_modes(supported_drc);
+    {
+        let mut live = control.live.write();
+        live.drc_mode = render_cfg
+            .as_ref()
+            .and_then(|c| c.drc_mode.clone())
+            .unwrap_or_else(|| "Off".to_string());
+        live.drc_weight = render_cfg
+            .as_ref()
+            .and_then(|c| c.drc_weight)
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0);
+    }
+
+    let mut engine = Engine::new(bridge, spatial_renderer, sample_rate_hz);
     engine.set_channel_render_mode_code(1);
     if engine.channel_count() != 2 {
         bail!(
@@ -156,48 +245,6 @@ fn add_stereo_support(
         cursor = end;
     }
     Ok(primary)
-}
-
-struct Bundle {
-    primary_config: PathBuf,
-    layout: PathBuf,
-}
-
-impl Bundle {
-    fn embedded() -> anyhow::Result<Self> {
-        const FIELD_CONFIG: &str =
-            include_str!("../../assets/binaural-baselines/stereo-field-prototype.yaml");
-        const GRID_LAYOUT: &str =
-            include_str!("../../../layouts/system-h-derived-22.0-upper60-grid10.yaml");
-
-        let root = std::env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(std::env::temp_dir)
-            .join("Omniphony")
-            .join("runtime");
-        std::fs::create_dir_all(&root)
-            .context("failed to create embedded Omniphony runtime directory")?;
-
-        let layout = root.join("system-h-headphone-current.yaml");
-        write_embedded_asset(&layout, GRID_LAYOUT)?;
-
-        let primary_config = root.join("stereo-field-current.yaml");
-        write_embedded_asset(&primary_config, &current_model_config(FIELD_CONFIG))?;
-
-        Ok(Self {
-            primary_config,
-            layout,
-        })
-    }
-}
-
-fn write_embedded_asset(path: &Path, content: &str) -> anyhow::Result<()> {
-    let current = std::fs::read_to_string(path).ok();
-    if current.as_deref() != Some(content) {
-        std::fs::write(path, content)
-            .with_context(|| format!("failed to materialize {}", path.display()))?;
-    }
-    Ok(())
 }
 
 fn streaming_f32_wav_header(channels: u16, sample_rate_hz: u32) -> Vec<u8> {
