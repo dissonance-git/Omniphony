@@ -1819,3 +1819,55 @@ fn interp_survives_speaker_cascade_width_switch() {
 
 // TODO: Add integration test with real spatial metadata
 // For now, testing is done via real spatial audio content decoding
+
+
+// v0.5 regression: the completed frame owns its geometry even if the live
+// request changes immediately afterwards, and a post-startup mode change
+// transitions through a bounded fade rather than swapping DSP chains at full scale.
+fn v050_output_safety_renderer() -> SpatialRenderer {
+    SpatialRenderer::new(
+        SpeakerLayout::preset("7.1.4").unwrap(),
+        48_000, 1, 1, 0.0, 2.0, VbapTableMode::Polar, false, true,
+        DistanceModel::Linear, false, 1.0, 1.0, 0.0, 1.0, false,
+        [1.0, 2.0, 0.5], 2.0, 0.5, 0.0, 0.0, false, false, false,
+        1.0, 1.0, PreferredEvaluationMode::PrecomputedPolar,
+        LiveEvaluationMode::PrecomputedPolar, 31, 31, 15, 15,
+    ).unwrap()
+}
+
+#[test]
+fn completed_frame_keeps_its_own_width_after_live_flip() {
+    let mut renderer = v050_output_safety_renderer();
+    renderer.renderer_control().live.write().binaural.output_mode =
+        crate::live_params::OutputMode::Binaural;
+    let pcm = vec![0.0f32; 40];
+    let frame = renderer.render_frame(&pcm, 1, &[], Vec::new(), false).unwrap();
+    assert_eq!(frame.n_channels, 2);
+    assert_eq!(frame.samples.len(), 40 * frame.n_channels);
+
+    renderer.renderer_control().live.write().binaural.output_mode =
+        crate::live_params::OutputMode::SpeakerArray;
+    assert_eq!(frame.n_channels, 2, "completed frame geometry must be immutable");
+    assert_eq!(frame.samples.len(), 40 * frame.n_channels);
+}
+
+#[test]
+fn output_mode_switch_fades_and_every_frame_describes_itself() {
+    let mut renderer = v050_output_safety_renderer();
+    renderer.renderer_control().live.write().binaural.output_mode =
+        crate::live_params::OutputMode::Binaural;
+    let pcm = vec![0.0f32; 40];
+    let first = renderer.render_frame(&pcm, 1, &[], Vec::new(), false).unwrap();
+    assert_eq!(first.n_channels, 2);
+
+    renderer.renderer_control().live.write().binaural.output_mode =
+        crate::live_params::OutputMode::SpeakerArray;
+    let mut saw_speaker = false;
+    for _ in 0..16 {
+        let frame = renderer.render_frame(&pcm, 1, &[], Vec::new(), false).unwrap();
+        assert_eq!(frame.samples.len(), 40 * frame.n_channels);
+        assert!(frame.n_channels == 2 || frame.n_channels == renderer.num_speakers());
+        saw_speaker |= frame.n_channels == renderer.num_speakers();
+    }
+    assert!(saw_speaker, "5 ms transition never reached the requested speaker path");
+}

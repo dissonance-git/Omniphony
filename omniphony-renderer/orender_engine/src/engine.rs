@@ -1347,7 +1347,9 @@ impl Engine {
         self.pcm_f32_buf = pcm_f32;
         self.frame_events.clear();
 
-        let n_channels = self.renderer.output_channel_count() as u32;
+        // Geometry belongs to the completed render, not to a second
+        // asynchronous live-state read after the samples were produced.
+        let n_channels = rendered.n_channels as u32;
 
         if want_metering {
             let frame_duration_ms = sample_count as f32 / sample_rate as f32 * 1000.0;
@@ -1394,6 +1396,11 @@ impl Engine {
             }
         }
 
+        debug_assert_eq!(
+            rendered.samples.len(),
+            sample_count * n_channels as usize,
+            "RenderedAudio contract: samples.len() must equal n_frames * n_channels"
+        );
         Ok(Some(RenderedAudio {
             samples: rendered.samples,
             n_channels,

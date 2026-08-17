@@ -170,9 +170,25 @@ pub enum ChannelRoute {
     Virtual,
 }
 
+/// Cross-fade covering a live output-mode change. The outgoing DSP chain
+/// reaches silence before the renderer adopts the incoming chain, then the
+/// incoming chain rises from the same zero crossing.
+struct OutputModeFade {
+    remaining: usize,
+    total: usize,
+    fading_out: bool,
+}
+
 pub struct SpatialRenderer {
     /// Number of output speakers (total, including non-spatialized like LFE)
     num_speakers: usize,
+
+    /// Mode actually producing samples. It may lag the requested live mode
+    /// while the 5 ms transition is in flight.
+    active_output_mode: crate::live_params::OutputMode,
+    mode_fade: Option<OutputModeFade>,
+    mode_fade_samples: usize,
+    has_rendered_frame: bool,
 
     /// Spread resolution for multi-table VBAP (0.0 = single table)
     spread_resolution: f32,
@@ -534,16 +550,30 @@ impl SpatialRenderer {
         // after `update_metadata` has applied the pending events (new ramp
         // targets); the branch itself advances each object's position ramp for
         // the block. Flag it here.
-        let (binaural_active, cascade_active) = {
+        let (requested_output_mode, cascade_active) = {
             let g = self.control.live.read();
             (
-                matches!(
-                    g.binaural.output_mode,
-                    crate::live_params::OutputMode::Binaural
-                ),
+                g.binaural.output_mode,
                 matches!(g.binaural.mode, crate::live_params::BinauralMode::Cascaded),
             )
         };
+        if requested_output_mode != self.active_output_mode {
+            if !self.has_rendered_frame {
+                // Before the first frame there is no discontinuity to conceal.
+                self.active_output_mode = requested_output_mode;
+            } else if self.mode_fade.is_none() {
+                self.mode_fade = Some(OutputModeFade {
+                    remaining: self.mode_fade_samples,
+                    total: self.mode_fade_samples,
+                    fading_out: true,
+                });
+            }
+        }
+        self.has_rendered_frame = true;
+        let binaural_active = matches!(
+            self.active_output_mode,
+            crate::live_params::OutputMode::Binaural
+        );
 
         // ── 1. Load the current immutable render topology and keep band engines in sync ──
         let topology_guard = self.control.active_topology();
@@ -912,6 +942,7 @@ impl SpatialRenderer {
                     );
                 }
             }
+            self.apply_output_mode_fade(&mut output, 2);
             // Cascaded mode returns the virtual mix diagnostics: they index
             // the app layout, so the object meters stay valid on headphones.
             return Ok(match cascade_diag {
@@ -921,6 +952,7 @@ impl SpatialRenderer {
                     diag.object_band_sq.sort_by_key(|(idx, _)| *idx);
                     RenderedFrame {
                         samples: output,
+                        n_channels: 2,
                         object_gains: diag.object_gains,
                         object_band_gains: diag.object_band_gains,
                         object_band_sq: diag.object_band_sq,
@@ -929,6 +961,7 @@ impl SpatialRenderer {
                 }
                 None => RenderedFrame {
                     samples: output,
+                    n_channels: 2,
                     object_gains: Vec::new(),
                     object_band_gains: Vec::new(),
                     object_band_sq: Vec::new(),
@@ -1050,11 +1083,14 @@ impl SpatialRenderer {
             }
         }
 
+        let speaker_channels = self.num_speakers;
+        self.apply_output_mode_fade(&mut output, speaker_channels);
         diag.object_gains.sort_by_key(|(idx, _)| *idx);
         diag.object_band_gains.sort_by_key(|(idx, _)| *idx);
         diag.object_band_sq.sort_by_key(|(idx, _)| *idx);
         Ok(RenderedFrame {
             samples: output,
+            n_channels: self.num_speakers,
             object_gains: diag.object_gains,
             object_band_gains: diag.object_band_gains,
             object_band_sq: diag.object_band_sq,
@@ -1068,7 +1104,7 @@ impl SpatialRenderer {
     /// channel count (a 2.0 speaker layout is also 2-channel).
     pub fn output_is_binaural(&self) -> bool {
         matches!(
-            self.control.live.read().binaural.output_mode,
+            self.active_output_mode,
             crate::live_params::OutputMode::Binaural
         )
     }
@@ -1095,6 +1131,40 @@ impl SpatialRenderer {
             .map(|c| (c.bus.as_slice(), c.num_buses()))
     }
 
+    /// Apply an in-flight output-mode cross-fade and adopt the newest
+    /// requested mode only at the silent midpoint.
+    fn apply_output_mode_fade(&mut self, output: &mut [f32], n_channels: usize) {
+        let Some(fade) = self.mode_fade.as_mut() else {
+            return;
+        };
+        if n_channels == 0 || fade.total == 0 {
+            self.mode_fade = None;
+            return;
+        }
+        let frames = output.len() / n_channels;
+        let total = fade.total as f32;
+        for frame in 0..frames {
+            let left = fade.remaining.saturating_sub(frame) as f32;
+            let ramp = left / total;
+            let gain = if fade.fading_out { ramp } else { 1.0 - ramp };
+            let base = frame * n_channels;
+            for sample in &mut output[base..base + n_channels] {
+                *sample *= gain;
+            }
+        }
+        fade.remaining = fade.remaining.saturating_sub(frames);
+        if fade.remaining > 0 {
+            return;
+        }
+        if fade.fading_out {
+            self.active_output_mode = self.control.live.read().binaural.output_mode;
+            fade.remaining = fade.total;
+            fade.fading_out = false;
+        } else {
+            self.mode_fade = None;
+        }
+    }
+
     pub fn num_speakers(&self) -> usize {
         self.num_speakers
     }
@@ -1103,7 +1173,7 @@ impl SpatialRenderer {
     /// (headphone) mode, otherwise the speaker count. Hosts must size their sink
     /// and `RenderedAudio` from this, not from [`num_speakers`](Self::num_speakers).
     pub fn output_channel_count(&self) -> usize {
-        match self.control.live.read().binaural.output_mode {
+        match self.active_output_mode {
             crate::live_params::OutputMode::Binaural => 2,
             crate::live_params::OutputMode::SpeakerArray => self.num_speakers,
         }

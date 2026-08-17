@@ -471,8 +471,16 @@ impl SpatialRenderer {
             sample_rate,
         )?;
 
+        // Begin settled on the configured mode. The fade is only for
+        // changes after audio has actually been emitted.
+        let initial_output_mode = control.live.read().binaural.output_mode;
+
         Ok(Self {
             num_speakers,
+            active_output_mode: initial_output_mode,
+            mode_fade: None,
+            mode_fade_samples: ((sample_rate as f32) * 0.005).round().max(1.0) as usize,
+            has_rendered_frame: false,
             spread_resolution,
             channel_routing: arc_swap::ArcSwap::new(std::sync::Arc::new(Vec::new())),
             first_render: std::sync::atomic::AtomicBool::new(true),

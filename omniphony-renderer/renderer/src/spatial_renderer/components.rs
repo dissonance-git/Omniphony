@@ -18,6 +18,9 @@ use std::sync::Arc;
 pub struct RenderedFrame {
     /// Interleaved speaker audio: `[sample0_spk0, sample0_spk1, ..., sample1_spk0, ...]`.
     pub samples: Vec<f32>,
+    /// Channels interleaved in `samples`, owned by this completed render.
+    /// This must never be reconstructed by re-reading asynchronously mutable live state.
+    pub n_channels: usize,
     /// VBAP gains at the final sample for each rendered object channel.
     /// `(channel_idx, gains)` — `gains[speaker_idx]` is the gain applied to that speaker.
     /// Ordered by `channel_idx`. Empty if no objects were spatialized this frame.
