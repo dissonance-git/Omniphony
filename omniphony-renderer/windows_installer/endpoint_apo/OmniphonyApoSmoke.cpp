@@ -133,8 +133,7 @@ int ExerciseProcessing(
     return result;
 }
 
-int ExercisePcm16IdentityFallback(
-    IAudioProcessingObjectRT* rt,
+int ExerciseUnsupportedPcm16Contract(
     IAudioProcessingObjectConfiguration* configuration) {
     UNCOMPRESSEDAUDIOFORMAT format = {};
     format.guidFormatType = KSDATAFORMAT_SUBTYPE_PCM;
@@ -153,12 +152,7 @@ int ExercisePcm16IdentityFallback(
     }
 
     constexpr UINT32 kFrames = 4;
-    alignas(16) std::array<std::int16_t, kFrames * 2> input = {
-        0, -8192,
-        16384, 32767,
-        -32768, 4096,
-        -24576, 28672,
-    };
+    alignas(16) std::array<std::int16_t, kFrames * 2> input = {};
     alignas(16) std::array<std::int16_t, kFrames * 2> output = {};
 
     APO_CONNECTION_DESCRIPTOR inputDescriptor = {};
@@ -181,54 +175,25 @@ int ExercisePcm16IdentityFallback(
     std::wcout << L"SMOKE_STAGE\tPCM16_LOCK_BEGIN" << std::endl;
     hr = configuration->LockForProcess(1, inputDescriptors, 1, outputDescriptors);
     std::wcout << L"SMOKE_STAGE\tPCM16_LOCK_END\t0x" << std::hex << hr << std::endl;
-    if (FAILED(hr)) {
-        std::wcerr << L"APO_PCM16_LOCK_FAILED\t0x" << std::hex << hr << std::endl;
+
+    if (hr == APOERR_FORMAT_NOT_SUPPORTED) {
+        std::wcout << L"APO_PCM16_REJECT_OK\tFORMAT=pcm16\tNEGOTIATION=float32-only"
+                   << std::endl;
+        return 0;
+    }
+
+    if (SUCCEEDED(hr)) {
+        const HRESULT unlockHr = configuration->UnlockForProcess();
+        if (FAILED(unlockHr)) {
+            std::wcerr << L"APO_PCM16_UNEXPECTED_UNLOCK_FAILED\t0x" << std::hex << unlockHr
+                       << std::endl;
+        }
+        std::wcerr << L"APO_PCM16_UNEXPECTEDLY_ACCEPTED" << std::endl;
         return 14;
     }
 
-    int result = 0;
-    if (GetModuleHandleW(L"omniphony_realtime.dll") != nullptr) {
-        std::wcerr << L"APO_PCM16_UNEXPECTED_REALTIME_BRIDGE" << std::endl;
-        result = 15;
-    } else {
-        APO_CONNECTION_PROPERTY inputProperty = {};
-        inputProperty.pBuffer = reinterpret_cast<UINT_PTR>(input.data());
-        inputProperty.u32ValidFrameCount = kFrames;
-        inputProperty.u32BufferFlags = BUFFER_VALID;
-        inputProperty.u32Signature = APO_CONNECTION_PROPERTY_SIGNATURE;
-
-        APO_CONNECTION_PROPERTY outputProperty = {};
-        outputProperty.pBuffer = reinterpret_cast<UINT_PTR>(output.data());
-        outputProperty.u32ValidFrameCount = 0;
-        outputProperty.u32BufferFlags = BUFFER_INVALID;
-        outputProperty.u32Signature = APO_CONNECTION_PROPERTY_SIGNATURE;
-
-        APO_CONNECTION_PROPERTY* inputProperties[] = {&inputProperty};
-        APO_CONNECTION_PROPERTY* outputProperties[] = {&outputProperty};
-        rt->APOProcess(1, inputProperties, 1, outputProperties);
-
-        if (outputProperty.u32BufferFlags != BUFFER_VALID ||
-            outputProperty.u32ValidFrameCount != kFrames) {
-            std::wcerr << L"APO_PCM16_METADATA_FAILED" << std::endl;
-            result = 16;
-        } else if (std::memcmp(input.data(), output.data(), sizeof(input)) != 0) {
-            std::wcerr << L"APO_PCM16_NOT_BIT_EXACT" << std::endl;
-            result = 17;
-        } else {
-            std::wcout << L"APO_PCM16_FALLBACK_OK\tFRAMES=" << kFrames
-                       << L"\tCHANNELS=2\tFORMAT=pcm16\tBIT_EXACT=1\tREALTIME_DLL_RESIDENT=0"
-                       << std::endl;
-        }
-    }
-
-    std::wcout << L"SMOKE_STAGE\tPCM16_UNLOCK_BEGIN" << std::endl;
-    const HRESULT unlockHr = configuration->UnlockForProcess();
-    std::wcout << L"SMOKE_STAGE\tPCM16_UNLOCK_END\t0x" << std::hex << unlockHr << std::endl;
-    if (FAILED(unlockHr) && result == 0) {
-        std::wcerr << L"APO_PCM16_UNLOCK_FAILED\t0x" << std::hex << unlockHr << std::endl;
-        result = 18;
-    }
-    return result;
+    std::wcerr << L"APO_PCM16_WRONG_REJECTION\t0x" << std::hex << hr << std::endl;
+    return 15;
 }
 } // namespace
 
@@ -284,11 +249,11 @@ int wmain() {
                 } else {
                     result = ExerciseProcessing(apo.Get(), rt.Get(), configuration.Get());
                     if (result == 0) {
-                        result = ExercisePcm16IdentityFallback(rt.Get(), configuration.Get());
+                        result = ExerciseUnsupportedPcm16Contract(configuration.Get());
                     }
                     if (result == 0) {
                         std::wcout << L"APO_COM_OK\tCLSID={A9333BFE-39C1-40FD-B4B0-ECC591410B47}"
-                                   << L"\tLATENCY_HNS=0\tPROCESSING_SMOKE=1\tPCM16_FALLBACK=1"
+                                   << L"\tLATENCY_HNS=0\tPROCESSING_SMOKE=1\tPCM16_REJECT=1"
                                    << std::endl;
                     }
                 }
