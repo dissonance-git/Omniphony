@@ -315,7 +315,7 @@ public:
         }
         case BUFFER_SILENT:
             if (output->pBuffer && bytes != 0) {
-                std::memset(output->pBuffer, 0, bytes);
+                std::memset(outputBuffer, 0, bytes);
             }
             output->u32BufferFlags = BUFFER_SILENT;
             output->u32ValidFrameCount = frames;
