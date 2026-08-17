@@ -1,17 +1,13 @@
 //! Headless decode→render engine for the `orender` spatial audio renderer.
 //!
-//! This crate hosts the host-agnostic decode→render session: load a format
-//! decoder bridge plugin, push raw packets through it, turn the decoded
-//! PCM + spatial metadata into VBAP-rendered multichannel PCM, and (optionally)
-//! expose OSC live control. It performs **no audio I/O** — no stdin input, no
-//! PipeWire/ASIO output, no adaptive resampling. Those stay in the host:
-//!
-//! - the `orender` CLI binary wraps this with stdin input + PipeWire/ASIO output,
-//! - `orender_ffi` (liborender.so) wraps it for the mpv integration, where mpv
-//!   owns audio output and A/V sync.
+//! [`Engine`] owns a loaded decoder bridge plugin and a [`SpatialRenderer`], and
+//! turns raw compressed packets into VBAP-rendered interleaved multichannel PCM.
+//! It performs no audio I/O: the host (the `orender` CLI, or `liborender.so`
+//! inside mpv) feeds packets in and consumes rendered samples.
 
 pub mod bridge_loader;
 pub mod channel_layout;
+pub mod current_authored_bed;
 pub mod current_music_support;
 pub mod degraded;
 pub mod engine;
@@ -29,8 +25,8 @@ pub mod spatial;
 mod stft;
 pub mod virtual_bed;
 
-// Current music support is renderer-core state, not Windows host state. Keep
-// these implementation modules private and expose the narrow wrapper above.
+// Current support is renderer-core state, not Windows host state. Keep the
+// implementation modules private and expose narrow wrappers above.
 mod music_early_reflections;
 mod music_support;
 
