@@ -58,11 +58,14 @@ int32_t omniphony_realtime_reset(OmniphonyRealtimeProcessor *processor);
  * Mode 0 is exact identity and remains the deterministic transport oracle.
  * Mode 1 runs the retained stereo Current model on a dedicated worker thread;
  * the host callback itself only performs bounded PCM movement through
- * preallocated rings. The Windows listening build may then apply independent
- * user-listening controls on that worker path: optional Height+ redistribution
- * before the 22-direction HRTF render, selectable headphone/renderer EQ after
- * the Current spatial sum, and separately bypassable listener-specific right-
- * channel compensation. Those controls do not create a second renderer.
+ * preallocated rings.
+ *
+ * Current's native spatial model owns its vertical extent. Frequency-aware,
+ * sample-coherent elevation transfer occurs before the 22-direction HRTF
+ * renderer; it is not a user preference and it does not create a second wet
+ * copy. The Windows listening layer may independently select headphone/
+ * renderer EQ and listener-specific right-channel compensation after the
+ * spatial sum. Those tonal controls do not create a second renderer either.
  */
 int32_t omniphony_realtime_process_f32(
     OmniphonyRealtimeProcessor *processor,
