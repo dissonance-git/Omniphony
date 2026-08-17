@@ -11,6 +11,7 @@ renderer = { version = "0.2.4", path = "../renderer" }
 bridge_api = { version = "0.3.0", path = "../bridge_api" }
 runtime_control = { version = "0.2.4", path = "../runtime_control" }
 sys = { version = "0.1.0", path = "../sys" }
+reference_bridge = { path = "../reference_bridge" }
 # Audio output/input belong to the host_audio crate and reach the OSC server
 # via runtime_control::HostControlHandler — never a dependency of this engine
 # so liborender cross-compiles without cpal/pipewire/asio.

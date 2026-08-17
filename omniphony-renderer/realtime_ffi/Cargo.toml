@@ -10,3 +10,5 @@ name = "omniphony_realtime"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+orender_engine = { path = "../orender_engine" }
+renderer = { path = "../renderer" }

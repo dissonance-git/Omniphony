@@ -4,41 +4,33 @@ Omniphony personal Windows bootstrap
 Purpose
 -------
 
-This is a temporary personal bring-up host for proving Omniphony inside the
-real Windows render graph before the project ships its own endpoint-effect APO.
-It uses an existing Equalizer APO installation only as the host for a tiny VST
-bridge. It does not create a virtual cable, virtual playback device, loopback
-transport, or second renderer.
+This is a temporary personal bring-up host for hearing the retained Omniphony
+Current model inside the real Windows render graph before the project ships its
+own endpoint-effect APO. It uses an existing Equalizer APO installation only as
+the host for a tiny VST bridge. It creates no virtual cable, virtual playback
+device, loopback transport, or second renderer.
 
-Stage 0 is deliberately exact identity:
+Audible path
+------------
 
     Windows application audio
         -> existing Equalizer APO on the physical FiiO endpoint
         -> OmniphonyVstBridge.dll
-        -> omniphony_realtime.dll ABI 0.1
-        -> bit-exact stereo
-        -> FiiO / headphones
+        -> omniphony_realtime.dll ABI 0.2
+        -> dedicated Current-model worker thread
+        -> protected master + coherent foundation + full-sphere support
+        -> measured-HRTF early field + retained transient law
+        -> +2.8 dB fixed makeup / stereo-linked peak safety
+        -> stereo FiiO / Noire X
 
-A successful Stage 0 proves the native insertion/callback boundary without
-changing what you hear. The next stage attaches the retained Current-model
-Omniphony renderer behind this same realtime seam. After personal listening is
-stable, the temporary Equalizer APO host is replaced by Omniphony's own native
-Windows APO while keeping the portable renderer boundary.
+The VST callback only moves PCM through preallocated stereo rings. The retained
+renderer remains on a dedicated worker thread because the existing engine still
+allocates internally. This is a bounded personal bootstrap, not the final APO
+realtime architecture.
 
-Safety properties
------------------
-
-- x64, stereo 2-in / 2-out bootstrap only.
-- The bridge dynamically loads a sibling omniphony_realtime.dll and requires
-  the expected ABI before declaring itself ready.
-- Audio buffers are allocated on VST lifecycle/block-size callbacks, not in the
-  realtime process callback.
-- Missing backend, invalid state, oversized blocks, bypass, or process errors
-  fall back to direct passthrough.
-- The callback performs no filesystem I/O, device discovery, network access,
-  subprocess launch, or unbounded locking.
-- The current Rust ABI is bit-exact identity. Any audible change at this stage
-  is a failure signal, not an expected effect.
+Identity mode remains in the Rust ABI as a regression oracle, and explicit VST
+bypass remains bit-exact passthrough. If the Current worker faults, the C++ host
+falls back to direct PCM rather than calling broken renderer state.
 
 Install
 -------
@@ -55,8 +47,17 @@ adds one marked Include line to config.txt.
 
 If the FiiO endpoint is already enabled in Equalizer APO because of an existing
 HeSuVi setup, leave the endpoint association alone. If it is not enabled, use
-Equalizer APO Configurator to enable that real render endpoint. This bootstrap
+Equalizer APO Configurator to enable that real render endpoint. The bootstrap
 does not edit endpoint FxProperties itself.
+
+Expected first-listen behavior
+------------------------------
+
+The first audible build is intentionally stereo-source first. It should sound
+like the repository's retained Current model, not like generic 7.1 conversion.
+Do not enable HeSuVi virtualization in parallel with Omniphony. Equalizer APO is
+only the temporary host here; a second HRTF/virtual-room stage would invalidate
+the listening comparison.
 
 Rollback
 --------

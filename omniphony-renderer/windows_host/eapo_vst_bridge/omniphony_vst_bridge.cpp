@@ -15,14 +15,16 @@ namespace {
 
 constexpr uint32_t kChannels = 2;
 constexpr uint32_t kExpectedAbiMajor = 0;
-constexpr uint32_t kMinimumAbiMinor = 1;
-constexpr int32_t kPluginVersion = 1000;
-constexpr int32_t kUniqueId =
-    static_cast<int32_t>(OMNI_VST_FOURCC('O', 'm', 'I', 'd'));
+constexpr uint32_t kMinimumAbiMinor = 2;
+constexpr uint32_t kCurrentMode = 1;
+constexpr int32_t kPluginVersion = 1100;
+constexpr int32_t kUniqueId = static_cast<int32_t>(OMNI_VST_FOURCC('O', 'm', 'C', 'u'));
 
 HMODULE g_this_module = nullptr;
 std::atomic<uint32_t> g_ready_instances{0};
+std::atomic<uint32_t> g_current_instances{0};
 std::atomic<uint32_t> g_last_abi_minor{0};
+std::atomic<uint64_t> g_processed_blocks_seen{0};
 
 struct OmniphonyRealtimeProcessor;
 struct OmniphonyRealtimeConfig {
@@ -34,8 +36,10 @@ using AbiFn = uint32_t(*)();
 using CreateFn = OmniphonyRealtimeProcessor*(*)(const OmniphonyRealtimeConfig*);
 using DestroyFn = void(*)(OmniphonyRealtimeProcessor*);
 using ResetFn = int32_t(*)(OmniphonyRealtimeProcessor*);
-using ProcessFn = int32_t(*)(
-    OmniphonyRealtimeProcessor*, const float*, float*, size_t);
+using ProcessFn = int32_t(*)(OmniphonyRealtimeProcessor*, const float*, float*, size_t);
+using SetModeFn = int32_t(*)(OmniphonyRealtimeProcessor*, uint32_t);
+using ModeFn = uint32_t(*)(const OmniphonyRealtimeProcessor*);
+using ProcessedBlocksFn = uint64_t(*)(const OmniphonyRealtimeProcessor*);
 
 struct Backend {
     HMODULE module = nullptr;
@@ -45,6 +49,9 @@ struct Backend {
     DestroyFn destroy = nullptr;
     ResetFn reset = nullptr;
     ProcessFn process = nullptr;
+    SetModeFn set_mode = nullptr;
+    ModeFn mode = nullptr;
+    ProcessedBlocksFn processed_blocks = nullptr;
 };
 
 struct State {
@@ -54,33 +61,33 @@ struct State {
     int32_t block_size = 1024;
     std::vector<float> interleaved;
     bool ready_counted = false;
+    bool current_counted = false;
+    bool sample_rate_explicit = false;
     bool bypass = false;
 };
 
 void copy_text(void* target, size_t capacity, const char* text) {
-    if (target == nullptr || capacity == 0) {
-        return;
-    }
-    char* out = static_cast<char*>(target);
-    strncpy_s(out, capacity, text, _TRUNCATE);
+    if (target == nullptr || capacity == 0) return;
+    strncpy_s(static_cast<char*>(target), capacity, text, _TRUNCATE);
 }
 
 void set_ready(State* state, bool ready) {
-    if (state == nullptr || state->ready_counted == ready) {
-        return;
-    }
-    if (ready) {
-        g_ready_instances.fetch_add(1, std::memory_order_relaxed);
-    } else {
-        g_ready_instances.fetch_sub(1, std::memory_order_relaxed);
-    }
+    if (state == nullptr || state->ready_counted == ready) return;
+    if (ready) g_ready_instances.fetch_add(1, std::memory_order_relaxed);
+    else g_ready_instances.fetch_sub(1, std::memory_order_relaxed);
     state->ready_counted = ready;
 }
 
+void set_current(State* state, bool current) {
+    if (state == nullptr || state->current_counted == current) return;
+    if (current) g_current_instances.fetch_add(1, std::memory_order_relaxed);
+    else g_current_instances.fetch_sub(1, std::memory_order_relaxed);
+    state->current_counted = current;
+}
+
 void destroy_processor(State* state) {
-    if (state == nullptr) {
-        return;
-    }
+    if (state == nullptr) return;
+    set_current(state, false);
     set_ready(state, false);
     if (state->processor != nullptr && state->backend.destroy != nullptr) {
         state->backend.destroy(state->processor);
@@ -89,28 +96,19 @@ void destroy_processor(State* state) {
 }
 
 void unload_backend(State* state) {
-    if (state == nullptr) {
-        return;
-    }
+    if (state == nullptr) return;
     destroy_processor(state);
-    if (state->backend.module != nullptr) {
-        FreeLibrary(state->backend.module);
-    }
+    if (state->backend.module != nullptr) FreeLibrary(state->backend.module);
     state->backend = {};
 }
 
 std::wstring sibling_path(const wchar_t* filename) {
     wchar_t path[32768]{};
-    DWORD len = GetModuleFileNameW(
-        g_this_module, path, static_cast<DWORD>(_countof(path)));
-    if (len == 0 || len >= _countof(path)) {
-        return {};
-    }
+    DWORD len = GetModuleFileNameW(g_this_module, path, static_cast<DWORD>(_countof(path)));
+    if (len == 0 || len >= _countof(path)) return {};
     std::wstring result(path, len);
     const size_t slash = result.find_last_of(L"\\/");
-    if (slash == std::wstring::npos) {
-        return {};
-    }
+    if (slash == std::wstring::npos) return {};
     result.resize(slash + 1);
     result.append(filename);
     return result;
@@ -122,40 +120,31 @@ T symbol(HMODULE module, const char* name) {
 }
 
 bool load_backend(State* state) {
-    if (state == nullptr) {
-        return false;
-    }
-    if (state->backend.module != nullptr) {
-        return true;
-    }
+    if (state == nullptr) return false;
+    if (state->backend.module != nullptr) return true;
 
     const std::wstring dll_path = sibling_path(L"omniphony_realtime.dll");
-    if (dll_path.empty()) {
-        return false;
-    }
+    if (dll_path.empty()) return false;
 
     Backend backend;
     backend.module = LoadLibraryW(dll_path.c_str());
-    if (backend.module == nullptr) {
-        return false;
-    }
+    if (backend.module == nullptr) return false;
 
-    backend.abi_major = symbol<AbiFn>(
-        backend.module, "omniphony_realtime_abi_major");
-    backend.abi_minor = symbol<AbiFn>(
-        backend.module, "omniphony_realtime_abi_minor");
-    backend.create = symbol<CreateFn>(
-        backend.module, "omniphony_realtime_create");
-    backend.destroy = symbol<DestroyFn>(
-        backend.module, "omniphony_realtime_destroy");
-    backend.reset = symbol<ResetFn>(
-        backend.module, "omniphony_realtime_reset");
-    backend.process = symbol<ProcessFn>(
-        backend.module, "omniphony_realtime_process_f32");
+    backend.abi_major = symbol<AbiFn>(backend.module, "omniphony_realtime_abi_major");
+    backend.abi_minor = symbol<AbiFn>(backend.module, "omniphony_realtime_abi_minor");
+    backend.create = symbol<CreateFn>(backend.module, "omniphony_realtime_create");
+    backend.destroy = symbol<DestroyFn>(backend.module, "omniphony_realtime_destroy");
+    backend.reset = symbol<ResetFn>(backend.module, "omniphony_realtime_reset");
+    backend.process = symbol<ProcessFn>(backend.module, "omniphony_realtime_process_f32");
+    backend.set_mode = symbol<SetModeFn>(backend.module, "omniphony_realtime_set_mode");
+    backend.mode = symbol<ModeFn>(backend.module, "omniphony_realtime_mode");
+    backend.processed_blocks = symbol<ProcessedBlocksFn>(backend.module, "omniphony_realtime_processed_blocks");
 
     if (backend.abi_major == nullptr || backend.abi_minor == nullptr ||
         backend.create == nullptr || backend.destroy == nullptr ||
-        backend.reset == nullptr || backend.process == nullptr) {
+        backend.reset == nullptr || backend.process == nullptr ||
+        backend.set_mode == nullptr || backend.mode == nullptr ||
+        backend.processed_blocks == nullptr) {
         FreeLibrary(backend.module);
         return false;
     }
@@ -173,12 +162,9 @@ bool load_backend(State* state) {
 }
 
 bool resize_buffers(State* state, int32_t block_size) {
-    if (state == nullptr || block_size <= 0) {
-        return false;
-    }
+    if (state == nullptr || block_size <= 0) return false;
     try {
-        state->interleaved.resize(
-            static_cast<size_t>(block_size) * kChannels);
+        state->interleaved.resize(static_cast<size_t>(block_size) * kChannels);
         state->block_size = block_size;
         return true;
     } catch (...) {
@@ -189,70 +175,50 @@ bool resize_buffers(State* state, int32_t block_size) {
 }
 
 bool rebuild_processor(State* state) {
-    if (state == nullptr) {
-        return false;
-    }
-
+    if (state == nullptr) return false;
     destroy_processor(state);
-    if (!load_backend(state)) {
-        return false;
-    }
-    if (state->sample_rate_hz < 8000 || state->sample_rate_hz > 384000) {
-        return false;
-    }
+    if (!load_backend(state)) return false;
+    if (state->sample_rate_hz < 8000 || state->sample_rate_hz > 384000) return false;
 
-    const OmniphonyRealtimeConfig config{
-        state->sample_rate_hz,
-        kChannels,
-    };
+    const OmniphonyRealtimeConfig config{state->sample_rate_hz, kChannels};
     state->processor = state->backend.create(&config);
-    const bool ready = state->processor != nullptr;
-    set_ready(state, ready);
-    return ready;
+    if (state->processor == nullptr) return false;
+    set_ready(state, true);
+
+    // Do not construct the heavy Current model until the host has supplied the
+    // actual endpoint sample rate. Initial VST open stays identity-only.
+    if (state->sample_rate_explicit) {
+        if (state->backend.set_mode(state->processor, kCurrentMode) != 0 ||
+            state->backend.mode(state->processor) != kCurrentMode) {
+            destroy_processor(state);
+            return false;
+        }
+        set_current(state, true);
+    }
+    return true;
 }
 
 State* state_from(vst_effect_t* effect) {
-    return effect == nullptr
-        ? nullptr
-        : static_cast<State*>(effect->effect_internal);
+    return effect == nullptr ? nullptr : static_cast<State*>(effect->effect_internal);
 }
 
-void passthrough(
-    const float* const* inputs,
-    float** outputs,
-    int32_t frames) {
-    if (inputs == nullptr || outputs == nullptr || frames <= 0) {
-        return;
-    }
+void passthrough(const float* const* inputs, float** outputs, int32_t frames) {
+    if (inputs == nullptr || outputs == nullptr || frames <= 0) return;
     const size_t bytes = static_cast<size_t>(frames) * sizeof(float);
     for (uint32_t channel = 0; channel < kChannels; ++channel) {
-        if (inputs[channel] == nullptr || outputs[channel] == nullptr) {
-            continue;
-        }
-        if (inputs[channel] != outputs[channel]) {
-            std::memmove(outputs[channel], inputs[channel], bytes);
-        }
+        if (inputs[channel] == nullptr || outputs[channel] == nullptr) continue;
+        if (inputs[channel] != outputs[channel]) std::memmove(outputs[channel], inputs[channel], bytes);
     }
 }
 
-void __cdecl process_float(
-    vst_effect_t* effect,
-    const float* const* inputs,
-    float** outputs,
-    int32_t frames) {
+void __cdecl process_float(vst_effect_t* effect, const float* const* inputs, float** outputs, int32_t frames) {
     State* state = state_from(effect);
-    if (state == nullptr || inputs == nullptr || outputs == nullptr ||
-        frames <= 0) {
-        return;
-    }
+    if (state == nullptr || inputs == nullptr || outputs == nullptr || frames <= 0) return;
 
     const size_t needed = static_cast<size_t>(frames) * kChannels;
-    if (state->bypass || state->processor == nullptr ||
-        state->backend.process == nullptr ||
-        state->block_size < frames ||
-        state->interleaved.size() < needed ||
-        inputs[0] == nullptr || inputs[1] == nullptr ||
-        outputs[0] == nullptr || outputs[1] == nullptr) {
+    if (state->bypass || state->processor == nullptr || state->backend.process == nullptr ||
+        state->block_size < frames || state->interleaved.size() < needed ||
+        inputs[0] == nullptr || inputs[1] == nullptr || outputs[0] == nullptr || outputs[1] == nullptr) {
         passthrough(inputs, outputs, frames);
         return;
     }
@@ -264,13 +230,12 @@ void __cdecl process_float(
         interleaved[base + 1] = inputs[1][frame];
     }
 
-    if (state->backend.process(
-            state->processor,
-            interleaved,
-            interleaved,
-            static_cast<size_t>(frames)) != 0) {
+    if (state->backend.process(state->processor, interleaved, interleaved, static_cast<size_t>(frames)) != 0) {
         passthrough(inputs, outputs, frames);
         return;
+    }
+    if (state->backend.processed_blocks != nullptr) {
+        g_processed_blocks_seen.store(state->backend.processed_blocks(state->processor), std::memory_order_relaxed);
     }
 
     for (int32_t frame = 0; frame < frames; ++frame) {
@@ -283,15 +248,8 @@ void __cdecl process_float(
 void __cdecl set_parameter(vst_effect_t*, uint32_t, float) {}
 float __cdecl get_parameter(vst_effect_t*, uint32_t) { return 0.0f; }
 
-intptr_t __cdecl control(
-    vst_effect_t* effect,
-    int32_t opcode,
-    int32_t,
-    intptr_t value,
-    void* ptr,
-    float opt) {
+intptr_t __cdecl control(vst_effect_t* effect, int32_t opcode, int32_t, intptr_t value, void* ptr, float opt) {
     State* state = state_from(effect);
-
     switch (opcode) {
     case kVstEffectInitialize:
         if (state != nullptr) {
@@ -299,7 +257,6 @@ intptr_t __cdecl control(
             rebuild_processor(state);
         }
         return 0;
-
     case kVstEffectDestroy:
         if (state != nullptr) {
             unload_backend(state);
@@ -307,84 +264,53 @@ intptr_t __cdecl control(
         }
         delete effect;
         return 0;
-
     case kVstEffectSetSampleRate:
         if (state != nullptr && std::isfinite(opt) && opt > 0.0f) {
-            state->sample_rate_hz =
-                static_cast<uint32_t>(std::lround(opt));
+            const uint32_t rate = static_cast<uint32_t>(std::lround(opt));
+            if (state->sample_rate_explicit && state->sample_rate_hz == rate && state->current_counted) return 0;
+            state->sample_rate_hz = rate;
+            state->sample_rate_explicit = true;
             rebuild_processor(state);
         }
         return 0;
-
     case kVstEffectSetBlockSize:
-        if (state != nullptr) {
-            resize_buffers(state, static_cast<int32_t>(value));
-        }
+        if (state != nullptr) resize_buffers(state, static_cast<int32_t>(value));
         return 0;
-
     case kVstEffectSuspend:
-        if (state != nullptr && value != 0 &&
-            state->processor != nullptr && state->backend.reset != nullptr) {
+        if (state != nullptr && value != 0 && state->processor != nullptr && state->backend.reset != nullptr) {
             state->backend.reset(state->processor);
         }
         return 0;
-
-    case kVstEffectCategory:
-        return kVstEffectCategorySpatial;
-
+    case kVstEffectCategory: return kVstEffectCategorySpatial;
     case kVstEffectBypass:
-        if (state != nullptr) {
-            state->bypass = value != 0;
-        }
+        if (state != nullptr) state->bypass = value != 0;
         return 1;
-
     case kVstEffectName:
-        copy_text(ptr, 32, "Omniphony Identity Bridge");
+        copy_text(ptr, 32, "Omniphony Current");
         return 1;
-
     case kVstEffectVendorName:
         copy_text(ptr, 64, "Omniphony");
         return 1;
-
     case kVstEffectProductName:
         copy_text(ptr, 64, "Omniphony Personal Bootstrap");
         return 1;
-
-    case kVstEffectVendorVersion:
-        return kPluginVersion;
-
+    case kVstEffectVendorVersion: return kPluginVersion;
     case kVstEffectSupports:
-        if (ptr != nullptr && std::strcmp(
-                static_cast<const char*>(ptr), "bypass") == 0) {
-            return 1;
-        }
+        if (ptr != nullptr && std::strcmp(static_cast<const char*>(ptr), "bypass") == 0) return 1;
         return 0;
-
-    case kVstEffectTailSamples:
-        return 1;
-
-    case kVstEffectVstVersion:
-        return kVstVersion2400;
-
+    case kVstEffectTailSamples: return 1;
+    case kVstEffectVstVersion: return kVstVersion2400;
     case kVstEffectProcessBegin:
-        if (state != nullptr && state->processor != nullptr &&
-            state->backend.reset != nullptr) {
-            state->backend.reset(state->processor);
-        }
+        if (state != nullptr && state->processor != nullptr && state->backend.reset != nullptr) state->backend.reset(state->processor);
         return 1;
-
-    case kVstEffectProcessEnd:
-        return 1;
-
-    default:
-        return 0;
+    case kVstEffectProcessEnd: return 1;
+    default: return 0;
     }
 }
 
 }  // namespace
 
-extern "C" __declspec(dllexport) vst_effect_t* __cdecl
-VSTPluginMain(vst_host_callback_t) {
+extern "C" __declspec(dllexport) vst_effect_t* __cdecl VSTPluginMain(vst_host_callback_t) {
     auto* effect = new (std::nothrow) vst_effect_t{};
     auto* state = new (std::nothrow) State{};
     if (effect == nullptr || state == nullptr) {
@@ -392,7 +318,6 @@ VSTPluginMain(vst_host_callback_t) {
         delete effect;
         return nullptr;
     }
-
     effect->magic_number = kVstMagic;
     effect->control = control;
     effect->process = process_float;
@@ -413,14 +338,17 @@ VSTPluginMain(vst_host_callback_t) {
     return effect;
 }
 
-extern "C" __declspec(dllexport) uint32_t
-omniphony_vst_bridge_backend_ready_instances() {
+extern "C" __declspec(dllexport) uint32_t omniphony_vst_bridge_backend_ready_instances() {
     return g_ready_instances.load(std::memory_order_relaxed);
 }
-
-extern "C" __declspec(dllexport) uint32_t
-omniphony_vst_bridge_backend_abi_minor() {
+extern "C" __declspec(dllexport) uint32_t omniphony_vst_bridge_backend_current_instances() {
+    return g_current_instances.load(std::memory_order_relaxed);
+}
+extern "C" __declspec(dllexport) uint32_t omniphony_vst_bridge_backend_abi_minor() {
     return g_last_abi_minor.load(std::memory_order_relaxed);
+}
+extern "C" __declspec(dllexport) uint64_t omniphony_vst_bridge_processed_blocks() {
+    return g_processed_blocks_seen.load(std::memory_order_relaxed);
 }
 
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {

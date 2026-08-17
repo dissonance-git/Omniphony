@@ -12,6 +12,7 @@
 
 pub mod bridge_loader;
 pub mod channel_layout;
+pub mod current_music_support;
 pub mod degraded;
 pub mod engine;
 pub mod events;
@@ -27,6 +28,11 @@ pub mod source_renderer_build;
 pub mod spatial;
 mod stft;
 pub mod virtual_bed;
+
+// Current music support is renderer-core state, not Windows host state. Keep
+// these implementation modules private and expose the narrow wrapper above.
+mod music_early_reflections;
+mod music_support;
 
 pub use channel_layout::label_for_speaker_name;
 pub use degraded::{DegradedReporter, start_degraded_reporter};
