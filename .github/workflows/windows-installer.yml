@@ -86,7 +86,7 @@ jobs:
           choco install windowsdriverkit11 -y --no-progress
           if ($LASTEXITCODE -ne 0) { throw "WDK installation failed: $LASTEXITCODE" }
 
-      - name: Configure and build native APO
+      - name: Configure and build native APOs
         shell: pwsh
         run: |
           cmake -S "$env:GITHUB_WORKSPACE\omniphony\omniphony-renderer\windows_installer\endpoint_apo" `
@@ -105,10 +105,9 @@ jobs:
           $helper = "$env:GITHUB_WORKSPACE\omniphony\omniphony-renderer\windows_installer\build\endpoint_ctl\OmniphonyEndpointCtl.exe"
           if (-not (Test-Path $helper)) { throw "OmniphonyEndpointCtl.exe was not produced: $helper" }
 
-      - name: Verify APO manifest contract
+      - name: Verify APO manifest contracts
         shell: pwsh
         run: |
-          $dll = (Resolve-Path "$env:GITHUB_WORKSPACE\build\apo\Release\OmniphonyAPO.dll").Path
           $mt = (Get-Command mt.exe -ErrorAction SilentlyContinue).Source
           if (-not $mt) {
             $kitsRoot = 'C:\Program Files (x86)\Windows Kits\10'
@@ -120,30 +119,33 @@ jobs:
           }
           if (-not $mt) { throw 'x64 mt.exe not found in Windows Kits' }
           Write-Host "mt.exe=$mt"
-          $probe = Join-Path $env:RUNNER_TEMP 'omniphony-embedded-manifest.xml'
-          Remove-Item $probe -Force -ErrorAction SilentlyContinue
 
-          $psi = [System.Diagnostics.ProcessStartInfo]::new()
-          $psi.FileName = $mt
-          $psi.UseShellExecute = $false
-          $psi.RedirectStandardOutput = $true
-          $psi.RedirectStandardError = $true
-          $null = $psi.ArgumentList.Add("-inputresource:$dll;#2")
-          $null = $psi.ArgumentList.Add("-out:$probe")
-          $process = [System.Diagnostics.Process]::Start($psi)
-          $stdout = $process.StandardOutput.ReadToEnd()
-          $stderr = $process.StandardError.ReadToEnd()
-          $process.WaitForExit()
-          $mtExit = $process.ExitCode
-          if ($stdout) { Write-Host $stdout.Trim() }
-          if ($stderr) { Write-Host "mt.exe probe: $($stderr.Trim())" }
+          foreach ($name in @('OmniphonyAPO.dll', 'OmniphonyStreamAPO.dll')) {
+            $dll = (Resolve-Path "$env:GITHUB_WORKSPACE\build\apo\Release\$name").Path
+            $probe = Join-Path $env:RUNNER_TEMP "$name.manifest.xml"
+            Remove-Item $probe -Force -ErrorAction SilentlyContinue
 
-          if ($mtExit -eq 0 -or (Test-Path $probe)) {
-            throw 'OmniphonyAPO.dll contains an embedded manifest; AudioDG deployment can reject it.'
+            $psi = [System.Diagnostics.ProcessStartInfo]::new()
+            $psi.FileName = $mt
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $null = $psi.ArgumentList.Add("-inputresource:$dll;#2")
+            $null = $psi.ArgumentList.Add("-out:$probe")
+            $process = [System.Diagnostics.Process]::Start($psi)
+            $stdout = $process.StandardOutput.ReadToEnd()
+            $stderr = $process.StandardError.ReadToEnd()
+            $process.WaitForExit()
+            $mtExit = $process.ExitCode
+            if ($stdout) { Write-Host $stdout.Trim() }
+            if ($stderr) { Write-Host "mt.exe probe $name`: $($stderr.Trim())" }
+            if ($mtExit -eq 0 -or (Test-Path $probe)) {
+              throw "$name contains an embedded manifest; AudioDG deployment can reject it."
+            }
+            Write-Host "APO_MANIFEST_OK file=$name embedded=0 mt_exit=$mtExit"
           }
-          Write-Host "APO_MANIFEST_OK embedded=0 mt_exit=$mtExit"
 
-      - name: Validate realtime ABI and Current APO lifecycle
+      - name: Validate realtime ABI and APO lifecycles
         shell: pwsh
         run: |
           $release = "$env:GITHUB_WORKSPACE\build\apo\Release"
@@ -153,17 +155,23 @@ jobs:
           & "$release\OmniphonyRealtimeSmoke.exe" $realtime
           if ($LASTEXITCODE -ne 0) { throw "Realtime DLL smoke failed: $LASTEXITCODE" }
 
-          $dll = "$release\OmniphonyAPO.dll"
           $regsvr32 = "$env:WINDIR\System32\regsvr32.exe"
-          try {
-            $register = Start-Process -FilePath $regsvr32 -ArgumentList @('/s', $dll) -Wait -PassThru
-            if ($register.ExitCode -ne 0) { throw "regsvr32 registration failed: $($register.ExitCode)" }
-            & "$release\OmniphonyApoSmoke.exe"
-            if ($LASTEXITCODE -ne 0) { throw "APO Current smoke failed: $LASTEXITCODE" }
-          }
-          finally {
-            $unregister = Start-Process -FilePath $regsvr32 -ArgumentList @('/u', '/s', $dll) -Wait -PassThru
-            if ($unregister.ExitCode -ne 0) { Write-Warning "regsvr32 cleanup returned $($unregister.ExitCode)" }
+          $cases = @(
+            @{ Dll = 'OmniphonyAPO.dll'; Smoke = 'OmniphonyApoSmoke.exe'; Label = 'endpoint Current' },
+            @{ Dll = 'OmniphonyStreamAPO.dll'; Smoke = 'OmniphonyStreamApoSmoke.exe'; Label = 'native-surround stream' }
+          )
+          foreach ($case in $cases) {
+            $dll = "$release\$($case.Dll)"
+            try {
+              $register = Start-Process -FilePath $regsvr32 -ArgumentList @('/s', $dll) -Wait -PassThru
+              if ($register.ExitCode -ne 0) { throw "$($case.Label) regsvr32 registration failed: $($register.ExitCode)" }
+              & "$release\$($case.Smoke)"
+              if ($LASTEXITCODE -ne 0) { throw "$($case.Label) smoke failed: $LASTEXITCODE" }
+            }
+            finally {
+              $unregister = Start-Process -FilePath $regsvr32 -ArgumentList @('/u', '/s', $dll) -Wait -PassThru
+              if ($unregister.ExitCode -ne 0) { Write-Warning "$($case.Label) cleanup returned $($unregister.ExitCode)" }
+            }
           }
 
       - name: Assemble tray-only installer payload
@@ -178,18 +186,19 @@ jobs:
           $renderer = "$env:GITHUB_WORKSPACE\omniphony\omniphony-renderer"
           $endpointCtl = "$renderer\windows_installer\build\endpoint_ctl\OmniphonyEndpointCtl.exe"
 
-          # Temporary setup payload. These helpers install and validate Current,
-          # then only the runtime DLLs and small tray/repair surface remain.
+          # Both APO binaries ship during native-surround bring-up. The endpoint
+          # APO is the proven rollback floor; the stream APO is activated only by
+          # migration-aware installer code after its 7.1.4 smoke passes above.
           Copy-Item "$release\OmniphonyAPO.dll" $runtime -Force
+          Copy-Item "$release\OmniphonyStreamAPO.dll" $runtime -Force
           Copy-Item "$renderer\target\release\omniphony_realtime.dll" $runtime -Force
           Copy-Item "$release\OmniphonyApoCtl.exe" $runtime -Force
           Copy-Item "$release\OmniphonyApoSmoke.exe" $runtime -Force
+          Copy-Item "$release\OmniphonyStreamApoSmoke.exe" $runtime -Force
           Copy-Item "$release\OmniphonyRealtimeSmoke.exe" $runtime -Force
           Copy-Item "$release\OmniphonyMixProbe.exe" $runtime -Force
           Copy-Item $endpointCtl $runtime -Force
 
-          # Persistent support is deliberately small. The signed DriverStore
-          # experiment remains in the repository but is not part of this product.
           Copy-Item "$renderer\windows_installer\endpoint_apo\Install-OmniphonyAPO.ps1" $support -Force
           Copy-Item "$renderer\windows_installer\endpoint_apo\Uninstall-OmniphonyAPO.ps1" $support -Force
           Copy-Item "$release\OmniphonyApoCtl.exe" $support -Force
@@ -198,7 +207,8 @@ jobs:
           Copy-Item "$env:GITHUB_WORKSPACE\omniphony\LICENSE" "$payload\LICENSE" -Force
 
           Write-Host 'Installed product target:'
-          Write-Host '  Omniphony\APO\OmniphonyAPO.dll'
+          Write-Host '  Omniphony\APO\OmniphonyAPO.dll (rollback floor)'
+          Write-Host '  Omniphony\APO\OmniphonyStreamAPO.dll (native-surround SFX candidate)'
           Write-Host '  Omniphony\APO\omniphony_realtime.dll'
           Write-Host '  Omniphony\support\OmniphonyTray.ps1'
           Write-Host '  no taskbar window; no background host process'
@@ -245,16 +255,16 @@ jobs:
           $repo = $env:GITHUB_REPOSITORY
           $sha = $env:GITHUB_SHA
           $asset = 'dist/OmniphonySetup.exe'
-          $notes = "Rolling Omniphony for Windows 0.1 tray-only installer.`n`nBuilt from $sha after the full Current renderer and APO validation suite passed."
+          $notes = "Rolling Omniphony for Windows tray-only installer.`n`nBuilt from $sha after the Current renderer, stereo APO, and native-surround 7.1.4 stream smoke passed."
 
           gh release view windows-current --repo $repo *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload windows-current $asset --repo $repo --clobber
             if ($LASTEXITCODE -ne 0) { throw "Could not replace rolling release asset: $LASTEXITCODE" }
-            gh release edit windows-current --repo $repo --title 'Omniphony for Windows 0.1 - Current' --notes $notes
+            gh release edit windows-current --repo $repo --title 'Omniphony for Windows - Current' --notes $notes
             if ($LASTEXITCODE -ne 0) { throw "Could not update rolling release metadata: $LASTEXITCODE" }
           } else {
-            gh release create windows-current $asset --repo $repo --target $sha --title 'Omniphony for Windows 0.1 - Current' --notes $notes --prerelease
+            gh release create windows-current $asset --repo $repo --target $sha --title 'Omniphony for Windows - Current' --notes $notes --prerelease
             if ($LASTEXITCODE -ne 0) { throw "Could not create rolling release: $LASTEXITCODE" }
           }
 
