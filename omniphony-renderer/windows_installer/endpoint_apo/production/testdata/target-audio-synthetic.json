@@ -1,0 +1,58 @@
+{
+  "Schema": "omniphony.windows.apo-target.v2",
+  "CapturedAtUtc": "2026-08-17T00:00:00.0000000Z",
+  "DefaultEndpoint": {
+    "MmDeviceId": "{0.0.0.00000000}.{11111111-1111-1111-1111-111111111111}",
+    "FriendlyName": "Synthetic Omniphony Target",
+    "PnpInstanceId": "SWD\\MMDEVAPI\\{0.0.0.00000000}.{11111111-1111-1111-1111-111111111111}"
+  },
+  "AssociationCandidates": [
+    {
+      "InstanceId": "USB\\VID_F00D&PID_BEEF&MI_00\\SYNTHETIC",
+      "FriendlyName": "Synthetic USB Audio",
+      "Class": "MEDIA",
+      "ClassGuid": "{4D36E96C-E325-11CE-BFC1-08002BE10318}",
+      "Manufacturer": "Synthetic",
+      "Service": "usbaudio2",
+      "DriverInfPath": "synthetic.inf",
+      "DriverInfFullPath": "C:\\Windows\\INF\\synthetic.inf",
+      "DriverInfSection": "SyntheticAudio.NT",
+      "DriverProvider": "Synthetic",
+      "DriverVersion": "1.0.0.0",
+      "HardwareIds": [
+        "USB\\VID_F00D&PID_BEEF&MI_00",
+        "USB\\VID_F00D&PID_BEEF"
+      ],
+      "CompatibleIds": [],
+      "DriverInterfaces": [
+        {
+          "Section": "SyntheticAudio.NT.Interfaces",
+          "SectionRelevant": true,
+          "CategoryToken": "%KSCATEGORY_AUDIO%",
+          "CategoryResolved": "{6994AD04-93EF-11D0-A3CC-00A0C9223196}",
+          "ReferenceToken": "%KSNAME_TopologyRender%",
+          "ReferenceResolved": "TopologyRender",
+          "InstallSectionToken": "Synthetic.I.TopologyRender",
+          "InstallSectionResolved": "Synthetic.I.TopologyRender",
+          "IsAudio": true,
+          "IsTopology": false
+        },
+        {
+          "Section": "SyntheticAudio.NT.Interfaces",
+          "SectionRelevant": true,
+          "CategoryToken": "%KSCATEGORY_TOPOLOGY%",
+          "CategoryResolved": "{DDA54A40-1E4C-11D1-A050-405705C10000}",
+          "ReferenceToken": "%KSNAME_TopologyRender%",
+          "ReferenceResolved": "TopologyRender",
+          "InstallSectionToken": "Synthetic.I.TopologyRender",
+          "InstallSectionResolved": "Synthetic.I.TopologyRender",
+          "IsAudio": false,
+          "IsTopology": true
+        }
+      ],
+      "TopologyReferenceCandidates": ["TopologyRender"],
+      "Parent": "USB\\VID_F00D&PID_BEEF\\SYNTHETIC"
+    }
+  ],
+  "PnpAncestry": []
+}
