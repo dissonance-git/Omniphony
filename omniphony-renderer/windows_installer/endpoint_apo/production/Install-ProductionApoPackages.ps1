@@ -24,7 +24,8 @@ $componentInf = Join-Path $PackageRoot 'component\OmniphonyApoComponent.inf'
 $extensionInf = Join-Path $PackageRoot 'extension\OmniphonyApoExtension.inf'
 $manifestPath = Join-Path $PackageRoot 'package-manifest.json'
 $capturePath = Join-Path $PackageRoot 'target-capture.json'
-foreach ($path in @($componentInf, $extensionInf, $manifestPath, $capturePath)) {
+$productionProbe = Join-Path $PackageRoot 'diagnostics\OmniphonyProductionProbe.exe'
+foreach ($path in @($componentInf, $extensionInf, $manifestPath, $capturePath, $productionProbe)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing production package file: $path" }
 }
 
@@ -76,7 +77,7 @@ function Get-OmniphonyPackages($Inventory) {
 
 function Test-PackageManifest([string]$Root, [string]$Path) {
     $manifest = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
-    if ($manifest.Schema -ne 'omniphony.windows.apo-package-build.v1') {
+    if ($manifest.Schema -ne 'omniphony.windows.apo-package-build.v2') {
         throw "Unsupported package manifest schema: $($manifest.Schema)"
     }
     foreach ($record in @($manifest.Files)) {
@@ -98,7 +99,8 @@ function Test-RequiredSignatures([string]$Root, $Manifest) {
         (Join-Path $Root 'component\OmniphonyAPO.dll'),
         (Join-Path $Root 'component\omniphony_realtime.dll'),
         (Join-Path $Root 'component\OmniphonyApo.cat'),
-        (Join-Path $Root 'extension\OmniphonyApoExtension.cat')
+        (Join-Path $Root 'extension\OmniphonyApoExtension.cat'),
+        (Join-Path $Root 'diagnostics\OmniphonyProductionProbe.exe')
     )
     foreach ($path in $paths) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Required signed payload is missing: $path" }
@@ -167,6 +169,17 @@ function Test-LiveTarget($Capture) {
     if (-not $driver) {
         throw "Captured physical audio-driver candidate is no longer present: $($candidate.InstanceId). Re-capture before installing."
     }
+
+    $liveSectionExt = ''
+    try {
+        $liveSectionExt = [string](Get-PnpDeviceProperty -InstanceId ([string]$candidate.InstanceId) -KeyName 'DEVPKEY_Device_DriverInfSectionExt' -ErrorAction Stop).Data
+    } catch {
+        throw "Could not re-read live DriverInfSectionExt for captured target: $($_.Exception.Message)"
+    }
+    if (-not $liveSectionExt.Equals([string]$candidate.DriverInfSectionExt, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Captured driver platform section changed from '$($candidate.DriverInfSectionExt)' to '$liveSectionExt'. Re-capture before installing."
+    }
+
     $liveHardwareIds = @()
     try { $liveHardwareIds = @((Get-PnpDeviceProperty -InstanceId ([string]$candidate.InstanceId) -KeyName 'DEVPKEY_Device_HardwareIds' -ErrorAction Stop).Data) }
     catch { throw "Could not re-read live hardware IDs for captured target: $($_.Exception.Message)" }
@@ -186,6 +199,28 @@ function Test-LiveTarget($Capture) {
         throw "Captured endpoint already has non-Omniphony EFX registered: $($foreign -join ', '). Windows supports composite EFX, but Omniphony will not guess a safe ordering or overwrite a vendor effect."
     }
     return $effects
+}
+
+function Invoke-ProductionWasapiProbe([string]$Probe, [string]$MmDeviceId) {
+    $lines = @(& $Probe $MmDeviceId 2>&1 | ForEach-Object { "$_" })
+    $code = $LASTEXITCODE
+    foreach ($line in $lines) { Write-Host "PROBE`t$line" }
+    $success = $lines | Where-Object { $_ -eq "OMNIPHONY_PRODUCTION_WASAPI_PROBE_OK`t1" } | Select-Object -First 1
+    if ($code -ne 0 -or -not $success) {
+        throw "Production WASAPI probe failed. exit=$code output=$($lines -join ' | ')"
+    }
+    if (-not ($lines | Where-Object { $_.StartsWith("GET_MIX_FORMAT_OK`t") } | Select-Object -First 1)) {
+        throw 'Production WASAPI probe did not prove IAudioClient::GetMixFormat.'
+    }
+    if (-not ($lines | Where-Object { $_.StartsWith("SHARED_RENDER_START_OK`t") } | Select-Object -First 1)) {
+        throw 'Production WASAPI probe did not prove shared render startup.'
+    }
+    return [ordered]@{
+        ExitCode = $code
+        Output = @($lines)
+        GetMixFormat = $true
+        SharedRenderStarted = $true
+    }
 }
 
 function Restart-AudioGraph {
@@ -221,6 +256,9 @@ function Remove-NewPackages($BeforePublishedNames) {
 }
 
 $manifest = Test-PackageManifest $PackageRoot $manifestPath
+if ([string]$manifest.ProductionProbePath -ne 'diagnostics\OmniphonyProductionProbe.exe') {
+    throw "Package manifest names an unexpected production probe: $($manifest.ProductionProbePath)"
+}
 $expectedCaptureHash = ([string]$manifest.Capture.Sha256).ToLowerInvariant()
 $actualCaptureHash = (Get-FileHash -LiteralPath $capturePath -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($expectedCaptureHash -ne $actualCaptureHash) {
@@ -228,6 +266,9 @@ if ($expectedCaptureHash -ne $actualCaptureHash) {
 }
 Test-RequiredSignatures $PackageRoot $manifest
 $capture = Get-Content -LiteralPath $capturePath -Raw | ConvertFrom-Json
+if ([string]$capture.Schema -ne 'omniphony.windows.apo-target.v3') {
+    throw "Production installer requires a bound v3 target capture, got '$($capture.Schema)'."
+}
 $liveTargetBefore = Test-LiveTarget $capture
 Write-Host "LIVE_TARGET_READY`t$($capture.DefaultEndpoint.FriendlyName)`t$($liveTargetBefore.EndpointGuid)"
 
@@ -276,8 +317,13 @@ try {
         throw 'Omniphony EFX is registered but Windows system effects are disabled on the endpoint.'
     }
 
+    # The known historical failure was GetMixFormat returning access denied after
+    # endpoint attachment. Keep this inside the transaction so reproducing that
+    # failure triggers rollback instead of leaving a misleading installation.
+    $probeResult = Invoke-ProductionWasapiProbe $productionProbe ([string]$capture.DefaultEndpoint.MmDeviceId)
+
     $state = [ordered]@{
-        Schema = 'omniphony.windows.apo-installed.v2'
+        Schema = 'omniphony.windows.apo-installed.v3'
         InstalledAtUtc = [DateTime]::UtcNow.ToString('o')
         PackageRoot = $PackageRoot
         PackageManifestSha256 = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -290,19 +336,22 @@ try {
         }
         PreInstallEffects = $liveTargetBefore
         PostInstallEffects = $liveTargetAfter
+        WasapiProbe = $probeResult
         ComponentDevices = @($devices | ForEach-Object {
             [ordered]@{ InstanceId = [string]$_.InstanceId; FriendlyName = [string]$_.FriendlyName; Class = [string]$_.Class }
         })
         DriverPackages = @($after)
         PriorDriverPackages = @($before)
     }
-    $state | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding UTF8
+    $state | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $statePath -Encoding UTF8
 
     Write-Host ''
     Write-Host 'OMNIPHONY_PRODUCTION_INSTALL_OK 1'
     Write-Host "STATE $statePath"
     Write-Host "COMPONENT_DEVICES $($devices.Count)"
     Write-Host 'ENDPOINT_EFX_ASSOCIATION_OK 1'
+    Write-Host 'GET_MIX_FORMAT_OK 1'
+    Write-Host 'SHARED_RENDER_START_OK 1'
     Write-Host 'Protected AudioDG bypass remains disabled.'
 }
 catch {
