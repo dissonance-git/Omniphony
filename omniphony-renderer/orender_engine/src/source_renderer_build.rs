@@ -14,7 +14,7 @@ use renderer::binaural::HrirSource;
 use renderer::config::RenderConfig;
 use renderer::live_params::{BinauralMode, OutputMode, RampMode};
 use renderer::source_frame::SourceFrameRenderer;
-use renderer::source_scene::SourcePresentationPolicy;
+use renderer::source_scene::{SharedWetPresentationPolicy, SourcePresentationPolicy};
 use renderer::speaker_layout::SpeakerLayout;
 
 use crate::renderer_build::{EvalMode, SpatialRendererParams, build_spatial_renderer};
@@ -78,6 +78,15 @@ pub fn source_presentation_policy(mode: SourceSpatialMode) -> SourcePresentation
             max_rear_azimuth_deg: 100.0,
             max_elevation_deg: 0.0,
             max_distance: 1.0,
+            // The historical wet field still exists in the source mix, but the
+            // control mode adds no modern field scale, height, depth, or extent.
+            shared_wet: SharedWetPresentationPolicy {
+                strength: 0.0,
+                rear_azimuth_deg: 100.0,
+                elevation_deg: 0.0,
+                distance: 1.0,
+                extent: [0.0, 0.0, 0.0],
+            },
         },
         SourceSpatialMode::FullSphere => SourcePresentationPolicy {
             // FullSphere intentionally opens the source-native remix rather than
@@ -91,6 +100,16 @@ pub fn source_presentation_policy(mode: SourceSpatialMode) -> SourcePresentation
             // role and native routing still shape where each source actually goes.
             max_elevation_deg: 60.0,
             max_distance: 1.75,
+            // Historical shared effects, especially S-DSP echo, form their own
+            // environmental layer. Keep it wide and rearward but slightly below
+            // the dry-object maximums so the direct musical scene remains legible.
+            shared_wet: SharedWetPresentationPolicy {
+                strength: 1.0,
+                rear_azimuth_deg: 140.0,
+                elevation_deg: 38.0,
+                distance: 1.60,
+                extent: [1.0, 0.95, 0.85],
+            },
         },
     }
 }
@@ -170,20 +189,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn native_mode_disables_creative_depth_and_height() {
+    fn native_mode_disables_creative_depth_height_and_wet_scale() {
         let policy = source_presentation_policy(SourceSpatialMode::NativeRouting);
         assert_eq!(policy.sphere_strength, 0.0);
         assert_eq!(policy.max_elevation_deg, 0.0);
         assert_eq!(policy.max_distance, 1.0);
+        assert_eq!(policy.shared_wet.strength, 0.0);
+        assert_eq!(policy.shared_wet.extent, [0.0, 0.0, 0.0]);
     }
 
     #[test]
-    fn full_sphere_opens_immersive_rear_height_and_depth_capacity() {
+    fn full_sphere_opens_immersive_rear_height_depth_and_wet_layer() {
         let policy = source_presentation_policy(SourceSpatialMode::FullSphere);
         assert_eq!(policy.sphere_strength, 1.0);
         assert!(policy.max_rear_azimuth_deg > 135.0);
         assert!(policy.max_elevation_deg >= 55.0);
         assert!(policy.max_distance > 1.5);
+        assert!(policy.shared_wet.strength > 0.9);
+        assert!(policy.shared_wet.rear_azimuth_deg > 120.0);
+        assert!(policy.shared_wet.elevation_deg > 25.0);
+        assert!(policy.shared_wet.distance > 1.4);
+        assert!(policy.shared_wet.extent[0] > policy.shared_wet.extent[2]);
     }
 
     #[test]
