@@ -32,26 +32,18 @@ def _select_candidate(capture: dict, instance_id: str | None, hardware_id: str |
     candidates = list(capture.get("AssociationCandidates") or [])
     media = [
         c for c in candidates
-        if _norm(c.get("ClassGuid")) == MEDIA_CLASS_GUID
-        or _norm(c.get("Class")) == "media"
+        if _norm(c.get("ClassGuid")) == MEDIA_CLASS_GUID or _norm(c.get("Class")) == "media"
     ]
     if media:
         candidates = media
-
     if instance_id:
         wanted = _norm(instance_id)
         candidates = [c for c in candidates if _candidate_key(c) == wanted]
     if hardware_id:
         wanted = _norm(hardware_id)
-        candidates = [
-            c for c in candidates
-            if wanted in {_norm(x) for x in (c.get("HardwareIds") or [])}
-        ]
-
+        candidates = [c for c in candidates if wanted in {_norm(x) for x in (c.get("HardwareIds") or [])}]
     if len(candidates) != 1:
-        details = ", ".join(
-            str(c.get("InstanceId") or "<unknown>") for c in candidates
-        ) or "<none>"
+        details = ", ".join(str(c.get("InstanceId") or "<unknown>") for c in candidates) or "<none>"
         raise ContractError(
             "capture must resolve to exactly one physical MEDIA-class association "
             f"candidate; got {len(candidates)}: {details}. "
@@ -70,7 +62,6 @@ def _select_hardware_id(candidate: dict, explicit: str | None) -> str:
         selected = ids[0]
     else:
         raise ContractError("selected driver has no captured hardware IDs")
-
     if selected.upper().startswith("SWD\\MMDEVAPI\\"):
         raise ContractError("refusing to target an MMDevice software endpoint")
     if not HARDWARE_ID_RE.fullmatch(selected):
@@ -78,61 +69,76 @@ def _select_hardware_id(candidate: dict, explicit: str | None) -> str:
     return selected
 
 
-def _paired_topology_references(candidate: dict) -> list[str]:
-    interfaces = list(candidate.get("DriverInterfaces") or [])
-    by_ref: dict[str, set[str]] = {}
-    display: dict[str, str] = {}
-    for item in interfaces:
+def _reference_categories(candidate: dict) -> dict[str, tuple[str, set[str]]]:
+    by_ref: dict[str, tuple[str, set[str]]] = {}
+    for item in candidate.get("DriverInterfaces") or []:
         ref = str(item.get("ReferenceResolved") or "").strip()
         category = _norm(item.get("CategoryResolved"))
-        if not ref or not category:
+        if not ref or category not in {KSCATEGORY_AUDIO, KSCATEGORY_TOPOLOGY}:
             continue
         key = _norm(ref)
-        display.setdefault(key, ref)
-        by_ref.setdefault(key, set()).add(category)
-
-    paired = []
-    for key, categories in by_ref.items():
-        if KSCATEGORY_AUDIO in categories and KSCATEGORY_TOPOLOGY in categories:
-            paired.append(display[key])
-    return sorted(paired, key=str.lower)
+        if key not in by_ref:
+            by_ref[key] = (ref, set())
+        by_ref[key][1].add(category)
+    return by_ref
 
 
-def _select_topology_reference(candidate: dict, explicit: str | None) -> str:
+def _safe_reference_candidates(candidate: dict) -> list[tuple[str, set[str], str]]:
+    refs = _reference_categories(candidate)
+    paired = [
+        (display, categories, "paired-audio-topology")
+        for display, categories in refs.values()
+        if KSCATEGORY_AUDIO in categories and KSCATEGORY_TOPOLOGY in categories
+    ]
+    if paired:
+        return sorted(paired, key=lambda row: row[0].lower())
+
+    # Legacy WDM audio drivers can register their topology miniport only under
+    # KSCATEGORY_AUDIO. Accept only the standard literal Topology reference,
+    # never a guessed wave/render reference. This matches Microsoft's WDM INF
+    # example and is independently observable through the device interface list.
+    legacy = [
+        (display, categories, "legacy-kscategory-audio-topology")
+        for display, categories in refs.values()
+        if KSCATEGORY_AUDIO in categories and display.lower() == "topology"
+    ]
+    return sorted(legacy, key=lambda row: row[0].lower())
+
+
+def _select_topology_reference(candidate: dict, explicit: str | None) -> tuple[str, set[str], str]:
     resolved_section = str(candidate.get("DriverInfResolvedSection") or "").strip()
     if not resolved_section:
-        raise ContractError(
-            "target evidence has no DriverInfResolvedSection; re-run Capture-ProductionTarget.ps1"
-        )
+        raise ContractError("target evidence has no DriverInfResolvedSection; re-run Capture-ProductionTarget.ps1")
     warnings = [str(x).strip() for x in (candidate.get("InterfaceResolutionWarnings") or []) if str(x).strip()]
     if warnings:
         raise ContractError(
-            "target INF evidence contains unresolved warnings and is not safe to package: "
-            + " | ".join(warnings)
+            "target INF evidence contains unresolved warnings and is not safe to package: " + " | ".join(warnings)
         )
 
-    paired = _paired_topology_references(candidate)
+    candidates = _safe_reference_candidates(candidate)
     if explicit:
-        selected = explicit.strip()
-        if _norm(selected) not in {_norm(x) for x in paired}:
+        wanted = _norm(explicit)
+        matches = [row for row in candidates if _norm(row[0]) == wanted]
+        if len(matches) != 1:
             raise ContractError(
-                "--topology-reference is not a captured reference exposed as both "
-                "KSCATEGORY_AUDIO and KSCATEGORY_TOPOLOGY on the selected driver"
+                "--topology-reference is not a safely captured topology association. "
+                "It must be either an AUDIO+TOPOLOGY pair or the exact legacy KSCATEGORY_AUDIO reference 'Topology'."
             )
-    elif len(paired) == 1:
-        selected = paired[0]
+        selected, categories, mode = matches[0]
+    elif len(candidates) == 1:
+        selected, categories, mode = candidates[0]
     else:
-        summary = ", ".join(paired) or "<none>"
+        summary = ", ".join(row[0] for row in candidates) or "<none>"
         raise ContractError(
-            "capture must expose exactly one paired audio/topology reference; "
-            f"got {len(paired)}: {summary}. "
-            "Do not guess. Re-capture the real target or pass a captured "
-            "--topology-reference."
+            "capture must expose exactly one safe topology association reference; "
+            f"got {len(candidates)}: {summary}. Do not guess."
         )
 
     if not REFERENCE_RE.fullmatch(selected):
         raise ContractError(f"topology reference contains unsupported INF characters: {selected!r}")
-    return selected
+    if KSCATEGORY_AUDIO not in categories:
+        raise ContractError("selected topology reference is not exposed under KSCATEGORY_AUDIO")
+    return selected, categories, mode
 
 
 def _validate_endpoint_effect_snapshot(capture: dict) -> None:
@@ -143,19 +149,14 @@ def _validate_endpoint_effect_snapshot(capture: dict) -> None:
             "target capture does not contain a readable endpoint-effects snapshot: "
             f"{detail}. Re-run Capture-ProductionTarget.ps1."
         )
-
     if int(snapshot.get("EnhancementsDisabled") or 0) == 1:
         raise ContractError(
             "system effects were disabled on the captured endpoint; refusing to generate an APO extension that could not run"
         )
-
     existing: list[str] = []
     for key in ("LegacyEndpointEffects", "CompositeEndpointEffects"):
         existing.extend(str(x).strip() for x in (snapshot.get(key) or []) if str(x).strip())
-    foreign = sorted(
-        {effect for effect in existing if _norm(effect) != _norm(APO_CLSID)},
-        key=str.lower,
-    )
+    foreign = sorted({effect for effect in existing if _norm(effect) != _norm(APO_CLSID)}, key=str.lower)
     if foreign:
         raise ContractError(
             "captured endpoint already has non-Omniphony EFX registered: "
@@ -181,15 +182,24 @@ def render_extension_inf(
         raise ContractError(
             f"unsupported capture schema: {schema!r}; production packaging requires omniphony.windows.apo-target.v3"
         )
-
     _validate_endpoint_effect_snapshot(capture)
     candidate = _select_candidate(capture, instance_id, hardware_id)
     selected_hwid = _select_hardware_id(candidate, hardware_id)
-    topology_ref = _select_topology_reference(candidate, topology_reference)
+    topology_ref, categories, evidence_mode = _select_topology_reference(candidate, topology_reference)
     extension_id = _extension_id(selected_hwid, topology_ref)
+
+    interface_lines = [
+        "AddInterface = %KSCATEGORY_AUDIO%,%TARGET_TOPOLOGY_REFERENCE%,OmniphonyCurrent_Interface"
+    ]
+    if KSCATEGORY_TOPOLOGY in categories:
+        interface_lines.append(
+            "AddInterface = %KSCATEGORY_TOPOLOGY%,%TARGET_TOPOLOGY_REFERENCE%,OmniphonyCurrent_Interface"
+        )
+    interface_block = "\n".join(interface_lines)
 
     return f'''; Generated by generate_extension_inf.py from machine-captured target evidence.
 ; Do not hand-edit the hardware ID, topology reference, or ExtensionId.
+; TopologyEvidenceMode={evidence_mode}
 
 [Version]
 Signature   = "$WINDOWS NT$"
@@ -217,8 +227,7 @@ ComponentIDs = VEN_OMNI&CID_CURRENT
 Description  = "Omniphony Current Audio Processing Object"
 
 [OmniphonyCurrent_Install.Interfaces]
-AddInterface = %KSCATEGORY_AUDIO%,%TARGET_TOPOLOGY_REFERENCE%,OmniphonyCurrent_Interface
-AddInterface = %KSCATEGORY_TOPOLOGY%,%TARGET_TOPOLOGY_REFERENCE%,OmniphonyCurrent_Interface
+{interface_block}
 
 [OmniphonyCurrent_Interface]
 AddReg = OmniphonyCurrent_Interface.AddReg
@@ -255,7 +264,6 @@ def main() -> int:
     parser.add_argument("--hardware-id")
     parser.add_argument("--topology-reference")
     args = parser.parse_args()
-
     capture = json.loads(args.capture_json.read_text(encoding="utf-8-sig"))
     try:
         text = render_extension_inf(
@@ -266,7 +274,6 @@ def main() -> int:
         )
     except ContractError as exc:
         parser.error(str(exc))
-
     args.output_inf.parent.mkdir(parents=True, exist_ok=True)
     args.output_inf.write_text(text, encoding="utf-8", newline="\n")
     print(f"OMNIPHONY_EXTENSION_INF_OK\t{args.output_inf}")
