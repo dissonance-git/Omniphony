@@ -2,6 +2,7 @@
 #include <unknwn.h>
 #include <audioenginebaseapo.h>
 #include <audioengineextensionapo.h>
+#include <audiomediatype.h>
 #include <BaseAudioProcessingObject.h>
 #include <ksmedia.h>
 
@@ -17,6 +18,12 @@ namespace {
 
 constexpr GUID kOmniphonyStreamApoClsid = {
     0x07d403d9, 0x8a98, 0x43ef, {0x8c, 0x28, 0x86, 0x51, 0x75, 0x6d, 0x83, 0xbe}};
+
+constexpr DWORD kStereoMask = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT;
+constexpr DWORD kSevenOneMask =
+    SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER |
+    SPEAKER_LOW_FREQUENCY | SPEAKER_BACK_LEFT | SPEAKER_BACK_RIGHT |
+    SPEAKER_SIDE_LEFT | SPEAKER_SIDE_RIGHT;
 
 HINSTANCE g_module = nullptr;
 volatile LONG g_factoryLocks = 0;
@@ -50,6 +57,20 @@ bool IsSupportedFormatPair(
     const UNCOMPRESSEDAUDIOFORMAT& output) noexcept {
     return IsSupportedInputFormat(input) && IsSupportedOutputFormat(output) &&
            input.fFramesPerSecond == output.fFramesPerSecond;
+}
+
+HRESULT CreatePreferredMediaType(
+    const UNCOMPRESSEDAUDIOFORMAT& basis,
+    UINT32 channels,
+    DWORD channelMask,
+    IAudioMediaType** mediaType) noexcept {
+    if (!mediaType) return E_POINTER;
+    *mediaType = nullptr;
+
+    UNCOMPRESSEDAUDIOFORMAT preferred = basis;
+    preferred.dwSamplesPerFrame = channels;
+    preferred.dwChannelMask = channelMask;
+    return CreateAudioMediaTypeFromUncompressedAudioFormat(&preferred, mediaType);
 }
 
 class INonDelegatingUnknown {
@@ -228,6 +249,7 @@ private:
 
 class OmniphonyStreamAPO final : public CBaseAudioProcessingObject,
                                  public IAudioSystemEffects,
+                                 public IAudioProcessingObjectPreferredFormatSupport,
                                  public INonDelegatingUnknown {
 public:
     static volatile LONG instanceCount;
@@ -264,6 +286,8 @@ public:
             *object = static_cast<IAudioProcessingObjectConfiguration*>(this);
         } else if (IsEqualIID(riid, __uuidof(IAudioSystemEffects))) {
             *object = static_cast<IAudioSystemEffects*>(this);
+        } else if (IsEqualIID(riid, __uuidof(IAudioProcessingObjectPreferredFormatSupport))) {
+            *object = static_cast<IAudioProcessingObjectPreferredFormatSupport*>(this);
         } else {
             return E_NOINTERFACE;
         }
@@ -294,6 +318,43 @@ public:
         if (m_bIsInitialized) return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
         m_bIsInitialized = true;
         return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetPreferredInputFormat(
+        IAudioMediaType* outputFormat,
+        IAudioMediaType** preferredFormat) override {
+        if (!preferredFormat) return E_POINTER;
+        *preferredFormat = nullptr;
+        if (!outputFormat) return E_POINTER;
+
+        UNCOMPRESSEDAUDIOFORMAT output = {};
+        if (!ReadAudioFormat(outputFormat, output) || !IsSupportedOutputFormat(output)) {
+            return APOERR_FORMAT_NOT_SUPPORTED;
+        }
+
+        // Windows 11 23H2+ explicitly supports this headphone-virtualization
+        // contract: a stereo-rendering endpoint can have an APO request 7.1
+        // upstream. Omniphony then preserves the authored speaker bed and owns
+        // the only binaural reduction before the physical stereo DAC.
+        return CreatePreferredMediaType(output, 8, kSevenOneMask, preferredFormat);
+    }
+
+    HRESULT STDMETHODCALLTYPE GetPreferredOutputFormat(
+        IAudioMediaType* inputFormat,
+        IAudioMediaType** preferredFormat) override {
+        if (!preferredFormat) return E_POINTER;
+        *preferredFormat = nullptr;
+        if (!inputFormat) return E_POINTER;
+
+        UNCOMPRESSEDAUDIOFORMAT input = {};
+        if (!ReadAudioFormat(inputFormat, input) || !IsSupportedInputFormat(input)) {
+            return APOERR_FORMAT_NOT_SUPPORTED;
+        }
+
+        // The physical headphone endpoint remains stereo regardless of how rich
+        // the authored input bed is. Keep sample rate/container fidelity from
+        // the supplied input and prefer only a channel-count reduction here.
+        return CreatePreferredMediaType(input, 2, kStereoMask, preferredFormat);
     }
 
     HRESULT STDMETHODCALLTYPE IsInputFormatSupported(
