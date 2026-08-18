@@ -18,7 +18,7 @@ on:
       - 'omniphony-renderer/Cargo.lock'
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   RUST_TOOLCHAIN: 1.88.0
@@ -236,3 +236,26 @@ jobs:
           path: dist/OmniphonySetup.exe
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish rolling OmniphonySetup.exe release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $repo = $env:GITHUB_REPOSITORY
+          $sha = $env:GITHUB_SHA
+          $asset = 'dist/OmniphonySetup.exe'
+          $notes = "Rolling Omniphony for Windows 0.1 tray-only installer.`n`nBuilt from $sha after the full Current renderer and APO validation suite passed."
+
+          gh release view windows-current --repo $repo *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload windows-current $asset --repo $repo --clobber
+            if ($LASTEXITCODE -ne 0) { throw "Could not replace rolling release asset: $LASTEXITCODE" }
+            gh release edit windows-current --repo $repo --title 'Omniphony for Windows 0.1 - Current' --notes $notes
+            if ($LASTEXITCODE -ne 0) { throw "Could not update rolling release metadata: $LASTEXITCODE" }
+          } else {
+            gh release create windows-current $asset --repo $repo --target $sha --title 'Omniphony for Windows 0.1 - Current' --notes $notes --prerelease
+            if ($LASTEXITCODE -ne 0) { throw "Could not create rolling release: $LASTEXITCODE" }
+          }
+
+          Write-Host 'OMNIPHONY_ROLLING_RELEASE_OK 1'
