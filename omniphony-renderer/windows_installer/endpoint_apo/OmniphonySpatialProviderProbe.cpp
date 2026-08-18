@@ -19,7 +19,7 @@ std::wstring Win32Message(LONG code) {
         static_cast<DWORD>(code),
         0,
         buffer,
-        static_cast<DWORD>(std::size(buffer)),
+        static_cast<DWORD>(sizeof(buffer) / sizeof(buffer[0])),
         nullptr);
     if (count == 0) {
         return L"unknown";
@@ -144,7 +144,7 @@ void ProbeEncoderRegistry() {
             root,
             formatGuid.c_str(),
             0,
-            KEY_READ | KEY_WOW64_64KEY,
+            KEY_READ,
             &provider);
         if (providerResult != ERROR_SUCCESS) {
             std::wcout << prefix << L".open_error="
