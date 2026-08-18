@@ -59,9 +59,10 @@ foreach ($path in @($packageApo, $packageRealtime, $ctl, $endpointCtl, $realtime
     if (-not (Test-Path -LiteralPath $path)) { throw "Missing package file: $path" }
 }
 if (-not $AllowUnprotectedAudioDG) {
-    throw 'This is the legacy development bring-up installer. It requires -AllowUnprotectedAudioDG because it temporarily sets DisableProtectedAudioDG=1. Use the production DriverStore package path for protected AudioDG deployment.'
+    throw 'Omniphony 0.1 uses an unsigned user-mode endpoint APO. Its installer must explicitly enable the Windows unprotected AudioDG compatibility mode.'
 }
-Write-Warning 'DEVELOPMENT INSTALL: explicit -AllowUnprotectedAudioDG accepted. AudioDG protection will be disabled only for this bring-up path and restored by rollback/uninstall state handling.'
+Write-Host 'OMNIPHONY_UNSIGNED_APO_MODE 1'
+Write-Host 'AudioDG compatibility mode is enabled for the installed Omniphony APO and restored to the previous machine state by rollback or uninstall.'
 
 function Open-Hklm64([string]$Path, [bool]$Writable, [bool]$Create) {
     $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
