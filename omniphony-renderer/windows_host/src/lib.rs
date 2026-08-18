@@ -5,3 +5,4 @@
 //! coupling them to tray/device lifecycle code.
 
 pub mod spatial_ingress;
+pub mod spatial_source_frame;
