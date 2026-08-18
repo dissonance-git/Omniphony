@@ -93,6 +93,32 @@ function Restart-AudioGraph {
     Start-Sleep -Milliseconds 1000
 }
 
+function Assert-NativeSurroundMixFormat([string]$EndpointName) {
+    $lines = @(& $mixProbe $EndpointName 2>&1 | ForEach-Object { "$_" })
+    $code = $LASTEXITCODE
+    $lines | ForEach-Object { Write-Host $_ }
+    if ($code -ne 0) {
+        throw "Physical endpoint failed after native-surround migration: $code"
+    }
+
+    $line = $lines | Where-Object { $_.StartsWith("MIX_FORMAT_OK`t") } | Select-Object -First 1
+    if (-not $line) {
+        throw 'Native-surround mix probe returned no MIX_FORMAT_OK record.'
+    }
+
+    $match = [regex]::Match($line, '(?:^|\t)CHANNELS=(\d+)(?:\t|$)')
+    if (-not $match.Success) {
+        throw "Native-surround mix probe did not expose a channel count: $line"
+    }
+
+    $channels = [int]$match.Groups[1].Value
+    if ($channels -ne 8) {
+        throw "Windows did not honor Omniphony's preferred 7.1 input format. observed_channels=$channels"
+    }
+
+    Write-Host 'NATIVE_SURROUND_MIX_FORMAT_OK CHANNELS=8 LAYOUT=7.1'
+}
+
 function Get-ValueSnapshot([Microsoft.Win32.RegistryKey]$Key, [string]$Name) {
     if ($Key.GetValueNames() -notcontains $Name) {
         return [ordered]@{ Exists = $false; Kind = ''; Value = $null }
@@ -227,11 +253,10 @@ try {
     }
 
     Restart-AudioGraph
-    & $mixProbe $endpointName
-    if ($LASTEXITCODE -ne 0) { throw "Physical endpoint failed after native-surround migration: $LASTEXITCODE" }
+    Assert-NativeSurroundMixFormat $endpointName
 
     Write-Host 'OMNIPHONY_WINDOWS_INSTALL_OK 1'
-    Write-Host 'AUDIO_INGRESS stereo=Current multichannel=authored-speaker-bed output=binaural-stereo'
+    Write-Host 'AUDIO_INGRESS windows-mix=7.1 multichannel=authored-speaker-bed output=binaural-stereo'
     Write-Host 'NATIVE_SURROUND_SFX 1'
 }
 catch {
