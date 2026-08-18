@@ -107,10 +107,13 @@ begin
   if CurStep = ssPostInstall then
   begin
     PowerShell := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+    { This executable is explicitly the development installer. The PowerShell
+      bring-up harness now refuses its unprotected AudioDG path unless this
+      caller opts in by name. Production packaging never passes this switch. }
     Params := '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
       ExpandConstant('{app}\support\Install-OmniphonyAPO.ps1') +
       '" -PackageRoot "' + ExpandConstant('{tmp}\OmniphonyAPOPayload') +
-      '" -AppRoot "' + ExpandConstant('{app}') + '"';
+      '" -AppRoot "' + ExpandConstant('{app}') + '" -AllowUnprotectedAudioDG';
 
     if (not Exec(PowerShell, Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode)) or
        (ResultCode <> 0) then
