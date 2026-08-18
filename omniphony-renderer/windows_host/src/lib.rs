@@ -6,3 +6,4 @@
 
 pub mod spatial_ingress;
 pub mod spatial_source_frame;
+pub mod spatial_source_slots;
