@@ -54,6 +54,33 @@ class ExtensionInfTests(unittest.TestCase):
         for forbidden in ("hklm,", "hkcr,", "disableprotectedaudiodg", "mmdevices\\audio\\render"):
             self.assertNotIn(forbidden, normalized)
 
+    def test_fiio_style_legacy_topology_uses_only_captured_audio_interface(self):
+        data = fixture()
+        candidate = data["AssociationCandidates"][0]
+        candidate["InstanceId"] = r"TUSBAUDIO_ENUM\VID_2972&PID_0047&KS\7&TEST"
+        candidate["HardwareIds"] = [
+            r"TUSBAUDIO_ENUM\VID_2972&PID_0047&REV_0124&KS",
+            r"TUSBAUDIO_ENUM\VID_2972&PID_0047&KS",
+        ]
+        candidate["DriverInfResolvedSection"] = "_Install_28.NTamd64"
+        candidate["DriverInterfaces"] = [
+            {
+                "CategoryResolved": "{6994AD04-93EF-11D0-A3CC-00A0C9223196}",
+                "ReferenceResolved": "Topology",
+            }
+        ]
+        text = gen.render_extension_inf(data)
+        self.assertIn("TopologyEvidenceMode=legacy-kscategory-audio-topology", text)
+        self.assertIn('TARGET_TOPOLOGY_REFERENCE = "Topology"', text)
+        self.assertIn(
+            "AddInterface = %KSCATEGORY_AUDIO%,%TARGET_TOPOLOGY_REFERENCE%,OmniphonyCurrent_Interface",
+            text,
+        )
+        self.assertNotIn(
+            "AddInterface = %KSCATEGORY_TOPOLOGY%,%TARGET_TOPOLOGY_REFERENCE%,OmniphonyCurrent_Interface",
+            text,
+        )
+
     def test_extension_id_is_deterministic(self):
         one = gen.render_extension_inf(fixture())
         two = gen.render_extension_inf(fixture())
