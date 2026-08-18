@@ -59,6 +59,34 @@ jobs:
             }
           }
 
+          $parseLines = @()
+          $parseFailed = $false
+          $scripts = Get-ChildItem -LiteralPath $source -Filter '*.ps1' -File | Sort-Object Name
+          foreach ($script in $scripts) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              $script.FullName,
+              [ref]$tokens,
+              [ref]$errors
+            )
+            if ($errors.Count -eq 0) {
+              $parseLines += "POWERSHELL_PARSE_OK $($script.Name)"
+            } else {
+              $parseFailed = $true
+              foreach ($parseError in $errors) {
+                $parseLines += "POWERSHELL_PARSE_ERROR file=$($script.Name) line=$($parseError.Extent.StartLineNumber) column=$($parseError.Extent.StartColumnNumber) message=$($parseError.Message)"
+              }
+            }
+          }
+          $powershellParse = [pscustomobject]@{
+            label = 'powershell-support-syntax'
+            exit_code = $(if ($parseFailed) { 1 } else { 0 })
+            status = $(if ($parseFailed) { 'failure' } else { 'success' })
+            tail = @($parseLines | Select-Object -Last 120)
+          }
+          $powershellParse.tail | ForEach-Object { Write-Host $_ }
+
           $configure = Invoke-CapturedNative -Label 'cmake-configure' -Command {
             cmake -S $source -B $build -A x64
           }
@@ -118,6 +146,7 @@ jobs:
 
           $failedTargets = @($targetResults | Where-Object { $_.exit_code -ne 0 } | ForEach-Object label)
           $overall = if (
+            $powershellParse.exit_code -ne 0 -or
             $configure.exit_code -ne 0 -or
             $failedTargets.Count -ne 0 -or
             $providerComCanary.exit_code -ne 0
@@ -127,6 +156,7 @@ jobs:
             head_sha = $env:GITHUB_SHA
             run_id = $env:GITHUB_RUN_ID
             overall = $overall
+            powershell_support_syntax = $powershellParse
             configure = $configure
             failed_targets = $failedTargets
             targets = $targetResults
@@ -164,5 +194,5 @@ jobs:
         run: |
           $record = Get-Content "$env:GITHUB_WORKSPACE\ci-diagnostics\native-apo-targets.json" -Raw | ConvertFrom-Json
           if ($record.overall -ne 'success') {
-            throw "Native APO diagnostic failed: configure=$($record.configure.status) targets=$($record.failed_targets -join ',') provider_com=$($record.provider_com_canary.status)"
+            throw "Native APO diagnostic failed: powershell=$($record.powershell_support_syntax.status) configure=$($record.configure.status) targets=$($record.failed_targets -join ',') provider_com=$($record.provider_com_canary.status)"
           }
