@@ -1,0 +1,11 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=MEDIA
+ClassGuid={4D36E96C-E325-11CE-BFC1-08002BE10318}
+
+[Strings]
+SharedInf="shared.inf"
+
+[SyntheticAudio.NTamd64.Interfaces]
+Include=%SharedInf%
+Needs=Shared.Audio.Interfaces
