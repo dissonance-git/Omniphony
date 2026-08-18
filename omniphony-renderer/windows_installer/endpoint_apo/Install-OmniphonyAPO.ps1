@@ -147,10 +147,31 @@ function Stop-LegacyOmniphonyHost {
     Write-Host 'LEGACY_HOST_RUNNING 0'
 }
 
+function Wait-ServiceState([string]$Name, [System.ServiceProcess.ServiceControllerStatus]$State) {
+    $service = Get-Service -Name $Name -ErrorAction Stop
+    $service.WaitForStatus($State, [TimeSpan]::FromSeconds(10))
+    $service.Refresh()
+    if ($service.Status -ne $State) {
+        throw "Windows service '$Name' did not reach state '$State'. observed=$($service.Status)"
+    }
+}
+
 function Set-AudioServiceRunning([bool]$Running) {
+    if ($Running) {
+        $builder = Get-Service -Name AudioEndpointBuilder -ErrorAction Stop
+        if ($builder.Status -ne 'Running') { Start-Service -Name AudioEndpointBuilder }
+        Wait-ServiceState 'AudioEndpointBuilder' ([System.ServiceProcess.ServiceControllerStatus]::Running)
+
+        $service = Get-Service -Name AudioSrv -ErrorAction Stop
+        if ($service.Status -ne 'Running') { Start-Service -Name AudioSrv }
+        Wait-ServiceState 'AudioSrv' ([System.ServiceProcess.ServiceControllerStatus]::Running)
+        Start-Sleep -Milliseconds 500
+        return
+    }
+
     $service = Get-Service -Name AudioSrv -ErrorAction Stop
-    if ($Running -and $service.Status -ne 'Running') { Start-Service -Name AudioSrv }
-    if ((-not $Running) -and $service.Status -ne 'Stopped') { Stop-Service -Name AudioSrv -Force }
+    if ($service.Status -ne 'Stopped') { Stop-Service -Name AudioSrv -Force }
+    Wait-ServiceState 'AudioSrv' ([System.ServiceProcess.ServiceControllerStatus]::Stopped)
 }
 
 function Restart-AudioGraph {
@@ -158,19 +179,83 @@ function Restart-AudioGraph {
     Set-AudioServiceRunning $false
     Start-Sleep -Milliseconds 250
     Set-AudioServiceRunning $true
-    Start-Sleep -Milliseconds 1000
     Write-Host 'AUDIO_GRAPH_RESET_OK'
 }
 
-function Get-CurrentDefaultEndpoint {
-    $lines = @(& $endpointCtl get-default 2>&1 | ForEach-Object { "$_" })
-    $code = $LASTEXITCODE
-    $line = $lines | Where-Object { $_.StartsWith("DEFAULT`t") } | Select-Object -First 1
-    if ($code -ne 0 -or -not $line) {
-        throw "Could not resolve default render endpoint. helper=$code output=$($lines -join ' | ')"
+function Invoke-EndpointCtlCapture([string[]]$Arguments) {
+    $previousPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $lines = @(& $endpointCtl @Arguments 2>&1 | ForEach-Object { "$_" })
+        $code = $LASTEXITCODE
+        if ($null -eq $code) { $code = 0 }
+        return [pscustomobject]@{ Code = [int]$code; Lines = [string[]]$lines }
     }
+    finally {
+        $ErrorActionPreference = $previousPreference
+    }
+}
+
+$script:lastEndpointProbe = ''
+function Try-GetCurrentDefaultEndpoint {
+    $result = Invoke-EndpointCtlCapture @('get-default')
+    $script:lastEndpointProbe = "helper=$($result.Code) output=$($result.Lines -join ' | ')"
+    $line = $result.Lines | Where-Object { $_.StartsWith("DEFAULT`t") } | Select-Object -First 1
+    if ($result.Code -ne 0 -or -not $line) { return $null }
     $parts = $line -split "`t", 3
+    if ($parts.Count -lt 3) { return $null }
     return [pscustomobject]@{ Id = $parts[1]; Name = $parts[2] }
+}
+
+function Get-KnownEndpointBackup {
+    if (-not (Test-Path -LiteralPath $backupPath)) { return $null }
+    try {
+        $saved = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
+        $id = [string]$saved.EndpointId
+        $name = [string]$saved.EndpointName
+        if ([string]::IsNullOrWhiteSpace($id) -or [string]::IsNullOrWhiteSpace($name)) { return $null }
+        if (-not [string]::IsNullOrWhiteSpace($PhysicalOutput) -and
+            $name.IndexOf($PhysicalOutput, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+            Write-Warning "Ignoring endpoint backup because it does not match requested physical output '$PhysicalOutput': $name"
+            return $null
+        }
+        return [pscustomobject]@{ Id = $id; Name = $name }
+    }
+    catch {
+        Write-Warning "Could not read endpoint backup for recovery: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+function Resolve-InstallEndpoint {
+    $resolved = Try-GetCurrentDefaultEndpoint
+    if ($resolved) { return $resolved }
+
+    Write-Warning "DEFAULT_ENDPOINT_RECOVERY audio-graph-reset; $script:lastEndpointProbe"
+    Restart-AudioGraph
+    $resolved = Try-GetCurrentDefaultEndpoint
+    if ($resolved) {
+        Write-Host 'DEFAULT_ENDPOINT_RECOVERY_OK SOURCE=audio-graph-reset'
+        return $resolved
+    }
+
+    $known = Get-KnownEndpointBackup
+    if ($known) {
+        Write-Warning "DEFAULT_ENDPOINT_RECOVERY known-endpoint-id $($known.Id) $($known.Name)"
+        $setResult = Invoke-EndpointCtlCapture @('set-default-id', $known.Id)
+        $setResult.Lines | ForEach-Object { Write-Host $_ }
+
+        Restart-AudioGraph
+        $resolved = Try-GetCurrentDefaultEndpoint
+        if ($resolved -and [string]::Equals($resolved.Id, $known.Id, [StringComparison]::OrdinalIgnoreCase)) {
+            Write-Host 'DEFAULT_ENDPOINT_RECOVERY_OK SOURCE=endpoint-backup'
+            return $resolved
+        }
+
+        throw "Known Omniphony endpoint did not return ACTIVE after default-role reassertion and audio reset. endpoint=$($known.Id) set_helper=$($setResult.Code) $script:lastEndpointProbe"
+    }
+
+    throw "Could not resolve an ACTIVE render endpoint and no verified Omniphony endpoint backup was available. $script:lastEndpointProbe"
 }
 
 function Get-ApoStatus([string]$EndpointId) {
@@ -226,13 +311,37 @@ function Unregister-OmniphonyApo {
 $backup = $null
 $defaultEndpoint = $null
 $attached = $false
+$hadKnownBackupAtStart = Test-Path -LiteralPath $backupPath
+$globalRegistrationTouched = $false
 try {
     & $realtimeSmoke $packageRealtime
     if ($LASTEXITCODE -ne 0) { throw "Realtime renderer self-test failed: $LASTEXITCODE" }
 
     Stop-LegacyOmniphonyHost
-    Set-AudioServiceRunning $true
-    $defaultEndpoint = Get-CurrentDefaultEndpoint
+
+    # A prior failed preflight used to unregister the globally installed APO even
+    # though an already-working endpoint still referenced it. If local endpoint
+    # state exists, repair that project-owned registration before asking Core
+    # Audio to enumerate the endpoint again.
+    if ($hadKnownBackupAtStart) {
+        Set-AudioServiceRunning $false
+        try {
+            New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
+            Copy-Item -LiteralPath $packageApo -Destination $installedApo -Force
+            Copy-Item -LiteralPath $packageRealtime -Destination $installedRealtime -Force
+            Register-OmniphonyApo $installedApo
+            $globalRegistrationTouched = $true
+        }
+        finally {
+            Set-AudioServiceRunning $true
+        }
+        Write-Host 'KNOWN_ENDPOINT_GLOBAL_APO_REPAIR_OK 1'
+    }
+    else {
+        Set-AudioServiceRunning $true
+    }
+
+    $defaultEndpoint = Resolve-InstallEndpoint
     $status = Get-ApoStatus $defaultEndpoint.Id
     Write-Host "TARGET_DEFAULT`t$($defaultEndpoint.Name)`t$($defaultEndpoint.Id)"
     Write-Host "PREVIOUS_EFX`t$($status.Efx)"
@@ -265,12 +374,12 @@ try {
         Copy-Item -LiteralPath $packageApo -Destination $installedApo -Force
         Copy-Item -LiteralPath $packageRealtime -Destination $installedRealtime -Force
         Register-OmniphonyApo $installedApo
+        $globalRegistrationTouched = $true
         Set-RegDword 'SOFTWARE\Microsoft\Windows\CurrentVersion\Audio' 'DisableProtectedAudioDG' 1
     } finally {
         Set-AudioServiceRunning $true
     }
 
-    Start-Sleep -Milliseconds 500
     $attachOutput = @(& $ctl attach-id $defaultEndpoint.Id 2>&1 | ForEach-Object { "$_" })
     $attachCode = $LASTEXITCODE
     $attachOutput | ForEach-Object { Write-Host $_ }
@@ -315,7 +424,16 @@ catch {
         try { Restart-AudioGraph } catch { Write-Warning "Audio graph restart during rollback failed: $($_.Exception.Message)" }
     }
 
-    try { Unregister-OmniphonyApo } catch { Write-Warning "Global APO rollback warning: $($_.Exception.Message)" }
+    # Never dismantle a previously known installation merely because endpoint
+    # discovery failed. That leaves the physical endpoint referencing an
+    # unregistered effect and can make the entire render graph disappear.
+    if ($globalRegistrationTouched -and -not $hadKnownBackupAtStart) {
+        try { Unregister-OmniphonyApo } catch { Write-Warning "Global APO rollback warning: $($_.Exception.Message)" }
+    }
+    elseif ($globalRegistrationTouched) {
+        Write-Warning 'FAILSAFE retaining global Omniphony APO registration for previously known endpoint state.'
+    }
+
     if ($backup -and $backup.AudioProtection) {
         try {
             Set-ValueSnapshot 'SOFTWARE\Microsoft\Windows\CurrentVersion\Audio' 'DisableProtectedAudioDG' $backup.AudioProtection
