@@ -1,0 +1,36 @@
+{
+  "Schema": "omniphony.windows.apo-target.v2",
+  "CapturedAtUtc": "2026-08-17T00:00:00Z",
+  "DefaultEndpoint": {
+    "MmDeviceId": "{0.0.0.00000000}.{11111111-1111-1111-1111-111111111111}",
+    "FriendlyName": "Synthetic Omniphony Target",
+    "PnpInstanceId": "SWD\\MMDEVAPI\\{0.0.0.00000000}.{11111111-1111-1111-1111-111111111111}"
+  },
+  "CapturedEndpointEffects": {
+    "Readable": true,
+    "LegacyEndpointEffects": [],
+    "CompositeEndpointEffects": [],
+    "EnhancementsDisabled": 0,
+    "Error": ""
+  },
+  "AssociationCandidates": [
+    {
+      "InstanceId": "USB\\VID_F00D&PID_BEEF&MI_00\\SYNTHETIC",
+      "FriendlyName": "Synthetic USB Audio",
+      "Class": "MEDIA",
+      "ClassGuid": "{4D36E96C-E325-11CE-BFC1-08002BE10318}",
+      "Manufacturer": "Synthetic",
+      "Service": "usbaudio2",
+      "DriverInfPath": "synthetic.inf",
+      "DriverInfFullPath": "synthetic.inf",
+      "DriverInfSection": "SyntheticAudio",
+      "DriverInfSectionExt": ".NTamd64",
+      "DriverProvider": "Synthetic",
+      "DriverVersion": "1.0.0.0",
+      "HardwareIds": ["USB\\VID_F00D&PID_BEEF&MI_00"],
+      "CompatibleIds": [],
+      "Parent": "USB\\VID_F00D&PID_BEEF\\SYNTHETIC"
+    }
+  ],
+  "PnpAncestry": []
+}
