@@ -1,8 +1,8 @@
 {
   "Schema": "omniphony.windows.current-build.v1",
   "RunId": 32181512818,
-  "Status": "in_progress",
-  "Conclusion": "",
+  "Status": "completed",
+  "Conclusion": "success",
   "HeadSha": "225d85a5cb02db5d8a198d6ca40aec9a6b0c6ca5",
   "ArtifactName": "omniphony-windows-setup-225d85a5cb02db5d8a198d6ca40aec9a6b0c6ca5",
   "ReleaseTag": "windows-current",
