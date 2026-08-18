@@ -7,6 +7,9 @@ on:
       - "omniphony-renderer/orender_engine/**"
       - "omniphony-renderer/renderer/**"
       - "omniphony-renderer/source_ffi/**"
+      - "omniphony-renderer/realtime_ffi/**"
+      - "omniphony-renderer/windows_host/src/spatial_ingress.rs"
+      - "omniphony-renderer/windows_host/src/spatial_source_frame.rs"
       - "omniphony-renderer/Cargo.toml"
       - "omniphony-renderer/Cargo.lock"
       - "layouts/system-h-derived-22.0-upper60-grid10.yaml"
@@ -59,3 +62,9 @@ jobs:
 
       - name: Run source ABI tests
         run: cargo test -p source_ffi --lib --tests
+
+      - name: Compile Windows spatial source-ingress test
+        run: cargo test -p realtime_ffi --test windows_spatial_source_frame --no-run
+
+      - name: Run Windows spatial source-ingress test
+        run: cargo test -p realtime_ffi --test windows_spatial_source_frame
