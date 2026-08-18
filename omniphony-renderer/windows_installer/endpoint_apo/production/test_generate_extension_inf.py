@@ -147,10 +147,16 @@ class ExtensionInfTests(unittest.TestCase):
         with self.assertRaises(gen.ContractError):
             gen.render_extension_inf(data)
 
-    def test_allows_existing_omniphony_effect_for_upgrade(self):
+    def test_allows_existing_composite_omniphony_effect_for_upgrade(self):
         data = fixture()
         data["CapturedEndpointEffects"]["CompositeEndpointEffects"] = [gen.APO_CLSID]
         self.assertIn(gen.APO_CLSID, gen.render_extension_inf(data))
+
+    def test_rejects_legacy_omniphony_development_attachment(self):
+        data = fixture()
+        data["CapturedEndpointEffects"]["LegacyEndpointEffects"] = [gen.APO_CLSID]
+        with self.assertRaisesRegex(gen.ContractError, "legacy Omniphony development EFX"):
+            gen.render_extension_inf(data)
 
     def test_rejects_disabled_system_effects(self):
         data = fixture()
