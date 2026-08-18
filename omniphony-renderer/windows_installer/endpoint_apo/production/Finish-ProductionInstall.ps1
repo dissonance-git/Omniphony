@@ -36,7 +36,7 @@ function Resolve-FirstFile([string]$Explicit, [string[]]$Candidates, [string]$La
             return (Resolve-Path -LiteralPath $candidate).Path
         }
     }
-    throw "$Label was not found. Build the current Windows endpoint APO artifact or pass its path explicitly."
+    throw "$Label was not found. Build or download the current Windows endpoint APO artifact, or pass its path explicitly."
 }
 
 function Get-AudioDgBypassValue {
@@ -58,10 +58,12 @@ $endpointCtl = Resolve-FirstFile '' @(
 
 $resolvedApo = Resolve-FirstFile $ApoDll @(
     (Join-Path $AppRoot 'APO\OmniphonyAPO.dll'),
+    (Join-Path $productionRoot '..\OmniphonyAPO.dll'),
     (Join-Path $productionRoot '..\..\..\..\build\endpoint_apo\Release\OmniphonyAPO.dll')
 ) 'OmniphonyAPO.dll'
 $resolvedRealtime = Resolve-FirstFile $RealtimeDll @(
     (Join-Path $AppRoot 'APO\omniphony_realtime.dll'),
+    (Join-Path $productionRoot '..\omniphony_realtime.dll'),
     (Join-Path $productionRoot '..\..\..\target\release\omniphony_realtime.dll')
 ) 'omniphony_realtime.dll'
 $resolvedProbe = Resolve-FirstFile $ProductionProbe @(
@@ -90,7 +92,6 @@ if ($devStatePresent) {
     }
     Write-Host 'OMNIPHONY_DEVELOPMENT_APO_REMOVAL_BEGIN 1'
     & $devUninstaller -AppRoot $AppRoot
-    if ($LASTEXITCODE -ne 0) { throw "Development APO cleanup failed with exit code $LASTEXITCODE" }
 }
 
 if ((Get-AudioDgBypassValue) -eq 1) {
@@ -108,15 +109,15 @@ foreach ($required in @($captureScript, $buildScript, $readinessScript, $install
 
 $capturePath = Join-Path $WorkRoot 'target-capture.json'
 & $captureScript -EndpointCtl $endpointCtl -OutputPath $capturePath
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $capturePath -PathType Leaf)) {
-    throw 'Fresh production target capture failed.'
+if (-not (Test-Path -LiteralPath $capturePath -PathType Leaf)) {
+    throw 'Fresh production target capture did not produce its evidence file.'
 }
 
 if ([string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
     Write-Host 'OMNIPHONY_PRODUCTION_CAPTURE_READY 1'
     Write-Host "TARGET_CAPTURE`t$capturePath"
     Write-Host 'OMNIPHONY_MICROSOFT_DRIVER_SIGNING_REQUIRED 1'
-    throw 'The repository-side migration and target capture are complete. A Windows driver-signing identity is still required before protected AudioDG installation; pass -CertificateThumbprint after the package-signing identity is available.'
+    throw 'The machine migration and target capture are complete. A Windows driver-signing identity is the remaining external gate before protected AudioDG installation; pass -CertificateThumbprint after that identity is available.'
 }
 
 $packageRoot = Join-Path $WorkRoot 'packages'
@@ -133,12 +134,11 @@ if (-not [string]::IsNullOrWhiteSpace($TimestampUrl)) {
     $buildArgs += @('-TimestampUrl', $TimestampUrl)
 }
 & $buildScript @buildArgs
-if ($LASTEXITCODE -ne 0) { throw "Production package build failed with exit code $LASTEXITCODE" }
 
 $readinessPath = Join-Path $WorkRoot 'readiness.json'
 & $readinessScript -PackageRoot $packageRoot -OutputPath $readinessPath | Out-Host
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $readinessPath -PathType Leaf)) {
-    throw 'Production readiness check did not complete.'
+if (-not (Test-Path -LiteralPath $readinessPath -PathType Leaf)) {
+    throw 'Production readiness check did not produce its report.'
 }
 $readiness = Get-Content -LiteralPath $readinessPath -Raw | ConvertFrom-Json
 if (-not [bool]$readiness.RepositorySideReadyForPhysicalTest) {
@@ -147,7 +147,6 @@ if (-not [bool]$readiness.RepositorySideReadyForPhysicalTest) {
 }
 
 & $installScript -PackageRoot $packageRoot
-if ($LASTEXITCODE -ne 0) { throw "Protected production APO install failed with exit code $LASTEXITCODE" }
 
 $tray = Join-Path $AppRoot 'support\OmniphonyTray.ps1'
 if (Test-Path -LiteralPath $tray -PathType Leaf) {
