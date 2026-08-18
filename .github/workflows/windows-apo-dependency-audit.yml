@@ -37,18 +37,25 @@ jobs:
         shell: pwsh
         run: python -m unittest discover -s omniphony-renderer/windows_installer/endpoint_apo/production -p 'test_*.py' -v
 
-      - name: Parse production target-capture PowerShell
+      - name: Parse production PowerShell tooling
         shell: pwsh
         run: |
-          $path = 'omniphony-renderer/windows_installer/endpoint_apo/production/Capture-TargetAudioDriver.ps1'
-          $tokens = $null
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
-          if ($errors.Count -ne 0) {
-            $errors | ForEach-Object { Write-Error $_.Message }
-            throw "production target capture script has $($errors.Count) PowerShell parse error(s)"
+          $paths = @(
+            'omniphony-renderer/windows_installer/endpoint_apo/production/Capture-TargetAudioDriver.ps1',
+            'omniphony-renderer/windows_installer/endpoint_apo/production/Build-ProductionApoPackages.ps1',
+            'omniphony-renderer/windows_installer/endpoint_apo/production/Install-ProductionApoPackages.ps1',
+            'omniphony-renderer/windows_installer/endpoint_apo/production/Uninstall-ProductionApoPackages.ps1'
+          )
+          foreach ($path in $paths) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -ne 0) {
+              $errors | ForEach-Object { Write-Error "$path`: $($_.Message)" }
+              throw "$path has $($errors.Count) PowerShell parse error(s)"
+            }
+            Write-Host "PRODUCTION_POWERSHELL_PARSE_OK $path"
           }
-          Write-Host 'PRODUCTION_TARGET_CAPTURE_PARSE_OK 1'
 
       - uses: microsoft/setup-msbuild@v2
         with:
@@ -119,6 +126,36 @@ jobs:
           if (-not (Test-Path 'target/release/omniphony_realtime.dll')) {
             throw 'realtime_ffi did not produce target/release/omniphony_realtime.dll'
           }
+
+      - name: Build synthetic DriverStore packages and catalogs
+        shell: pwsh
+        run: |
+          $production = 'omniphony-renderer/windows_installer/endpoint_apo/production'
+          $capture = Join-Path $production 'testdata/target-audio-synthetic.json'
+          $apo = (Resolve-Path 'build/apo/Release/OmniphonyAPO.dll').Path
+          $realtime = (Resolve-Path 'omniphony-renderer/target/release/omniphony_realtime.dll').Path
+          $output = Join-Path $env:RUNNER_TEMP 'omniphony-production-package-ci'
+          & (Join-Path $production 'Build-ProductionApoPackages.ps1') `
+            -CaptureJson $capture `
+            -ApoDll $apo `
+            -RealtimeDll $realtime `
+            -OutputRoot $output `
+            -Inf2CatOs '10_CO_X64,10_NI_X64'
+          if ($LASTEXITCODE -ne 0) { throw "production package staging failed: $LASTEXITCODE" }
+
+          foreach ($required in @(
+            'component/OmniphonyApoComponent.inf',
+            'component/OmniphonyApo.cat',
+            'component/OmniphonyAPO.dll',
+            'component/omniphony_realtime.dll',
+            'extension/OmniphonyApoExtension.inf',
+            'extension/OmniphonyApoExtension.cat',
+            'package-manifest.json'
+          )) {
+            $path = Join-Path $output $required
+            if (-not (Test-Path $path -PathType Leaf)) { throw "production package missing: $required" }
+          }
+          Write-Host 'PRODUCTION_PACKAGE_CATALOG_BUILD_OK 1'
 
       - name: Audit AudioDG import tables
         shell: pwsh
