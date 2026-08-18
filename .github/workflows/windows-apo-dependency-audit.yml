@@ -33,7 +33,7 @@ jobs:
         shell: pwsh
         run: python omniphony-renderer/windows_installer/endpoint_apo/production/check_package_contract.py
 
-      - name: Test production extension generator
+      - name: Test production extension and capture evidence
         shell: pwsh
         run: python -m unittest discover -s omniphony-renderer/windows_installer/endpoint_apo/production -p 'test_*.py' -v
 
@@ -64,14 +64,21 @@ jobs:
         run: |
           $build = Get-Content 'omniphony-renderer/windows_installer/endpoint_apo/production/Build-ProductionApoPackages.ps1' -Raw
           $install = Get-Content 'omniphony-renderer/windows_installer/endpoint_apo/production/Install-ProductionApoPackages.ps1' -Raw
+          $readiness = Get-Content 'omniphony-renderer/windows_installer/endpoint_apo/production/Test-ProductionMachineReadiness.ps1' -Raw
           $generator = Get-Content 'omniphony-renderer/windows_installer/endpoint_apo/production/generate_extension_inf.py' -Raw
+          $probe = Get-Content 'omniphony-renderer/windows_installer/endpoint_apo/OmniphonyProductionProbe.cpp' -Raw
           if ($build -notmatch "target-capture\.json") { throw 'production package no longer binds target-capture.json' }
+          if ($build -notmatch 'OmniphonyProductionProbe\.exe') { throw 'production package no longer carries the safe WASAPI probe' }
           if ($install -notmatch 'Manifest\.SignaturesVerified') { throw 'production installer no longer requires verified signatures' }
           if ($install -notmatch 'CompositeEndpointEffects') { throw 'production installer no longer checks existing composite EFX' }
           if ($install -notmatch 'already has non-Omniphony EFX registered') { throw 'production installer no longer refuses foreign EFX collision' }
           if ($install -notmatch 'ENDPOINT_EFX_ASSOCIATION_OK') { throw 'production installer no longer verifies endpoint EFX association' }
+          if ($install -notmatch 'OMNIPHONY_PRODUCTION_WASAPI_PROBE_OK') { throw 'production installer no longer requires live WASAPI acceptance' }
+          if ($install -match 'OmniphonyMixProbe') { throw 'production installer leaked the development repair-capable MixProbe' }
+          if ($readiness -notmatch 'BaselineWasapiProbe') { throw 'production preflight no longer proves healthy baseline WASAPI' }
           if ($generator -notmatch 'apo-target\.v3') { throw 'production generator no longer requires finalized v3 target evidence' }
           if ($generator -notmatch 'InterfaceResolutionWarnings') { throw 'production generator no longer refuses unresolved INF evidence' }
+          if ($probe -match 'RegSetValue|RegCreateKey|SetNamedSecurityInfo|FxProperties') { throw 'production WASAPI probe gained registry/ACL mutation surface' }
           Write-Host 'PRODUCTION_LIFECYCLE_SAFETY_CONTRACT_OK 1'
 
       - uses: microsoft/setup-msbuild@v2
@@ -129,13 +136,16 @@ jobs:
           }
           Write-Host 'PRODUCTION_APO_INFVERIF_OK 1'
 
-      - name: Build AudioDG runtime binaries
+      - name: Build Windows APO and acceptance probe
         shell: pwsh
         run: |
           cmake -S omniphony-renderer/windows_installer/endpoint_apo -B build/apo -A x64
           if ($LASTEXITCODE -ne 0) { throw "APO CMake configure failed: $LASTEXITCODE" }
           cmake --build build/apo --config Release --parallel
           if ($LASTEXITCODE -ne 0) { throw "APO build failed: $LASTEXITCODE" }
+          if (-not (Test-Path 'build/apo/Release/OmniphonyProductionProbe.exe')) {
+            throw 'CMake did not produce OmniphonyProductionProbe.exe'
+          }
 
           Set-Location "$env:GITHUB_WORKSPACE\omniphony-renderer"
           cargo build --release -p realtime_ffi
@@ -151,11 +161,13 @@ jobs:
           $capture = Join-Path $production 'testdata/target-audio-synthetic.json'
           $apo = (Resolve-Path 'build/apo/Release/OmniphonyAPO.dll').Path
           $realtime = (Resolve-Path 'omniphony-renderer/target/release/omniphony_realtime.dll').Path
+          $probe = (Resolve-Path 'build/apo/Release/OmniphonyProductionProbe.exe').Path
           $output = Join-Path $env:RUNNER_TEMP 'omniphony-production-package-ci'
           & (Join-Path $production 'Build-ProductionApoPackages.ps1') `
             -CaptureJson $capture `
             -ApoDll $apo `
             -RealtimeDll $realtime `
+            -ProductionProbe $probe `
             -OutputRoot $output `
             -Inf2CatOs '10_CO_X64,10_NI_X64'
           if ($LASTEXITCODE -ne 0) { throw "production package staging failed: $LASTEXITCODE" }
@@ -168,6 +180,7 @@ jobs:
             'component/omniphony_realtime.dll',
             'extension/OmniphonyApoExtension.inf',
             'extension/OmniphonyApoExtension.cat',
+            'diagnostics/OmniphonyProductionProbe.exe',
             'package-manifest.json'
           )) {
             $path = Join-Path $output $required
@@ -175,14 +188,21 @@ jobs:
           }
 
           $manifest = Get-Content (Join-Path $output 'package-manifest.json') -Raw | ConvertFrom-Json
+          if ($manifest.Schema -ne 'omniphony.windows.apo-package-build.v2') {
+            throw "unexpected production package manifest schema: $($manifest.Schema)"
+          }
+          if ([string]$manifest.ProductionProbePath -ne 'diagnostics\OmniphonyProductionProbe.exe') {
+            throw 'production package manifest does not bind the acceptance probe path'
+          }
           $captureHash = (Get-FileHash (Join-Path $output 'target-capture.json') -Algorithm SHA256).Hash.ToLowerInvariant()
           if (([string]$manifest.Capture.Sha256).ToLowerInvariant() -ne $captureHash) {
             throw 'bound target capture hash does not match production package manifest'
           }
           Write-Host 'PRODUCTION_PACKAGE_CATALOG_BUILD_OK 1'
           Write-Host 'PRODUCTION_BOUND_CAPTURE_OK 1'
+          Write-Host 'PRODUCTION_WASAPI_PROBE_PACKAGED_OK 1'
 
-      - name: Audit AudioDG import tables
+      - name: Audit shipped native import tables
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -196,7 +216,8 @@ jobs:
 
           $binaries = @(
             (Resolve-Path 'build/apo/Release/OmniphonyAPO.dll').Path,
-            (Resolve-Path 'omniphony-renderer/target/release/omniphony_realtime.dll').Path
+            (Resolve-Path 'omniphony-renderer/target/release/omniphony_realtime.dll').Path,
+            (Resolve-Path 'build/apo/Release/OmniphonyProductionProbe.exe').Path
           )
           $forbidden = @(
             'AudioBaseProcessingObject.dll',
@@ -204,14 +225,14 @@ jobs:
             'VCRUNTIME140_1.dll',
             'MSVCP140.dll'
           )
-          foreach ($dll in $binaries) {
-            Write-Host "AUDIT_BINARY $dll"
-            $deps = (& $dumpbin.FullName /DEPENDENTS $dll 2>&1 | Out-String)
+          foreach ($binary in $binaries) {
+            Write-Host "AUDIT_BINARY $binary"
+            $deps = (& $dumpbin.FullName /DEPENDENTS $binary 2>&1 | Out-String)
             Write-Host $deps
             foreach ($name in $forbidden) {
               if ($deps -match [regex]::Escape($name)) {
-                throw "AudioDG binary $dll has external VC runtime dependency: $name"
+                throw "Shipped native binary $binary has forbidden runtime dependency: $name"
               }
             }
           }
-          Write-Host 'AUDIODG_DEPENDENCY_AUDIT_OK 1'
+          Write-Host 'SHIPPED_NATIVE_DEPENDENCY_AUDIT_OK 1'
