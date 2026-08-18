@@ -1,0 +1,55 @@
+name: Source-aware spatial validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "omniphony-renderer/orender_engine/**"
+      - "omniphony-renderer/renderer/**"
+      - "omniphony-renderer/source_ffi/**"
+      - "omniphony-renderer/Cargo.toml"
+      - "omniphony-renderer/Cargo.lock"
+      - "layouts/system-h-derived-22.0-upper60-grid10.yaml"
+      - ".github/workflows/source-aware-spatial-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: 1.88.0
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  source-aware-spatial:
+    name: FullSphere source path
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: omniphony-renderer
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install pinned Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup override set "$RUST_TOOLCHAIN"
+          rustc --version --verbose
+          cargo --version
+
+      - name: Compile source-aware engine tests
+        run: cargo test -p orender_engine --lib --tests --no-run
+
+      - name: Run source-aware engine tests
+        run: cargo test -p orender_engine --lib --tests
+
+      - name: Compile source ABI tests
+        run: cargo test -p source_ffi --lib --tests --no-run
+
+      - name: Run source ABI tests
+        run: cargo test -p source_ffi --lib --tests
