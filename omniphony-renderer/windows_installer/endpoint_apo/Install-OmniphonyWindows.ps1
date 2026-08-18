@@ -138,13 +138,14 @@ function Unregister-NativeApo {
 function Assert-ApoCtlIdDispatch {
     # Exercise the exact shipped helper binary before it is allowed to mutate the
     # real endpoint. A deliberately impossible endpoint ID must take the -id
-    # resolver path and fail as ENDPOINT_ID_NOT_FOUND. This catches stale or
-    # accidentally compiled helper sources before native-surround migration.
+    # resolver path and fail with the helper's not-found result. The helper
+    # currently uses the same ENDPOINT_NOT_FOUND token for name and ID misses;
+    # exit code 3 plus the exact -id command set is the dispatch contract here.
     $fakeEndpointId = '{0.0.0.00000000}.{00000000-0000-0000-0000-000000000000}'
     foreach ($command in @('cleanup-native-sfx-id', 'attach-native-sfx-id', 'detach-id', 'attach-id')) {
         $lines = @(& $ctl $command $fakeEndpointId 2>&1 | ForEach-Object { "$_" })
         $code = $LASTEXITCODE
-        $idPath = $lines | Where-Object { $_ -eq "ERROR`tENDPOINT_ID_NOT_FOUND" } | Select-Object -First 1
+        $idPath = $lines | Where-Object { $_ -eq "ERROR`tENDPOINT_NOT_FOUND" } | Select-Object -First 1
         if ($code -ne 3 -or -not $idPath) {
             throw "OmniphonyApoCtl command dispatch contract failed for '$command'. exit=$code output=$($lines -join ' | ')"
         }
@@ -202,10 +203,10 @@ try {
     Write-Host 'NATIVE_SURROUND_APO_SMOKE_OK 1'
 
     # Normalize any interrupted older attempt, then install the format-changing
-    # APO in the documented per-stream channel-conversion slot through Windows
-    # audio policy. This is the same class of placement used for headphone
-    # virtualization: apps can receive a 7.1 preferred format while the SFX
-    # reduces the stream to stereo before the physical endpoint mix.
+    # APO in the documented per-stream channel-conversion slot. This is the same
+    # class of placement Windows documents for headphone virtualization: apps can
+    # receive a 7.1 preferred format while the SFX reduces the stream to stereo
+    # before the physical endpoint mix.
     & $ctl cleanup-native-sfx-id $endpointId
     if ($LASTEXITCODE -ne 0) { throw "Native-surround SFX cleanup failed: $LASTEXITCODE" }
 
