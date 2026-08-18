@@ -31,8 +31,6 @@ foreach ($path in @($baselineInstaller, $packageStreamApo, $packageStreamSmoke, 
     if (-not (Test-Path -LiteralPath $path)) { throw "Missing Omniphony package file: $path" }
 }
 
-# Establish the already field-proven stereo endpoint path first. This owns the
-# endpoint backup, AudioDG compatibility state, rollback and physical WASAPI gate.
 & $baselineInstaller -PackageRoot $PackageRoot -AppRoot $AppRoot -AllowUnprotectedAudioDG:$AllowUnprotectedAudioDG
 
 function Set-AudioServiceRunning([bool]$Running) {
@@ -106,14 +104,16 @@ function Open-FxWritable([string]$Path) {
 
 function Register-StreamApo {
     $regsvr32 = Join-Path $env:WINDIR 'System32\regsvr32.exe'
-    $process = Start-Process -FilePath $regsvr32 -ArgumentList @('/s', $installedStreamApo) -Wait -PassThru
+    $quotedDll = "`"$installedStreamApo`""
+    $process = Start-Process -FilePath $regsvr32 -ArgumentList @('/s', $quotedDll) -Wait -PassThru
     if ($process.ExitCode -ne 0) { throw "Stream APO registration failed: $($process.ExitCode)" }
 }
 
 function Unregister-StreamApo {
     if (-not (Test-Path -LiteralPath $installedStreamApo)) { return }
     $regsvr32 = Join-Path $env:WINDIR 'System32\regsvr32.exe'
-    $process = Start-Process -FilePath $regsvr32 -ArgumentList @('/u', '/s', $installedStreamApo) -Wait -PassThru
+    $quotedDll = "`"$installedStreamApo`""
+    $process = Start-Process -FilePath $regsvr32 -ArgumentList @('/u', '/s', $quotedDll) -Wait -PassThru
     if ($process.ExitCode -ne 0) { Write-Warning "Stream APO unregister returned $($process.ExitCode)" }
 }
 
@@ -123,7 +123,6 @@ $endpointName = [string]$endpointBackup.EndpointName
 $fxPath = Get-EndpointFxPath $endpointId
 $streamRegistered = $false
 $streamSnapshot = $null
-$migrated = $false
 
 try {
     Set-AudioServiceRunning $false
@@ -135,9 +134,6 @@ try {
         Set-AudioServiceRunning $true
     }
 
-    # Exercise both stereo Current and synthetic authored 7.1.4 -> stereo before
-    # changing the real endpoint. The smoke loads the same realtime DLL that the
-    # live SFX will load from Program Files.
     & $packageStreamSmoke
     if ($LASTEXITCODE -ne 0) { throw "Native-surround stream APO smoke failed: $LASTEXITCODE" }
 
@@ -178,7 +174,6 @@ try {
         if (-not [string]::Equals($verify, $streamApoClsid, [StringComparison]::OrdinalIgnoreCase)) {
             throw 'Native-surround SFX registry verification failed.'
         }
-        $migrated = $true
     } finally {
         $opened.Key.Dispose()
         $opened.Base.Dispose()
@@ -207,8 +202,6 @@ catch {
                 $opened.Base.Dispose()
             }
         }
-        # Return to the already-proven endpoint path. This is deliberately a
-        # successful product fallback, not a failed installation.
         & $ctl attach-id $endpointId
         Restart-AudioGraph
         & $mixProbe $endpointName
