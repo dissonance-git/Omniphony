@@ -85,3 +85,12 @@ target_compile_features(OmniphonySpatialProbe PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonySpatialProbe PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_options(OmniphonySpatialProbe PRIVATE /W4 /WX /permissive-)
 target_link_libraries(OmniphonySpatialProbe PRIVATE ole32 uuid)
+
+# Read-only observation probe for the undocumented Windows spatial-provider
+# registry surfaces. It never registers, unregisters, repairs ACLs, or takes
+# ownership. Results are evidence for experiments, not a public API contract.
+add_executable(OmniphonySpatialProviderProbe OmniphonySpatialProviderProbe.cpp)
+target_compile_features(OmniphonySpatialProviderProbe PRIVATE cxx_std_17)
+target_compile_definitions(OmniphonySpatialProviderProbe PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_compile_options(OmniphonySpatialProviderProbe PRIVATE /W4 /WX /permissive-)
+target_link_libraries(OmniphonySpatialProviderProbe PRIVATE advapi32)
