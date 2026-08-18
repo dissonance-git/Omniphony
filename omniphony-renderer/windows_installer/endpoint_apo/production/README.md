@@ -1,274 +1,208 @@
 # Production Windows APO packaging
 
-This directory is the production packaging boundary for the retained Omniphony Current renderer.
+This directory is the production deployment boundary for the retained Omniphony Current renderer.
 
-The goal is deliberately boring installation: Windows DriverStore packages, a device-specific extension generated from machine evidence, protected AudioDG left enabled, transactional rollback, and no ownership edits to another driver's MMDevices registry tree.
+The product contract is intentionally small:
 
-The existing Inno Setup path remains a **development bring-up harness**. It is not the production deployment model.
+- Current DSP is unchanged by packaging work;
+- Windows DriverStore/componentized APO packaging owns deployment;
+- protected AudioDG stays enabled;
+- the physical audio driver is never replaced or edited;
+- endpoint registry state is observed read-only in production;
+- rollback/uninstall remove only Omniphony packages;
+- user UI remains the small Omniphony tray icon, with no required taskbar window.
+
+The existing Inno/`Install-OmniphonyAPO.ps1` path is a **development bring-up harness**. It is not the production deployment model.
 
 ## Production topology
 
 ```text
-physical audio driver
-        │
-        ├─ captured hardware ID
-        ├─ exact decorated DDInstall section
-        ├─ captured topology interface evidence
-        └─ read-only existing-EFX snapshot
-        │
-        ▼
+physical MEDIA driver
+  ├─ hardware ID
+  ├─ installed DDInstall section
+  ├─ exact topology interface evidence
+  └─ endpoint-effects snapshot
+        ↓
+target-capture.json (v3)
+        ↓
 OmniphonyApoExtension.inf
-        │
-        ├─ AddComponent → VEN_OMNI&CID_CURRENT
-        └─ extends the captured audio/topology interface
-             └─ registers Omniphony as endpoint EFX
-        │
-        ▼
+  ├─ AddComponent → VEN_OMNI&CID_CURRENT
+  └─ interface-relative EFX association
+        ↓
 SWC\VEN_OMNI&CID_CURRENT
-        │
-        ▼
+        ↓
 OmniphonyApoComponent.inf
-        │
-        ├─ isolated HKR COM registration
-        ├─ isolated HKR AudioEngine registration
-        ├─ OmniphonyAPO.dll
-        └─ omniphony_realtime.dll
+  ├─ Class=AudioProcessingObject
+  ├─ isolated HKR COM/AudioEngine registration
+  ├─ PETrust
+  ├─ OmniphonyAPO.dll
+  └─ omniphony_realtime.dll
+        ↓
+protected AudioDG
+        ↓
+Current renderer
 ```
 
-`AddComponent` is necessary but is not treated as sufficient. The extension also has to associate the Omniphony CLSID with the correct topology interface so the endpoint builder can actually select it as EFX.
+## Real target capture
 
-## Capture contract
+`Capture-ProductionTarget.ps1` is the production-facing capture command. It wraps `Capture-TargetAudioDriver.ps1`, reads `DEVPKEY_Device_DriverInfSectionExt`, snapshots endpoint effects read-only, and finalizes evidence through the pure-PowerShell `Finalize-TargetEvidence.ps1`.
 
-### `Capture-TargetAudioDriver.ps1`
-
-This is the low-level Windows probe. It resolves the default render MMDevice, walks the PnP parent chain and records MEDIA-class driver candidates, installed INF information and hardware IDs. It remains useful as a diagnostic primitive.
-
-### `Capture-ProductionTarget.ps1`
-
-This is the **production-facing one-command capture**.
-
-```powershell
-.\Capture-ProductionTarget.ps1 `
-  -EndpointCtl C:\path\to\OmniphonyEndpointCtl.exe `
-  -OutputPath .\omniphony-audio-target.json
-```
-
-It produces schema:
+The capture is schema:
 
 ```text
 omniphony.windows.apo-target.v3
 ```
 
-The wrapper deliberately adds evidence that an ordinary parent/HWID walk cannot safely infer:
+It records the exact default endpoint, physical MEDIA-class candidate, hardware IDs, installed INF and decorated section, `Include=`/`Needs=` traversal, `AddInterface` provenance, interface warnings, and endpoint-effect state.
 
-- `DEVPKEY_Device_DriverInfSectionExt`, kept separate from the base DDInstall section;
-- the exact resolved decorated install section;
-- deterministic INF `Include=` / `Needs=` traversal;
-- source-INF and section provenance for every captured `AddInterface`;
-- paired `KSCATEGORY_AUDIO` + `KSCATEGORY_TOPOLOGY` reference candidates;
-- a **read-only** snapshot of legacy/composite endpoint EFX and the enhancements-disabled state.
+Capture itself has **no Python dependency**. `capture_target_evidence.py` remains only as a CI/test oracle.
 
-`capture_target_evidence.py` performs the deterministic INF finalization and is covered by unit tests, including platform decoration and cross-INF `Include/Needs` resolution.
+### Safe topology evidence
 
-The current development capture wrapper uses Python 3 for that finalization step. The eventual user-facing production EXE must internalize/bundle this logic so Python is not a product dependency.
+The strongest case is one reference exposed under both `KSCATEGORY_AUDIO` and `KSCATEGORY_TOPOLOGY`.
 
-Do not guess a FiiO, USB-audio, or other HWID or topology reference if capture is ambiguous. Ambiguity is a stop condition.
+A real FiiO K7/Q-series driver established one additional supported WDM pattern: the installed section can expose the literal reference `Topology` under `KSCATEGORY_AUDIO` only. Omniphony accepts that fallback only when it is captured from the exact installed driver section. It does not generalize arbitrary AUDIO references into topology guesses.
+
+For such a legacy layout, the generated extension attaches only to the interface class actually evidenced by the driver. It does not invent a second `KSCATEGORY_TOPOLOGY` registration.
+
+Ambiguity or unresolved INF traversal remains a hard stop.
 
 ## Extension generation
 
-### `generate_extension_inf.py`
+`generate_extension_inf.py` consumes finalized v3 evidence and emits `OmniphonyApoExtension.inf`.
 
-Consumes only finalized v3 machine evidence and emits `OmniphonyApoExtension.inf`.
+It refuses:
 
-```powershell
-python .\generate_extension_inf.py `
-  .\omniphony-audio-target.json `
-  .\OmniphonyApoExtension.inf
-```
+- old/unfinalized capture schemas;
+- zero or multiple physical MEDIA targets unless disambiguated using values already captured;
+- MMDevice software endpoints as hardware targets;
+- uncaptured hardware IDs or topology references;
+- unresolved INF warnings;
+- disabled system effects;
+- foreign endpoint EFX;
+- a legacy Omniphony development EFX attachment.
 
-The generator refuses:
+The last rule prevents the old dev EFX slot and the production composite EFX from instantiating Current twice.
 
-- old v1/v2 captures;
-- zero or multiple physical MEDIA association candidates unless a value already present in the capture is selected explicitly;
-- MMDevice software-endpoint hardware IDs;
-- hardware IDs not present in the capture;
-- missing decorated-driver-section evidence;
-- unresolved INF evidence warnings;
-- invented or ambiguous topology reference strings;
-- a topology reference not captured under both `KSCATEGORY_AUDIO` and `KSCATEGORY_TOPOLOGY`;
-- an unreadable endpoint-effects snapshot;
-- an endpoint with system effects disabled;
-- a pre-existing **non-Omniphony EFX**.
-
-Windows supports composite endpoint effects, but Omniphony does not currently guess ordering or silently replace an unknown vendor effect. A collision is therefore a hard blocker until coexistence can be proved for that exact stack.
-
-The generated extension has a deterministic target-specific `ExtensionId`, creates `VEN_OMNI&CID_CURRENT`, and writes only interface-relative `HKR` FX association values. It does not write global `HKLM`/`HKCR` APO state and does not edit MMDevices directly.
+The extension uses a deterministic target-specific `ExtensionId`, `AddComponent`, and interface-relative `HKR` properties. Production never edits the MMDevices tree directly.
 
 ## Component package
 
-### `OmniphonyApoComponent.inx`
-
-Defines the APO software-component package:
+`OmniphonyApoComponent.inx` defines the Windows 11 APO component package:
 
 ```text
 Class=AudioProcessingObject
 ClassGuid={5989fce8-9cd0-467d-8a6a-5419e31529d4}
 component ID: SWC\VEN_OMNI&CID_CURRENT
-DriverStore payload:
-  OmniphonyAPO.dll
-  omniphony_realtime.dll
-registration:
-  HKR\Classes\CLSID\...
-  HKR\AudioEngine\AudioProcessingObjects\...
-PETrust:
-  both AudioDG-loaded DLLs
 ```
 
-The realtime DLL stays beside the APO DLL because the APO resolves `omniphony_realtime.dll` relative to its own module path.
+The APO and realtime DLL are installed together because `OmniphonyAPO.dll` resolves `omniphony_realtime.dll` beside itself. Both AudioDG-loaded binaries are marked with PETrust. The APO is built without an embedded manifest because an embedded manifest can make an APO fail in protected AudioDG.
 
-## Package build
+## Build and signing boundary
 
-### `Build-ProductionApoPackages.ps1`
+`Build-ProductionApoPackages.ps1` creates the component and extension driver packages from a bound v3 target capture. It runs `InfVerif`, generates catalogs with `Inf2Cat`, optionally signs local PEs/catalogs, verifies those signatures, and writes a SHA-256 package manifest.
 
-Builds two independent DriverStore packages around already-built runtime DLLs:
+A locally Valid Authenticode signature is **not** promoted to production trust. Local signing prepares a submission candidate. Microsoft driver signing/certification remains an external trust boundary.
+
+After externally signed packages are returned, `Finalize-SignedProductionPackages.ps1`:
+
+1. verifies the required APO/runtime/catalog/probe signatures;
+2. can require a Microsoft identity on both driver catalogs;
+3. recomputes hashes from the returned files;
+4. rewrites `package-manifest.json` with `SignaturesVerified=true`.
+
+This matters because an external signing service can replace or modify catalogs. A pre-submission manifest must not be reused blindly.
+
+## One-command handoff
+
+`Finish-ProductionInstall.ps1` is the migration coordinator.
+
+### Preparation phase
+
+Run it from an elevated shell with the current artifact/repo available. It:
+
+1. stages the current audible APO/runtime/probe before touching the dev install;
+2. runs the existing dev uninstaller when dev state is present;
+3. verifies `DisableProtectedAudioDG=1` is gone;
+4. captures a fresh clean v3 target witness;
+5. with a signing certificate, builds a **submission candidate**;
+6. stops at the Microsoft signing boundary instead of pretending local signing is production.
+
+The user's FiiO-specific hardware/INF archaeology does not need to be repeated manually.
+
+### Installation phase
+
+After the externally signed component/extension packages have been reassembled into a package root, run:
 
 ```powershell
-.\Build-ProductionApoPackages.ps1 `
-  -CaptureJson .\omniphony-audio-target.json `
-  -ApoDll C:\path\to\OmniphonyAPO.dll `
-  -RealtimeDll C:\path\to\omniphony_realtime.dll `
-  -OutputRoot .\omniphony-production-packages
+.\Finish-ProductionInstall.ps1 -SignedPackageRoot C:\path\to\signed-package
 ```
 
-The builder:
+The script then:
 
-1. copies the exact v3 witness into the package as `target-capture.json`;
-2. generates the target-specific extension from **that bound copy**;
-3. runs WDK `InfVerif /w /v` on both packages;
-4. optionally signs both PE payloads before catalog generation;
-5. immediately verifies the PE signatures;
-6. runs `Inf2Cat` independently for the component and extension packages;
-7. optionally signs and immediately verifies both catalogs;
-8. writes a SHA-256 `package-manifest.json` covering the staged payload, including `target-capture.json`.
+1. finalizes the externally signed package;
+2. runs read-only machine readiness;
+3. runs the baseline WASAPI/GetMixFormat/shared-render probe;
+4. installs with `Install-ProductionApoPackages.ps1` only if all gates pass;
+5. runs the production installer's post-install acceptance/rollback logic;
+6. relaunches the tray icon if the installed app support files are present.
 
-The package therefore cannot quietly drift away from the machine witness used to generate its extension.
+## Read-only readiness
 
-A locally Valid Authenticode signature is necessary evidence, not proof that protected AudioDG or the intended Windows driver-trust path will accept the candidate. Physical protected-mode loading remains an acceptance gate.
+`Test-ProductionMachineReadiness.ps1` checks only facts needed to attempt the protected transaction:
 
-## Read-only machine preflight
-
-### `Test-ProductionMachineReadiness.ps1`
-
-This runs before any production installation attempt:
-
-```powershell
-.\Test-ProductionMachineReadiness.ps1 `
-  -PackageRoot .\omniphony-production-packages `
-  -OutputPath .\omniphony-readiness.json
-```
-
-When `-PackageRoot` is supplied, the preflight automatically uses its bound `target-capture.json`.
-
-It checks without installing anything:
-
-- Windows build eligibility;
-- whether the old `DisableProtectedAudioDG=1` development bypass is still active;
-- Secure Boot / Device Guard observations;
-- existing Omniphony DriverStore packages;
-- whether the captured endpoint and physical driver are still present;
-- whether the live `DriverInfSectionExt` still matches the witness;
-- whether the v3 capture has exactly one safe paired topology reference;
-- whether endpoint effects are readable and enabled;
-- whether a foreign endpoint EFX now exists;
-- package-manifest hashes;
-- all four required Authenticode signatures;
-- whether the package manifest records completed signature verification.
-
-A zero-blocker report is permission to **attempt** the physical test. It is not a claim that AudioDG has loaded Current.
-
-## Production installation
-
-### `Install-ProductionApoPackages.ps1`
-
-Installs through Windows PnP/DriverStore machinery rather than direct endpoint registry mutation:
-
-```powershell
-.\Install-ProductionApoPackages.ps1 `
-  -PackageRoot .\omniphony-production-packages
-```
-
-Before PnPUtil is allowed to change anything, the installer rechecks:
-
+- Windows 11 APO-class eligibility;
+- elevated execution;
+- `DisableProtectedAudioDG` development bypass absent;
+- live v3 target evidence;
+- exactly one safe topology association, including the verified legacy `Topology` pattern;
+- hardware-ID overlap and driver-section-extension stability;
+- readable/enabled endpoint effects;
+- no legacy dev Omniphony EFX and no foreign EFX;
 - package hashes;
-- the bound target-capture hash;
-- all four signatures;
-- protected AudioDG bypass state;
-- captured endpoint presence;
-- captured physical driver presence;
-- live hardware-ID overlap with the witness;
-- endpoint system-effects state;
-- legacy + composite existing EFX collision state.
+- **five** locally Valid signatures: APO DLL, realtime DLL, component catalog, extension catalog, production probe;
+- manifest signature-verification state;
+- baseline read-only WASAPI probe.
 
-The endpoint-effects registry is **observed read-only** for these checks. Production never takes ownership of or directly writes the MMDevices tree.
+Zero blockers means permission to attempt installation. It does not by itself prove that protected AudioDG has loaded Current.
 
-Only after those gates pass does the installer:
+## Production acceptance probe
 
-- snapshot existing Omniphony driver packages;
-- install the APO component and target extension with `pnputil /add-driver ... /install`;
-- rescan PnP and restart the audio graph;
-- verify that `SWC\VEN_OMNI&CID_CURRENT` exists;
-- verify that the endpoint effects property store now exposes the Omniphony EFX CLSID;
-- verify that system effects are still enabled;
-- record installed package and endpoint state under `%ProgramData%\Omniphony\production`.
+`OmniphonyProductionProbe.exe` is deliberately separate from `OmniphonyMixProbe.exe`.
 
-If any post-install gate fails, rollback removes only newly-added Omniphony packages, rescans PnP and restarts AudioSrv.
+The production probe is read-only and tests the exact captured MMDevice through WASAPI, including `GetMixFormat`, shared render initialization/start, buffer progress, and clean stop/reset. It owns no registry/ACL repair path.
 
-It never removes or replaces the physical audio driver.
+The old development `0x80070005`/`GetMixFormat` failure is considered solved only when this probe passes on the real endpoint under the protected production installation.
 
-### `Uninstall-ProductionApoPackages.ps1`
+## Install, rollback, uninstall
 
-Enumerates Omniphony's own DriverStore packages using structured PnPUtil output, removes the extension before the component, rescans devices, restarts AudioSrv and verifies that the Omniphony packages are gone.
+`Install-ProductionApoPackages.ps1` uses PnPUtil/DriverStore, revalidates the bound target and package before changing anything, installs component then extension, rescans/restarts the audio graph, verifies the software component and endpoint association, runs the production WASAPI probe, and rolls back newly added Omniphony packages on failure.
 
-It does **not** modify the physical audio driver or `DisableProtectedAudioDG`.
+`Rollback-ProductionApoPackages.ps1` restores the prior Omniphony package generation when one exists.
+
+`Uninstall-ProductionApoPackages.ps1` removes the extension before the component and never removes the physical audio driver or enables the development AudioDG bypass.
+
+## Tray-only UI
+
+Packaging does not require a new desktop window. The existing `OmniphonyTray.ps1` remains the small user-facing control surface. The production handoff relaunches it after a successful install; normal application packaging can continue to register it at user startup.
 
 ## CI contract
 
-Windows CI guards several layers independently:
+Windows CI now protects the path by:
 
-- source-level isolated component-package contract;
-- development/production AudioDG separation;
-- read-only production endpoint observation contract;
-- Python unit tests for decorated INF evidence and `Include/Needs` traversal;
-- Python unit tests for extension selection, anti-guessing and EFX collision behavior;
-- PowerShell AST parsing for capture/preflight/build/install/uninstall tooling;
-- synthetic finalized v3 witness → generated extension INF;
-- WDK `InfVerif /w /v` for both component and extension;
-- synthetic full package staging and `Inf2Cat` catalog generation;
-- bound-capture manifest hashing;
-- APO and realtime DLL builds;
-- AudioDG import-table audit.
+- parsing **all** PowerShell under `windows_installer`;
+- unit-testing INF evidence and extension generation;
+- covering the observed FiiO-style legacy topology shape;
+- rejecting a legacy dev EFX in production capture;
+- validating component/extension INF isolation;
+- checking the manifest-free APO contract;
+- building the read-only production probe;
+- packaging the production handoff scripts and probe in the endpoint artifact.
 
-The synthetic witness exists only to exercise structure in CI. It is not a substitute for physical machine evidence.
+Synthetic evidence exists only for CI. Physical proof still comes from the real machine.
 
-## What still requires the real machine
+## Final external boundary
 
-Repository-side packaging can remove guesswork, but it cannot manufacture evidence about the actual installed endpoint. Before the production path is considered physically ready:
+Repository-side implementation is complete up to Windows' driver trust boundary. The remaining non-repository step is obtaining the appropriate Microsoft-signed/certified driver packages and feeding the returned files back through `Finalize-SignedProductionPackages.ps1` / `Finish-ProductionInstall.ps1 -SignedPackageRoot ...`.
 
-1. run `Capture-ProductionTarget.ps1` against the real default output;
-2. obtain a clean v3 witness with one physical MEDIA driver and one paired topology reference;
-3. build the two package candidates with the intended signing/trust method;
-4. obtain a zero-blocker read-only readiness report;
-5. install with protected AudioDG enabled;
-6. prove APO activation and **Current processing**, not merely CLSID registration;
-7. prove `GetMixFormat` and ordinary application playback;
-8. prove AudioSrv restart and reboot/sleep-resume;
-9. prove upgrade, failed-install rollback and uninstall;
-10. retain the canonical Current 8.1.4.4 → 22-direction → binaural DSP contract.
-
-The previous `0x80070005`/`GetMixFormat` development failure is not considered solved merely because the new package structure is cleaner. It is solved only when the protected production path passes the physical endpoint test.
-
-## Development installer relationship
-
-`../Install-OmniphonyAPO.ps1`, `../OmniphonyApoCtl*.cpp` and the current `0.0.4-dev` Inno package remain bring-up tools. Their global registration, endpoint ACL repair and explicitly opted-in unprotected-AudioDG measures must not leak into this production path.
-
-Both paths converge on the same `OmniphonyAPO.dll`, `omniphony_realtime.dll` and Current renderer. Packaging work is not permission to fork or retune the sound.
+That boundary must remain explicit. Omniphony must not re-enable `DisableProtectedAudioDG=1` or call a locally signed package “production” merely to make the install appear finished.
