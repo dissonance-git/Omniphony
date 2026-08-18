@@ -1,10 +1,20 @@
 {
-  "Schema": "omniphony.windows.apo-target.v2",
+  "Schema": "omniphony.windows.apo-target.v3",
   "CapturedAtUtc": "2026-08-17T00:00:00.0000000Z",
+  "EvidenceFinalizer": "synthetic-ci-fixture",
   "DefaultEndpoint": {
     "MmDeviceId": "{0.0.0.00000000}.{11111111-1111-1111-1111-111111111111}",
     "FriendlyName": "Synthetic Omniphony Target",
     "PnpInstanceId": "SWD\\MMDEVAPI\\{0.0.0.00000000}.{11111111-1111-1111-1111-111111111111}"
+  },
+  "CapturedEndpointEffects": {
+    "Readable": true,
+    "EndpointGuid": "{11111111-1111-1111-1111-111111111111}",
+    "RegistryPath": "synthetic-read-only-fixture",
+    "LegacyEndpointEffects": [],
+    "CompositeEndpointEffects": [],
+    "EnhancementsDisabled": 0,
+    "Error": ""
   },
   "AssociationCandidates": [
     {
@@ -16,7 +26,10 @@
       "Service": "usbaudio2",
       "DriverInfPath": "synthetic.inf",
       "DriverInfFullPath": "C:\\Windows\\INF\\synthetic.inf",
-      "DriverInfSection": "SyntheticAudio.NT",
+      "DriverInfSection": "SyntheticAudio",
+      "DriverInfSectionBase": "SyntheticAudio",
+      "DriverInfSectionExt": ".NTamd64",
+      "DriverInfResolvedSection": "SyntheticAudio.NTamd64",
       "DriverProvider": "Synthetic",
       "DriverVersion": "1.0.0.0",
       "HardwareIds": [
@@ -26,8 +39,12 @@
       "CompatibleIds": [],
       "DriverInterfaces": [
         {
-          "Section": "SyntheticAudio.NT.Interfaces",
+          "Section": "SyntheticAudio.NTamd64.Interfaces",
           "SectionRelevant": true,
+          "SourceInfPath": "C:\\Windows\\INF\\synthetic.inf",
+          "SourceInfName": "synthetic.inf",
+          "ResolutionVia": "synthetic-ci-fixture",
+          "ResolutionDepth": 0,
           "CategoryToken": "%KSCATEGORY_AUDIO%",
           "CategoryResolved": "{6994AD04-93EF-11D0-A3CC-00A0C9223196}",
           "ReferenceToken": "%KSNAME_TopologyRender%",
@@ -38,8 +55,12 @@
           "IsTopology": false
         },
         {
-          "Section": "SyntheticAudio.NT.Interfaces",
+          "Section": "SyntheticAudio.NTamd64.Interfaces",
           "SectionRelevant": true,
+          "SourceInfPath": "C:\\Windows\\INF\\synthetic.inf",
+          "SourceInfName": "synthetic.inf",
+          "ResolutionVia": "synthetic-ci-fixture",
+          "ResolutionDepth": 0,
           "CategoryToken": "%KSCATEGORY_TOPOLOGY%",
           "CategoryResolved": "{DDA54A40-1E4C-11D1-A050-405705C10000}",
           "ReferenceToken": "%KSNAME_TopologyRender%",
@@ -50,7 +71,10 @@
           "IsTopology": true
         }
       ],
+      "InterfaceResolutionWarnings": [],
+      "InterfaceResolutionVisitedSections": [],
       "TopologyReferenceCandidates": ["TopologyRender"],
+      "PairedTopologyReferenceCandidates": ["TopologyRender"],
       "Parent": "USB\\VID_F00D&PID_BEEF\\SYNTHETIC"
     }
   ],
