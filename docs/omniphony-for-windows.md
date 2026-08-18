@@ -45,6 +45,35 @@ The normal 0.1 path uses unsigned user-mode APOs. The installer explicitly enabl
 
 Microsoft-signed DriverStore packaging remains an optional future deployment experiment. It is not a prerequisite for using Omniphony 0.1 and is not bundled into the normal installer.
 
+## One renderer, one enhancement law
+
+Omniphony is not a stereo enhancer plus a separate surround renderer. It is one Windows-wide spatial renderer whose behavior becomes more source-authoritative as the host supplies richer input.
+
+```text
+stereo
+→ preserve the finished master
+→ infer only the spatial dimensions the source does not explicitly contain
+→ enhance through Current
+
+5.1 / 7.1 / height PCM
+→ preserve the authored channels and their positions
+→ do less spatial inference because more of the scene is already known
+→ enhance through the same Current renderer
+
+8.1.4.4 static objects + dynamic XYZ objects
+→ preserve the supplied spatial scene directly
+→ avoid reconstructing geometry that the game / host already supplied
+→ enhance through the same Current renderer
+```
+
+The product goal is therefore continuous across source types:
+
+> **The richer the source truth, the less Omniphony invents and the more authority it gives the source, while preserving the same Omniphony presentation character and final binaural renderer.**
+
+Stereo is the hardest case because Omniphony must infer missing spatial structure from two channels. Native surround should be a stronger input to the same enhancement system, not a weaker or separate mode, because authored direction replaces guesswork. Raw spatial objects are richer again.
+
+The final physical endpoint remains ordinary stereo headphones in every case. The difference is how much trustworthy scene information reaches Omniphony before that final binaural reduction.
+
 ## Accepted Windows baseline
 
 As of 2026-08-18, Omniphony's conventional Windows surround path is physically verified and is the baseline product topology:
@@ -92,19 +121,29 @@ This lets the game author an ordinary multichannel PCM bed and lets Omniphony ow
 
 ## Audio topology
 
-Conventional PCM and Windows Spatial Audio are two source-truth paths into the same Omniphony renderer. They must not become two renderers.
+Stereo, conventional multichannel PCM, and Windows Spatial Audio are progressively richer ingress representations into the same Omniphony renderer. They must not become separate renderers or separate enhancement philosophies.
 
 ```text
-conventional PCM applications / games
+stereo applications
         ↓
-shared-mode stereo / 5.1 / 7.1 client stream
+2-channel source
         ↓
-Omniphony stream SFX
+Omniphony evidence / inference
         ↓
-authored PCM bed or stereo ingress
         ┐
         │
         ├──────────────→ Omniphony source scene → Current shell → binaural
+        │
+        ┘
+conventional surround applications / games
+        ↓
+shared-mode 5.1 / 7.1 / height PCM
+        ↓
+authored bed → same Omniphony source scene
+        ↓
+        ┐
+        │
+        ├──────────────→ same Current shell → same binaural renderer
         │
         ┘
 future richer path:
@@ -187,6 +226,8 @@ authored 7.1 client
 → Current shell / binaural
 → stereo endpoint
 ```
+
+These are not two product modes. They are two source-authority states entering the same renderer. The stereo case uses bounded inference where the source lacks explicit geometry; the authored 7.1 case replaces those guesses with real speaker-channel authority and then receives the same Omniphony enhancement/rendering treatment.
 
 A separate stereo endpoint EFX remains implemented as the safe rollback floor. It is not the promoted steady-state path after successful 7.1-capable installation.
 
@@ -330,14 +371,15 @@ physical endpoint remains the user's normal output
 
 Build upward from the accepted baseline rather than sideways:
 
-1. prove with a real conventional game, beginning with Overwatch Home Theater, that the title actually opens/populates the accepted authored 7.1 shared client stream;
-2. preserve the accepted 7.1 path as the regression baseline while adding game-specific evidence tooling if necessary;
-3. prove the Microsoft-supported system boundary, if any, that exposes raw Windows Spatial Audio static/dynamic objects to an installed system-wide renderer;
-4. add a Windows spatial-object adapter that preserves the full 8.1.4.4 static vocabulary plus dynamic XYZ trajectories into Omniphony's existing source-scene contract;
-5. prove the raw-object path with deterministic fixtures, then a real spatial-aware game such as Overwatch, without assuming in advance which bed/object mix the game emits;
-6. prove reboot, sleep/resume and DAC power-cycle/reconnect behavior around the accepted endpoint continuity contract;
-7. improve the tray icon and controls;
-8. add trustworthy already-binaural detection/bypass when host evidence exists;
-9. add optional deepSTRF/research capabilities only when validated and without replacing the established Current sound.
+1. preserve the physically verified stereo and authored-7.1 paths as two source-authority states of one renderer, not separate product modes;
+2. use real games such as Overwatch to compare the conventional 7.1 input against the game's richer spatial path and identify what source geometry 7.1 is missing;
+3. treat Dolby Atmos for Headphones or another native game spatial renderer as a perceptual reference for height/directional information, not as the desired final architecture when it has already binauralized the scene;
+4. prove the Microsoft-supported system boundary, if any, that exposes raw Windows Spatial Audio static/dynamic objects to an installed system-wide renderer before Sonic / Dolby headphone rendering;
+5. add a Windows spatial-object adapter that preserves the full 8.1.4.4 static vocabulary plus dynamic XYZ trajectories into Omniphony's existing source-scene contract;
+6. feed that richer source truth through the same Current enhancement / shell / binaural machinery rather than creating a second spatial renderer;
+7. prove reboot, sleep/resume and DAC power-cycle/reconnect behavior around the accepted endpoint continuity contract;
+8. improve the tray icon and controls;
+9. add trustworthy already-binaural detection/bypass when host evidence exists;
+10. add optional deepSTRF/research capabilities only when validated and without replacing the established Current sound.
 
-The baseline remains deliberately simple for the user: **click install, use the selected physical Windows output, and let Omniphony receive conventional authored 7.1 before it performs the only headphone render.** The source path underneath that simplicity should become richer whenever Windows exposes richer authored truth.
+The baseline remains deliberately simple for the user: **click install, use the selected physical Windows output, and let Omniphony enhance whatever source truth Windows supplies. Stereo is inferred where necessary; native surround is preserved where authored; richer spatial objects should be preserved directly when the host exposes them. All of it converges on one Omniphony renderer.**
