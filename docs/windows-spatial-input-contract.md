@@ -1,15 +1,17 @@
 # Windows spatial input contract
 
-This note defines how Omniphony for Windows interprets Windows audio layouts before the portable binaural renderer. It keeps four concepts separate:
+This document defines how Omniphony for Windows interprets source layouts before the portable binaural renderer.
+
+It keeps four concepts separate:
 
 1. conventional shared-mode PCM beds;
-2. Windows Spatial Audio static/dynamic objects;
+2. Windows Spatial Audio static and dynamic objects;
 3. Omniphony's canonical static scene frame;
-4. Omniphony's denser internal support/rendering lattice.
+4. Omniphony's denser internal rendering geometry.
 
 ## Governing rule
 
-**Preserve the richest source representation Windows actually supplies. Represent it inside one canonical 8.1.4.4-capable scene without pretending missing channels were authored.**
+> **Preserve the richest source representation Windows actually supplies. Represent it inside one canonical 8.1.4.4-capable scene without pretending missing channels were authored.**
 
 The physical headphone endpoint may remain stereo while the upstream Windows graph supplies richer source information.
 
@@ -24,11 +26,32 @@ stereo ---------------------------> 8.1.4.4-capable scene, sparse/inferred -----
 dynamic spatial objects ----------> continuous object layer + static scene --------> binaural stereo
 ```
 
-The FiiO/DAC side remains two physical channels throughout.
+## One renderer across source types
+
+Stereo, surround, height beds, and spatial objects are not separate rendering products.
+
+```text
+stereo
+→ preserve master
+→ infer missing geometry carefully
+→ Omniphony
+
+5.1 / 7.1 / height PCM
+→ preserve authored speaker geometry
+→ infer less
+→ same Omniphony renderer
+
+8.1.4.4 static objects + dynamic XYZ objects
+→ preserve supplied scene geometry
+→ avoid reconstructing what is already known
+→ same Omniphony renderer
+```
+
+The richer the input, the less spatial invention Omniphony should perform.
 
 ## Canonical static scene: 8.1.4.4
 
-Omniphony's **ideal full fixed static scene contract is 8.1.4.4**: seventeen semantic spatial anchors matching the complete predefined static-channel vocabulary exposed by Microsoft Spatial Sound for headphone spatial renderers.
+Omniphony's ideal fixed Windows scene contract is **8.1.4.4**: seventeen semantic spatial anchors matching the complete predefined static-channel vocabulary exposed by Microsoft Spatial Sound for headphone spatial renderers.
 
 ```text
 horizontal
@@ -41,7 +64,7 @@ lower
 BFL BFR BBL BBR
 ```
 
-Common source subsets map naturally into this one frame:
+Common source subsets map naturally into this frame:
 
 ```text
 7.1       = FL FR C LFE SL SR BL BR
@@ -50,107 +73,69 @@ Common source subsets map naturally into this one frame:
 8.1.4.4   = 7.1.4.4 + BC
 ```
 
-The frame is always available as Omniphony's static coordinate vocabulary. The signals occupying it are not always authored.
+The frame is always available as a coordinate vocabulary. The signals occupying it are not always authored.
 
 Every static anchor therefore carries source authority explicitly:
 
 ```text
-AUTHORED   source or host supplied this signal/position
+AUTHORED   source or host supplied this signal / position
 DERIVED    Omniphony inferred bounded support for this anchor
 EMPTY      no trustworthy signal is assigned here
 ```
 
-The central law is:
-
 > **8.1.4.4 is the base coordinate frame, not the default claim about what the source contained.**
 
-Dynamic XYZ objects sit above this fixed skeleton when available. They are not extra fixed channels and should retain continuous position rather than being prematurely snapped to 8.1.4.4 anchors.
+Dynamic XYZ objects sit beside this fixed skeleton when available. They are not extra fixed channels and should retain continuous position rather than being snapped prematurely to static anchors.
 
-## Accepted conventional Windows baseline
+## Conventional Windows PCM baseline
 
-The physically accepted Windows production baseline is conventional shared-mode 7.1 PCM through the Omniphony stream SFX while the hardware endpoint remains stereo.
+The accepted Windows production baseline is conventional shared-mode multichannel PCM through the Omniphony stream SFX while the physical headphone endpoint remains stereo.
 
-Accepted 2026-08-18 machine evidence established:
-
-```text
-physical endpoint mix
-48 kHz / 32-bit / stereo
-
-+
-
-shared client input
-48 kHz / float32 / 7.1
-
-+
-
-Omniphony stream SFX active
-stereo rollback EFX absent
-```
-
-The decisive client-boundary evidence is:
+For authored 7.1:
 
 ```text
-SHARED_7_1_FORMAT_SUPPORTED      CHANNELS=8 BITS=32 RATE=48000
-SHARED_7_1_INITIALIZE_OK         INPUT_CHANNELS=8 ENDPOINT_CHANNELS=2
-NATIVE_SURROUND_CLIENT_FORMAT_OK INPUT_CHANNELS=8 ENDPOINT_CHANNELS=2
-NATIVE_SURROUND_SFX 1
-NATIVE_SURROUND_EFX 0
-```
-
-`IAudioClient::GetMixFormat` remaining stereo is expected because it describes the endpoint/shared engine mix. The richer authored client stream exists upstream of that stereo endpoint mix and is reduced by Omniphony's format-changing SFX.
-
-For conventional games, the production topology is therefore:
-
-```text
-game Home Theater / surround mix
-        ↓
-authored stereo / 5.1 / 7.1 shared client stream
+48 kHz / float32 / 7.1 client stream
         ↓
 Omniphony stream SFX
         ↓
+FL FR C LFE SL SR BL BR = AUTHORED
+        ↓
 canonical source scene
         ↓
-Current shell / binaural renderer
+Current spatial renderer
         ↓
 stereo endpoint mix
-        ↓
-DAC / headphones
 ```
 
-For a 7.1 game stream:
+The accepted-state client boundary is:
 
 ```text
-FL FR C LFE SL SR BL BR = AUTHORED
-BC TFL TFR TBL TBR BFL BFR BBL BBR = EMPTY or bounded DERIVED
+shared 7.1 format supported
+shared 7.1 client initializes successfully
+stream SFX remains attached
+stereo rollback EFX is absent
+physical endpoint remains stereo
 ```
 
-Do not label derived height, bottom, or back-center content as authored merely because the internal frame contains those positions.
+`IAudioClient::GetMixFormat` remaining stereo is expected because it describes the endpoint/shared engine mix. The richer authored client stream exists upstream of that final endpoint mix and is reduced by Omniphony's format-changing SFX.
 
-The intended conventional-game configuration is:
-
-```text
-Windows Spatial Sound: OFF
-game mix: Home Theater / surround
-in-game headphone virtualization: OFF
-```
-
-This avoids double binaural rendering and lets Omniphony own the final headphone render.
+Do not label derived height, lower, or back-center content as authored merely because the canonical frame contains those positions.
 
 ## Preferred-format semantics
 
-On Windows 11 23H2+, `IAudioProcessingObjectPreferredFormatSupport::GetPreferredInputFormat` is specifically documented for headphone virtualization, including the case where a stereo-rendering endpoint's APO requests 7.1 input.
+On Windows 11 23H2+, `IAudioProcessingObjectPreferredFormatSupport::GetPreferredInputFormat` is documented for headphone virtualization, including the case where a stereo-rendering endpoint's APO requests 7.1 input.
 
 Omniphony implements that contract in `OmniphonyStreamAPO.dll`.
 
 The important distinction is:
 
 ```text
-client-facing authored input may be 7.1
+client-facing authored input may be multichannel
 while
 physical endpoint/shared engine mix remains stereo
 ```
 
-Therefore production acceptance must test the actual client stream boundary, not require the DAC's `GetMixFormat` result to become eight channels.
+Production acceptance must therefore test the actual client stream boundary rather than require the DAC's `GetMixFormat` result to become multichannel.
 
 ## Richer conventional PCM
 
@@ -161,21 +146,21 @@ authored 7.1.4
 → twelve-channel input
 → native-bed realtime ABI
 → authored source coordinates
-→ Current shell / binaural
+→ Current spatial renderer
 → stereo output
 ```
 
-That is implementation evidence, not yet a claim that arbitrary Windows applications will open 7.1.4 shared streams on the current host. Physical application-level proof remains required before promoting a richer conventional bed above the accepted 7.1 baseline.
+A renderer fixture proves format handling. It is distinct from proving that an arbitrary Windows application will open that exact richer shared stream on a given host.
 
 ## Windows Spatial Audio path
 
 Windows Spatial Audio is a richer source path than conventional shared-mode PCM. `ISpatialAudioClient` supports static spatial objects assigned to predefined speaker positions plus dynamic objects with arbitrary 3-D positions.
 
-For headphone spatial renderers, the full predefined static vocabulary reaches **8.1.4.4 / 17 static positions**. That is why Omniphony's ideal static scene vocabulary remains 8.1.4.4 even though the current conventional production baseline is 7.1.
+For headphone spatial renderers, the full predefined static vocabulary reaches **8.1.4.4 / 17 static positions**. This is why Omniphony's ideal static scene vocabulary remains 8.1.4.4 even though the conventional shared-client baseline is 7.1.
 
-When a Spatial Audio-aware application supplies 7.1.4, 7.1.4.4, 8.1.4.4, or dynamic object positions, preserve that supplied geometry and authority. Do not collapse it to 7.1 merely because 7.1 is the conventional production baseline.
+When a spatial-aware application supplies 7.1.4, 7.1.4.4, 8.1.4.4, or dynamic object positions, preserve that supplied geometry and authority. Do not collapse it to 7.1 merely because 7.1 is the conventional compatibility floor.
 
-The stream-SFX path and Spatial Audio ingestion may require different Windows host seams. That is acceptable. They must converge on the same portable Omniphony scene semantics rather than duplicating the renderer.
+The stream-SFX path and Spatial Audio ingestion may require different Windows host seams. They must converge on the same portable Omniphony scene semantics and the same final renderer.
 
 ## Dynamic objects are parallel to the static frame
 
@@ -189,9 +174,9 @@ dynamic object layer: arbitrary x/y/z objects
 one portable Omniphony scene
 ```
 
-When real object coordinates are supplied, preserve them continuously as far into rendering as possible. Do not snap a moving object prematurely to the nearest `TFL`, `SL`, `BBR`, or other static anchor merely to fit the 8.1.4.4 bed.
+When real object coordinates are supplied, preserve them continuously as far into rendering as possible. Do not snap a moving object prematurely to the nearest fixed anchor merely to fit the 8.1.4.4 bed.
 
-Source authority therefore increases approximately as:
+Source authority increases approximately as:
 
 ```text
 stereo evidence
@@ -200,20 +185,20 @@ stereo evidence
     < supplied continuous object position / scene field
 ```
 
-This is an authority ordering, not a statement that every object mix necessarily sounds better than every channel mix.
+This is an authority ordering, not a claim that every object mix necessarily sounds better than every channel mix.
 
-## Dolby / Windows spatial interoperability target
+## Interoperability with other spatial renderers
 
-Omniphony should work with Dolby or other Windows Spatial Sound content **through supported Windows interfaces wherever the platform exposes a trustworthy seam**. It should not require a second internal renderer when Microsoft's Spatial Audio layer already presents compatible static/object semantics.
+Omniphony aims to occupy the final headphone-rendering role itself when a trustworthy pre-render spatial seam is available.
 
 There are three distinct cases.
 
-### 1. Raw static/object scene reaches Omniphony
+### Raw static/object scene reaches Omniphony
 
-Preferred long-term path:
+Preferred path:
 
 ```text
-Windows spatial application
+spatial application
         ↓
 8.1.4.4 static objects + dynamic x/y/z objects
         ↓
@@ -224,47 +209,47 @@ Omniphony HRTF / distance / room / binaural renderer
 stereo headphones
 ```
 
-### 2. Sonic / Dolby / DTS has already rendered the scene
+### Another renderer has already produced binaural stereo
 
-If another headphone renderer has already converted the scene to final binaural stereo before Omniphony receives it, Omniphony must **not spatialize it again**.
+If Windows Sonic, Dolby, DTS, or another headphone renderer has already converted the scene to final binaural stereo before Omniphony receives it, Omniphony must not spatialize it again.
 
 ```text
 already-binaural stereo
         ↓
-Omniphony clean spatial bypass
+Omniphony spatial bypass
 or explicitly validated non-spatial correction only
         ↓
 headphones
 ```
 
-A trustworthy detection signal is required before automating this policy. Stereo channel count alone is not enough.
+A trustworthy detection signal is required before automating this policy. Stereo channel count alone is not sufficient.
 
-### 3. Encoded spatial media
+### Encoded spatial media
 
-Prefer supported operating-system decode/render facilities over reverse-engineering proprietary bitstream/object codecs merely to reach equivalent source semantics.
+Prefer supported operating-system decode/render facilities over reverse-engineering proprietary bitstream or object codecs merely to reach equivalent source semantics.
 
-If a future supported seam exposes decoded bed/object geometry, ingest it. If the platform exposes only the final binaural result, follow case 2.
+If a supported seam exposes decoded bed/object geometry, ingest it. If the platform exposes only the final binaural result, follow the already-binaural path.
 
-## Current hard boundary: conventional SFX is not proven raw-object ingress
+## Hard boundary: conventional SFX is not raw-object ingress
 
-The accepted 7.1 stream SFX is a conventional PCM path. It proves authored multichannel shared-client ingress, not raw Spatial Audio object interception.
+The accepted stream SFX is a conventional PCM path. It proves authored multichannel shared-client ingress, not raw Spatial Audio object interception.
 
-The public Windows documentation reviewed so far does **not** establish that an ordinary third-party system effect can recover another process's original `ISpatialAudioClient` object identities and XYZ metadata after the Windows spatial renderer has consumed them.
+Public Windows documentation does not establish that an ordinary third-party system effect can recover another process's original `ISpatialAudioClient` object identities and XYZ metadata after the active spatial renderer has consumed them.
 
 Therefore:
 
-- do not claim raw Atmos/Spatial Audio object ingestion is solved by the accepted 7.1 SFX;
+- do not claim raw Atmos/Spatial Audio object ingestion is solved by conventional multichannel SFX;
 - do not reconstruct object positions from already-rendered binaural audio and call them native objects;
-- preserve the accepted 7.1 SFX as the robust production fallback;
-- investigate a supported richer spatial ingress in parallel;
-- do not hook/inject into games or anti-cheat-protected processes to obtain object metadata;
-- do not revive a user-visible virtual-cable/second-endpoint architecture merely to make object capture easier.
+- preserve the conventional multichannel SFX as the robust fallback;
+- investigate a supported richer spatial ingress independently;
+- do not hook or inject into protected applications to obtain object metadata;
+- do not require a user-visible virtual cable or second playback endpoint solely to capture objects.
 
-A negative result from raw-object research is acceptable. If Windows exposes no supported third-party scene seam, preserve that as an architectural boundary and keep conventional 7.1 as the safe production path.
+If Windows exposes no supported third-party scene seam, preserve that as an architectural boundary rather than fabricating one.
 
 ## Omniphony's 22-direction field is different
 
-The existing Current-model support shell uses a richer internal full-sphere directional lattice. That is **renderer geometry**, not an authored Windows input format and not a replacement for the 8.1.4.4 semantic scene frame.
+The Current support shell uses a denser internal full-sphere directional lattice. That is **renderer geometry**, not an authored Windows input format and not a replacement for the 8.1.4.4 semantic scene frame.
 
 ```text
 source / Windows scene
@@ -272,41 +257,41 @@ source / Windows scene
 8.1.4.4-capable canonical static frame
 + continuous dynamic objects where supplied
         ↓
-source-authority / provenance state
+source authority
         ↓
-Omniphony 22-direction or continuous rendering geometry as needed
+Omniphony 22-direction or continuous rendering geometry
         ↓
 HRTF / ITD / distance / room / binaural processing
         ↓
-stereo DAC output
+stereo output
 ```
 
 The relationship is:
 
 ```text
-8.1.4.4 = ideal standardized fixed semantic skeleton
+8.1.4.4 = standardized fixed semantic skeleton
 22-direction field = Omniphony rendering/support lattice
 continuous objects = higher-precision source geometry when available
 ```
 
-Do not expose the 22 directions to a game as if they were 22 authored source channels.
+Do not expose the 22 directions to a source application as if they were twenty-two authored input channels.
 
 ## Validation matrix
 
-The conventional production baseline requires:
+Conventional source validation includes:
 
 ```text
 2.0
-5.1 compatibility
-7.1 physically accepted shared-client path
+5.1
+7.1
 7.1 mapped into sparse 8.1.4.4 scene
 7.1.4 renderer/APO regression
 ```
 
-The richer spatial frontier requires:
+Richer spatial validation includes:
 
 ```text
-7.1.4 application-level ingress proof
+7.1.4 application-level ingress
 7.1.4.4
 8.1.4.4
 one or more dynamic objects
@@ -316,39 +301,19 @@ already-binaural bypass
 For each relevant layout prove:
 
 - channel/object identity is retained at ingress;
-- authored/derived/empty provenance remains correct;
+- AUTHORED / DERIVED / EMPTY provenance remains correct;
 - no premature stereo downmix occurs before Omniphony when richer source data is available;
 - no derived channel is mislabeled as authored;
 - LFE remains semantically distinct;
 - upper and lower channels remain distinct when supplied;
 - dynamic objects keep continuous positions where supplied;
 - output is exactly two channels to the physical headphone endpoint;
-- already-binaural native spatial output is not virtualized twice;
+- already-binaural spatial output is not virtualized twice;
 - block-size changes do not change spatial behavior;
 - bypass/identity mode remains deterministic;
 - physical listening agrees with the engineering result.
 
-## Current product frontier
-
-The next sequence is:
-
-```text
-accepted 7.1 client/SFX baseline
-        ↓
-prove Overwatch Home Theater actually opens/populates that authored 7.1 path
-        ↓
-retain as regression floor
-        ↓
-prove supported raw Windows Spatial Audio ingress, if available
-        ↓
-8.1.4.4 static objects + dynamic XYZ objects
-        ↓
-same Omniphony renderer
-```
-
-The new baseline does not reduce the long-term target. It gives the project a stable floor from which to attack the richer source representation.
-
-## Primary platform references
+## Platform references
 
 - Microsoft Windows Driver Samples, SysVAD APO: https://github.com/microsoft/Windows-driver-samples/tree/main/audio/sysvad/APO
 - Microsoft Xbox ATG Advanced Spatial Sounds sample: https://github.com/microsoft/Xbox-ATG-Samples/tree/main/UWPSamples/Audio/AdvancedSpatialSoundsUWP
