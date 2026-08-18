@@ -214,9 +214,22 @@ fn present_shared_wet(
 ) -> SourcePresentation {
     let sphere = clamp01(policy.sphere_strength);
     let confidence = clamp01(source.confidence);
+    let diffuse = clamp01(source.diffuse);
+    let width = clamp01(source.width);
     let wet = policy.shared_wet;
     let wet_strength = clamp01(wet.strength);
-    let strength = sphere * wet_strength * (0.55 + 0.45 * confidence);
+
+    // Source-side presentation evidence can now trim the historical wet layer
+    // without an ABI revision. SPC supplies diffuse=width=1 by default; the
+    // causal soundtrack governor may lower them after observing a dense or
+    // already-wet scene. The floor keeps a real shared return recognizably a
+    // field rather than collapsing it into a point merely because confidence or
+    // an adaptive control momentarily falls.
+    let evidence_strength = (0.65 * diffuse + 0.35 * width).clamp(0.0, 1.0);
+    let strength = sphere
+        * wet_strength
+        * (0.35 + 0.65 * evidence_strength)
+        * (0.55 + 0.45 * confidence);
     let side = if pan.abs() > 0.05 {
         pan.signum()
     } else if identity.abs() > 1.0e-6 {
@@ -244,12 +257,17 @@ fn present_shared_wet(
     };
     let distance = 1.0 + (distance_target - 1.0) * strength;
     let extent = wet.extent.map(clamp01);
+    let extent_evidence = [width, diffuse, diffuse];
 
     SourcePresentation {
         render_as_object: true,
         authority: SourcePositionAuthority::InferredPresentation,
         position: to_cartesian(azimuth, elevation, distance),
-        size: extent.map(|value| value * strength),
+        size: [
+            extent[0] * extent_evidence[0] * strength,
+            extent[1] * extent_evidence[1] * strength,
+            extent[2] * extent_evidence[2] * strength,
+        ],
         azimuth_deg: azimuth,
         elevation_deg: elevation,
         distance,
@@ -631,6 +649,8 @@ mod tests {
         let source = SourceSceneEvidence {
             lane_kind: SourceLaneKind::SharedWetReturn,
             confidence: 1.0,
+            diffuse: 1.0,
+            width: 1.0,
             source_id: 12,
             ..SourceSceneEvidence::default()
         };
@@ -645,7 +665,11 @@ mod tests {
         );
         let full = present_source(source, SourcePresentationPolicy::default());
         let restrained = present_source(
-            source,
+            SourceSceneEvidence {
+                diffuse: 0.45,
+                width: 0.55,
+                ..source
+            },
             SourcePresentationPolicy {
                 shared_wet: SharedWetPresentationPolicy {
                     strength: 0.4,
