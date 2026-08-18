@@ -48,7 +48,8 @@ Name: "{commonappdata}\Omniphony"; Permissions: users-modify
 [Files]
 ; Runtime files are staged only for setup. The Windows installer establishes the
 ; proven endpoint baseline, then upgrades to the pre-mix native-surround SFX only
-; after its own lifecycle smoke succeeds. Failure restores the endpoint baseline.
+; after its own lifecycle smoke succeeds. Failure stops without claiming a state
+; restoration that has not been read back and verified.
 Source: "{#PayloadDir}\runtime\*"; DestDir: "{tmp}\OmniphonyAPOPayload"; Flags: ignoreversion recursesubdirs createallsubdirs deleteafterinstall
 Source: "{#PayloadDir}\support\*"; DestDir: "{app}\support"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "endpoint_apo\Install-OmniphonyWindows.ps1"; DestDir: "{app}\support"; Flags: ignoreversion
@@ -108,7 +109,7 @@ begin
        (ResultCode <> 0) then
     begin
       RaiseException(
-        'Omniphony could not attach to the current Windows output. The previous endpoint state was restored automatically. Diagnostic log: C:\ProgramData\Omniphony\install-last.log'
+        'Omniphony could not validate attachment to the current Windows output, so setup stopped without claiming success. Diagnostic log: C:\ProgramData\Omniphony\install-last.log'
       );
     end;
   end;
