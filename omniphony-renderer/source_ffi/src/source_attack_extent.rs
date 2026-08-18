@@ -107,14 +107,20 @@ impl SourceAttackExtentTracker {
         &self.extent_retention
     }
 
-    /// Split only at the next time-based compactness boundary. This makes the
-    /// attack window independent of host callback size while preserving exact
-    /// source-evidence boundaries supplied by the ABI caller.
+    /// Split only at the next time-based FullSphere compactness boundary. In
+    /// NativeRouting the same episode clock advances, but it must not introduce
+    /// a hidden audio segmentation because that mode already closes extent and
+    /// should remain a chunk-neutral control.
     pub(crate) fn frames_until_transition(
         &self,
         sources: &[SourceSceneEvidence],
         maximum: usize,
+        full_sphere: bool,
     ) -> usize {
+        if !full_sphere {
+            return maximum.max(1);
+        }
+
         let mut frames = maximum;
         for (lane_index, source) in sources.iter().enumerate() {
             if source.lane_kind != SourceLaneKind::DrySource {
@@ -136,8 +142,10 @@ impl SourceAttackExtentTracker {
         }
     }
 
-    /// Advance only after a rendered subsegment succeeds.
-    pub(crate) fn advance(&mut self, rendered_frames: usize) {
+    /// Advance only after a rendered subsegment succeeds. NativeRouting consumes
+    /// the same real-time episode age but never arms a size-release ramp, because
+    /// it never spent compact FullSphere extent in the first place.
+    pub(crate) fn advance(&mut self, rendered_frames: usize, arm_release: bool) {
         let rendered_frames = rendered_frames.min(u32::MAX as usize) as u32;
         for state in &mut self.working {
             if state.compact_remaining_frames == 0 {
@@ -145,7 +153,7 @@ impl SourceAttackExtentTracker {
             }
             if rendered_frames >= state.compact_remaining_frames {
                 state.compact_remaining_frames = 0;
-                state.release_pending = true;
+                state.release_pending = arm_release;
             } else {
                 state.compact_remaining_frames -= rendered_frames;
             }
@@ -211,8 +219,8 @@ mod tests {
         let sources = [dry(10)];
         tracker.begin(&sources);
         assert_eq!(tracker.extent_retention(&sources, true), &[0.0]);
-        assert_eq!(tracker.frames_until_transition(&sources, 2_048), 576);
-        tracker.advance(576);
+        assert_eq!(tracker.frames_until_transition(&sources, 2_048, true), 576);
+        tracker.advance(576, true);
         assert_eq!(tracker.extent_retention(&sources, true), &[1.0]);
         assert_eq!(tracker.ramp_frames(96), 1_152);
         tracker.acknowledge_render();
@@ -229,7 +237,7 @@ mod tests {
         let mut source = dry(10);
         source.persistent_part_id = Some(77);
         tracker.begin(&[source]);
-        tracker.advance(576);
+        tracker.advance(576, true);
         tracker.acknowledge_render();
         tracker.commit();
 
@@ -247,19 +255,22 @@ mod tests {
         let source = wet(99);
         tracker.begin(&[source]);
         assert_eq!(tracker.extent_retention(&[source], true), &[1.0]);
-        assert_eq!(tracker.frames_until_transition(&[source], 512), 512);
+        assert_eq!(tracker.frames_until_transition(&[source], 512, true), 512);
     }
 
     #[test]
-    fn native_mode_tracks_episode_without_spending_attack_extent() {
+    fn native_mode_tracks_episode_without_splitting_or_release_ramp() {
         let mut tracker = SourceAttackExtentTracker::new(48_000);
         let source = dry(1);
         tracker.begin(&[source]);
         assert_eq!(tracker.extent_retention(&[source], false), &[1.0]);
-        tracker.advance(576);
-        tracker.acknowledge_render();
+        assert_eq!(tracker.frames_until_transition(&[source], 2_048, false), 2_048);
+        tracker.advance(2_048, false);
+        assert_eq!(tracker.ramp_frames(96), 96);
         tracker.commit();
 
+        // The real-time episode clock was still consumed in NativeRouting, so a
+        // later FullSphere switch does not manufacture a fresh compact attack.
         tracker.begin(&[source]);
         assert_eq!(tracker.extent_retention(&[source], true), &[1.0]);
     }
@@ -269,9 +280,9 @@ mod tests {
         let mut tracker = SourceAttackExtentTracker::new(48_000);
         let source = dry(5);
         tracker.begin(&[source]);
-        tracker.advance(400);
+        tracker.advance(400, true);
         // no commit: model a renderer failure
         tracker.begin(&[source]);
-        assert_eq!(tracker.frames_until_transition(&[source], 2_048), 576);
+        assert_eq!(tracker.frames_until_transition(&[source], 2_048, true), 576);
     }
 }
