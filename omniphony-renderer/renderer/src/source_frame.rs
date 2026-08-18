@@ -139,6 +139,7 @@ impl SourceFrameRenderer {
             sources,
             route_gain_preapplied,
             None,
+            None,
             sample_pos,
             ramp_length,
             samples_buf,
@@ -146,20 +147,25 @@ impl SourceFrameRenderer {
         )
     }
 
-    /// Render one block with host-owned arithmetic policy plus a renderer-local
-    /// per-lane extent-retention sidecar.
+    /// Render one block with host-owned arithmetic policy plus renderer-local
+    /// per-lane extent and ramp sidecars.
     ///
     /// `extent_retention[channel]` is a presentation safety control, not source
     /// evidence. `1.0` retains the source's normally derived FullSphere extent;
-    /// `0.0` renders the same source centre as a point. This is used for causal
-    /// attack protection and similar renderer-only guards that must not rewrite
-    /// the ABI source record.
+    /// `0.0` renders the same source centre as a point.
+    ///
+    /// `presentation_ramp_frames[channel]` optionally overrides only that
+    /// source object's geometry/size ramp duration. It exists so independent
+    /// attack-body blooms remain time-invariant when unrelated sources insert
+    /// exact event boundaries. Source-identity replacement still wins and uses
+    /// a zero pose ramp so an unrelated source cannot inherit the old pose.
     pub fn render_source_frame_with_presentation_controls(
         &mut self,
         input_pcm: &[f32],
         sources: &[SourceSceneEvidence],
         route_gain_preapplied: Option<&[bool]>,
         extent_retention: Option<&[f32]>,
+        presentation_ramp_frames: Option<&[u32]>,
         sample_pos: u64,
         ramp_length: u32,
         samples_buf: Vec<f32>,
@@ -190,6 +196,15 @@ impl SourceFrameRenderer {
                 .find(|(_, value)| !value.is_finite() || !(0.0..=1.0).contains(value))
             {
                 bail!("extent-retention value at channel {index} is out of range: {value}");
+            }
+        }
+        if let Some(ramps) = presentation_ramp_frames {
+            if ramps.len() != channels {
+                bail!(
+                    "presentation-ramp width {} does not match {} source channels",
+                    ramps.len(),
+                    channels
+                );
             }
         }
         if channels == 0 {
@@ -246,7 +261,11 @@ impl SourceFrameRenderer {
             // reuses the same channel, do not interpolate through the outgoing
             // source's old pose. A proven persistent part retains the same
             // identity key and therefore keeps ordinary smooth motion.
-            let event_ramp_length = if identity_changed { 0 } else { ramp_length };
+            let requested_ramp = presentation_ramp_frames
+                .and_then(|ramps| ramps.get(channel_idx))
+                .copied()
+                .unwrap_or(ramp_length);
+            let event_ramp_length = if identity_changed { 0 } else { requested_ramp };
             let mut presented = present_source_channel(
                 channel_idx,
                 source,
