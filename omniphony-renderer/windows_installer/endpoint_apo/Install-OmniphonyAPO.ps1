@@ -173,7 +173,7 @@ function Get-CurrentDefaultEndpoint {
 }
 
 function Get-ApoStatus([string]$EndpointId) {
-    $lines = @(& $ctl status-id $EndpointId.Id 2>&1 | ForEach-Object { "$_" })
+    $lines = @(& $ctl status-id $EndpointId 2>&1 | ForEach-Object { "$_" })
     $code = $LASTEXITCODE
     if ($code -ne 0 -and $code -ne 3) {
         throw "Could not inspect endpoint APO state. helper=$code output=$($lines -join ' | ')"
