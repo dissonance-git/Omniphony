@@ -8,6 +8,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$RealtimeDll,
 
+    [Parameter(Mandatory = $true)]
+    [string]$ProductionProbe,
+
     [string]$OutputRoot = '',
     [string]$CertificateThumbprint = '',
     [switch]$MachineCertificateStore,
@@ -68,6 +71,7 @@ function Get-FileRecord([string]$Path) {
 $capture = Resolve-RequiredFile $CaptureJson 'target capture JSON'
 $apo = Resolve-RequiredFile $ApoDll 'OmniphonyAPO.dll'
 $realtime = Resolve-RequiredFile $RealtimeDll 'omniphony_realtime.dll'
+$probe = Resolve-RequiredFile $ProductionProbe 'OmniphonyProductionProbe.exe'
 $componentTemplate = Resolve-RequiredFile (Join-Path $productionRoot 'OmniphonyApoComponent.inx') 'component INF template'
 $generator = Resolve-RequiredFile (Join-Path $productionRoot 'generate_extension_inf.py') 'extension INF generator'
 
@@ -77,18 +81,21 @@ if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
 $OutputRoot = [IO.Path]::GetFullPath($OutputRoot)
 $componentRoot = Join-Path $OutputRoot 'component'
 $extensionRoot = Join-Path $OutputRoot 'extension'
+$diagnosticsRoot = Join-Path $OutputRoot 'diagnostics'
 
 if (Test-Path -LiteralPath $OutputRoot) {
     Remove-Item -LiteralPath $OutputRoot -Recurse -Force
 }
-New-Item -ItemType Directory -Force -Path $componentRoot, $extensionRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $componentRoot, $extensionRoot, $diagnosticsRoot | Out-Null
 
 $componentInf = Join-Path $componentRoot 'OmniphonyApoComponent.inf'
 $extensionInf = Join-Path $extensionRoot 'OmniphonyApoExtension.inf'
 $boundCapture = Join-Path $OutputRoot 'target-capture.json'
+$packagedProbe = Join-Path $diagnosticsRoot 'OmniphonyProductionProbe.exe'
 Copy-Item -LiteralPath $componentTemplate -Destination $componentInf -Force
 Copy-Item -LiteralPath $apo -Destination (Join-Path $componentRoot 'OmniphonyAPO.dll') -Force
 Copy-Item -LiteralPath $realtime -Destination (Join-Path $componentRoot 'omniphony_realtime.dll') -Force
+Copy-Item -LiteralPath $probe -Destination $packagedProbe -Force
 Copy-Item -LiteralPath $capture -Destination $boundCapture -Force
 
 # Generate from the copy that will travel with the package so the extension INF,
@@ -117,11 +124,15 @@ if (-not [string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
         $signArgs += @('/tr', $TimestampUrl, '/td', 'SHA256')
     }
 
-    # PE payloads must be signed and verified before Inf2Cat hashes them into the catalog.
+    # PE payloads are signed and verified before catalog generation. The probe
+    # is not AudioDG-loaded, but shipping one unsigned executable beside a
+    # trusted driver candidate makes physical acceptance harder to reason about.
     Invoke-NativeChecked $signTool ($signArgs + @($componentApo)) 'Sign OmniphonyAPO.dll'
     Invoke-NativeChecked $signTool ($signArgs + @($componentRealtime)) 'Sign omniphony_realtime.dll'
+    Invoke-NativeChecked $signTool ($signArgs + @($packagedProbe)) 'Sign OmniphonyProductionProbe.exe'
     Verify-AuthenticodeSignature $signTool $componentApo 'OmniphonyAPO.dll'
     Verify-AuthenticodeSignature $signTool $componentRealtime 'omniphony_realtime.dll'
+    Verify-AuthenticodeSignature $signTool $packagedProbe 'OmniphonyProductionProbe.exe'
 }
 
 if (-not $SkipCatalogs) {
@@ -166,10 +177,11 @@ Get-ChildItem -LiteralPath $OutputRoot -Recurse -File | Sort-Object FullName | F
 }
 
 $manifest = [ordered]@{
-    Schema = 'omniphony.windows.apo-package-build.v1'
+    Schema = 'omniphony.windows.apo-package-build.v2'
     BuiltAtUtc = [DateTime]::UtcNow.ToString('o')
     Capture = Get-FileRecord $boundCapture
     CapturePath = 'target-capture.json'
+    ProductionProbePath = 'diagnostics\OmniphonyProductionProbe.exe'
     Inf2CatOs = $Inf2CatOs
     CatalogsGenerated = -not [bool]$SkipCatalogs
     CertificateThumbprint = if ([string]::IsNullOrWhiteSpace($CertificateThumbprint)) { $null } else { $CertificateThumbprint.ToUpperInvariant() }
@@ -183,6 +195,7 @@ Write-Host ''
 Write-Host 'OMNIPHONY_PRODUCTION_PACKAGE_BUILD_OK 1'
 Write-Host "OUTPUT_ROOT $OutputRoot"
 Write-Host "TARGET_CAPTURE $boundCapture"
+Write-Host "PRODUCTION_PROBE $packagedProbe"
 Write-Host "COMPONENT_INF $componentInf"
 Write-Host "EXTENSION_INF $extensionInf"
 Write-Host "MANIFEST $manifestPath"
