@@ -246,6 +246,7 @@ pub fn build_source_frame_renderer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use renderer::source_scene::SourceSceneEvidence;
 
     #[test]
     fn native_mode_disables_creative_depth_height_and_wet_scale() {
@@ -295,6 +296,68 @@ mod tests {
         let kept = source_render_config(SourceSpatialMode::FullSphere, Some(&supplied))
             .expect("source config");
         assert_eq!(kept.evaluation_object_size_intervals, Some(8));
+    }
+
+    #[test]
+    fn full_sphere_extent_changes_headphone_audio_without_moving_source_center() {
+        const SAMPLE_RATE: u32 = 48_000;
+        const FRAMES: usize = 2_048;
+        let mut renderer = build_source_frame_renderer(
+            SAMPLE_RATE,
+            None,
+            SourceRendererOptions {
+                hrir_source: HrirSource::Synthetic,
+                ..SourceRendererOptions::default()
+            },
+        )
+        .expect("FullSphere renderer");
+
+        let input: Vec<f32> = (0..FRAMES)
+            .map(|i| {
+                let t = i as f32 / SAMPLE_RATE as f32;
+                0.07 * (std::f32::consts::TAU * 997.0 * t).sin()
+                    + 0.03 * (std::f32::consts::TAU * 2_113.0 * t).sin()
+            })
+            .collect();
+        let center = [0.45, 0.85, 0.25];
+        let point = SourceSceneEvidence {
+            source_id: 77,
+            authored_position: Some(center),
+            width: 0.0,
+            diffuse: 0.0,
+            confidence: 1.0,
+            ..SourceSceneEvidence::default()
+        };
+        let wide = SourceSceneEvidence {
+            width: 1.0,
+            diffuse: 1.0,
+            ..point
+        };
+
+        let point_out = renderer
+            .render_source_frame(&input, &[point], 0, 0, Vec::new(), false)
+            .expect("point render")
+            .samples;
+        renderer.reset_runtime_state();
+        let wide_out = renderer
+            .render_source_frame(&input, &[wide], 0, 0, Vec::new(), false)
+            .expect("wide render")
+            .samples;
+
+        assert_eq!(point_out.len(), FRAMES * 2);
+        assert_eq!(wide_out.len(), point_out.len());
+        assert!(point_out.iter().chain(&wide_out).all(|sample| sample.is_finite()));
+        let delta_rms = (point_out
+            .iter()
+            .zip(&wide_out)
+            .map(|(point, wide)| (point - wide) * (point - wide))
+            .sum::<f32>()
+            / point_out.len() as f32)
+            .sqrt();
+        assert!(
+            delta_rms > 1.0e-5,
+            "object extent must alter cascaded headphone audio; delta_rms={delta_rms}"
+        );
     }
 
     #[test]
