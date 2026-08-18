@@ -144,7 +144,18 @@ OmniphonyApoCtl.exe status
 OmniphonyMixProbe.exe "Dan Clark Noire X" FiiO Noire
 ```
 
-Expected successful evidence includes:
+The CI/test artifact also contains two read-only Spatial Audio research probes:
+
+```powershell
+OmniphonySpatialProbe.exe
+OmniphonySpatialProviderProbe.exe
+```
+
+`OmniphonySpatialProbe.exe` interrogates the active endpoint's public `ISpatialAudioClient` capability: static-object mask/positions, dynamic-object capacity, and supported object format. It does not open another application's stream.
+
+`OmniphonySpatialProviderProbe.exe` observes the currently installed spatial-provider registry surfaces without writing them. Its provider-registry output is experimental evidence only because Microsoft does not document that registry surface as a public third-party provider contract. See `docs/windows-spatial-provider-experiment.md` for the falsifiable experiment ladder.
+
+Expected successful endpoint evidence includes:
 
 ```text
 EFX     {A9333BFE-39C1-40FD-B4B0-ECC591410B47}
