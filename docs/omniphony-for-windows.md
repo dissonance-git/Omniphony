@@ -120,47 +120,81 @@ The repository intentionally contains two different Windows deployment stages.
 
 ### Development / bring-up path
 
-The current development installer exists to make physical APO testing possible while the production trust/association path is still being completed.
+The `0.0.4-dev` installer remains a physical bring-up harness for raw endpoint attachment. It uses global development registration and may temporarily disable protected AudioDG.
 
-It may use test-oriented endpoint association and AudioDG compatibility measures that are **not** proof of production packaging readiness.
+That behavior is now explicit rather than ambient:
 
-It provides rollback because development attachment touches endpoint state.
+```text
+Install-OmniphonyAPO.ps1
+→ refuses the bypass by default
+→ requires -AllowUnprotectedAudioDG
 
-### Production target
+OmniphonySetup.exe 0.0.4-dev
+→ passes -AllowUnprotectedAudioDG explicitly
+→ therefore remains visibly classified as development-only
+```
 
-Production must use the componentized driver model and protected Windows audio path.
+Rollback/uninstall state handling still restores the prior AudioDG-protection value. The development path is useful for diagnosis, but it is not production evidence.
 
-The repository now contains:
+### Production path implemented in the repository
+
+Production uses the componentized driver model and protected Windows audio path.
+
+The repository now contains an end-to-end production candidate toolchain:
 
 ```text
 windows_installer/endpoint_apo/production/
   OmniphonyApoComponent.inx
   Capture-TargetAudioDriver.ps1
+  generate_extension_inf.py
+  Build-ProductionApoPackages.ps1
+  Install-ProductionApoPackages.ps1
+  Uninstall-ProductionApoPackages.ps1
   check_package_contract.py
+  test_generate_extension_inf.py
+  testdata/target-audio-synthetic.json
   README.md
 ```
 
-The production component package already establishes the intended boundary:
+The production component package establishes:
 
 - `Class=AudioProcessingObject`;
+- `SWC\VEN_OMNI&CID_CURRENT` component identity;
 - DriverStore payload placement;
 - HKR-local COM/APO registration;
 - PETrust declarations;
 - no global `HKLM`/`HKCR` APO registration;
-- no raw MMDevices attachment in the production INF;
-- package-isolation validation in CI.
+- no raw MMDevices attachment in the production INF.
 
-The remaining production boundary is physical-device association and trust proof:
+The production extension generator now establishes the device-specific side from captured evidence:
+
+- exact physical MEDIA-class hardware ID;
+- exact captured topology reference;
+- `AddComponent` for `VEN_OMNI&CID_CURRENT`;
+- paired `KSCATEGORY_AUDIO` / `KSCATEGORY_TOPOLOGY` interface extension;
+- interface-relative EFX association to the Omniphony CLSID;
+- default EFX processing-mode declaration;
+- deterministic target-specific `ExtensionId`;
+- refusal of ambiguous or invented target data.
+
+The package builder validates both INFs, stages independent component and extension packages, generates catalogs, optionally signs PE/catalog payloads, and records SHA-256 package manifests.
+
+The production installer and uninstaller use Windows PnP/DriverStore servicing rather than direct endpoint registry ownership. The installer refuses to run while `DisableProtectedAudioDG=1`, verifies its staged manifest, installs only Omniphony packages, checks that `SWC\VEN_OMNI&CID_CURRENT` appears, and rolls back newly-added Omniphony packages on failure.
+
+### What still separates repository completeness from physical readiness
+
+The remaining boundary is **machine evidence and protected-mode proof**, not another speculative installer architecture:
 
 ```text
-capture actual target-driver identity
-→ generate / validate device-specific extension association
-→ sign catalog and binaries
+capture actual target-driver + topology identity
+→ generate exact extension from that witness
+→ build/sign the two DriverStore packages
 → install with protected AudioDG
-→ prove playback / restart / sleep / update / rollback / uninstall
+→ prove APO activation and Current processing
+→ prove playback / restart / sleep / upgrade / rollback / uninstall
 ```
 
-Do not invent a hardware ID in source control. The target identity must come from the real machine.
+Do not invent a hardware ID or topology reference in source control. The target identity must come from the real machine.
 
 ---
 
@@ -168,11 +202,52 @@ Do not invent a hardware ID in source control. The target identity must come fro
 
 `production/Capture-TargetAudioDriver.ps1` is a read-only discovery tool for the target physical render device.
 
-It resolves the default MMDevice, maps it into the PnP tree, walks parent devices and writes a machine-readable `omniphony-audio-target.json` containing candidate driver/device identity information.
+It now writes schema `omniphony.windows.apo-target.v2` and records more than a parent HWID. It:
 
-The JSON is intended to become the source of truth for the production extension association.
+- resolves the default MMDevice;
+- maps it into the PnP tree by endpoint identity rather than friendly name;
+- walks parent devices;
+- narrows association candidates to MEDIA-class nodes with hardware IDs;
+- records installed driver INF path and section;
+- parses captured `AddInterface` evidence from that INF;
+- records audio/topology reference candidates.
 
-A production association generator must refuse ambiguous candidates rather than guessing.
+The JSON is the source of truth for `generate_extension_inf.py`.
+
+The generator refuses ambiguous candidates. If a real driver inherits interface declarations through an INF include/needs chain that the current capture parser cannot resolve, the correct response is to improve capture resolution, not guess the topology string.
+
+---
+
+## Production package lifecycle
+
+The repository-side candidate flow is now:
+
+```text
+Capture-TargetAudioDriver.ps1
+        ↓
+omniphony-audio-target.json
+        ↓
+generate_extension_inf.py
+        ↓
+OmniphonyApoExtension.inf
+        ↓
+Build-ProductionApoPackages.ps1
+        ├→ component package + catalog
+        ├→ extension package + catalog
+        └→ SHA-256 package-manifest.json
+        ↓
+Install-ProductionApoPackages.ps1
+        ↓
+Windows DriverStore / PnP
+        ↓
+SWC\VEN_OMNI&CID_CURRENT
+        ↓
+protected AudioDG physical proof
+```
+
+Uninstall reverses only Omniphony's own extension/component packages. It must never remove the physical audio driver.
+
+Signing support in the builder creates a candidate package. It does not, by itself, prove that the intended certificate/trust route is accepted by protected AudioDG on the physical system.
 
 ---
 
@@ -326,10 +401,13 @@ For production, additionally prove:
 
 ```text
 protected AudioDG remains enabled
-package is signed
+component + extension packages are trusted
 no global registry takeover
-physical playback survives restart / sleep / update
-rollback and uninstall restore endpoint state
+physical playback survives AudioSrv restart
+physical playback survives reboot / sleep-resume
+upgrade replaces only Omniphony packages
+failed install rolls back only newly-added Omniphony packages
+uninstall leaves the physical driver intact
 ```
 
 For future rich ingress, additionally prove the actual source/scene seam and whether Omniphony or another renderer owns final binauralization.
@@ -354,18 +432,20 @@ These findings support the product architecture, but they do not convert unimple
 
 ## Installer contract
 
-The user-facing goal remains one installer executable.
+The user-facing goal remains one boring installer executable:
 
 ```text
 OmniphonySetup.exe
 → one elevation
-→ install/update Omniphony components
-→ associate with selected physical render device
-→ verify health
+→ capture/resolve the selected physical render device
+→ install trusted component + extension packages
+→ verify protected-mode health
 → rollback on failure
 ```
 
-The current `0.0.4-dev` path is a development artifact. A production installer is only earned when the isolated package, device association, signing and protected-AudioDG path have all been proven together.
+The repository now has the production capture, generation, package-build, install and uninstall machinery underneath that future EXE. The current `0.0.4-dev` EXE is still a development artifact because the **real target capture, final trust/signing path, and protected physical endpoint proof have not yet been completed together**.
+
+The production EXE is earned only after those physical gates pass. Wrapping unproven packages in a nicer wizard would make the failure prettier, not make the deployment ready.
 
 ---
 
