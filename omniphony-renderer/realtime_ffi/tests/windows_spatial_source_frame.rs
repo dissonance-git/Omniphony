@@ -15,7 +15,7 @@ use spatial_source_frame::build_windows_spatial_source_frame;
 
 #[test]
 fn windows_spatial_quantum_reaches_the_shared_source_renderer_as_authored_objects() {
-    const FRAMES: usize = 256;
+    const FRAMES: usize = 2_048;
     const SAMPLE_RATE_HZ: u32 = 48_000;
 
     let front_left = vec![0.20f32; FRAMES];
