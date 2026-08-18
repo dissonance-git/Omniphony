@@ -91,8 +91,37 @@ jobs:
             }
           }
 
+          $providerComCanary = [pscustomobject]@{
+            label = 'spatial-provider-com-canary'
+            exit_code = 0
+            status = 'not-run'
+            tail = @('not run because OmniphonySpatialProviderProbe did not build')
+          }
+          $providerTarget = $targetResults | Where-Object { $_.label -eq 'OmniphonySpatialProviderProbe' } | Select-Object -First 1
+          if ($configure.exit_code -eq 0 -and $providerTarget -and $providerTarget.exit_code -eq 0) {
+            $providerProbe = Join-Path $build 'Release\OmniphonySpatialProviderProbe.exe'
+            if (Test-Path $providerProbe) {
+              $providerComCanary = Invoke-CapturedNative -Label 'spatial-provider-com-canary' -Command {
+                & $providerProbe --probe-com
+              }
+              Write-Host "SPATIAL_PROVIDER_COM_CANARY status=$($providerComCanary.status) exit=$($providerComCanary.exit_code)"
+              $providerComCanary.tail | ForEach-Object { Write-Host $_ }
+            } else {
+              $providerComCanary = [pscustomobject]@{
+                label = 'spatial-provider-com-canary'
+                exit_code = 1
+                status = 'failure'
+                tail = @("provider probe executable missing: $providerProbe")
+              }
+            }
+          }
+
           $failedTargets = @($targetResults | Where-Object { $_.exit_code -ne 0 } | ForEach-Object label)
-          $overall = if ($configure.exit_code -ne 0 -or $failedTargets.Count -ne 0) { 'failure' } else { 'success' }
+          $overall = if (
+            $configure.exit_code -ne 0 -or
+            $failedTargets.Count -ne 0 -or
+            $providerComCanary.exit_code -ne 0
+          ) { 'failure' } else { 'success' }
           $record = [ordered]@{
             schema = 'omniphony.windows.native-apo-diagnostic.v1'
             head_sha = $env:GITHUB_SHA
@@ -101,6 +130,7 @@ jobs:
             configure = $configure
             failed_targets = $failedTargets
             targets = $targetResults
+            provider_com_canary = $providerComCanary
           }
           $record | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 "$diagnostics\native-apo-targets.json"
           "overall=$overall" >> $env:GITHUB_OUTPUT
@@ -134,5 +164,5 @@ jobs:
         run: |
           $record = Get-Content "$env:GITHUB_WORKSPACE\ci-diagnostics\native-apo-targets.json" -Raw | ConvertFrom-Json
           if ($record.overall -ne 'success') {
-            throw "Native APO diagnostic failed: configure=$($record.configure.status) targets=$($record.failed_targets -join ',')"
+            throw "Native APO diagnostic failed: configure=$($record.configure.status) targets=$($record.failed_targets -join ',') provider_com=$($record.provider_com_canary.status)"
           }
