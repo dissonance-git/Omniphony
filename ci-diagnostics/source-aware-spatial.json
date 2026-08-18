@@ -1,0 +1,16 @@
+{
+  "schema": "omniphony.ci.source-aware-spatial.v1",
+  "head_sha": "f966822abbd088dbac21343bd7e7d514d10ebeed",
+  "run_id": 32179142912,
+  "steps": {
+    "rust": "success",
+    "compile_source_shell": "success",
+    "run_source_shell": "success",
+    "compile_engine": "success",
+    "run_engine": "success",
+    "compile_source_ffi": "failure",
+    "run_source_ffi": "skipped",
+    "compile_windows_ingress": "skipped",
+    "run_windows_ingress": "skipped"
+  }
+}
