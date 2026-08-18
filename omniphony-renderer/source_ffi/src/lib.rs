@@ -11,12 +11,12 @@ use orender_engine::{
 use renderer::binaural::HrirSource;
 use renderer::source_frame::SourceFrameRenderer;
 use renderer::source_scene::{
-    NativeStereoRoute, SourceLaneKind, SourceSceneEvidence,
+    NativeStereoRoute, SourceLaneKind, SourcePresentationPolicy, SourceSceneEvidence,
 };
 use std::ptr;
 
 const ABI_MAJOR: u32 = 0;
-const ABI_MINOR: u32 = 3;
+const ABI_MINOR: u32 = 4;
 
 pub const SOURCE_FLAG_PERSISTENT_PART: u32 = 1 << 0;
 pub const SOURCE_FLAG_NATIVE_STEREO_ROUTE: u32 = 1 << 1;
@@ -42,6 +42,28 @@ pub struct OmniphonySourceConfig {
     pub hrir_source: u32,
     pub unit_scale_m: f32,
     pub reflection_level: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OmniphonySourceMixBudgetV1 {
+    pub depth_scale: f32,
+    pub height_scale: f32,
+    pub shared_wet_strength_scale: f32,
+    pub shared_wet_extent_scale: f32,
+    pub externalization_scale: f32,
+}
+
+impl Default for OmniphonySourceMixBudgetV1 {
+    fn default() -> Self {
+        Self {
+            depth_scale: 1.0,
+            height_scale: 1.0,
+            shared_wet_strength_scale: 1.0,
+            shared_wet_extent_scale: 1.0,
+            externalization_scale: 1.0,
+        }
+    }
 }
 
 #[repr(C)]
@@ -82,6 +104,9 @@ struct ConvertedSourceEvent {
 
 pub struct OmniphonySourceProcessor {
     renderer: SourceFrameRenderer,
+    spatial_mode: SourceSpatialMode,
+    base_reflection_level: f32,
+    mix_budget: OmniphonySourceMixBudgetV1,
     source_buf: Vec<SourceSceneEvidence>,
     gain_preapplied_buf: Vec<bool>,
     event_buf: Vec<ConvertedSourceEvent>,
@@ -102,6 +127,46 @@ fn hrir_source(value: u32) -> Option<HrirSource> {
         SOURCE_HRIR_SYNTHETIC => Some(HrirSource::Synthetic),
         _ => None,
     }
+}
+
+fn mix_budget_valid(budget: OmniphonySourceMixBudgetV1) -> bool {
+    let bounded = |value: f32, max: f32| value.is_finite() && (0.0..=max).contains(&value);
+    bounded(budget.depth_scale, 1.5)
+        && bounded(budget.height_scale, 1.5)
+        && bounded(budget.shared_wet_strength_scale, 1.5)
+        && bounded(budget.shared_wet_extent_scale, 1.5)
+        && bounded(budget.externalization_scale, 1.0)
+}
+
+fn budgeted_policy(
+    mode: SourceSpatialMode,
+    budget: OmniphonySourceMixBudgetV1,
+) -> SourcePresentationPolicy {
+    let mut policy = source_presentation_policy(mode);
+    policy.max_distance = 1.0 + (policy.max_distance - 1.0) * budget.depth_scale;
+    policy.max_elevation_deg = (policy.max_elevation_deg * budget.height_scale).clamp(0.0, 80.0);
+    policy.shared_wet.distance =
+        1.0 + (policy.shared_wet.distance - 1.0) * budget.depth_scale;
+    policy.shared_wet.elevation_deg =
+        (policy.shared_wet.elevation_deg * budget.height_scale).clamp(-80.0, 80.0);
+    policy.shared_wet.strength =
+        (policy.shared_wet.strength * budget.shared_wet_strength_scale).clamp(0.0, 1.0);
+    policy.shared_wet.extent = policy
+        .shared_wet
+        .extent
+        .map(|value| (value * budget.shared_wet_extent_scale).clamp(0.0, 1.0));
+    policy
+}
+
+fn apply_mix_budget(processor: &mut OmniphonySourceProcessor) {
+    processor.renderer.set_policy(budgeted_policy(
+        processor.spatial_mode,
+        processor.mix_budget,
+    ));
+    let control = processor.renderer.renderer_mut().renderer_control();
+    control.live.write().binaural.reflections.level =
+        (processor.base_reflection_level * processor.mix_budget.externalization_scale)
+            .clamp(0.0, 1.0);
 }
 
 fn convert_source(raw: OmniphonySourceEvidenceV1) -> Option<SourceSceneEvidence> {
@@ -246,6 +311,9 @@ pub unsafe extern "C" fn omniphony_source_create(
 
     Box::into_raw(Box::new(OmniphonySourceProcessor {
         renderer,
+        spatial_mode: mode,
+        base_reflection_level: config.reflection_level.clamp(0.0, 1.0),
+        mix_budget: OmniphonySourceMixBudgetV1::default(),
         source_buf: Vec::new(),
         gain_preapplied_buf: Vec::new(),
         event_buf: Vec::new(),
@@ -273,6 +341,8 @@ pub unsafe extern "C" fn omniphony_source_reset(
     // SAFETY: null was rejected above.
     let processor = unsafe { &mut *processor };
     processor.renderer.reset_runtime_state();
+    processor.mix_budget = OmniphonySourceMixBudgetV1::default();
+    apply_mix_budget(processor);
     processor.source_buf.clear();
     processor.gain_preapplied_buf.clear();
     processor.event_buf.clear();
@@ -293,7 +363,8 @@ pub unsafe extern "C" fn omniphony_source_set_spatial_mode(
     };
     // SAFETY: null was rejected above.
     let processor = unsafe { &mut *processor };
-    processor.renderer.set_policy(source_presentation_policy(mode));
+    processor.spatial_mode = mode;
+    apply_mix_budget(processor);
     0
 }
 
@@ -309,6 +380,26 @@ pub unsafe extern "C" fn omniphony_source_set_externalization(
     let processor = unsafe { &mut *processor };
     let control = processor.renderer.renderer_mut().renderer_control();
     control.live.write().binaural.reflections.enabled = enabled != 0;
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn omniphony_source_set_mix_budget(
+    processor: *mut OmniphonySourceProcessor,
+    budget: *const OmniphonySourceMixBudgetV1,
+) -> i32 {
+    if processor.is_null() || budget.is_null() {
+        return -1;
+    }
+    // SAFETY: null was rejected above; caller owns the value for this call.
+    let budget = unsafe { *budget };
+    if !mix_budget_valid(budget) {
+        return -2;
+    }
+    // SAFETY: null was rejected above.
+    let processor = unsafe { &mut *processor };
+    processor.mix_budget = budget;
+    apply_mix_budget(processor);
     0
 }
 
@@ -576,8 +667,41 @@ mod tests {
     }
 
     #[test]
-    fn source_abi_minor_advertises_timed_event_support() {
+    fn mix_budget_scales_only_renderer_capacity() {
+        let budget = OmniphonySourceMixBudgetV1 {
+            depth_scale: 0.7,
+            height_scale: 0.6,
+            shared_wet_strength_scale: 0.8,
+            shared_wet_extent_scale: 0.75,
+            externalization_scale: 0.4,
+        };
+        assert!(mix_budget_valid(budget));
+        let base = source_presentation_policy(SourceSpatialMode::FullSphere);
+        let adapted = budgeted_policy(SourceSpatialMode::FullSphere, budget);
+        assert!(adapted.max_distance < base.max_distance);
+        assert!(adapted.max_elevation_deg < base.max_elevation_deg);
+        assert!(adapted.shared_wet.distance < base.shared_wet.distance);
+        assert!(adapted.shared_wet.elevation_deg < base.shared_wet.elevation_deg);
+        assert!(adapted.shared_wet.strength < base.shared_wet.strength);
+        assert!(adapted.shared_wet.extent[0] < base.shared_wet.extent[0]);
+    }
+
+    #[test]
+    fn mix_budget_rejects_non_finite_and_unbounded_controls() {
+        assert!(mix_budget_valid(OmniphonySourceMixBudgetV1::default()));
+        assert!(!mix_budget_valid(OmniphonySourceMixBudgetV1 {
+            depth_scale: f32::NAN,
+            ..OmniphonySourceMixBudgetV1::default()
+        }));
+        assert!(!mix_budget_valid(OmniphonySourceMixBudgetV1 {
+            externalization_scale: 1.1,
+            ..OmniphonySourceMixBudgetV1::default()
+        }));
+    }
+
+    #[test]
+    fn source_abi_minor_advertises_scene_mix_budget_support() {
         assert_eq!(omniphony_source_abi_major(), 0);
-        assert!(omniphony_source_abi_minor() >= 3);
+        assert!(omniphony_source_abi_minor() >= 4);
     }
 }
