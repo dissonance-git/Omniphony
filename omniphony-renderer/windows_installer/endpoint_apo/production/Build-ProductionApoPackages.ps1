@@ -133,7 +133,11 @@ if (-not $SkipCatalogs) {
 
 $files = New-Object System.Collections.Generic.List[object]
 Get-ChildItem -LiteralPath $OutputRoot -Recurse -File | Sort-Object FullName | ForEach-Object {
-    $relative = [IO.Path]::GetRelativePath($OutputRoot, $_.FullName)
+    $rootPrefix = $OutputRoot.TrimEnd('\') + '\'
+    if (-not $_.FullName.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Package file escaped output root: $($_.FullName)"
+    }
+    $relative = $_.FullName.Substring($rootPrefix.Length)
     $record = Get-FileRecord $_.FullName
     $files.Add([ordered]@{
         Path = $relative
