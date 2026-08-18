@@ -32,12 +32,15 @@ jobs:
             run_conclusion='${{ github.event.workflow_run.conclusion }}'
             head_sha='${{ github.event.workflow_run.head_sha }}'
           else
-            row="$(gh api "repos/$repo/actions/workflows/windows-installer.yml/runs?branch=main&per_page=1" --jq '.workflow_runs[0] | [.id, .status, (.conclusion // ""), .head_sha] | @tsv')"
-            if [[ -z "$row" ]]; then
-              echo 'No Windows installer workflow run exists yet.' >&2
+            latest="$(gh api "repos/$repo/actions/workflows/windows-installer.yml/runs?branch=main&per_page=1")"
+            run_id="$(jq -r '.workflow_runs[0].id // empty' <<< "$latest")"
+            run_status="$(jq -r '.workflow_runs[0].status // empty' <<< "$latest")"
+            run_conclusion="$(jq -r '.workflow_runs[0].conclusion // empty' <<< "$latest")"
+            head_sha="$(jq -r '.workflow_runs[0].head_sha // empty' <<< "$latest")"
+            if [[ -z "$run_id" || -z "$head_sha" ]]; then
+              echo 'No usable Windows installer workflow run exists yet.' >&2
               exit 1
             fi
-            IFS=$'\t' read -r run_id run_status run_conclusion head_sha <<< "$row"
           fi
 
           artifact_name="omniphony-windows-setup-$head_sha"
