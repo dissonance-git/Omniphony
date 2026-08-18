@@ -46,6 +46,23 @@ typedef struct OmniphonySourceConfig {
     float reflection_level;
 } OmniphonySourceConfig;
 
+/*
+ * Slowly varying renderer-side intervention budget. These are presentation
+ * controls, not source metadata. A value of 1.0 is neutral. The source frontend
+ * may update this once per causal block from already-completed scene evidence.
+ *
+ * depth_scale / height_scale:      scale FullSphere capacity, not authored xyz
+ * shared_wet_*:                    scale historical shared-effect presentation
+ * externalization_scale:           scales Omniphony's added reflection level
+ */
+typedef struct OmniphonySourceMixBudgetV1 {
+    float depth_scale;
+    float height_scale;
+    float shared_wet_strength_scale;
+    float shared_wet_extent_scale;
+    float externalization_scale;
+} OmniphonySourceMixBudgetV1;
+
 typedef struct OmniphonySourceEvidenceV1 {
     uint32_t lane_kind;
     uint32_t flags;
@@ -84,6 +101,11 @@ void omniphony_source_destroy(OmniphonySourceProcessor *processor);
 int32_t omniphony_source_reset(OmniphonySourceProcessor *processor);
 int32_t omniphony_source_set_spatial_mode(OmniphonySourceProcessor *processor, uint32_t mode);
 int32_t omniphony_source_set_externalization(OmniphonySourceProcessor *processor, uint32_t enabled);
+
+/* ABI 0.4: update the causal soundtrack-adaptive presentation budget. */
+int32_t omniphony_source_set_mix_budget(
+    OmniphonySourceProcessor *processor,
+    const OmniphonySourceMixBudgetV1 *budget);
 
 /*
  * Render interleaved causal source lanes to interleaved stereo f32.
