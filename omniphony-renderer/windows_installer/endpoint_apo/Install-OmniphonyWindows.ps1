@@ -20,12 +20,27 @@ $legacyStreamBackupPath = Join-Path $stateRoot 'stream-backup.json'
 $logPath = Join-Path $stateRoot 'install-last.log'
 $spatialStatePath = Join-Path $stateRoot 'spatial-state-last.log'
 $ctl = Join-Path $PackageRoot 'OmniphonyApoCtl.exe'
+$endpointCtl = Join-Path $PackageRoot 'OmniphonyEndpointCtl.exe'
 $mixProbe = Join-Path $PackageRoot 'OmniphonyMixProbe.exe'
 $spatialProbe = Join-Path $here 'OmniphonySpatialProbe.exe'
 $spatialProviderProbe = Join-Path $here 'OmniphonySpatialProviderProbe.exe'
 
-foreach ($path in @($baselineInstaller, $packageStreamApo, $packageStreamSmoke, $ctl, $mixProbe)) {
+foreach ($path in @($baselineInstaller, $packageStreamApo, $packageStreamSmoke, $ctl, $endpointCtl, $mixProbe)) {
     if (-not (Test-Path -LiteralPath $path)) { throw "Missing Omniphony package file: $path" }
+}
+
+function Invoke-NativeCapture([string]$Path, [string[]]$Arguments) {
+    $previousPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $lines = @(& $Path @Arguments 2>&1 | ForEach-Object { "$_" })
+        $code = $LASTEXITCODE
+        if ($null -eq $code) { $code = 0 }
+        return [pscustomobject]@{ Code = [int]$code; Lines = [string[]]$lines }
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
+    }
 }
 
 function Capture-SpatialIngressObservation {
@@ -67,10 +82,31 @@ function Capture-SpatialIngressObservation {
     }
 }
 
+function Wait-ServiceState([string]$Name, [System.ServiceProcess.ServiceControllerStatus]$State) {
+    $service = Get-Service -Name $Name -ErrorAction Stop
+    $service.WaitForStatus($State, [TimeSpan]::FromSeconds(10))
+    $service.Refresh()
+    if ($service.Status -ne $State) {
+        throw "Windows service '$Name' did not reach state '$State'. observed=$($service.Status)"
+    }
+}
+
 function Set-AudioServiceRunning([bool]$Running) {
+    if ($Running) {
+        $builder = Get-Service -Name AudioEndpointBuilder -ErrorAction Stop
+        if ($builder.Status -ne 'Running') { Start-Service -Name AudioEndpointBuilder }
+        Wait-ServiceState 'AudioEndpointBuilder' ([System.ServiceProcess.ServiceControllerStatus]::Running)
+
+        $service = Get-Service -Name AudioSrv -ErrorAction Stop
+        if ($service.Status -ne 'Running') { Start-Service -Name AudioSrv }
+        Wait-ServiceState 'AudioSrv' ([System.ServiceProcess.ServiceControllerStatus]::Running)
+        Start-Sleep -Milliseconds 500
+        return
+    }
+
     $service = Get-Service -Name AudioSrv -ErrorAction Stop
-    if ($Running -and $service.Status -ne 'Running') { Start-Service -Name AudioSrv }
-    if ((-not $Running) -and $service.Status -ne 'Stopped') { Stop-Service -Name AudioSrv -Force }
+    if ($service.Status -ne 'Stopped') { Stop-Service -Name AudioSrv -Force }
+    Wait-ServiceState 'AudioSrv' ([System.ServiceProcess.ServiceControllerStatus]::Stopped)
 }
 
 function Restart-AudioGraph {
@@ -78,8 +114,36 @@ function Restart-AudioGraph {
     Set-AudioServiceRunning $false
     Start-Sleep -Milliseconds 250
     Set-AudioServiceRunning $true
-    Start-Sleep -Milliseconds 1000
     Write-Host 'AUDIO_GRAPH_RESET_OK native-surround'
+}
+
+function Wait-EndpointActive([string]$ExpectedId) {
+    $last = ''
+    $reasserted = $false
+    for ($attempt = 1; $attempt -le 6; $attempt++) {
+        $probe = Invoke-NativeCapture $endpointCtl @('get-default')
+        $last = "helper=$($probe.Code) output=$($probe.Lines -join ' | ')"
+        $line = $probe.Lines | Where-Object { $_.StartsWith("DEFAULT`t") } | Select-Object -First 1
+        if ($probe.Code -eq 0 -and $line) {
+            $parts = $line -split "`t", 3
+            if ($parts.Count -ge 2 -and [string]::Equals($parts[1], $ExpectedId, [StringComparison]::OrdinalIgnoreCase)) {
+                Write-Host "NATIVE_SURROUND_ENDPOINT_ACTIVE_OK ATTEMPT=$attempt ID=$ExpectedId"
+                return
+            }
+        }
+
+        if (-not $reasserted) {
+            Write-Warning "NATIVE_SURROUND_ENDPOINT_RECOVERY reassert-default ID=$ExpectedId; $last"
+            $setResult = Invoke-NativeCapture $endpointCtl @('set-default-id', $ExpectedId)
+            $setResult.Lines | ForEach-Object { Write-Host $_ }
+            Restart-AudioGraph
+            $reasserted = $true
+        }
+        else {
+            Start-Sleep -Milliseconds 500
+        }
+    }
+    throw "Native-surround endpoint did not return ACTIVE before SFX mutation. endpoint=$ExpectedId $last"
 }
 
 function Get-MixChannelCount([string]$EndpointName) {
@@ -136,18 +200,15 @@ function Unregister-NativeApo {
 }
 
 function Assert-ApoCtlIdDispatch {
-    # Exercise the exact shipped helper binary before it is allowed to mutate the
-    # real endpoint. A deliberately impossible endpoint ID must take the -id
-    # resolver path and fail with the helper's not-found result. The helper
-    # currently uses the same ENDPOINT_NOT_FOUND token for name and ID misses;
-    # exit code 3 plus the exact -id command set is the dispatch contract here.
+    # Expected fake-ID failures are captured with native stderr non-terminating.
+    # Exit code 3 plus ENDPOINT_NOT_FOUND proves each -id command reached its ID
+    # resolver without mutating a real endpoint.
     $fakeEndpointId = '{0.0.0.00000000}.{00000000-0000-0000-0000-000000000000}'
     foreach ($command in @('cleanup-native-sfx-id', 'attach-native-sfx-id', 'detach-id', 'attach-id')) {
-        $lines = @(& $ctl $command $fakeEndpointId 2>&1 | ForEach-Object { "$_" })
-        $code = $LASTEXITCODE
-        $idPath = $lines | Where-Object { $_ -eq "ERROR`tENDPOINT_NOT_FOUND" } | Select-Object -First 1
-        if ($code -ne 3 -or -not $idPath) {
-            throw "OmniphonyApoCtl command dispatch contract failed for '$command'. exit=$code output=$($lines -join ' | ')"
+        $result = Invoke-NativeCapture $ctl @($command, $fakeEndpointId)
+        $idPath = $result.Lines | Where-Object { $_ -eq "ERROR`tENDPOINT_NOT_FOUND" } | Select-Object -First 1
+        if ($result.Code -ne 3 -or -not $idPath) {
+            throw "OmniphonyApoCtl command dispatch contract failed for '$command'. exit=$($result.Code) output=$($result.Lines -join ' | ')"
         }
     }
     Write-Host 'APO_CTL_ID_DISPATCH_OK 1'
@@ -202,6 +263,11 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Native-surround APO smoke failed: $LASTEXITCODE" }
     Write-Host 'NATIVE_SURROUND_APO_SMOKE_OK 1'
 
+    # Registration restarts AudioSrv, and Core Audio can publish its endpoint
+    # collection slightly later than the service reports Running. Do not touch
+    # endpoint policy until the exact baseline endpoint is ACTIVE again.
+    Wait-EndpointActive $endpointId
+
     # Normalize any interrupted older attempt, then install the format-changing
     # APO in the documented per-stream channel-conversion slot. This is the same
     # class of placement Windows documents for headphone virtualization: apps can
@@ -220,6 +286,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Could not remove stereo rollback EFX after SFX promotion: $LASTEXITCODE" }
 
     Restart-AudioGraph
+    Wait-EndpointActive $endpointId
     Assert-NativeSurroundMixFormat $endpointName
 
     if (Test-Path -LiteralPath $legacyStreamBackupPath) {
@@ -238,12 +305,16 @@ catch {
 
     try {
         if (-not [string]::IsNullOrWhiteSpace($endpointId)) {
+            # Rollback also waits for endpoint identity before touching policy.
+            Wait-EndpointActive $endpointId
+
             & $ctl cleanup-native-sfx-id $endpointId
             if ($LASTEXITCODE -ne 0) { throw "Could not remove failed native-surround SFX: $LASTEXITCODE" }
 
             & $ctl attach-id $endpointId
             if ($LASTEXITCODE -ne 0) { throw "Could not restore stereo Current endpoint APO: $LASTEXITCODE" }
             Restart-AudioGraph
+            Wait-EndpointActive $endpointId
             Assert-StereoRollbackMixFormat $endpointName
         }
 
