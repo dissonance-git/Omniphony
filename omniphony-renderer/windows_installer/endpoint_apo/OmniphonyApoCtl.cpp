@@ -352,6 +352,39 @@ int Attach(const Endpoint& endpoint) {
     return 0;
 }
 
+int AttachNative(const Endpoint& endpoint) {
+    const std::wstring fx = FxPath(endpoint);
+    std::wstring existing;
+    if (ReadRegString(fx, kEfxValue, existing) && !IsOmniphonyEfx(existing)) {
+        std::wcerr << L"ERROR\tEXISTING_EFX\t" << existing << L"\n";
+        return 8;
+    }
+
+    ComPtr<IPolicyConfig> policy;
+    HRESULT hr = CreatePolicyConfig(policy);
+    if (FAILED(hr)) {
+        std::wcerr << L"ERROR\tPOLICY_CREATE\t" << HResultText(hr) << L"\n";
+        return 5;
+    }
+
+    hr = SetStringProperty(policy.Get(), endpoint, kEfxKey, GuidText(kOmniphonyNativeSurroundApoClsid));
+    if (FAILED(hr)) {
+        std::wcerr << L"ERROR\tNATIVE_FX_POLICY_WRITE\t" << HResultText(hr) << L"\n";
+        return 5;
+    }
+
+    hr = SetDwordProperty(policy.Get(), endpoint, kDisableSysFxKey, 0);
+    if (FAILED(hr)) {
+        std::wcerr << L"ERROR\tENABLE_SYSFX_POLICY_WRITE\t" << HResultText(hr) << L"\n";
+        return 6;
+    }
+
+    std::wcout << L"APO_NATIVE_ATTACHED\t" << endpoint.name << L"\t" << endpoint.guid << L"\t" << endpoint.id << L"\n";
+    std::wcout << L"SYSTEM_EFFECTS_ENABLED\t1\n";
+    std::wcout << L"RESTART_AUDIO_REQUIRED\t1\n";
+    return 0;
+}
+
 int Detach(const Endpoint& endpoint) {
     const std::wstring fx = FxPath(endpoint);
     std::wstring existing;
@@ -406,15 +439,15 @@ int SetBypass(const Endpoint& endpoint, bool bypass) {
 }
 
 bool IsIdCommand(const std::wstring& command) {
-    return command == L"status-id" || command == L"attach-id" || command == L"detach-id" ||
-           command == L"bypass-id" || command == L"enable-effects-id";
+    return command == L"status-id" || command == L"attach-id" || command == L"attach-native-id" ||
+           command == L"detach-id" || command == L"bypass-id" || command == L"enable-effects-id";
 }
 
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
     if (argc < 2) {
-        std::wcerr << L"usage: OmniphonyApoCtl <list|status|attach|detach|bypass|enable-effects|status-id|attach-id|detach-id|bypass-id|enable-effects-id> ...\n";
+        std::wcerr << L"usage: OmniphonyApoCtl <list|status|attach|attach-native|detach|bypass|enable-effects|status-id|attach-id|attach-native-id|detach-id|bypass-id|enable-effects-id> ...\n";
         return 2;
     }
 
@@ -452,6 +485,7 @@ int wmain(int argc, wchar_t** argv) {
     int result = 2;
     if (command == L"status" || command == L"status-id") result = Show(endpoint);
     else if (command == L"attach" || command == L"attach-id") result = Attach(endpoint);
+    else if (command == L"attach-native" || command == L"attach-native-id") result = AttachNative(endpoint);
     else if (command == L"detach" || command == L"detach-id") result = Detach(endpoint);
     else if (command == L"bypass" || command == L"bypass-id") result = SetBypass(endpoint, true);
     else if (command == L"enable-effects" || command == L"enable-effects-id") result = SetBypass(endpoint, false);
