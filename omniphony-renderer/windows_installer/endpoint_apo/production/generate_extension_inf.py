@@ -153,9 +153,25 @@ def _validate_endpoint_effect_snapshot(capture: dict) -> None:
         raise ContractError(
             "system effects were disabled on the captured endpoint; refusing to generate an APO extension that could not run"
         )
-    existing: list[str] = []
-    for key in ("LegacyEndpointEffects", "CompositeEndpointEffects"):
-        existing.extend(str(x).strip() for x in (snapshot.get(key) or []) if str(x).strip())
+
+    legacy = [
+        str(x).strip()
+        for x in (snapshot.get("LegacyEndpointEffects") or [])
+        if str(x).strip()
+    ]
+    composite = [
+        str(x).strip()
+        for x in (snapshot.get("CompositeEndpointEffects") or [])
+        if str(x).strip()
+    ]
+
+    if any(_norm(effect) == _norm(APO_CLSID) for effect in legacy):
+        raise ContractError(
+            "the legacy Omniphony development EFX attachment is still present on the endpoint. "
+            "Remove the development APO attachment before building a production package; otherwise the same APO could be instantiated twice."
+        )
+
+    existing = legacy + composite
     foreign = sorted({effect for effect in existing if _norm(effect) != _norm(APO_CLSID)}, key=str.lower)
     if foreign:
         raise ContractError(
