@@ -21,23 +21,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Apply confirmed stream pointer repair
-        shell: pwsh
-        run: |
-          $path = "$env:GITHUB_WORKSPACE\omniphony-renderer\windows_installer\endpoint_apo\OmniphonyStreamAPO.cpp"
-          $old = 'std::memmove(outputBuffer, input->pBuffer, outputBytes);'
-          $new = 'std::memmove(outputBuffer, processInput, outputBytes);'
-          $text = Get-Content $path -Raw
-          if ($text.Contains($old)) {
-            $text = $text.Replace($old, $new)
-            Set-Content -Path $path -Value $text -Encoding utf8 -NoNewline
-            Write-Host 'Applied confirmed UINT_PTR-to-pointer compile repair.'
-          } elseif ($text.Contains($new)) {
-            Write-Host 'Confirmed stream pointer repair is already present.'
-          } else {
-            throw 'Expected stream fallback copy site was not found; refusing a broad rewrite.'
-          }
-
       - name: Setup VS2022 MSBuild
         uses: microsoft/setup-msbuild@v2
         with:
@@ -122,27 +105,23 @@ jobs:
           $record | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 "$diagnostics\native-apo-targets.json"
           "overall=$overall" >> $env:GITHUB_OUTPUT
 
-      - name: Publish repair and diagnostic record
+      - name: Publish diagnostic record
         if: always()
         shell: pwsh
         run: |
           Set-Location $env:GITHUB_WORKSPACE
           $record = 'ci-diagnostics/native-apo-targets.json'
-          $sourceFile = 'omniphony-renderer/windows_installer/endpoint_apo/OmniphonyStreamAPO.cpp'
           if (-not (Test-Path $record)) {
             throw 'Native APO diagnostic record was not produced.'
           }
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- $sourceFile $record
-          git diff --cached --quiet -- $sourceFile
-          $sourceChanged = $LASTEXITCODE -ne 0
+          git add -- $record
           if (git diff --cached --quiet) {
-            Write-Host 'Native APO source and diagnostic record are unchanged.'
+            Write-Host 'Native APO diagnostic record is unchanged.'
             exit 0
           }
-          $message = if ($sourceChanged) { 'fix(windows): repair stream APO buffer copy' } else { 'build(windows): record native APO target diagnostics' }
-          git commit -m $message
+          git commit -m 'build(windows): record native APO target diagnostics'
           if ($LASTEXITCODE -ne 0) { throw "Diagnostic commit failed: $LASTEXITCODE" }
           git pull --rebase origin main
           if ($LASTEXITCODE -ne 0) { throw "Diagnostic rebase failed: $LASTEXITCODE" }
