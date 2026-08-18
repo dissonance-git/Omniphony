@@ -20,11 +20,7 @@
 
 // Windows exposes no public API for changing the system default audio endpoint.
 // This Windows-only adapter uses the long-lived PolicyConfig COM ABI also used
-// by mature Windows audio projects such as Sunshine and EarTrumpet. Keep this
-// implementation below the portable Omniphony renderer boundary.
-//
-// IPolicyConfig IID:         F8679F50-850A-41CF-9C72-430F290290C8
-// CPolicyConfigClient CLSID: 870AF99C-171D-4F9E-AF0D-E63DF40C2BC9
+// by mature Windows audio projects. Keep it below the portable renderer boundary.
 
 using Microsoft::WRL::ComPtr;
 
@@ -65,13 +61,9 @@ class ComApartment {
 public:
     ComApartment() : hr_(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)), owns_(SUCCEEDED(hr_)) {}
     ~ComApartment() {
-        if (owns_) {
-            CoUninitialize();
-        }
+        if (owns_) CoUninitialize();
     }
-
     HRESULT status() const { return hr_; }
-
 private:
     HRESULT hr_;
     bool owns_;
@@ -85,10 +77,7 @@ std::wstring Lower(std::wstring value) {
 }
 
 bool ContainsInsensitive(const std::wstring& haystack, const std::wstring& needle) {
-    if (needle.empty()) {
-        return false;
-    }
-    return Lower(haystack).find(Lower(needle)) != std::wstring::npos;
+    return !needle.empty() && Lower(haystack).find(Lower(needle)) != std::wstring::npos;
 }
 
 std::wstring HResultText(HRESULT hr) {
@@ -96,13 +85,9 @@ std::wstring HResultText(HRESULT hr) {
     const DWORD flags = FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
                         FORMAT_MESSAGE_IGNORE_INSERTS;
     const DWORD count = FormatMessageW(
-        flags,
-        nullptr,
-        static_cast<DWORD>(hr),
+        flags, nullptr, static_cast<DWORD>(hr),
         MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-        reinterpret_cast<wchar_t*>(&buffer),
-        0,
-        nullptr);
+        reinterpret_cast<wchar_t*>(&buffer), 0, nullptr);
 
     std::wostringstream out;
     out << L"0x" << std::uppercase << std::hex << std::setw(8) << std::setfill(L'0')
@@ -114,9 +99,7 @@ std::wstring HResultText(HRESULT hr) {
         }
         out << L" (" << message << L")";
     }
-    if (buffer) {
-        LocalFree(buffer);
-    }
+    if (buffer) LocalFree(buffer);
     return out.str();
 }
 
@@ -126,28 +109,21 @@ std::wstring Win32Text(DWORD error) {
 
 HRESULT CreateEnumerator(ComPtr<IMMDeviceEnumerator>& enumerator) {
     return CoCreateInstance(
-        __uuidof(MMDeviceEnumerator),
-        nullptr,
-        CLSCTX_INPROC_SERVER,
+        __uuidof(MMDeviceEnumerator), nullptr, CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(enumerator.ReleaseAndGetAddressOf()));
 }
 
 HRESULT FriendlyName(IMMDevice* device, std::wstring& name) {
     ComPtr<IPropertyStore> store;
     HRESULT hr = device->OpenPropertyStore(STGM_READ, store.ReleaseAndGetAddressOf());
-    if (FAILED(hr)) {
-        return hr;
-    }
+    if (FAILED(hr)) return hr;
 
     PROPVARIANT value;
     PropVariantInit(&value);
     hr = store->GetValue(PKEY_Device_FriendlyName, &value);
     if (SUCCEEDED(hr)) {
-        if (value.vt == VT_LPWSTR && value.pwszVal) {
-            name.assign(value.pwszVal);
-        } else {
-            hr = E_UNEXPECTED;
-        }
+        if (value.vt == VT_LPWSTR && value.pwszVal) name.assign(value.pwszVal);
+        else hr = E_UNEXPECTED;
     }
     PropVariantClear(&value);
     return hr;
@@ -156,17 +132,13 @@ HRESULT FriendlyName(IMMDevice* device, std::wstring& name) {
 HRESULT DeviceIdentity(IMMDevice* device, Endpoint& endpoint) {
     LPWSTR rawId = nullptr;
     HRESULT hr = device->GetId(&rawId);
-    if (FAILED(hr)) {
-        return hr;
-    }
+    if (FAILED(hr)) return hr;
     endpoint.id.assign(rawId ? rawId : L"");
     CoTaskMemFree(rawId);
 
     std::wstring name;
     hr = FriendlyName(device, name);
-    if (FAILED(hr)) {
-        return hr;
-    }
+    if (FAILED(hr)) return hr;
     endpoint.name = std::move(name);
     return S_OK;
 }
@@ -174,33 +146,24 @@ HRESULT DeviceIdentity(IMMDevice* device, Endpoint& endpoint) {
 HRESULT EnumerateRenderEndpoints(std::vector<Endpoint>& endpoints) {
     ComPtr<IMMDeviceEnumerator> enumerator;
     HRESULT hr = CreateEnumerator(enumerator);
-    if (FAILED(hr)) {
-        return hr;
-    }
+    if (FAILED(hr)) return hr;
 
     ComPtr<IMMDeviceCollection> collection;
-    hr = enumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, collection.ReleaseAndGetAddressOf());
-    if (FAILED(hr)) {
-        return hr;
-    }
+    hr = enumerator->EnumAudioEndpoints(
+        eRender, DEVICE_STATE_ACTIVE, collection.ReleaseAndGetAddressOf());
+    if (FAILED(hr)) return hr;
 
     UINT count = 0;
     hr = collection->GetCount(&count);
-    if (FAILED(hr)) {
-        return hr;
-    }
+    if (FAILED(hr)) return hr;
 
     for (UINT index = 0; index < count; ++index) {
         ComPtr<IMMDevice> device;
         hr = collection->Item(index, device.ReleaseAndGetAddressOf());
-        if (FAILED(hr)) {
-            return hr;
-        }
+        if (FAILED(hr)) return hr;
         Endpoint endpoint;
         hr = DeviceIdentity(device.Get(), endpoint);
-        if (SUCCEEDED(hr)) {
-            endpoints.push_back(std::move(endpoint));
-        }
+        if (SUCCEEDED(hr)) endpoints.push_back(std::move(endpoint));
     }
     return S_OK;
 }
@@ -208,9 +171,7 @@ HRESULT EnumerateRenderEndpoints(std::vector<Endpoint>& endpoints) {
 HRESULT FindByName(const std::vector<std::wstring>& needles, Endpoint& endpoint) {
     std::vector<Endpoint> endpoints;
     HRESULT hr = EnumerateRenderEndpoints(endpoints);
-    if (FAILED(hr)) {
-        return hr;
-    }
+    if (FAILED(hr)) return hr;
 
     for (const auto& candidate : endpoints) {
         for (const auto& needle : needles) {
@@ -225,24 +186,17 @@ HRESULT FindByName(const std::vector<std::wstring>& needles, Endpoint& endpoint)
 
 HRESULT CreatePolicyConfig(ComPtr<IPolicyConfig>& policy) {
     return CoCreateInstance(
-        __uuidof(CPolicyConfigClient),
-        nullptr,
-        CLSCTX_ALL,
-        __uuidof(IPolicyConfig),
-        reinterpret_cast<void**>(policy.ReleaseAndGetAddressOf()));
+        __uuidof(CPolicyConfigClient), nullptr, CLSCTX_ALL,
+        __uuidof(IPolicyConfig), reinterpret_cast<void**>(policy.ReleaseAndGetAddressOf()));
 }
 
 HRESULT DefaultId(IMMDeviceEnumerator* enumerator, ERole role, std::wstring& id) {
     ComPtr<IMMDevice> device;
     HRESULT hr = enumerator->GetDefaultAudioEndpoint(eRender, role, device.ReleaseAndGetAddressOf());
-    if (FAILED(hr)) {
-        return hr;
-    }
+    if (FAILED(hr)) return hr;
     LPWSTR rawId = nullptr;
     hr = device->GetId(&rawId);
-    if (FAILED(hr)) {
-        return hr;
-    }
+    if (FAILED(hr)) return hr;
     id.assign(rawId ? rawId : L"");
     CoTaskMemFree(rawId);
     return S_OK;
@@ -251,16 +205,12 @@ HRESULT DefaultId(IMMDeviceEnumerator* enumerator, ERole role, std::wstring& id)
 HRESULT VerifyDefault(const std::wstring& expectedId, ERole role) {
     ComPtr<IMMDeviceEnumerator> enumerator;
     HRESULT hr = CreateEnumerator(enumerator);
-    if (FAILED(hr)) {
-        return hr;
-    }
+    if (FAILED(hr)) return hr;
 
     for (int attempt = 0; attempt < 40; ++attempt) {
         std::wstring actual;
         hr = DefaultId(enumerator.Get(), role, actual);
-        if (SUCCEEDED(hr) && _wcsicmp(actual.c_str(), expectedId.c_str()) == 0) {
-            return S_OK;
-        }
+        if (SUCCEEDED(hr) && _wcsicmp(actual.c_str(), expectedId.c_str()) == 0) return S_OK;
         Sleep(50);
     }
     return HRESULT_FROM_WIN32(ERROR_RETRY);
@@ -269,24 +219,18 @@ HRESULT VerifyDefault(const std::wstring& expectedId, ERole role) {
 HRESULT SetDefault(const std::wstring& endpointId, bool verify) {
     ComPtr<IPolicyConfig> policy;
     HRESULT hr = CreatePolicyConfig(policy);
-    if (FAILED(hr)) {
-        return hr;
-    }
+    if (FAILED(hr)) return hr;
 
     const ERole roles[] = {eConsole, eMultimedia, eCommunications};
     for (ERole role : roles) {
         hr = policy->SetDefaultEndpoint(endpointId.c_str(), role);
-        if (FAILED(hr)) {
-            return hr;
-        }
+        if (FAILED(hr)) return hr;
     }
 
     if (verify) {
         for (ERole role : roles) {
             hr = VerifyDefault(endpointId, role);
-            if (FAILED(hr)) {
-                return hr;
-            }
+            if (FAILED(hr)) return hr;
         }
     }
     return S_OK;
@@ -305,30 +249,84 @@ int Fail(const wchar_t* context, HRESULT hr, int code) {
 std::vector<std::wstring> Needles(int argc, wchar_t** argv, int start) {
     std::vector<std::wstring> needles;
     for (int i = start; i < argc; ++i) {
-        if (argv[i] && *argv[i]) {
-            needles.emplace_back(argv[i]);
-        }
+        if (argv[i] && *argv[i]) needles.emplace_back(argv[i]);
     }
     return needles;
+}
+
+const wchar_t* RoleName(ERole role) {
+    switch (role) {
+        case eConsole: return L"console";
+        case eMultimedia: return L"multimedia";
+        case eCommunications: return L"communications";
+        default: return L"unknown";
+    }
+}
+
+HRESULT EndpointForRole(IMMDeviceEnumerator* enumerator, ERole role, Endpoint& endpoint) {
+    ComPtr<IMMDevice> device;
+    HRESULT hr = enumerator->GetDefaultAudioEndpoint(eRender, role, device.ReleaseAndGetAddressOf());
+    if (FAILED(hr)) return hr;
+    return DeviceIdentity(device.Get(), endpoint);
 }
 
 int GetDefaultCommand() {
     ComPtr<IMMDeviceEnumerator> enumerator;
     HRESULT hr = CreateEnumerator(enumerator);
-    if (FAILED(hr)) {
-        return Fail(L"IMMDeviceEnumerator", hr, kExitEnumeration);
+    if (FAILED(hr)) return Fail(L"IMMDeviceEnumerator", hr, kExitEnumeration);
+
+    // AudioSrv can report Running a little before endpoint-role state is fully
+    // repopulated. Retry the public default lookup before treating E_NOTFOUND as
+    // durable, and consider every supported render role rather than eConsole only.
+    const ERole roles[] = {eConsole, eCommunications, eMultimedia};
+    HRESULT lastDefaultHr = HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    for (int attempt = 0; attempt < 20; ++attempt) {
+        for (ERole role : roles) {
+            Endpoint endpoint;
+            hr = EndpointForRole(enumerator.Get(), role, endpoint);
+            if (SUCCEEDED(hr)) {
+                std::wcout << L"DEFAULT_RESOLUTION\trole=" << RoleName(role)
+                           << L"\tattempt=" << attempt + 1 << L'\n';
+                return PrintEndpoint(L"DEFAULT", endpoint);
+            }
+            lastDefaultHr = hr;
+        }
+        Sleep(100);
     }
-    ComPtr<IMMDevice> device;
-    hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, device.ReleaseAndGetAddressOf());
-    if (FAILED(hr)) {
-        return Fail(L"GetDefaultAudioEndpoint", hr, kExitEnumeration);
+
+    // If Windows has active render endpoints but no role assignment at this
+    // instant, do not choose an arbitrary device. A sole endpoint is unambiguous.
+    std::vector<Endpoint> endpoints;
+    hr = EnumerateRenderEndpoints(endpoints);
+    if (FAILED(hr)) return Fail(L"EnumAudioEndpoints fallback", hr, kExitEnumeration);
+    if (endpoints.size() == 1) {
+        std::wcout << L"DEFAULT_RESOLUTION\tsingle-active-fallback\n";
+        return PrintEndpoint(L"DEFAULT", endpoints.front());
     }
-    Endpoint endpoint;
-    hr = DeviceIdentity(device.Get(), endpoint);
-    if (FAILED(hr)) {
-        return Fail(L"default endpoint identity", hr, kExitEnumeration);
+
+    // This build is currently personalized for the Noire X / FiiO endpoint.
+    // When several render devices are active and Windows temporarily exposes no
+    // default role, accept that endpoint only if the match is unique.
+    const std::wstring preferred[] = {L"Dan Clark Noire X", L"FiiO Q series", L"FiiO"};
+    for (const auto& needle : preferred) {
+        const Endpoint* match = nullptr;
+        size_t matches = 0;
+        for (const auto& candidate : endpoints) {
+            if (ContainsInsensitive(candidate.name, needle)) {
+                match = &candidate;
+                ++matches;
+            }
+        }
+        if (matches == 1 && match) {
+            std::wcout << L"DEFAULT_RESOLUTION\tpreferred-active-fallback\t" << needle << L'\n';
+            return PrintEndpoint(L"DEFAULT", *match);
+        }
     }
-    return PrintEndpoint(L"DEFAULT", endpoint);
+
+    std::wcerr << L"ERROR\tDEFAULT_ENDPOINT_AMBIGUOUS\tACTIVE=" << endpoints.size()
+               << L"\tLAST=" << HResultText(lastDefaultHr) << L'\n';
+    for (const auto& endpoint : endpoints) PrintEndpoint(L"ACTIVE", endpoint);
+    return kExitEnumeration;
 }
 
 int InstallDriverCommand(const std::wstring& infPath) {
@@ -361,16 +359,12 @@ int wmain(int argc, wchar_t** argv) {
     }
 
     ComApartment com;
-    if (FAILED(com.status())) {
-        return Fail(L"CoInitializeEx", com.status(), kExitCom);
-    }
+    if (FAILED(com.status())) return Fail(L"CoInitializeEx", com.status(), kExitCom);
 
     if (command == L"probe-policy") {
         ComPtr<IPolicyConfig> policy;
         const HRESULT hr = CreatePolicyConfig(policy);
-        if (FAILED(hr)) {
-            return Fail(L"CPolicyConfigClient/IPolicyConfig", hr, kExitCom);
-        }
+        if (FAILED(hr)) return Fail(L"CPolicyConfigClient/IPolicyConfig", hr, kExitCom);
         std::wcout << L"POLICY_OK\tF8679F50-850A-41CF-9C72-430F290290C8\n";
         return 0;
     }
@@ -378,18 +372,12 @@ int wmain(int argc, wchar_t** argv) {
     if (command == L"list") {
         std::vector<Endpoint> endpoints;
         const HRESULT hr = EnumerateRenderEndpoints(endpoints);
-        if (FAILED(hr)) {
-            return Fail(L"EnumAudioEndpoints", hr, kExitEnumeration);
-        }
-        for (const auto& endpoint : endpoints) {
-            PrintEndpoint(L"ENDPOINT", endpoint);
-        }
+        if (FAILED(hr)) return Fail(L"EnumAudioEndpoints", hr, kExitEnumeration);
+        for (const auto& endpoint : endpoints) PrintEndpoint(L"ENDPOINT", endpoint);
         return 0;
     }
 
-    if (command == L"get-default") {
-        return GetDefaultCommand();
-    }
+    if (command == L"get-default") return GetDefaultCommand();
 
     if (command == L"find-name" || command == L"set-default-name") {
         const auto needles = Needles(argc, argv, 2);
@@ -397,24 +385,14 @@ int wmain(int argc, wchar_t** argv) {
             std::wcerr << L"ERROR\tname match requires at least one non-empty needle\n";
             return kExitUsage;
         }
-
         Endpoint endpoint;
         const HRESULT findHr = FindByName(needles, endpoint);
-        if (HRESULT_CODE(findHr) == ERROR_NOT_FOUND) {
-            return kExitNotFound;
-        }
-        if (FAILED(findHr)) {
-            return Fail(L"find render endpoint", findHr, kExitEnumeration);
-        }
-
-        if (command == L"find-name") {
-            return PrintEndpoint(L"ENDPOINT", endpoint);
-        }
+        if (HRESULT_CODE(findHr) == ERROR_NOT_FOUND) return kExitNotFound;
+        if (FAILED(findHr)) return Fail(L"find render endpoint", findHr, kExitEnumeration);
+        if (command == L"find-name") return PrintEndpoint(L"ENDPOINT", endpoint);
 
         const HRESULT setHr = SetDefault(endpoint.id, true);
-        if (FAILED(setHr)) {
-            return Fail(L"SetDefaultEndpoint/verify", setHr, kExitVerify);
-        }
+        if (FAILED(setHr)) return Fail(L"SetDefaultEndpoint/verify", setHr, kExitVerify);
         return PrintEndpoint(L"SET", endpoint);
     }
 
@@ -425,9 +403,7 @@ int wmain(int argc, wchar_t** argv) {
         }
         const std::wstring id = argv[2];
         const HRESULT hr = SetDefault(id, true);
-        if (FAILED(hr)) {
-            return Fail(L"SetDefaultEndpoint/verify", hr, kExitVerify);
-        }
+        if (FAILED(hr)) return Fail(L"SetDefaultEndpoint/verify", hr, kExitVerify);
         std::wcout << L"SET_ID\t" << id << L'\n';
         return 0;
     }
