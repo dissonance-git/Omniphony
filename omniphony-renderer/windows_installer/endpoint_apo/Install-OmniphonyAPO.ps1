@@ -1,7 +1,8 @@
 param(
     [string]$PhysicalOutput = '',
     [string]$PackageRoot = '',
-    [string]$AppRoot = ''
+    [string]$AppRoot = '',
+    [switch]$AllowUnprotectedAudioDG
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,6 +58,10 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 foreach ($path in @($packageApo, $packageRealtime, $ctl, $endpointCtl, $realtimeSmoke, $apoSmoke, $mixProbe)) {
     if (-not (Test-Path -LiteralPath $path)) { throw "Missing package file: $path" }
 }
+if (-not $AllowUnprotectedAudioDG) {
+    throw 'This is the legacy development bring-up installer. It requires -AllowUnprotectedAudioDG because it temporarily sets DisableProtectedAudioDG=1. Use the production DriverStore package path for protected AudioDG deployment.'
+}
+Write-Warning 'DEVELOPMENT INSTALL: explicit -AllowUnprotectedAudioDG accepted. AudioDG protection will be disabled only for this bring-up path and restored by rollback/uninstall state handling.'
 
 function Open-Hklm64([string]$Path, [bool]$Writable, [bool]$Create) {
     $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
@@ -168,7 +173,7 @@ function Get-CurrentDefaultEndpoint {
 }
 
 function Get-ApoStatus([string]$EndpointId) {
-    $lines = @(& $ctl status-id $EndpointId 2>&1 | ForEach-Object { "$_" })
+    $lines = @(& $ctl status-id $EndpointId.Id 2>&1 | ForEach-Object { "$_" })
     $code = $LASTEXITCODE
     if ($code -ne 0 -and $code -ne 3) {
         throw "Could not inspect endpoint APO state. helper=$code output=$($lines -join ' | ')"
