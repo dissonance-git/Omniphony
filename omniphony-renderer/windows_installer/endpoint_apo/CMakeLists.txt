@@ -47,3 +47,11 @@ target_compile_features(OmniphonyMixProbe PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonyMixProbe PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_options(OmniphonyMixProbe PRIVATE /W4 /WX /permissive-)
 target_link_libraries(OmniphonyMixProbe PRIVATE ole32 uuid propsys advapi32)
+
+# Production acceptance deliberately uses a separate, read-only WASAPI probe.
+# Unlike the development MixProbe, it owns no registry/ACL repair path.
+add_executable(OmniphonyProductionProbe OmniphonyProductionProbe.cpp)
+target_compile_features(OmniphonyProductionProbe PRIVATE cxx_std_17)
+target_compile_definitions(OmniphonyProductionProbe PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_compile_options(OmniphonyProductionProbe PRIVATE /W4 /WX /permissive-)
+target_link_libraries(OmniphonyProductionProbe PRIVATE ole32 uuid)
