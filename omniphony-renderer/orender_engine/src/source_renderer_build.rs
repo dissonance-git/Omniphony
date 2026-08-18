@@ -21,6 +21,9 @@ use crate::renderer_build::{EvalMode, SpatialRendererParams, build_spatial_rende
 
 const FULL_SPHERE_LAYOUT: &str =
     include_str!("../../../layouts/system-h-derived-22.0-upper60-grid10.yaml");
+/// Five precomputed size states (0, .25, .5, .75, 1) are enough for smooth
+/// per-object extent while keeping the tiny 4x4x4 source grid cheap to build.
+const FULL_SPHERE_SIZE_INTERVALS: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceSpatialMode {
@@ -136,6 +139,27 @@ fn binaural_mode(mode: SourceSpatialMode) -> BinauralMode {
     }
 }
 
+fn source_render_config(
+    mode: SourceSpatialMode,
+    render_cfg: Option<&RenderConfig>,
+) -> Option<RenderConfig> {
+    let mut cfg = render_cfg.cloned();
+    if mode == SourceSpatialMode::FullSphere {
+        let cfg = cfg.get_or_insert_with(RenderConfig::default);
+        // Precomputed evaluators otherwise freeze event_size at the build-time
+        // zero-sized request. FullSphere must guarantee that the `size` carried
+        // by recovered instruments and shared wet fields actually changes the
+        // virtual-shell mix, regardless of an unrelated user config default.
+        cfg.render_evaluation_mode = Some("precomputed_cartesian".to_string());
+        cfg.evaluation_object_size_intervals = Some(
+            cfg.evaluation_object_size_intervals
+                .unwrap_or(FULL_SPHERE_SIZE_INTERVALS)
+                .max(FULL_SPHERE_SIZE_INTERVALS),
+        );
+    }
+    cfg
+}
+
 /// Build the source-aware Omniphony renderer used by game-music integrations.
 ///
 /// `NativeRouting` remains the clean direct-HRTF control. `FullSphere` instead
@@ -149,7 +173,9 @@ pub fn build_source_frame_renderer(
     render_cfg: Option<&RenderConfig>,
     options: SourceRendererOptions,
 ) -> Result<SourceFrameRenderer> {
-    let mut params = SpatialRendererParams::from_render_config(render_cfg);
+    let source_cfg = source_render_config(options.mode, render_cfg);
+    let effective_render_cfg = source_cfg.as_ref();
+    let mut params = SpatialRendererParams::from_render_config(effective_render_cfg);
 
     // FullSphere's first stage needs a closed 3-D panning field so object size
     // can become real spread over the shell. NativeRouting still owns the same
@@ -177,7 +203,7 @@ pub fn build_source_frame_renderer(
         sample_rate,
         defaults,
         RVbapTableMode::Cartesian,
-        render_cfg,
+        effective_render_cfg,
     )?;
 
     // Current's shell uses a bounded partial inverse of the common SAF/KEMAR
@@ -255,6 +281,20 @@ mod tests {
         assert!(layout.speakers.iter().any(|speaker| speaker.name == "TpC"));
         assert!(layout.speakers.iter().any(|speaker| speaker.name == "BC"));
         assert!(layout.speakers.iter().any(|speaker| speaker.name == "BtFC"));
+    }
+
+    #[test]
+    fn full_sphere_precomputes_dynamic_extent_states() {
+        let cfg = source_render_config(SourceSpatialMode::FullSphere, None)
+            .expect("FullSphere owns an internal render config");
+        assert_eq!(cfg.render_evaluation_mode.as_deref(), Some("precomputed_cartesian"));
+        assert_eq!(cfg.evaluation_object_size_intervals, Some(FULL_SPHERE_SIZE_INTERVALS));
+
+        let mut supplied = RenderConfig::default();
+        supplied.evaluation_object_size_intervals = Some(8);
+        let kept = source_render_config(SourceSpatialMode::FullSphere, Some(&supplied))
+            .expect("source config");
+        assert_eq!(kept.evaluation_object_size_intervals, Some(8));
     }
 
     #[test]
