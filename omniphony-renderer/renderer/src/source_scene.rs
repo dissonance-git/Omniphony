@@ -1,7 +1,10 @@
 //! Source-aware presentation policy for already-separated causal sources.
 //!
-//! GMI owns source truth. This module chooses only an Omniphony presentation.
-//! Native routing constrains presentation but never becomes fake authored 3-D.
+//! Retro VGM Compiler owns source truth. This module chooses only an Omniphony
+//! presentation. Native routing constrains presentation but never becomes fake
+//! authored 3-D. The source-aware sphere is intentionally a modern immersive
+//! remix: when opened, stable recovered sources may occupy a larger 3-D field
+//! even when the historical artifact never authored rear, height, or distance.
 
 use crate::spatial_vbap::spherical_to_adm;
 
@@ -59,6 +62,10 @@ impl Default for SourceSceneEvidence {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SourcePresentationPolicy {
+    /// Explicit immersive-remix amount for source-aware material. Zero keeps
+    /// unknown material at native laterality; one opens the full designed field.
+    /// This is a presentation control, never a confidence that the historical
+    /// source authored the resulting 3-D geometry.
     pub sphere_strength: f32,
     pub max_rear_azimuth_deg: f32,
     pub max_elevation_deg: f32,
@@ -138,16 +145,26 @@ pub fn matrix_surround_phase_cue(route: Option<NativeStereoRoute>) -> f32 {
     (1.0 - (left - right).abs() / sum).clamp(0.0, 1.0)
 }
 
-/// Stable deterministic coordinate. A persistent musical part wins over a
-/// temporary physical/source id so voice stealing does not make a part jump.
-fn identity_bias(source: &SourceSceneEvidence) -> f32 {
-    let id = source.persistent_part_id.unwrap_or(source.source_id);
-    let mut z = id.wrapping_add(0x9E3779B97F4A7C15);
+fn presentation_identity(source: &SourceSceneEvidence) -> u64 {
+    source.persistent_part_id.unwrap_or(source.source_id)
+}
+
+/// Stable deterministic presentation coordinate. A persistent musical part wins
+/// over a temporary physical/source id so voice stealing does not make a part
+/// jump. Different salts provide independent but repeatable spatial dimensions.
+fn identity_dimension(source: &SourceSceneEvidence, salt: u64) -> f32 {
+    let mut z = presentation_identity(source)
+        .wrapping_add(0x9E3779B97F4A7C15)
+        .wrapping_add(salt);
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
     z ^= z >> 31;
     let unit = (z as u32) as f32 / u32::MAX as f32;
     unit * 2.0 - 1.0
+}
+
+fn identity_bias(source: &SourceSceneEvidence) -> f32 {
+    identity_dimension(source, 0)
 }
 
 fn to_cartesian(azimuth: f32, elevation: f32, distance: f32) -> [f64; 3] {
@@ -173,7 +190,7 @@ fn present_shared_wet(
     };
 
     // With sphere_strength=0, preserve only native laterality. Rear, height and
-    // extra distance appear only as the sphere is deliberately opened.
+    // extra distance appear only as the immersive remix is deliberately opened.
     let native_azimuth = pan * 70.0;
     let rear_target = side * 135.0_f32.min(policy.max_rear_azimuth_deg.clamp(90.0, 179.0));
     let azimuth = native_azimuth + (rear_target - native_azimuth) * strength;
@@ -203,6 +220,8 @@ fn inferred_presentation(
     let pan = route_pan(source.native_stereo_route);
     let matrix_surround = matrix_surround_phase_cue(source.native_stereo_route);
     let identity = identity_bias(&source);
+    let depth_identity = identity_dimension(&source, 0xD1B54A32D192ED03);
+    let height_identity = identity_dimension(&source, 0x94D049BB133111EB);
 
     if source.lane_kind == SourceLaneKind::ReferenceMix {
         return SourcePresentation {
@@ -230,30 +249,42 @@ fn inferred_presentation(
     let width = clamp01(source.width);
     let vertical = clamp_signed(source.vertical_affinity);
 
-    // Foundation is intentionally difficult to dislodge. Confidence that a
-    // source is foundational must not become confidence that it should move.
-    let movable = sphere * confidence * (1.0 - foundation).powi(2);
-
-    // Crucial evidence law: absence of foreground/foundation labels is NOT
-    // positive support evidence. Rear/depth placement requires an affirmative
-    // diffuse/support cue. This keeps unknown centered sources conservative.
+    // Foundation remains the anchor of the mix. Everything else is allowed to
+    // inhabit a larger stable scene when the source-aware sphere is opened.
+    let foundation_lock = (1.0 - foundation).powi(2);
+    let evidence_movable = sphere * confidence * foundation_lock;
+    let remix_movable = sphere * foundation_lock * (0.45 + 0.35 * confidence);
     let support = diffuse * (1.0 - foundation) * (1.0 - foreground);
 
+    // Native authored left/right routing is the first constraint. When routing
+    // leaves room, stable musical/source identity supplies a repeatable creative
+    // spread rather than keeping every historically centered voice piled at 0°.
     let route_azimuth = pan * 70.0;
-    let identity_azimuth = identity * 28.0 * movable * (1.0 - pan.abs());
-    let frontal_azimuth = (route_azimuth + identity_azimuth).clamp(-78.0, 78.0);
+    let identity_azimuth = identity * 52.0 * remix_movable * (1.0 - pan.abs());
+    let frontal_azimuth = (route_azimuth + identity_azimuth).clamp(-92.0, 92.0);
 
-    let inferred_rear_weight = (movable
+    let evidence_rear_weight = (evidence_movable
         * (0.72 * diffuse + 0.42 * support)
         * (1.0 - 0.85 * foreground))
         .clamp(0.0, 1.0);
 
+    // A source-aware surround mix is intentionally allowed to use rear space
+    // even when the old hardware never authored a rear coordinate. This remains
+    // DERIVED presentation. Stable identity makes that choice repeatable rather
+    // than callback-random, while foreground/foundation evidence resists it.
+    let remix_rear_weight = (remix_movable
+        * 0.42
+        * ((depth_identity + 1.0) * 0.5)
+        * (1.0 - 0.82 * foreground))
+        .clamp(0.0, 1.0);
+
     // Opposite-polarity, magnitude-balanced native routing is authored phase
-    // evidence that historically fed matrix-surround decoders. It outranks our
-    // inferred role classifier, including an inferred "foundation" label, but
-    // remains a presentation prior rather than a fabricated authored point.
+    // evidence that historically fed matrix-surround decoders. It remains a
+    // presentation prior rather than a fabricated authored point.
     let matrix_rear_weight = (sphere * matrix_surround * 0.92).clamp(0.0, 1.0);
-    let rear_weight = inferred_rear_weight.max(matrix_rear_weight);
+    let rear_weight = evidence_rear_weight
+        .max(remix_rear_weight)
+        .max(matrix_rear_weight);
 
     let side = if pan.abs() > 0.05 {
         pan.signum()
@@ -267,34 +298,50 @@ fn inferred_presentation(
             .min(policy.max_rear_azimuth_deg.clamp(90.0, 179.0));
     let azimuth = frontal_azimuth + (rear_target - frontal_azimuth) * rear_weight;
 
-    // Matrix-surround phase evidence still carries no vertical coordinate.
-    // Explicit signed vertical_affinity, however, IS positive presentation
-    // evidence and must not require a second diffuse/support classifier to earn
-    // most of its height. Diffuse/support can strengthen the elevation, while
-    // sphere strength, confidence and the foundation lock remain authoritative.
+    // Explicit musical vertical evidence gets first say. The immersive-remix
+    // layer may also give otherwise neutral sources a bounded stable elevation,
+    // creating genuine vertical scale without relabeling it as historical data.
     let vertical_context = 0.72 + 0.28 * diffuse.max(support);
-    let elevation = vertical
+    let evidence_elevation = vertical
         * policy.max_elevation_deg.clamp(0.0, 80.0)
-        * movable
+        * evidence_movable
         * vertical_context;
+    let remix_elevation = height_identity
+        * policy.max_elevation_deg.clamp(0.0, 80.0)
+        * 0.32
+        * remix_movable
+        * (1.0 - 0.72 * foreground);
+    let elevation = (evidence_elevation + remix_elevation)
+        .clamp(-policy.max_elevation_deg.clamp(0.0, 80.0), policy.max_elevation_deg.clamp(0.0, 80.0));
 
-    let inferred_depth_weight = movable
+    let evidence_depth_weight = evidence_movable
         * (0.55 * support + 0.70 * diffuse)
         * (1.0 - 0.65 * foreground);
-    let depth_weight = inferred_depth_weight.max(0.30 * sphere * matrix_surround);
+    let remix_depth_weight = remix_movable
+        * 0.34
+        * ((depth_identity + 1.0) * 0.5)
+        * (1.0 - 0.55 * foreground);
+    let depth_weight = evidence_depth_weight
+        .max(remix_depth_weight)
+        .max(0.30 * sphere * matrix_surround);
     let distance = 1.0
         + (policy.max_distance.max(1.0) - 1.0) * depth_weight.clamp(0.0, 1.0);
 
-    let horizontal_size = (0.08 + 0.72 * width + 0.45 * diffuse)
+    // Width and source extent are production dimensions too. The creative base
+    // gives isolated chip voices body in the immersive field; stronger source
+    // evidence can enlarge or diffuse them further.
+    let horizontal_size = (0.12 + 0.28 * remix_movable + 0.62 * width + 0.40 * diffuse)
         .max(0.82 * matrix_surround)
         .clamp(0.0, 1.0);
-    let depth_size = (0.05 + 0.55 * diffuse + 0.25 * support)
+    let depth_size = (0.06 + 0.18 * remix_movable + 0.50 * diffuse + 0.24 * support)
         .max(0.55 * matrix_surround)
         .clamp(0.0, 1.0);
-    let height_size = (0.03 + 0.50 * diffuse + 0.25 * vertical.abs()).clamp(0.0, 1.0);
-    // An authored matrix cue must not disappear simply because inferred role
-    // evidence says the source is immovable.
-    let size_scale = (0.20 + 0.80 * movable)
+    let height_size = (0.04
+        + 0.16 * remix_movable
+        + 0.45 * diffuse
+        + 0.24 * vertical.abs())
+        .clamp(0.0, 1.0);
+    let size_scale = (0.30 + 0.70 * remix_movable)
         .max(0.75 * matrix_surround)
         .clamp(0.0, 1.0);
 
@@ -456,12 +503,21 @@ mod tests {
     }
 
     #[test]
-    fn unknown_role_does_not_become_rear_support_by_absence() {
-        let out = present_source(dry(10), SourcePresentationPolicy::default());
-        assert_eq!(out.rear_weight, 0.0);
-        assert_eq!(out.distance, 1.0);
-        assert_eq!(out.elevation_deg, 0.0);
-        assert!(out.azimuth_deg.abs() <= 28.0);
+    fn unknown_role_gets_stable_derived_immersive_space() {
+        let open = present_source(dry(10), SourcePresentationPolicy::default());
+        let closed = present_source(
+            dry(10),
+            SourcePresentationPolicy {
+                sphere_strength: 0.0,
+                ..SourcePresentationPolicy::default()
+            },
+        );
+        assert_eq!(open.authority, SourcePositionAuthority::InferredPresentation);
+        assert_eq!(closed.azimuth_deg, 0.0);
+        assert_eq!(closed.elevation_deg, 0.0);
+        assert_eq!(closed.distance, 1.0);
+        assert!(open.distance > closed.distance);
+        assert!(open.size[0] > closed.size[0]);
     }
 
     #[test]
@@ -480,10 +536,8 @@ mod tests {
             },
             SourcePresentationPolicy::default(),
         );
-        assert!(up.elevation_deg > 30.0);
-        assert!(down.elevation_deg < -30.0);
-        assert_eq!(up.rear_weight, 0.0);
-        assert_eq!(up.distance, 1.0);
+        assert!(up.elevation_deg > 20.0);
+        assert!(down.elevation_deg < -20.0);
     }
 
     #[test]
