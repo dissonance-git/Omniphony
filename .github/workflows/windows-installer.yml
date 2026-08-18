@@ -192,18 +192,21 @@ jobs:
           Copy-Item "$release\OmniphonyMixProbe.exe" $runtime -Force
           Copy-Item $endpointCtl $runtime -Force
 
-          # Small persistent support surface for repair/status/uninstall.
+          # Persistent tray/repair surface plus the production migration path.
           Copy-Item "$renderer\windows_installer\endpoint_apo\Install-OmniphonyAPO.ps1" $support -Force
           Copy-Item "$renderer\windows_installer\endpoint_apo\Uninstall-OmniphonyAPO.ps1" $support -Force
           Copy-Item "$release\OmniphonyApoCtl.exe" $support -Force
           Copy-Item "$release\OmniphonyMixProbe.exe" $support -Force
+          Copy-Item "$release\OmniphonyProductionProbe.exe" $support -Force
           Copy-Item $endpointCtl $support -Force
+          Copy-Item "$renderer\windows_installer\endpoint_apo\production" (Join-Path $support 'production') -Recurse -Force
           Copy-Item "$env:GITHUB_WORKSPACE\omniphony\LICENSE" "$payload\LICENSE" -Force
 
           Write-Host 'Installed development product target:'
           Write-Host '  Omniphony\APO\OmniphonyAPO.dll'
           Write-Host '  Omniphony\APO\omniphony_realtime.dll'
-          Write-Host '  Omniphony\support\{minimal helpers}'
+          Write-Host '  Omniphony\support\OmniphonyProductionProbe.exe'
+          Write-Host '  Omniphony\support\production\Finish-ProductionInstall.ps1'
           Get-ChildItem $payload -Recurse -File | Select-Object FullName, Length
 
       - name: Install Inno Setup
