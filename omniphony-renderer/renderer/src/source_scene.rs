@@ -60,6 +60,36 @@ impl Default for SourceSceneEvidence {
     }
 }
 
+/// Presentation controls for a source-native shared effect field such as the
+/// SNES S-DSP echo return. This is deliberately separate from dry-object policy:
+/// a historical wet field is neither another instrument nor Omniphony's own
+/// listening-room reflections, and it deserves independent scale and geometry.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SharedWetPresentationPolicy {
+    /// Additional wet-layer opening inside the parent source sphere.
+    pub strength: f32,
+    /// Rearward target angle before native L/R laterality is applied.
+    pub rear_azimuth_deg: f32,
+    /// Upper-field target for the environmental layer.
+    pub elevation_deg: f32,
+    /// Radial target in the same normalized units as dry-source distance.
+    pub distance: f32,
+    /// Horizontal/depth/vertical apparent extent target.
+    pub extent: [f32; 3],
+}
+
+impl Default for SharedWetPresentationPolicy {
+    fn default() -> Self {
+        Self {
+            strength: 1.0,
+            rear_azimuth_deg: 138.0,
+            elevation_deg: 38.0,
+            distance: 1.60,
+            extent: [1.0, 0.95, 0.85],
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SourcePresentationPolicy {
     /// Explicit immersive-remix amount for source-aware material. Zero keeps
@@ -70,6 +100,9 @@ pub struct SourcePresentationPolicy {
     pub max_rear_azimuth_deg: f32,
     pub max_elevation_deg: f32,
     pub max_distance: f32,
+    /// Shared historical wet fields get their own production layer rather than
+    /// inheriting the dry-object geometry by accident.
+    pub shared_wet: SharedWetPresentationPolicy,
 }
 
 impl Default for SourcePresentationPolicy {
@@ -79,6 +112,7 @@ impl Default for SourcePresentationPolicy {
             max_rear_azimuth_deg: 145.0,
             max_elevation_deg: 55.0,
             max_distance: 1.65,
+            shared_wet: SharedWetPresentationPolicy::default(),
         }
     }
 }
@@ -180,7 +214,9 @@ fn present_shared_wet(
 ) -> SourcePresentation {
     let sphere = clamp01(policy.sphere_strength);
     let confidence = clamp01(source.confidence);
-    let strength = sphere * (0.55 + 0.45 * confidence);
+    let wet = policy.shared_wet;
+    let wet_strength = clamp01(wet.strength);
+    let strength = sphere * wet_strength * (0.55 + 0.45 * confidence);
     let side = if pan.abs() > 0.05 {
         pan.signum()
     } else if identity.abs() > 1.0e-6 {
@@ -189,22 +225,31 @@ fn present_shared_wet(
         1.0
     };
 
-    // With sphere_strength=0, preserve only native laterality. Rear, height and
-    // extra distance appear only as the immersive remix is deliberately opened.
+    // Native L/R remains the field's historical side authority. Everything
+    // beyond that is an explicit modern wet-layer production choice.
     let native_azimuth = pan * 70.0;
-    let rear_target = side * 135.0_f32.min(policy.max_rear_azimuth_deg.clamp(90.0, 179.0));
+    let rear_limit = policy.max_rear_azimuth_deg.clamp(90.0, 179.0);
+    let rear_target = side * wet.rear_azimuth_deg.clamp(90.0, rear_limit);
     let azimuth = native_azimuth + (rear_target - native_azimuth) * strength;
-    let elevation = 40.0_f32
-        .min(policy.max_elevation_deg.max(0.0))
-        * strength;
-    let distance = 1.0
-        + (policy.max_distance.max(1.0) - 1.0) * strength;
+    let elevation_target = if wet.elevation_deg.is_finite() {
+        wet.elevation_deg.clamp(-policy.max_elevation_deg.max(0.0), policy.max_elevation_deg.max(0.0))
+    } else {
+        0.0
+    };
+    let elevation = elevation_target * strength;
+    let distance_target = if wet.distance.is_finite() {
+        wet.distance.clamp(1.0, policy.max_distance.max(1.0))
+    } else {
+        1.0
+    };
+    let distance = 1.0 + (distance_target - 1.0) * strength;
+    let extent = wet.extent.map(clamp01);
 
     SourcePresentation {
         render_as_object: true,
         authority: SourcePositionAuthority::InferredPresentation,
         position: to_cartesian(azimuth, elevation, distance),
-        size: [1.0, 1.0, 1.0],
+        size: extent.map(|value| value * strength),
         azimuth_deg: azimuth,
         elevation_deg: elevation,
         distance,
@@ -582,7 +627,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_wet_is_broad_environment_only_when_sphere_opens() {
+    fn shared_wet_is_a_separately_tunable_environment_layer() {
         let source = SourceSceneEvidence {
             lane_kind: SourceLaneKind::SharedWetReturn,
             confidence: 1.0,
@@ -599,12 +644,30 @@ mod tests {
             },
         );
         let full = present_source(source, SourcePresentationPolicy::default());
+        let restrained = present_source(
+            source,
+            SourcePresentationPolicy {
+                shared_wet: SharedWetPresentationPolicy {
+                    strength: 0.4,
+                    rear_azimuth_deg: 112.0,
+                    elevation_deg: 18.0,
+                    distance: 1.25,
+                    extent: [0.55, 0.45, 0.30],
+                },
+                ..SourcePresentationPolicy::default()
+            },
+        );
         assert_eq!(native.elevation_deg, 0.0);
         assert_eq!(native.distance, 1.0);
+        assert_eq!(native.size, [0.0, 0.0, 0.0]);
         assert!(full.azimuth_deg.abs() > 90.0);
         assert!(full.elevation_deg > 20.0);
         assert!(full.distance > 1.0);
-        assert_eq!(full.size, [1.0, 1.0, 1.0]);
+        assert!(full.size[0] > full.size[2]);
+        assert!(restrained.rear_weight < full.rear_weight);
+        assert!(restrained.elevation_deg.abs() < full.elevation_deg.abs());
+        assert!(restrained.distance < full.distance);
+        assert!(restrained.size[0] < full.size[0]);
     }
 
     #[test]
