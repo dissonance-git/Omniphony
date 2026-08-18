@@ -11,7 +11,17 @@ OmniphonySetup.exe
         ↓
 one UAC elevation
         ↓
-attach Omniphony to the current Windows render endpoint
+recover / verify the selected Windows render endpoint
+        ↓
+establish the proven stereo Current EFX rollback floor
+        ↓
+attach the Omniphony stream SFX
+        ↓
+accept authored 7.1 upstream while the physical endpoint remains stereo
+        ↓
+prove a real 48 kHz / float32 / 7.1 shared client can initialize
+        ↓
+remove the temporary stereo EFX so Current runs exactly once
         ↓
 restart the Windows audio graph
         ↓
@@ -31,18 +41,65 @@ Normal use has:
 - one small notification-area/tray icon for preferences;
 - the renderer remaining active even if the tray icon is closed.
 
-The normal 0.1 path is an **unsigned user-mode endpoint APO**. The installer explicitly enables Windows' unprotected AudioDG compatibility mode for that APO deployment and records the previous machine value so rollback/uninstall can restore it.
+The normal 0.1 path uses unsigned user-mode APOs. The installer explicitly enables Windows' unprotected AudioDG compatibility mode for that deployment and records the previous machine value so rollback/uninstall can restore it.
 
 Microsoft-signed DriverStore packaging remains an optional future deployment experiment. It is not a prerequisite for using Omniphony 0.1 and is not bundled into the normal installer.
+
+## Accepted Windows baseline
+
+As of 2026-08-18, Omniphony's conventional Windows surround path is physically verified and is the baseline product topology:
+
+```text
+Windows shared client
+48 kHz / float32 / authored 7.1
+        ↓
+Omniphony stream SFX
+        ↓
+AUTHORED FL FR C LFE SL SR BL BR
+        ↓
+Omniphony source scene
+        ↓
+Current shell / binaural renderer
+        ↓
+Windows endpoint mix
+48 kHz / 32-bit / stereo
+        ↓
+DAC / headphones
+```
+
+The physical endpoint staying stereo is intentional. `IAudioClient::GetMixFormat` describes the endpoint/shared engine mix and therefore remains two-channel on the headphone DAC. The accepted baseline proves the richer input at the client-stream boundary instead:
+
+```text
+SHARED_7_1_FORMAT_SUPPORTED      RATE=48000 CHANNELS=8 BITS=32 FORMAT=float32
+SHARED_7_1_INITIALIZE_OK         INPUT_CHANNELS=8 ENDPOINT_CHANNELS=2
+NATIVE_SURROUND_CLIENT_FORMAT_OK INPUT_CHANNELS=8 ENDPOINT_CHANNELS=2 RATE=48000 BITS=32
+NATIVE_SURROUND_SFX 1
+NATIVE_SURROUND_EFX 0
+OMNIPHONY_INSTALL_STAGE native-surround-active
+```
+
+The stereo Current EFX remains a rollback floor during installation and recovery. It is removed after successful native-surround promotion so the signal is rendered by Current exactly once.
+
+For conventional games the intended baseline is:
+
+```text
+Windows Spatial Sound: OFF
+game output: Home Theater / surround
+in-game headphone virtualization: OFF
+```
+
+This lets the game author an ordinary multichannel PCM bed and lets Omniphony own the only headphone binaural render. A game-specific listening or telemetry pass is still required to prove that a particular title actually opens and populates the accepted 7.1 stream.
 
 ## Audio topology
 
 Conventional PCM and Windows Spatial Audio are two source-truth paths into the same Omniphony renderer. They must not become two renderers.
 
 ```text
-conventional PCM applications
+conventional PCM applications / games
         ↓
-Windows Audio Engine / stream + endpoint APO path
+shared-mode stereo / 5.1 / 7.1 client stream
+        ↓
+Omniphony stream SFX
         ↓
 authored PCM bed or stereo ingress
         ┐
@@ -50,20 +107,21 @@ authored PCM bed or stereo ingress
         ├──────────────→ Omniphony source scene → Current shell → binaural
         │
         ┘
+future richer path:
 Windows Spatial Audio applications / games
-        ↓
-Windows spatial-renderer boundary
         ↓
 static 8.1.4.4 objects + dynamic 3-D objects
         ↓
-Omniphony spatial-object ingress
+Omniphony spatial-object ingress before Windows headphone rendering
         ↓
-physical endpoint driver
+same source scene → same Current renderer
+        ↓
+stereo physical endpoint
         ↓
 DAC / headphones
 ```
 
-The conventional endpoint/stream APO path remains the universal fallback. When Windows exposes richer authored spatial truth before headphone rendering, Omniphony must ingest that richer representation rather than intentionally collapsing it to stereo or reconstructing geometry that the source already supplied.
+The conventional 7.1 stream-SFX path is the production baseline. When Windows exposes richer authored spatial truth before headphone rendering, Omniphony must ingest that richer representation rather than intentionally collapsing it to stereo or reconstructing geometry that the source already supplied.
 
 The exact system-wide Windows boundary that can receive another application's raw Spatial Audio objects is still an implementation question and must be proven from Microsoft-supported interfaces before deployment. `ISpatialAudioClient` is an application-side spatial render client/sink; opening a second client is not treated as evidence that Omniphony can intercept another application's object stream.
 
@@ -71,13 +129,15 @@ The previous virtual-device and process-loopback designs are migration history a
 
 ## Full Current renderer
 
-The Windows APO loads `omniphony_realtime.dll`, which hosts the same Current renderer used by the portable engine. Packaging must not fork, simplify or replace Current.
+The Windows APOs load `omniphony_realtime.dll`, which hosts the same Current renderer used by the portable engine. Packaging must not fork, simplify or replace Current.
 
 The internal Current scene uses the canonical 17-anchor 8.1.4.4 vocabulary:
 
 ```text
 L R C LFE Ls Rs Lb Rb Cb Tfl Tfr Tbl Tbr Bfl Bfr Bbl Bbr
 ```
+
+**8.1.4.4 remains the ideal full fixed Windows scene vocabulary.** It is the canonical static coordinate frame, not a claim that every source contains seventeen authored channels.
 
 Stereo-derived Current presently populates the evidence-backed lanes:
 
@@ -93,44 +153,50 @@ C LFE Cb Bfl Bfr Bbl Bbr
 
 That canonical scene feeds the Current System-H-derived spatial shell and binaural renderer before returning stereo to the physical headphone endpoint.
 
+For authored Windows speaker beds, the realtime native-bed path maps the supplied `WAVEFORMATEXTENSIBLE` channel mask to authored source positions and bypasses stereo spatial inference. Missing canonical anchors remain empty. LFE remains non-directional source evidence and is handled separately from HRTF placement.
+
+The accepted conventional 7.1 baseline therefore maps:
+
 ```text
-Windows stereo endpoint input
-→ canonical Current scene
-→ Current spatial support / room / binaural pipeline
-→ listener correction and safety
-→ stereo headphones
+FL FR C LFE SL SR BL BR = AUTHORED
+BC TFL TFR TBL TBR BFL BFR BBL BBR = EMPTY unless separately earned
 ```
 
-For authored Windows speaker beds, the realtime native-bed path instead maps the supplied `WAVEFORMATEXTENSIBLE` channel mask to authored source positions and bypasses stereo spatial inference. Missing canonical anchors remain empty. LFE remains non-directional source evidence and is handled separately from HRTF placement.
+Windows Spatial Audio is the richer target. Static objects map directly to their supplied fixed roles, including the lower hemisphere when present, and dynamic objects retain their supplied 3-D positions over time. Omniphony may render those sources through its existing shell and binaural machinery, but it may not erase their authored spatial identity first.
 
-Windows Spatial Audio must go one step richer: static objects map directly to their supplied fixed spatial roles, including the lower hemisphere when present, and dynamic objects retain their supplied 3-D positions over time. Omniphony may render those sources through its existing shell and binaural machinery, but it may not erase their authored spatial identity first.
+Dynamic XYZ objects are richer source geometry than the fixed 8.1.4.4 skeleton when they are actually supplied. They remain continuous objects rather than being snapped to static anchors merely to fit the scene vocabulary.
 
 The installer build runs the renderer, realtime ABI, DSP fixture, reference-bridge and engine tests before producing `OmniphonySetup.exe`.
 
 ## Current Windows ingress boundary
 
-The proven endpoint fallback remains:
+The physically accepted production path is now:
 
 ```text
-stereo float32 → Current → stereo float32
-```
+stereo client
+→ Omniphony stream SFX
+→ Current
+→ stereo endpoint
 
-A separate native-bed realtime ABI and pre-mix stream APO now exist for authored multichannel `WAVEFORMATEXTENSIBLE` PCM. That path is the PCM half of source-aware Windows ingress. Its Windows SFX format negotiation and installer promotion are still being hardened, so repository implementation is not yet equivalent to a physically verified released multichannel product.
+or
 
-```text
-authored 5.1 / 7.1 / height PCM bed
-→ Windows stream APO negotiation
+authored 7.1 client
+→ Omniphony stream SFX
 → native-bed realtime ABI
 → authored source coordinates
 → Current shell / binaural
-→ stereo headphones
+→ stereo endpoint
 ```
 
-Raw Windows Spatial Audio object ingress is now a **required Windows host capability**, not an optional research curiosity. The target representation is the source data available before the active Windows spatial renderer collapses it for the physical headphone endpoint:
+A separate stereo endpoint EFX remains implemented as the safe rollback floor. It is not the promoted steady-state path after successful 7.1-capable installation.
+
+Authored 7.1.4 processing is also implemented and regression-tested inside the stream APO/native-bed path. That fixture proves the renderer and APO can handle the richer bed; it does not yet prove that an ordinary Windows application will open that exact 12-channel shared stream on the current product host.
+
+Raw Windows Spatial Audio object ingress is a **required Windows host capability**, not an optional research curiosity. The target representation is the source data available before the active Windows spatial renderer collapses it for the physical headphone endpoint:
 
 ```text
-static spatial objects
-→ preserve fixed object role / identity
+8.1.4.4 static spatial objects
+→ preserve fixed role / identity
 
 + dynamic spatial objects
 → preserve per-object audio + supplied XYZ trajectory
@@ -140,7 +206,7 @@ static spatial objects
 → stereo headphones
 ```
 
-This requirement does not authorize an undocumented hook. The host mechanism must first be demonstrated with an actual spatial-aware application and a Microsoft-supported boundary. Until that boundary is proven, the conventional PCM APO remains the safe production path and the native-bed stream APO remains the authored-PCM path.
+This requirement does not authorize an undocumented hook. The host mechanism must first be demonstrated with an actual spatial-aware application and a Microsoft-supported boundary. Until that boundary is proven, the conventional 7.1 stream-SFX path is the production baseline.
 
 ### Windows Spatial Audio acceptance conditions
 
@@ -189,29 +255,41 @@ A future spatial-object host should obey the same realtime law: Windows-facing c
 It:
 
 1. stops any obsolete Omniphony host/tray instance;
-2. stages the current APO and realtime renderer;
-3. resolves the current default Windows render endpoint;
-4. saves the previous endpoint and AudioDG state;
-5. verifies the realtime renderer before attachment;
-6. registers the user-mode APO;
-7. enables the unsigned-APO AudioDG compatibility mode;
-8. attaches Omniphony to the endpoint and keeps Windows enhancements enabled;
-9. restarts the Windows audio graph;
-10. runs APO and physical-endpoint smoke probes;
-11. rolls back automatically if installation fails;
-12. starts the tray icon when setup succeeds.
+2. verifies the realtime renderer;
+3. repairs known Omniphony global APO registration before endpoint discovery when recovering an existing install;
+4. resolves and persists the selected physical endpoint identity;
+5. saves previous endpoint and AudioDG state;
+6. establishes the stereo Current EFX rollback floor;
+7. verifies stereo Current processing and the physical endpoint;
+8. registers the native stream APO;
+9. attaches the format-changing SFX and removes the temporary EFX;
+10. restarts the Windows audio graph and waits for the exact endpoint to return ACTIVE;
+11. requires the physical endpoint to remain 48 kHz / 32-bit / stereo;
+12. requires a 48 kHz / float32 / 7.1 shared client format to report supported and successfully initialize;
+13. keeps the stream SFX only after that real client-boundary proof;
+14. restores the stereo Current EFX automatically if native-surround promotion fails;
+15. starts the tray icon when setup succeeds.
 
 The installed runtime is intentionally small:
 
 ```text
 C:\Program Files\Omniphony\APO\OmniphonyAPO.dll
+C:\Program Files\Omniphony\APO\OmniphonyStreamAPO.dll
 C:\Program Files\Omniphony\APO\omniphony_realtime.dll
 C:\Program Files\Omniphony\support\...
 ```
 
-There is no resident `Omniphony.exe` audio host. Audio processing occurs in the Windows endpoint APO path.
+There is no resident `Omniphony.exe` audio host. Audio processing occurs in the Windows APO path.
 
 If the eventual Microsoft-supported raw-object boundary requires an additional installed Windows component, that component must remain headless and subordinate to the same one-installer product law. It does not become a second user-facing audio host or a second renderer.
+
+## Endpoint continuity
+
+The physical endpoint may temporarily become inactive or disappear from Core Audio when a USB DAC is powered off, unplugged, restarted, or when Windows restarts its audio services. That must not erase Omniphony's installation state.
+
+Omniphony persists the verified endpoint identity and uses it for recovery. Installation/recovery must never deregister a previously working global APO merely because endpoint discovery temporarily returns no active device. The endpoint must return ACTIVE before Omniphony mutates endpoint FX state or declares the path healthy.
+
+Normal DAC power cycling is therefore treated as endpoint availability, not product installation state. A genuinely new Windows endpoint identity, such as one created by a driver/topology change, may require reattachment.
 
 ## Tray contract
 
@@ -225,9 +303,11 @@ Future controls can be added to the tray as capabilities mature, while preservin
 
 Installation must leave ordinary Windows audio recoverable.
 
-If the APO fails to attach or the post-install endpoint probe fails, setup attempts to bypass/detach Omniphony, restart the audio graph, unregister the APO and restore the captured AudioDG setting.
+The accepted transaction is deliberately two-stage: establish a proven stereo Current floor, attempt native-surround promotion, and only remove that floor after the stream SFX is attached. If the richer client-stream proof fails, the installer removes the SFX and restores the stereo Current EFX.
 
-Uninstall removes Omniphony's endpoint attachment and runtime files and restores the previous AudioDG state. It must not replace or uninstall the physical DAC/audio driver.
+A failure before endpoint discovery must not dismantle a previously known installation. Rollback is successful only when the restored endpoint state is verified, not merely because a cleanup command was attempted.
+
+Uninstall removes Omniphony's stream/endpoint attachments and runtime files and restores the previous AudioDG state. It must not replace or uninstall the physical DAC/audio driver.
 
 Any future spatial-object component must obey the same rollback law. Failure must restore the user's previous Windows Spatial Sound behavior rather than leaving the endpoint in an Omniphony-only or partially intercepted state.
 
@@ -248,15 +328,16 @@ physical endpoint remains the user's normal output
 
 ## Next product frontier
 
-Build upward from source truth rather than sideways:
+Build upward from the accepted baseline rather than sideways:
 
-1. finish and physically verify native authored multichannel SFX negotiation without touching the renderer;
-2. prove the Microsoft-supported system boundary, if any, that exposes raw Windows Spatial Audio static/dynamic objects to an installed system-wide renderer;
-3. add a Windows spatial-object adapter that preserves static 8.1.4.4 roles and dynamic XYZ object trajectories into Omniphony's existing source-scene contract;
-4. prove the path with deterministic object fixtures, then a real spatial-aware game such as Overwatch, without assuming in advance which bed/object mix the game emits;
-5. make endpoint selection/change handling smoother and prove reboot, sleep/resume and device reconnect behavior;
-6. improve the tray icon and controls;
-7. add trustworthy already-binaural detection/bypass when host evidence exists;
-8. add optional deepSTRF/research capabilities only when validated and without replacing the established Current sound.
+1. prove with a real conventional game, beginning with Overwatch Home Theater, that the title actually opens/populates the accepted authored 7.1 shared client stream;
+2. preserve the accepted 7.1 path as the regression baseline while adding game-specific evidence tooling if necessary;
+3. prove the Microsoft-supported system boundary, if any, that exposes raw Windows Spatial Audio static/dynamic objects to an installed system-wide renderer;
+4. add a Windows spatial-object adapter that preserves the full 8.1.4.4 static vocabulary plus dynamic XYZ trajectories into Omniphony's existing source-scene contract;
+5. prove the raw-object path with deterministic fixtures, then a real spatial-aware game such as Overwatch, without assuming in advance which bed/object mix the game emits;
+6. prove reboot, sleep/resume and DAC power-cycle/reconnect behavior around the accepted endpoint continuity contract;
+7. improve the tray icon and controls;
+8. add trustworthy already-binaural detection/bypass when host evidence exists;
+9. add optional deepSTRF/research capabilities only when validated and without replacing the established Current sound.
 
-The baseline remains deliberately simple for the user: **click install, see the tray icon, and hear Omniphony everywhere through the selected Windows output.** The source path underneath that simplicity should become richer whenever Windows exposes richer authored truth.
+The baseline remains deliberately simple for the user: **click install, use the selected physical Windows output, and let Omniphony receive conventional authored 7.1 before it performs the only headphone render.** The source path underneath that simplicity should become richer whenever Windows exposes richer authored truth.
