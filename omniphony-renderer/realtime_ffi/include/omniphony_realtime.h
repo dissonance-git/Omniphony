@@ -17,11 +17,18 @@ extern "C" {
 #define OMNIPHONY_REALTIME_MODE_CURRENT 1u
 
 typedef struct OmniphonyRealtimeProcessor OmniphonyRealtimeProcessor;
+typedef struct OmniphonyNativeBedProcessor OmniphonyNativeBedProcessor;
 
 typedef struct OmniphonyRealtimeConfig {
     uint32_t sample_rate_hz;
     uint32_t channels;
 } OmniphonyRealtimeConfig;
+
+typedef struct OmniphonyNativeBedConfig {
+    uint32_t sample_rate_hz;
+    uint32_t channels;
+    uint32_t channel_mask;
+} OmniphonyNativeBedConfig;
 
 uint32_t omniphony_realtime_abi_major(void);
 uint32_t omniphony_realtime_abi_minor(void);
@@ -77,6 +84,34 @@ uint32_t omniphony_realtime_sample_rate_hz(
     const OmniphonyRealtimeProcessor *processor);
 uint32_t omniphony_realtime_channels(
     const OmniphonyRealtimeProcessor *processor);
+
+/*
+ * Authored Windows speaker-bed path. `channel_mask` uses WAVEFORMATEXTENSIBLE
+ * speaker bits, and the interleaved input order follows those set bits from
+ * least-significant to most-significant. Real speaker coordinates are rendered
+ * directly through Omniphony's source-aware 22-direction binaural topology.
+ * LFE is kept out of directional HRTF placement and mixed coherently after a
+ * defensive low-pass. Output is always interleaved stereo float32 and must not
+ * alias the multichannel input buffer.
+ */
+OmniphonyNativeBedProcessor *omniphony_native_bed_create(
+    const OmniphonyNativeBedConfig *config);
+void omniphony_native_bed_destroy(OmniphonyNativeBedProcessor *processor);
+size_t omniphony_native_bed_latency_frames(
+    const OmniphonyNativeBedProcessor *processor);
+uint64_t omniphony_native_bed_processed_blocks(
+    const OmniphonyNativeBedProcessor *processor);
+int32_t omniphony_native_bed_process_f32(
+    OmniphonyNativeBedProcessor *processor,
+    const float *input,
+    float *output_stereo,
+    size_t frames);
+uint32_t omniphony_native_bed_sample_rate_hz(
+    const OmniphonyNativeBedProcessor *processor);
+uint32_t omniphony_native_bed_channels(
+    const OmniphonyNativeBedProcessor *processor);
+uint32_t omniphony_native_bed_channel_mask(
+    const OmniphonyNativeBedProcessor *processor);
 
 #ifdef __cplusplus
 }
