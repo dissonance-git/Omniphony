@@ -17,8 +17,11 @@ $installedStreamApo = Join-Path $runtimeRoot 'OmniphonyStreamAPO.dll'
 $stateRoot = Join-Path $env:ProgramData 'Omniphony'
 $endpointBackupPath = Join-Path $stateRoot 'endpoint-backup.json'
 $streamBackupPath = Join-Path $stateRoot 'stream-backup.json'
+$spatialStatePath = Join-Path $stateRoot 'spatial-state-last.log'
 $ctl = Join-Path $PackageRoot 'OmniphonyApoCtl.exe'
 $mixProbe = Join-Path $PackageRoot 'OmniphonyMixProbe.exe'
+$spatialProbe = Join-Path $here 'OmniphonySpatialProbe.exe'
+$spatialProviderProbe = Join-Path $here 'OmniphonySpatialProviderProbe.exe'
 
 $endpointApoClsid = '{A9333BFE-39C1-40FD-B4B0-ECC591410B47}'
 $streamApoClsid = '{07D403D9-8A98-43EF-8C28-8651756D83BE}'
@@ -31,7 +34,51 @@ foreach ($path in @($baselineInstaller, $packageStreamApo, $packageStreamSmoke, 
     if (-not (Test-Path -LiteralPath $path)) { throw "Missing Omniphony package file: $path" }
 }
 
+function Capture-SpatialIngressObservation {
+    try {
+        New-Item -ItemType Directory -Force -Path $stateRoot | Out-Null
+        $lines = @(
+            'schema=omniphony.windows.spatial-state.v1',
+            "captured_utc=$([DateTime]::UtcNow.ToString('o'))",
+            'scope=read_only_endpoint_and_provider_observation',
+            'nonclaim=does_not_prove_windows_provider_selection_or_object_delivery'
+        )
+
+        $probes = @(
+            @{ Label = 'endpoint-capability'; Path = $spatialProbe; Args = @() },
+            @{ Label = 'provider-inventory'; Path = $spatialProviderProbe; Args = @() },
+            @{ Label = 'provider-com-canary'; Path = $spatialProviderProbe; Args = @('--probe-com') }
+        )
+
+        foreach ($probe in $probes) {
+            $lines += "=== $($probe.Label) ==="
+            if (-not (Test-Path -LiteralPath $probe.Path)) {
+                $lines += "probe_status=missing"
+                $lines += "probe_path=$($probe.Path)"
+                continue
+            }
+
+            $output = @(& $probe.Path @($probe.Args) 2>&1 | ForEach-Object { "$_" })
+            $code = $LASTEXITCODE
+            if ($null -eq $code) { $code = 0 }
+            $lines += "probe_exit_code=$code"
+            $lines += $output
+        }
+
+        $lines | Set-Content -LiteralPath $spatialStatePath -Encoding UTF8
+        Write-Host "SPATIAL_INGRESS_OBSERVATION $spatialStatePath"
+    }
+    catch {
+        Write-Warning "SPATIAL_INGRESS_OBSERVATION_FAILED: $($_.Exception.Message)"
+    }
+}
+
 & $baselineInstaller -PackageRoot $PackageRoot -AppRoot $AppRoot -AllowUnprotectedAudioDG:$AllowUnprotectedAudioDG
+
+# Provider discovery is independent of the SFX migration below. Capture the
+# real machine once the baseline is attached, but never let observational
+# tooling decide whether audio installation succeeds.
+Capture-SpatialIngressObservation
 
 function Set-AudioServiceRunning([bool]$Running) {
     $service = Get-Service -Name AudioSrv -ErrorAction Stop
