@@ -5,6 +5,14 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$omniphonyClsid = '{A9333BFE-39C1-40FD-B4B0-ECC591410B47}'
+
+if (-not [string]::IsNullOrWhiteSpace($PackageRoot)) {
+    $PackageRoot = [IO.Path]::GetFullPath($PackageRoot)
+    if ([string]::IsNullOrWhiteSpace($CaptureJson)) {
+        $CaptureJson = Join-Path $PackageRoot 'target-capture.json'
+    }
+}
 
 function Get-RegistryValueIfPresent([string]$Path, [string]$Name) {
     try {
@@ -14,6 +22,45 @@ function Get-RegistryValueIfPresent([string]$Path, [string]$Name) {
         }
     } catch { }
     return $null
+}
+
+function Get-StringArrayProperty($Item, [string]$Name) {
+    if ($null -eq $Item) { return @() }
+    $property = $Item.PSObject.Properties[$Name]
+    if ($null -eq $property -or $null -eq $property.Value) { return @() }
+    return @($property.Value | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+}
+
+function Get-EndpointEffectSnapshot($Capture) {
+    $mmDeviceId = [string]$Capture.DefaultEndpoint.MmDeviceId
+    if ($mmDeviceId -notmatch '(\{[0-9A-Fa-f-]{36}\})$') {
+        return [ordered]@{ Readable = $false; Error = "captured MMDevice ID has no endpoint GUID tail: $mmDeviceId" }
+    }
+    $endpointGuid = $Matches[1]
+    $fxPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render\$endpointGuid\FxProperties"
+    if (-not (Test-Path -LiteralPath $fxPath)) {
+        return [ordered]@{ Readable = $false; EndpointGuid = $endpointGuid; RegistryPath = $fxPath; Error = 'endpoint FxProperties path is absent or unreadable' }
+    }
+    try { $item = Get-ItemProperty -LiteralPath $fxPath -ErrorAction Stop }
+    catch { return [ordered]@{ Readable = $false; EndpointGuid = $endpointGuid; RegistryPath = $fxPath; Error = $_.Exception.Message } }
+
+    $legacyName = '{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},7'
+    $compositeName = '{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},15'
+    $disabledName = '{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5'
+    $disabled = 0
+    $disabledProperty = $item.PSObject.Properties[$disabledName]
+    if ($null -ne $disabledProperty -and $null -ne $disabledProperty.Value) {
+        try { $disabled = [int]$disabledProperty.Value } catch { $disabled = -1 }
+    }
+    return [ordered]@{
+        Readable = $true
+        EndpointGuid = $endpointGuid
+        RegistryPath = $fxPath
+        LegacyEndpointEffects = @(Get-StringArrayProperty $item $legacyName)
+        CompositeEndpointEffects = @(Get-StringArrayProperty $item $compositeName)
+        EnhancementsDisabled = $disabled
+        Error = ''
+    }
 }
 
 function Get-SignatureRecord([string]$Path) {
@@ -66,8 +113,16 @@ function Get-CaptureRecord([string]$Path) {
         $audio = '{6994AD04-93EF-11D0-A3CC-00A0C9223196}'
         $topology = '{DDA54A40-1E4C-11D1-A050-405705C10000}'
         $paired = New-Object System.Collections.Generic.List[string]
+        $warnings = @()
+        $resolvedSection = ''
+        $sectionExt = ''
+        $liveSectionExt = ''
+        $endpointPresent = $false
+        $driverPresent = $false
+
         if ($candidates.Count -eq 1) {
-            $interfaces = @($candidates[0].DriverInterfaces)
+            $candidate = $candidates[0]
+            $interfaces = @($candidate.DriverInterfaces)
             $refs = @($interfaces | ForEach-Object { [string]$_.ReferenceResolved } | Where-Object { $_ } | Sort-Object -Unique)
             foreach ($ref in $refs) {
                 $categories = @($interfaces | Where-Object { ([string]$_.ReferenceResolved) -ieq $ref } | ForEach-Object { [string]$_.CategoryResolved })
@@ -75,11 +130,42 @@ function Get-CaptureRecord([string]$Path) {
                     $paired.Add($ref)
                 }
             }
+            $warnings = @($candidate.InterfaceResolutionWarnings | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+            $resolvedSection = [string]$candidate.DriverInfResolvedSection
+            $sectionExt = [string]$candidate.DriverInfSectionExt
+
+            $endpointPresent = $null -ne (Get-PnpDevice -InstanceId ([string]$capture.DefaultEndpoint.PnpInstanceId) -PresentOnly -ErrorAction SilentlyContinue)
+            $driverPresent = $null -ne (Get-PnpDevice -InstanceId ([string]$candidate.InstanceId) -PresentOnly -ErrorAction SilentlyContinue)
+            if ($driverPresent) {
+                try {
+                    $liveSectionExt = [string](Get-PnpDeviceProperty -InstanceId ([string]$candidate.InstanceId) -KeyName 'DEVPKEY_Device_DriverInfSectionExt' -ErrorAction Stop).Data
+                } catch { $liveSectionExt = '' }
+            }
         }
-        $usable = ([string]$capture.Schema -eq 'omniphony.windows.apo-target.v2') -and
+
+        $capturedFx = $capture.CapturedEndpointEffects
+        $capturedFxReadable = $null -ne $capturedFx -and [bool]$capturedFx.Readable
+        $liveFx = Get-EndpointEffectSnapshot $capture
+        $existing = @()
+        if ($liveFx.Readable) {
+            $existing = @($liveFx.LegacyEndpointEffects + $liveFx.CompositeEndpointEffects | Sort-Object -Unique)
+        }
+        $foreign = @($existing | Where-Object { -not ([string]$_).Equals($omniphonyClsid, [StringComparison]::OrdinalIgnoreCase) })
+
+        $usable = ([string]$capture.Schema -eq 'omniphony.windows.apo-target.v3') -and
             ($candidates.Count -eq 1) -and
             ($paired.Count -eq 1) -and
-            (@($candidates[0].HardwareIds).Count -gt 0)
+            (@($candidates[0].HardwareIds).Count -gt 0) -and
+            (-not [string]::IsNullOrWhiteSpace($resolvedSection)) -and
+            ($warnings.Count -eq 0) -and
+            $capturedFxReadable -and
+            $endpointPresent -and
+            $driverPresent -and
+            $liveFx.Readable -and
+            ($liveFx.EnhancementsDisabled -ne 1) -and
+            ($foreign.Count -eq 0) -and
+            $sectionExt.Equals($liveSectionExt, [StringComparison]::OrdinalIgnoreCase)
+
         return [ordered]@{
             Supplied = $true
             Exists = $true
@@ -88,6 +174,15 @@ function Get-CaptureRecord([string]$Path) {
             DefaultEndpoint = [string]$capture.DefaultEndpoint.FriendlyName
             CandidateCount = $candidates.Count
             PairedTopologyReferences = @($paired)
+            ResolvedDriverSection = $resolvedSection
+            CapturedDriverSectionExt = $sectionExt
+            LiveDriverSectionExt = $liveSectionExt
+            InterfaceResolutionWarnings = $warnings
+            EndpointPresent = [bool]$endpointPresent
+            DriverPresent = [bool]$driverPresent
+            CapturedEffectsReadable = [bool]$capturedFxReadable
+            LiveEndpointEffects = $liveFx
+            ForeignEndpointEffects = $foreign
             Usable = [bool]$usable
             Error = ''
         }
@@ -185,12 +280,13 @@ $driverInventory = Get-PnpDriverInventory
 $blockers = New-Object System.Collections.Generic.List[string]
 if (-not $windows11Eligible) { $blockers.Add('Windows build is below 22000; the production APO package targets Windows 11 21H2 or later.') }
 if ($protectedAudioDgBypassActive) { $blockers.Add('DisableProtectedAudioDG=1 is active. Remove the development bypass before production testing.') }
-if ($CaptureJson -and -not $capture.Usable) { $blockers.Add('The supplied target capture is not unambiguous v2 evidence with one hardware candidate and one paired topology reference.') }
+if ($CaptureJson -and -not $capture.Usable) { $blockers.Add('The supplied target capture is not live, unambiguous v3 evidence with one hardware candidate, one paired topology reference, matching platform section and a collision-free endpoint.') }
 if ($PackageRoot -and -not $package.ManifestValid) { $blockers.Add('The supplied package manifest or payload hashes are invalid.') }
 if ($PackageRoot -and -not $package.SignaturesValid) { $blockers.Add('The supplied production candidate does not have four locally Valid Authenticode signatures.') }
+if ($PackageRoot -and -not $package.ManifestSaysSignaturesVerified) { $blockers.Add('The package manifest does not record completed signature verification.') }
 
 $report = [ordered]@{
-    Schema = 'omniphony.windows.apo-readiness.v1'
+    Schema = 'omniphony.windows.apo-readiness.v2'
     CheckedAtUtc = [DateTime]::UtcNow.ToString('o')
     Machine = [ordered]@{
         Caption = [string]$os.Caption
@@ -209,11 +305,11 @@ $report = [ordered]@{
     Capture = $capture
     Package = $package
     Blockers = @($blockers)
-    RepositorySideReadyForPhysicalTest = ($blockers.Count -eq 0 -and $capture.Usable -and $package.ManifestValid -and $package.SignaturesValid)
+    RepositorySideReadyForPhysicalTest = ($blockers.Count -eq 0 -and $capture.Usable -and $package.ManifestValid -and $package.SignaturesValid -and $package.ManifestSaysSignaturesVerified)
     Note = 'A clean readiness report is necessary evidence only. It does not prove that Windows protected AudioDG will load the APO or that physical playback succeeds.'
 }
 
-$json = $report | ConvertTo-Json -Depth 12
+$json = $report | ConvertTo-Json -Depth 14
 if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
     $parent = Split-Path -Parent ([IO.Path]::GetFullPath($OutputPath))
     if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
