@@ -44,6 +44,18 @@ pub fn route_energy_gain(route: Option<NativeStereoRoute>) -> f32 {
         .clamp(0.0, 1.0)
 }
 
+/// Renderer-local suppression of already-derived object extent.
+///
+/// This is deliberately a retention scalar rather than another source-evidence
+/// field: 1 keeps the presentation size selected by source/musical policy, 0
+/// collapses only the object's extent to a point while leaving its centre,
+/// authored route and source identity untouched. Values above 1 are not
+/// accepted here because expansion belongs to the ordinary presentation policy.
+fn retain_extent(size: [f32; 3], retention: f32) -> [f32; 3] {
+    let retention = retention.clamp(0.0, 1.0);
+    size.map(|axis| (axis * retention).clamp(0.0, 1.0))
+}
+
 impl SourceFrameRenderer {
     pub fn new(renderer: SpatialRenderer, policy: SourcePresentationPolicy) -> Self {
         Self {
@@ -122,6 +134,37 @@ impl SourceFrameRenderer {
         samples_buf: Vec<f32>,
         measure_breakdown: bool,
     ) -> Result<RenderedFrame> {
+        self.render_source_frame_with_presentation_controls(
+            input_pcm,
+            sources,
+            route_gain_preapplied,
+            None,
+            sample_pos,
+            ramp_length,
+            samples_buf,
+            measure_breakdown,
+        )
+    }
+
+    /// Render one block with host-owned arithmetic policy plus a renderer-local
+    /// per-lane extent-retention sidecar.
+    ///
+    /// `extent_retention[channel]` is a presentation safety control, not source
+    /// evidence. `1.0` retains the source's normally derived FullSphere extent;
+    /// `0.0` renders the same source centre as a point. This is used for causal
+    /// attack protection and similar renderer-only guards that must not rewrite
+    /// the ABI source record.
+    pub fn render_source_frame_with_presentation_controls(
+        &mut self,
+        input_pcm: &[f32],
+        sources: &[SourceSceneEvidence],
+        route_gain_preapplied: Option<&[bool]>,
+        extent_retention: Option<&[f32]>,
+        sample_pos: u64,
+        ramp_length: u32,
+        samples_buf: Vec<f32>,
+        measure_breakdown: bool,
+    ) -> Result<RenderedFrame> {
         let channels = sources.len();
         if let Some(flags) = route_gain_preapplied {
             if flags.len() != channels {
@@ -130,6 +173,23 @@ impl SourceFrameRenderer {
                     flags.len(),
                     channels
                 );
+            }
+        }
+        if let Some(retention) = extent_retention {
+            if retention.len() != channels {
+                bail!(
+                    "extent-retention width {} does not match {} source channels",
+                    retention.len(),
+                    channels
+                );
+            }
+            if let Some((index, value)) = retention
+                .iter()
+                .copied()
+                .enumerate()
+                .find(|(_, value)| !value.is_finite() || !(0.0..=1.0).contains(value))
+            {
+                bail!("extent-retention value at channel {index} is out of range: {value}");
             }
         }
         if channels == 0 {
@@ -187,13 +247,20 @@ impl SourceFrameRenderer {
             // source's old pose. A proven persistent part retains the same
             // identity key and therefore keeps ordinary smooth motion.
             let event_ramp_length = if identity_changed { 0 } else { ramp_length };
-            let presented = present_source_channel(
+            let mut presented = present_source_channel(
                 channel_idx,
                 source,
                 self.policy,
                 Some(sample_pos),
                 Some(event_ramp_length),
             );
+            if let Some(retention) = extent_retention {
+                let size = retain_extent(presented.presentation.size, retention[channel_idx]);
+                presented.presentation.size = size;
+                if let Some(event) = presented.event.as_mut() {
+                    event.size = Some(size);
+                }
+            }
             let Some(event) = presented.event else {
                 bail!("renderable source channel {channel_idx} produced no object event");
             };
@@ -321,6 +388,14 @@ mod tests {
             1.0
         );
         assert_eq!(route_energy_gain(sources[0].native_stereo_route), std::f32::consts::FRAC_1_SQRT_2);
+    }
+
+    #[test]
+    fn extent_retention_collapses_only_size() {
+        let size = [0.8, 0.6, 0.4];
+        assert_eq!(retain_extent(size, 1.0), size);
+        assert_eq!(retain_extent(size, 0.0), [0.0; 3]);
+        assert_eq!(retain_extent(size, 0.5), [0.4, 0.3, 0.2]);
     }
 
     #[test]
