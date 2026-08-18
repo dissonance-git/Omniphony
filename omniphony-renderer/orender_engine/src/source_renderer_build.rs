@@ -4,8 +4,9 @@
 //! host, or a fixture can all build the same source renderer and therefore use
 //! the same Omniphony binaural semantics.
 //!
-//! The game-music interpreter owns source truth. This module only chooses a
-//! presentation policy and a renderer configuration for those source lanes.
+//! Retro VGM Compiler owns source truth. This module chooses the listening
+//! presentation. FullSphere is deliberately an immersive remix mode, not a
+//! claim that the historical source authored modern rear/height coordinates.
 
 use anyhow::Result;
 use bridge_api::{RVbapCartesianDefaults, RVbapTableMode};
@@ -20,11 +21,13 @@ use crate::renderer_build::{EvalMode, SpatialRendererParams, build_spatial_rende
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceSpatialMode {
-    /// Preserve native laterality and stable source identity, but do not push
-    /// support material toward rear/height/depth. Useful as the source-aware
-    /// control immediately above historical stereo.
+    /// Preserve native laterality and stable source identity, but do not add
+    /// creative rear/height/depth. Useful as the source-aware control directly
+    /// above the protected historical/reference mix.
     NativeRouting,
-    /// Use the full evidence-earned sphere with the measured HRTF path.
+    /// Mix recovered real sources into Omniphony's full immersive field. Native
+    /// route and authored geometry remain constraints; otherwise width, depth,
+    /// height and extent are explicitly DERIVED production decisions.
     FullSphere,
 }
 
@@ -77,13 +80,15 @@ pub fn source_presentation_policy(mode: SourceSpatialMode) -> SourcePresentation
             max_distance: 1.0,
         },
         SourceSpatialMode::FullSphere => SourcePresentationPolicy {
+            // FullSphere intentionally opens the source-native remix rather than
+            // waiting for historical proof of a speaker coordinate that the old
+            // format could never encode.
             sphere_strength: 1.0,
-            // A support object may live well behind the listener while leaving
-            // a margin around the exact rear singularity.
+            // Dynamic source objects may live well behind the listener while
+            // leaving a margin around the exact rear singularity.
             max_rear_azimuth_deg: 150.0,
-            // Strong enough to create an unmistakable upper hemisphere;
-            // vertical placement still requires explicit source/policy affinity
-            // from the source-scene evidence.
+            // Strong enough to create an unmistakable upper hemisphere. Musical
+            // role and native routing still shape where each source actually goes.
             max_elevation_deg: 60.0,
             max_distance: 1.75,
         },
@@ -165,7 +170,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn native_mode_disables_inferred_depth_and_height() {
+    fn native_mode_disables_creative_depth_and_height() {
         let policy = source_presentation_policy(SourceSpatialMode::NativeRouting);
         assert_eq!(policy.sphere_strength, 0.0);
         assert_eq!(policy.max_elevation_deg, 0.0);
@@ -173,7 +178,7 @@ mod tests {
     }
 
     #[test]
-    fn full_sphere_uses_rear_height_and_depth_capacity() {
+    fn full_sphere_opens_immersive_rear_height_and_depth_capacity() {
         let policy = source_presentation_policy(SourceSpatialMode::FullSphere);
         assert_eq!(policy.sphere_strength, 1.0);
         assert!(policy.max_rear_azimuth_deg > 135.0);
