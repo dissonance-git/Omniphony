@@ -87,10 +87,12 @@ target_compile_options(OmniphonySpatialProbe PRIVATE /W4 /WX /permissive-)
 target_link_libraries(OmniphonySpatialProbe PRIVATE ole32 uuid)
 
 # Read-only observation probe for the undocumented Windows spatial-provider
-# registry surfaces. It never registers, unregisters, repairs ACLs, or takes
-# ownership. Results are evidence for experiments, not a public API contract.
+# registry surfaces. Its optional --probe-com canary asks only whether an
+# observed encoder CLSID directly exposes the public ISpatialAudioClient COM
+# interface. It never changes provider selection, opens a render stream,
+# registers/unregisters anything, repairs ACLs, or takes ownership.
 add_executable(OmniphonySpatialProviderProbe OmniphonySpatialProviderProbe.cpp)
 target_compile_features(OmniphonySpatialProviderProbe PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonySpatialProviderProbe PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_options(OmniphonySpatialProviderProbe PRIVATE /W4 /WX /permissive-)
-target_link_libraries(OmniphonySpatialProviderProbe PRIVATE advapi32)
+target_link_libraries(OmniphonySpatialProviderProbe PRIVATE ole32 uuid advapi32)
