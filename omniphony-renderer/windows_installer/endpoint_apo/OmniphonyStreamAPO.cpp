@@ -468,7 +468,7 @@ public:
         if (!processed) {
             if (inputChannels_ == 2 && input->u32BufferFlags == BUFFER_VALID &&
                 output->pBuffer != input->pBuffer && outputBytes != 0) {
-                std::memmove(outputBuffer, input->pBuffer, outputBytes);
+                std::memmove(outputBuffer, processInput, outputBytes);
                 output->u32BufferFlags = BUFFER_VALID;
             } else {
                 if (outputBuffer && outputBytes != 0) std::memset(outputBuffer, 0, outputBytes);
