@@ -6,6 +6,8 @@
 //! allocating renderer never runs on the audio callback thread.
 
 mod height_preference;
+mod native_bed;
+mod native_bed_ffi;
 mod noire_x_profile;
 
 use height_preference::HeightPreference;
