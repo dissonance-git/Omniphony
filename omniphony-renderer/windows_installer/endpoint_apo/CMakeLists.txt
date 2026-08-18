@@ -44,10 +44,7 @@ set_target_properties(OmniphonyStreamAPO PROPERTIES PREFIX "" OUTPUT_NAME "Omnip
 add_executable(OmniphonyApoCtl OmniphonyApoCtl.cpp)
 target_compile_features(OmniphonyApoCtl PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonyApoCtl PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-# functiondiscoverykeys_devpkey.h requires DEFINE_PROPERTYKEY to exist before it
-# is parsed. Force propkeydef.h first so Windows SDK include-order changes cannot
-# silently break the shipped endpoint helper.
-target_compile_options(OmniphonyApoCtl PRIVATE /W4 /WX /permissive- /FIpropkeydef.h)
+target_compile_options(OmniphonyApoCtl PRIVATE /W4 /WX /permissive-)
 target_link_libraries(OmniphonyApoCtl PRIVATE ole32 uuid propsys advapi32)
 
 add_executable(OmniphonyApoSmoke OmniphonyApoSmoke.cpp)
