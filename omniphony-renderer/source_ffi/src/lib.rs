@@ -4,6 +4,8 @@
 //! supplies interleaved source lanes plus source evidence; Omniphony returns
 //! binaural stereo. Ordinary stereo inference is not involved.
 
+mod source_attack_extent;
+
 use orender_engine::{
     SourceRendererOptions, SourceSpatialMode, build_source_frame_renderer,
     source_presentation_policy,
@@ -13,6 +15,7 @@ use renderer::source_frame::SourceFrameRenderer;
 use renderer::source_scene::{
     NativeStereoRoute, SourceLaneKind, SourcePresentationPolicy, SourceSceneEvidence,
 };
+use source_attack_extent::SourceAttackExtentTracker;
 use std::ptr;
 
 const ABI_MAJOR: u32 = 0;
@@ -111,6 +114,7 @@ pub struct OmniphonySourceProcessor {
     gain_preapplied_buf: Vec<bool>,
     event_buf: Vec<ConvertedSourceEvent>,
     samples_buf: Vec<f32>,
+    attack_extent: SourceAttackExtentTracker,
 }
 
 fn spatial_mode(value: u32) -> Option<SourceSpatialMode> {
@@ -227,6 +231,9 @@ fn validate_event_headers(
     true
 }
 
+/// Render one ABI/event-bounded segment, splitting it further only at the
+/// renderer-local attack-extent transition. This keeps attack timing in seconds,
+/// not callbacks, while the outer caller still owns exact source evidence time.
 fn render_segment(
     processor: &mut OmniphonySourceProcessor,
     input: &[f32],
@@ -240,31 +247,59 @@ fn render_segment(
     if start_frame == end_frame {
         return Ok(());
     }
-    let input_start = start_frame.checked_mul(source_count).ok_or(-3)?;
-    let input_end = end_frame.checked_mul(source_count).ok_or(-3)?;
-    let output_start = start_frame.checked_mul(2).ok_or(-3)?;
-    let output_end = end_frame.checked_mul(2).ok_or(-3)?;
-    let absolute_sample = sample_pos.checked_add(start_frame as u64).ok_or(-3)?;
 
-    let samples_buf = std::mem::take(&mut processor.samples_buf);
-    let rendered = match processor.renderer.render_source_frame_with_gain_policy(
-        &input[input_start..input_end],
-        &processor.source_buf,
-        Some(&processor.gain_preapplied_buf),
-        absolute_sample,
-        ramp_frames,
-        samples_buf,
-        false,
-    ) {
-        Ok(rendered) => rendered,
-        Err(_) => return Err(-6),
-    };
-    if rendered.samples.len() != output_end - output_start {
-        processor.samples_buf = rendered.samples;
-        return Err(-7);
+    let mut cursor = start_frame;
+    while cursor < end_frame {
+        let remaining = end_frame - cursor;
+        let chunk_frames = processor
+            .attack_extent
+            .frames_until_transition(&processor.source_buf, remaining);
+        let chunk_end = cursor.checked_add(chunk_frames).ok_or(-3)?;
+        let input_start = cursor.checked_mul(source_count).ok_or(-3)?;
+        let input_end = chunk_end.checked_mul(source_count).ok_or(-3)?;
+        let output_start = cursor.checked_mul(2).ok_or(-3)?;
+        let output_end = chunk_end.checked_mul(2).ok_or(-3)?;
+        let absolute_sample = sample_pos.checked_add(cursor as u64).ok_or(-3)?;
+        let effective_ramp_frames = processor.attack_extent.ramp_frames(ramp_frames);
+        let full_sphere = processor.spatial_mode == SourceSpatialMode::FullSphere;
+
+        let OmniphonySourceProcessor {
+            renderer,
+            source_buf,
+            gain_preapplied_buf,
+            samples_buf,
+            attack_extent,
+            ..
+        } = processor;
+        let extent_retention = attack_extent.extent_retention(source_buf, full_sphere);
+        let render_scratch = std::mem::take(samples_buf);
+        let rendered = match renderer.render_source_frame_with_presentation_controls(
+            &input[input_start..input_end],
+            source_buf,
+            Some(gain_preapplied_buf),
+            Some(extent_retention),
+            absolute_sample,
+            effective_ramp_frames,
+            render_scratch,
+            false,
+        ) {
+            Ok(rendered) => rendered,
+            Err(_) => return Err(-6),
+        };
+        if rendered.samples.len() != output_end - output_start {
+            *samples_buf = rendered.samples;
+            return Err(-7);
+        }
+        output[output_start..output_end].copy_from_slice(&rendered.samples);
+        *samples_buf = rendered.samples;
+
+        // Clear any release marker that this successful chunk just submitted,
+        // then advance time. If compactness reaches zero here, `advance` creates
+        // a new release marker for the *next* chunk.
+        attack_extent.acknowledge_render();
+        attack_extent.advance(chunk_frames);
+        cursor = chunk_end;
     }
-    output[output_start..output_end].copy_from_slice(&rendered.samples);
-    processor.samples_buf = rendered.samples;
     Ok(())
 }
 
@@ -318,6 +353,7 @@ pub unsafe extern "C" fn omniphony_source_create(
         gain_preapplied_buf: Vec::new(),
         event_buf: Vec::new(),
         samples_buf: Vec::new(),
+        attack_extent: SourceAttackExtentTracker::new(config.sample_rate_hz),
     }))
 }
 
@@ -347,6 +383,7 @@ pub unsafe extern "C" fn omniphony_source_reset(
     processor.gain_preapplied_buf.clear();
     processor.event_buf.clear();
     processor.samples_buf.clear();
+    processor.attack_extent.reset();
     0
 }
 
@@ -522,6 +559,10 @@ pub unsafe extern "C" fn omniphony_source_process_events_f32(
         });
     }
 
+    // Attack extent is renderer-local state. Begin transactionally from the
+    // previously committed source episodes and the new block's initial evidence.
+    processor.attack_extent.begin(&processor.source_buf);
+
     let mut start_frame = 0usize;
     let mut event_index = 0usize;
     while event_index < processor.event_buf.len() {
@@ -549,6 +590,9 @@ pub unsafe extern "C" fn omniphony_source_process_events_f32(
             let event = processor.event_buf[event_index];
             processor.source_buf[event.lane_index] = event.evidence;
             processor.gain_preapplied_buf[event.lane_index] = event.gain_preapplied;
+            processor
+                .attack_extent
+                .observe_source(event.lane_index, event.evidence);
             event_index += 1;
         }
         start_frame = boundary;
@@ -566,6 +610,10 @@ pub unsafe extern "C" fn omniphony_source_process_events_f32(
     ) {
         return code;
     }
+
+    // Only successful output consumes renderer-local attack time. A failed call
+    // above returns without committing the transactional working state.
+    processor.attack_extent.commit();
     0
 }
 
