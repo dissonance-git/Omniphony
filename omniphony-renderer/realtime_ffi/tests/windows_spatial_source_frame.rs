@@ -5,6 +5,8 @@
 mod spatial_ingress;
 #[path = "../../windows_host/src/spatial_source_frame.rs"]
 mod spatial_source_frame;
+#[path = "../../windows_host/src/spatial_source_slots.rs"]
+mod spatial_source_slots;
 
 use orender_engine::{SourceRendererOptions, SourceSpatialMode, build_source_frame_renderer};
 use spatial_ingress::{
