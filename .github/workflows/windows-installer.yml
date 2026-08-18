@@ -27,7 +27,7 @@ env:
 
 jobs:
   build-installer:
-    name: Build Windows 11 x64 single EXE APO installer
+    name: Build Windows 11 x64 tray-only installer
     runs-on: windows-2022
     timeout-minutes: 60
 
@@ -53,7 +53,7 @@ jobs:
           rustc --version --verbose
           cargo --version
 
-      - name: Test Current renderer contracts
+      - name: Test full Current renderer contracts
         shell: pwsh
         working-directory: omniphony/omniphony-renderer
         run: |
@@ -123,10 +123,6 @@ jobs:
           $probe = Join-Path $env:RUNNER_TEMP 'omniphony-embedded-manifest.xml'
           Remove-Item $probe -Force -ErrorAction SilentlyContinue
 
-          # mt.exe returns nonzero when the requested manifest resource does not
-          # exist. That is the success condition for this APO. Launch it through
-          # ProcessStartInfo so pwsh does not promote the expected native exit
-          # code into a workflow failure before we can inspect it.
           $psi = [System.Diagnostics.ProcessStartInfo]::new()
           $psi.FileName = $mt
           $psi.UseShellExecute = $false
@@ -170,7 +166,7 @@ jobs:
             if ($unregister.ExitCode -ne 0) { Write-Warning "regsvr32 cleanup returned $($unregister.ExitCode)" }
           }
 
-      - name: Assemble APO-native installer payload
+      - name: Assemble tray-only installer payload
         shell: pwsh
         run: |
           $payload = "$env:GITHUB_WORKSPACE\payload"
@@ -182,8 +178,8 @@ jobs:
           $renderer = "$env:GITHUB_WORKSPACE\omniphony\omniphony-renderer"
           $endpointCtl = "$renderer\windows_installer\build\endpoint_ctl\OmniphonyEndpointCtl.exe"
 
-          # Temporary install payload. Smoke executables are deliberately not
-          # retained under Program Files after setup completes.
+          # Temporary setup payload. These helpers install and validate Current,
+          # then only the runtime DLLs and small tray/repair surface remain.
           Copy-Item "$release\OmniphonyAPO.dll" $runtime -Force
           Copy-Item "$renderer\target\release\omniphony_realtime.dll" $runtime -Force
           Copy-Item "$release\OmniphonyApoCtl.exe" $runtime -Force
@@ -192,21 +188,20 @@ jobs:
           Copy-Item "$release\OmniphonyMixProbe.exe" $runtime -Force
           Copy-Item $endpointCtl $runtime -Force
 
-          # Persistent tray/repair surface plus the production migration path.
+          # Persistent support is deliberately small. The signed DriverStore
+          # experiment remains in the repository but is not part of this product.
           Copy-Item "$renderer\windows_installer\endpoint_apo\Install-OmniphonyAPO.ps1" $support -Force
           Copy-Item "$renderer\windows_installer\endpoint_apo\Uninstall-OmniphonyAPO.ps1" $support -Force
           Copy-Item "$release\OmniphonyApoCtl.exe" $support -Force
           Copy-Item "$release\OmniphonyMixProbe.exe" $support -Force
-          Copy-Item "$release\OmniphonyProductionProbe.exe" $support -Force
           Copy-Item $endpointCtl $support -Force
-          Copy-Item "$renderer\windows_installer\endpoint_apo\production" (Join-Path $support 'production') -Recurse -Force
           Copy-Item "$env:GITHUB_WORKSPACE\omniphony\LICENSE" "$payload\LICENSE" -Force
 
-          Write-Host 'Installed development product target:'
+          Write-Host 'Installed product target:'
           Write-Host '  Omniphony\APO\OmniphonyAPO.dll'
           Write-Host '  Omniphony\APO\omniphony_realtime.dll'
-          Write-Host '  Omniphony\support\OmniphonyProductionProbe.exe'
-          Write-Host '  Omniphony\support\production\Finish-ProductionInstall.ps1'
+          Write-Host '  Omniphony\support\OmniphonyTray.ps1'
+          Write-Host '  no taskbar window; no background host process'
           Get-ChildItem $payload -Recurse -File | Select-Object FullName, Length
 
       - name: Install Inno Setup
@@ -234,10 +229,10 @@ jobs:
           Write-Host "OmniphonySetup.exe SHA256=$hash"
           Get-Item $setup | Format-List FullName, Length, LastWriteTimeUtc
 
-      - name: Upload single EXE development installer
+      - name: Upload OmniphonySetup.exe
         uses: actions/upload-artifact@v4
         with:
-          name: omniphony-for-windows-apo-setup-${{ github.sha }}
+          name: omniphony-windows-setup-${{ github.sha }}
           path: dist/OmniphonySetup.exe
           if-no-files-found: error
           retention-days: 14
