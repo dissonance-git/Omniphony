@@ -76,3 +76,12 @@ target_compile_features(OmniphonyProductionProbe PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonyProductionProbe PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_options(OmniphonyProductionProbe PRIVATE /W4 /WX /permissive-)
 target_link_libraries(OmniphonyProductionProbe PRIVATE ole32 uuid)
+
+# Read-only native Spatial Audio capability probe. It interrogates the active
+# endpoint's ISpatialAudioClient without opening a render stream or claiming
+# access to another process's spatial objects.
+add_executable(OmniphonySpatialProbe OmniphonySpatialProbe.cpp)
+target_compile_features(OmniphonySpatialProbe PRIVATE cxx_std_17)
+target_compile_definitions(OmniphonySpatialProbe PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_compile_options(OmniphonySpatialProbe PRIVATE /W4 /WX /permissive-)
+target_link_libraries(OmniphonySpatialProbe PRIVATE ole32 uuid)
