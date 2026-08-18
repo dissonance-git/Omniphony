@@ -25,7 +25,7 @@ Omniphony canonical 8.1.4.4 semantic world
     ↓
 22-direction render shell
     ↓
-binaural renderer
+cascaded binaural renderer
 ```
 
 The 17-lane 8.1.4.4 scene is a **presentation vocabulary**, not a required source topology.
@@ -100,7 +100,7 @@ The method combines centre-source signals with decorrelated variants and solves 
 
 Transfer:
 
-- a future high-quality Omniphony extent renderer should consider covariance/coherence targets rather than crude stereo widening;
+- covariance/coherence targets are a useful comparison against Omniphony's first shell-spread implementation;
 - source width can be increased while treating fidelity as an optimization constraint;
 - the centre/localization anchor and the spread field need not be the same component.
 
@@ -113,7 +113,8 @@ This work models extended binaural sources through target spatial covariance and
 Transfer:
 
 - a binaural source can legitimately have extent independent of its centre position;
-- size should eventually influence the actual binaural ear signals, not stop at scene metadata.
+- size must influence the actual binaural ear signals rather than stop at scene metadata;
+- covariance-based rendering remains a useful alternate implementation to compare with the current cascaded-shell method.
 
 ### Landschoot and Jot (2023), *Binaural externalization processing method for object-based audio rendering*
 
@@ -227,6 +228,8 @@ must not become:
 
 The shared echo network is historical common processing. It may be presented as a broad environmental field while the dry voices remain localizable objects. Omniphony's own early externalization field remains a separate modern presentation mechanism.
 
+In FullSphere, the shared S-DSP field may spend substantially more extent over the 22-direction shell than individual dry voices. Its chosen center and native linked L/R identity remain separate from that extent decision.
+
 ## Source authority by device family
 
 | Device/path | Preserve as source truth | AUTHORED spatial/routing evidence | FullSphere may DERIVE |
@@ -284,22 +287,35 @@ Derived position has **inertia, but not glue**.
 
 ## Source extent is a real renderer obligation
 
-The source model already carries 3-D `size`, but scene metadata alone does not create apparent source width.
+The source model carries 3-D `size`, and FullSphere now translates that metadata into the headphone signal through Omniphony's existing shell renderer:
 
-The active direct-binaural path must eventually translate source extent into ear-signal structure using a controlled mechanism such as bounded multi-point spread, decorrelated spatial copies, or fidelity-constrained spatial covariance matching.
+```text
+source centre + [width, depth, height]
+→ size-aware object event
+→ VBAP spread across 22-direction System-H-derived shell
+→ fixed virtual-speaker field
+→ cascaded binaural HRTF / ITD
+```
 
-The research suggests a useful design split:
+The FullSphere precomputed evaluator guarantees at least five size states (`0, .25, .5, .75, 1`) and interpolates between them. This keeps extent independent from center position while avoiding a second bespoke stereo-widening stage.
+
+The research suggests a useful conceptual split that the implementation should continue to preserve:
 
 ```text
 source centre
-→ localization anchor / HRTF / ITD
+→ localization anchor
 
 source extent
-→ controlled interaural coherence + angular/covariance spread
+→ bounded angular occupation of the shell
 
 shared wet field
-→ environmental envelopment
+→ larger environmental envelopment budget
+
+Omniphony early reflections
+→ optional externalization support
 ```
+
+A future direct-HRTF covariance/decorrelation renderer remains a valuable comparison against shell spread, especially for timbral coloration and apparent-width efficiency. It is now an alternate research path, not a missing prerequisite for source extent to be audible in FullSphere.
 
 Do not buy width by smearing transients, destroying tonal identity or turning every source into diffuse ambience.
 
@@ -315,8 +331,8 @@ historical source truth
     → authored constraints + musical evidence
     → deliberate Omniphony FullSphere mix
     → 8.1.4.4 semantic world
-    → 22-direction shell
-    → binaural renderer
+    → size-aware 22-direction shell
+    → cascaded binaural renderer
 ```
 
 It does **not** justify claiming that the resulting modern 3-D positions were authored by the game.
@@ -378,8 +394,8 @@ Surround on
     → musical evidence shapes the layout
     → DERIVED width / rear depth / height / distance / extent
     → Omniphony 8.1.4.4 semantic world + dynamic objects
-    → 22-direction full-sphere shell
-    → binaural stereo
+    → size-aware 22-direction full-sphere shell
+    → cascaded binaural stereo
 ```
 
 A separate externalization option may control Omniphony early reflections because geometry, extent and externalization are distinct controls.
@@ -407,4 +423,4 @@ Every source-aware spatial listening build should score at least:
 - whether the scene feels intentionally mixed rather than algorithmically scattered;
 - preference versus reference.
 
-Engineering tests should fail if FullSphere creative coordinates are promoted to authored source facts, NativeRouting leaks creative rear/height/depth, shared wet is fabricated into per-source stems, authored route evidence is retimed/overridden, or a whole-chip renderer is promoted to independent source stems without decomposition evidence.
+Engineering tests should fail if FullSphere creative coordinates are promoted to authored source facts, NativeRouting leaks creative rear/height/depth, source extent does not alter FullSphere headphone output, shared wet is fabricated into per-source stems, shared-wet extent moves the field center instead of only changing its occupation, authored route evidence is retimed/overridden, or a whole-chip renderer is promoted to independent source stems without decomposition evidence.
