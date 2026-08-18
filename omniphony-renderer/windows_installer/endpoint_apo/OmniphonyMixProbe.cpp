@@ -1,6 +1,7 @@
 // WIN32_LEAN_AND_MEAN and NOMINMAX are supplied by CMake so /WX sees no macro redefinitions.
 #include <windows.h>
 #include <audioclient.h>
+#include <ksmedia.h>
 #include <propkeydef.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <mmdeviceapi.h>
@@ -307,11 +308,91 @@ int RepairMissingEffects(const std::wstring& endpointGuid) {
     return removed;
 }
 
+WAVEFORMATEXTENSIBLE SevenOneFloat48k() {
+    WAVEFORMATEXTENSIBLE format = {};
+    format.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+    format.Format.nChannels = 8;
+    format.Format.nSamplesPerSec = 48000;
+    format.Format.wBitsPerSample = 32;
+    format.Format.nBlockAlign = static_cast<WORD>(format.Format.nChannels * sizeof(float));
+    format.Format.nAvgBytesPerSec = format.Format.nSamplesPerSec * format.Format.nBlockAlign;
+    format.Format.cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
+    format.Samples.wValidBitsPerSample = 32;
+    format.dwChannelMask = KSAUDIO_SPEAKER_7POINT1_SURROUND;
+    format.SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+    return format;
+}
+
+int ProbeSharedSevenOne(IAudioClient* client, const std::wstring& name) {
+    if (!client) {
+        return 8;
+    }
+
+    WAVEFORMATEXTENSIBLE requested = SevenOneFloat48k();
+    WAVEFORMATEX* closest = nullptr;
+    const HRESULT support = client->IsFormatSupported(
+        AUDCLNT_SHAREMODE_SHARED, &requested.Format, &closest);
+
+    if (support == S_OK) {
+        std::wcout << L"SHARED_7_1_FORMAT_SUPPORTED\t" << name
+                   << L"\tRATE=48000\tCHANNELS=8\tBITS=32\tFORMAT=float32\n";
+    } else {
+        std::wcerr << L"SHARED_7_1_FORMAT_UNSUPPORTED\t" << name
+                   << L"\tHR=" << HResultText(support);
+        if (closest) {
+            std::wcerr << L"\tCLOSEST_RATE=" << closest->nSamplesPerSec
+                       << L"\tCLOSEST_CHANNELS=" << closest->nChannels
+                       << L"\tCLOSEST_BITS=" << closest->wBitsPerSample;
+        }
+        std::wcerr << L'\n';
+        if (closest) {
+            CoTaskMemFree(closest);
+        }
+        return 8;
+    }
+    if (closest) {
+        CoTaskMemFree(closest);
+        closest = nullptr;
+    }
+
+    const HRESULT initialized = client->Initialize(
+        AUDCLNT_SHAREMODE_SHARED,
+        AUDCLNT_STREAMFLAGS_NOPERSIST,
+        0,
+        0,
+        &requested.Format,
+        nullptr);
+    if (FAILED(initialized)) {
+        std::wcerr << L"SHARED_7_1_INITIALIZE_FAILED\t" << name
+                   << L"\tHR=" << HResultText(initialized) << L'\n';
+        return 9;
+    }
+
+    UINT32 bufferFrames = 0;
+    const HRESULT bufferHr = client->GetBufferSize(&bufferFrames);
+    if (FAILED(bufferHr)) {
+        std::wcerr << L"SHARED_7_1_BUFFER_FAILED\t" << name
+                   << L"\tHR=" << HResultText(bufferHr) << L'\n';
+        return 10;
+    }
+
+    std::wcout << L"SHARED_7_1_INITIALIZE_OK\t" << name
+               << L"\tRATE=48000\tINPUT_CHANNELS=8\tENDPOINT_CHANNELS=2"
+               << L"\tBITS=32\tFORMAT=float32\tBUFFER_FRAMES=" << bufferFrames << L'\n';
+    return 0;
+}
+
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
-    if (argc < 2) {
-        std::wcerr << L"usage: OmniphonyMixProbe <endpoint-name-needle> [more needles...]\n";
+    bool probeSharedSevenOne = false;
+    int needleStart = 1;
+    if (argc >= 2 && _wcsicmp(argv[1], L"--shared-7.1") == 0) {
+        probeSharedSevenOne = true;
+        needleStart = 2;
+    }
+    if (argc <= needleStart) {
+        std::wcerr << L"usage: OmniphonyMixProbe [--shared-7.1] <endpoint-name-needle> [more needles...]\n";
         return 2;
     }
 
@@ -324,7 +405,7 @@ int wmain(int argc, wchar_t** argv) {
     int result = 0;
     {
         std::vector<std::wstring> needles;
-        for (int i = 1; i < argc; ++i) {
+        for (int i = needleStart; i < argc; ++i) {
             if (argv[i] && *argv[i]) {
                 needles.emplace_back(argv[i]);
             }
@@ -369,6 +450,16 @@ int wmain(int argc, wchar_t** argv) {
                                << L"\tBITS=" << format->wBitsPerSample
                                << L"\tTAG=0x" << std::hex << format->wFormatTag << std::dec
                                << L'\n';
+                    if (probeSharedSevenOne) {
+                        if (format->nChannels != 2 || format->nSamplesPerSec != 48000 ||
+                            format->wBitsPerSample != 32) {
+                            std::wcerr << L"SHARED_7_1_ENDPOINT_FLOOR_FAILED\t" << name
+                                       << L"\tEXPECTED=stereo-float32-48000\n";
+                            result = 11;
+                        } else {
+                            result = ProbeSharedSevenOne(client.Get(), name);
+                        }
+                    }
                 }
                 if (format) {
                     CoTaskMemFree(format);
