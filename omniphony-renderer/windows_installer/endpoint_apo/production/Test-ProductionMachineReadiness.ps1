@@ -102,10 +102,10 @@ function Get-PnpDriverInventory {
 
 function Get-CaptureRecord([string]$Path) {
     if ([string]::IsNullOrWhiteSpace($Path)) {
-        return [ordered]@{ Supplied = $false; Exists = $false; Schema = ''; CandidateCount = 0; PairedTopologyReferences = @(); Usable = $false; Error = '' }
+        return [ordered]@{ Supplied = $false; Exists = $false; Schema = ''; CandidateCount = 0; PairedTopologyReferences = @(); Usable = $false; Error = ''; Data = $null }
     }
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        return [ordered]@{ Supplied = $true; Exists = $false; Schema = ''; CandidateCount = 0; PairedTopologyReferences = @(); Usable = $false; Error = 'capture file not found' }
+        return [ordered]@{ Supplied = $true; Exists = $false; Schema = ''; CandidateCount = 0; PairedTopologyReferences = @(); Usable = $false; Error = 'capture file not found'; Data = $null }
     }
     try {
         $capture = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
@@ -172,6 +172,7 @@ function Get-CaptureRecord([string]$Path) {
             Path = (Resolve-Path -LiteralPath $Path).Path
             Schema = [string]$capture.Schema
             DefaultEndpoint = [string]$capture.DefaultEndpoint.FriendlyName
+            MmDeviceId = [string]$capture.DefaultEndpoint.MmDeviceId
             CandidateCount = $candidates.Count
             PairedTopologyReferences = @($paired)
             ResolvedDriverSection = $resolvedSection
@@ -185,18 +186,19 @@ function Get-CaptureRecord([string]$Path) {
             ForeignEndpointEffects = $foreign
             Usable = [bool]$usable
             Error = ''
+            Data = $capture
         }
     } catch {
-        return [ordered]@{ Supplied = $true; Exists = $true; Schema = ''; CandidateCount = 0; PairedTopologyReferences = @(); Usable = $false; Error = $_.Exception.Message }
+        return [ordered]@{ Supplied = $true; Exists = $true; Schema = ''; CandidateCount = 0; PairedTopologyReferences = @(); Usable = $false; Error = $_.Exception.Message; Data = $null }
     }
 }
 
 function Get-PackageRecord([string]$Root) {
     if ([string]::IsNullOrWhiteSpace($Root)) {
-        return [ordered]@{ Supplied = $false; Exists = $false; ManifestValid = $false; SignaturesValid = $false; Files = @(); Error = '' }
+        return [ordered]@{ Supplied = $false; Exists = $false; ManifestValid = $false; SignaturesValid = $false; ProbePath = ''; Files = @(); Error = '' }
     }
     if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
-        return [ordered]@{ Supplied = $true; Exists = $false; ManifestValid = $false; SignaturesValid = $false; Files = @(); Error = 'package root not found' }
+        return [ordered]@{ Supplied = $true; Exists = $false; ManifestValid = $false; SignaturesValid = $false; ProbePath = ''; Files = @(); Error = 'package root not found' }
     }
     try {
         $rootPath = (Resolve-Path -LiteralPath $Root).Path
@@ -205,7 +207,7 @@ function Get-PackageRecord([string]$Root) {
             throw 'package-manifest.json is missing'
         }
         $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-        if ($manifest.Schema -ne 'omniphony.windows.apo-package-build.v1') {
+        if ($manifest.Schema -ne 'omniphony.windows.apo-package-build.v2') {
             throw "unsupported package manifest schema: $($manifest.Schema)"
         }
         $manifestValid = $true
@@ -219,26 +221,56 @@ function Get-PackageRecord([string]$Root) {
             if ($hash -ne ([string]$entry.Sha256).ToLowerInvariant()) { $manifestValid = $false }
         }
 
+        $probePath = Join-Path $rootPath 'diagnostics\OmniphonyProductionProbe.exe'
+        if ([string]$manifest.ProductionProbePath -ne 'diagnostics\OmniphonyProductionProbe.exe') {
+            $manifestValid = $false
+        }
         $signaturePaths = @(
             (Join-Path $rootPath 'component\OmniphonyAPO.dll'),
             (Join-Path $rootPath 'component\omniphony_realtime.dll'),
             (Join-Path $rootPath 'component\OmniphonyApo.cat'),
-            (Join-Path $rootPath 'extension\OmniphonyApoExtension.cat')
+            (Join-Path $rootPath 'extension\OmniphonyApoExtension.cat'),
+            $probePath
         )
         $signatures = @($signaturePaths | ForEach-Object { Get-SignatureRecord $_ })
-        $signaturesValid = ($signatures.Count -eq 4) -and (@($signatures | Where-Object { $_.Status -ne 'Valid' }).Count -eq 0)
+        $signaturesValid = ($signatures.Count -eq 5) -and (@($signatures | Where-Object { $_.Status -ne 'Valid' }).Count -eq 0)
         return [ordered]@{
             Supplied = $true
             Exists = $true
             Path = $rootPath
+            ManifestSchema = [string]$manifest.Schema
             ManifestValid = [bool]$manifestValid
             ManifestSaysSignaturesVerified = [bool]$manifest.SignaturesVerified
             SignaturesValid = [bool]$signaturesValid
+            ProbePath = $probePath
             Files = $signatures
             Error = ''
         }
     } catch {
-        return [ordered]@{ Supplied = $true; Exists = $true; ManifestValid = $false; SignaturesValid = $false; Files = @(); Error = $_.Exception.Message }
+        return [ordered]@{ Supplied = $true; Exists = $true; ManifestValid = $false; SignaturesValid = $false; ProbePath = ''; Files = @(); Error = $_.Exception.Message }
+    }
+}
+
+function Invoke-ReadOnlyWasapiProbe([string]$ProbePath, [string]$MmDeviceId) {
+    if ([string]::IsNullOrWhiteSpace($ProbePath) -or -not (Test-Path -LiteralPath $ProbePath -PathType Leaf)) {
+        return [ordered]@{ Ran = $false; Passed = $false; ExitCode = $null; Output = @(); Error = 'production probe is missing' }
+    }
+    if ([string]::IsNullOrWhiteSpace($MmDeviceId)) {
+        return [ordered]@{ Ran = $false; Passed = $false; ExitCode = $null; Output = @(); Error = 'capture has no MMDevice ID' }
+    }
+    try {
+        $lines = @(& $ProbePath $MmDeviceId 2>&1 | ForEach-Object { "$_" })
+        $code = $LASTEXITCODE
+        $success = $lines | Where-Object { $_ -eq "OMNIPHONY_PRODUCTION_WASAPI_PROBE_OK`t1" } | Select-Object -First 1
+        return [ordered]@{
+            Ran = $true
+            Passed = ($code -eq 0 -and $null -ne $success)
+            ExitCode = $code
+            Output = @($lines)
+            Error = if ($code -eq 0 -and $null -ne $success) { '' } else { $lines -join ' | ' }
+        }
+    } catch {
+        return [ordered]@{ Ran = $true; Passed = $false; ExitCode = $null; Output = @(); Error = $_.Exception.Message }
     }
 }
 
@@ -276,17 +308,23 @@ try {
 $capture = Get-CaptureRecord $CaptureJson
 $package = Get-PackageRecord $PackageRoot
 $driverInventory = Get-PnpDriverInventory
+$baselineProbe = if ($PackageRoot -and $capture.Usable -and $package.ManifestValid -and $package.SignaturesValid) {
+    Invoke-ReadOnlyWasapiProbe $package.ProbePath $capture.MmDeviceId
+} else {
+    [ordered]@{ Ran = $false; Passed = $false; ExitCode = $null; Output = @(); Error = 'prerequisite gates did not pass' }
+}
 
 $blockers = New-Object System.Collections.Generic.List[string]
 if (-not $windows11Eligible) { $blockers.Add('Windows build is below 22000; the production APO package targets Windows 11 21H2 or later.') }
 if ($protectedAudioDgBypassActive) { $blockers.Add('DisableProtectedAudioDG=1 is active. Remove the development bypass before production testing.') }
 if ($CaptureJson -and -not $capture.Usable) { $blockers.Add('The supplied target capture is not live, unambiguous v3 evidence with one hardware candidate, one paired topology reference, matching platform section and a collision-free endpoint.') }
-if ($PackageRoot -and -not $package.ManifestValid) { $blockers.Add('The supplied package manifest or payload hashes are invalid.') }
-if ($PackageRoot -and -not $package.SignaturesValid) { $blockers.Add('The supplied production candidate does not have four locally Valid Authenticode signatures.') }
+if ($PackageRoot -and -not $package.ManifestValid) { $blockers.Add('The supplied v2 package manifest or payload hashes are invalid.') }
+if ($PackageRoot -and -not $package.SignaturesValid) { $blockers.Add('The supplied production candidate does not have five locally Valid Authenticode signatures, including the production WASAPI probe.') }
 if ($PackageRoot -and -not $package.ManifestSaysSignaturesVerified) { $blockers.Add('The package manifest does not record completed signature verification.') }
+if ($PackageRoot -and $capture.Usable -and $package.ManifestValid -and $package.SignaturesValid -and -not $baselineProbe.Passed) { $blockers.Add('The exact captured endpoint fails the read-only pre-install WASAPI/GetMixFormat/shared-render probe. Do not install until baseline audio is healthy.') }
 
 $report = [ordered]@{
-    Schema = 'omniphony.windows.apo-readiness.v2'
+    Schema = 'omniphony.windows.apo-readiness.v3'
     CheckedAtUtc = [DateTime]::UtcNow.ToString('o')
     Machine = [ordered]@{
         Caption = [string]$os.Caption
@@ -304,9 +342,10 @@ $report = [ordered]@{
     DriverStore = $driverInventory
     Capture = $capture
     Package = $package
+    BaselineWasapiProbe = $baselineProbe
     Blockers = @($blockers)
-    RepositorySideReadyForPhysicalTest = ($blockers.Count -eq 0 -and $capture.Usable -and $package.ManifestValid -and $package.SignaturesValid -and $package.ManifestSaysSignaturesVerified)
-    Note = 'A clean readiness report is necessary evidence only. It does not prove that Windows protected AudioDG will load the APO or that physical playback succeeds.'
+    RepositorySideReadyForPhysicalTest = ($blockers.Count -eq 0 -and $capture.Usable -and $package.ManifestValid -and $package.SignaturesValid -and $package.ManifestSaysSignaturesVerified -and $baselineProbe.Passed)
+    Note = 'A clean readiness report proves the pre-install endpoint is healthy enough to attempt the protected package transaction. It does not prove that AudioDG will load Current after installation.'
 }
 
 $json = $report | ConvertTo-Json -Depth 14
