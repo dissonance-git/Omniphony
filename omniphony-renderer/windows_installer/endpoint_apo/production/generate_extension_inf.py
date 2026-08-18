@@ -99,6 +99,18 @@ def _paired_topology_references(candidate: dict) -> list[str]:
 
 
 def _select_topology_reference(candidate: dict, explicit: str | None) -> str:
+    resolved_section = str(candidate.get("DriverInfResolvedSection") or "").strip()
+    if not resolved_section:
+        raise ContractError(
+            "target evidence has no DriverInfResolvedSection; re-run Capture-ProductionTarget.ps1"
+        )
+    warnings = [str(x).strip() for x in (candidate.get("InterfaceResolutionWarnings") or []) if str(x).strip()]
+    if warnings:
+        raise ContractError(
+            "target INF evidence contains unresolved warnings and is not safe to package: "
+            + " | ".join(warnings)
+        )
+
     paired = _paired_topology_references(candidate)
     if explicit:
         selected = explicit.strip()
@@ -123,6 +135,35 @@ def _select_topology_reference(candidate: dict, explicit: str | None) -> str:
     return selected
 
 
+def _validate_endpoint_effect_snapshot(capture: dict) -> None:
+    snapshot = capture.get("CapturedEndpointEffects")
+    if not isinstance(snapshot, dict) or not bool(snapshot.get("Readable")):
+        detail = str((snapshot or {}).get("Error") or "no readable snapshot") if isinstance(snapshot, dict) else "snapshot missing"
+        raise ContractError(
+            "target capture does not contain a readable endpoint-effects snapshot: "
+            f"{detail}. Re-run Capture-ProductionTarget.ps1."
+        )
+
+    if int(snapshot.get("EnhancementsDisabled") or 0) == 1:
+        raise ContractError(
+            "system effects were disabled on the captured endpoint; refusing to generate an APO extension that could not run"
+        )
+
+    existing: list[str] = []
+    for key in ("LegacyEndpointEffects", "CompositeEndpointEffects"):
+        existing.extend(str(x).strip() for x in (snapshot.get(key) or []) if str(x).strip())
+    foreign = sorted(
+        {effect for effect in existing if _norm(effect) != _norm(APO_CLSID)},
+        key=str.lower,
+    )
+    if foreign:
+        raise ContractError(
+            "captured endpoint already has non-Omniphony EFX registered: "
+            + ", ".join(foreign)
+            + ". Windows supports composite EFX, but Omniphony will not guess a safe ordering or overwrite a vendor effect."
+        )
+
+
 def _extension_id(hardware_id: str, topology_reference: str) -> str:
     name = f"{hardware_id.lower()}|{topology_reference.lower()}"
     return "{" + str(uuid.uuid5(EXTENSION_NAMESPACE, name)).upper() + "}"
@@ -136,12 +177,12 @@ def render_extension_inf(
     topology_reference: str | None = None,
 ) -> str:
     schema = str(capture.get("Schema") or "")
-    if schema not in {
-        "omniphony.windows.apo-target.v2",
-        "omniphony.windows.apo-target.v1",
-    }:
-        raise ContractError(f"unsupported capture schema: {schema!r}")
+    if schema != "omniphony.windows.apo-target.v3":
+        raise ContractError(
+            f"unsupported capture schema: {schema!r}; production packaging requires omniphony.windows.apo-target.v3"
+        )
 
+    _validate_endpoint_effect_snapshot(capture)
     candidate = _select_candidate(capture, instance_id, hardware_id)
     selected_hwid = _select_hardware_id(candidate, hardware_id)
     topology_ref = _select_topology_reference(candidate, topology_reference)
@@ -206,7 +247,7 @@ AUDIO_SIGNALPROCESSINGMODE_DEFAULT = "{{C18E2F7E-933D-4965-B7D1-1EEF228D2AF3}}"
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Generate a production Omniphony audio-driver extension INF from captured machine evidence."
+        description="Generate a production Omniphony audio-driver extension INF from finalized machine evidence."
     )
     parser.add_argument("capture_json", type=Path)
     parser.add_argument("output_inf", type=Path)
