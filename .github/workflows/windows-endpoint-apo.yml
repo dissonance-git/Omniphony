@@ -126,6 +126,13 @@ jobs:
           & $smoke $realtime
           if ($LASTEXITCODE -ne 0) { throw "Realtime DLL smoke failed: $LASTEXITCODE" }
 
+      - name: Exercise read-only provider observation probe
+        shell: pwsh
+        run: |
+          $probe = (Resolve-Path 'build/endpoint_apo/Release/OmniphonySpatialProviderProbe.exe').Path
+          & $probe
+          if ($LASTEXITCODE -ne 0) { throw "Spatial provider observation probe failed: $LASTEXITCODE" }
+
       - name: Register and smoke endpoint plus native-surround APOs
         shell: pwsh
         run: |
@@ -168,6 +175,8 @@ jobs:
           Copy-Item 'build/endpoint_apo/Release/OmniphonyRealtimeSmoke.exe' $dist
           Copy-Item 'build/endpoint_apo/Release/OmniphonyMixProbe.exe' $dist
           Copy-Item 'build/endpoint_apo/Release/OmniphonyProductionProbe.exe' $dist
+          Copy-Item 'build/endpoint_apo/Release/OmniphonySpatialProbe.exe' $dist
+          Copy-Item 'build/endpoint_apo/Release/OmniphonySpatialProviderProbe.exe' $dist
           Copy-Item 'omniphony-renderer/target/release/omniphony_realtime.dll' $dist
           Copy-Item 'omniphony-renderer/windows_installer/build/endpoint_ctl/OmniphonyEndpointCtl.exe' $dist
           Copy-Item 'omniphony-renderer/windows_installer/endpoint_apo/Install-OmniphonyAPO.ps1' $dist
@@ -184,6 +193,7 @@ jobs:
           Stereo processing: Current working baseline
           Native bed processing: WAVEFORMATEXTENSIBLE authored speaker mask -> binaural stereo
           Native bed smoke: synthetic 7.1.4 -> 2.0
+          Spatial probes: native endpoint capability + read-only provider observation
           Current host latency: 40 ms / 1920 frames at 48 kHz
           Failure behavior: time-aligned deterministic stereo fallback
           Protected AudioDG: embedded manifest disabled
