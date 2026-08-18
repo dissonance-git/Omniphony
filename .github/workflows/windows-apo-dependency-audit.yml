@@ -33,6 +33,10 @@ jobs:
         shell: pwsh
         run: python omniphony-renderer/windows_installer/endpoint_apo/production/check_package_contract.py
 
+      - name: Test production extension generator
+        shell: pwsh
+        run: python -m unittest discover -s omniphony-renderer/windows_installer/endpoint_apo/production -p 'test_*.py' -v
+
       - name: Parse production target-capture PowerShell
         shell: pwsh
         run: |
@@ -65,12 +69,26 @@ jobs:
           choco install windowsdriverkit11 -y --no-progress
           if ($LASTEXITCODE -ne 0) { throw "WDK installation failed: $LASTEXITCODE" }
 
-      - name: Verify production APO INF with InfVerif
+      - name: Generate synthetic production extension INF
+        shell: pwsh
+        run: |
+          $production = 'omniphony-renderer/windows_installer/endpoint_apo/production'
+          $capture = Join-Path $production 'testdata/target-audio-synthetic.json'
+          $extensionInf = Join-Path $env:RUNNER_TEMP 'OmniphonyApoExtension.inf'
+          python (Join-Path $production 'generate_extension_inf.py') $capture $extensionInf
+          if ($LASTEXITCODE -ne 0) { throw "production extension generation failed: $LASTEXITCODE" }
+          if (-not (Test-Path $extensionInf)) { throw 'production extension generator produced no INF' }
+          Write-Host "PRODUCTION_EXTENSION_SYNTHETIC_OK $extensionInf"
+
+      - name: Verify production APO INFs with InfVerif
         shell: pwsh
         run: |
           $source = 'omniphony-renderer/windows_installer/endpoint_apo/production/OmniphonyApoComponent.inx'
-          $inf = Join-Path $env:RUNNER_TEMP 'OmniphonyApoComponent.inf'
-          Copy-Item $source $inf -Force
+          $componentInf = Join-Path $env:RUNNER_TEMP 'OmniphonyApoComponent.inf'
+          $extensionInf = Join-Path $env:RUNNER_TEMP 'OmniphonyApoExtension.inf'
+          Copy-Item $source $componentInf -Force
+          if (-not (Test-Path $extensionInf)) { throw 'generated production extension INF is missing' }
+
           $kitsRoot = 'C:\Program Files (x86)\Windows Kits\10'
           $infverif = Get-ChildItem $kitsRoot -Recurse -Filter 'InfVerif.exe' -File -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -match '\\x64\\InfVerif\.exe$' } |
@@ -79,8 +97,12 @@ jobs:
             ForEach-Object FullName
           if (-not $infverif) { throw 'x64 InfVerif.exe not found in Windows Kits' }
           Write-Host "InfVerif=$infverif"
-          & $infverif /w /v $inf
-          if ($LASTEXITCODE -ne 0) { throw "production APO INF failed InfVerif /w: $LASTEXITCODE" }
+
+          foreach ($inf in @($componentInf, $extensionInf)) {
+            Write-Host "INFVERIF_TARGET $inf"
+            & $infverif /w /v $inf
+            if ($LASTEXITCODE -ne 0) { throw "production INF failed InfVerif /w: $inf exit=$LASTEXITCODE" }
+          }
           Write-Host 'PRODUCTION_APO_INFVERIF_OK 1'
 
       - name: Build AudioDG runtime binaries
