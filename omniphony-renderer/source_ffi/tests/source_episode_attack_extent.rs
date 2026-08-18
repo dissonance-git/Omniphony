@@ -1,8 +1,8 @@
 use omniphony_source::{
     OmniphonySourceConfig, OmniphonySourceEvidenceV1, SOURCE_FLAG_AUTHORED_POSITION,
-    SOURCE_HRIR_SYNTHETIC, SOURCE_LANE_DRY, SOURCE_LANE_SHARED_WET,
-    SOURCE_SPATIAL_FULL_SPHERE, SOURCE_SPATIAL_NATIVE_ROUTING, omniphony_source_create,
-    omniphony_source_destroy, omniphony_source_process_f32,
+    SOURCE_FLAG_PERSISTENT_PART, SOURCE_HRIR_SYNTHETIC, SOURCE_LANE_DRY,
+    SOURCE_LANE_SHARED_WET, SOURCE_SPATIAL_FULL_SPHERE, SOURCE_SPATIAL_NATIVE_ROUTING,
+    omniphony_source_create, omniphony_source_destroy, omniphony_source_process_f32,
 };
 
 const SAMPLE_RATE: u32 = 48_000;
@@ -37,7 +37,12 @@ fn dry(source_id: u64) -> OmniphonySourceEvidenceV1 {
 fn shared_wet(source_id: u64) -> OmniphonySourceEvidenceV1 {
     OmniphonySourceEvidenceV1 {
         lane_kind: SOURCE_LANE_SHARED_WET,
+        // Hold the field's presentation identity fixed while varying only the
+        // bounded source-episode token. Shared-wet placement legitimately uses
+        // persistent/source identity when native pan does not choose a side.
+        flags: SOURCE_FLAG_PERSISTENT_PART,
         source_id,
+        persistent_part_id: 0x5745_5446, // "WETF"
         width: 1.0,
         diffuse: 1.0,
         confidence: 1.0,
