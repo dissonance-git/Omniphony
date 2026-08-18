@@ -61,75 +61,217 @@ function Resolve-InfToken([string]$Value, $Strings) {
     return $trimmed
 }
 
-function Get-InfInterfaceEvidence([string]$InfPath, [string]$DriverSection) {
-    if ([string]::IsNullOrWhiteSpace($InfPath) -or -not (Test-Path -LiteralPath $InfPath)) {
-        return @()
-    }
-
-    $lines = @(Get-Content -LiteralPath $InfPath -ErrorAction Stop)
+function Read-InfDocument([string]$InfPath) {
+    $resolved = (Resolve-Path -LiteralPath $InfPath -ErrorAction Stop).Path
+    $sections = @{}
     $strings = @{}
     $section = ''
-    foreach ($raw in $lines) {
+
+    foreach ($raw in @(Get-Content -LiteralPath $resolved -ErrorAction Stop)) {
         $line = (Remove-InfComment $raw).Trim()
         if (-not $line) { continue }
         if ($line -match '^\[([^\]]+)\]$') {
             $section = $Matches[1].Trim()
+            if (-not $sections.ContainsKey($section)) {
+                $sections[$section] = New-Object System.Collections.Generic.List[string]
+            }
             continue
         }
+        if (-not $section) { continue }
+        $sections[$section].Add($line)
         if ($section -match '^(?i:Strings)(?:\..+)?$' -and $line -match '^([^=]+?)\s*=\s*(.+)$') {
             $key = $Matches[1].Trim().ToLowerInvariant()
-            $value = $Matches[2].Trim().Trim('"')
-            $strings[$key] = $value
+            $strings[$key] = $Matches[2].Trim().Trim('"')
+        }
+    }
+
+    return [pscustomobject]@{
+        Path = $resolved
+        Name = [IO.Path]::GetFileName($resolved)
+        Sections = $sections
+        Strings = $strings
+    }
+}
+
+function Resolve-IncludedInfPath([string]$ParentInfPath, [string]$IncludeToken, $Strings) {
+    $name = Resolve-InfToken $IncludeToken $Strings
+    if ([string]::IsNullOrWhiteSpace($name)) { return '' }
+    $name = $name.Trim().Trim('"')
+    if ([IO.Path]::IsPathRooted($name)) {
+        if (Test-Path -LiteralPath $name -PathType Leaf) { return (Resolve-Path -LiteralPath $name).Path }
+        return ''
+    }
+
+    $beside = Join-Path ([IO.Path]::GetDirectoryName($ParentInfPath)) $name
+    if (Test-Path -LiteralPath $beside -PathType Leaf) { return (Resolve-Path -LiteralPath $beside).Path }
+    $windowsInf = Join-Path $env:WINDIR ('INF\' + [IO.Path]::GetFileName($name))
+    if (Test-Path -LiteralPath $windowsInf -PathType Leaf) { return (Resolve-Path -LiteralPath $windowsInf).Path }
+    return ''
+}
+
+function Get-InfInterfaceEvidence([string]$InfPath, [string]$DriverSection) {
+    $empty = [pscustomobject]@{ Evidence = @(); Warnings = @(); VisitedSections = @() }
+    if ([string]::IsNullOrWhiteSpace($InfPath) -or -not (Test-Path -LiteralPath $InfPath -PathType Leaf)) {
+        return $empty
+    }
+    if ([string]::IsNullOrWhiteSpace($DriverSection)) {
+        return [pscustomobject]@{
+            Evidence = @()
+            Warnings = @('DriverInfSection is empty; refusing to scan unrelated AddInterface declarations.')
+            VisitedSections = @()
         }
     }
 
     $audioCategory = '{6994AD04-93EF-11D0-A3CC-00A0C9223196}'
     $topologyCategory = '{DDA54A40-1E4C-11D1-A050-405705C10000}'
+    $documents = @{}
     $evidence = New-Object System.Collections.Generic.List[object]
-    $section = ''
-    foreach ($raw in $lines) {
-        $line = (Remove-InfComment $raw).Trim()
-        if (-not $line) { continue }
-        if ($line -match '^\[([^\]]+)\]$') {
-            $section = $Matches[1].Trim()
-            continue
-        }
-        if ($line -notmatch '^(?i:AddInterface)\s*=\s*(.+)$') { continue }
+    $warnings = New-Object System.Collections.Generic.List[string]
+    $visitedRows = New-Object System.Collections.Generic.List[object]
+    $visited = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
 
-        $parts = @($Matches[1] -split ',', 3)
-        if ($parts.Count -lt 3) { continue }
-
-        $categoryToken = $parts[0].Trim()
-        $referenceToken = $parts[1].Trim()
-        $installToken = $parts[2].Trim()
-        $categoryResolved = Resolve-InfToken $categoryToken $strings
-        $referenceResolved = Resolve-InfToken $referenceToken $strings
-        $installResolved = Resolve-InfToken $installToken $strings
-
-        $sectionRelevant = $true
-        if (-not [string]::IsNullOrWhiteSpace($DriverSection)) {
-            $prefix = $DriverSection + '.'
-            $sectionRelevant = $section.Equals(($DriverSection + '.Interfaces'), [StringComparison]::OrdinalIgnoreCase) -or
-                $section.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)
-        }
-
-        $evidence.Add([ordered]@{
-            Section = $section
-            SectionRelevant = [bool]$sectionRelevant
-            CategoryToken = $categoryToken
-            CategoryResolved = $categoryResolved
-            ReferenceToken = $referenceToken
-            ReferenceResolved = $referenceResolved
-            InstallSectionToken = $installToken
-            InstallSectionResolved = $installResolved
-            IsAudio = $categoryResolved.Equals($audioCategory, [StringComparison]::OrdinalIgnoreCase)
-            IsTopology = $categoryResolved.Equals($topologyCategory, [StringComparison]::OrdinalIgnoreCase)
-        })
+    function Get-CachedInfDocument([string]$Path) {
+        $resolved = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).Path
+        $key = $resolved.ToLowerInvariant()
+        if (-not $documents.ContainsKey($key)) { $documents[$key] = Read-InfDocument $resolved }
+        return $documents[$key]
     }
 
-    $relevant = @($evidence | Where-Object { $_.SectionRelevant })
-    if ($relevant.Count -gt 0) { return $relevant }
-    return @($evidence)
+    function Get-ExactOrUniqueDecoratedSection($Document, [string]$Requested) {
+        if ($Document.Sections.ContainsKey($Requested)) { return $Requested }
+        $prefix = $Requested + '.'
+        $matches = @($Document.Sections.Keys | Where-Object {
+            $_.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)
+        } | Sort-Object)
+        if ($matches.Count -eq 1) { return [string]$matches[0] }
+        return ''
+    }
+
+    function Visit-InfSection([string]$Path, [string]$SectionName, [string]$Via, [int]$Depth) {
+        if ($Depth -gt 12) {
+            $warnings.Add("INF Include/Needs traversal exceeded depth 12 at $Path [$SectionName]")
+            return
+        }
+        $document = Get-CachedInfDocument $Path
+        $resolvedSection = Get-ExactOrUniqueDecoratedSection $document $SectionName
+        if (-not $resolvedSection) {
+            $warnings.Add("INF section was not found unambiguously: $($document.Name) [$SectionName]")
+            return
+        }
+
+        $visitKey = "$($document.Path)|$resolvedSection"
+        if (-not $visited.Add($visitKey)) { return }
+        $visitedRows.Add([ordered]@{
+            InfPath = $document.Path
+            InfName = $document.Name
+            Section = $resolvedSection
+            Via = $Via
+            Depth = $Depth
+        })
+
+        $includeTokens = New-Object System.Collections.Generic.List[string]
+        $needsTokens = New-Object System.Collections.Generic.List[string]
+
+        foreach ($line in @($document.Sections[$resolvedSection])) {
+            if ($line -match '^(?i:AddInterface)\s*=\s*(.+)$') {
+                $parts = @($Matches[1] -split ',', 4)
+                if ($parts.Count -lt 2) { continue }
+                $categoryToken = $parts[0].Trim()
+                $referenceToken = $parts[1].Trim()
+                $installToken = if ($parts.Count -ge 3) { $parts[2].Trim() } else { '' }
+                $categoryResolved = Resolve-InfToken $categoryToken $document.Strings
+                $referenceResolved = Resolve-InfToken $referenceToken $document.Strings
+                $installResolved = Resolve-InfToken $installToken $document.Strings
+                $evidence.Add([ordered]@{
+                    Section = $resolvedSection
+                    SectionRelevant = $true
+                    SourceInfPath = $document.Path
+                    SourceInfName = $document.Name
+                    ResolutionVia = $Via
+                    ResolutionDepth = $Depth
+                    CategoryToken = $categoryToken
+                    CategoryResolved = $categoryResolved
+                    ReferenceToken = $referenceToken
+                    ReferenceResolved = $referenceResolved
+                    InstallSectionToken = $installToken
+                    InstallSectionResolved = $installResolved
+                    IsAudio = $categoryResolved.Equals($audioCategory, [StringComparison]::OrdinalIgnoreCase)
+                    IsTopology = $categoryResolved.Equals($topologyCategory, [StringComparison]::OrdinalIgnoreCase)
+                })
+                continue
+            }
+            if ($line -match '^(?i:Include)\s*=\s*(.+)$') {
+                foreach ($token in @($Matches[1] -split ',')) {
+                    if (-not [string]::IsNullOrWhiteSpace($token)) { $includeTokens.Add($token.Trim()) }
+                }
+                continue
+            }
+            if ($line -match '^(?i:Needs)\s*=\s*(.+)$') {
+                foreach ($token in @($Matches[1] -split ',')) {
+                    if (-not [string]::IsNullOrWhiteSpace($token)) { $needsTokens.Add($token.Trim()) }
+                }
+            }
+        }
+
+        if ($needsTokens.Count -eq 0) { return }
+        if ($includeTokens.Count -eq 0) {
+            $warnings.Add("$($document.Name) [$resolvedSection] has Needs= without Include=; refusing cross-INF guessing.")
+            return
+        }
+
+        $includedDocs = New-Object System.Collections.Generic.List[object]
+        foreach ($includeToken in $includeTokens) {
+            $includedPath = Resolve-IncludedInfPath $document.Path $includeToken $document.Strings
+            if (-not $includedPath) {
+                $warnings.Add("Included INF not found from $($document.Name) [$resolvedSection]: $includeToken")
+                continue
+            }
+            try { $includedDocs.Add((Get-CachedInfDocument $includedPath)) }
+            catch { $warnings.Add("Could not parse included INF '$includedPath': $($_.Exception.Message)") }
+        }
+
+        foreach ($needToken in $needsTokens) {
+            $need = Resolve-InfToken $needToken $document.Strings
+            if ([string]::IsNullOrWhiteSpace($need)) { continue }
+            $matches = New-Object System.Collections.Generic.List[object]
+            foreach ($included in $includedDocs) {
+                $match = Get-ExactOrUniqueDecoratedSection $included $need
+                if ($match) {
+                    $matches.Add([pscustomobject]@{ Document = $included; Section = $match })
+                }
+            }
+            if ($matches.Count -eq 0) {
+                $warnings.Add("Needs section not found in included INFs from $($document.Name) [$resolvedSection]: $need")
+                continue
+            }
+            if ($matches.Count -gt 1) {
+                $where = @($matches | ForEach-Object { "$($_.Document.Name)[$($_.Section)]" }) -join ', '
+                $warnings.Add("Needs section is ambiguous across included INFs: $need -> $where")
+                continue
+            }
+            $target = $matches[0]
+            Visit-InfSection $target.Document.Path $target.Section "Include/Needs from $($document.Name)[$resolvedSection]" ($Depth + 1)
+        }
+    }
+
+    $primary = Get-CachedInfDocument $InfPath
+    $requested = if ($DriverSection.EndsWith('.Interfaces', [StringComparison]::OrdinalIgnoreCase)) {
+        $DriverSection
+    } else {
+        $DriverSection + '.Interfaces'
+    }
+    $initial = Get-ExactOrUniqueDecoratedSection $primary $requested
+    if (-not $initial) {
+        $warnings.Add("No unambiguous interfaces section matched installed driver section '$DriverSection' in $($primary.Name). Refusing whole-INF AddInterface fallback.")
+    } else {
+        Visit-InfSection $primary.Path $initial 'installed-driver-section' 0
+    }
+
+    return [pscustomobject]@{
+        Evidence = @($evidence)
+        Warnings = @($warnings | Sort-Object -Unique)
+        VisitedSections = @($visitedRows)
+    }
 }
 
 $defaultLines = @(& $EndpointCtl get-default 2>&1 | ForEach-Object { "$_" })
@@ -177,7 +319,8 @@ for ($depth = 0; $depth -lt 10 -and -not [string]::IsNullOrWhiteSpace($currentId
     $driverInfPath = [string](Get-PnpPropertyData $currentId 'DEVPKEY_Device_DriverInfPath')
     $driverInfSection = [string](Get-PnpPropertyData $currentId 'DEVPKEY_Device_DriverInfSection')
     $driverInfFullPath = Resolve-InstalledInfPath $driverInfPath
-    $driverInterfaces = @(Get-InfInterfaceEvidence $driverInfFullPath $driverInfSection)
+    $interfaceResolution = Get-InfInterfaceEvidence $driverInfFullPath $driverInfSection
+    $driverInterfaces = @($interfaceResolution.Evidence)
     $topologyReferences = @(
         $driverInterfaces |
             Where-Object { $_.IsTopology -and -not [string]::IsNullOrWhiteSpace($_.ReferenceResolved) } |
@@ -201,6 +344,8 @@ for ($depth = 0; $depth -lt 10 -and -not [string]::IsNullOrWhiteSpace($currentId
         HardwareIds = [string[]]$hardwareIds
         CompatibleIds = [string[]]$compatibleIds
         DriverInterfaces = @($driverInterfaces)
+        InterfaceResolutionWarnings = @($interfaceResolution.Warnings)
+        InterfaceResolutionVisitedSections = @($interfaceResolution.VisitedSections)
         TopologyReferenceCandidates = [string[]]$topologyReferences
         Parent = $parentId
     })
@@ -228,7 +373,7 @@ $result = [ordered]@{
     PnpAncestry = @($chain)
 }
 
-$result | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+$result | ConvertTo-Json -Depth 16 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
 
 Write-Host "OMNIPHONY_APO_TARGET_CAPTURE_OK`t$OutputPath"
 Write-Host "DEFAULT_ENDPOINT`t$friendlyName`t$mmDeviceId"
@@ -239,6 +384,9 @@ foreach ($candidate in $associationCandidates) {
     }
     foreach ($topologyReference in $candidate.TopologyReferenceCandidates) {
         Write-Host "TOPOLOGY_REFERENCE`t$topologyReference"
+    }
+    foreach ($warning in $candidate.InterfaceResolutionWarnings) {
+        Write-Warning "INF_INTERFACE_EVIDENCE $warning"
     }
 }
 if ($associationCandidates.Count -eq 0) {
