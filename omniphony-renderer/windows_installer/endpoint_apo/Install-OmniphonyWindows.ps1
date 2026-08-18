@@ -16,19 +16,13 @@ $packageStreamSmoke = Join-Path $PackageRoot 'OmniphonyStreamApoSmoke.exe'
 $installedStreamApo = Join-Path $runtimeRoot 'OmniphonyStreamAPO.dll'
 $stateRoot = Join-Path $env:ProgramData 'Omniphony'
 $endpointBackupPath = Join-Path $stateRoot 'endpoint-backup.json'
-$streamBackupPath = Join-Path $stateRoot 'stream-backup.json'
+$legacyStreamBackupPath = Join-Path $stateRoot 'stream-backup.json'
+$logPath = Join-Path $stateRoot 'install-last.log'
 $spatialStatePath = Join-Path $stateRoot 'spatial-state-last.log'
 $ctl = Join-Path $PackageRoot 'OmniphonyApoCtl.exe'
 $mixProbe = Join-Path $PackageRoot 'OmniphonyMixProbe.exe'
 $spatialProbe = Join-Path $here 'OmniphonySpatialProbe.exe'
 $spatialProviderProbe = Join-Path $here 'OmniphonySpatialProviderProbe.exe'
-
-$endpointApoClsid = '{A9333BFE-39C1-40FD-B4B0-ECC591410B47}'
-$streamApoClsid = '{07D403D9-8A98-43EF-8C28-8651756D83BE}'
-$efxValue = '{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},7'
-$sfxValue = '{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},5'
-$sfxModesValue = '{d3993a3f-99c2-4402-b5ec-a92a0367664b},5'
-$defaultMode = '{C18E2F7E-933D-4965-B7D1-1EEF228D2AF3}'
 
 foreach ($path in @($baselineInstaller, $packageStreamApo, $packageStreamSmoke, $ctl, $mixProbe)) {
     if (-not (Test-Path -LiteralPath $path)) { throw "Missing Omniphony package file: $path" }
@@ -53,7 +47,7 @@ function Capture-SpatialIngressObservation {
         foreach ($probe in $probes) {
             $lines += "=== $($probe.Label) ==="
             if (-not (Test-Path -LiteralPath $probe.Path)) {
-                $lines += "probe_status=missing"
+                $lines += 'probe_status=missing'
                 $lines += "probe_path=$($probe.Path)"
                 continue
             }
@@ -73,13 +67,6 @@ function Capture-SpatialIngressObservation {
     }
 }
 
-& $baselineInstaller -PackageRoot $PackageRoot -AppRoot $AppRoot -AllowUnprotectedAudioDG:$AllowUnprotectedAudioDG
-
-# Provider discovery is independent of the SFX migration below. Capture the
-# real machine once the baseline is attached, but never let observational
-# tooling decide whether audio installation succeeds.
-Capture-SpatialIngressObservation
-
 function Set-AudioServiceRunning([bool]$Running) {
     $service = Get-Service -Name AudioSrv -ErrorAction Stop
     if ($Running -and $service.Status -ne 'Running') { Start-Service -Name AudioSrv }
@@ -87,203 +74,177 @@ function Set-AudioServiceRunning([bool]$Running) {
 }
 
 function Restart-AudioGraph {
+    Write-Host 'AUDIO_GRAPH_RESET_BEGIN native-surround'
     Set-AudioServiceRunning $false
     Start-Sleep -Milliseconds 250
     Set-AudioServiceRunning $true
     Start-Sleep -Milliseconds 1000
+    Write-Host 'AUDIO_GRAPH_RESET_OK native-surround'
 }
 
-function Assert-NativeSurroundMixFormat([string]$EndpointName) {
+function Get-MixChannelCount([string]$EndpointName) {
     $lines = @(& $mixProbe $EndpointName 2>&1 | ForEach-Object { "$_" })
     $code = $LASTEXITCODE
     $lines | ForEach-Object { Write-Host $_ }
     if ($code -ne 0) {
-        throw "Physical endpoint failed after native-surround migration: $code"
+        throw "Physical endpoint mix probe failed: $code"
     }
 
     $line = $lines | Where-Object { $_.StartsWith("MIX_FORMAT_OK`t") } | Select-Object -First 1
     if (-not $line) {
-        throw 'Native-surround mix probe returned no MIX_FORMAT_OK record.'
+        throw 'Mix probe returned no MIX_FORMAT_OK record.'
     }
 
     $match = [regex]::Match($line, '(?:^|\t)CHANNELS=(\d+)(?:\t|$)')
     if (-not $match.Success) {
-        throw "Native-surround mix probe did not expose a channel count: $line"
+        throw "Mix probe did not expose a channel count: $line"
     }
+    return [int]$match.Groups[1].Value
+}
 
-    $channels = [int]$match.Groups[1].Value
+function Assert-NativeSurroundMixFormat([string]$EndpointName) {
+    $channels = Get-MixChannelCount $EndpointName
     if ($channels -ne 8) {
-        throw "Windows did not honor Omniphony's preferred 7.1 input format. observed_channels=$channels"
+        throw "Windows did not honor Omniphony's preferred 7.1 endpoint-mix format. observed_channels=$channels"
     }
-
     Write-Host 'NATIVE_SURROUND_MIX_FORMAT_OK CHANNELS=8 LAYOUT=7.1'
 }
 
-function Get-ValueSnapshot([Microsoft.Win32.RegistryKey]$Key, [string]$Name) {
-    if ($Key.GetValueNames() -notcontains $Name) {
-        return [ordered]@{ Exists = $false; Kind = ''; Value = $null }
+function Assert-StereoRollbackMixFormat([string]$EndpointName) {
+    $channels = Get-MixChannelCount $EndpointName
+    if ($channels -ne 2) {
+        throw "Stereo Current rollback did not restore the two-channel mix. observed_channels=$channels"
     }
-    $kind = $Key.GetValueKind($Name).ToString()
-    $value = $Key.GetValue($Name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
-    if ($kind -eq 'Binary' -and $null -ne $value) { $value = [Convert]::ToBase64String([byte[]]$value) }
-    return [ordered]@{ Exists = $true; Kind = $kind; Value = $value }
+    Write-Host 'STEREO_ROLLBACK_MIX_FORMAT_OK CHANNELS=2'
 }
 
-function Set-ValueSnapshot([Microsoft.Win32.RegistryKey]$Key, [string]$Name, $Snapshot) {
-    if (-not [bool]$Snapshot.Exists) {
-        $Key.DeleteValue($Name, $false)
-        return
-    }
-    $kindName = [string]$Snapshot.Kind
-    $kind = [Microsoft.Win32.RegistryValueKind][Enum]::Parse([Microsoft.Win32.RegistryValueKind], $kindName)
-    $value = $Snapshot.Value
-    switch ($kindName) {
-        'Binary'       { $value = [Convert]::FromBase64String([string]$value) }
-        'MultiString'  { $value = [string[]]@($value) }
-        'DWord'        { $value = [int]$value }
-        'QWord'        { $value = [long]$value }
-        'String'       { $value = [string]$value }
-        'ExpandString' { $value = [string]$value }
-    }
-    $Key.SetValue($Name, $value, $kind)
-}
-
-function Get-EndpointFxPath([string]$EndpointId) {
-    $lines = @(& $ctl status-id $EndpointId 2>&1 | ForEach-Object { "$_" })
-    $code = $LASTEXITCODE
-    if ($code -ne 0 -and $code -ne 3) {
-        throw "Could not resolve endpoint registry identity. helper=$code output=$($lines -join ' | ')"
-    }
-    $line = $lines | Where-Object { $_.StartsWith("ENDPOINT`t") } | Select-Object -First 1
-    if (-not $line) { throw 'Endpoint helper did not return an ENDPOINT identity line.' }
-    $parts = $line -split "`t", 4
-    if ($parts.Count -lt 4 -or [string]::IsNullOrWhiteSpace($parts[2])) {
-        throw "Malformed ENDPOINT identity: $line"
-    }
-    return "SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render\$($parts[2])\FxProperties"
-}
-
-function Open-FxWritable([string]$Path) {
-    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
-        [Microsoft.Win32.RegistryHive]::LocalMachine,
-        [Microsoft.Win32.RegistryView]::Registry64)
-    $key = $base.OpenSubKey($Path, $true)
-    if (-not $key) {
-        $base.Dispose()
-        throw "Could not open writable endpoint FxProperties after baseline attachment: HKLM\$Path"
-    }
-    return [pscustomobject]@{ Base = $base; Key = $key }
-}
-
-function Register-StreamApo {
+function Register-NativeApo {
     $regsvr32 = Join-Path $env:WINDIR 'System32\regsvr32.exe'
     $quotedDll = "`"$installedStreamApo`""
     $process = Start-Process -FilePath $regsvr32 -ArgumentList @('/s', $quotedDll) -Wait -PassThru
-    if ($process.ExitCode -ne 0) { throw "Stream APO registration failed: $($process.ExitCode)" }
+    if ($process.ExitCode -ne 0) { throw "Native-surround APO registration failed: $($process.ExitCode)" }
+    Write-Host 'NATIVE_SURROUND_APO_REGISTERED 1'
 }
 
-function Unregister-StreamApo {
+function Unregister-NativeApo {
     if (-not (Test-Path -LiteralPath $installedStreamApo)) { return }
     $regsvr32 = Join-Path $env:WINDIR 'System32\regsvr32.exe'
     $quotedDll = "`"$installedStreamApo`""
     $process = Start-Process -FilePath $regsvr32 -ArgumentList @('/u', '/s', $quotedDll) -Wait -PassThru
-    if ($process.ExitCode -ne 0) { Write-Warning "Stream APO unregister returned $($process.ExitCode)" }
+    if ($process.ExitCode -ne 0) { Write-Warning "Native-surround APO unregister returned $($process.ExitCode)" }
+    else { Write-Host 'NATIVE_SURROUND_APO_REGISTERED 0' }
 }
 
-$endpointBackup = Get-Content -LiteralPath $endpointBackupPath -Raw | ConvertFrom-Json
-$endpointId = [string]$endpointBackup.EndpointId
-$endpointName = [string]$endpointBackup.EndpointName
-$fxPath = Get-EndpointFxPath $endpointId
-$streamRegistered = $false
-$streamSnapshot = $null
+# Always establish the already-proven stereo Current endpoint first. Besides
+# giving us a safe rollback floor, this owns the endpoint backup and AudioDG
+# compatibility state used by the final uninstaller.
+& $baselineInstaller -PackageRoot $PackageRoot -AppRoot $AppRoot -AllowUnprotectedAudioDG:$AllowUnprotectedAudioDG
+
+# Install-OmniphonyAPO.ps1 owns the first transcript section and closes it when
+# the stereo baseline is established. Re-open the same file in append mode so
+# native-surround promotion, validation, and any rollback reason are never lost.
+$transcriptStarted = $false
+try {
+    Start-Transcript -Path $logPath -Append | Out-Null
+    $transcriptStarted = $true
+} catch {
+    Write-Warning "Could not append native-surround installer transcript: $($_.Exception.Message)"
+}
+
+$endpointId = ''
+$endpointName = ''
+$nativeRegistered = $false
 
 try {
+    Write-Host 'OMNIPHONY_INSTALL_STAGE baseline-stereo-complete'
+    Write-Host 'NATIVE_SURROUND_MIGRATION_BEGIN PLACEMENT=endpoint-efx INPUT=preferred-7.1 OUTPUT=stereo'
+
+    Capture-SpatialIngressObservation
+
+    if (-not (Test-Path -LiteralPath $endpointBackupPath)) {
+        throw "Missing endpoint backup after stereo baseline install: $endpointBackupPath"
+    }
+    $endpointBackup = Get-Content -LiteralPath $endpointBackupPath -Raw | ConvertFrom-Json
+    $endpointId = [string]$endpointBackup.EndpointId
+    $endpointName = [string]$endpointBackup.EndpointName
+    if ([string]::IsNullOrWhiteSpace($endpointId) -or [string]::IsNullOrWhiteSpace($endpointName)) {
+        throw 'Endpoint backup did not contain a stable endpoint identity.'
+    }
+
     Set-AudioServiceRunning $false
     try {
         Copy-Item -LiteralPath $packageStreamApo -Destination $installedStreamApo -Force
-        Register-StreamApo
-        $streamRegistered = $true
+        Register-NativeApo
+        $nativeRegistered = $true
     } finally {
         Set-AudioServiceRunning $true
     }
 
     & $packageStreamSmoke
-    if ($LASTEXITCODE -ne 0) { throw "Native-surround stream APO smoke failed: $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw "Native-surround APO smoke failed: $LASTEXITCODE" }
+    Write-Host 'NATIVE_SURROUND_APO_SMOKE_OK 1'
 
-    $opened = Open-FxWritable $fxPath
-    try {
-        $priorSfx = Get-ValueSnapshot $opened.Key $sfxValue
-        $priorSfxModes = Get-ValueSnapshot $opened.Key $sfxModesValue
-        $streamSnapshot = [ordered]@{
-            Version = 1
-            EndpointId = $endpointId
-            EndpointName = $endpointName
-            FxPath = $fxPath
-            Sfx = $priorSfx
-            SfxModes = $priorSfxModes
-        }
-        $streamSnapshot | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $streamBackupPath -Encoding UTF8
+    # Builds before this one experimented with the same DLL in the per-stream
+    # SFX slot. It must not remain there when the DLL becomes the endpoint EFX,
+    # otherwise a surviving old installation could process audio twice.
+    & $ctl cleanup-native-sfx-id $endpointId
+    if ($LASTEXITCODE -ne 0) { throw "Legacy native-surround SFX cleanup failed: $LASTEXITCODE" }
 
-        if ([bool]$priorSfx.Exists -and
-            -not [string]::Equals([string]$priorSfx.Value, $streamApoClsid, [StringComparison]::OrdinalIgnoreCase)) {
-            Write-Warning "NATIVE_SURROUND_SKIPPED_FOREIGN_SFX $($priorSfx.Value)"
-            Unregister-StreamApo
-            Write-Host 'OMNIPHONY_WINDOWS_INSTALL_OK 1'
-            Write-Host 'Native-surround SFX was not installed because the endpoint already owns another stream effect. Stereo Current remains active.'
-            return
-        }
-
-        $opened.Key.SetValue($sfxValue, $streamApoClsid, [Microsoft.Win32.RegistryValueKind]::String)
-        if (-not [bool]$priorSfxModes.Exists) {
-            $opened.Key.SetValue($sfxModesValue, [string[]]@($defaultMode), [Microsoft.Win32.RegistryValueKind]::MultiString)
-        }
-
-        $currentEfx = [string]$opened.Key.GetValue($efxValue, '')
-        if ([string]::Equals($currentEfx, $endpointApoClsid, [StringComparison]::OrdinalIgnoreCase)) {
-            $opened.Key.DeleteValue($efxValue, $false)
-        }
-
-        $verify = [string]$opened.Key.GetValue($sfxValue, '')
-        if (-not [string]::Equals($verify, $streamApoClsid, [StringComparison]::OrdinalIgnoreCase)) {
-            throw 'Native-surround SFX registry verification failed.'
-        }
-    } finally {
-        $opened.Key.Dispose()
-        $opened.Base.Dispose()
-    }
+    # Promote the format-changing APO through Windows audio policy. The APO asks
+    # for 7.1 on its input while keeping its output stereo, so GetMixFormat can
+    # expose the authored multichannel bed to shared-mode games without changing
+    # the physical FiiO endpoint into a fake surround device.
+    & $ctl attach-native-id $endpointId
+    if ($LASTEXITCODE -ne 0) { throw "Native-surround endpoint promotion failed: $LASTEXITCODE" }
 
     Restart-AudioGraph
     Assert-NativeSurroundMixFormat $endpointName
 
+    & $ctl status-id $endpointId
+    if ($LASTEXITCODE -ne 0) { throw "Native-surround endpoint status verification failed: $LASTEXITCODE" }
+
+    if (Test-Path -LiteralPath $legacyStreamBackupPath) {
+        Remove-Item -LiteralPath $legacyStreamBackupPath -Force -ErrorAction SilentlyContinue
+    }
+
     Write-Host 'OMNIPHONY_WINDOWS_INSTALL_OK 1'
     Write-Host 'AUDIO_INGRESS windows-mix=7.1 multichannel=authored-speaker-bed output=binaural-stereo'
-    Write-Host 'NATIVE_SURROUND_SFX 1'
+    Write-Host 'NATIVE_SURROUND_EFX 1'
+    Write-Host 'NATIVE_SURROUND_SFX 0'
+    Write-Host 'OMNIPHONY_INSTALL_STAGE native-surround-active'
 }
 catch {
     $failure = $_
     Write-Warning "NATIVE_SURROUND_MIGRATION_FAILED: $($failure.Exception.Message)"
 
     try {
-        if ($streamSnapshot) {
-            $opened = Open-FxWritable $fxPath
-            try {
-                Set-ValueSnapshot $opened.Key $sfxValue $streamSnapshot.Sfx
-                Set-ValueSnapshot $opened.Key $sfxModesValue $streamSnapshot.SfxModes
-            } finally {
-                $opened.Key.Dispose()
-                $opened.Base.Dispose()
-            }
+        if (-not [string]::IsNullOrWhiteSpace($endpointId)) {
+            & $ctl attach-id $endpointId
+            if ($LASTEXITCODE -ne 0) { throw "Could not restore stereo Current endpoint APO: $LASTEXITCODE" }
+            Restart-AudioGraph
+            Assert-StereoRollbackMixFormat $endpointName
         }
-        & $ctl attach-id $endpointId
-        Restart-AudioGraph
-        & $mixProbe $endpointName
-    } catch {
+
+        if ($nativeRegistered) {
+            Set-AudioServiceRunning $false
+            try { Unregister-NativeApo }
+            finally { Set-AudioServiceRunning $true }
+        }
+
+        if (Test-Path -LiteralPath $legacyStreamBackupPath) {
+            Remove-Item -LiteralPath $legacyStreamBackupPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+    catch {
         throw "Native-surround migration failed and stereo rollback also failed: $($_.Exception.Message)"
-    } finally {
-        if ($streamRegistered) { try { Unregister-StreamApo } catch { Write-Warning $_ } }
     }
 
     Write-Host 'OMNIPHONY_WINDOWS_INSTALL_OK 1'
+    Write-Host 'NATIVE_SURROUND_EFX 0'
     Write-Host 'NATIVE_SURROUND_SFX 0'
+    Write-Host 'OMNIPHONY_INSTALL_STAGE stereo-current-rollback'
     Write-Host 'Stereo Current baseline restored automatically.'
+}
+finally {
+    if ($transcriptStarted) { try { Stop-Transcript | Out-Null } catch { } }
 }
