@@ -20,11 +20,14 @@ constexpr GUID kOmniphonyStreamApoClsid = {
     0x07d403d9, 0x8a98, 0x43ef, {0x8c, 0x28, 0x86, 0x51, 0x75, 0x6d, 0x83, 0xbe}};
 constexpr HNSTIME kExpectedLatencyHns = 400000; // 40 ms
 constexpr UINT32 kFrames = 960; // 20 ms @ 48 kHz
-constexpr DWORD kMask714 =
+constexpr DWORD kStereoMask = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT;
+constexpr DWORD kMask71 =
     SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT | SPEAKER_FRONT_CENTER |
     SPEAKER_LOW_FREQUENCY | SPEAKER_BACK_LEFT | SPEAKER_BACK_RIGHT |
-    SPEAKER_SIDE_LEFT | SPEAKER_SIDE_RIGHT | SPEAKER_TOP_FRONT_LEFT |
-    SPEAKER_TOP_FRONT_RIGHT | SPEAKER_TOP_BACK_LEFT | SPEAKER_TOP_BACK_RIGHT;
+    SPEAKER_SIDE_LEFT | SPEAKER_SIDE_RIGHT;
+constexpr DWORD kMask714 =
+    kMask71 | SPEAKER_TOP_FRONT_LEFT | SPEAKER_TOP_FRONT_RIGHT |
+    SPEAKER_TOP_BACK_LEFT | SPEAKER_TOP_BACK_RIGHT;
 
 ComPtr<IAudioMediaType> FloatMediaType(UINT32 channels, DWORD channelMask) {
     UNCOMPRESSEDAUDIOFORMAT format = {};
@@ -58,10 +61,26 @@ ComPtr<IAudioMediaType> Pcm16MediaType(UINT32 channels, DWORD channelMask) {
     return mediaType;
 }
 
+bool MatchesFloatFormat(
+    IAudioMediaType* mediaType,
+    UINT32 channels,
+    DWORD channelMask) {
+    UNCOMPRESSEDAUDIOFORMAT format = {};
+    return mediaType &&
+           SUCCEEDED(mediaType->GetUncompressedAudioFormat(&format)) &&
+           IsEqualGUID(format.guidFormatType, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT) &&
+           format.dwSamplesPerFrame == channels &&
+           format.dwBytesPerSampleContainer == sizeof(float) &&
+           format.dwValidBitsPerSample == 32 &&
+           format.fFramesPerSecond == 48000.0f &&
+           format.dwChannelMask == channelMask;
+}
+
 struct ApoHandles {
     ComPtr<IAudioProcessingObject> apo;
     ComPtr<IAudioProcessingObjectRT> rt;
     ComPtr<IAudioProcessingObjectConfiguration> configuration;
+    ComPtr<IAudioProcessingObjectPreferredFormatSupport> preferredFormats;
 };
 
 bool Activate(ApoHandles& handles) {
@@ -72,7 +91,9 @@ bool Activate(ApoHandles& handles) {
         std::wcerr << L"STREAM_APO_ACTIVATION_FAILED\t0x" << std::hex << hr << std::endl;
         return false;
     }
-    if (FAILED(handles.apo.As(&handles.rt)) || FAILED(handles.apo.As(&handles.configuration))) {
+    if (FAILED(handles.apo.As(&handles.rt)) ||
+        FAILED(handles.apo.As(&handles.configuration)) ||
+        FAILED(handles.apo.As(&handles.preferredFormats))) {
         std::wcerr << L"STREAM_APO_INTERFACE_FAILED" << std::endl;
         return false;
     }
@@ -86,6 +107,38 @@ bool Activate(ApoHandles& handles) {
         return false;
     }
     return true;
+}
+
+int ExercisePreferredFormatSupport() {
+    ApoHandles handles;
+    if (!Activate(handles)) return 16;
+
+    auto stereoType = FloatMediaType(2, kStereoMask);
+    auto sevenOneType = FloatMediaType(8, kMask71);
+    if (!stereoType || !sevenOneType) return 17;
+
+    ComPtr<IAudioMediaType> preferredInput;
+    HRESULT hr = handles.preferredFormats->GetPreferredInputFormat(
+        stereoType.Get(), preferredInput.ReleaseAndGetAddressOf());
+    if (hr != S_OK || !MatchesFloatFormat(preferredInput.Get(), 8, kMask71)) {
+        std::wcerr << L"STREAM_APO_PREFERRED_INPUT_FAILED\tHR=0x" << std::hex << hr << std::endl;
+        return 18;
+    }
+
+    ComPtr<IAudioMediaType> preferredOutput;
+    hr = handles.preferredFormats->GetPreferredOutputFormat(
+        sevenOneType.Get(), preferredOutput.ReleaseAndGetAddressOf());
+    if (hr != S_OK || !MatchesFloatFormat(preferredOutput.Get(), 2, kStereoMask)) {
+        std::wcerr << L"STREAM_APO_PREFERRED_OUTPUT_FAILED\tHR=0x" << std::hex << hr << std::endl;
+        return 19;
+    }
+
+    std::wcout << L"STREAM_APO_PREFERRED_FORMAT_OK"
+               << L"\tSTEREO_ENDPOINT_INPUT=7.1"
+               << L"\tPREFERRED_INPUT_CHANNELS=8"
+               << L"\tPREFERRED_OUTPUT_CHANNELS=2"
+               << L"\tFORMAT=FLOAT32_48000" << std::endl;
+    return 0;
 }
 
 bool NegotiateExactPair(
@@ -139,7 +192,7 @@ int ExerciseFloatPath(UINT32 inputChannels, DWORD inputMask, const wchar_t* labe
     if (!Activate(handles)) return 3;
 
     auto inputType = FloatMediaType(inputChannels, inputMask);
-    auto outputType = FloatMediaType(2, SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT);
+    auto outputType = FloatMediaType(2, kStereoMask);
     if (!inputType || !outputType) return 4;
 
     ComPtr<IAudioMediaType> negotiatedInput;
@@ -254,7 +307,7 @@ int ExercisePcm16Rejection() {
     ApoHandles handles;
     if (!Activate(handles)) return 12;
     auto inputType = Pcm16MediaType(12, kMask714);
-    auto outputType = Pcm16MediaType(2, SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT);
+    auto outputType = Pcm16MediaType(2, kStereoMask);
     if (!inputType || !outputType) return 13;
 
     ComPtr<IAudioMediaType> negotiatedInput;
@@ -293,14 +346,18 @@ int wmain() {
     const HRESULT init = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(init)) return 2;
 
-    int result = ExerciseFloatPath(
-        2, SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT, L"stereo-current");
+    int result = ExercisePreferredFormatSupport();
+    if (result == 0) {
+        result = ExerciseFloatPath(2, kStereoMask, L"stereo-current");
+    }
+    if (result == 0) result = ExerciseFloatPath(8, kMask71, L"authored-7.1");
     if (result == 0) result = ExerciseFloatPath(12, kMask714, L"authored-7.1.4");
     if (result == 0) result = ExercisePcm16Rejection();
 
     if (result == 0) {
         std::wcout << L"STREAM_APO_COM_OK\tCLSID={07D403D9-8A98-43EF-8C28-8651756D83BE}"
-                   << L"\tSTEREO_CURRENT=1\tNATIVE_7_1_4=1\tNEGOTIATION=1\tPCM16_REJECT=1"
+                   << L"\tPREFERRED_7_1=1\tSTEREO_CURRENT=1\tNATIVE_7_1=1"
+                   << L"\tNATIVE_7_1_4=1\tNEGOTIATION=1\tPCM16_REJECT=1"
                    << std::endl;
     }
     CoUninitialize();
