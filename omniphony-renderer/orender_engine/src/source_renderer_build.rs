@@ -19,6 +19,9 @@ use renderer::speaker_layout::SpeakerLayout;
 
 use crate::renderer_build::{EvalMode, SpatialRendererParams, build_spatial_renderer};
 
+const FULL_SPHERE_LAYOUT: &str =
+    include_str!("../../../layouts/system-h-derived-22.0-upper60-grid10.yaml");
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceSpatialMode {
     /// Preserve native laterality and stable source identity, but do not add
@@ -114,13 +117,33 @@ pub fn source_presentation_policy(mode: SourceSpatialMode) -> SourcePresentation
     }
 }
 
+fn source_layout(mode: SourceSpatialMode) -> Result<SpeakerLayout> {
+    match mode {
+        // The control path never spends object extent, so keep its compact
+        // construction topology. Direct binaural bypasses it during rendering.
+        SourceSpatialMode::NativeRouting => SpeakerLayout::preset_9_1_6(),
+        // FullSphere uses the SAME embedded shell as Current support. This is
+        // what makes source `size` audible: source objects are spread by the
+        // speaker stage across the 22-direction lattice before binauralisation.
+        SourceSpatialMode::FullSphere => SpeakerLayout::from_yaml_str(FULL_SPHERE_LAYOUT),
+    }
+}
+
+fn binaural_mode(mode: SourceSpatialMode) -> BinauralMode {
+    match mode {
+        SourceSpatialMode::NativeRouting => BinauralMode::Direct,
+        SourceSpatialMode::FullSphere => BinauralMode::Cascaded,
+    }
+}
+
 /// Build the source-aware Omniphony renderer used by game-music integrations.
 ///
-/// The output path is always **direct binaural**: each causal source receives
-/// its own HRTF/ITD render from its world position. The temporary speaker/VBAP
-/// topology exists only because `SpatialRenderer` currently owns both output
-/// modes in one construction object; it is bypassed by the audio hot path once
-/// `OutputMode::Binaural + BinauralMode::Direct` is selected.
+/// `NativeRouting` remains the clean direct-HRTF control. `FullSphere` instead
+/// follows the product architecture: causal source objects (including their
+/// per-axis extent) are mixed over the embedded 22-direction System-H-derived
+/// shell and that fixed virtual shell is then binauralised. This avoids adding
+/// a second source-width DSP and makes the same `size` contract work for both
+/// speaker/VBAP and headphone rendering.
 pub fn build_source_frame_renderer(
     sample_rate: u32,
     render_cfg: Option<&RenderConfig>,
@@ -128,9 +151,10 @@ pub fn build_source_frame_renderer(
 ) -> Result<SourceFrameRenderer> {
     let mut params = SpatialRendererParams::from_render_config(render_cfg);
 
-    // Keep construction fast and deterministic. Direct binaural bypasses this
-    // evaluation table during source rendering, but SpatialRenderer still owns
-    // one coherent topology for live control and possible future mode changes.
+    // FullSphere's first stage needs a closed 3-D panning field so object size
+    // can become real spread over the shell. NativeRouting still owns the same
+    // coherent renderer object even though its direct binaural hot path bypasses
+    // this evaluation table.
     params.render_evaluation_mode = Some(EvalMode::Cartesian);
     params.evaluation_mode_explicit = true;
     params.evaluation_cartesian_x_size = Some(4);
@@ -146,8 +170,8 @@ pub fn build_source_frame_renderer(
         z_size: 4,
         allow_negative_z: true,
     };
-    let layout = SpeakerLayout::preset_9_1_6()?;
-    let renderer = build_spatial_renderer(
+    let layout = source_layout(options.mode)?;
+    let mut renderer = build_spatial_renderer(
         &params,
         layout,
         sample_rate,
@@ -156,11 +180,20 @@ pub fn build_source_frame_renderer(
         render_cfg,
     )?;
 
+    // Current's shell uses a bounded partial inverse of the common SAF/KEMAR
+    // diffuse colour after virtual-speaker binauralisation. Apply the same
+    // compensation to FullSphere when that measured set is active; do not
+    // apply a SAF-specific correction to synthetic or future listener HRIRs.
+    renderer.set_cascade_spectral_compensation(
+        options.mode == SourceSpatialMode::FullSphere
+            && matches!(&options.hrir_source, HrirSource::SafKemar),
+    );
+
     {
         let control = renderer.renderer_control();
         let mut live = control.live.write();
         live.binaural.output_mode = OutputMode::Binaural;
-        live.binaural.mode = BinauralMode::Direct;
+        live.binaural.mode = binaural_mode(options.mode);
         live.binaural.hrir_source = options.hrir_source;
         live.binaural.unit_scale_m = options.unit_scale_m.clamp(0.25, 4.0);
         live.binaural.air_absorption = true;
@@ -172,9 +205,9 @@ pub fn build_source_frame_renderer(
             options.reflection_room_size_m[1].max(1.0),
             options.reflection_room_size_m[2].max(1.0),
         ];
-        // Object position ramps remain smooth while keeping the game-music host
-        // responsible for source timing. Direct binaural updates HRTF/ITD once
-        // per source block, so frame ramps are the honest control granularity.
+        // Source timing remains host-owned. The object positions and sizes ramp
+        // at frame granularity before the speaker stage spends them over the
+        // shell, preventing callback boundaries from becoming audible geometry.
         live.ramp_mode = RampMode::Frame;
     }
 
@@ -196,6 +229,7 @@ mod tests {
         assert_eq!(policy.max_distance, 1.0);
         assert_eq!(policy.shared_wet.strength, 0.0);
         assert_eq!(policy.shared_wet.extent, [0.0, 0.0, 0.0]);
+        assert_eq!(binaural_mode(SourceSpatialMode::NativeRouting), BinauralMode::Direct);
     }
 
     #[test]
@@ -210,6 +244,17 @@ mod tests {
         assert!(policy.shared_wet.elevation_deg > 25.0);
         assert!(policy.shared_wet.distance > 1.4);
         assert!(policy.shared_wet.extent[0] > policy.shared_wet.extent[2]);
+        assert_eq!(binaural_mode(SourceSpatialMode::FullSphere), BinauralMode::Cascaded);
+    }
+
+    #[test]
+    fn full_sphere_uses_the_current_22_direction_shell() {
+        let layout = source_layout(SourceSpatialMode::FullSphere).expect("embedded shell");
+        assert_eq!(layout.num_speakers(), 22);
+        assert!(layout.speakers.iter().all(|speaker| speaker.spatialize));
+        assert!(layout.speakers.iter().any(|speaker| speaker.name == "TpC"));
+        assert!(layout.speakers.iter().any(|speaker| speaker.name == "BC"));
+        assert!(layout.speakers.iter().any(|speaker| speaker.name == "BtFC"));
     }
 
     #[test]
