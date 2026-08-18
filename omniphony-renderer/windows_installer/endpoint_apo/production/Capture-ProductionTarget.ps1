@@ -6,7 +6,13 @@ param(
 $ErrorActionPreference = 'Stop'
 $productionRoot = $PSScriptRoot
 $lowLevelCapture = Join-Path $productionRoot 'Capture-TargetAudioDriver.ps1'
-$finalizer = Join-Path $productionRoot 'capture_target_evidence.py'
+$finalizer = Join-Path $productionRoot 'Finalize-TargetEvidence.ps1'
+
+foreach ($required in @($lowLevelCapture, $finalizer)) {
+    if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
+        throw "Required production capture helper is missing: $required"
+    }
+}
 
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     $OutputPath = Join-Path (Get-Location) 'omniphony-audio-target.json'
@@ -14,16 +20,6 @@ if ([string]::IsNullOrWhiteSpace($OutputPath)) {
 $OutputPath = [IO.Path]::GetFullPath($OutputPath)
 $tempCapture = Join-Path ([IO.Path]::GetTempPath()) ("omniphony-target-v2-" + [Guid]::NewGuid().ToString('N') + '.json')
 $tempEnriched = Join-Path ([IO.Path]::GetTempPath()) ("omniphony-target-v2-enriched-" + [Guid]::NewGuid().ToString('N') + '.json')
-
-function Resolve-Python {
-    $python = Get-Command python.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source
-    if ($python) { return $python }
-    $python = Get-Command python -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source
-    if ($python) { return $python }
-    $py = Get-Command py.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source
-    if ($py) { return $py }
-    throw 'Python 3 is required for the current production target evidence finalizer. The eventual packaged installer will not expose this development dependency.'
-}
 
 function Get-EndpointEffectSnapshot($Capture) {
     $mmDeviceId = [string]$Capture.DefaultEndpoint.MmDeviceId
@@ -72,7 +68,7 @@ try {
         $captureArgs = @('-EndpointCtl', $EndpointCtl) + $captureArgs
     }
     & $lowLevelCapture @captureArgs
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $tempCapture -PathType Leaf)) {
+    if (-not (Test-Path -LiteralPath $tempCapture -PathType Leaf)) {
         throw 'Low-level target capture failed.'
     }
 
@@ -91,16 +87,12 @@ try {
         }
         $candidate | Add-Member -NotePropertyName DriverInfSectionExt -NotePropertyValue $sectionExt -Force
     }
+
     $capture | Add-Member -NotePropertyName CapturedEndpointEffects -NotePropertyValue (Get-EndpointEffectSnapshot $capture) -Force
     $capture | ConvertTo-Json -Depth 18 | Set-Content -LiteralPath $tempEnriched -Encoding UTF8
 
-    $python = Resolve-Python
-    if ([IO.Path]::GetFileName($python) -ieq 'py.exe') {
-        & $python -3 $finalizer $tempEnriched $OutputPath
-    } else {
-        & $python $finalizer $tempEnriched $OutputPath
-    }
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $OutputPath -PathType Leaf)) {
+    & $finalizer -InputJson $tempEnriched -OutputJson $OutputPath
+    if (-not (Test-Path -LiteralPath $OutputPath -PathType Leaf)) {
         throw 'Deterministic target evidence finalization failed.'
     }
 
