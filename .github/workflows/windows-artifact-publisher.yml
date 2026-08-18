@@ -26,21 +26,18 @@ jobs:
           set -euo pipefail
           repo="$GITHUB_REPOSITORY"
 
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_run" ]]; then
-            run_id='${{ github.event.workflow_run.id }}'
-            run_status='${{ github.event.workflow_run.status }}'
-            run_conclusion='${{ github.event.workflow_run.conclusion }}'
-            head_sha='${{ github.event.workflow_run.head_sha }}'
-          else
-            latest="$(gh api "repos/$repo/actions/workflows/windows-installer.yml/runs?branch=main&per_page=1")"
-            run_id="$(jq -r '.workflow_runs[0].id // empty' <<< "$latest")"
-            run_status="$(jq -r '.workflow_runs[0].status // empty' <<< "$latest")"
-            run_conclusion="$(jq -r '.workflow_runs[0].conclusion // empty' <<< "$latest")"
-            head_sha="$(jq -r '.workflow_runs[0].head_sha // empty' <<< "$latest")"
-            if [[ -z "$run_id" || -z "$head_sha" ]]; then
-              echo 'No usable Windows installer workflow run exists yet.' >&2
-              exit 1
-            fi
+          # workflow_run events can complete out of order when several main
+          # pushes are validating concurrently. Always resolve the newest run
+          # created for main instead of trusting the event that happened to
+          # finish last, otherwise an older artifact can roll "current" back.
+          latest="$(gh api "repos/$repo/actions/workflows/windows-installer.yml/runs?branch=main&per_page=1")"
+          run_id="$(jq -r '.workflow_runs[0].id // empty' <<< "$latest")"
+          run_status="$(jq -r '.workflow_runs[0].status // empty' <<< "$latest")"
+          run_conclusion="$(jq -r '.workflow_runs[0].conclusion // empty' <<< "$latest")"
+          head_sha="$(jq -r '.workflow_runs[0].head_sha // empty' <<< "$latest")"
+          if [[ -z "$run_id" || -z "$head_sha" ]]; then
+            echo 'No usable Windows installer workflow run exists yet.' >&2
+            exit 1
           fi
 
           artifact_name="omniphony-windows-setup-$head_sha"
@@ -52,8 +49,8 @@ jobs:
             echo "ARTIFACT_NAME=$artifact_name"
           } >> "$GITHUB_ENV"
 
-          printf 'installer run=%s status=%s conclusion=%s sha=%s\n' \
-            "$run_id" "$run_status" "$run_conclusion" "$head_sha"
+          printf 'installer run=%s status=%s conclusion=%s sha=%s event=%s\n' \
+            "$run_id" "$run_status" "$run_conclusion" "$head_sha" "$GITHUB_EVENT_NAME"
 
       - name: Record installer run locator
         shell: bash
