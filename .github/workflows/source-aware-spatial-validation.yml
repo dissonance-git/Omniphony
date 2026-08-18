@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -39,6 +39,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install pinned Rust toolchain
+        id: rust
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
@@ -47,25 +48,77 @@ jobs:
           cargo --version
 
       - name: Compile source-shell energy test
+        id: compile_shell
         run: cargo test -p renderer --test source_shell_spread_energy --no-run
 
       - name: Run source-shell energy test
+        id: run_shell
         run: cargo test -p renderer --test source_shell_spread_energy
 
       - name: Compile source-aware engine tests
+        id: compile_engine
         run: cargo test -p orender_engine --lib --tests --no-run
 
       - name: Run source-aware engine tests
+        id: run_engine
         run: cargo test -p orender_engine --lib --tests
 
       - name: Compile source ABI tests
+        id: compile_source_ffi
         run: cargo test -p source_ffi --lib --tests --no-run
 
       - name: Run source ABI tests
+        id: run_source_ffi
         run: cargo test -p source_ffi --lib --tests
 
       - name: Compile Windows spatial source-ingress test
+        id: compile_windows_ingress
         run: cargo test -p realtime_ffi --test windows_spatial_source_frame --no-run
 
       - name: Run Windows spatial source-ingress test
+        id: run_windows_ingress
         run: cargo test -p realtime_ffi --test windows_spatial_source_frame
+
+      - name: Publish source-aware diagnostic record
+        if: always()
+        shell: bash
+        working-directory: .
+        env:
+          RUST_OUTCOME: ${{ steps.rust.outcome }}
+          COMPILE_SHELL_OUTCOME: ${{ steps.compile_shell.outcome }}
+          RUN_SHELL_OUTCOME: ${{ steps.run_shell.outcome }}
+          COMPILE_ENGINE_OUTCOME: ${{ steps.compile_engine.outcome }}
+          RUN_ENGINE_OUTCOME: ${{ steps.run_engine.outcome }}
+          COMPILE_SOURCE_FFI_OUTCOME: ${{ steps.compile_source_ffi.outcome }}
+          RUN_SOURCE_FFI_OUTCOME: ${{ steps.run_source_ffi.outcome }}
+          COMPILE_WINDOWS_INGRESS_OUTCOME: ${{ steps.compile_windows_ingress.outcome }}
+          RUN_WINDOWS_INGRESS_OUTCOME: ${{ steps.run_windows_ingress.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci-diagnostics
+          jq -n \
+            --arg schema 'omniphony.ci.source-aware-spatial.v1' \
+            --arg head_sha "$GITHUB_SHA" \
+            --argjson run_id "$GITHUB_RUN_ID" \
+            --arg rust "$RUST_OUTCOME" \
+            --arg compile_shell "$COMPILE_SHELL_OUTCOME" \
+            --arg run_shell "$RUN_SHELL_OUTCOME" \
+            --arg compile_engine "$COMPILE_ENGINE_OUTCOME" \
+            --arg run_engine "$RUN_ENGINE_OUTCOME" \
+            --arg compile_source_ffi "$COMPILE_SOURCE_FFI_OUTCOME" \
+            --arg run_source_ffi "$RUN_SOURCE_FFI_OUTCOME" \
+            --arg compile_windows_ingress "$COMPILE_WINDOWS_INGRESS_OUTCOME" \
+            --arg run_windows_ingress "$RUN_WINDOWS_INGRESS_OUTCOME" \
+            '{schema:$schema,head_sha:$head_sha,run_id:$run_id,steps:{rust:$rust,compile_source_shell:$compile_shell,run_source_shell:$run_shell,compile_engine:$compile_engine,run_engine:$run_engine,compile_source_ffi:$compile_source_ffi,run_source_ffi:$run_source_ffi,compile_windows_ingress:$compile_windows_ingress,run_windows_ingress:$run_windows_ingress}}' \
+            > ci-diagnostics/source-aware-spatial.json
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- ci-diagnostics/source-aware-spatial.json
+          if git diff --cached --quiet; then
+            echo 'Source-aware diagnostic record is unchanged.'
+            exit 0
+          fi
+          git commit -m 'build(ci): record source-aware spatial state'
+          git pull --rebase origin main
+          git push origin HEAD:main
