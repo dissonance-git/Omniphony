@@ -88,6 +88,52 @@ bool Activate(ApoHandles& handles) {
     return true;
 }
 
+bool NegotiateExactPair(
+    IAudioProcessingObject* apo,
+    IAudioMediaType* requestedInput,
+    IAudioMediaType* requestedOutput,
+    UINT32 expectedInputChannels,
+    DWORD expectedInputMask,
+    ComPtr<IAudioMediaType>& negotiatedInput,
+    ComPtr<IAudioMediaType>& negotiatedOutput,
+    const wchar_t* label) {
+    HRESULT hr = apo->IsInputFormatSupported(
+        requestedOutput, requestedInput, negotiatedInput.ReleaseAndGetAddressOf());
+    if (hr != S_OK || !negotiatedInput) {
+        std::wcerr << L"STREAM_APO_INPUT_NEGOTIATION_FAILED\t" << label
+                   << L"\t0x" << std::hex << hr << std::endl;
+        return false;
+    }
+
+    hr = apo->IsOutputFormatSupported(
+        negotiatedInput.Get(), requestedOutput, negotiatedOutput.ReleaseAndGetAddressOf());
+    if (hr != S_OK || !negotiatedOutput) {
+        std::wcerr << L"STREAM_APO_OUTPUT_NEGOTIATION_FAILED\t" << label
+                   << L"\t0x" << std::hex << hr << std::endl;
+        return false;
+    }
+
+    UNCOMPRESSEDAUDIOFORMAT inputFormat = {};
+    UNCOMPRESSEDAUDIOFORMAT outputFormat = {};
+    if (FAILED(negotiatedInput->GetUncompressedAudioFormat(&inputFormat)) ||
+        FAILED(negotiatedOutput->GetUncompressedAudioFormat(&outputFormat)) ||
+        !IsEqualGUID(inputFormat.guidFormatType, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT) ||
+        !IsEqualGUID(outputFormat.guidFormatType, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT) ||
+        inputFormat.dwSamplesPerFrame != expectedInputChannels ||
+        inputFormat.dwChannelMask != expectedInputMask ||
+        outputFormat.dwSamplesPerFrame != 2 ||
+        inputFormat.fFramesPerSecond != 48000.0f ||
+        outputFormat.fFramesPerSecond != 48000.0f) {
+        std::wcerr << L"STREAM_APO_NEGOTIATED_FORMAT_MISMATCH\t" << label << std::endl;
+        return false;
+    }
+
+    std::wcout << L"STREAM_APO_NEGOTIATION_OK\t" << label
+               << L"\tINPUT_CHANNELS=" << expectedInputChannels
+               << L"\tOUTPUT_CHANNELS=2" << std::endl;
+    return true;
+}
+
 int ExerciseFloatPath(UINT32 inputChannels, DWORD inputMask, const wchar_t* label) {
     ApoHandles handles;
     if (!Activate(handles)) return 3;
@@ -95,6 +141,14 @@ int ExerciseFloatPath(UINT32 inputChannels, DWORD inputMask, const wchar_t* labe
     auto inputType = FloatMediaType(inputChannels, inputMask);
     auto outputType = FloatMediaType(2, SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT);
     if (!inputType || !outputType) return 4;
+
+    ComPtr<IAudioMediaType> negotiatedInput;
+    ComPtr<IAudioMediaType> negotiatedOutput;
+    if (!NegotiateExactPair(
+            handles.apo.Get(), inputType.Get(), outputType.Get(), inputChannels, inputMask,
+            negotiatedInput, negotiatedOutput, label)) {
+        return 5;
+    }
 
     std::vector<float> input(static_cast<size_t>(kFrames) * inputChannels, 0.0f);
     std::vector<float> output(static_cast<size_t>(kFrames) * 2, 0.0f);
@@ -111,14 +165,14 @@ int ExerciseFloatPath(UINT32 inputChannels, DWORD inputMask, const wchar_t* labe
     inputDescriptor.Type = APO_CONNECTION_BUFFER_TYPE_EXTERNAL;
     inputDescriptor.pBuffer = reinterpret_cast<UINT_PTR>(input.data());
     inputDescriptor.u32MaxFrameCount = kFrames;
-    inputDescriptor.pFormat = inputType.Get();
+    inputDescriptor.pFormat = negotiatedInput.Get();
     inputDescriptor.u32Signature = APO_CONNECTION_DESCRIPTOR_SIGNATURE;
 
     APO_CONNECTION_DESCRIPTOR outputDescriptor = {};
     outputDescriptor.Type = APO_CONNECTION_BUFFER_TYPE_EXTERNAL;
     outputDescriptor.pBuffer = reinterpret_cast<UINT_PTR>(output.data());
     outputDescriptor.u32MaxFrameCount = kFrames;
-    outputDescriptor.pFormat = outputType.Get();
+    outputDescriptor.pFormat = negotiatedOutput.Get();
     outputDescriptor.u32Signature = APO_CONNECTION_DESCRIPTOR_SIGNATURE;
 
     APO_CONNECTION_DESCRIPTOR* inputDescriptors[] = {&inputDescriptor};
@@ -127,7 +181,7 @@ int ExerciseFloatPath(UINT32 inputChannels, DWORD inputMask, const wchar_t* labe
         1, inputDescriptors, 1, outputDescriptors);
     if (FAILED(hr)) {
         std::wcerr << L"STREAM_APO_LOCK_FAILED\t" << label << L"\t0x" << std::hex << hr << std::endl;
-        return 5;
+        return 6;
     }
 
     int result = 0;
@@ -136,7 +190,7 @@ int ExerciseFloatPath(UINT32 inputChannels, DWORD inputMask, const wchar_t* labe
     if (FAILED(hr) || latency != kExpectedLatencyHns) {
         std::wcerr << L"STREAM_APO_LATENCY_FAILED\t" << label << L"\tHR=0x" << std::hex << hr
                    << L"\tLATENCY=" << std::dec << latency << std::endl;
-        result = 6;
+        result = 7;
     }
 
     APO_CONNECTION_PROPERTY inputProperty = {};
@@ -164,14 +218,14 @@ int ExerciseFloatPath(UINT32 inputChannels, DWORD inputMask, const wchar_t* labe
                 (outputProperty.u32BufferFlags != BUFFER_VALID &&
                  outputProperty.u32BufferFlags != BUFFER_SILENT)) {
                 std::wcerr << L"STREAM_APO_METADATA_FAILED\t" << label << std::endl;
-                result = 7;
+                result = 8;
                 break;
             }
             if (!std::all_of(output.begin(), output.end(), [](float sample) {
                     return std::isfinite(sample);
                 })) {
                 std::wcerr << L"STREAM_APO_NONFINITE\t" << label << std::endl;
-                result = 8;
+                result = 9;
                 break;
             }
             sawNonSilent = sawNonSilent || std::any_of(output.begin(), output.end(), [](float sample) {
@@ -183,11 +237,11 @@ int ExerciseFloatPath(UINT32 inputChannels, DWORD inputMask, const wchar_t* labe
 
     if (result == 0 && !sawNonSilent) {
         std::wcerr << L"STREAM_APO_NEVER_EMITTED_PCM\t" << label << std::endl;
-        result = 9;
+        result = 10;
     }
 
     const HRESULT unlockHr = handles.configuration->UnlockForProcess();
-    if (FAILED(unlockHr) && result == 0) result = 10;
+    if (FAILED(unlockHr) && result == 0) result = 11;
     if (result == 0) {
         std::wcout << L"STREAM_APO_PROCESS_OK\t" << label
                    << L"\tINPUT_CHANNELS=" << inputChannels
@@ -198,10 +252,19 @@ int ExerciseFloatPath(UINT32 inputChannels, DWORD inputMask, const wchar_t* labe
 
 int ExercisePcm16Rejection() {
     ApoHandles handles;
-    if (!Activate(handles)) return 11;
+    if (!Activate(handles)) return 12;
     auto inputType = Pcm16MediaType(12, kMask714);
     auto outputType = Pcm16MediaType(2, SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT);
-    if (!inputType || !outputType) return 12;
+    if (!inputType || !outputType) return 13;
+
+    ComPtr<IAudioMediaType> negotiatedInput;
+    const HRESULT negotiationHr = handles.apo->IsInputFormatSupported(
+        outputType.Get(), inputType.Get(), negotiatedInput.ReleaseAndGetAddressOf());
+    if (negotiationHr != APOERR_FORMAT_NOT_SUPPORTED || negotiatedInput) {
+        std::wcerr << L"STREAM_APO_PCM16_NEGOTIATION_REJECTION_FAILED\t0x"
+                   << std::hex << negotiationHr << std::endl;
+        return 14;
+    }
 
     APO_CONNECTION_DESCRIPTOR inputDescriptor = {};
     inputDescriptor.Type = APO_CONNECTION_BUFFER_TYPE_EXTERNAL;
@@ -222,7 +285,7 @@ int ExercisePcm16Rejection() {
     }
     if (SUCCEEDED(hr)) handles.configuration->UnlockForProcess();
     std::wcerr << L"STREAM_APO_PCM16_REJECTION_FAILED\t0x" << std::hex << hr << std::endl;
-    return 13;
+    return 15;
 }
 } // namespace
 
@@ -237,7 +300,8 @@ int wmain() {
 
     if (result == 0) {
         std::wcout << L"STREAM_APO_COM_OK\tCLSID={07D403D9-8A98-43EF-8C28-8651756D83BE}"
-                   << L"\tSTEREO_CURRENT=1\tNATIVE_7_1_4=1\tPCM16_REJECT=1" << std::endl;
+                   << L"\tSTEREO_CURRENT=1\tNATIVE_7_1_4=1\tNEGOTIATION=1\tPCM16_REJECT=1"
+                   << std::endl;
     }
     CoUninitialize();
     return result;

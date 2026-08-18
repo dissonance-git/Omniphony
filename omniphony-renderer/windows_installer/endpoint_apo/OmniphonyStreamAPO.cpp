@@ -21,6 +21,37 @@ constexpr GUID kOmniphonyStreamApoClsid = {
 HINSTANCE g_module = nullptr;
 volatile LONG g_factoryLocks = 0;
 
+bool ReadAudioFormat(IAudioMediaType* mediaType, UNCOMPRESSEDAUDIOFORMAT& format) noexcept {
+    format = {};
+    return mediaType && SUCCEEDED(mediaType->GetUncompressedAudioFormat(&format));
+}
+
+bool IsFloat32Format(const UNCOMPRESSEDAUDIOFORMAT& format) noexcept {
+    return IsEqualGUID(format.guidFormatType, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT) &&
+           format.dwBytesPerSampleContainer == sizeof(float) &&
+           format.dwValidBitsPerSample == 32 &&
+           format.fFramesPerSecond > 0.0f;
+}
+
+bool IsSupportedInputFormat(const UNCOMPRESSEDAUDIOFORMAT& format) noexcept {
+    if (!IsFloat32Format(format) || format.dwSamplesPerFrame == 0 ||
+        format.dwSamplesPerFrame > 18) {
+        return false;
+    }
+    return format.dwSamplesPerFrame == 2 || format.dwChannelMask != 0;
+}
+
+bool IsSupportedOutputFormat(const UNCOMPRESSEDAUDIOFORMAT& format) noexcept {
+    return IsFloat32Format(format) && format.dwSamplesPerFrame == 2;
+}
+
+bool IsSupportedFormatPair(
+    const UNCOMPRESSEDAUDIOFORMAT& input,
+    const UNCOMPRESSEDAUDIOFORMAT& output) noexcept {
+    return IsSupportedInputFormat(input) && IsSupportedOutputFormat(output) &&
+           input.fFramesPerSecond == output.fFramesPerSecond;
+}
+
 class INonDelegatingUnknown {
 public:
     virtual HRESULT STDMETHODCALLTYPE NonDelegatingQueryInterface(REFIID riid, void** object) = 0;
@@ -265,6 +296,54 @@ public:
         return S_OK;
     }
 
+    HRESULT STDMETHODCALLTYPE IsInputFormatSupported(
+        IAudioMediaType* oppositeFormat,
+        IAudioMediaType* requestedInputFormat,
+        IAudioMediaType** supportedInputFormat) override {
+        if (supportedInputFormat) *supportedInputFormat = nullptr;
+        UNCOMPRESSEDAUDIOFORMAT inputFormat = {};
+        if (!ReadAudioFormat(requestedInputFormat, inputFormat) ||
+            !IsSupportedInputFormat(inputFormat)) {
+            return requestedInputFormat ? APOERR_FORMAT_NOT_SUPPORTED : E_POINTER;
+        }
+        if (oppositeFormat) {
+            UNCOMPRESSEDAUDIOFORMAT outputFormat = {};
+            if (!ReadAudioFormat(oppositeFormat, outputFormat) ||
+                !IsSupportedFormatPair(inputFormat, outputFormat)) {
+                return APOERR_FORMAT_NOT_SUPPORTED;
+            }
+        }
+        if (supportedInputFormat) {
+            requestedInputFormat->AddRef();
+            *supportedInputFormat = requestedInputFormat;
+        }
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE IsOutputFormatSupported(
+        IAudioMediaType* oppositeFormat,
+        IAudioMediaType* requestedOutputFormat,
+        IAudioMediaType** supportedOutputFormat) override {
+        if (supportedOutputFormat) *supportedOutputFormat = nullptr;
+        UNCOMPRESSEDAUDIOFORMAT outputFormat = {};
+        if (!ReadAudioFormat(requestedOutputFormat, outputFormat) ||
+            !IsSupportedOutputFormat(outputFormat)) {
+            return requestedOutputFormat ? APOERR_FORMAT_NOT_SUPPORTED : E_POINTER;
+        }
+        if (oppositeFormat) {
+            UNCOMPRESSEDAUDIOFORMAT inputFormat = {};
+            if (!ReadAudioFormat(oppositeFormat, inputFormat) ||
+                !IsSupportedFormatPair(inputFormat, outputFormat)) {
+                return APOERR_FORMAT_NOT_SUPPORTED;
+            }
+        }
+        if (supportedOutputFormat) {
+            requestedOutputFormat->AddRef();
+            *supportedOutputFormat = requestedOutputFormat;
+        }
+        return S_OK;
+    }
+
     HRESULT STDMETHODCALLTYPE LockForProcess(
         UINT32 inputCount,
         APO_CONNECTION_DESCRIPTOR** inputs,
@@ -278,25 +357,9 @@ public:
 
         UNCOMPRESSEDAUDIOFORMAT inputFormat = {};
         UNCOMPRESSEDAUDIOFORMAT outputFormat = {};
-        if (FAILED(inputs[0]->pFormat->GetUncompressedAudioFormat(&inputFormat)) ||
-            FAILED(outputs[0]->pFormat->GetUncompressedAudioFormat(&outputFormat))) {
-            return APOERR_FORMAT_NOT_SUPPORTED;
-        }
-
-        const bool float32 =
-            IsEqualGUID(inputFormat.guidFormatType, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT) &&
-            IsEqualGUID(outputFormat.guidFormatType, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT) &&
-            inputFormat.dwBytesPerSampleContainer == sizeof(float) &&
-            outputFormat.dwBytesPerSampleContainer == sizeof(float) &&
-            inputFormat.dwValidBitsPerSample == 32 &&
-            outputFormat.dwValidBitsPerSample == 32;
-        if (!float32 || inputFormat.fFramesPerSecond <= 0.0f ||
-            inputFormat.fFramesPerSecond != outputFormat.fFramesPerSecond ||
-            inputFormat.dwSamplesPerFrame == 0 || inputFormat.dwSamplesPerFrame > 18 ||
-            outputFormat.dwSamplesPerFrame != 2) {
-            return APOERR_FORMAT_NOT_SUPPORTED;
-        }
-        if (inputFormat.dwSamplesPerFrame != 2 && inputFormat.dwChannelMask == 0) {
+        if (!ReadAudioFormat(inputs[0]->pFormat, inputFormat) ||
+            !ReadAudioFormat(outputs[0]->pFormat, outputFormat) ||
+            !IsSupportedFormatPair(inputFormat, outputFormat)) {
             return APOERR_FORMAT_NOT_SUPPORTED;
         }
 
@@ -456,8 +519,7 @@ const CRegAPOProperties<1> OmniphonyStreamAPO::registration(
     1,
     0,
     __uuidof(IAudioProcessingObject),
-    static_cast<APO_FLAG>(APO_FLAG_FRAMESPERSECOND_MUST_MATCH |
-                          APO_FLAG_BITSPERSAMPLE_MUST_MATCH));
+    static_cast<APO_FLAG>(APO_FLAG_BITSPERSAMPLE_MUST_MATCH));
 
 class ApoClassFactory final : public IClassFactory {
 public:
