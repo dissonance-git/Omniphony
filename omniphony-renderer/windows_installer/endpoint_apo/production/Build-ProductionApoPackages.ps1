@@ -85,11 +85,15 @@ New-Item -ItemType Directory -Force -Path $componentRoot, $extensionRoot | Out-N
 
 $componentInf = Join-Path $componentRoot 'OmniphonyApoComponent.inf'
 $extensionInf = Join-Path $extensionRoot 'OmniphonyApoExtension.inf'
+$boundCapture = Join-Path $OutputRoot 'target-capture.json'
 Copy-Item -LiteralPath $componentTemplate -Destination $componentInf -Force
 Copy-Item -LiteralPath $apo -Destination (Join-Path $componentRoot 'OmniphonyAPO.dll') -Force
 Copy-Item -LiteralPath $realtime -Destination (Join-Path $componentRoot 'omniphony_realtime.dll') -Force
+Copy-Item -LiteralPath $capture -Destination $boundCapture -Force
 
-python $generator $capture $extensionInf
+# Generate from the copy that will travel with the package so the extension INF,
+# installer collision checks and package manifest all refer to the same witness.
+python $generator $boundCapture $extensionInf
 if ($LASTEXITCODE -ne 0) { throw "extension INF generation failed with exit code $LASTEXITCODE" }
 if (-not (Test-Path -LiteralPath $extensionInf)) { throw 'extension INF generator produced no file' }
 
@@ -164,7 +168,8 @@ Get-ChildItem -LiteralPath $OutputRoot -Recurse -File | Sort-Object FullName | F
 $manifest = [ordered]@{
     Schema = 'omniphony.windows.apo-package-build.v1'
     BuiltAtUtc = [DateTime]::UtcNow.ToString('o')
-    Capture = Get-FileRecord $capture
+    Capture = Get-FileRecord $boundCapture
+    CapturePath = 'target-capture.json'
     Inf2CatOs = $Inf2CatOs
     CatalogsGenerated = -not [bool]$SkipCatalogs
     CertificateThumbprint = if ([string]::IsNullOrWhiteSpace($CertificateThumbprint)) { $null } else { $CertificateThumbprint.ToUpperInvariant() }
@@ -177,6 +182,7 @@ $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath -En
 Write-Host ''
 Write-Host 'OMNIPHONY_PRODUCTION_PACKAGE_BUILD_OK 1'
 Write-Host "OUTPUT_ROOT $OutputRoot"
+Write-Host "TARGET_CAPTURE $boundCapture"
 Write-Host "COMPONENT_INF $componentInf"
 Write-Host "EXTENSION_INF $extensionInf"
 Write-Host "MANIFEST $manifestPath"
