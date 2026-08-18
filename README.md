@@ -6,6 +6,8 @@ Omniphony is an experimental, always-on spatial processor for headphones, built 
 
 The finished recording remains the musical authority. Omniphony may enlarge width, depth, height, distance, source extent and envelopment, but it must not need to sacrifice clarity, impact, center stability, timbre or rhythmic precision to do it.
 
+For source-aware game music, the audible target is intentionally stronger than forensic reconstruction: recover the real musical sources, then present them as though the soundtrack had been mixed for a large immersive format from the beginning. That is a modern remix decision, not a historical-authorship claim.
+
 Windows is the first product host. The renderer, scene contract and DSP core remain portable.
 
 ---
@@ -75,6 +77,8 @@ C LFE Cb Bfl Bfr Bbl Bbr
 
 That distinction is deliberate. A rich coordinate system must not become fake source metadata.
 
+For source-native game-music objects, however, `EMPTY` does not mean “keep every unauthored instrument at the front forever.” It means the historical artifact supplied no authored coordinate. Omniphony may still create a `DERIVED` immersive placement when the user has explicitly selected source-aware Surround.
+
 ---
 
 ## What is implemented now
@@ -83,6 +87,7 @@ That distinction is deliberate. A rich coordinate system must not become fake so
 | --- | --- |
 | Canonical static scene | **Implemented:** 17-lane 8.1.4.4 vocabulary |
 | Stereo evidence mapping | **Implemented:** bounded stereo-derived support into earned lanes only |
+| Source-aware game-music sphere | **Implemented:** stable DERIVED width/depth/height for recovered causal objects, constrained by authored routing and musical-role evidence |
 | Current spatial shell | **Implemented:** 22-direction System-H-derived full-sphere lattice |
 | Headphone renderer | **Implemented:** cascaded binaural with measured HRTF / ITD path |
 | Directional early field | **Implemented:** bounded first-order timing and six HRTF reflection buses |
@@ -198,7 +203,7 @@ The protected stereo master never passes through the virtual room. FFT/STFT anal
 
 ## Source authority
 
-The richer the source truth, the less Omniphony should infer.
+The richer the source truth, the less Omniphony should infer about what the source actually was. That does **not** mean Omniphony must refuse to make a creative presentation decision when source-aware Surround is deliberately enabled.
 
 ```text
 stereo
@@ -217,11 +222,58 @@ object audio
 Ambisonics / HOA
 → preserve the field representation rather than flattening early
 
+source-native game music
+→ preserve recovered voices / channels / shared wet fields
+→ preserve authored route, timing and identity
+→ create a stable immersive remix for otherwise unauthored dimensions
+→ keep those choices explicitly DERIVED
+
 already-binaural material
 → avoid destructive double HRTF virtualization
 ```
 
 `AUTHORED`, `DERIVED` and `EMPTY` are not cosmetic labels. They are provenance states.
+
+### Immersive remix intent
+
+The source-aware game-music path should behave more like mixing from multitracks into a modern immersive format than like extracting pseudo-surround from a finished stereo master.
+
+```text
+historical chip / DSP execution
+→ recovered real source objects
+→ authored route + timing + identity constraints
+→ stable musical-role-aware creative placement
+→ 8.1.4.4 semantic world
+→ 22-direction shell
+→ binaural
+```
+
+The intended listening illusion is:
+
+> **This sounds as though the soundtrack had always been mixed for this larger format.**
+
+That sentence defines an aesthetic target, not a historical claim. The original composer or sound programmer did not need to have authored rear speakers or height objects. Omniphony is allowed to supply those dimensions because the user explicitly asked for an immersive remix. The system simply keeps enough provenance internally to know which decisions came from the source and which came from Omniphony.
+
+This changes the default posture for source-native Surround:
+
+- real recovered sources should occupy useful spatial separation rather than collapse together because their rear/elevation coordinates are historically unknowable;
+- stable source or persistent-part identity may seed repeatable creative placement;
+- authored left/right routing constrains side and must never be casually inverted;
+- foundation and critical foreground material remain harder to dislodge;
+- diffuse/shared-wet material may occupy broader rear/height/enveloping regions;
+- width, depth, elevation, extent and distance are valid production dimensions even when they are `DERIVED`;
+- placement should feel composed and stable, not randomized or spectacular for its own sake;
+- the reference mix stays available underneath the enhancement.
+
+The distinction that matters is therefore not `historically authored or silent`. It is:
+
+```text
+AUTHORED source fact
+vs
+DERIVED immersive mix decision
+```
+
+Both may be audible. They simply mean different things.
 
 ---
 
@@ -244,6 +296,8 @@ Current combines three audible layers:
    → early directional room support
 ```
 
+For source-aware game music, the third layer can be driven by actual recovered source objects rather than only stereo-derived support. This permits much stronger spatial separation without asking a blind separator to guess what the instruments were.
+
 The current early field uses lane-local transient evidence, first-order image timing and wall filtering, aggregates those contributions into six directional reflection buses, then applies measured HRTF rendering. The goal is directional structure with bounded cost, not a wash of generic reverb.
 
 ---
@@ -252,16 +306,22 @@ The current early field uses lane-local transient evidence, first-order image ti
 
 Research is used to sharpen obligations and tests, not to overrule listening evidence.
 
-The present architecture is consistent with several durable findings in binaural research:
+The present architecture is consistent with several durable findings in binaural and immersive-music research:
 
 - **Externalization is not one control.** Direct HRTF cues, room cues, interaural behavior and head motion can contribute differently.
 - **Frontal externalization is especially difficult.** This justifies treating front scale and center directness as a dedicated frontier rather than assuming more surround energy solves it.
+- **Source width is a production dimension.** Research on perceived source width ties apparent extent to binaural/interaural structure and discusses deliberate control of width across stereo, surround, Ambisonics and wave-field production.
+- **Immersive music need not simulate a literal historical room.** Object-based scene work explicitly supports perceptually motivated controls such as position, distance, orientation, presence and reverberance, prioritizing auditory plausibility where appropriate.
+- **Width, depth, height, envelopment and localization are separable evaluation axes.** Comparative spatial-music production studies evaluate them independently, which matches Omniphony's requirement that a larger scene not be purchased by poorer localization or timbre.
 - **Binaural room cues matter.** Work on reverberation-related binaural cues shows that the relationship between direct and reflected interaural cues can strongly affect externalization, especially for frontal sources.
 - **Timbral fidelity and spatial fidelity are coupled.** HRIR time-alignment and diffuse-field constraints have been shown to improve coloration, localization and externalization together in binaural Ambisonic rendering.
 - **Head motion is a strong future lever.** Multiple controlled studies report improved externalization when virtual scenes remain stable relative to the world during listener motion.
 
 Useful research anchors:
 
+- Ziemer, *Source Width in Music Production* (2017), DOI `10.1007/978-3-319-47292-8_10`
+- Jot, Carpentier & Warusfel, *Perceptually Motivated Spatial Audio Scene Description and Rendering for 6-DoF Immersive Music Experiences* (2023), DOI `10.1109/I3DA57090.2023.10289196`
+- Małecki, Stefańska & Szydłowska, immersive Dolby Atmos / Ambisonics music evaluation (2024), DOI `10.24425/aoa.2024.148798`
 - Zaunschirm, Schörkhuber & Höldrich, *JASA* (2018), DOI `10.1121/1.5040489`
 - Catic, Santurette & Dau, *JASA* (2015), DOI `10.1121/1.4928132`
 - Leclère, Lavandier & Perrin, *JASA* (2019), DOI `10.1121/1.5128325`
@@ -269,7 +329,7 @@ Useful research anchors:
 - Hendrickx et al., *JASA* (2017), DOI `10.1121/1.4978612`
 - Landschoot & Jot, *JASA* (2023), DOI `10.1121/10.0018389`
 
-These papers motivate the validation axes. They do not prove that any particular Omniphony tuning is perceptually superior.
+These papers motivate the validation axes and production vocabulary. They do not prove that any particular Omniphony tuning is perceptually superior.
 
 ---
 
@@ -281,6 +341,10 @@ Engineering gates include:
 
 - canonical 17-lane scene order and EMPTY-lane preservation;
 - 17-lane scene reaching the 22-direction shell;
+- source-native object identity remaining stable across physical voice reuse;
+- authored native left/right routing constraining DERIVED placement;
+- sphere-strength zero collapsing creative game-music placement back to native laterality;
+- full source-aware sphere producing deterministic width/depth/height rather than callback-random motion;
 - final binaural stereo output;
 - ITD / HRTF / diffuse-response checks;
 - block-size and callback-invariance tests;
@@ -303,7 +367,8 @@ Human listening remains the final gate for:
 - center solidity;
 - room naturalness;
 - fatigue;
-- groove and bass integrity.
+- groove and bass integrity;
+- whether the source-aware remix feels intentionally mixed rather than algorithmically scattered.
 
 ---
 
@@ -376,5 +441,7 @@ libaural may eventually provide source/activity evidence to Omniphony. That evid
 ## Definition of success
 
 > **A finished recording keeps its identity, weight, dynamics and clarity while gaining a stable external world with front distance, rear depth, extreme width, convincing height, continuous motion and enough radial scale that ordinary headphone playback feels dimensionally collapsed by comparison.**
+
+For source-native game music, success adds one more test: the enlarged result should feel less like an effect placed on an old stereo recording and more like discovering the immersive master that the original hardware never had enough dimensions to carry.
 
 That is the target. The scene model, the shell, the Windows APO and the research stack are all instruments for reaching it, not substitutes for it.
