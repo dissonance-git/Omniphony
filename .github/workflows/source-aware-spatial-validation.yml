@@ -10,6 +10,7 @@ on:
       - "omniphony-renderer/realtime_ffi/**"
       - "omniphony-renderer/windows_host/src/spatial_ingress.rs"
       - "omniphony-renderer/windows_host/src/spatial_source_frame.rs"
+      - "omniphony-renderer/windows_host/src/spatial_source_slots.rs"
       - "omniphony-renderer/Cargo.toml"
       - "omniphony-renderer/Cargo.lock"
       - "layouts/system-h-derived-22.0-upper60-grid10.yaml"
