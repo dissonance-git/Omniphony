@@ -88,9 +88,12 @@ That distinction is deliberate. A rich coordinate system must not become fake so
 | Directional early field | **Implemented:** bounded first-order timing and six HRTF reflection buses |
 | Windows realtime ABI | **Implemented:** `omniphony_realtime.dll` |
 | Windows endpoint APO | **Implemented for development bring-up:** stereo float32 Current path |
+| Production APO component package | **Implemented repository-side:** isolated DriverStore component + PETrust contract |
+| Production device association | **Implemented repository-side:** machine capture → deterministic extension INF → EFX association |
+| Production package lifecycle | **Implemented repository-side:** validation, catalogs/signing hooks, PnP install, rollback and uninstall |
+| Protected physical deployment | **Not yet proven:** real target capture + accepted signing/trust + protected-AudioDG playback/lifecycle test remain |
 | Native authored 5.1 / 7.1 ingress through the APO | **Not implemented yet** |
 | Raw Windows Spatial Audio object ingress | **Research frontier** |
-| Production APO packaging | **In progress:** isolated component package exists; final target association, signing and protected-AudioDG proof remain |
 
 A 7.1.4 fixture or layout is therefore a useful regression input, not the product base.
 
@@ -130,18 +133,26 @@ The repository intentionally keeps two Windows deployment concepts separate:
 ```text
 DEVELOPMENT / BRING-UP
 raw endpoint association
-+ test-oriented AudioDG compatibility measures
++ global test registration
++ explicit -AllowUnprotectedAudioDG opt-in
 + rollback tooling
 
-PRODUCTION TARGET
-isolated componentized APO package
-+ device-specific extension association
-+ catalog / PE signing
-+ protected AudioDG
-+ upgrade / rollback / uninstall proof on physical hardware
+PRODUCTION CANDIDATE PATH
+machine-captured physical driver + topology evidence
++ generated device-specific extension INF
++ isolated componentized APO package
++ DriverStore catalogs / optional signing
++ transactional PnP install / rollback / uninstall
++ protected AudioDG required
+
+PHYSICAL ACCEPTANCE STILL REQUIRED
+real target capture
++ trusted signing route
++ GetMixFormat / ordinary playback
++ restart / sleep / upgrade / rollback / uninstall proof
 ```
 
-Do not treat a successful development attach as proof of production deployment readiness.
+Do not treat a successful development attach or a syntactically valid production package as proof of physical production readiness.
 
 See:
 
@@ -276,7 +287,10 @@ Engineering gates include:
 - transient and bass preservation;
 - non-finite and peak-safety behavior;
 - Windows APO ABI / manifest / import-table checks;
-- production INF package-isolation checks.
+- isolated production component-INF checks;
+- generated extension anti-guessing and EFX-association checks;
+- synthetic component + extension `InfVerif` / catalog build checks;
+- development/production AudioDG separation contract.
 
 Human listening remains the final gate for:
 
@@ -309,7 +323,8 @@ windows_installer/endpoint_apo/
   development endpoint APO, installer and diagnostics
 
 windows_installer/endpoint_apo/production/
-  isolated production-package scaffold and target-driver capture
+  target capture, extension generation, isolated DriverStore packages,
+  signing/catalog staging, transactional install/rollback/uninstall
 
 layouts/
   reference and renderer geometry, including the Current 22-direction shell
