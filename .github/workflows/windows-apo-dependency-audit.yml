@@ -44,7 +44,8 @@ jobs:
             'omniphony-renderer/windows_installer/endpoint_apo/production/Capture-TargetAudioDriver.ps1',
             'omniphony-renderer/windows_installer/endpoint_apo/production/Build-ProductionApoPackages.ps1',
             'omniphony-renderer/windows_installer/endpoint_apo/production/Install-ProductionApoPackages.ps1',
-            'omniphony-renderer/windows_installer/endpoint_apo/production/Uninstall-ProductionApoPackages.ps1'
+            'omniphony-renderer/windows_installer/endpoint_apo/production/Uninstall-ProductionApoPackages.ps1',
+            'omniphony-renderer/windows_installer/endpoint_apo/production/Test-ProductionMachineReadiness.ps1'
           )
           foreach ($path in $paths) {
             $tokens = $null
@@ -56,6 +57,18 @@ jobs:
             }
             Write-Host "PRODUCTION_POWERSHELL_PARSE_OK $path"
           }
+
+      - name: Validate production lifecycle safety source contract
+        shell: pwsh
+        run: |
+          $build = Get-Content 'omniphony-renderer/windows_installer/endpoint_apo/production/Build-ProductionApoPackages.ps1' -Raw
+          $install = Get-Content 'omniphony-renderer/windows_installer/endpoint_apo/production/Install-ProductionApoPackages.ps1' -Raw
+          if ($build -notmatch "target-capture\.json") { throw 'production package no longer binds target-capture.json' }
+          if ($install -notmatch 'Manifest\.SignaturesVerified') { throw 'production installer no longer requires verified signatures' }
+          if ($install -notmatch 'CompositeEndpointEffects') { throw 'production installer no longer checks existing composite EFX' }
+          if ($install -notmatch 'already has non-Omniphony EFX registered') { throw 'production installer no longer refuses foreign EFX collision' }
+          if ($install -notmatch 'ENDPOINT_EFX_ASSOCIATION_OK') { throw 'production installer no longer verifies endpoint EFX association' }
+          Write-Host 'PRODUCTION_LIFECYCLE_SAFETY_CONTRACT_OK 1'
 
       - uses: microsoft/setup-msbuild@v2
         with:
@@ -144,6 +157,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "production package staging failed: $LASTEXITCODE" }
 
           foreach ($required in @(
+            'target-capture.json',
             'component/OmniphonyApoComponent.inf',
             'component/OmniphonyApo.cat',
             'component/OmniphonyAPO.dll',
@@ -155,7 +169,14 @@ jobs:
             $path = Join-Path $output $required
             if (-not (Test-Path $path -PathType Leaf)) { throw "production package missing: $required" }
           }
+
+          $manifest = Get-Content (Join-Path $output 'package-manifest.json') -Raw | ConvertFrom-Json
+          $captureHash = (Get-FileHash (Join-Path $output 'target-capture.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+          if (([string]$manifest.Capture.Sha256).ToLowerInvariant() -ne $captureHash) {
+            throw 'bound target capture hash does not match production package manifest'
+          }
           Write-Host 'PRODUCTION_PACKAGE_CATALOG_BUILD_OK 1'
+          Write-Host 'PRODUCTION_BOUND_CAPTURE_OK 1'
 
       - name: Audit AudioDG import tables
         shell: pwsh
