@@ -48,6 +48,8 @@ constexpr PROPERTYKEY kEndpointGuid = {
     {0x1da5d803, 0xd492, 0x4edd, {0x8c, 0x23, 0xe0, 0xc0, 0xff, 0xee, 0x7f, 0x0e}}, 4};
 constexpr PROPERTYKEY kSfxKey = {
     {0xd04e05a6, 0x594b, 0x4fb6, {0xa8, 0x0d, 0x01, 0xaf, 0x5e, 0xed, 0x7d, 0x1d}}, 5};
+constexpr PROPERTYKEY kSfxModesKey = {
+    {0xd3993a3f, 0x99c2, 0x4402, {0xb5, 0xec, 0xa9, 0x2a, 0x03, 0x67, 0x66, 0x4b}}, 5};
 constexpr PROPERTYKEY kEfxKey = {
     {0xd04e05a6, 0x594b, 0x4fb6, {0xa8, 0x0d, 0x01, 0xaf, 0x5e, 0xed, 0x7d, 0x1d}}, 7};
 constexpr PROPERTYKEY kEfxModesKey = {
@@ -57,11 +59,13 @@ constexpr PROPERTYKEY kDisableSysFxKey = {
 
 constexpr wchar_t kRenderBase[] = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render\\";
 constexpr wchar_t kSfxValue[] = L"{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},5";
+constexpr wchar_t kSfxModesValue[] = L"{d3993a3f-99c2-4402-b5ec-a92a0367664b},5";
 constexpr wchar_t kEfxValue[] = L"{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},7";
 constexpr wchar_t kEfxModesValue[] = L"{d3993a3f-99c2-4402-b5ec-a92a0367664b},7";
 constexpr wchar_t kDisableSysFxValue[] = L"{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5";
 constexpr wchar_t kDefaultMode[] = L"{C18E2F7E-933D-4965-B7D1-1EEF228D2AF3}";
 constexpr wchar_t kStateBase[] = L"SOFTWARE\\Omniphony\\EndpointAPO\\";
+constexpr wchar_t kSfxStateBase[] = L"SOFTWARE\\Omniphony\\NativeSFX\\";
 
 struct Endpoint {
     std::wstring id;
@@ -388,14 +392,61 @@ int AttachNative(const Endpoint& endpoint) {
     return 0;
 }
 
+int AttachNativeSfx(const Endpoint& endpoint) {
+    const std::wstring fx = FxPath(endpoint);
+    const std::wstring ours = GuidText(kOmniphonyNativeSurroundApoClsid);
+    std::wstring existing;
+    if (ReadRegString(fx, kSfxValue, existing) && _wcsicmp(existing.c_str(), ours.c_str()) != 0) {
+        std::wcerr << L"ERROR\tEXISTING_SFX\t" << existing << L"\n";
+        return 8;
+    }
+
+    std::wstring modes;
+    const bool modesExisted = ReadRegString(fx, kSfxModesValue, modes);
+    const std::wstring state = std::wstring(kSfxStateBase) + endpoint.guid;
+    LSTATUS status = WriteStateDword(state, L"ModesExisted", modesExisted ? 1u : 0u);
+    if (status != ERROR_SUCCESS) {
+        std::wcerr << L"ERROR\tSFX_STATE_WRITE\t" << status << L"\n";
+        return 5;
+    }
+
+    ComPtr<IPolicyConfig> policy;
+    HRESULT hr = CreatePolicyConfig(policy);
+    if (FAILED(hr)) {
+        std::wcerr << L"ERROR\tPOLICY_CREATE\t" << HResultText(hr) << L"\n";
+        return 5;
+    }
+    hr = SetStringProperty(policy.Get(), endpoint, kSfxKey, ours);
+    if (FAILED(hr)) {
+        std::wcerr << L"ERROR\tNATIVE_SFX_POLICY_WRITE\t" << HResultText(hr) << L"\n";
+        return 5;
+    }
+    if (!modesExisted) {
+        hr = SetStringVectorProperty(policy.Get(), endpoint, kSfxModesKey, {kDefaultMode});
+        if (FAILED(hr)) {
+            ClearProperty(policy.Get(), endpoint, kSfxKey);
+            std::wcerr << L"ERROR\tNATIVE_SFX_MODE_POLICY_WRITE\t" << HResultText(hr) << L"\n";
+            return 6;
+        }
+    }
+    hr = SetDwordProperty(policy.Get(), endpoint, kDisableSysFxKey, 0);
+    if (FAILED(hr)) {
+        std::wcerr << L"ERROR\tENABLE_SYSFX_POLICY_WRITE\t" << HResultText(hr) << L"\n";
+        return 6;
+    }
+
+    std::wcout << L"APO_NATIVE_SFX_ATTACHED\t" << endpoint.name << L"\t" << endpoint.guid << L"\t" << endpoint.id << L"\n";
+    std::wcout << L"SYSTEM_EFFECTS_ENABLED\t1\n";
+    std::wcout << L"RESTART_AUDIO_REQUIRED\t1\n";
+    return 0;
+}
+
 int CleanupNativeSfx(const Endpoint& endpoint) {
     const std::wstring fx = FxPath(endpoint);
+    const std::wstring ours = GuidText(kOmniphonyNativeSurroundApoClsid);
     std::wstring existing;
-    if (!ReadRegString(fx, kSfxValue, existing)) {
-        std::wcout << L"LEGACY_NATIVE_SFX\tabsent\n";
-        return 0;
-    }
-    if (_wcsicmp(existing.c_str(), GuidText(kOmniphonyNativeSurroundApoClsid).c_str()) != 0) {
+    const bool hasSfx = ReadRegString(fx, kSfxValue, existing);
+    if (hasSfx && _wcsicmp(existing.c_str(), ours.c_str()) != 0) {
         std::wcout << L"LEGACY_NATIVE_SFX\tforeign\t" << existing << L"\n";
         return 0;
     }
@@ -406,13 +457,27 @@ int CleanupNativeSfx(const Endpoint& endpoint) {
         std::wcerr << L"ERROR\tPOLICY_CREATE\t" << HResultText(hr) << L"\n";
         return 5;
     }
-    hr = ClearProperty(policy.Get(), endpoint, kSfxKey);
-    if (FAILED(hr)) {
-        std::wcerr << L"ERROR\tLEGACY_SFX_POLICY_CLEAR\t" << HResultText(hr) << L"\n";
-        return 6;
+    if (hasSfx) {
+        hr = ClearProperty(policy.Get(), endpoint, kSfxKey);
+        if (FAILED(hr)) {
+            std::wcerr << L"ERROR\tLEGACY_SFX_POLICY_CLEAR\t" << HResultText(hr) << L"\n";
+            return 6;
+        }
     }
-    std::wcout << L"LEGACY_NATIVE_SFX\tremoved\n";
-    std::wcout << L"RESTART_AUDIO_REQUIRED\t1\n";
+
+    const std::wstring state = std::wstring(kSfxStateBase) + endpoint.guid;
+    DWORD modesExisted = 1;
+    if (ReadRegDword(state, L"ModesExisted", modesExisted) && modesExisted == 0) {
+        hr = ClearProperty(policy.Get(), endpoint, kSfxModesKey);
+        if (FAILED(hr)) {
+            std::wcerr << L"ERROR\tLEGACY_SFX_MODE_POLICY_CLEAR\t" << HResultText(hr) << L"\n";
+            return 6;
+        }
+    }
+    RegDeleteTreeW(HKEY_LOCAL_MACHINE, state.c_str());
+
+    std::wcout << L"LEGACY_NATIVE_SFX\t" << (hasSfx ? L"removed" : L"absent") << L"\n";
+    if (hasSfx) std::wcout << L"RESTART_AUDIO_REQUIRED\t1\n";
     return 0;
 }
 
@@ -471,15 +536,15 @@ int SetBypass(const Endpoint& endpoint, bool bypass) {
 
 bool IsIdCommand(const std::wstring& command) {
     return command == L"status-id" || command == L"attach-id" || command == L"attach-native-id" ||
-           command == L"cleanup-native-sfx-id" || command == L"detach-id" ||
-           command == L"bypass-id" || command == L"enable-effects-id";
+           command == L"attach-native-sfx-id" || command == L"cleanup-native-sfx-id" ||
+           command == L"detach-id" || command == L"bypass-id" || command == L"enable-effects-id";
 }
 
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
     if (argc < 2) {
-        std::wcerr << L"usage: OmniphonyApoCtl <list|status|attach|attach-native|cleanup-native-sfx|detach|bypass|enable-effects|status-id|attach-id|attach-native-id|cleanup-native-sfx-id|detach-id|bypass-id|enable-effects-id> ...\n";
+        std::wcerr << L"usage: OmniphonyApoCtl <list|status|attach|attach-native|attach-native-sfx|cleanup-native-sfx|detach|bypass|enable-effects|status-id|attach-id|attach-native-id|attach-native-sfx-id|cleanup-native-sfx-id|detach-id|bypass-id|enable-effects-id> ...\n";
         return 2;
     }
 
@@ -518,6 +583,7 @@ int wmain(int argc, wchar_t** argv) {
     if (command == L"status" || command == L"status-id") result = Show(endpoint);
     else if (command == L"attach" || command == L"attach-id") result = Attach(endpoint);
     else if (command == L"attach-native" || command == L"attach-native-id") result = AttachNative(endpoint);
+    else if (command == L"attach-native-sfx" || command == L"attach-native-sfx-id") result = AttachNativeSfx(endpoint);
     else if (command == L"cleanup-native-sfx" || command == L"cleanup-native-sfx-id") result = CleanupNativeSfx(endpoint);
     else if (command == L"detach" || command == L"detach-id") result = Detach(endpoint);
     else if (command == L"bypass" || command == L"bypass-id") result = SetBypass(endpoint, true);
