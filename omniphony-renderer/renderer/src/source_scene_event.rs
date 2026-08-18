@@ -24,7 +24,18 @@ pub fn present_source_channel(
     sample_pos: Option<u64>,
     ramp_length: Option<u32>,
 ) -> SourceChannelPresentation {
-    let presentation = present_source(source, policy);
+    let mut presentation = present_source(source, policy);
+
+    // The source ABI currently has authored position authority, but no authored
+    // source-extent authority. `width` and `diffuse` are presentation evidence.
+    // Therefore a closed source sphere must close added object extent too,
+    // regardless of whether the object's centre itself was authored. This keeps
+    // NativeRouting a real geometry control while still using the same physical
+    // 22-direction/cascaded renderer topology as FullSphere.
+    if !policy.sphere_strength.is_finite() || policy.sphere_strength <= 0.0 {
+        presentation.size = [0.0; 3];
+    }
+
     let event = presentation.render_as_object.then(|| SpatialChannelEvent {
         channel_idx,
         is_bed: false,
@@ -137,5 +148,57 @@ mod tests {
             .expect("shared wet return should be renderable");
         assert_eq!(event.size, Some([1.0, 1.0, 1.0]));
         assert!(result.presentation.azimuth_deg.abs() > 90.0);
+    }
+
+    #[test]
+    fn closed_sphere_zeroes_added_extent_without_changing_source_center_authority() {
+        let authored_position = [0.25, 0.90, 0.15];
+        let closed = SourcePresentationPolicy {
+            sphere_strength: 0.0,
+            max_elevation_deg: 0.0,
+            max_distance: 1.0,
+            shared_wet: crate::source_scene::SharedWetPresentationPolicy {
+                strength: 0.0,
+                extent: [0.0; 3],
+                ..crate::source_scene::SharedWetPresentationPolicy::default()
+            },
+            ..SourcePresentationPolicy::default()
+        };
+        let result = present_source_channel(
+            9,
+            SourceSceneEvidence {
+                authored_position: Some(authored_position),
+                width: 1.0,
+                diffuse: 1.0,
+                ..source(5)
+            },
+            closed,
+            Some(0),
+            Some(0),
+        );
+        assert_eq!(result.presentation.authority, SourcePositionAuthority::Authored);
+        assert_eq!(result.presentation.position, authored_position);
+        assert_eq!(result.presentation.size, [0.0; 3]);
+        assert_eq!(result.event.expect("source remains renderable").size, Some([0.0; 3]));
+    }
+
+    #[test]
+    fn full_sphere_keeps_source_extent_available() {
+        let result = present_source_channel(
+            10,
+            SourceSceneEvidence {
+                width: 1.0,
+                diffuse: 1.0,
+                ..source(6)
+            },
+            SourcePresentationPolicy::default(),
+            Some(0),
+            Some(0),
+        );
+        let size = result.presentation.size;
+        assert!(size[0] > 0.5);
+        assert!(size[1] > 0.3);
+        assert!(size[2] > 0.2);
+        assert_eq!(result.event.expect("source object").size, Some(size));
     }
 }
