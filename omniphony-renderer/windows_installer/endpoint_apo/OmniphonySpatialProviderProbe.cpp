@@ -1,5 +1,8 @@
 #include <windows.h>
+#include <spatialaudioclient.h>
 
+#include <cwchar>
+#include <iomanip>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -30,6 +33,12 @@ std::wstring Win32Message(LONG code) {
         message.pop_back();
     }
     return message;
+}
+
+std::wstring HResultText(HRESULT hr) {
+    wchar_t buffer[16] = {};
+    swprintf_s(buffer, L"0x%08lX", static_cast<unsigned long>(hr));
+    return buffer;
 }
 
 std::wstring ReadStringValue(HKEY key, const wchar_t* valueName) {
@@ -80,7 +89,58 @@ LONG OpenReadOnly64(const wchar_t* path, HKEY* key) {
         key);
 }
 
-void ProbeEncoderRegistry() {
+void ProbeProviderCom(const std::wstring& prefix, const std::wstring& clsidText) {
+    std::wcout << prefix << L".direct_com.context=CLSCTX_INPROC_SERVER\n";
+    std::wcout << prefix << L".direct_com.hypothesis=encoder_clsid_exposes_ispatialaudioclient\n";
+
+    if (clsidText.empty()) {
+        std::wcout << prefix << L".direct_com.status=no_clsid\n";
+        return;
+    }
+
+    CLSID clsid = {};
+    const HRESULT parseHr = CLSIDFromString(clsidText.c_str(), &clsid);
+    if (FAILED(parseHr)) {
+        std::wcout << prefix << L".direct_com.status=invalid_clsid\n";
+        std::wcout << prefix << L".direct_com.parse_hr=" << HResultText(parseHr) << L"\n";
+        return;
+    }
+
+    ISpatialAudioClient* client = nullptr;
+    const HRESULT activateHr = CoCreateInstance(
+        clsid,
+        nullptr,
+        CLSCTX_INPROC_SERVER,
+        __uuidof(ISpatialAudioClient),
+        reinterpret_cast<void**>(&client));
+    std::wcout << prefix << L".direct_com.activate_hr=" << HResultText(activateHr) << L"\n";
+    if (FAILED(activateHr) || !client) {
+        std::wcout << prefix << L".direct_com.status=not_direct_ispatialaudioclient\n";
+        return;
+    }
+
+    std::wcout << prefix << L".direct_com.status=ispatialaudioclient\n";
+
+    AudioObjectType staticMask = {};
+    const HRESULT maskHr = client->GetNativeStaticObjectTypeMask(&staticMask);
+    std::wcout << prefix << L".direct_com.static_mask_hr=" << HResultText(maskHr) << L"\n";
+    if (SUCCEEDED(maskHr)) {
+        std::wcout << prefix << L".direct_com.static_mask=0x"
+                   << std::hex << std::uppercase << static_cast<unsigned long>(staticMask)
+                   << std::dec << std::nouppercase << L"\n";
+    }
+
+    UINT32 maxDynamicObjects = 0;
+    const HRESULT dynamicHr = client->GetMaxDynamicObjectCount(&maxDynamicObjects);
+    std::wcout << prefix << L".direct_com.max_dynamic_hr=" << HResultText(dynamicHr) << L"\n";
+    if (SUCCEEDED(dynamicHr)) {
+        std::wcout << prefix << L".direct_com.max_dynamic_objects=" << maxDynamicObjects << L"\n";
+    }
+
+    client->Release();
+}
+
+void ProbeEncoderRegistry(bool probeDirectCom) {
     std::wcout << L"encoder.path=HKLM\\" << kEncoderPath << L"\n";
 
     HKEY root = nullptr;
@@ -152,10 +212,17 @@ void ProbeEncoderRegistry() {
             continue;
         }
 
-        PrintStringField(prefix, L"display_name", ReadStringValue(provider, nullptr));
-        PrintStringField(prefix, L"clsid", ReadStringValue(provider, L"CLSID"));
-        PrintStringField(prefix, L"icon_path", ReadStringValue(provider, L"IconPath"));
+        const std::wstring displayName = ReadStringValue(provider, nullptr);
+        const std::wstring clsidText = ReadStringValue(provider, L"CLSID");
+        const std::wstring iconPath = ReadStringValue(provider, L"IconPath");
+        PrintStringField(prefix, L"display_name", displayName);
+        PrintStringField(prefix, L"clsid", clsidText);
+        PrintStringField(prefix, L"icon_path", iconPath);
         RegCloseKey(provider);
+
+        if (probeDirectCom) {
+            ProbeProviderCom(prefix, clsidText);
+        }
     }
 
     RegCloseKey(root);
@@ -224,11 +291,42 @@ void ProbeSpatialEndpointRegistry() {
 
 } // namespace
 
-int wmain() {
+int wmain(int argc, wchar_t** argv) {
+    bool probeDirectCom = false;
+    if (argc == 2 && std::wcscmp(argv[1], L"--probe-com") == 0) {
+        probeDirectCom = true;
+    } else if (argc != 1) {
+        std::wcerr << L"usage=OmniphonySpatialProviderProbe.exe [--probe-com]\n";
+        return 2;
+    }
+
+    HRESULT comHr = S_OK;
+    bool uninitializeCom = false;
+    if (probeDirectCom) {
+        comHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (FAILED(comHr)) {
+            std::wcerr << L"direct_com.initialize_hr=" << HResultText(comHr) << L"\n";
+            return 3;
+        }
+        uninitializeCom = true;
+    }
+
     std::wcout << L"probe=omniphony_spatial_provider\n";
-    std::wcout << L"mode=read_only_observation\n";
+    std::wcout << L"mode="
+               << (probeDirectCom ? L"read_only_observation_plus_com_canary" : L"read_only_observation")
+               << L"\n";
     std::wcout << L"source_truth=undocumented_registry_surface_not_public_api_contract\n";
-    ProbeEncoderRegistry();
+    std::wcout << L"direct_com_canary=" << (probeDirectCom ? 1 : 0) << L"\n";
+    if (probeDirectCom) {
+        std::wcout << L"direct_com_scope=tests_only_encoder_clsid_to_ispatialaudioclient_hypothesis\n";
+        std::wcout << L"direct_com_nonclaim=does_not_prove_windows_provider_selection_or_object_delivery\n";
+    }
+
+    ProbeEncoderRegistry(probeDirectCom);
     ProbeSpatialEndpointRegistry();
+
+    if (uninitializeCom) {
+        CoUninitialize();
+    }
     return 0;
 }
