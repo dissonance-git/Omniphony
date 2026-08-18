@@ -39,7 +39,10 @@ target_link_libraries(OmniphonyStreamAPO PRIVATE ole32 uuid advapi32 audioeng Au
 target_link_options(OmniphonyStreamAPO PRIVATE /MANIFEST:NO)
 set_target_properties(OmniphonyStreamAPO PROPERTIES PREFIX "" OUTPUT_NAME "OmniphonyStreamAPO")
 
-add_executable(OmniphonyApoCtl OmniphonyApoCtlAcl.cpp)
+# Single authoritative endpoint-policy helper. Do not point this target at the
+# retired ACL prototype: installer command dispatch and Windows policy writes
+# must be compiled from the same source reviewed by the installer.
+add_executable(OmniphonyApoCtl OmniphonyApoCtl.cpp)
 target_compile_features(OmniphonyApoCtl PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonyApoCtl PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_options(OmniphonyApoCtl PRIVATE /W4 /WX /permissive-)
