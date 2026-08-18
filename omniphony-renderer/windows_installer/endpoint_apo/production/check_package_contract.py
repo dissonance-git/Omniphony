@@ -29,7 +29,7 @@ if missing:
 for forbidden in ("hklm,", "hkcr,", "disableprotectedaudiodg", "fxproperties"):
     if forbidden in normalized:
         raise SystemExit(
-            f"production APO package must not contain development registration token: {forbidden}"
+            f"production APO component INF must not contain development registration token: {forbidden}"
         )
 
 copy_section = re.search(r"\[apo_copyfiles\](.*?)(?:\n\[|\Z)", text, re.IGNORECASE | re.DOTALL)
@@ -59,21 +59,46 @@ if "-AllowUnprotectedAudioDG" not in dev_setup:
 if "status-id $EndpointId.Id" in dev_install:
     raise SystemExit("development status helper dereferences a string endpoint ID")
 
-# Production is the inverse contract. It may inspect the bypass in order to
-# refuse it, but it must never set the bypass or use the raw MMDevices attach.
+# Production is the inverse contract. It may READ MMDevices/FxProperties to
+# prove that it will not overwrite another EFX, but direct endpoint writes and
+# raw attach remain forbidden. DriverStore/PnP owns all production changes.
 production_install = (HERE / "Install-ProductionApoPackages.ps1").read_text(encoding="utf-8")
 production_uninstall = (HERE / "Uninstall-ProductionApoPackages.ps1").read_text(encoding="utf-8")
+production_build = (HERE / "Build-ProductionApoPackages.ps1").read_text(encoding="utf-8")
+production_generator = (HERE / "generate_extension_inf.py").read_text(encoding="utf-8")
+production_capture = (HERE / "Capture-ProductionTarget.ps1").read_text(encoding="utf-8")
 production_combined = (production_install + "\n" + production_uninstall).lower()
+
 if "disableprotectedaudiodg=1 is still active" not in production_combined:
     raise SystemExit("production installer must refuse the unprotected AudioDG development state")
+if "fxproperties" not in production_install.lower():
+    raise SystemExit("production installer must retain read-only endpoint EFX collision observation")
+if "already has non-omniphony efx registered" not in production_install.lower():
+    raise SystemExit("production installer must refuse foreign endpoint EFX collision")
+if "endpoint_efx_association_ok" not in production_install.lower():
+    raise SystemExit("production installer must verify endpoint EFX association after PnP install")
+if "target-capture.json" not in production_build.lower():
+    raise SystemExit("production package builder must bind the exact target capture into the package")
+if "signaturesverified" not in production_build.lower() or "manifest.signaturesverified" not in production_install.lower():
+    raise SystemExit("production package build/install must preserve the verified-signature gate")
+if "omniphony.windows.apo-target.v3" not in production_generator:
+    raise SystemExit("production extension generator must require finalized v3 target evidence")
+if "DEVPKEY_Device_DriverInfSectionExt" not in production_capture:
+    raise SystemExit("production target capture must record the installed INF platform section extension")
+
 for forbidden in (
     "set-regdword 'software\\microsoft\\windows\\currentversion\\audio' 'disableprotectedaudiodg' 1",
     "attach-id",
-    "fxproperties",
     "software\\classes\\audioengine\\audioprocessingobjects",
+    "new-itemproperty",
+    "set-itemproperty",
+    "remove-itemproperty",
+    ".setvalue(",
+    ".deletevalue(",
 ):
     if forbidden in production_combined:
-        raise SystemExit(f"production lifecycle leaked development attach behavior: {forbidden}")
+        raise SystemExit(f"production lifecycle leaked direct registry/attach behavior: {forbidden}")
 
 print("PRODUCTION_APO_PACKAGE_CONTRACT_OK 1")
 print("WINDOWS_DEPLOYMENT_SEPARATION_CONTRACT_OK 1")
+print("PRODUCTION_READ_ONLY_ENDPOINT_OBSERVATION_OK 1")
