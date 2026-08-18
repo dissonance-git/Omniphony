@@ -2,17 +2,16 @@
 //!
 //! Keep two concepts separate:
 //!
-//! 1. headphone / renderer EQ, selectable as Off, the retained legacy DTS-era
-//!    profile, or a native Omniphony profile;
+//! 1. one optional Omniphony headphone / renderer EQ, exposed simply as On/Off;
 //! 2. listener-specific right-ear compensation, independently bypassable.
 //!
-//! The legacy coefficients independently implement the same RBJ biquad /
-//! shelf-corner semantics used by the listener's former Equalizer APO profile.
-//! The native Omniphony preset is tuned around the primary listening target:
-//! deep clean low bass with little upper-bass fog, energetic/present mids,
-//! restrained 3.5-5 kHz glare, and open/lush upper treble without sounding muted.
-//! The listener-specific right-ear layer is carried unchanged between presets
-//! and is not presented as medical/audiogram correction.
+//! The retired DTS-era curve remains only as listening-history evidence. Its
+//! broad upper-mid / treble suppression taught an important constraint: reduce
+//! glare without dimming the open top end that makes Current feel clear.
+//!
+//! The active curve therefore spends most of its extra energy below the kick
+//! region, preserves a small 3.5-5 kHz relaxation, restores the upper treble,
+//! and keeps enough preamp headroom for the downstream lookahead peak guard.
 
 use std::env;
 use std::f64::consts::PI;
@@ -20,8 +19,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-const LEGACY_GLOBAL_PREAMP_DB: f64 = -4.0;
-const NATIVE_GLOBAL_PREAMP_DB: f64 = -3.5;
+const TUNED_GLOBAL_PREAMP_DB: f64 = -2.5;
 const RIGHT_PREAMP_DB: f64 = -0.4;
 const RIGHT_DELAY_MS: f64 = 0.02;
 const SETTING_POLL_MS: u64 = 500;
@@ -32,16 +30,16 @@ const RIGHT_COMP_FILE_NAME: &str = "right-ear-comp.txt";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum EqPreset {
     Off,
-    LegacyDts,
-    OmniphonyNative,
+    On,
 }
 
 impl EqPreset {
     fn from_text(text: &str) -> Self {
         match text.trim().to_ascii_lowercase().as_str() {
             "0" | "off" | "false" | "disabled" | "none" => Self::Off,
-            "native" | "omniphony" | "omniphony-native" | "omniphony_tuned" => Self::OmniphonyNative,
-            _ => Self::LegacyDts,
+            // Every historical enabled spelling migrates to the one supported
+            // tuned curve. The DTS-era curve is no longer a runtime mode.
+            _ => Self::On,
         }
     }
 }
@@ -80,49 +78,29 @@ impl FilterSpec {
     }
 }
 
-// Retained former Equalizer APO profile. This was listened to alongside the DTS
-// Virtual:X HRIR, so it remains a comparison/control rather than the native default.
-const LEGACY_SHARED_FILTERS: [FilterSpec; 15] = [
-    FilterSpec::high_pass(15.0, 0.6),
-    FilterSpec::low_shelf(45.0, 3.5, 0.5),
-    FilterSpec::peaking(30.0, 1.2, 0.8),
-    FilterSpec::peaking(85.0, 2.0, 0.65),
-    FilterSpec::peaking(155.0, 1.3, 0.75),
-    FilterSpec::peaking(240.0, -0.2, 0.9),
-    FilterSpec::peaking(420.0, 0.8, 0.7),
-    FilterSpec::peaking(700.0, 0.8, 0.8),
-    FilterSpec::peaking(1_200.0, 0.9, 0.7),
-    FilterSpec::peaking(1_900.0, 0.5, 0.8),
-    FilterSpec::peaking(2_800.0, -0.6, 0.6),
-    FilterSpec::peaking(3_800.0, -2.2, 0.9),
-    FilterSpec::peaking(4_800.0, -2.6, 1.1),
-    FilterSpec::peaking(6_200.0, -0.9, 1.3),
-    FilterSpec::high_shelf(7_200.0, -1.8, 0.7),
-];
-
-// Native Omniphony comparison profile. The low shelf is moved lower and paired
-// with a small upper-bass cut so extension can feel bottomless without masking
-// the groove. Broad lower/central-mid lifts add density and power. The 3.9/5 kHz
-// cuts remove glare while a nearly-flat presence shelf plus a small 10 kHz air
-// lift retains texture and openness instead of darkening the whole top octave.
-const NATIVE_SHARED_FILTERS: [FilterSpec; 13] = [
-    FilterSpec::high_pass(14.0, 0.65),
-    FilterSpec::low_shelf(38.0, 3.0, 0.55),
-    FilterSpec::peaking(72.0, 1.3, 0.70),
-    FilterSpec::peaking(150.0, 0.4, 0.80),
+// Working Omniphony listening baseline. The extra weight is intentionally spent
+// below the obvious kick/body region: the 32 Hz shelf extends the floor while
+// the 60 Hz term is modest and 150-260 Hz stays controlled. The former DTS-era
+// curve established that large 4-8 kHz cuts destroy openness, so the two glare
+// notches are now shallow and the top octave is allowed to breathe.
+const TUNED_SHARED_FILTERS: [FilterSpec; 12] = [
+    FilterSpec::high_pass(11.0, 0.65),
+    FilterSpec::low_shelf(32.0, 4.0, 0.55),
+    FilterSpec::peaking(60.0, 1.0, 0.70),
+    FilterSpec::peaking(150.0, 0.2, 0.80),
     FilterSpec::peaking(260.0, -0.4, 0.85),
     FilterSpec::peaking(520.0, 0.5, 0.75),
     FilterSpec::peaking(1_100.0, 0.6, 0.75),
     FilterSpec::peaking(1_900.0, 0.35, 0.90),
-    FilterSpec::peaking(3_000.0, -0.45, 0.80),
-    FilterSpec::peaking(3_900.0, -1.2, 0.90),
-    FilterSpec::peaking(5_000.0, -1.0, 1.10),
-    FilterSpec::high_shelf(7_500.0, -0.25, 0.70),
-    FilterSpec::high_shelf(10_000.0, 0.45, 0.70),
+    FilterSpec::peaking(3_000.0, -0.35, 0.80),
+    FilterSpec::peaking(3_900.0, -0.8, 0.90),
+    FilterSpec::peaking(5_000.0, -0.6, 1.10),
+    FilterSpec::high_shelf(10_000.0, 0.50, 0.70),
 ];
 
-// Listener-specific right-ear compensation. Keep independent from headphone /
-// renderer EQ so either tonal preset can be auditioned with the same asymmetry.
+// Listener-specific right-ear compensation. Keep independent from the shared
+// headphone curve so EQ Off remains a useful tonal control without erasing the
+// separately auditioned asymmetry compensation.
 const RIGHT_FILTERS: [FilterSpec; 3] = [
     FilterSpec::peaking(180.0, -0.3, 0.9),
     FilterSpec::peaking(3_000.0, -1.1, 1.0),
@@ -328,7 +306,7 @@ impl NoireXPersonalEq {
             let mut left = finite_or_zero(frame[0]);
             let mut right = finite_or_zero(frame[1]);
 
-            if self.preset != EqPreset::Off {
+            if self.preset == EqPreset::On {
                 left *= self.global_gain;
                 right *= self.global_gain;
                 for pair in &mut self.shared {
@@ -354,8 +332,7 @@ impl NoireXPersonalEq {
 fn build_eq_preset(preset: EqPreset, sample_rate_hz: u32) -> (f32, Vec<[Biquad; 2]>) {
     let (preamp_db, specs): (f64, &[FilterSpec]) = match preset {
         EqPreset::Off => (0.0, &[]),
-        EqPreset::LegacyDts => (LEGACY_GLOBAL_PREAMP_DB, &LEGACY_SHARED_FILTERS),
-        EqPreset::OmniphonyNative => (NATIVE_GLOBAL_PREAMP_DB, &NATIVE_SHARED_FILTERS),
+        EqPreset::On => (TUNED_GLOBAL_PREAMP_DB, &TUNED_SHARED_FILTERS),
     };
     let filters = specs
         .iter()
@@ -385,7 +362,7 @@ fn read_eq_preset(path: &Path, legacy_path: &Path) -> EqPreset {
     if let Ok(text) = fs::read_to_string(legacy_path) {
         return EqPreset::from_text(&text);
     }
-    EqPreset::LegacyDts
+    EqPreset::On
 }
 
 fn read_bool_setting(path: &Path, default: bool) -> bool {
@@ -407,31 +384,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn preset_parser_preserves_legacy_boolean_compatibility() {
+    fn preset_parser_collapses_all_enabled_history_to_one_curve() {
         assert_eq!(EqPreset::from_text("0"), EqPreset::Off);
         assert_eq!(EqPreset::from_text("off"), EqPreset::Off);
-        assert_eq!(EqPreset::from_text("1"), EqPreset::LegacyDts);
-        assert_eq!(EqPreset::from_text("legacy"), EqPreset::LegacyDts);
-        assert_eq!(EqPreset::from_text("omniphony"), EqPreset::OmniphonyNative);
-        assert_eq!(EqPreset::from_text("native"), EqPreset::OmniphonyNative);
+        assert_eq!(EqPreset::from_text("1"), EqPreset::On);
+        assert_eq!(EqPreset::from_text("legacy"), EqPreset::On);
+        assert_eq!(EqPreset::from_text("omniphony"), EqPreset::On);
+        assert_eq!(EqPreset::from_text("native"), EqPreset::On);
+        assert_eq!(EqPreset::from_text("on"), EqPreset::On);
     }
 
     #[test]
-    fn native_profile_is_deliberately_gentler_than_legacy() {
-        assert!(NATIVE_GLOBAL_PREAMP_DB > LEGACY_GLOBAL_PREAMP_DB);
-        let legacy_total: f64 = LEGACY_SHARED_FILTERS.iter().map(|spec| spec.gain_db.abs()).sum();
-        let native_total: f64 = NATIVE_SHARED_FILTERS.iter().map(|spec| spec.gain_db.abs()).sum();
-        assert!(native_total < legacy_total);
-    }
-
-    #[test]
-    fn native_profile_has_deep_bass_and_preserved_air_shape() {
-        assert!(NATIVE_SHARED_FILTERS.iter().any(|spec| {
-            spec.kind == FilterKind::LowShelf && spec.frequency_hz <= 40.0 && spec.gain_db >= 2.5
+    fn tuned_profile_spends_gain_in_deep_sub_and_preserves_air() {
+        assert!(TUNED_SHARED_FILTERS.iter().any(|spec| {
+            spec.kind == FilterKind::LowShelf && spec.frequency_hz <= 35.0 && spec.gain_db >= 3.5
         }));
-        assert!(NATIVE_SHARED_FILTERS.iter().any(|spec| {
+        assert!(TUNED_SHARED_FILTERS.iter().any(|spec| {
             spec.kind == FilterKind::HighShelf && spec.frequency_hz >= 9_000.0 && spec.gain_db > 0.0
         }));
+        assert!(TUNED_SHARED_FILTERS.iter().filter(|spec| {
+            (3_500.0..=8_000.0).contains(&spec.frequency_hz) && spec.gain_db < 0.0
+        }).all(|spec| spec.gain_db >= -1.0));
+    }
+
+    #[test]
+    fn tuned_preamp_keeps_useful_headroom_without_old_level_penalty() {
+        assert!(TUNED_GLOBAL_PREAMP_DB <= -2.0);
+        assert!(TUNED_GLOBAL_PREAMP_DB >= -3.0);
     }
 
     #[test]
@@ -480,11 +459,11 @@ mod tests {
     }
 
     #[test]
-    fn hot_legacy_profile_processing_remains_finite() {
+    fn hot_tuned_profile_processing_remains_finite() {
         let mut profile = NoireXPersonalEq::new(48_000);
-        profile.preset = EqPreset::LegacyDts;
+        profile.preset = EqPreset::On;
         profile.right_comp_enabled = true;
-        let (gain, shared) = build_eq_preset(EqPreset::LegacyDts, 48_000);
+        let (gain, shared) = build_eq_preset(EqPreset::On, 48_000);
         profile.global_gain = gain;
         profile.shared = shared;
         profile.right_only = build_right_filters(48_000);
