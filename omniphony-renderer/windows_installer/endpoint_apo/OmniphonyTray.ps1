@@ -30,11 +30,9 @@ function Get-EqPreset {
         }
     } catch { }
 
-    switch ($text) {
-        { $_ -in @('0', 'off', 'false', 'disabled', 'none') } { return 'off' }
-        { $_ -in @('native', 'omniphony', 'omniphony-native', 'omniphony_tuned') } { return 'native' }
-        default { return 'legacy' }
-    }
+    if ($text -in @('0', 'off', 'false', 'disabled', 'none')) { return 'off' }
+    # Every historical enabled spelling migrates to the single supported tuned EQ.
+    return 'on'
 }
 
 function Set-EqPreset([string]$Preset) {
@@ -70,13 +68,9 @@ $offItem = New-Object System.Windows.Forms.ToolStripMenuItem
 $offItem.Text = 'EQ: Off (Current baseline)'
 [void]$menu.Items.Add($offItem)
 
-$legacyItem = New-Object System.Windows.Forms.ToolStripMenuItem
-$legacyItem.Text = 'EQ: Legacy DTS-era'
-[void]$menu.Items.Add($legacyItem)
-
-$nativeItem = New-Object System.Windows.Forms.ToolStripMenuItem
-$nativeItem.Text = 'EQ: Omniphony tuned'
-[void]$menu.Items.Add($nativeItem)
+$onItem = New-Object System.Windows.Forms.ToolStripMenuItem
+$onItem.Text = 'EQ: On (tuned)'
+[void]$menu.Items.Add($onItem)
 
 [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
 
@@ -96,15 +90,10 @@ function Update-TrayState {
     $rightComp = Get-BoolSetting $rightCompPath $true
 
     $offItem.Checked = $preset -eq 'off'
-    $legacyItem.Checked = $preset -eq 'legacy'
-    $nativeItem.Checked = $preset -eq 'native'
+    $onItem.Checked = $preset -eq 'on'
     $rightCompItem.Checked = $rightComp
 
-    $presetLabel = switch ($preset) {
-        'off' { 'Off' }
-        'native' { 'Native' }
-        default { 'Legacy' }
-    }
+    $presetLabel = if ($preset -eq 'off') { 'Off' } else { 'On' }
     $rightLabel = if ($rightComp) { 'R+' } else { 'R0' }
     $notify.Text = "Omniphony Current | EQ: $presetLabel | $rightLabel"
 }
@@ -115,14 +104,13 @@ function Select-EqPreset([string]$Preset) {
         Update-TrayState
     } catch {
         $notify.BalloonTipTitle = 'Omniphony'
-        $notify.BalloonTipText = "Could not change the EQ preset: $($_.Exception.Message)"
+        $notify.BalloonTipText = "Could not change the EQ setting: $($_.Exception.Message)"
         $notify.ShowBalloonTip(2500)
     }
 }
 
 $offItem.Add_Click({ Select-EqPreset 'off' })
-$legacyItem.Add_Click({ Select-EqPreset 'legacy' })
-$nativeItem.Add_Click({ Select-EqPreset 'native' })
+$onItem.Add_Click({ Select-EqPreset 'on' })
 
 $rightCompItem.Add_Click({
     try {
