@@ -166,12 +166,28 @@ function Get-MixChannelCount([string]$EndpointName) {
     return [int]$match.Groups[1].Value
 }
 
-function Assert-NativeSurroundMixFormat([string]$EndpointName) {
-    $channels = Get-MixChannelCount $EndpointName
-    if ($channels -ne 8) {
-        throw "Windows did not honor Omniphony's preferred 7.1 input format. observed_channels=$channels"
+function Assert-NativeSurroundClientFormat([string]$EndpointName) {
+    $probe = Invoke-NativeCapture $mixProbe @('--shared-7.1', $EndpointName)
+    $probe.Lines | ForEach-Object { Write-Host $_ }
+    if ($probe.Code -ne 0) {
+        throw "Windows could not initialize an authored 7.1 shared stream through Omniphony's SFX. helper=$($probe.Code) output=$($probe.Lines -join ' | ')"
     }
-    Write-Host 'NATIVE_SURROUND_MIX_FORMAT_OK CHANNELS=8 LAYOUT=7.1'
+
+    $mixLine = $probe.Lines | Where-Object { $_.StartsWith("MIX_FORMAT_OK`t") } | Select-Object -First 1
+    if (-not $mixLine) {
+        throw 'Native-surround client probe returned no endpoint MIX_FORMAT_OK record.'
+    }
+    $mixMatch = [regex]::Match($mixLine, '(?:^|\t)CHANNELS=(\d+)(?:\t|$)')
+    if (-not $mixMatch.Success -or [int]$mixMatch.Groups[1].Value -ne 2) {
+        throw "Native-surround client probe did not preserve the physical stereo endpoint mix: $mixLine"
+    }
+
+    $clientLine = $probe.Lines | Where-Object { $_.StartsWith("SHARED_7_1_INITIALIZE_OK`t") } | Select-Object -First 1
+    if (-not $clientLine) {
+        throw "Native-surround client probe did not prove 7.1 shared-stream initialization. output=$($probe.Lines -join ' | ')"
+    }
+
+    Write-Host 'NATIVE_SURROUND_CLIENT_FORMAT_OK INPUT_CHANNELS=8 ENDPOINT_CHANNELS=2 RATE=48000 BITS=32'
 }
 
 function Assert-StereoRollbackMixFormat([string]$EndpointName) {
@@ -287,14 +303,20 @@ try {
 
     Restart-AudioGraph
     Wait-EndpointActive $endpointId
-    Assert-NativeSurroundMixFormat $endpointName
+
+    # GetMixFormat remains the physical/shared engine mix and should stay stereo.
+    # The Windows 11 preferred-format contract is upstream of that mix. Prove the
+    # real capability by constructing an exact 7.1 float32 shared client stream;
+    # successful Initialize means the graph builder accepted authored 7.1 while
+    # retaining a stereo endpoint for the DAC.
+    Assert-NativeSurroundClientFormat $endpointName
 
     if (Test-Path -LiteralPath $legacyStreamBackupPath) {
         Remove-Item -LiteralPath $legacyStreamBackupPath -Force -ErrorAction SilentlyContinue
     }
 
     Write-Host 'OMNIPHONY_WINDOWS_INSTALL_OK 1'
-    Write-Host 'AUDIO_INGRESS windows-client-mix=7.1 multichannel=authored-speaker-bed output=binaural-stereo'
+    Write-Host 'AUDIO_INGRESS windows-client-input=7.1 endpoint-mix=stereo multichannel=authored-speaker-bed output=binaural-stereo'
     Write-Host 'NATIVE_SURROUND_SFX 1'
     Write-Host 'NATIVE_SURROUND_EFX 0'
     Write-Host 'OMNIPHONY_INSTALL_STAGE native-surround-active'
