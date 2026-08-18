@@ -16,9 +16,9 @@ canonical 8.1.4.4 semantic world + dynamic source objects
         ↓
 22-direction render shell
         ↓
-spatial renderer
+cascaded binaural renderer
         ↓
-binaural output
+headphone output
 ```
 
 The source path supplies a richer input to the existing Omniphony product architecture. It does not create a second scene model.
@@ -153,13 +153,16 @@ NativeRouting
 → recovered real source objects
 → preserve native laterality and identity
 → no creative rear / height / extra depth
+→ direct binaural control path
 
 FullSphere
 → same recovered real source objects
 → preserve authored route / position constraints
 → stable identity-aware immersive placement
 → adaptive width + depth + height + extent + distance
-→ 8.1.4.4 world → 22-direction shell → binaural
+→ 8.1.4.4 world
+→ embedded 22-direction System-H-derived shell
+→ cascaded binaural
 ```
 
 `FullSphere` is not a confidence level. It is an explicit production choice.
@@ -192,7 +195,9 @@ A dry source may become a dynamic object when isolated audio is actually availab
 
 A shared effect return remains shared. Omniphony may present it as diffuse/environmental support, but it must not clone one historical shared return into N invented per-source wet stems.
 
-For SNES S-DSP, the recovered echo is especially useful as a separate spatial production layer. The current source model can preserve the final post-EVOL left/right components as **two linked lanes belonging to one shared stereo feedback field**. They are not two independent reverbs. Keeping them separate from the eight dry voices preserves the original echo image while giving Omniphony independent control over that field's rear bias, height, radial depth and eventual audible extent.
+For SNES S-DSP, the recovered echo is especially useful as a separate spatial production layer. The current source model can preserve the final post-EVOL left/right components as **two linked lanes belonging to one shared stereo feedback field**. They are not two independent reverbs. Keeping them separate from the eight dry voices preserves the original echo image while giving Omniphony independent control over that field's rear bias, height, radial depth, strength and audible extent.
+
+In FullSphere, shared-wet extent is spent over the same 22-direction shell as dry-source extent. The wet field can therefore become physically broader in the headphone render without moving its chosen center or rewriting the eight dry voices.
 
 The shared wet field also remains distinct from Omniphony's own optional listening-room reflections:
 
@@ -399,19 +404,27 @@ The adaptive architecture follows a useful pattern from immersive-audio research
 
 These support the obligations: preserve localization and signal fidelity, control source extent separately from position, and adapt spatial treatment to scene structure. They do not prove the numeric constants currently used by Omniphony.
 
-## Current extent limitation
+## Current extent implementation
 
-`SourcePresentation.size` is already generated and reaches object metadata, but the active **direct binaural** path currently consumes object position/gain and does not yet turn `size` into a physical binaural source-extent mechanism.
-
-Therefore:
+`SourcePresentation.size` now reaches the FullSphere headphone signal through the intended product architecture rather than through a separate widening effect.
 
 ```text
-position / height / radial depth are audible today
-size metadata exists today
-true direct-binaural source extent remains unfinished
+source object center + [width, depth, height]
+→ object event
+→ 22-direction System-H-derived shell
+→ size-aware VBAP spread
+→ fixed virtual-speaker field
+→ cascaded binaural HRTF/ITD
+→ headphones
 ```
 
-Do not claim source extent complete until the direct binaural renderer converts that field into a controlled spread mechanism, likely through bounded multi-direction HRTF rendering or a fidelity-constrained decorrelation/covariance method.
+FullSphere embeds the same 22-direction shell used by Current support. Its precomputed Cartesian evaluator is built with at least four object-size intervals, giving five spread states at `0, .25, .5, .75, 1` and interpolation between them. A caller may request finer size sampling, but the source-aware FullSphere path does not allow an unrelated default to collapse dynamic extent back to a single point-size table.
+
+This means source extent is independent of source center. Opening an instrument or shared wet field can change how broadly it occupies the shell without changing the chosen azimuth/elevation/distance of its center.
+
+`NativeRouting` deliberately remains the direct-binaural control path. Because that mode also closes creative source extent, direct binaural's lack of a separate per-object extent renderer is not a blocker for the source-aware product path. A future direct-HRTF extended-source renderer remains a useful research alternative for comparison, especially covariance/decorrelation approaches, but it is no longer the missing implementation required to make FullSphere size audible.
+
+For SPC specifically, the final S-DSP echo remains one linked historical stereo field and can spend substantially more shell extent than individual dry voices. Its extent, strength and added Omniphony room remain separable controls.
 
 ## Artificial-hearing research
 
@@ -440,11 +453,14 @@ authored route survives unchanged
 creative/inferred geometry never becomes authored
 NativeRouting disables creative rear/height/depth
 FullSphere gives stable real sources repeatable immersive scale
+FullSphere routes through the exact embedded 22-direction shell
+source extent changes FullSphere headphone audio without moving source center
 scene budget comes only from completed past audio
 scene budget resets between timelines
 ABI 0.3 is rejected by the adaptive client
 shared wet remains one source-native field
 SPC wet L/R remain linked components, not independent reverbs
+shared-wet extent changes the headphone field without moving its center
 wet-heavy scenes can reduce added Omniphony room
 stable source evidence does not jitter across block sizes
 new identity does not inherit stale pose motion
