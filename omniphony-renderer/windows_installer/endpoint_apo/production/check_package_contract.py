@@ -65,8 +65,11 @@ if "status-id $EndpointId.Id" in dev_install:
 production_install = (HERE / "Install-ProductionApoPackages.ps1").read_text(encoding="utf-8")
 production_uninstall = (HERE / "Uninstall-ProductionApoPackages.ps1").read_text(encoding="utf-8")
 production_build = (HERE / "Build-ProductionApoPackages.ps1").read_text(encoding="utf-8")
+production_readiness = (HERE / "Test-ProductionMachineReadiness.ps1").read_text(encoding="utf-8")
 production_generator = (HERE / "generate_extension_inf.py").read_text(encoding="utf-8")
 production_capture = (HERE / "Capture-ProductionTarget.ps1").read_text(encoding="utf-8")
+production_probe = (ENDPOINT_APO / "OmniphonyProductionProbe.cpp").read_text(encoding="utf-8")
+cmake = (ENDPOINT_APO / "CMakeLists.txt").read_text(encoding="utf-8")
 production_combined = (production_install + "\n" + production_uninstall).lower()
 
 if "disableprotectedaudiodg=1 is still active" not in production_combined:
@@ -79,12 +82,47 @@ if "endpoint_efx_association_ok" not in production_install.lower():
     raise SystemExit("production installer must verify endpoint EFX association after PnP install")
 if "target-capture.json" not in production_build.lower():
     raise SystemExit("production package builder must bind the exact target capture into the package")
+if "omniphonyproductionprobe.exe" not in production_build.lower():
+    raise SystemExit("production package builder must carry the read-only WASAPI acceptance probe")
+if "omniphony.windows.apo-package-build.v2" not in production_build:
+    raise SystemExit("production package builder must emit the probe-aware v2 manifest")
 if "signaturesverified" not in production_build.lower() or "manifest.signaturesverified" not in production_install.lower():
     raise SystemExit("production package build/install must preserve the verified-signature gate")
 if "omniphony.windows.apo-target.v3" not in production_generator:
     raise SystemExit("production extension generator must require finalized v3 target evidence")
 if "DEVPKEY_Device_DriverInfSectionExt" not in production_capture:
     raise SystemExit("production target capture must record the installed INF platform section extension")
+
+# Production success now requires a real WASAPI transaction on the exact
+# captured endpoint. The historical 0x80070005 failure happened at
+# IAudioClient::GetMixFormat, so registration-only success is not sufficient.
+probe_required = (
+    "GetMixFormat",
+    "IAudioClient::Initialize",
+    "IAudioClient::Start",
+    "OMNIPHONY_PRODUCTION_WASAPI_PROBE_OK",
+    "CURRENT_MIX_CONTRACT_OK",
+)
+for token in probe_required:
+    if token not in production_probe:
+        raise SystemExit(f"production WASAPI probe lost acceptance stage: {token}")
+for forbidden in (
+    "RegSetValue",
+    "RegCreateKey",
+    "SetNamedSecurityInfo",
+    "FxProperties",
+    "RepairEndpointApo",
+):
+    if forbidden.lower() in production_probe.lower():
+        raise SystemExit(f"production WASAPI probe gained repair/mutation surface: {forbidden}")
+if "add_executable(OmniphonyProductionProbe" not in cmake:
+    raise SystemExit("CMake no longer builds OmniphonyProductionProbe")
+if "OmniphonyMixProbe" in production_install:
+    raise SystemExit("production installer must not invoke the development repair-capable MixProbe")
+if "OMNIPHONY_PRODUCTION_WASAPI_PROBE_OK" not in production_install:
+    raise SystemExit("production installer must gate success on the safe WASAPI probe")
+if "BaselineWasapiProbe" not in production_readiness:
+    raise SystemExit("production readiness must prove the same endpoint works before installation")
 
 for forbidden in (
     "set-regdword 'software\\microsoft\\windows\\currentversion\\audio' 'disableprotectedaudiodg' 1",
@@ -102,3 +140,4 @@ for forbidden in (
 print("PRODUCTION_APO_PACKAGE_CONTRACT_OK 1")
 print("WINDOWS_DEPLOYMENT_SEPARATION_CONTRACT_OK 1")
 print("PRODUCTION_READ_ONLY_ENDPOINT_OBSERVATION_OK 1")
+print("PRODUCTION_WASAPI_ACCEPTANCE_CONTRACT_OK 1")
