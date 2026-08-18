@@ -6,7 +6,13 @@ import generate_extension_inf as gen
 
 def fixture():
     return {
-        "Schema": "omniphony.windows.apo-target.v2",
+        "Schema": "omniphony.windows.apo-target.v3",
+        "CapturedEndpointEffects": {
+            "Readable": True,
+            "LegacyEndpointEffects": [],
+            "CompositeEndpointEffects": [],
+            "EnhancementsDisabled": 0,
+        },
         "AssociationCandidates": [
             {
                 "InstanceId": r"USB\VID_F00D&PID_BEEF&MI_00\123",
@@ -16,6 +22,8 @@ def fixture():
                     r"USB\VID_F00D&PID_BEEF&MI_00",
                     r"USB\VID_F00D&PID_BEEF",
                 ],
+                "DriverInfResolvedSection": "SyntheticAudio.NTamd64",
+                "InterfaceResolutionWarnings": [],
                 "DriverInterfaces": [
                     {
                         "CategoryResolved": "{6994AD04-93EF-11D0-A3CC-00A0C9223196}",
@@ -101,6 +109,36 @@ class ExtensionInfTests(unittest.TestCase):
         data["AssociationCandidates"][0]["HardwareIds"] = [
             r"SWD\MMDEVAPI\{00000000-0000-0000-0000-000000000000}"
         ]
+        with self.assertRaises(gen.ContractError):
+            gen.render_extension_inf(data)
+
+    def test_rejects_foreign_existing_endpoint_effect(self):
+        data = fixture()
+        data["CapturedEndpointEffects"]["CompositeEndpointEffects"] = [
+            "{11111111-1111-1111-1111-111111111111}"
+        ]
+        with self.assertRaises(gen.ContractError):
+            gen.render_extension_inf(data)
+
+    def test_allows_existing_omniphony_effect_for_upgrade(self):
+        data = fixture()
+        data["CapturedEndpointEffects"]["CompositeEndpointEffects"] = [gen.APO_CLSID]
+        self.assertIn(gen.APO_CLSID, gen.render_extension_inf(data))
+
+    def test_rejects_disabled_system_effects(self):
+        data = fixture()
+        data["CapturedEndpointEffects"]["EnhancementsDisabled"] = 1
+        with self.assertRaises(gen.ContractError):
+            gen.render_extension_inf(data)
+
+    def test_rejects_unfinalized_schema_or_inf_warning(self):
+        data = fixture()
+        data["Schema"] = "omniphony.windows.apo-target.v2"
+        with self.assertRaises(gen.ContractError):
+            gen.render_extension_inf(data)
+
+        data = fixture()
+        data["AssociationCandidates"][0]["InterfaceResolutionWarnings"] = ["unresolved include"]
         with self.assertRaises(gen.ContractError):
             gen.render_extension_inf(data)
 
