@@ -47,6 +47,15 @@ function Invoke-NativeChecked([string]$FilePath, [string[]]$Arguments, [string]$
     }
 }
 
+function Verify-AuthenticodeSignature([string]$SignTool, [string]$Path, [string]$Label) {
+    Invoke-NativeChecked $SignTool @('verify', '/pa', '/v', $Path) "Verify $Label signature"
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+        throw "$Label Authenticode verification is not Valid: $($signature.Status) $($signature.StatusMessage)"
+    }
+    Write-Host "SIGNATURE_VERIFIED $Label $($signature.SignerCertificate.Thumbprint)"
+}
+
 function Get-FileRecord([string]$Path) {
     $item = Get-Item -LiteralPath $Path
     return [ordered]@{
@@ -92,6 +101,7 @@ Invoke-NativeChecked $infverif @('/w', '/v', $extensionInf) 'InfVerif extension 
 $componentApo = Join-Path $componentRoot 'OmniphonyAPO.dll'
 $componentRealtime = Join-Path $componentRoot 'omniphony_realtime.dll'
 $signTool = ''
+$signaturesVerified = $false
 if (-not [string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
     $signTool = Find-WindowsKitTool 'signtool.exe'
     if (-not $signTool) { throw 'x64 signtool.exe was not found. Install a current Windows SDK/WDK.' }
@@ -103,9 +113,11 @@ if (-not [string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
         $signArgs += @('/tr', $TimestampUrl, '/td', 'SHA256')
     }
 
-    # PE payloads must be signed before Inf2Cat hashes them into the catalog.
+    # PE payloads must be signed and verified before Inf2Cat hashes them into the catalog.
     Invoke-NativeChecked $signTool ($signArgs + @($componentApo)) 'Sign OmniphonyAPO.dll'
     Invoke-NativeChecked $signTool ($signArgs + @($componentRealtime)) 'Sign omniphony_realtime.dll'
+    Verify-AuthenticodeSignature $signTool $componentApo 'OmniphonyAPO.dll'
+    Verify-AuthenticodeSignature $signTool $componentRealtime 'omniphony_realtime.dll'
 }
 
 if (-not $SkipCatalogs) {
@@ -128,6 +140,9 @@ if (-not $SkipCatalogs) {
         }
         Invoke-NativeChecked $signTool ($catSignArgs + @($componentCat)) 'Sign component catalog'
         Invoke-NativeChecked $signTool ($catSignArgs + @($extensionCat)) 'Sign extension catalog'
+        Verify-AuthenticodeSignature $signTool $componentCat 'OmniphonyApo.cat'
+        Verify-AuthenticodeSignature $signTool $extensionCat 'OmniphonyApoExtension.cat'
+        $signaturesVerified = $true
     }
 }
 
@@ -153,6 +168,7 @@ $manifest = [ordered]@{
     Inf2CatOs = $Inf2CatOs
     CatalogsGenerated = -not [bool]$SkipCatalogs
     CertificateThumbprint = if ([string]::IsNullOrWhiteSpace($CertificateThumbprint)) { $null } else { $CertificateThumbprint.ToUpperInvariant() }
+    SignaturesVerified = [bool]$signaturesVerified
     Files = @($files)
 }
 $manifestPath = Join-Path $OutputRoot 'package-manifest.json'
@@ -166,4 +182,11 @@ Write-Host "EXTENSION_INF $extensionInf"
 Write-Host "MANIFEST $manifestPath"
 if ([string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
     Write-Warning 'Packages are not certificate-signed by this build. They are not proven suitable for protected AudioDG.'
+} elseif (-not $signaturesVerified -and -not $SkipCatalogs) {
+    throw 'A signing certificate was supplied but package signature verification did not complete.'
+} elseif ($SkipCatalogs) {
+    Write-Warning 'PE signatures were verified, but catalogs were skipped; this is not a complete signed driver-package candidate.'
+} else {
+    Write-Host 'OMNIPHONY_PACKAGE_SIGNATURES_VERIFIED 1'
+    Write-Warning 'Valid Authenticode signatures are necessary evidence only. They do not prove protected AudioDG or Microsoft driver-trust acceptance on the target machine.'
 }
