@@ -231,9 +231,9 @@ fn validate_event_headers(
     true
 }
 
-/// Render one ABI/event-bounded segment, splitting it further only at the
-/// renderer-local attack-extent transition. This keeps attack timing in seconds,
-/// not callbacks, while the outer caller still owns exact source evidence time.
+/// Render one ABI/event-bounded segment, splitting it further only at a
+/// FullSphere renderer-local attack-extent transition. NativeRouting still ages
+/// the episode clock, but never acquires attack-only chunk boundaries.
 fn render_segment(
     processor: &mut OmniphonySourceProcessor,
     input: &[f32],
@@ -251,9 +251,10 @@ fn render_segment(
     let mut cursor = start_frame;
     while cursor < end_frame {
         let remaining = end_frame - cursor;
+        let full_sphere = processor.spatial_mode == SourceSpatialMode::FullSphere;
         let chunk_frames = processor
             .attack_extent
-            .frames_until_transition(&processor.source_buf, remaining);
+            .frames_until_transition(&processor.source_buf, remaining, full_sphere);
         let chunk_end = cursor.checked_add(chunk_frames).ok_or(-3)?;
         let input_start = cursor.checked_mul(source_count).ok_or(-3)?;
         let input_end = chunk_end.checked_mul(source_count).ok_or(-3)?;
@@ -261,7 +262,6 @@ fn render_segment(
         let output_end = chunk_end.checked_mul(2).ok_or(-3)?;
         let absolute_sample = sample_pos.checked_add(cursor as u64).ok_or(-3)?;
         let effective_ramp_frames = processor.attack_extent.ramp_frames(ramp_frames);
-        let full_sphere = processor.spatial_mode == SourceSpatialMode::FullSphere;
 
         let OmniphonySourceProcessor {
             renderer,
@@ -294,10 +294,10 @@ fn render_segment(
         *samples_buf = rendered.samples;
 
         // Clear any release marker that this successful chunk just submitted,
-        // then advance time. If compactness reaches zero here, `advance` creates
-        // a new release marker for the *next* chunk.
+        // then advance the real-time episode clock. Only FullSphere arms a size
+        // release because NativeRouting never spent the compact extent state.
         attack_extent.acknowledge_render();
-        attack_extent.advance(chunk_frames);
+        attack_extent.advance(chunk_frames, full_sphere);
         cursor = chunk_end;
     }
     Ok(())
