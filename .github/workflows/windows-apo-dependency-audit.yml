@@ -42,6 +42,7 @@ jobs:
         run: |
           $paths = @(
             'omniphony-renderer/windows_installer/endpoint_apo/production/Capture-TargetAudioDriver.ps1',
+            'omniphony-renderer/windows_installer/endpoint_apo/production/Capture-ProductionTarget.ps1',
             'omniphony-renderer/windows_installer/endpoint_apo/production/Build-ProductionApoPackages.ps1',
             'omniphony-renderer/windows_installer/endpoint_apo/production/Install-ProductionApoPackages.ps1',
             'omniphony-renderer/windows_installer/endpoint_apo/production/Uninstall-ProductionApoPackages.ps1',
@@ -63,11 +64,14 @@ jobs:
         run: |
           $build = Get-Content 'omniphony-renderer/windows_installer/endpoint_apo/production/Build-ProductionApoPackages.ps1' -Raw
           $install = Get-Content 'omniphony-renderer/windows_installer/endpoint_apo/production/Install-ProductionApoPackages.ps1' -Raw
+          $generator = Get-Content 'omniphony-renderer/windows_installer/endpoint_apo/production/generate_extension_inf.py' -Raw
           if ($build -notmatch "target-capture\.json") { throw 'production package no longer binds target-capture.json' }
           if ($install -notmatch 'Manifest\.SignaturesVerified') { throw 'production installer no longer requires verified signatures' }
           if ($install -notmatch 'CompositeEndpointEffects') { throw 'production installer no longer checks existing composite EFX' }
           if ($install -notmatch 'already has non-Omniphony EFX registered') { throw 'production installer no longer refuses foreign EFX collision' }
           if ($install -notmatch 'ENDPOINT_EFX_ASSOCIATION_OK') { throw 'production installer no longer verifies endpoint EFX association' }
+          if ($generator -notmatch 'apo-target\.v3') { throw 'production generator no longer requires finalized v3 target evidence' }
+          if ($generator -notmatch 'InterfaceResolutionWarnings') { throw 'production generator no longer refuses unresolved INF evidence' }
           Write-Host 'PRODUCTION_LIFECYCLE_SAFETY_CONTRACT_OK 1'
 
       - uses: microsoft/setup-msbuild@v2
