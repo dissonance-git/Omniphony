@@ -132,21 +132,24 @@ mod tests {
 
     #[test]
     fn shared_wet_return_reuses_object_path_as_broad_environment() {
+        let policy = SourcePresentationPolicy::default();
         let result = present_source_channel(
             8,
             SourceSceneEvidence {
                 lane_kind: SourceLaneKind::SharedWetReturn,
                 diffuse: 1.0,
+                width: 1.0,
                 ..source(4)
             },
-            SourcePresentationPolicy::default(),
+            policy,
             Some(0),
             Some(256),
         );
         let event = result
             .event
             .expect("shared wet return should be renderable");
-        assert_eq!(event.size, Some([1.0, 1.0, 1.0]));
+        assert_eq!(event.size, Some(policy.shared_wet.extent));
+        assert_eq!(result.presentation.size, policy.shared_wet.extent);
         assert!(result.presentation.azimuth_deg.abs() > 90.0);
     }
 
