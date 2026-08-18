@@ -90,13 +90,18 @@ C LFE Cb Bfl Bfr Bbl Bbr
 
 For source-native game-music objects, Omniphony may create stable `DERIVED` immersive placement while preserving authored routing, timing and identity. That is a modern immersive remix decision, not a historical-authorship claim.
 
+Source-aware `FullSphere` uses the **same embedded 22-direction System-H-derived shell** as Current. Recovered objects carry a 3-D extent `[width, depth, height]`; that extent is converted into size-aware VBAP spread over the shell before cascaded binaural rendering. `NativeRouting` remains the direct-binaural control with creative extent closed.
+
+For SNES/SPC, the final post-EVOL S-DSP echo is treated as its own historical shared stereo field. Its linked L/R identity stays intact, while Omniphony may independently control that field's rear bias, elevation, radial depth, strength and shell extent. Historical echo and Omniphony's optional externalization room remain separate layers.
+
 ## What is implemented now
 
 | Layer | Current state |
 | --- | --- |
 | Canonical static scene | **Implemented:** 17-lane 8.1.4.4 vocabulary |
 | Stereo evidence mapping | **Implemented:** bounded stereo-derived support into earned lanes only |
-| Source-aware game-music sphere | **Implemented:** stable DERIVED width/depth/height constrained by source evidence |
+| Source-aware game-music sphere | **Implemented:** stable DERIVED width/depth/height/extent constrained by source evidence and rendered through the 22-direction shell |
+| Source-aware shared wet layer | **Implemented:** historical shared fields such as S-DSP echo remain separate and receive independent strength/geometry/extent treatment |
 | Current spatial shell | **Implemented:** 22-direction System-H-derived full-sphere lattice |
 | Headphone renderer | **Implemented:** cascaded binaural with measured HRTF / ITD path |
 | Directional early field | **Implemented:** bounded directional reflection support |
@@ -193,7 +198,7 @@ The callback must not perform filesystem I/O, network activity, device discovery
 
 ## Validation
 
-Engineering gates include canonical scene order, EMPTY-lane preservation, source identity stability, deterministic source-aware placement, HRTF/ITD checks, transient and bass preservation, non-finite/peak safety, Windows APO ABI/manifest/import checks, installer rollback behavior and real-endpoint WASAPI probes.
+Engineering gates include canonical scene order, EMPTY-lane preservation, source identity stability, deterministic source-aware placement, FullSphere 22-direction-shell construction, source-extent audibility, shared-wet extent independence, HRTF/ITD checks, transient and bass preservation, non-finite/peak safety, Windows APO ABI/manifest/import checks, installer rollback behavior and real-endpoint WASAPI probes.
 
 Human listening remains the final gate for externalization, front/back discrimination, elevation, source body, envelopment, radial depth, center solidity, room naturalness, fatigue, groove and bass integrity.
 
@@ -228,9 +233,13 @@ From `omniphony-renderer/`:
 
 ```sh
 cargo test -p renderer
-cargo test -p orender_engine --test current_scene_geometry
+cargo test -p orender_engine --lib --tests
+cargo test -p orender_engine --test source_shared_wet_extent
+cargo test -p source_ffi --lib --tests
 cargo test -p realtime_ffi
 ```
+
+`.github/workflows/source-aware-spatial-validation.yml` is the focused CI gate for the source-native FullSphere engine and source ABI. It compiles and runs the `orender_engine` source-path tests plus `source_ffi` tests independently of the broader renderer perf gate.
 
 The Windows installer workflow builds and validates the full Current realtime path before producing `OmniphonySetup.exe`.
 
