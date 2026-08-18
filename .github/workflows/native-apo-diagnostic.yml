@@ -9,27 +9,13 @@ on:
       - 'omniphony-renderer/windows_installer/endpoint_apo/**'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  native-target:
-    name: Probe ${{ matrix.target }}
+  native-targets:
+    name: Probe every native APO target
     runs-on: windows-2022
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - OmniphonyAPO
-          - OmniphonyStreamAPO
-          - OmniphonyApoCtl
-          - OmniphonyApoSmoke
-          - OmniphonyStreamApoSmoke
-          - OmniphonyRealtimeSmoke
-          - OmniphonyMixProbe
-          - OmniphonyProductionProbe
-          - OmniphonySpatialProbe
-          - OmniphonySpatialProviderProbe
 
     steps:
       - name: Checkout
@@ -46,16 +32,107 @@ jobs:
           choco install windowsdriverkit11 -y --no-progress
           if ($LASTEXITCODE -ne 0) { throw "WDK installation failed: $LASTEXITCODE" }
 
-      - name: Configure native APO
+      - name: Probe all native targets
+        id: probe
         shell: pwsh
         run: |
-          cmake -S "$env:GITHUB_WORKSPACE\omniphony-renderer\windows_installer\endpoint_apo" `
-                -B "$env:GITHUB_WORKSPACE\build\apo" `
-                -A x64
-          if ($LASTEXITCODE -ne 0) { throw "APO CMake configure failed: $LASTEXITCODE" }
+          $ErrorActionPreference = 'Continue'
+          $source = "$env:GITHUB_WORKSPACE\omniphony-renderer\windows_installer\endpoint_apo"
+          $build = "$env:GITHUB_WORKSPACE\build\apo"
+          $diagnostics = "$env:GITHUB_WORKSPACE\ci-diagnostics"
+          New-Item -ItemType Directory -Force $diagnostics | Out-Null
 
-      - name: Build target
+          function Invoke-CapturedNative {
+            param(
+              [Parameter(Mandatory=$true)][string]$Label,
+              [Parameter(Mandatory=$true)][scriptblock]$Command
+            )
+            $lines = @(& $Command 2>&1 | ForEach-Object { $_.ToString() })
+            $exitCode = $LASTEXITCODE
+            if ($null -eq $exitCode) { $exitCode = 0 }
+            $tail = @($lines | Select-Object -Last 120)
+            [pscustomobject]@{
+              label = $Label
+              exit_code = [int]$exitCode
+              status = $(if ($exitCode -eq 0) { 'success' } else { 'failure' })
+              tail = $tail
+            }
+          }
+
+          $configure = Invoke-CapturedNative -Label 'cmake-configure' -Command {
+            cmake -S $source -B $build -A x64
+          }
+
+          $targetResults = @()
+          $targets = @(
+            'OmniphonyAPO',
+            'OmniphonyStreamAPO',
+            'OmniphonyApoCtl',
+            'OmniphonyApoSmoke',
+            'OmniphonyStreamApoSmoke',
+            'OmniphonyRealtimeSmoke',
+            'OmniphonyMixProbe',
+            'OmniphonyProductionProbe',
+            'OmniphonySpatialProbe',
+            'OmniphonySpatialProviderProbe'
+          )
+
+          if ($configure.exit_code -eq 0) {
+            foreach ($target in $targets) {
+              Write-Host "PROBING_NATIVE_TARGET $target"
+              $result = Invoke-CapturedNative -Label $target -Command {
+                cmake --build $build --config Release --target $target --verbose
+              }
+              $targetResults += $result
+              Write-Host "NATIVE_TARGET_RESULT target=$target status=$($result.status) exit=$($result.exit_code)"
+              if ($result.exit_code -ne 0) {
+                $result.tail | ForEach-Object { Write-Host $_ }
+              }
+            }
+          }
+
+          $failedTargets = @($targetResults | Where-Object { $_.exit_code -ne 0 } | ForEach-Object label)
+          $overall = if ($configure.exit_code -ne 0 -or $failedTargets.Count -ne 0) { 'failure' } else { 'success' }
+          $record = [ordered]@{
+            schema = 'omniphony.windows.native-apo-diagnostic.v1'
+            head_sha = $env:GITHUB_SHA
+            run_id = $env:GITHUB_RUN_ID
+            overall = $overall
+            configure = $configure
+            failed_targets = $failedTargets
+            targets = $targetResults
+          }
+          $record | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 "$diagnostics\native-apo-targets.json"
+          "overall=$overall" >> $env:GITHUB_OUTPUT
+
+      - name: Publish diagnostic record
+        if: always()
         shell: pwsh
         run: |
-          cmake --build "$env:GITHUB_WORKSPACE\build\apo" --config Release --target "${{ matrix.target }}" --verbose
-          if ($LASTEXITCODE -ne 0) { throw "${{ matrix.target }} build failed: $LASTEXITCODE" }
+          Set-Location $env:GITHUB_WORKSPACE
+          $record = 'ci-diagnostics/native-apo-targets.json'
+          if (-not (Test-Path $record)) {
+            throw 'Native APO diagnostic record was not produced.'
+          }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- $record
+          if (git diff --cached --quiet) {
+            Write-Host 'Native APO diagnostic record is unchanged.'
+            exit 0
+          }
+          git commit -m 'build(windows): record native APO target diagnostics'
+          if ($LASTEXITCODE -ne 0) { throw "Diagnostic commit failed: $LASTEXITCODE" }
+          git pull --rebase origin main
+          if ($LASTEXITCODE -ne 0) { throw "Diagnostic rebase failed: $LASTEXITCODE" }
+          git push origin HEAD:main
+          if ($LASTEXITCODE -ne 0) { throw "Diagnostic push failed: $LASTEXITCODE" }
+
+      - name: Enforce native target result
+        if: always()
+        shell: pwsh
+        run: |
+          $record = Get-Content "$env:GITHUB_WORKSPACE\ci-diagnostics\native-apo-targets.json" -Raw | ConvertFrom-Json
+          if ($record.overall -ne 'success') {
+            throw "Native APO diagnostic failed: configure=$($record.configure.status) targets=$($record.failed_targets -join ',')"
+          }
