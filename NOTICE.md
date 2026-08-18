@@ -1,42 +1,66 @@
 # Omniphony fork notice
 
-This repository is a fork of the original **Omniphony** project by the upstream maintainers at:
+This repository is derived from the original **Omniphony** project by the upstream maintainers at:
 
 - https://github.com/mgth/Omniphony
 
-The fork retains the original repository history and is distributed under the inherited **GPL-3.0-or-later** license. Existing upstream copyright, authorship, licensing, and attribution remain in force.
+The repository retains upstream history and is distributed under the inherited **GPL-3.0-or-later** license. Existing upstream copyright, authorship, licensing, and attribution remain in force.
 
-## What came from upstream
+## Upstream foundation
 
-The original project supplied the foundation on which this fork is built, including substantial work around:
+The original project supplied substantial technical foundations that remain important to this fork, including work around:
 
-- spatial/object rendering;
+- spatial and object rendering;
 - VBAP and speaker-layout machinery;
 - binaural HRTF and ITD rendering;
-- room/reflection and distance processing;
-- audio input/output architecture;
-- decoder/bridge interfaces;
-- realtime control and OSC infrastructure;
+- room, reflection, and distance processing;
+- audio input/output infrastructure;
+- decoder and bridge interfaces;
+- realtime control infrastructure;
 - cross-platform integration;
-- Omniphony Studio and associated visualization/control work;
+- visualization and control tooling;
 - tests, documentation, fixtures, and engineering accumulated in upstream history.
 
-The fork must not imply that this body of work originated here.
+This fork does not claim that body of work as originating here.
 
-## What this fork changes
+## Scope of this fork
 
-`dissonance-git/Omniphony-Headphones` narrows the inherited project around a different practical goal:
+`dissonance-git/Omniphony-Headphones` develops Omniphony toward a free and open-source spatial audio renderer for headphones.
 
-> **a Windows-first binaural spatial-audio system for headphones, focused first on making the already-good Omniphony renderer practical for ordinary music and normal Windows listening.**
+The product goal is one renderer that can accept progressively richer source representations while preserving their authority:
 
-The fork preserves the upstream binaural sound as a protected perceptual floor while building native Windows transport, simpler product behavior, ordinary-stereo presentation, and later optional calibration/personalization around it.
+```text
+stereo
+→ bounded spatial inference
 
-The separate `libaural` project may later provide bounded research evidence for adaptive presentation, but Omniphony for Headphones does not depend on libaural to render or play audio.
+5.1 / 7.1 / height PCM
+→ authored channel geometry
 
-As the fork contracts, upstream subsystems that do not serve the Windows headphone product, protected renderer, or deterministic validation may be removed. Useful upstream renderer machinery should be retained and modified rather than gratuitously rewritten.
+8.1.4.4 static spatial scenes
+→ authored fixed spatial roles
 
-## Other inherited experiments
+dynamic spatial objects
+→ authored object identity and continuous position
 
-The fork also reimplements selected ideas from the owner's earlier `spatial-dsp` / Real3D foobar2000 experiment. Those ideas are migrated as inspectable evidence/rendering mechanisms rather than preserving the old stereo → pseudo-7.1 → external virtual-surround topology.
+all
+→ one Omniphony spatial renderer
+→ one final binaural headphone output
+```
 
-Third-party code or assets retain their own applicable licenses and attribution. No file should be assumed to become relicensed merely because it is incorporated into this fork.
+Windows is the first system-wide host, while the portable scene model and renderer are intended to remain host-independent.
+
+The fork extends the upstream foundation with work including stereo presentation, native multichannel ingress, Windows APO hosting, source-authority semantics, canonical spatial-scene handling, realtime integration, validation, and system-wide headphone rendering.
+
+The project may remove or replace inherited subsystems that do not serve the current renderer architecture, while preserving attribution for retained or derived upstream work.
+
+## Third-party code, data, and assets
+
+Third-party code, datasets, HRTFs, models, media, and other assets retain their own applicable licenses and attribution requirements. Incorporation into this repository does not automatically relicense them.
+
+Contributors should verify redistribution, attribution, and compatibility requirements before adding third-party material.
+
+## References to proprietary spatial-audio products
+
+Names such as Dolby Atmos for Headphones, DTS Headphone:X, Windows Sonic, Sony 360-related systems, and Waves Nx may appear in documentation as interoperability references, comparison targets, or examples of the broader headphone-spatial-renderer product class.
+
+Such references do not imply ownership of those technologies, incorporation of their proprietary implementations, or endorsement or affiliation by their respective owners.
