@@ -52,7 +52,17 @@ Omniphony now builds:
 OmniphonySpatialProviderProbe.exe
 ```
 
-The probe only reads the two observed registry areas above. It does not:
+The default invocation reads the two observed registry areas above. The optional COM canary:
+
+```powershell
+.\OmniphonySpatialProviderProbe.exe --probe-com
+```
+
+remains read-only but adds one deliberately narrow test for every observed encoder CLSID: it calls `CoCreateInstance(..., CLSCTX_INPROC_SERVER, IID_ISpatialAudioClient, ...)`. If that succeeds, it asks the returned public interface for its native static-object mask and maximum dynamic-object count.
+
+This canary tests only the hypothesis that an observed encoder CLSID directly exposes the public `ISpatialAudioClient` interface. It does **not** select a provider, open a Spatial Audio render stream, prove that Windows itself instantiates the provider, or prove that another application's object buffers reach it.
+
+The probe does not:
 
 - create provider keys;
 - register a COM server;
@@ -63,7 +73,7 @@ The probe only reads the two observed registry areas above. It does not:
 - install a service;
 - request SYSTEM or TrustedInstaller privileges.
 
-Its output deliberately begins with:
+Its default output begins with:
 
 ```text
 probe=omniphony_spatial_provider
@@ -71,7 +81,37 @@ mode=read_only_observation
 source_truth=undocumented_registry_surface_not_public_api_contract
 ```
 
-That label is important. Registry observation can tell us what this Windows installation is doing. It cannot turn an undocumented mechanism into a supported API contract.
+With `--probe-com`, the mode becomes:
+
+```text
+mode=read_only_observation_plus_com_canary
+direct_com_canary=1
+direct_com_scope=tests_only_encoder_clsid_to_ispatialaudioclient_hypothesis
+direct_com_nonclaim=does_not_prove_windows_provider_selection_or_object_delivery
+```
+
+Those labels are important. Registry and COM observation can tell us what a Windows installation exposes. They cannot turn an undocumented provider mechanism into a supported API contract.
+
+Both read-only probes are also copied into the Windows installer's support payload so P0/P1 can be reproduced on the actual endpoint rather than only on a build runner:
+
+```text
+Omniphony\support\OmniphonySpatialProbe.exe
+Omniphony\support\OmniphonySpatialProviderProbe.exe
+```
+
+## CI observation: the build runner cannot answer the provider question
+
+The GitHub-hosted Windows 2022 diagnostic runner successfully built every native APO/probe target and executed the `--probe-com` canary. On that runner, however, both hypothesized provider registry roots were absent:
+
+```text
+encoder.status=unavailable
+encoder.error=2:The system cannot find the file specified.
+spatial_endpoint.status=unavailable
+```
+
+That result narrows the experiment rather than falsifying the provider hypothesis. CI can prove that the observation tooling compiles and executes safely, but this runner has no provider inventory to interrogate. P1/P2 therefore require a real Windows audio endpoint with its actual Spatial Sound state and installed providers.
+
+Do not infer provider registration behavior from a cloud runner that lacks the relevant Windows state.
 
 ## Experiment ladder
 
@@ -95,13 +135,14 @@ This proves endpoint Spatial Audio capability only.
 
 ### P1: provider inventory
 
-Run:
+Run both read-only forms:
 
 ```powershell
 .\OmniphonySpatialProviderProbe.exe
+.\OmniphonySpatialProviderProbe.exe --probe-com
 ```
 
-Record the encoder/provider inventory and the shallow `SpatialAudioEndpoint` subtree while different installed spatial products are present.
+Record the encoder/provider inventory and the shallow `SpatialAudioEndpoint` subtree while different installed spatial products are present. For any observed encoder CLSID, also record whether direct `ISpatialAudioClient` COM activation succeeds and, if it does, the static-object mask and dynamic-object count it reports.
 
 High-value environments are:
 
@@ -118,6 +159,7 @@ We are looking for repeatable relationships among:
 format GUID
 provider display name
 COM CLSID
+direct ISpatialAudioClient activation result
 installed DLL/package
 selected endpoint state
 ```
