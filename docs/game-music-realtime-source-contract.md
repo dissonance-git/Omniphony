@@ -22,6 +22,8 @@ binaural output
 
 The source path supplies a richer input to the existing Omniphony product architecture. It does not create a second scene model.
 
+The audible source-aware Surround target is an **immersive remix from recovered real sources**. It is intentionally allowed to sound as though the soundtrack had always been mixed for a larger modern format. This is a presentation objective, not a claim about what the historical hardware or composer literally authored.
+
 ## Canonical scene destination
 
 Omniphony's foundational product vocabulary remains the 17-lane 8.1.4.4 scene:
@@ -45,7 +47,7 @@ Genesis PSG  three tone voices + noise
 SNES S-DSP   eight dry voices + one shared wet return when proven
 ```
 
-These dynamic source objects enter Omniphony with evidence. Omniphony decides how unsupported presentation dimensions inhabit the canonical world.
+These dynamic source objects enter Omniphony with evidence. Omniphony decides how unauthored presentation dimensions inhabit the canonical world.
 
 ```text
 source object count
@@ -57,7 +59,7 @@ The 8.1.4.4 vocabulary therefore remains stable without forcing game-music hardw
 
 ## Authority law
 
-The richer the source truth, the less Omniphony should infer.
+The richer the source truth, the less Omniphony should infer **about source truth**. This does not prohibit deliberate creative placement once source-aware Surround is explicitly enabled.
 
 The cross-project conceptual states are:
 
@@ -66,11 +68,13 @@ AUTHORED
 preserved by source / format / driver / device
 
 DERIVED
-inferred by musical / acoustic / perceptual policy
+chosen or inferred by musical / acoustic / perceptual presentation policy
 
 EMPTY
-not supplied and not earned strongly enough to infer
+no authored source fact exists for that dimension
 ```
+
+`EMPTY` is a provenance statement, not necessarily an audible-silence requirement. A historically empty rear/elevation coordinate may receive a `DERIVED` position in FullSphere mode while remaining empty at the authored layer.
 
 A source-side authority enum and Omniphony's scene provenance do not need identical binary representations, but they must preserve the same semantic distinction.
 
@@ -81,9 +85,42 @@ Examples:
 - an S-DSP echo send is authored send state, not authored reverberant source position;
 - foundation/foreground/diffuse/width/vertical-affinity values are derived presentation evidence;
 - source-supplied 3-D coordinates may be authored position;
-- missing evidence stays empty rather than being synthesized merely because a scene lane exists.
+- FullSphere may assign stable width/depth/height to a real source even when those dimensions were historically unavailable.
 
-Never relabel a stable inference as authored geometry.
+Never relabel a stable creative or inferred placement as authored geometry.
+
+## Presentation modes
+
+The source renderer exposes two intentionally different listening modes:
+
+```text
+NativeRouting
+→ recovered real source objects
+→ preserve native laterality and identity
+→ no creative rear / height / extra depth
+
+FullSphere
+→ same recovered real source objects
+→ preserve authored route / position constraints
+→ stable identity-aware immersive placement
+→ width + depth + height + extent + distance
+→ 8.1.4.4 world → 22-direction shell → binaural
+```
+
+`FullSphere` is not a confidence level. It is an explicit production choice.
+
+The design target is similar to remixing from multitracks into an immersive format: source authenticity is protected upstream, while the listening presentation may use dimensions the original delivery medium never possessed.
+
+Stable source or persistent-part identity may therefore seed repeatable placement even when no historical 3-D coordinate exists. Musical evidence then shapes that creative layout:
+
+- native left/right route constrains side;
+- foundation strongly resists displacement;
+- foreground resists excessive rear/depth movement;
+- diffuse/support evidence can enlarge rear/depth/extent;
+- vertical-affinity evidence can steer height more strongly;
+- shared wet fields remain broad and environmental.
+
+The result should feel mixed rather than randomized.
 
 ## Dry, shared-wet and reference roles
 
@@ -136,7 +173,7 @@ This follows the normal sample-offset event model used by realtime audio systems
 
 The Rust `repr(C)` evidence/event records and the Retro VGM Compiler C++ transport pin the ABI 0.3 size and critical field offsets from both sides, so a future layout drift fails validation instead of silently reinterpreting evidence.
 
-The existence of the 17-lane scene does not by itself require an ABI expansion. Add fields only when genuinely new source evidence must cross the boundary and cannot be represented safely by the current contract.
+The existence of the 17-lane scene or the creative FullSphere policy does not by itself require an ABI expansion. Add fields only when genuinely new source evidence must cross the boundary and cannot be represented safely by the current contract.
 
 ## Evidence authority
 
@@ -145,7 +182,7 @@ The source ABI preserves these distinctions:
 ```text
 native stereo route
 != authored 3-D position
-!= inferred musical presentation
+!= inferred / creative musical presentation
 ```
 
 A source may carry native left/right gains as historical routing evidence without claiming that those gains are literal world coordinates.
@@ -180,7 +217,7 @@ persistent musical part, when present
 otherwise source identity
 ```
 
-for spatial-ramp continuity.
+for spatial-ramp continuity and stable creative placement.
 
 If an unrelated source reuses the same channel, its first new presentation event uses a zero-length pose ramp rather than interpolating from the outgoing source's last position. If the persistent musical part remains the same across a source/slot migration, ordinary smooth presentation continuity is retained.
 
@@ -192,11 +229,11 @@ This resets presentation motion only. It does not flush the entire room/binaural
 
 Derived source position is tracked state, not a fresh coordinate guess every host callback.
 
-Stable identity plus stable evidence should produce stable presentation. Weak short-term spectral or role fluctuations must not make a source jitter around the sphere.
+Stable identity plus stable evidence should produce stable presentation. FullSphere's creative base is deterministic from stable source/persistent-part identity, so historically centered sources do not jitter merely because the host callback size changes.
 
 At the same time, continuity must not become glue. Authored route/position changes, source replacement or strong new evidence may legitimately move the object.
 
-The policy should therefore preserve confidence and evidence age separately from position, use bounded inertia for derived motion, and allow high-information onsets/transients to trigger a position update only when other evidence supports that update. Onset alone is not a role or coordinate.
+The policy should preserve confidence and evidence age separately from position, use bounded inertia for derived motion, and allow high-information onsets/transients to trigger a position update only when other evidence supports that update. Onset alone is not a role or coordinate.
 
 Authored timed evidence remains sample-accurate even when the derived renderer motion that follows is perceptually smoothed.
 
@@ -273,8 +310,9 @@ Boundary regressions should additionally defend:
 
 ```text
 authored route survives unchanged
-inferred geometry never becomes authored
-unsupported dimensions remain empty
+creative/inferred geometry never becomes authored
+NativeRouting disables creative rear/height/depth
+FullSphere gives stable real sources repeatable immersive scale
 shared wet remains shared
 stable source evidence does not jitter across block sizes
 new identity does not inherit stale pose motion
@@ -283,4 +321,4 @@ whole-chip fidelity does not imply stem additivity
 reference control remains available
 ```
 
-A mechanically correct timed event path does not by itself prove that any particular source-placement policy sounds better.
+A mechanically correct timed event path does not by itself prove that any particular source-placement policy sounds better. The final criterion for FullSphere is perceptual: the soundtrack should feel coherently mixed into a larger world rather than algorithmically scattered through one.
