@@ -135,6 +135,23 @@ function Unregister-NativeApo {
     else { Write-Host 'NATIVE_SURROUND_APO_REGISTERED 0' }
 }
 
+function Assert-ApoCtlIdDispatch {
+    # Exercise the exact shipped helper binary before it is allowed to mutate the
+    # real endpoint. A deliberately impossible endpoint ID must take the -id
+    # resolver path and fail as ENDPOINT_ID_NOT_FOUND. This catches stale or
+    # accidentally compiled helper sources before native-surround migration.
+    $fakeEndpointId = '{0.0.0.00000000}.{00000000-0000-0000-0000-000000000000}'
+    foreach ($command in @('cleanup-native-sfx-id', 'attach-native-sfx-id', 'detach-id', 'attach-id')) {
+        $lines = @(& $ctl $command $fakeEndpointId 2>&1 | ForEach-Object { "$_" })
+        $code = $LASTEXITCODE
+        $idPath = $lines | Where-Object { $_ -eq "ERROR`tENDPOINT_ID_NOT_FOUND" } | Select-Object -First 1
+        if ($code -ne 3 -or -not $idPath) {
+            throw "OmniphonyApoCtl command dispatch contract failed for '$command'. exit=$code output=$($lines -join ' | ')"
+        }
+    }
+    Write-Host 'APO_CTL_ID_DISPATCH_OK 1'
+}
+
 # Establish the proven stereo Current endpoint first. This is the rollback floor
 # and owns the endpoint backup plus AudioDG compatibility state.
 & $baselineInstaller -PackageRoot $PackageRoot -AppRoot $AppRoot -AllowUnprotectedAudioDG:$AllowUnprotectedAudioDG
@@ -158,6 +175,7 @@ try {
     Write-Host 'OMNIPHONY_INSTALL_STAGE baseline-stereo-complete'
     Write-Host 'NATIVE_SURROUND_MIGRATION_BEGIN PLACEMENT=stream-sfx INPUT=preferred-7.1 OUTPUT=stereo'
 
+    Assert-ApoCtlIdDispatch
     Capture-SpatialIngressObservation
 
     if (-not (Test-Path -LiteralPath $endpointBackupPath)) {
