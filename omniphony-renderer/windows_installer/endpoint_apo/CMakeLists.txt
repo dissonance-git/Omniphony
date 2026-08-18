@@ -10,6 +10,8 @@ endif()
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set(OMNIPHONY_REALTIME_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/../../realtime_ffi/include")
 
+# Proven post-mix stereo endpoint APO. Retained as a rollback floor while the
+# pre-mix stream APO earns field confidence on real Windows endpoints.
 add_library(OmniphonyAPO SHARED
     OmniphonyAPO.cpp
     OmniphonyAPO.def
@@ -19,10 +21,23 @@ target_compile_definitions(OmniphonyAPO PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_
 target_compile_options(OmniphonyAPO PRIVATE /W4 /WX /permissive-)
 target_include_directories(OmniphonyAPO PRIVATE "${OMNIPHONY_REALTIME_INCLUDE}")
 target_link_libraries(OmniphonyAPO PRIVATE ole32 uuid advapi32 audioeng AudioBaseProcessingObjectV140 legacy_stdio_definitions audiomediatypecrt)
-# Protected AudioDG can reject custom APO DLLs that carry an embedded manifest.
-# Keep the binary manifest-free and validate that contract in CI.
 target_link_options(OmniphonyAPO PRIVATE /MANIFEST:NO)
 set_target_properties(OmniphonyAPO PROPERTIES PREFIX "" OUTPUT_NAME "OmniphonyAPO")
+
+# Pre-mix SFX. Stereo streams use the proven Current PCM ABI; authored Windows
+# multichannel beds use the native-bed ABI and emerge as binaural stereo before
+# the endpoint mixer. Samples-per-frame is intentionally allowed to differ.
+add_library(OmniphonyStreamAPO SHARED
+    OmniphonyStreamAPO.cpp
+    OmniphonyStreamAPO.def
+)
+target_compile_features(OmniphonyStreamAPO PRIVATE cxx_std_17)
+target_compile_definitions(OmniphonyStreamAPO PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_compile_options(OmniphonyStreamAPO PRIVATE /W4 /WX /permissive-)
+target_include_directories(OmniphonyStreamAPO PRIVATE "${OMNIPHONY_REALTIME_INCLUDE}")
+target_link_libraries(OmniphonyStreamAPO PRIVATE ole32 uuid advapi32 audioeng AudioBaseProcessingObjectV140 legacy_stdio_definitions audiomediatypecrt)
+target_link_options(OmniphonyStreamAPO PRIVATE /MANIFEST:NO)
+set_target_properties(OmniphonyStreamAPO PROPERTIES PREFIX "" OUTPUT_NAME "OmniphonyStreamAPO")
 
 add_executable(OmniphonyApoCtl OmniphonyApoCtlAcl.cpp)
 target_compile_features(OmniphonyApoCtl PRIVATE cxx_std_17)
@@ -35,6 +50,12 @@ target_compile_features(OmniphonyApoSmoke PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonyApoSmoke PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_options(OmniphonyApoSmoke PRIVATE /W4 /WX /permissive-)
 target_link_libraries(OmniphonyApoSmoke PRIVATE ole32 uuid audioeng audiomediatypecrt)
+
+add_executable(OmniphonyStreamApoSmoke OmniphonyStreamApoSmoke.cpp)
+target_compile_features(OmniphonyStreamApoSmoke PRIVATE cxx_std_17)
+target_compile_definitions(OmniphonyStreamApoSmoke PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_compile_options(OmniphonyStreamApoSmoke PRIVATE /W4 /WX /permissive-)
+target_link_libraries(OmniphonyStreamApoSmoke PRIVATE ole32 uuid audioeng audiomediatypecrt)
 
 add_executable(OmniphonyRealtimeSmoke OmniphonyRealtimeSmoke.cpp)
 target_compile_features(OmniphonyRealtimeSmoke PRIVATE cxx_std_17)
