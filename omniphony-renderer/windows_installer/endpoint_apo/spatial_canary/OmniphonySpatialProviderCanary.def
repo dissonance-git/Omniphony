@@ -1,0 +1,4 @@
+LIBRARY "OmniphonySpatialProviderCanary"
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE

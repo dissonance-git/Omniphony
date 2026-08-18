@@ -1,0 +1,72 @@
+name: Windows spatial provider canary
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/windows-spatial-provider-canary.yml'
+      - 'omniphony-renderer/windows_installer/endpoint_apo/spatial_canary/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build-canary:
+    name: Build spatial provider interface canary
+    runs-on: windows-2022
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure canary
+        shell: pwsh
+        run: |
+          cmake -S omniphony-renderer/windows_installer/endpoint_apo/spatial_canary `
+                -B build/spatial_provider_canary `
+                -A x64
+          if ($LASTEXITCODE -ne 0) { throw "Canary CMake configure failed: $LASTEXITCODE" }
+
+      - name: Build canary
+        shell: pwsh
+        run: |
+          cmake --build build/spatial_provider_canary --config Release --parallel
+          if ($LASTEXITCODE -ne 0) { throw "Canary build failed: $LASTEXITCODE" }
+
+      - name: Exercise class-factory canary
+        shell: pwsh
+        run: |
+          $release = (Resolve-Path 'build/spatial_provider_canary/Release').Path
+          $ctl = Join-Path $release 'OmniphonySpatialProviderCanaryCtl.exe'
+          $dll = Join-Path $release 'OmniphonySpatialProviderCanary.dll'
+          & $ctl selftest $dll
+          if ($LASTEXITCODE -ne 0) { throw "Canary selftest failed: $LASTEXITCODE" }
+
+      - name: Assemble experiment artifact
+        shell: pwsh
+        run: |
+          $dist = 'dist/Omniphony-Spatial-Provider-Canary'
+          New-Item -ItemType Directory -Force $dist | Out-Null
+          Copy-Item 'build/spatial_provider_canary/Release/OmniphonySpatialProviderCanary.dll' $dist
+          Copy-Item 'build/spatial_provider_canary/Release/OmniphonySpatialProviderCanaryCtl.exe' $dist
+          Copy-Item 'omniphony-renderer/windows_installer/endpoint_apo/spatial_canary/README.md' $dist
+          @"
+          Omniphony Windows Spatial Provider Phase 1 Canary
+          Source: $env:GITHUB_SHA
+          Purpose: identify the COM IID requested by Windows for a selected third-party spatial provider
+          Provider CLSID: {7AEE0F13-1F6B-4D83-9F6D-6C9C0E33A151}
+          Format GUID: {3DBFF1AF-0FC6-4A32-8289-5E652C987D92}
+          Product renderer: not included
+          Endpoint selection: never modified by the tool
+          MMDevices state: never modified by the tool
+          "@ | Set-Content -Encoding utf8 "$dist/BUILD-METADATA.txt"
+
+      - name: Upload canary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: omniphony-spatial-provider-canary-${{ github.sha }}
+          path: dist/Omniphony-Spatial-Provider-Canary
+          if-no-files-found: error
+          retention-days: 14
