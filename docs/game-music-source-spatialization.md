@@ -1,12 +1,12 @@
 # Game-music source spatialization
 
-This note records research precedents and resulting policy for the VGM/SPC/source-aware path. It is not a license to replace source truth with generic spatial effects.
+This note records research precedents and resulting policy for the VGM/SPC/source-aware path. It is not a license to replace source truth with generic spatial effects. It **is** a license to make a deliberate immersive mix from real recovered sources when `FullSphere` is selected.
 
 The canonical realtime transport and authority rules live in [`game-music-realtime-source-contract.md`](game-music-realtime-source-contract.md). This document explains why those rules exist and what they imply for presentation.
 
 ## Research question
 
-What previous work has spatialized game audio or music before the final stereo mix, which auditory findings matter for source-object stability, and which ideas transfer to Omniphony's historical game-music source path?
+What previous work supports keeping musical sources separate until spatial rendering, deliberately using width/depth/height/extent as production dimensions, preserving direct versus diffuse structure, and making a large immersive mix without confusing modern presentation with historical authorship?
 
 ## Foundational boundary
 
@@ -19,7 +19,7 @@ causal source objects
     ↓
 AUTHORED routing / timing / identity
     ↓
-DERIVED presentation evidence only where needed
+DERIVED musical evidence + deliberate FullSphere presentation
     ↓
 Omniphony canonical 8.1.4.4 semantic world
     ↓
@@ -38,69 +38,88 @@ hardware/source topology
 != render-shell topology
 ```
 
-This is the key separation that lets Omniphony gain source truth without forcing historical game hardware into a modern speaker-bed fiction.
+The audible goal of `FullSphere` is intentionally analogous to an immersive remix from multitracks: preserve what the musical sources actually are, then use a larger modern spatial canvas than the historical delivery hardware provided.
 
 ## Strong precedents
 
 ### Tsingos, Gallo, and Drettakis (2003), *Breaking the 64 spatialized sources barrier*
 
-The paper treats spatialized soundtracks and sound effects as ordinary constituents of a dynamic game-audio scene. Most relevantly, it explicitly proposes using 3-D audio channels for a restitution-independent representation of surround music tracks, leaving the final mix to the rendering API.
+The paper treats spatialized soundtracks and sound effects as ordinary constituents of a dynamic game-audio scene. Most relevantly, it proposes using 3-D audio channels for a restitution-independent representation of surround music tracks, leaving the final mix to the rendering API.
 
 Transfer:
 
 - keep soundtrack sources separate until the renderer;
 - let the renderer own output-device translation;
-- treat source-count pressure as an allocation problem rather than as a reason to collapse the music early.
+- treat source-count pressure as an allocation problem rather than a reason to collapse music early.
 
 Difference from this project:
 
 - VGM/SPC source lanes are recovered from historical execution state rather than authored as modern stems;
-- modern CPU rendering removes the old 16-64 hardware-source ceiling for the small source counts typical of game-music chips;
+- modern CPU rendering removes the old 16-64 hardware-source ceiling for the small source counts typical of chip music;
 - source identity must survive physical-voice reuse.
-
-### Schissler and Manocha (2011), *GSound: Interactive Sound Propagation for Games*
-
-This work demonstrates that per-source real-time propagation can be practical in game-like scenes, using cached reflection and diffraction paths rather than reducing the scene to one finished signal first.
-
-Transfer:
-
-- preserve per-source state long enough to apply source-specific presentation;
-- cache slowly changing spatial state instead of recomputing every cue from scratch;
-- separate direct sound from environmental propagation.
-
-Non-transfer:
-
-- VGM/SPC music has no historical room geometry to ray trace;
-- Omniphony must not fabricate occlusion or architectural acoustics that the source artifact never encoded.
-
-### Antani and Manocha (2013), *Aural Proxies and Directionally-Varying Reverberation for Interactive Sound Propagation in Virtual Environments*
-
-This work reports improved localization and immersion from direction-dependent early reflections and reverberation in a real-time game-engine pipeline.
-
-Transfer:
-
-- early reflections can be a separate externalization control;
-- environmental/wet energy should retain directional structure rather than becoming generic mono or identical-L/R reverb.
-
-Constraint:
-
-- historical shared DSP such as S-DSP echo remains source truth and must stay distinct from Omniphony's optional externalization reflections.
 
 ### Jot, Carpentier, and Warusfel (2023), *Perceptually Motivated Spatial Audio Scene Description and Rendering for 6-DoF Immersive Music Experiences*
 
-The paper argues for a parametric object scene that can prioritize auditory plausibility over literal room simulation and gives independent control over source position, distance, orientation, presence, and reverberance.
+DOI `10.1109/I3DA57090.2023.10289196`.
+
+This work is especially important for the corrected product target. It treats position, distance, orientation, presence and reverberance as object-scene production controls and explicitly allows auditory plausibility to outrank literal physical-room simulation.
 
 Transfer:
 
 - separate source description from renderer presentation;
-- use perceptually meaningful controls rather than forcing every source through a physical-room fiction;
-- share environmental processing where appropriate instead of manufacturing one reverb stem per source.
+- treat spatial placement as a legitimate creative dimension of an immersive music mix;
+- do not require a fictitious historical room to justify a perceptually coherent larger scene;
+- preserve source truth while allowing the renderer to choose modern presentation geometry.
+
+### Ziemer (2017), *Source Width in Music Production*
+
+DOI `10.1007/978-3-319-47292-8_10`.
+
+Perceived source width is an established music-production dimension across stereo, surround, Ambisonics and wave-field synthesis. Interaural phase/correlation structure and source radiation behavior contribute to perceived extent.
+
+Transfer:
+
+- source width is not merely localization error;
+- recovered chip voices need not remain perceptual points merely because the hardware exposed a single channel;
+- width should remain controlled enough that source identity and localization are not lost.
+
+### Potard and Burnett (2004), decorrelation for apparent source width
+
+Their work reviews decorrelation techniques for reducing interaural cross-correlation and reports that controlled decorrelation can produce intended apparent source extent.
+
+Transfer:
+
+- interaural coherence is a useful control for making an object perceptually wider;
+- source extent should be an explicit DSP mechanism, not just a metadata number.
+
+### McCormack, Politis, and Pulkki (2021), *Rendering of Source Spread for Arbitrary Playback Setups Based on Spatial Covariance Matching*
+
+DOI `10.1109/WASPAA52581.2021.9632724`.
+
+The method combines centre-source signals with decorrelated variants and solves for a target diffuse spatial covariance while constraining signal distortion. It is evaluated for binaural playback and explicitly targets signal fidelity.
+
+Transfer:
+
+- a future high-quality Omniphony extent renderer should consider covariance/coherence targets rather than crude stereo widening;
+- source width can be increased while treating fidelity as an optimization constraint;
+- the centre/localization anchor and the spread field need not be the same component.
+
+### Anemüller, Thiergart, and Habets (2024), *Binaural Rendering of Heterogeneous Sound Sources with Extent*
+
+DOI `10.1109/ICASSP48485.2024.10448024`.
+
+This work models extended binaural sources through target spatial covariance and evaluates the result against point-source and homogeneous-extent baselines.
+
+Transfer:
+
+- a binaural source can legitimately have extent independent of its centre position;
+- size should eventually influence the actual binaural ear signals, not stop at scene metadata.
 
 ### Landschoot and Jot (2023), *Binaural externalization processing method for object-based audio rendering*
 
 DOI `10.1121/10.0018389`.
 
-This work treats externalization as an object-aware rendering problem rather than merely a global headphone effect. It reviews reflections/reverberation, head tracking, HRTF choice, and related cues for reducing inside-the-head localization.
+This work treats externalization as an object-aware rendering problem rather than a global headphone effect.
 
 Transfer:
 
@@ -130,16 +149,16 @@ Transfer:
 
 - direct/localizable game-music source objects should remain distinct from shared/diffuse energy;
 - early/localizable and late/diffuse energy can use different spatial policies;
-- the wet field can contribute envelopment without masquerading as a set of independent dry objects.
+- the wet field can contribute envelopment without masquerading as independent dry objects.
 
 ### Tohyama (2020), spatial impression and binaural sound fields
 
-The direct sound and early-reflection region carries strong localization information, while later reverberant energy contributes more strongly to diffuseness/spaciousness as interaural correlation falls.
+Direct sound and early-reflection regions carry strong localization information, while later reverberant energy contributes more strongly to diffuseness/spaciousness as interaural correlation falls.
 
 Transfer:
 
 - localizable dry source state should not be merged prematurely with diffuse/shared energy;
-- diffuseness is a presentation dimension distinct from point-source position.
+- diffuseness and point-source position are different presentation dimensions.
 
 ### Zannini, Parisi, and Uncini (2011), binaural localization in reverberation
 
@@ -149,8 +168,8 @@ Reverberation increases uncertainty in binaural localization.
 
 Transfer:
 
-- low-confidence or highly diffuse evidence should not trigger aggressive source motion;
-- source position needs temporal stability and confidence tracking rather than callback-by-callback guessing.
+- highly diffuse evidence should not make the dry-source centre wander;
+- source position needs temporal stability rather than callback-by-callback guessing.
 
 ### Stecker (2023), RESTART theory
 
@@ -164,17 +183,15 @@ Transfer as a research pressure test:
 - stable steady-state periods can preserve the current pose instead of continually re-estimating it;
 - onset alone does not supply a musical role or 3-D coordinate.
 
-This motivates position inertia with evidence-sensitive update windows, not a hardcoded transient-to-position mapping.
-
 ### Hedges, Sazdov, and Johnston, systematic reviews of audio in games/XR
 
 Their reviews find that spatial fidelity generally contributes to immersion, but also report diminishing perceptual returns and inconsistent evaluation methodology.
 
 Transfer:
 
-- evaluate localization, externalization, stability, timbre preservation, and musical coherence separately;
-- do not equate more spatial movement or more reverberation with a better result;
-- keep a protected reference condition in listening tests.
+- evaluate localization, externalization, stability, timbre preservation and musical coherence separately;
+- do not equate more spatial movement or more reverberation with a better mix;
+- keep a protected reference condition.
 
 ### Collins and Kapralos (2024), *Auditory Reality and Virtuality*
 
@@ -183,20 +200,16 @@ Their game-audio discussion warns that increasingly literal spatial simulation c
 Transfer:
 
 - the target is not physical realism for its own sake;
-- musical hierarchy and expression can override a naive geometric distribution;
-- a foundation part may remain frontal even when the renderer could place it anywhere.
+- musical hierarchy and expression can override naive geometric distribution;
+- foundation material may remain frontal even when the renderer can place it anywhere.
 
 ## Direct/localizable versus shared/diffuse energy
-
-The game-music path adopts a strong architectural distinction:
 
 ```text
 localizable dry source objects
 != shared/diffuse historical wet field
 != Omniphony externalization reflections
 ```
-
-These three layers have different provenance.
 
 For SNES, for example:
 
@@ -212,26 +225,22 @@ must not become:
 8 invented dry+wet stems
 ```
 
-The shared echo network is historically common processing. It can be presented as a diffuse/environmental field while the dry voices remain localizable objects.
-
-Omniphony's own early externalization field is a separate modern presentation mechanism and must not be mistaken for historical S-DSP echo.
+The shared echo network is historical common processing. It may be presented as a broad environmental field while the dry voices remain localizable objects. Omniphony's own early externalization field remains a separate modern presentation mechanism.
 
 ## Source authority by device family
 
-Current source-family expectations:
-
-| Device/path | Preserve as source truth | AUTHORED spatial/routing evidence | DERIVED only |
+| Device/path | Preserve as source truth | AUTHORED spatial/routing evidence | FullSphere may DERIVE |
 | --- | --- | --- | --- |
-| YM2612 | six complete FM channel identities, including truthful channel-6/DAC state where applicable | native L/R enables and exact timing | elevation, depth, radial position, extent and other unsupported dimensions |
-| Genesis PSG | three tone voices + noise | ordinary stock Genesis PSG has no independent authored stereo pan register | nearly all geometric placement |
-| Game Gear PSG | three tone voices + noise | explicit per-channel L/R routing register | unsupported vertical/depth/extent dimensions |
-| YM2151 | eight complete FM channels | native channel L/R enables | unsupported elevation/depth/full-sphere placement |
-| SNES S-DSP dry | eight voice episodes where exact dry capture is proven | signed per-voice L/R route + echo-send state | unauthored geometry and semantic role |
-| SNES S-DSP wet | one shared wet return where directly observed | shared-return identity/provenance | diffuse/environmental presentation |
+| YM2612 | six complete FM channels, including truthful channel-6/DAC state where applicable | native L/R enables + exact timing | width, rear depth, elevation, distance, extent |
+| Genesis PSG | three tone voices + noise | ordinary stock Genesis PSG has no independent stereo pan register | complete immersive placement beyond identity |
+| Game Gear PSG | three tone voices + noise | explicit per-channel L/R routing | unsupported height/depth/extent |
+| YM2151 | eight complete FM channels | native channel L/R enables | width, rear depth, elevation, distance, extent |
+| SNES S-DSP dry | eight voice episodes where dry capture is proven | signed per-voice L/R route + echo-send | unauthored immersive geometry |
+| SNES S-DSP wet | one shared wet return where observed | shared-return identity/provenance | diffuse/environmental field presentation |
 
-The important rule is not the particular device list. It is the authority boundary:
+The authority rule is:
 
-> **Preserve every source-native fact, derive only the missing presentation dimensions, and never relabel the derivation as source truth.**
+> **Preserve every source-native fact. Use the missing dimensions freely when FullSphere is deliberately selected, but keep those mix decisions DERIVED.**
 
 ## FM channel boundary
 
@@ -239,7 +248,7 @@ For ordinary YM2612/YM2151-style synthesis, spatial object identity begins at th
 
 Individual operators are synthesis internals participating in algorithms, modulation and feedback. They are not independently spatialized musical sources by default.
 
-Likewise, a whole-chip enhanced renderer may sound or measure better without exposing exact additive per-channel enhanced stems. Shared serial mixer/DAC paths, clamps or other coupling must be defeated by an explicit causal/additivity witness before independent enhanced lanes are admitted.
+Likewise, a whole-chip enhanced renderer may sound or measure better without exposing exact additive per-channel enhanced stems. Shared serial mixer/DAC paths, clamps or other coupling require an explicit causal/additivity witness before independent enhanced lanes are admitted.
 
 ```text
 FM operator != default spatial object
@@ -248,56 +257,69 @@ whole-chip fidelity != exact independent stems
 
 ## Temporal stability policy
 
-A derived 3-D source presentation should behave as a tracked object.
+FullSphere placement should behave like a mix layout, not a randomizer.
 
 ```text
-stable identity + stable evidence
-→ stable position tendency
+stable source / persistent-part identity
+→ stable creative baseline
+
+stable musical evidence
+→ stable evidence-shaped refinement
 ```
 
-Do not recompute a fresh dramatic coordinate every audio block.
-
-The renderer should carry at least the conceptual equivalents of:
-
-```text
-position
-position / motion history
-confidence
-evidence age
-persistent source identity
-transition confidence
-```
-
-Not every quantity needs to cross the public ABI. Some can remain renderer-internal state.
+A neutral real source is allowed a deliberate rear, height or depth placement simply because FullSphere is the selected production mode. It must not receive a fresh dramatic coordinate every block.
 
 The behavioral obligations are:
 
 - block-size changes do not alter a stable source's trajectory;
-- weak role/spectral fluctuations do not produce spatial jitter;
-- confidence can decay without teleporting the source;
+- weak role/spectral fluctuations do not cause spatial jitter;
+- source or persistent-part identity can seed repeatable layout coordinates;
+- foundation and strong foreground evidence can pull the mix toward stable front anchors;
 - a strong new onset plus corroborating evidence may permit a bounded pose update;
-- authored timed route/position changes retain their exact event time;
-- an unrelated source reusing a hardware slot does not inherit the outgoing source's pose ramp;
-- a persistent musical part that migrates across hardware slots may retain ordinary continuity when identity evidence supports it.
+- authored timed route/position changes retain exact event time;
+- unrelated sources reusing hardware slots do not inherit one another's pose ramps;
+- persistent musical parts that migrate across hardware slots may retain continuity.
 
-Think of derived position as having **inertia, but not glue**.
+Derived position has **inertia, but not glue**.
+
+## Source extent is a real renderer obligation
+
+The source model already carries 3-D `size`, but scene metadata alone does not create apparent source width.
+
+The active direct-binaural path must eventually translate source extent into ear-signal structure using a controlled mechanism such as bounded multi-point spread, decorrelated spatial copies, or fidelity-constrained spatial covariance matching.
+
+The research suggests a useful design split:
+
+```text
+source centre
+→ localization anchor / HRTF / ITD
+
+source extent
+→ controlled interaural coherence + angular/covariance spread
+
+shared wet field
+→ environmental envelopment
+```
+
+Do not buy width by smearing transients, destroying tonal identity or turning every source into diffuse ambience.
 
 ## Music-specific adjacent work
 
-Research on interactive spatial music, including SpatOSC, SCLiss, and VR music-spatialization interfaces, consistently treats spatialization as an independent compositional/presentation dimension operating on already-separated musical objects.
+Interactive spatial-music systems consistently treat spatialization as an independent compositional/presentation dimension operating on separated musical objects.
 
-That supports the architectural boundary used here:
+That supports:
 
 ```text
 historical source truth
     → causal source objects
-    → musical/presentation evidence
-    → Omniphony 8.1.4.4 semantic world
+    → authored constraints + musical evidence
+    → deliberate Omniphony FullSphere mix
+    → 8.1.4.4 semantic world
     → 22-direction shell
     → binaural renderer
 ```
 
-It does **not** justify claiming that inferred 3-D positions were authored by the game.
+It does **not** justify claiming that the resulting modern 3-D positions were authored by the game.
 
 ## What appears novel in this project
 
@@ -309,7 +331,7 @@ The literature search did not surface a prior system that combines all of the fo
 4. derives stable musical identity across physical voice reuse;
 5. hands those causal sources to a modern object-based binaural renderer at playback time;
 6. retains an exact/reference historical mix as a control;
-7. maps only unsupported dimensions into a modern full-sphere presentation while preserving source authority.
+7. deliberately remixes unsupported dimensions into a stable modern full-sphere presentation while preserving authority labels.
 
 Treat this as a research gap, not a novelty claim until a broader literature and implementation search fails to find prior art.
 
@@ -321,19 +343,21 @@ Treat this as a research gap, not a novelty claim until a broader literature and
 - object/source allocation instead of early downmix;
 - direct/wet separation;
 - stable source identity;
+- perceptually motivated object placement;
+- apparent-source-width / spread mechanisms with fidelity constraints;
 - confidence-weighted temporal continuity;
-- perceptually motivated object presentation;
 - optional early-reflection externalization;
 - protected reference comparison.
 
 ### Reject
 
 - forcing dynamic chip voices into seventeen fake PCM lanes because Omniphony uses an 8.1.4.4 semantic vocabulary;
-- finished-stereo pseudo-surround as the game-music path;
-- automatically placing every chip voice at a different dramatic 3-D coordinate;
-- treating stable inferred coordinates as authored metadata;
-- room simulation without source evidence;
-- treating more width, rear energy, or height as monotonically better;
+- finished-stereo pseudo-surround as the source-native game-music path;
+- callback-random or purely spectacular 3-D scattering unrelated to stable identity and musical hierarchy;
+- treating creative FullSphere coordinates as authored metadata;
+- refusing to use rear/height/depth merely because historical hardware did not encode them;
+- room simulation without a clearly separated presentation purpose;
+- treating more width, rear energy or height as monotonically better;
 - folding historical echo/reverb into new renderer reflections;
 - cloning one historical shared wet return into one wet stem per dry voice;
 - allowing a temporary hardware channel number to own persistent scene position;
@@ -341,7 +365,7 @@ Treat this as a research gap, not a novelty claim until a broader literature and
 
 ## VGM/SPC consequence
 
-For VGM and SPC, the existing foobar **Surround** option should become the source-aware Omniphony path:
+For VGM and SPC, the foobar **Surround** option should mean source-aware Omniphony FullSphere:
 
 ```text
 Surround off
@@ -349,33 +373,38 @@ Surround off
 
 Surround on
     → causal source-native topology
-    → AUTHORED native routing / timing constraints
-    → stable musical identity
-    → DERIVED missing presentation dimensions
+    → AUTHORED routing / timing / identity constraints
+    → stable source / persistent-part layout
+    → musical evidence shapes the layout
+    → DERIVED width / rear depth / height / distance / extent
     → Omniphony 8.1.4.4 semantic world + dynamic objects
     → 22-direction full-sphere shell
     → binaural stereo
 ```
 
-A separate externalization option may control Omniphony early reflections, because geometry and externalization are perceptually and architecturally distinct.
+A separate externalization option may control Omniphony early reflections because geometry, extent and externalization are distinct controls.
 
 ## Evaluation axes
 
-Every spatial listening build should score at least:
+Every source-aware spatial listening build should score at least:
 
 - source localization;
 - front/back discrimination;
 - elevation discrimination;
+- apparent source width / extent;
+- envelopment;
 - externalization;
 - scene stability across note/voice transitions;
 - callback/block-size invariance;
 - native-routing preservation;
-- AUTHORED/DERIVED/EMPTY provenance preservation;
+- AUTHORED versus DERIVED provenance preservation;
 - bass/foundation stability;
 - historical shared-effect integrity;
 - direct-versus-diffuse separation;
 - timbral coloration;
+- transient integrity;
 - musical coherence;
+- whether the scene feels intentionally mixed rather than algorithmically scattered;
 - preference versus reference.
 
-Engineering tests should additionally fail if unsupported scene dimensions are silently filled, a shared wet field is duplicated into fabricated stems, authored route evidence is retimed/overridden, or a whole-chip renderer is promoted to independent source stems without decomposition evidence.
+Engineering tests should fail if FullSphere creative coordinates are promoted to authored source facts, NativeRouting leaks creative rear/height/depth, shared wet is fabricated into per-source stems, authored route evidence is retimed/overridden, or a whole-chip renderer is promoted to independent source stems without decomposition evidence.
