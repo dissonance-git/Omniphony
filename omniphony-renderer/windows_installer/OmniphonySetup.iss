@@ -35,7 +35,6 @@ UninstallDisplayName={#MyAppName}
 CloseApplications=yes
 RestartApplications=no
 
-; Migration cleanup from abandoned virtual-device / loopback-host builds.
 [InstallDelete]
 Type: files; Name: "{app}\Omniphony.exe"
 Type: files; Name: "{app}\PRODUCT-CONTEXT.md"
@@ -43,8 +42,6 @@ Type: filesandordirs; Name: "{app}\driver"
 Type: filesandordirs; Name: "{app}\EndpointAPO"
 Type: filesandordirs; Name: "{app}\support"
 
-; Audio binaries are administrator-owned. Only small preference/log state is
-; user-writable so the tray can change listener options without UAC.
 [Dirs]
 Name: "{commonappdata}\Omniphony"; Permissions: users-modify
 
@@ -54,10 +51,11 @@ Name: "{commonappdata}\Omniphony"; Permissions: users-modify
 ; after its own lifecycle smoke succeeds. Failure restores the endpoint baseline.
 Source: "{#PayloadDir}\runtime\*"; DestDir: "{tmp}\OmniphonyAPOPayload"; Flags: ignoreversion recursesubdirs createallsubdirs deleteafterinstall
 Source: "{#PayloadDir}\support\*"; DestDir: "{app}\support"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "endpoint_apo\Install-OmniphonyWindows.ps1"; DestDir: "{app}\support"; Flags: ignoreversion
+Source: "endpoint_apo\Uninstall-OmniphonyWindows.ps1"; DestDir: "{app}\support"; Flags: ignoreversion
 Source: "endpoint_apo\OmniphonyTray.ps1"; DestDir: "{app}\support"; Flags: ignoreversion
 Source: "{#PayloadDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
-; Omniphony is headless. The tray icon is the only normal UI surface.
 [Icons]
 Name: "{userstartup}\Omniphony"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\support\OmniphonyTray.ps1"""; WorkingDir: "{app}\support"
 
@@ -75,12 +73,10 @@ var
   TaskKill: String;
   TrayStop: String;
 begin
-  { Ask an existing tray instance to leave before support files are replaced. }
   ForceDirectories(ExpandConstant('{commonappdata}\Omniphony'));
   TrayStop := ExpandConstant('{commonappdata}\Omniphony\tray.stop');
   SaveStringToFile(TrayStop, 'stop', False);
 
-  { Retire the old standalone/loopback host before upgrading. }
   TaskKill := ExpandConstant('{sys}\taskkill.exe');
   Exec(TaskKill, '/F /T /IM Omniphony.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 
@@ -101,9 +97,8 @@ begin
   begin
     PowerShell := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
 
-    { Normal Omniphony deployment is unsigned user-mode APO processing. The
-      wrapper establishes the proven stereo endpoint baseline first, then swaps
-      to pre-mix SFX when the native-surround path validates on this machine. }
+    { Establish the proven stereo endpoint baseline first, then swap to pre-mix
+      SFX when the native-surround path validates on this machine. }
     Params := '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
       ExpandConstant('{app}\support\Install-OmniphonyWindows.ps1') +
       '" -PackageRoot "' + ExpandConstant('{tmp}\OmniphonyAPOPayload') +
