@@ -42,6 +42,8 @@ namespace {
 
 constexpr GUID kOmniphonyApoClsid = {
     0xa9333bfe, 0x39c1, 0x40fd, {0xb4, 0xb0, 0xec, 0xc5, 0x91, 0x41, 0x0b, 0x47}};
+constexpr GUID kOmniphonyNativeSurroundApoClsid = {
+    0x07d403d9, 0x8a98, 0x43ef, {0x8c, 0x28, 0x86, 0x51, 0x75, 0x6d, 0x83, 0xbe}};
 constexpr PROPERTYKEY kEndpointGuid = {
     {0x1da5d803, 0xd492, 0x4edd, {0x8c, 0x23, 0xe0, 0xc0, 0xff, 0xee, 0x7f, 0x0e}}, 4};
 constexpr PROPERTYKEY kEfxKey = {
@@ -79,6 +81,11 @@ std::wstring GuidText(REFGUID guid) {
     wchar_t text[64] = {};
     StringFromGUID2(guid, text, 64);
     return text;
+}
+
+bool IsOmniphonyEfx(const std::wstring& value) {
+    return _wcsicmp(value.c_str(), GuidText(kOmniphonyApoClsid).c_str()) == 0 ||
+           _wcsicmp(value.c_str(), GuidText(kOmniphonyNativeSurroundApoClsid).c_str()) == 0;
 }
 
 std::wstring HResultText(HRESULT hr) {
@@ -290,14 +297,14 @@ int Show(const Endpoint& endpoint) {
     std::wcout << L"ENDPOINT\t" << endpoint.name << L"\t" << endpoint.guid << L"\t" << endpoint.id << L"\n";
     std::wcout << L"EFX\t" << (hasEfx ? efx : L"<absent>") << L"\n";
     std::wcout << L"ENHANCEMENTS_DISABLED\t" << (hasDisabled ? disabled : 0) << L"\n";
-    return hasEfx && _wcsicmp(efx.c_str(), GuidText(kOmniphonyApoClsid).c_str()) == 0 ? 0 : 3;
+    return hasEfx && IsOmniphonyEfx(efx) ? 0 : 3;
 }
 
 int Attach(const Endpoint& endpoint) {
     const std::wstring fx = FxPath(endpoint);
     const std::wstring ours = GuidText(kOmniphonyApoClsid);
     std::wstring existing;
-    if (ReadRegString(fx, kEfxValue, existing) && _wcsicmp(existing.c_str(), ours.c_str()) != 0) {
+    if (ReadRegString(fx, kEfxValue, existing) && !IsOmniphonyEfx(existing)) {
         std::wcerr << L"ERROR\tEXISTING_EFX\t" << existing << L"\n";
         return 8;
     }
@@ -347,7 +354,6 @@ int Attach(const Endpoint& endpoint) {
 
 int Detach(const Endpoint& endpoint) {
     const std::wstring fx = FxPath(endpoint);
-    const std::wstring ours = GuidText(kOmniphonyApoClsid);
     std::wstring existing;
 
     ComPtr<IPolicyConfig> policy;
@@ -357,7 +363,7 @@ int Detach(const Endpoint& endpoint) {
         return 5;
     }
 
-    if (ReadRegString(fx, kEfxValue, existing) && _wcsicmp(existing.c_str(), ours.c_str()) == 0) {
+    if (ReadRegString(fx, kEfxValue, existing) && IsOmniphonyEfx(existing)) {
         hr = ClearProperty(policy.Get(), endpoint, kEfxKey);
         if (FAILED(hr)) {
             std::wcerr << L"ERROR\tFX_POLICY_CLEAR\t" << HResultText(hr) << L"\n";
