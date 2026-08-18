@@ -105,7 +105,7 @@ function Get-MixChannelCount([string]$EndpointName) {
 function Assert-NativeSurroundMixFormat([string]$EndpointName) {
     $channels = Get-MixChannelCount $EndpointName
     if ($channels -ne 8) {
-        throw "Windows did not honor Omniphony's preferred 7.1 endpoint-mix format. observed_channels=$channels"
+        throw "Windows did not honor Omniphony's preferred 7.1 input format. observed_channels=$channels"
     }
     Write-Host 'NATIVE_SURROUND_MIX_FORMAT_OK CHANNELS=8 LAYOUT=7.1'
 }
@@ -135,14 +135,13 @@ function Unregister-NativeApo {
     else { Write-Host 'NATIVE_SURROUND_APO_REGISTERED 0' }
 }
 
-# Always establish the already-proven stereo Current endpoint first. Besides
-# giving us a safe rollback floor, this owns the endpoint backup and AudioDG
-# compatibility state used by the final uninstaller.
+# Establish the proven stereo Current endpoint first. This is the rollback floor
+# and owns the endpoint backup plus AudioDG compatibility state.
 & $baselineInstaller -PackageRoot $PackageRoot -AppRoot $AppRoot -AllowUnprotectedAudioDG:$AllowUnprotectedAudioDG
 
-# Install-OmniphonyAPO.ps1 owns the first transcript section and closes it when
-# the stereo baseline is established. Re-open the same file in append mode so
-# native-surround promotion, validation, and any rollback reason are never lost.
+# The baseline script owns and closes the first transcript section. Append the
+# native-surround stage to the same file so the real machine result, including
+# any failure and rollback reason, survives for diagnosis.
 $transcriptStarted = $false
 try {
     Start-Transcript -Path $logPath -Append | Out-Null
@@ -157,7 +156,7 @@ $nativeRegistered = $false
 
 try {
     Write-Host 'OMNIPHONY_INSTALL_STAGE baseline-stereo-complete'
-    Write-Host 'NATIVE_SURROUND_MIGRATION_BEGIN PLACEMENT=endpoint-efx INPUT=preferred-7.1 OUTPUT=stereo'
+    Write-Host 'NATIVE_SURROUND_MIGRATION_BEGIN PLACEMENT=stream-sfx INPUT=preferred-7.1 OUTPUT=stereo'
 
     Capture-SpatialIngressObservation
 
@@ -184,33 +183,34 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Native-surround APO smoke failed: $LASTEXITCODE" }
     Write-Host 'NATIVE_SURROUND_APO_SMOKE_OK 1'
 
-    # Builds before this one experimented with the same DLL in the per-stream
-    # SFX slot. It must not remain there when the DLL becomes the endpoint EFX,
-    # otherwise a surviving old installation could process audio twice.
+    # Normalize any interrupted older attempt, then install the format-changing
+    # APO in the documented per-stream channel-conversion slot through Windows
+    # audio policy. This is the same class of placement used for headphone
+    # virtualization: apps can receive a 7.1 preferred format while the SFX
+    # reduces the stream to stereo before the physical endpoint mix.
     & $ctl cleanup-native-sfx-id $endpointId
-    if ($LASTEXITCODE -ne 0) { throw "Legacy native-surround SFX cleanup failed: $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw "Native-surround SFX cleanup failed: $LASTEXITCODE" }
 
-    # Promote the format-changing APO through Windows audio policy. The APO asks
-    # for 7.1 on its input while keeping its output stereo, so GetMixFormat can
-    # expose the authored multichannel bed to shared-mode games without changing
-    # the physical FiiO endpoint into a fake surround device.
-    & $ctl attach-native-id $endpointId
-    if ($LASTEXITCODE -ne 0) { throw "Native-surround endpoint promotion failed: $LASTEXITCODE" }
+    & $ctl attach-native-sfx-id $endpointId
+    if ($LASTEXITCODE -ne 0) { throw "Native-surround SFX attachment failed: $LASTEXITCODE" }
+
+    # The baseline endpoint EFX and the native SFX both run Current. Once the SFX
+    # is attached, remove the rollback EFX before restarting the graph so audio is
+    # processed exactly once.
+    & $ctl detach-id $endpointId
+    if ($LASTEXITCODE -ne 0) { throw "Could not remove stereo rollback EFX after SFX promotion: $LASTEXITCODE" }
 
     Restart-AudioGraph
     Assert-NativeSurroundMixFormat $endpointName
-
-    & $ctl status-id $endpointId
-    if ($LASTEXITCODE -ne 0) { throw "Native-surround endpoint status verification failed: $LASTEXITCODE" }
 
     if (Test-Path -LiteralPath $legacyStreamBackupPath) {
         Remove-Item -LiteralPath $legacyStreamBackupPath -Force -ErrorAction SilentlyContinue
     }
 
     Write-Host 'OMNIPHONY_WINDOWS_INSTALL_OK 1'
-    Write-Host 'AUDIO_INGRESS windows-mix=7.1 multichannel=authored-speaker-bed output=binaural-stereo'
-    Write-Host 'NATIVE_SURROUND_EFX 1'
-    Write-Host 'NATIVE_SURROUND_SFX 0'
+    Write-Host 'AUDIO_INGRESS windows-client-mix=7.1 multichannel=authored-speaker-bed output=binaural-stereo'
+    Write-Host 'NATIVE_SURROUND_SFX 1'
+    Write-Host 'NATIVE_SURROUND_EFX 0'
     Write-Host 'OMNIPHONY_INSTALL_STAGE native-surround-active'
 }
 catch {
@@ -219,6 +219,9 @@ catch {
 
     try {
         if (-not [string]::IsNullOrWhiteSpace($endpointId)) {
+            & $ctl cleanup-native-sfx-id $endpointId
+            if ($LASTEXITCODE -ne 0) { throw "Could not remove failed native-surround SFX: $LASTEXITCODE" }
+
             & $ctl attach-id $endpointId
             if ($LASTEXITCODE -ne 0) { throw "Could not restore stereo Current endpoint APO: $LASTEXITCODE" }
             Restart-AudioGraph
@@ -240,8 +243,8 @@ catch {
     }
 
     Write-Host 'OMNIPHONY_WINDOWS_INSTALL_OK 1'
-    Write-Host 'NATIVE_SURROUND_EFX 0'
     Write-Host 'NATIVE_SURROUND_SFX 0'
+    Write-Host 'NATIVE_SURROUND_EFX 1'
     Write-Host 'OMNIPHONY_INSTALL_STAGE stereo-current-rollback'
     Write-Host 'Stereo Current baseline restored automatically.'
 }
