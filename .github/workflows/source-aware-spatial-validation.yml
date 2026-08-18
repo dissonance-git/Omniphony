@@ -42,6 +42,12 @@ jobs:
           rustc --version --verbose
           cargo --version
 
+      - name: Compile source-shell energy test
+        run: cargo test -p renderer --test source_shell_spread_energy --no-run
+
+      - name: Run source-shell energy test
+        run: cargo test -p renderer --test source_shell_spread_energy
+
       - name: Compile source-aware engine tests
         run: cargo test -p orender_engine --lib --tests --no-run
 
