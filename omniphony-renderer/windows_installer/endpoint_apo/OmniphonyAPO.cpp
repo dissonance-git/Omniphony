@@ -229,12 +229,22 @@ public:
         if ((data == nullptr) != (dataSize == 0)) {
             return E_INVALIDARG;
         }
-        if (dataSize != sizeof(APOInitSystemEffects) && dataSize != sizeof(APOInitSystemEffects2)) {
+        if (dataSize != sizeof(APOInitSystemEffects) &&
+            dataSize != sizeof(APOInitSystemEffects2) &&
+            dataSize != sizeof(APOInitSystemEffects3)) {
             return E_INVALIDARG;
         }
         if (m_bIsInitialized) {
             return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
         }
+
+        GUID processingMode = AUDIO_SIGNALPROCESSINGMODE_DEFAULT;
+        if (dataSize == sizeof(APOInitSystemEffects3)) {
+            processingMode = reinterpret_cast<APOInitSystemEffects3*>(data)->AudioProcessingMode;
+        } else if (dataSize == sizeof(APOInitSystemEffects2)) {
+            processingMode = reinterpret_cast<APOInitSystemEffects2*>(data)->AudioProcessingMode;
+        }
+        rawBypass_ = IsEqualGUID(processingMode, AUDIO_SIGNALPROCESSINGMODE_RAW);
         m_bIsInitialized = true;
         return S_OK;
     }
@@ -281,6 +291,14 @@ public:
             return S_OK;
         }
         bytesPerFrame_ = channels * bytesPerSample;
+
+        // RAW is the provider-egress escape hatch. Microsoft system-effect
+        // samples keep SFX processing transparent in this mode. Omniphony must
+        // do the same so already-rendered binaural stereo can reach the physical
+        // endpoint without being passed through Current a second time.
+        if (rawBypass_) {
+            return S_OK;
+        }
 
         const bool float32 =
             IsEqualGUID(inputFormat.guidFormatType, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT) &&
@@ -417,6 +435,7 @@ private:
     volatile LONG references_ = 1;
     volatile LONG realtimeEligible_ = 0;
     size_t bytesPerFrame_ = 0;
+    bool rawBypass_ = false;
     IUnknown* outer_ = nullptr;
     RealtimeBridge realtime_;
 };
