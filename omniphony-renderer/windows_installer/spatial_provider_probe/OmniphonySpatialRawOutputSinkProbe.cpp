@@ -52,12 +52,12 @@ bool ParsePeriod(const wchar_t* text, std::uint32_t& period) noexcept {
 int wmain(int argc, wchar_t** argv) {
     if (argc < 2 || argc > 3 || !argv[1] || !argv[1][0]) {
         std::wcerr << L"usage: OmniphonySpatialRawOutputSinkProbe.exe "
-                   << L"<physical-endpoint-id> [period-frames]\n";
+                   << L"<physical-endpoint-id> [exact-period-frames]\n";
         return 2;
     }
 
-    std::uint32_t periodFrames = 480;
-    if (argc == 3 && !ParsePeriod(argv[2], periodFrames)) {
+    std::uint32_t requestedPeriodFrames = 0;
+    if (argc == 3 && !ParsePeriod(argv[2], requestedPeriodFrames)) {
         std::wcerr << L"SPATIAL_RAW_OUTPUT_SINK_BAD_PERIOD\n";
         return 2;
     }
@@ -68,25 +68,34 @@ int wmain(int argc, wchar_t** argv) {
     }
 
     OmniphonySpatialRawOutputSink sink;
-    const HRESULT hr = sink.Open(argv[1], periodFrames);
+    const HRESULT hr = sink.Open(argv[1], requestedPeriodFrames);
     if (FAILED(hr)) {
         return Fail(L"Open", hr);
     }
 
     if (!sink.IsInitialized() || sink.IsStarted() || !sink.HasRenderClient() ||
         !sink.SampleReadyEvent() || sink.BufferFrames() == 0 ||
-        sink.PeriodFrames() != periodFrames || sink.SampleRateHz() != 48'000) {
+        sink.PeriodFrames() == 0 || sink.SampleRateHz() != 48'000) {
         std::wcerr << L"SPATIAL_RAW_OUTPUT_SINK_STATE_INVALID\n";
+        return 3;
+    }
+    if (requestedPeriodFrames != 0 && sink.PeriodFrames() != requestedPeriodFrames) {
+        std::wcerr << L"SPATIAL_RAW_OUTPUT_SINK_PERIOD_MISMATCH\n";
         return 3;
     }
 
     std::wcout << L"SPATIAL_RAW_OUTPUT_SINK_OK 1\n";
     std::wcout << L"SPATIAL_RAW_OUTPUT_SINK_MODE RAW\n";
     std::wcout << L"SPATIAL_RAW_OUTPUT_SINK_FORMAT FLOAT32_STEREO_48000\n";
+    std::wcout << L"SPATIAL_RAW_OUTPUT_SINK_PERIOD_SOURCE "
+               << (requestedPeriodFrames == 0 ? L"ENDPOINT_DEFAULT" : L"EXACT_REQUEST")
+               << L"\n";
     std::wcout << L"SPATIAL_RAW_OUTPUT_SINK_PERIOD_FRAMES "
                << sink.PeriodFrames() << L"\n";
     std::wcout << L"SPATIAL_RAW_OUTPUT_SINK_BUFFER_FRAMES "
                << sink.BufferFrames() << L"\n";
+    std::wcout << L"SPATIAL_RAW_OUTPUT_SINK_CLOCK_ADAPTER_REQUIRED "
+               << (sink.PeriodFrames() == 480 ? 0 : 1) << L"\n";
     std::wcout << L"SPATIAL_RAW_OUTPUT_SINK_RENDER_CLIENT 1\n";
     std::wcout << L"SPATIAL_RAW_OUTPUT_SINK_EVENT_HANDLE 1\n";
     std::wcout << L"SPATIAL_RAW_OUTPUT_SINK_INITIALIZED 1\n";
