@@ -6,50 +6,76 @@ The current questions are deliberately separated:
 
 1. Can an independently registered Omniphony format be enumerated by the Windows **Spatial sound** selector?
 2. If Windows activates the registered COM class, will it accept a standards-shaped `ISpatialAudioClient` capability object?
-3. Which additional stream and transport behavior is required before Windows accepts it as a functional spatial renderer?
+3. Can a real static Spatial Audio object cross the COM stream, the existing Omniphony realtime worker, and the final Windows output boundary without another headphone renderer touching it?
 
-This probe is **not yet an audible spatial renderer** and it does not change Omniphony's production signal path.
+This probe is **not yet an audible Windows spatial renderer** and it does not change Omniphony's production signal path.
 
 ## Current capability stage
 
 The COM DLL implements `ISpatialAudioClient` rather than only `IUnknown`.
 
-The repository also contains an internal static-only `ISpatialAudioObjectRenderStream` lifecycle implementation. That stream now accepts the same `VT_BLOB` activation shape documented for `ISpatialAudioClient::ActivateSpatialAudioStream`, including exact structure-size, interface-ID, object-format, static-mask, and zero-dynamic-capacity validation.
+The repository also contains an internal static-only `ISpatialAudioObjectRenderStream` lifecycle implementation. That stream accepts the `VT_BLOB` activation shape documented for `ISpatialAudioClient::ActivateSpatialAudioStream`, including exact structure-size, interface-ID, object-format, static-mask, and zero-dynamic-capacity validation.
 
-The public provider deliberately does **not** expose that internal stream yet because its object buffers do not have a downstream transport into Omniphony's realtime renderer. Advertising it now would allow a spatial application to submit audio that the probe cannot render.
+The static-object renderer path behind that COM surface is now substantially built:
+
+```text
+Windows static role + authored position
+        ↓
+fixed-topology static-object ABI
+        ↓
+preallocated planar object ring
+        ↓
+dedicated WindowsStaticObjectPipeline worker
+        ↓
+existing source-aware Omniphony Current renderer
+        ↓
+binaural stereo
+```
+
+`omniphony_realtime.dll` already exposes this fixed-topology static-object ABI. A C++ bridge in this directory loads that ABI only from an explicit absolute DLL path, verifies ABI compatibility before processor creation, owns the processor/module lifetime in the safe order, and provides a registry-free diagnostic seam.
+
+The public provider deliberately does **not** expose the static stream yet. Two boundaries are still missing:
+
+1. the COM stream must hand each completed update quantum to the existing realtime bridge without changing its immutable static topology;
+2. the returned binaural stereo must have a proven Windows output/cadence path to the real headphone endpoint.
+
+Until both exist, accepting a public Spatial Audio stream could create a silent sink. The gate therefore remains closed.
 
 Current state:
 
 ```text
-static object vocabulary        17 roles / 8.1.4.4
-object format                   mono float32 / 48 kHz
-max frame count                 480 frames
-max dynamic objects             0
-internal static stream          implemented
-VT_BLOB activation marshalling  implemented
+static object vocabulary         17 roles / 8.1.4.4
+object format                    mono float32 / 48 kHz
+max frame count                  480 frames
+max dynamic objects              0
+internal static COM stream       implemented
+VT_BLOB activation marshalling   implemented
+static object -> Current worker  implemented
+C++ realtime ABI bridge          implemented
+immutable provider staging       implemented as inert primitive
+COM quantum -> bridge wiring     pending
+final Windows output/cadence     pending
 provider render stream available no
 provider render stream activation no
-downstream Omniphony transport  not yet implemented
 ```
 
 `GetMaxDynamicObjectCount` intentionally returns `0`. Dynamic capacity will increase only when a real dynamic-object path exists.
 
-`IsSpatialAudioStreamAvailable` and `ActivateSpatialAudioStream` intentionally return `SPTLAUDCLNT_E_STREAM_IS_NOT_AVAILABLE`. The internal stream is preparation behind that gate, not permission to make an end-to-end claim early.
+`IsSpatialAudioStreamAvailable` and `ActivateSpatialAudioStream` intentionally return `SPTLAUDCLNT_E_STREAM_IS_NOT_AVAILABLE`. The internal machinery behind that gate is preparation, not permission to make an end-to-end claim early.
 
 ## Safety boundary
 
 The probe remains smaller than the product path:
 
-- it writes only two project-owned registry subtrees;
+- it writes only two project-owned registry subtrees when the explicit registration experiment is invoked;
 - it does not write `MMDevices` state;
 - it does not change the default playback endpoint;
 - it does not install a virtual audio device;
-- it does not restart Windows Audio;
 - it does not hook or inject into applications;
 - it does not replace Windows system files or HRTFs;
-- it performs no production audio processing;
 - the public provider cannot activate a spatial render stream yet;
-- `unregister` deletes only the two Omniphony probe keys.
+- `unregister` deletes only the two Omniphony probe keys;
+- the immutable package-staging script performs **no registry writes and no provider selection**.
 
 Stable experimental identities:
 
@@ -67,11 +93,11 @@ HKLM\SOFTWARE\Classes\CLSID\{provider-clsid}\InProcServer32
 
 The first path is an experimentally inferred Windows registration seam, not a documented public third-party provider contract.
 
-The same `Spatial\Encoder` surface has also been independently explored by the open-source MSSOAL project. That is useful corroborating implementation evidence, not a substitute for a real-machine Omniphony result.
+The same `Spatial\Encoder` surface has also been independently explored by the open-source MSSOAL project. That is useful implementation evidence, not a substitute for a real-machine Omniphony result. MSSOAL itself describes its current provider work as a proof of concept rather than a working product, so its output architecture remains a quarry rather than proof of the Windows boundary.
 
 ## Registry-free static-stream contract
 
-`OmniphonySpatialStaticStreamSmoke` exercises the internal stream without registry writes or Windows provider selection.
+`OmniphonySpatialStaticStreamSmoke` exercises the internal COM-shaped stream without registry writes or Windows provider selection.
 
 It covers:
 
@@ -90,9 +116,91 @@ It covers:
 - static-role reactivation;
 - start, stop, and reset lifecycle.
 
-This proves an internal COM-shaped stream contract only. It does not prove provider enumeration, Windows stream activation, object delivery from another process, downstream rendering, or audible output.
+This is a source-level smoke target. It does not by itself prove Windows provider enumeration, application object delivery, or audible endpoint output.
 
-## Run the experiment
+## Registry-free realtime bridge
+
+`OmniphonySpatialRealtimeBridge` is the narrow C++ boundary between the provider experiment and the existing Rust realtime ABI.
+
+It deliberately does **not** search `PATH`, use the process working directory, or discover a renderer during an audio update. `Open` requires an absolute `omniphony_realtime.dll` path and resolves the static-object ABI before processing begins.
+
+The bridge verifies:
+
+- realtime ABI major equality and compatible minor level;
+- all required static-object exports;
+- fixed sample rate / quantum / role descriptors through the Rust creation contract;
+- processor destruction before `FreeLibrary`;
+- no DLL discovery on the realtime processing call.
+
+`OmniphonySpatialRealtimeBridgeSmoke` is designed to exercise:
+
+```text
+FL + TFL planar object PCM
+→ dynamically loaded omniphony_realtime.dll
+→ fixed static-object worker
+→ existing Current source renderer
+→ finite nonzero binaural stereo
+```
+
+Example once the binaries have been built:
+
+```powershell
+.\OmniphonySpatialRealtimeBridgeSmoke.exe C:\absolute\path\omniphony_realtime.dll
+```
+
+The smoke reports latency and processed-block observability. It remains registry-free and does not select Omniphony in Windows.
+
+## Immutable provider generations
+
+The future installer should never overwrite a COM DLL that Windows or an application may still have loaded. `Stage-OmniphonySpatialProvider.ps1` therefore prepares provider packages as immutable, content-addressed generations before any registration transaction exists.
+
+Required package members are currently:
+
+```text
+OmniphonySpatialProbe.dll
+omniphony_realtime.dll
+OmniphonySpatialProbeCtl.exe
+OmniphonySpatialProbeSmoke.exe
+OmniphonySpatialStaticStreamSmoke.exe
+OmniphonySpatialRealtimeBridgeSmoke.exe
+CaptureSpatialProviderState.ps1
+```
+
+The staging script:
+
+- hashes every package member with SHA-256;
+- derives a generation identity from the complete sorted package hash set;
+- copies a new candidate into a temporary generation directory;
+- verifies every copied file before promotion;
+- is designed to run capability, static-stream, and realtime-bridge smokes from the temporary candidate;
+- moves the candidate into its immutable final generation path;
+- re-runs path-sensitive provider and realtime-bridge smokes from that final path;
+- writes an atomic `staged-generation.json` manifest containing the exact package and per-file hashes;
+- explicitly records `registry_mutated=false` and `provider_selected=false`.
+
+Example once the staged binaries exist:
+
+```powershell
+.\Stage-OmniphonySpatialProvider.ps1 `
+  -PackageRoot C:\path\to\spatial-provider-payload `
+  -AppRoot 'C:\Program Files\Omniphony'
+```
+
+An already-existing generation is verified rather than modified. This is intended to make eventual install, repair, upgrade, and rollback safer:
+
+```text
+new generation
+→ stage beside current generation
+→ verify in place
+→ later switch only Omniphony-owned registration
+→ keep previous generation available for rollback / loaded COM users
+```
+
+The staging script is **not yet wired into `OmniphonySetup.exe`**. That is intentional while public Spatial Audio stream activation remains closed.
+
+## Run the enumeration experiment
+
+The existing provider-registration experiment remains useful because the Windows seam itself is still unproven.
 
 Extract these files into the same directory and leave them there while the probe is registered:
 
@@ -148,9 +256,9 @@ Preserve `before-registration.txt`, `registered.txt`, and the `list`, `status`, 
 
 This proves **provider enumeration** and advances the experiment to COM/provider capability negotiation.
 
-That is a meaningful success. The provider intentionally still reports render-stream activation unavailable.
+That is meaningful evidence. The provider intentionally still reports render-stream activation unavailable.
 
-The next source change is no longer "invent a static stream from scratch." The internal static lifecycle exists. The next engineering frontier is a bounded downstream transport that preserves static role identity, PCM, update cadence, and source authority into the existing Omniphony realtime renderer. Only after that transport exists should the public provider delegate `ActivateSpatialAudioStream` to the internal stream factory.
+The source frontier is no longer “invent a static renderer.” The static COM lifecycle, static-object Current worker, and C++ ABI bridge exist. The next provider work is to join the COM update quantum to that bridge and identify the valid final Windows output/cadence path.
 
 ### Result C — Windows accepts/selects the capability-only provider
 
@@ -196,21 +304,22 @@ Compare-Object (Get-Content .\dolby.txt) (Get-Content .\dts.txt)
 
 A useful P2 result is a small repeatable delta that tracks the provider selected through the normal Windows UI. Unrelated registry churn is not provider-selection evidence. The snapshot tool does not itself select a provider, edit endpoint state, or prove object delivery.
 
-## Future installer integration contract
+## Future installer transaction
 
 The spatial provider must eventually join `OmniphonySetup.exe` as a transaction, not as an optimistic registry side effect.
 
-The installer path should be:
+The desired progression is:
 
 ```text
-stage provider binaries
-→ verify files and COM exports
-→ record prior provider/selection state
-→ register only Omniphony-owned keys
+stage immutable generation                       implemented as inert primitive
+→ verify package hashes + final-path smokes      designed into staging primitive
+→ capture prior provider and selection state
+→ switch only Omniphony-owned registration to the candidate generation
 → verify COM activation and capability contract
-→ enable/select only after end-to-end stream transport is proven
+→ verify public stream and endpoint-output path
+→ select/enable only after end-to-end transport is proven
 → verify ordinary stereo/non-spatial audio still works
-→ commit installation
+→ commit active-generation state
 ```
 
 On failure or uninstall:
@@ -218,14 +327,15 @@ On failure or uninstall:
 ```text
 stop using Omniphony provider if selected
 → restore prior provider/selection state when Omniphony changed it
+→ restore previous Omniphony generation if activation failed
 → unregister only Omniphony-owned keys
-→ remove provider files after COM users release them
+→ retire old generation files only after COM users release them
 → leave the physical audio driver untouched
 ```
 
-The installer must never leave Windows pointing at a provider that accepts a spatial stream but drops its audio. Keeping the public stream gate closed until downstream transport exists is part of installation safety, not merely experimental caution.
+The installer must never leave Windows pointing at a provider that accepts a spatial stream but drops its audio. Keeping the public stream gate closed until COM input, Current, and final endpoint output are joined is part of installation safety.
 
-## Clean removal
+## Clean removal of the registration experiment
 
 From an elevated terminal:
 
@@ -247,28 +357,32 @@ A final normal-terminal capture can prove the owned registration disappeared wit
 Keep these claims separate:
 
 ```text
-build succeeds
-≠ registry-free static stream lifecycle succeeds
-≠ VT_BLOB activation marshalling succeeds
+source compiles
+≠ registry-free static COM lifecycle works
+≠ VT_BLOB activation marshalling works
+≠ static-object realtime ABI reaches Current
+≠ C++ bridge drives that ABI
+≠ immutable provider generation stages successfully
 ≠ read-only provider/endpoint snapshot succeeds
 ≠ registry registration succeeds
-≠ COM IUnknown activation succeeds
-≠ ISpatialAudioClient capability query succeeds
+≠ COM IUnknown / ISpatialAudioClient activation succeeds
 ≠ Windows Settings enumerates Omniphony
 ≠ Windows accepts Omniphony as selected provider
+≠ COM object quanta reach the realtime bridge
 ≠ public spatial render stream activates
-≠ static objects arrive from a real application
-≠ object PCM reaches Omniphony Current
+≠ returned stereo reaches the real headphone endpoint
+≠ static objects arrive from a real application end to end
 ≠ dynamic XYZ objects arrive
-≠ Omniphony renders them correctly
+≠ Omniphony renders them correctly in listening tests
 ```
 
-The current probe is complete when enumeration and capability negotiation have real-machine results. The internal stream machinery reduces the amount of code needed after that gate; it does not promote the experiment to a later evidence state.
+The internal machinery reduces the amount of code behind the remaining Windows boundary. It does not promote uncompiled source, registry-free tests, or provider registration experiments into physical application proof.
 
 ## Primary platform references
 
 - Microsoft Spatial Sound overview: https://learn.microsoft.com/windows/win32/coreaudio/spatial-sound
 - `ISpatialAudioClient`: https://learn.microsoft.com/windows/win32/api/spatialaudioclient/nn-spatialaudioclient-ispatialaudioclient
+- `ISpatialAudioClient::IsSpatialAudioStreamAvailable`: https://learn.microsoft.com/windows/win32/api/spatialaudioclient/nf-spatialaudioclient-ispatialaudioclient-isspatialaudiostreamavailable
 - `ISpatialAudioClient::ActivateSpatialAudioStream`: https://learn.microsoft.com/windows/win32/api/spatialaudioclient/nf-spatialaudioclient-ispatialaudioclient-activatespatialaudiostream
 - `SpatialAudioObjectRenderStreamActivationParams`: https://learn.microsoft.com/windows/win32/api/spatialaudioclient/ns-spatialaudioclient-spatialaudioobjectrenderstreamactivationparams
 - `AudioObjectType`: https://learn.microsoft.com/windows/win32/api/spatialaudioclient/ne-spatialaudioclient-audioobjecttype
