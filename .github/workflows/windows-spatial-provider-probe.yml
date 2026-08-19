@@ -44,10 +44,12 @@ jobs:
           $dll = Join-Path $release 'OmniphonySpatialProbe.dll'
           $smoke = Join-Path $release 'OmniphonySpatialProbeSmoke.exe'
           $streamSmoke = Join-Path $release 'OmniphonySpatialStaticStreamSmoke.exe'
+          $snapshotScript = "$env:GITHUB_WORKSPACE\omniphony-renderer\windows_installer\spatial_provider_probe\CaptureSpatialProviderState.ps1"
           if (-not (Test-Path $ctl)) { throw "Missing probe control executable: $ctl" }
           if (-not (Test-Path $dll)) { throw "Missing probe COM DLL: $dll" }
           if (-not (Test-Path $smoke)) { throw "Missing probe capability smoke: $smoke" }
           if (-not (Test-Path $streamSmoke)) { throw "Missing static stream lifecycle smoke: $streamSmoke" }
+          if (-not (Test-Path $snapshotScript)) { throw "Missing spatial selection snapshot script: $snapshotScript" }
 
           $contract = & $ctl contract
           if ($LASTEXITCODE -ne 0) { throw "Probe contract failed: $LASTEXITCODE" }
@@ -86,6 +88,19 @@ jobs:
           & $ctl list
           if ($LASTEXITCODE -ne 0) { throw "Read-only provider enumeration failed: $LASTEXITCODE" }
 
+          # The selection snapshot is intentionally useful even when the runner has
+          # no real Spatial Sound provider state. CI validates that the bounded,
+          # read-only collector itself executes and preserves its safety markers.
+          $snapshot = & $snapshotScript -ControlPath $ctl
+          $snapshot | Write-Host
+          $snapshotText = $snapshot -join "`n"
+          if ($snapshotText -notmatch 'SPATIAL_SELECTION_SNAPSHOT_VERSION\s+1') { throw 'snapshot version marker missing' }
+          if ($snapshotText -notmatch 'SPATIAL_SELECTION_SNAPSHOT_READ_ONLY\s+1') { throw 'snapshot read-only marker missing' }
+          if ($snapshotText -notmatch 'SPATIAL_SELECTION_SNAPSHOT_NO_MMDEVICES_WRITES\s+1') { throw 'snapshot MMDevices safety marker missing' }
+          if ($snapshotText -notmatch 'REGISTRY_SECTION\s+SPATIAL_ENCODER') { throw 'snapshot encoder section missing' }
+          if ($snapshotText -notmatch 'REGISTRY_SECTION\s+SPATIAL_AUDIO_ENDPOINT') { throw 'snapshot endpoint section missing' }
+          if ($snapshotText -notmatch 'SPATIAL_SELECTION_SNAPSHOT_COMPLETE\s+1') { throw 'snapshot completion marker missing' }
+
       - name: Assemble probe artifact
         shell: pwsh
         run: |
@@ -96,6 +111,7 @@ jobs:
           Copy-Item (Join-Path $release 'OmniphonySpatialProbe.dll') $payload -Force
           Copy-Item (Join-Path $release 'OmniphonySpatialProbeSmoke.exe') $payload -Force
           Copy-Item (Join-Path $release 'OmniphonySpatialStaticStreamSmoke.exe') $payload -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\omniphony-renderer\windows_installer\spatial_provider_probe\CaptureSpatialProviderState.ps1" $payload -Force
           Copy-Item "$env:GITHUB_WORKSPACE\omniphony-renderer\windows_installer\spatial_provider_probe\README.md" $payload -Force
           Get-ChildItem $payload -File | Select-Object Name, Length
 
