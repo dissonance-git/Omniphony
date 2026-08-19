@@ -1,11 +1,14 @@
 {
-  "schema": "omniphony.windows.spatial-raw-output-sink-diagnostic.v1",
-  "head_sha": "9b6974f3c0251a402feffea9f83f513f44ca421a",
-  "run_id": "32315360263",
-  "overall": "success",
+  "schema": "omniphony.windows.spatial-raw-output-sink-diagnostic.v2",
+  "head_sha": "75f19abd96d218835933024e017ab11500bf79df",
+  "run_id": "32315504207",
+  "overall": "failure",
   "contract": "success",
   "configure": "success",
-  "build": "success",
-  "binary": "success",
+  "build": "failure",
+  "queue_smoke": "skipped",
+  "binary": "skipped",
+  "endpoint_period_owned_by_sink": true,
+  "renderer_quantum_frames": 480,
   "stream_started": false
 }
