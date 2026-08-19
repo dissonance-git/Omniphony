@@ -59,6 +59,32 @@ bool IsSupportedFormatPair(
            input.fFramesPerSecond == output.fFramesPerSecond;
 }
 
+bool IsRawBypassFormat(const UNCOMPRESSEDAUDIOFORMAT& format) noexcept {
+    return IsFloat32Format(format) && format.dwSamplesPerFrame == 2;
+}
+
+bool IsRawBypassPair(
+    const UNCOMPRESSEDAUDIOFORMAT& input,
+    const UNCOMPRESSEDAUDIOFORMAT& output) noexcept {
+    return IsRawBypassFormat(input) && IsRawBypassFormat(output) &&
+           input.fFramesPerSecond == output.fFramesPerSecond &&
+           input.dwBytesPerSampleContainer == output.dwBytesPerSampleContainer &&
+           input.dwValidBitsPerSample == output.dwValidBitsPerSample &&
+           IsEqualGUID(input.guidFormatType, output.guidFormatType) &&
+           input.dwChannelMask == output.dwChannelMask;
+}
+
+HRESULT PassThroughMediaType(
+    IAudioMediaType* source,
+    IAudioMediaType** target) noexcept {
+    if (!target) return E_POINTER;
+    *target = nullptr;
+    if (!source) return E_POINTER;
+    source->AddRef();
+    *target = source;
+    return S_OK;
+}
+
 HRESULT CreatePreferredMediaType(
     const UNCOMPRESSEDAUDIOFORMAT& basis,
     UINT32 channels,
@@ -316,6 +342,14 @@ public:
             return E_INVALIDARG;
         }
         if (m_bIsInitialized) return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
+
+        GUID processingMode = AUDIO_SIGNALPROCESSINGMODE_DEFAULT;
+        if (dataSize == sizeof(APOInitSystemEffects3)) {
+            processingMode = reinterpret_cast<APOInitSystemEffects3*>(data)->AudioProcessingMode;
+        } else if (dataSize == sizeof(APOInitSystemEffects2)) {
+            processingMode = reinterpret_cast<APOInitSystemEffects2*>(data)->AudioProcessingMode;
+        }
+        rawBypass_ = IsEqualGUID(processingMode, AUDIO_SIGNALPROCESSINGMODE_RAW);
         m_bIsInitialized = true;
         return S_OK;
     }
@@ -328,7 +362,16 @@ public:
         if (!outputFormat) return E_POINTER;
 
         UNCOMPRESSEDAUDIOFORMAT output = {};
-        if (!ReadAudioFormat(outputFormat, output) || !IsSupportedOutputFormat(output)) {
+        if (!ReadAudioFormat(outputFormat, output)) {
+            return APOERR_FORMAT_NOT_SUPPORTED;
+        }
+        if (rawBypass_) {
+            if (!IsRawBypassFormat(output)) {
+                return APOERR_FORMAT_NOT_SUPPORTED;
+            }
+            return PassThroughMediaType(outputFormat, preferredFormat);
+        }
+        if (!IsSupportedOutputFormat(output)) {
             return APOERR_FORMAT_NOT_SUPPORTED;
         }
 
@@ -347,7 +390,16 @@ public:
         if (!inputFormat) return E_POINTER;
 
         UNCOMPRESSEDAUDIOFORMAT input = {};
-        if (!ReadAudioFormat(inputFormat, input) || !IsSupportedInputFormat(input)) {
+        if (!ReadAudioFormat(inputFormat, input)) {
+            return APOERR_FORMAT_NOT_SUPPORTED;
+        }
+        if (rawBypass_) {
+            if (!IsRawBypassFormat(input)) {
+                return APOERR_FORMAT_NOT_SUPPORTED;
+            }
+            return PassThroughMediaType(inputFormat, preferredFormat);
+        }
+        if (!IsSupportedInputFormat(input)) {
             return APOERR_FORMAT_NOT_SUPPORTED;
         }
 
@@ -363,15 +415,30 @@ public:
         IAudioMediaType** supportedInputFormat) override {
         if (supportedInputFormat) *supportedInputFormat = nullptr;
         UNCOMPRESSEDAUDIOFORMAT inputFormat = {};
-        if (!ReadAudioFormat(requestedInputFormat, inputFormat) ||
-            !IsSupportedInputFormat(inputFormat)) {
+        if (!ReadAudioFormat(requestedInputFormat, inputFormat)) {
             return requestedInputFormat ? APOERR_FORMAT_NOT_SUPPORTED : E_POINTER;
         }
-        if (oppositeFormat) {
-            UNCOMPRESSEDAUDIOFORMAT outputFormat = {};
-            if (!ReadAudioFormat(oppositeFormat, outputFormat) ||
-                !IsSupportedFormatPair(inputFormat, outputFormat)) {
+        if (rawBypass_) {
+            if (!IsRawBypassFormat(inputFormat)) {
                 return APOERR_FORMAT_NOT_SUPPORTED;
+            }
+            if (oppositeFormat) {
+                UNCOMPRESSEDAUDIOFORMAT outputFormat = {};
+                if (!ReadAudioFormat(oppositeFormat, outputFormat) ||
+                    !IsRawBypassPair(inputFormat, outputFormat)) {
+                    return APOERR_FORMAT_NOT_SUPPORTED;
+                }
+            }
+        } else {
+            if (!IsSupportedInputFormat(inputFormat)) {
+                return APOERR_FORMAT_NOT_SUPPORTED;
+            }
+            if (oppositeFormat) {
+                UNCOMPRESSEDAUDIOFORMAT outputFormat = {};
+                if (!ReadAudioFormat(oppositeFormat, outputFormat) ||
+                    !IsSupportedFormatPair(inputFormat, outputFormat)) {
+                    return APOERR_FORMAT_NOT_SUPPORTED;
+                }
             }
         }
         if (supportedInputFormat) {
@@ -387,15 +454,30 @@ public:
         IAudioMediaType** supportedOutputFormat) override {
         if (supportedOutputFormat) *supportedOutputFormat = nullptr;
         UNCOMPRESSEDAUDIOFORMAT outputFormat = {};
-        if (!ReadAudioFormat(requestedOutputFormat, outputFormat) ||
-            !IsSupportedOutputFormat(outputFormat)) {
+        if (!ReadAudioFormat(requestedOutputFormat, outputFormat)) {
             return requestedOutputFormat ? APOERR_FORMAT_NOT_SUPPORTED : E_POINTER;
         }
-        if (oppositeFormat) {
-            UNCOMPRESSEDAUDIOFORMAT inputFormat = {};
-            if (!ReadAudioFormat(oppositeFormat, inputFormat) ||
-                !IsSupportedFormatPair(inputFormat, outputFormat)) {
+        if (rawBypass_) {
+            if (!IsRawBypassFormat(outputFormat)) {
                 return APOERR_FORMAT_NOT_SUPPORTED;
+            }
+            if (oppositeFormat) {
+                UNCOMPRESSEDAUDIOFORMAT inputFormat = {};
+                if (!ReadAudioFormat(oppositeFormat, inputFormat) ||
+                    !IsRawBypassPair(inputFormat, outputFormat)) {
+                    return APOERR_FORMAT_NOT_SUPPORTED;
+                }
+            }
+        } else {
+            if (!IsSupportedOutputFormat(outputFormat)) {
+                return APOERR_FORMAT_NOT_SUPPORTED;
+            }
+            if (oppositeFormat) {
+                UNCOMPRESSEDAUDIOFORMAT inputFormat = {};
+                if (!ReadAudioFormat(oppositeFormat, inputFormat) ||
+                    !IsSupportedFormatPair(inputFormat, outputFormat)) {
+                    return APOERR_FORMAT_NOT_SUPPORTED;
+                }
             }
         }
         if (supportedOutputFormat) {
@@ -418,9 +500,14 @@ public:
 
         UNCOMPRESSEDAUDIOFORMAT inputFormat = {};
         UNCOMPRESSEDAUDIOFORMAT outputFormat = {};
-        if (!ReadAudioFormat(inputs[0]->pFormat, inputFormat) ||
-            !ReadAudioFormat(outputs[0]->pFormat, outputFormat) ||
-            !IsSupportedFormatPair(inputFormat, outputFormat)) {
+        const bool formatsReadable =
+            ReadAudioFormat(inputs[0]->pFormat, inputFormat) &&
+            ReadAudioFormat(outputs[0]->pFormat, outputFormat);
+        const bool pairSupported = formatsReadable &&
+            (rawBypass_
+                ? IsRawBypassPair(inputFormat, outputFormat)
+                : IsSupportedFormatPair(inputFormat, outputFormat));
+        if (!pairSupported) {
             return APOERR_FORMAT_NOT_SUPPORTED;
         }
 
@@ -432,8 +519,15 @@ public:
         outputChannels_ = outputFormat.dwSamplesPerFrame;
         inputBytesPerFrame_ = static_cast<size_t>(inputChannels_) * sizeof(float);
         outputBytesPerFrame_ = static_cast<size_t>(outputChannels_) * sizeof(float);
-        const auto sampleRateHz = static_cast<UINT32>(inputFormat.fFramesPerSecond + 0.5f);
 
+        // RAW mode is an identity transform. Do not allocate a worker-facing
+        // scratch lane and, most importantly, do not load Current. This is the
+        // path intended for already-rendered provider egress.
+        if (rawBypass_) {
+            return S_OK;
+        }
+
+        const auto sampleRateHz = static_cast<UINT32>(inputFormat.fFramesPerSecond + 0.5f);
         const size_t maxFrames = inputs[0]->u32MaxFrameCount;
         if (maxFrames > std::numeric_limits<size_t>::max() / inputChannels_) {
             CBaseAudioProcessingObject::UnlockForProcess();
@@ -492,8 +586,48 @@ public:
         auto* outputBuffer = reinterpret_cast<float*>(output->pBuffer);
         const size_t outputSamples = static_cast<size_t>(frames) * outputChannels_;
         const size_t outputBytes = outputSamples * sizeof(float);
-        if ((!outputBuffer && outputBytes != 0) ||
-            static_cast<size_t>(frames) > silentInput_.size() / inputChannels_) {
+        if (!outputBuffer && outputBytes != 0) {
+            output->u32BufferFlags = BUFFER_INVALID;
+            output->u32ValidFrameCount = 0;
+            return;
+        }
+
+        if (rawBypass_) {
+            if (inputChannels_ != outputChannels_ || inputBytesPerFrame_ != outputBytesPerFrame_) {
+                output->u32BufferFlags = BUFFER_INVALID;
+                output->u32ValidFrameCount = 0;
+                return;
+            }
+            switch (input->u32BufferFlags) {
+            case BUFFER_VALID: {
+                auto* inputBuffer = reinterpret_cast<const float*>(input->pBuffer);
+                if (!inputBuffer && outputBytes != 0) {
+                    output->u32BufferFlags = BUFFER_INVALID;
+                    output->u32ValidFrameCount = 0;
+                    return;
+                }
+                if (output->pBuffer != input->pBuffer && outputBytes != 0) {
+                    std::memmove(outputBuffer, inputBuffer, outputBytes);
+                }
+                output->u32BufferFlags = BUFFER_VALID;
+                break;
+            }
+            case BUFFER_SILENT:
+                if (outputBuffer && outputBytes != 0) {
+                    std::memset(outputBuffer, 0, outputBytes);
+                }
+                output->u32BufferFlags = BUFFER_SILENT;
+                break;
+            default:
+                output->u32BufferFlags = BUFFER_INVALID;
+                output->u32ValidFrameCount = 0;
+                return;
+            }
+            output->u32ValidFrameCount = frames;
+            return;
+        }
+
+        if (static_cast<size_t>(frames) > silentInput_.size() / inputChannels_) {
             output->u32BufferFlags = BUFFER_INVALID;
             output->u32ValidFrameCount = 0;
             return;
@@ -567,6 +701,7 @@ private:
     size_t inputBytesPerFrame_ = 0;
     size_t outputBytesPerFrame_ = 0;
     std::vector<float> silentInput_;
+    bool rawBypass_ = false;
     IUnknown* outer_ = nullptr;
     RealtimeBridge realtime_;
 };
