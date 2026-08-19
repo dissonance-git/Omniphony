@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -20,6 +21,25 @@ namespace {
 constexpr std::uint32_t Bits(AudioObjectType type) noexcept {
     return static_cast<std::uint32_t>(type);
 }
+
+constexpr AudioObjectType kSupportedStaticMask = static_cast<AudioObjectType>(
+    Bits(AudioObjectType_FrontLeft) |
+    Bits(AudioObjectType_FrontRight) |
+    Bits(AudioObjectType_FrontCenter) |
+    Bits(AudioObjectType_LowFrequency) |
+    Bits(AudioObjectType_SideLeft) |
+    Bits(AudioObjectType_SideRight) |
+    Bits(AudioObjectType_BackLeft) |
+    Bits(AudioObjectType_BackRight) |
+    Bits(AudioObjectType_BackCenter) |
+    Bits(AudioObjectType_TopFrontLeft) |
+    Bits(AudioObjectType_TopFrontRight) |
+    Bits(AudioObjectType_TopBackLeft) |
+    Bits(AudioObjectType_TopBackRight) |
+    Bits(AudioObjectType_BottomFrontLeft) |
+    Bits(AudioObjectType_BottomFrontRight) |
+    Bits(AudioObjectType_BottomBackLeft) |
+    Bits(AudioObjectType_BottomBackRight));
 
 bool IsSingleObjectType(AudioObjectType type) noexcept {
     const auto bits = Bits(type);
@@ -428,13 +448,16 @@ bool ValidActivationParams(const SpatialAudioObjectRenderStreamActivationParams&
         format->nChannels != 1 ||
         format->nSamplesPerSec != 48'000 ||
         format->wBitsPerSample != 32 ||
-        format->nBlockAlign != sizeof(float)) {
+        format->nBlockAlign != sizeof(float) ||
+        format->nAvgBytesPerSec != 48'000 * sizeof(float)) {
         return false;
     }
     if (params.MinDynamicObjectCount != 0 || params.MaxDynamicObjectCount != 0) {
         return false;
     }
-    return params.StaticObjectTypeMask != AudioObjectType_None;
+    const auto requestedMask = Bits(params.StaticObjectTypeMask);
+    return requestedMask != 0 &&
+           (requestedMask & ~Bits(kSupportedStaticMask)) == 0;
 }
 
 } // namespace
@@ -460,5 +483,41 @@ HRESULT CreateOmniphonyStaticProbeStream(
         return E_OUTOFMEMORY;
     }
     *stream = static_cast<ISpatialAudioObjectRenderStream*>(created);
+    return S_OK;
+}
+
+HRESULT CreateOmniphonyStaticProbeStreamFromActivation(
+    const PROPVARIANT* activationParams,
+    REFIID riid,
+    void** stream) {
+    if (!stream) {
+        return E_POINTER;
+    }
+    *stream = nullptr;
+
+    if (!IsEqualIID(riid, __uuidof(ISpatialAudioObjectRenderStream))) {
+        return E_NOINTERFACE;
+    }
+    if (!activationParams) {
+        return E_POINTER;
+    }
+    if (activationParams->vt != VT_BLOB ||
+        activationParams->blob.cbSize != sizeof(SpatialAudioObjectRenderStreamActivationParams) ||
+        !activationParams->blob.pBlobData) {
+        return E_INVALIDARG;
+    }
+
+    SpatialAudioObjectRenderStreamActivationParams params{};
+    std::memcpy(
+        &params,
+        activationParams->blob.pBlobData,
+        sizeof(params));
+
+    ISpatialAudioObjectRenderStream* typedStream = nullptr;
+    const HRESULT hr = CreateOmniphonyStaticProbeStream(params, &typedStream);
+    if (FAILED(hr)) {
+        return hr;
+    }
+    *stream = static_cast<void*>(typedStream);
     return S_OK;
 }
