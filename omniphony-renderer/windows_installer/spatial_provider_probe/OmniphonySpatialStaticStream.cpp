@@ -1,13 +1,13 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <mmreg.h>
 #include <spatialaudioclient.h>
 
 #include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
-#include <cstring>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -142,6 +142,7 @@ public:
             *isActive = FALSE;
             return SPTLAUDCLNT_E_DESTROYED;
         }
+        std::lock_guard<std::mutex> objectLock(mutex_);
         *isActive = active_ ? TRUE : FALSE;
         return S_OK;
     }
@@ -159,8 +160,11 @@ public:
         if (state_->destroyed) {
             return SPTLAUDCLNT_E_DESTROYED;
         }
-        if (!active_) {
-            return SPTLAUDCLNT_E_RESOURCES_INVALIDATED;
+        {
+            std::lock_guard<std::mutex> objectLock(mutex_);
+            if (!active_) {
+                return SPTLAUDCLNT_E_RESOURCES_INVALIDATED;
+            }
         }
         if (!state_->inUpdate) {
             return SPTLAUDCLNT_E_OUT_OF_ORDER;
@@ -178,13 +182,13 @@ public:
         if (state_->destroyed) {
             return SPTLAUDCLNT_E_DESTROYED;
         }
-        if (!active_) {
-            return SPTLAUDCLNT_E_RESOURCES_INVALIDATED;
-        }
         if (!state_->inUpdate) {
             return SPTLAUDCLNT_E_OUT_OF_ORDER;
         }
         std::lock_guard<std::mutex> objectLock(mutex_);
+        if (!active_) {
+            return SPTLAUDCLNT_E_RESOURCES_INVALIDATED;
+        }
         volume_ = volume;
         return S_OK;
     }
@@ -381,7 +385,7 @@ public:
         }
         *object = nullptr;
 
-        std::lock_guard<std::mutex> lock(state_->mutex);
+        std::unique_lock<std::mutex> lock(state_->mutex);
         if (state_->destroyed) {
             return SPTLAUDCLNT_E_DESTROYED;
         }
@@ -400,12 +404,10 @@ public:
             }
         }
 
-        // Constructor registration needs the state mutex, so create outside the
-        // locked section through a small unlock/relock boundary.
-        //
-        // The static mask and frame count are immutable for the stream lifetime.
+        // Constructor registration also takes the state mutex. The topology and
+        // frame count are immutable, so capture what is needed then unlock.
         const UINT32 frameCount = state_->frameCount;
-        lock.~lock_guard();
+        lock.unlock();
         auto* created = new (std::nothrow) StaticProbeObject(state_, type, frameCount);
         if (!created) {
             return E_OUTOFMEMORY;
