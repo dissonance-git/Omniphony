@@ -75,6 +75,25 @@ function Assert-Marker {
     }
 }
 
+function Get-UInt32Marker {
+    param(
+        [Parameter(Mandatory = $true)][object]$Result,
+        [Parameter(Mandatory = $true)][string]$Prefix,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $line = @($Result.output | Where-Object { $_.StartsWith($Prefix + ' ') } | Select-Object -First 1)
+    if ($line.Count -ne 1) {
+        throw "$Label did not emit exactly one numeric marker: $Prefix"
+    }
+    $text = $line[0].Substring($Prefix.Length).Trim()
+    [uint32]$value = 0
+    if (-not [uint32]::TryParse($text, [ref]$value)) {
+        throw "$Label emitted an invalid numeric marker: $($line[0])"
+    }
+    return $value
+}
+
 if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
     throw 'Spatial-provider activation preflight must run from a 64-bit PowerShell process on 64-bit Windows.'
 }
@@ -101,6 +120,9 @@ if ($manifest.registry_mutated -ne $false -or $manifest.provider_selected -ne $f
 }
 if ($manifest.exact_file_set_verified -ne $true -or $manifest.final_path_smokes_verified -ne $true) {
     throw 'Spatial-provider stage manifest does not record final immutable verification.'
+}
+if ($manifest.clock_domain_queue_verified -ne $true) {
+    throw 'Spatial-provider stage predates the clock-domain queue contract; restage the current package before activation preflight.'
 }
 if (-not $manifest.app_root -or -not $manifest.generation_root) {
     throw 'Spatial-provider stage manifest is missing app_root or generation_root.'
@@ -149,10 +171,18 @@ foreach ($name in $expected.Keys) {
     }
 }
 
+foreach ($requiredField in @('provider_dll', 'realtime_dll', 'stereo_queue_smoke', 'raw_output_probe', 'raw_output_sink_probe')) {
+    if (-not $manifest.$requiredField) {
+        throw "Spatial-provider stage manifest is missing required current field: $requiredField"
+    }
+}
+
 $providerDll = [System.IO.Path]::GetFullPath([string]$manifest.provider_dll)
 $realtimeDll = [System.IO.Path]::GetFullPath([string]$manifest.realtime_dll)
+$stereoQueueSmoke = [System.IO.Path]::GetFullPath([string]$manifest.stereo_queue_smoke)
 $rawOutputProbe = [System.IO.Path]::GetFullPath([string]$manifest.raw_output_probe)
-foreach ($ownedPath in @($providerDll, $realtimeDll, $rawOutputProbe)) {
+$rawOutputSinkProbe = [System.IO.Path]::GetFullPath([string]$manifest.raw_output_sink_probe)
+foreach ($ownedPath in @($providerDll, $realtimeDll, $stereoQueueSmoke, $rawOutputProbe, $rawOutputSinkProbe)) {
     if (-not (Test-PathWithin -Child $ownedPath -Parent $generationRoot)) {
         throw "Spatial-provider manifest points outside its immutable generation: $ownedPath"
     }
@@ -174,13 +204,19 @@ $realtimeBridge = Invoke-NativeCaptured `
 Assert-Marker -Result $realtimeBridge -Marker 'SPATIAL_COM_TO_CURRENT_OK 1' -Label 'Final-path realtime bridge smoke'
 Assert-Marker -Result $realtimeBridge -Marker 'SPATIAL_FINAL_ENDPOINT_PROVEN 0' -Label 'Final-path realtime bridge smoke'
 
+$queueSmoke = Invoke-NativeCaptured `
+    -Path $stereoQueueSmoke `
+    -Label 'Stereo clock-domain queue smoke'
+Assert-Marker -Result $queueSmoke -Marker 'SPATIAL_STEREO_QUEUE_OK 1' -Label 'Stereo clock-domain queue smoke'
+Assert-Marker -Result $queueSmoke -Marker 'SPATIAL_STEREO_QUEUE_VARIABLE_CONSUMER_PERIODS 1' -Label 'Stereo clock-domain queue smoke'
+
 $rawOutput = Invoke-NativeCaptured `
     -Path $rawOutputProbe `
     -Arguments @($PhysicalEndpointId) `
-    -Label 'Physical endpoint RAW output preflight'
-Assert-Marker -Result $rawOutput -Marker 'SPATIAL_RAW_OUTPUT_PROBE_OK 1' -Label 'Physical endpoint RAW output preflight'
-Assert-Marker -Result $rawOutput -Marker 'SPATIAL_RAW_OUTPUT_STREAM_INITIALIZED 0' -Label 'Physical endpoint RAW output preflight'
-Assert-Marker -Result $rawOutput -Marker 'SPATIAL_RAW_OUTPUT_STREAM_STARTED 0' -Label 'Physical endpoint RAW output preflight'
+    -Label 'Physical endpoint RAW output capability preflight'
+Assert-Marker -Result $rawOutput -Marker 'SPATIAL_RAW_OUTPUT_PROBE_OK 1' -Label 'Physical endpoint RAW output capability preflight'
+Assert-Marker -Result $rawOutput -Marker 'SPATIAL_RAW_OUTPUT_STREAM_INITIALIZED 0' -Label 'Physical endpoint RAW output capability preflight'
+Assert-Marker -Result $rawOutput -Marker 'SPATIAL_RAW_OUTPUT_STREAM_STARTED 0' -Label 'Physical endpoint RAW output capability preflight'
 
 $desiredSupported = @($rawOutput.output) -contains 'SPATIAL_RAW_OUTPUT_DESIRED_SUPPORTED 1'
 $periodQueryOk = @($rawOutput.output) -contains 'SPATIAL_RAW_OUTPUT_PERIOD_QUERY_OK 1'
@@ -191,13 +227,29 @@ if (-not $desiredSupported) {
 if (-not $periodQueryOk) {
     throw 'Physical endpoint did not provide the shared-engine period constraints needed for safe output planning.'
 }
-if (-not $period480Legal) {
-    throw 'The staged 480-frame spatial quantum is not a legal shared-engine period on the selected physical endpoint.'
-}
+
+# Initialize, but deliberately do not start, the exact endpoint render stream.
+# The sink chooses the endpoint-reported default legal period. Omniphony keeps
+# its 480-frame render quantum on the producer side and adapts cadence through
+# the preallocated SPSC queue instead of rejecting a valid device period.
+$rawOutputSink = Invoke-NativeCaptured `
+    -Path $rawOutputSinkProbe `
+    -Arguments @($PhysicalEndpointId) `
+    -Label 'Physical endpoint RAW output lifecycle preflight'
+Assert-Marker -Result $rawOutputSink -Marker 'SPATIAL_RAW_OUTPUT_SINK_OK 1' -Label 'Physical endpoint RAW output lifecycle preflight'
+Assert-Marker -Result $rawOutputSink -Marker 'SPATIAL_RAW_OUTPUT_SINK_INITIALIZED 1' -Label 'Physical endpoint RAW output lifecycle preflight'
+Assert-Marker -Result $rawOutputSink -Marker 'SPATIAL_RAW_OUTPUT_SINK_STARTED 0' -Label 'Physical endpoint RAW output lifecycle preflight'
+Assert-Marker -Result $rawOutputSink -Marker 'SPATIAL_RAW_OUTPUT_SINK_RENDER_CLIENT 1' -Label 'Physical endpoint RAW output lifecycle preflight'
+Assert-Marker -Result $rawOutputSink -Marker 'SPATIAL_RAW_OUTPUT_SINK_EVENT_HANDLE 1' -Label 'Physical endpoint RAW output lifecycle preflight'
+$endpointPeriodFrames = Get-UInt32Marker `
+    -Result $rawOutputSink `
+    -Prefix 'SPATIAL_RAW_OUTPUT_SINK_PERIOD_FRAMES' `
+    -Label 'Physical endpoint RAW output lifecycle preflight'
+$clockDomainAdapterRequired = $endpointPeriodFrames -ne 480
 
 $report = [ordered]@{
     schema = 'omniphony.windows.spatial-provider-preflight.v1'
-    state = 'preflight-passed-no-provider-mutation'
+    state = 'preflight-passed-output-initialized-no-provider-mutation'
     generation = [string]$manifest.generation
     package_sha256 = [string]$manifest.package_sha256
     stage_manifest = $manifestPathResolved
@@ -211,10 +263,14 @@ $report = [ordered]@{
     final_path_static_stream_smoke_verified = $true
     final_path_realtime_bridge_smoke_verified = $true
     com_to_current_verified_registry_free = $true
+    clock_domain_queue_verified = $true
+    renderer_quantum_frames = 480
     desired_stereo_output_supported = $true
     output_period_query_verified = $true
-    staged_480_frame_period_legal = $true
-    output_stream_initialized = $false
+    renderer_480_period_directly_legal = $period480Legal
+    endpoint_period_frames = $endpointPeriodFrames
+    clock_domain_adapter_required = $clockDomainAdapterRequired
+    output_stream_initialized = $true
     output_stream_started = $false
     registry_mutated = $false
     provider_selected = $false
@@ -244,8 +300,12 @@ Write-Host "SPATIAL_PROVIDER_PREFLIGHT_OK GENERATION=$($manifest.generation)"
 Write-Host "SPATIAL_PROVIDER_PREFLIGHT_ENDPOINT $PhysicalEndpointId"
 Write-Host "SPATIAL_PROVIDER_PREFLIGHT_REPORT $reportFullPath"
 Write-Host 'SPATIAL_PROVIDER_PREFLIGHT_COM_TO_CURRENT 1'
+Write-Host 'SPATIAL_PROVIDER_PREFLIGHT_CLOCK_DOMAIN_QUEUE 1'
+Write-Host "SPATIAL_PROVIDER_PREFLIGHT_RENDER_QUANTUM_FRAMES 480"
+Write-Host "SPATIAL_PROVIDER_PREFLIGHT_ENDPOINT_PERIOD_FRAMES $endpointPeriodFrames"
+Write-Host "SPATIAL_PROVIDER_PREFLIGHT_CLOCK_ADAPTER_REQUIRED $([int]$clockDomainAdapterRequired)"
 Write-Host 'SPATIAL_PROVIDER_PREFLIGHT_OUTPUT_CONTRACT 1'
-Write-Host 'SPATIAL_PROVIDER_PREFLIGHT_OUTPUT_STREAM_INITIALIZED 0'
+Write-Host 'SPATIAL_PROVIDER_PREFLIGHT_OUTPUT_STREAM_INITIALIZED 1'
 Write-Host 'SPATIAL_PROVIDER_PREFLIGHT_OUTPUT_STREAM_STARTED 0'
 Write-Host 'SPATIAL_PROVIDER_PREFLIGHT_REGISTRY_MUTATED 0'
 Write-Host 'SPATIAL_PROVIDER_PREFLIGHT_PROVIDER_SELECTED 0'
