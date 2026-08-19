@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/spatial-raw-output-sink-diagnostic.yml'
       - 'omniphony-renderer/windows_installer/spatial_provider_probe/OmniphonySpatialRawOutputSink*'
+      - 'omniphony-renderer/windows_installer/spatial_provider_probe/OmniphonySpatialStereoQueue*'
       - 'omniphony-renderer/windows_installer/spatial_provider_probe/CMakeLists.txt'
 
 permissions:
@@ -34,6 +35,7 @@ jobs:
           $root = Join-Path $env:GITHUB_WORKSPACE 'omniphony-renderer\windows_installer\spatial_provider_probe'
           $header = Get-Content (Join-Path $root 'OmniphonySpatialRawOutputSink.h') -Raw
           $source = Get-Content (Join-Path $root 'OmniphonySpatialRawOutputSink.cpp') -Raw
+          $queueHeader = Get-Content (Join-Path $root 'OmniphonySpatialStereoQueue.h') -Raw
 
           foreach ($needle in @(
             'AUDCLNT_STREAMOPTIONS_RAW',
@@ -53,7 +55,16 @@ jobs:
           if (-not $header.Contains('IsStarted() const noexcept { return false; }')) {
             throw 'Inert RAW output sink must report an explicit unstarted state.'
           }
+          if (-not $header.Contains('requestedPeriodFrames = 0')) {
+            throw 'RAW output sink must default to endpoint-owned cadence rather than forcing the 480-frame render quantum.'
+          }
+          foreach ($needle in @('TryWrite', 'Read', 'DroppedFrames', 'UnderrunFrames')) {
+            if (-not $queueHeader.Contains($needle)) {
+              throw "Missing clock-domain queue contract token: $needle"
+            }
+          }
           Write-Host 'SPATIAL_RAW_OUTPUT_SINK_INERT_CONTRACT_OK 1'
+          Write-Host 'SPATIAL_RAW_OUTPUT_CLOCK_DOMAIN_CONTRACT_OK 1'
 
       - name: Configure spatial provider targets
         id: configure
@@ -66,7 +77,7 @@ jobs:
             -A x64
           if ($LASTEXITCODE -ne 0) { throw "CMake configure failed: $LASTEXITCODE" }
 
-      - name: Build inert RAW output sink probe
+      - name: Build inert RAW output and clock adapter probes
         id: build
         if: steps.configure.outcome == 'success'
         continue-on-error: true
@@ -74,11 +85,31 @@ jobs:
         run: |
           cmake --build "$env:GITHUB_WORKSPACE\build\spatial-provider" `
             --config Release `
-            --target OmniphonySpatialRawOutputSinkProbe `
+            --target OmniphonySpatialRawOutputSinkProbe OmniphonySpatialStereoQueueSmoke `
             --verbose
-          if ($LASTEXITCODE -ne 0) { throw "RAW sink probe build failed: $LASTEXITCODE" }
+          if ($LASTEXITCODE -ne 0) { throw "Spatial egress probe build failed: $LASTEXITCODE" }
 
-      - name: Verify probe binary
+      - name: Run registry-free clock-domain queue smoke
+        id: queue_smoke
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $probe = "$env:GITHUB_WORKSPACE\build\spatial-provider\Release\OmniphonySpatialStereoQueueSmoke.exe"
+          if (-not (Test-Path -LiteralPath $probe)) {
+            throw "Stereo queue smoke binary missing: $probe"
+          }
+          $output = @(& $probe 2>&1 | ForEach-Object { "$_" })
+          $output | ForEach-Object { Write-Host $_ }
+          if ($LASTEXITCODE -ne 0) { throw "Stereo queue smoke failed: $LASTEXITCODE" }
+          if (-not ($output -contains 'SPATIAL_STEREO_QUEUE_OK 1')) {
+            throw 'Stereo queue smoke did not emit success marker.'
+          }
+          if (-not ($output -contains 'SPATIAL_STEREO_QUEUE_VARIABLE_CONSUMER_PERIODS 1')) {
+            throw 'Stereo queue smoke did not prove variable consumer periods.'
+          }
+
+      - name: Verify sink probe binary
         id: binary
         if: steps.build.outcome == 'success'
         continue-on-error: true
@@ -100,24 +131,30 @@ jobs:
           $contract = '${{ steps.contract.outcome }}'
           $configure = '${{ steps.configure.outcome }}'
           $build = '${{ steps.build.outcome }}'
+          $queueSmoke = '${{ steps.queue_smoke.outcome }}'
           $binary = '${{ steps.binary.outcome }}'
           if (-not $build) { $build = 'skipped' }
+          if (-not $queueSmoke) { $queueSmoke = 'skipped' }
           if (-not $binary) { $binary = 'skipped' }
           $overall = if (
             $contract -eq 'success' -and
             $configure -eq 'success' -and
             $build -eq 'success' -and
+            $queueSmoke -eq 'success' -and
             $binary -eq 'success'
           ) { 'success' } else { 'failure' }
           [ordered]@{
-            schema = 'omniphony.windows.spatial-raw-output-sink-diagnostic.v1'
+            schema = 'omniphony.windows.spatial-raw-output-sink-diagnostic.v2'
             head_sha = $env:GITHUB_SHA
             run_id = $env:GITHUB_RUN_ID
             overall = $overall
             contract = $contract
             configure = $configure
             build = $build
+            queue_smoke = $queueSmoke
             binary = $binary
+            endpoint_period_owned_by_sink = $true
+            renderer_quantum_frames = 480
             stream_started = $false
           } | ConvertTo-Json | Set-Content -Encoding utf8 `
             (Join-Path $diagnostics 'spatial-raw-output-sink.json')
@@ -151,5 +188,5 @@ jobs:
         run: |
           $record = Get-Content "$env:GITHUB_WORKSPACE\ci-diagnostics\spatial-raw-output-sink.json" -Raw | ConvertFrom-Json
           if ($record.overall -ne 'success') {
-            throw "Spatial RAW output sink diagnostic failed: contract=$($record.contract) configure=$($record.configure) build=$($record.build) binary=$($record.binary)"
+            throw "Spatial RAW output sink diagnostic failed: contract=$($record.contract) configure=$($record.configure) build=$($record.build) queue=$($record.queue_smoke) binary=$($record.binary)"
           }
