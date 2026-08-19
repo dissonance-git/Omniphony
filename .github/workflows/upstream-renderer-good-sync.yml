@@ -11,23 +11,16 @@ permissions:
   contents: write
 
 env:
-  RUST_TOOLCHAIN: 1.88.0
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   integrate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-
-      - name: Install formatter
-        run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt
-          rustup override set "$RUST_TOOLCHAIN"
-        working-directory: omniphony-renderer
 
       - name: Apply upstream shared channel-object stage
         shell: bash
@@ -165,22 +158,16 @@ jobs:
               raise SystemExit(f"rendered-frame width rewrite: expected 2 blocks, found {rewritten}")
           write(sample_path, sample)
 
-      - name: Format and verify patch
+      - name: Verify patch and publish
+        shell: bash
         run: |
-          cargo fmt --all
-          cd ..
+          set -euo pipefail
           git diff --check
           test -f omniphony-renderer/orender_engine/src/channel_objects.rs
           grep -q 'ChannelObjectStages' omniphony-renderer/orender_engine/src/channel_objects.rs
           grep -q 'channel_objects: orender_engine::channel_objects::ChannelObjectStages' omniphony-renderer/src/cli/decode/state.rs
           grep -q 'renderer.output_channel_count()' omniphony-renderer/src/cli/decode/handler.rs
           grep -q 'let output_channels = rendered.n_channels;' omniphony-renderer/src/cli/decode/sample_write.rs
-        working-directory: omniphony-renderer
-
-      - name: Publish bounded source integration
-        shell: bash
-        run: |
-          set -euo pipefail
           git add \
             omniphony-renderer/orender_engine/src/channel_objects.rs \
             omniphony-renderer/orender_engine/src/engine.rs \
