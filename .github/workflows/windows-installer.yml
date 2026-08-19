@@ -69,11 +69,28 @@ jobs:
         shell: pwsh
         working-directory: omniphony/omniphony-renderer
         run: |
-          cargo build --release -p realtime_ffi
-          if ($LASTEXITCODE -ne 0) { throw "realtime_ffi release build failed: $LASTEXITCODE" }
-          if (-not (Test-Path 'target/release/omniphony_realtime.dll')) {
-            throw 'realtime_ffi did not produce target/release/omniphony_realtime.dll'
+          # Keep release-link output physically separate from the workspace target
+          # used by the contract tests. omniphony_realtime.dll intentionally pins
+          # itself once a detached realtime worker can exist, so CI must never
+          # rebuild over a path that a prior probe/test process may still own.
+          $built = $false
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            $target = Join-Path $env:RUNNER_TEMP "omniphony-release-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-$attempt"
+            $env:CARGO_TARGET_DIR = $target
+            Write-Host "REALTIME_RELEASE_BUILD attempt=$attempt target=$target"
+            cargo build --release -p realtime_ffi
+            $cargoExit = $LASTEXITCODE
+            $realtime = Join-Path $target 'release\omniphony_realtime.dll'
+            if ($cargoExit -eq 0 -and (Test-Path $realtime)) {
+              $built = $true
+              "OMNIPHONY_REALTIME_DLL=$realtime" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+              Write-Host "REALTIME_RELEASE_BUILD_OK attempt=$attempt dll=$realtime"
+              break
+            }
+            Write-Warning "realtime_ffi release attempt $attempt failed: exit=$cargoExit dll_exists=$(Test-Path $realtime)"
+            if ($attempt -lt 3) { Start-Sleep -Seconds (2 * $attempt) }
           }
+          if (-not $built) { throw 'realtime_ffi release build failed after 3 isolated attempts' }
 
       - name: Setup VS2022 MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -149,7 +166,10 @@ jobs:
         shell: pwsh
         run: |
           $release = "$env:GITHUB_WORKSPACE\build\apo\Release"
-          $realtime = "$env:GITHUB_WORKSPACE\omniphony\omniphony-renderer\target\release\omniphony_realtime.dll"
+          $realtime = $env:OMNIPHONY_REALTIME_DLL
+          if (-not $realtime -or -not (Test-Path $realtime)) {
+            throw "Isolated realtime DLL is missing: $realtime"
+          }
           Copy-Item $realtime "$release\omniphony_realtime.dll" -Force
 
           & "$release\OmniphonyRealtimeSmoke.exe" $realtime
@@ -191,7 +211,7 @@ jobs:
           # migration-aware installer code after its 7.1.4 smoke passes above.
           Copy-Item "$release\OmniphonyAPO.dll" $runtime -Force
           Copy-Item "$release\OmniphonyStreamAPO.dll" $runtime -Force
-          Copy-Item "$renderer\target\release\omniphony_realtime.dll" $runtime -Force
+          Copy-Item $env:OMNIPHONY_REALTIME_DLL $runtime -Force
           Copy-Item "$release\OmniphonyApoCtl.exe" $runtime -Force
           Copy-Item "$release\OmniphonyApoSmoke.exe" $runtime -Force
           Copy-Item "$release\OmniphonyStreamApoSmoke.exe" $runtime -Force
