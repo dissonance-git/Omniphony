@@ -115,6 +115,7 @@ $files = @(
     @{ Source = (Get-RequiredFile $packageRootResolved 'OmniphonySpatialProbeSmoke.exe'); Name = 'OmniphonySpatialProbeSmoke.exe' },
     @{ Source = (Get-RequiredFile $packageRootResolved 'OmniphonySpatialStaticStreamSmoke.exe'); Name = 'OmniphonySpatialStaticStreamSmoke.exe' },
     @{ Source = (Get-RequiredFile $packageRootResolved 'OmniphonySpatialRealtimeBridgeSmoke.exe'); Name = 'OmniphonySpatialRealtimeBridgeSmoke.exe' },
+    @{ Source = (Get-RequiredFile $packageRootResolved 'OmniphonySpatialRawOutputProbe.exe'); Name = 'OmniphonySpatialRawOutputProbe.exe' },
     @{ Source = (Get-RequiredFile $packageRootResolved 'CaptureSpatialProviderState.ps1'); Name = 'CaptureSpatialProviderState.ps1' }
 )
 
@@ -220,6 +221,7 @@ $manifest = [ordered]@{
     provider_sha256 = $providerHash
     realtime_dll = (Join-Path $generationRoot 'omniphony_realtime.dll')
     realtime_sha256 = $runtimeHash
+    raw_output_probe = (Join-Path $generationRoot 'OmniphonySpatialRawOutputProbe.exe')
     file_sha256 = $fileHashes
     staged_utc = [DateTime]::UtcNow.ToString('o')
     os_64_bit = [Environment]::Is64BitOperatingSystem
@@ -246,5 +248,6 @@ Write-Host "SPATIAL_PROVIDER_STAGE_OK GENERATION=$generation PACKAGE_SHA256=$pac
 Write-Host "SPATIAL_PROVIDER_STAGE_MANIFEST $manifestPath"
 Write-Host 'SPATIAL_PROVIDER_EXACT_FILE_SET_VERIFIED 1'
 Write-Host 'SPATIAL_PROVIDER_FINAL_PATH_SMOKES_VERIFIED 1'
+Write-Host 'SPATIAL_PROVIDER_RAW_OUTPUT_PREFLIGHT_STAGED 1'
 Write-Host 'SPATIAL_PROVIDER_REGISTRY_MUTATED 0'
 Write-Host 'SPATIAL_PROVIDER_SELECTED 0'
