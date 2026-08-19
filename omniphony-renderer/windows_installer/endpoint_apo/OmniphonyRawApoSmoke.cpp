@@ -94,10 +94,10 @@ bool ActivateRaw(REFGUID clsid, ApoInterfaces& handles) {
 
 void FillInput(std::array<float, kFrames * 2>& input) {
     for (UINT32 frame = 0; frame < kFrames; ++frame) {
-        input[static_cast<size_t>(frame) * 2] =
-            static_cast<float>((frame % 31) - 15) * 0.001f;
-        input[static_cast<size_t>(frame) * 2 + 1] =
-            static_cast<float>((frame % 23) - 11) * -0.0013f;
+        const int left = static_cast<int>(frame % 31) - 15;
+        const int right = static_cast<int>(frame % 23) - 11;
+        input[static_cast<size_t>(frame) * 2] = static_cast<float>(left) * 0.001f;
+        input[static_cast<size_t>(frame) * 2 + 1] = static_cast<float>(right) * -0.0013f;
     }
 }
 
