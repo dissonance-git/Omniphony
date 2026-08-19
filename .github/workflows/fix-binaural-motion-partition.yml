@@ -195,3 +195,5 @@ jobs:
             .github/workflows/upstream-renderer-good-sync.yml
           git commit -m "renderer: unify channel object staging across hosts"
           git push origin HEAD:main
+
+# trigger via Git data API
