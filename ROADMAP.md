@@ -99,7 +99,7 @@ No synthetic lower speakers or back-center channels may be promoted to `AUTHORED
 
 ## Phase 2 — Windows Spatial Sound provider seam
 
-**State: immediate frontier**
+**State: immediate frontier; capability and internal static-stream contracts implemented, real Windows selection and downstream transport pending**
 
 This is the critical platform milestone.
 
@@ -141,13 +141,13 @@ This proves endpoint capabilities only. It does not prove that Omniphony can bec
 
 ### P1 — provider enumeration
 
-The repository contains an inert provider-registration probe under:
+The repository contains a bounded provider-registration probe under:
 
 ```text
 omniphony-renderer/windows_installer/spatial_provider_probe/
 ```
 
-Its first real-machine question is deliberately small:
+Its first real-machine question remains deliberately small:
 
 > Can an independently registered Omniphony spatial format appear in the Windows Spatial sound selector?
 
@@ -161,7 +161,17 @@ This is not a Microsoft-documented third-party provider API. It is an experiment
 
 ### P2 — provider activation
 
-If Windows enumerates Omniphony, replace the inert `IUnknown` object with the smallest standards-shaped provider object needed to survive activation.
+**Implementation state:** the COM provider now exposes a standards-shaped `ISpatialAudioClient` capability object. It advertises the complete 17-role static vocabulary, one mono float32 / 48 kHz object format, a 480-frame capability quantum, and zero dynamic-object capacity.
+
+The repository also contains an internal static-only `ISpatialAudioObjectRenderStream` lifecycle. Its activation helper accepts the documented `VT_BLOB` form used by `ISpatialAudioClient::ActivateSpatialAudioStream` and validates:
+
+- exact activation-structure size;
+- `ISpatialAudioObjectRenderStream` interface identity;
+- object format;
+- requested static mask;
+- zero dynamic-object capacity.
+
+This is intentionally **behind a closed public provider gate**. `IsSpatialAudioStreamAvailable` and `ActivateSpatialAudioStream` continue to return `SPTLAUDCLNT_E_STREAM_IS_NOT_AVAILABLE` because the internal object buffers do not yet have a downstream transport into Omniphony Current. The provider must not accept application audio until it can render that audio rather than silently discard it.
 
 A useful open-source prior exists in `ThreeDeeJay/MSSOAL`, which implements a COM object shaped as `ISpatialAudioClient` plus `ISpatialAudioObjectRenderStream` and `ISpatialAudioObject`. Its registration tool independently identified the same `Spatial\Encoder` surface using Process Monitor observations.
 
@@ -175,17 +185,36 @@ Treat MSSOAL as a mechanism quarry, not proof:
 Gate:
 
 ```text
-Windows enumerates Omniphony
+internal stream lifecycle works
+≠ Windows enumerates Omniphony
 ≠ Windows activates its COM provider
 ≠ applications feed objects through it
-≠ correct audio reaches Omniphony
+≠ object PCM reaches Omniphony Current
+≠ correct audio reaches the headphones
 ```
 
 Each transition needs separate evidence.
 
 ### P3 — static object stream
 
-Receive one real static object through the selected provider and preserve:
+**Implementation state:** registry-free static object lifecycle and activation marshalling exist; real provider transport remains pending.
+
+The internal stream already models:
+
+- static role activation;
+- duplicate-role rejection;
+- unavailable-role rejection;
+- fixed static positions;
+- object buffers and update ordering;
+- per-object volume;
+- implicit end-of-stream semantics;
+- role reactivation;
+- start / stop / reset lifecycle;
+- zero dynamic-object capacity.
+
+The next engineering step is a bounded downstream transport that preserves static role identity, PCM, update timing, and source authority into the existing realtime renderer. It must follow the existing Windows realtime law: no filesystem I/O, discovery, allocation-heavy renderer graph, or research work on the OS-facing callback path.
+
+Then receive one real static object through the selected provider and preserve:
 
 - object/static role identity;
 - PCM;
@@ -193,7 +222,7 @@ Receive one real static object through the selected provider and preserve:
 - update timing;
 - exact role position.
 
-Then scale to the complete 17-role vocabulary:
+Scale to the complete 17-role vocabulary:
 
 ```text
 horizontal: FL FR C LFE SL SR BL BR BC
@@ -203,7 +232,7 @@ lower:      BFL BFR BBL BBR
 
 Gate:
 
-> A static source placed above or below the listener reaches Omniphony as authored spatial truth and is rendered once by Omniphony.
+> A static source placed above or below the listener reaches Omniphony as authored spatial truth, survives the provider-to-Current transport, and is rendered once by Omniphony.
 
 ### P4 — dynamic XYZ object stream
 
@@ -220,6 +249,8 @@ other supplied authoritative metadata
 ```
 
 Do not snap dynamic objects to the 17 static anchors. The static frame and dynamic layer are parallel source representations.
+
+Dynamic capacity remains truthfully zero until this path exists.
 
 Gate:
 
@@ -238,8 +269,30 @@ application produced static objects
 application produced dynamic objects
 Windows selected Omniphony
 Omniphony received those objects
+object PCM reached Current
 Omniphony performed the single final binaural render
 ```
+
+### Provider installation gate
+
+Spatial-provider deployment must join the existing installer as a transaction rather than as an optimistic registry write.
+
+Required order once end-to-end transport is ready:
+
+```text
+stage provider binaries
+→ verify files / exports
+→ record prior provider and selection state
+→ register only Omniphony-owned keys
+→ verify COM activation and capability contract
+→ expose/select Omniphony only after stream transport is proven
+→ verify non-spatial Windows audio still works
+→ commit
+```
+
+Failure and uninstall must restore any provider state Omniphony changed, unregister only Omniphony-owned keys, wait for COM users to release provider binaries before removal, and leave the physical audio driver untouched.
+
+The installer must never leave Windows selected on a provider that accepts a stream but cannot render it.
 
 ---
 
@@ -385,7 +438,7 @@ Automated switching requires a trustworthy signal. Channel count alone is insuff
 
 ## Phase 9 — Windows product hardening
 
-Once spatial-object ingress works:
+Spatial-provider installation safety begins during Phase 2 rather than waiting until the end. Full product hardening follows once spatial-object ingress works:
 
 - endpoint hotplug and DAC power cycling;
 - device/default-output changes;
@@ -396,7 +449,10 @@ Once spatial-object ingress works:
 - static/dynamic object lifecycle abuse tests;
 - application compatibility matrix;
 - clean coexistence with non-spatial applications;
-- safe uninstall and provider rollback;
+- safe provider selection, rollback, upgrade, repair, and uninstall;
+- locked-file / in-use COM binary replacement behavior;
+- stale provider-key detection without touching unrelated providers;
+- upgrade from conventional-APO-only installs without reinstalling the physical driver;
 - signed deployment research where useful.
 
 The product experience should stay small:
@@ -462,9 +518,17 @@ stereo + 7.1 Windows baseline                    ✅
         ↓
 retain conventional 7.1.4 compatibility
         ↓
+provider capability object                       ✅ implementation
+        ↓
+static stream lifecycle + activation marshalling ✅ implementation
+        ↓
 prove Omniphony Spatial Sound provider enumeration
         ↓
-prove provider COM activation
+prove provider COM activation on real Windows
+        ↓
+build bounded static-object transport into Current
+        ↓
+open public stream activation gate
         ↓
 receive one static Windows Spatial Audio object
         ↓
@@ -485,9 +549,9 @@ personalization + optional head tracking
 product hardening and public release
 ```
 
-The next decisive milestone is intentionally concrete:
+The next decisive end-to-end milestone remains intentionally concrete:
 
-> **A source is authored above the listener, reaches Omniphony as an actual Windows spatial object rather than an inference, and Omniphony alone performs the headphone render.**
+> **A source is authored above the listener, reaches Omniphony as an actual Windows spatial object rather than an inference, survives the provider-to-Current transport, and Omniphony alone performs the headphone render.**
 
 ---
 
@@ -498,6 +562,9 @@ The next decisive milestone is intentionally concrete:
 - Microsoft Spatial Sound overview: https://learn.microsoft.com/windows/win32/coreaudio/spatial-sound
 - Microsoft spatial-object rendering: https://learn.microsoft.com/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects
 - `ISpatialAudioClient`: https://learn.microsoft.com/windows/win32/api/spatialaudioclient/nn-spatialaudioclient-ispatialaudioclient
+- `ISpatialAudioClient::IsSpatialAudioStreamAvailable`: https://learn.microsoft.com/windows/win32/api/spatialaudioclient/nf-spatialaudioclient-ispatialaudioclient-isspatialaudiostreamavailable
+- `ISpatialAudioClient::ActivateSpatialAudioStream`: https://learn.microsoft.com/windows/win32/api/spatialaudioclient/nf-spatialaudioclient-ispatialaudioclient-activatespatialaudiostream
+- `SpatialAudioObjectRenderStreamActivationParams`: https://learn.microsoft.com/windows/win32/api/spatialaudioclient/ns-spatialaudioclient-spatialaudioobjectrenderstreamactivationparams
 - `AudioObjectType`: https://learn.microsoft.com/windows/win32/api/spatialaudioclient/ne-spatialaudioclient-audioobjecttype
 
 ### Open-source implementation quarry
