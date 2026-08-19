@@ -215,7 +215,14 @@ headphones
 
 Raw Windows Spatial Audio object ingress is not yet claimed as complete. A supported system boundary must first be demonstrated for receiving another application's static and dynamic spatial representation before Windows Sonic, Dolby, DTS, or another renderer performs the final headphone render.
 
-The Windows provider experiment now contains a standards-shaped `ISpatialAudioClient` capability object plus an internal static-only `ISpatialAudioObjectRenderStream` lifecycle. The internal stream accepts Microsoft's documented `VT_BLOB` activation shape and validates the object format, requested static mask, interface ID, and zero dynamic-object capacity. It remains deliberately hidden behind `SPTLAUDCLNT_E_STREAM_IS_NOT_AVAILABLE` until static-object buffers have a real downstream transport into the existing Omniphony realtime renderer. This prevents an unfinished provider from accepting spatial application audio and silently dropping it.
+The Windows provider experiment now has four distinct pieces behind a deliberately closed public gate:
+
+1. a standards-shaped `ISpatialAudioClient` capability object;
+2. an internal static-only `ISpatialAudioObjectRenderStream` lifecycle with documented `VT_BLOB` activation marshalling;
+3. a fixed-topology static-object realtime ABI in `omniphony_realtime.dll` that preserves role identity and authored Windows positions, moves planar object PCM through preallocated rings, and runs the existing source-aware Omniphony renderer on a dedicated worker;
+4. a C++ dynamic-loader bridge that opens that ABI only from an explicit absolute DLL path and validates the realtime ABI before creating a processor.
+
+A registry-free bridge smoke can therefore exercise `static object PCM → omniphony_realtime.dll → existing Current source renderer → binaural stereo` without registering or selecting the provider. What remains is the Windows-provider side of the river: wire each COM update quantum into that bridge, establish the real output/cadence boundary that owns the rendered stereo, and prove the complete path on Windows. Until then, the public provider continues to return `SPTLAUDCLNT_E_STREAM_IS_NOT_AVAILABLE`, preventing an unfinished provider from accepting spatial application audio and silently dropping it.
 
 Omniphony does not treat already-binaural stereo as raw objects, and it does not reconstruct object metadata from a final binaural mix and call that native spatial ingress.
 
@@ -235,8 +242,12 @@ Omniphony does not treat already-binaural stereo as raw objects, and it does not
 | Endpoint continuity / rollback | **Implemented:** persistent endpoint identity, recovery, and stereo rollback floor |
 | Headless Windows installer | **Implemented:** one installer, no virtual cable or resident audio host |
 | Spatial provider capability probe | **Implemented in isolation:** `ISpatialAudioClient`, 17-role mask, object format, deterministic registration/snapshot tooling; real Windows enumeration/selection proof pending |
-| Static spatial stream lifecycle | **Implemented behind a closed provider gate:** static object lifecycle + documented `VT_BLOB` activation marshalling; downstream Current transport pending |
-| Raw Windows Spatial Audio object ingress | **In progress:** static 8.1.4.4 + dynamic XYZ before third-party headphone rendering |
+| Static spatial stream lifecycle | **Implemented behind a closed provider gate:** static object lifecycle + documented `VT_BLOB` activation marshalling |
+| Static object → Current realtime path | **Implemented behind the gate:** fixed static-object ABI, dedicated worker, authored positions, safety lane, existing source-aware Current renderer |
+| Provider C++ → realtime ABI bridge | **Implemented but not publicly activated:** absolute-path DLL loading, ABI validation, processor lifetime, registry-free smoke |
+| Provider package staging | **Implemented as an inert future-install primitive:** immutable content-addressed generations, full-package hashes, final-path smokes, no registry or selection writes |
+| Public Windows Spatial Audio object ingress | **In progress:** COM quantum wiring + final output/cadence path + real-machine proof remain before activation |
+| Dynamic XYZ object ingress | **Future after static end-to-end proof** |
 | Signed DriverStore deployment | **Optional future deployment route** |
 
 ## Source authority
@@ -268,17 +279,20 @@ already-binaural material
 
 The Windows APOs load `omniphony_realtime.dll` through a narrow ABI. Windows realtime callbacks do not run the allocating renderer graph directly. A bounded, preallocated callback-facing path exchanges PCM with a dedicated Current worker.
 
+The static Spatial Audio ABI follows the same law. Its fixed stream topology is copied once at creation, planar object quanta move through preallocated rings, and the allocating source renderer stays on its worker. Directional object positions remain authored geometry, while LFE remains non-directional.
+
 The runtime includes:
 
 - preallocated callback-facing rings;
 - dedicated Current worker processing;
-- time-aligned dry fallback;
+- time-aligned dry/fold-down safety lanes;
 - non-finite sanitization;
 - linked peak safety;
 - explicit create/destroy lifecycle tests;
+- static-object role/topology validation;
 - manifest, import, and ABI checks in CI.
 
-Realtime callbacks must not perform filesystem I/O, network activity, device discovery, or research-time analysis. Any future spatial-object host must obey the same rule.
+Realtime callbacks must not perform filesystem I/O, network activity, device discovery, or research-time analysis. The provider's C++ loader performs DLL discovery and ABI validation before processing begins rather than inside an object update callback.
 
 ## Validation
 
@@ -297,7 +311,9 @@ Engineering gates cover:
 - endpoint continuity and rollback;
 - shared-client multichannel initialization;
 - exact two-channel physical output;
-- spatial-provider capability and registry-free static-stream lifecycle contracts.
+- spatial-provider capability and registry-free static-stream lifecycle contracts;
+- static-object realtime ABI loading and worker handoff;
+- content-addressed provider package staging without registry mutation.
 
 Human listening remains the final gate for externalization, front/back discrimination, elevation, source body, envelopment, radial depth, center solidity, room naturalness, fatigue, groove, and bass integrity.
 
@@ -318,7 +334,9 @@ Normal use has:
 
 The current unsigned user-mode APO deployment uses Windows' unprotected AudioDG compatibility mode and records previous machine state for rollback and uninstall.
 
-The future spatial-provider portion of setup must follow the same transaction law: stage and verify binaries before registry mutation, record prior provider state, register only Omniphony-owned keys, expose/select Omniphony only after end-to-end stream transport is proven, and restore prior state on failure or uninstall. The installer must never leave Windows selected on a provider that can accept a stream but cannot render it.
+The future spatial-provider portion of setup is being shaped around immutable, content-addressed generations under the Omniphony install root. A candidate generation is copied to a temporary directory, every staged file is SHA-256 verified, capability/static-stream/realtime-bridge smokes run before and after the final-path move, and a manifest records the exact generation. This staging primitive performs **no provider registration and no provider selection**.
+
+That gives later provider activation a safer transaction model: never overwrite an in-use COM DLL, never mutate a previously verified generation, keep the previous generation intact for rollback, switch registration only after the new generation has passed its own final-path checks, and restore prior provider state if activation verification fails. Omniphony must never leave Windows selected on a provider that can accept a stream but cannot render it.
 
 A componentized signed DriverStore route remains available as a separate deployment research track without changing the renderer architecture.
 
@@ -332,13 +350,14 @@ omniphony-renderer/orender_engine/
   headless renderer construction and execution boundary
 
 omniphony-renderer/realtime_ffi/
-  realtime ABI used by Windows host paths
+  realtime ABI used by Windows host paths, including fixed static spatial objects
 
 omniphony-renderer/windows_installer/endpoint_apo/
   Windows stream / endpoint APOs, installer, tray, and diagnostics
 
 omniphony-renderer/windows_installer/spatial_provider_probe/
-  bounded Windows Spatial Sound provider, static-stream, registration, and evidence experiments
+  bounded Windows Spatial Sound provider, static-stream, realtime bridge,
+  immutable package staging, registration, and evidence experiments
 
 layouts/
   canonical and internal rendering geometry
