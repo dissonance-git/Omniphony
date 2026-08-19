@@ -1,0 +1,39 @@
+name: Dispatch current Windows installer once
+
+on:
+  workflow_run:
+    workflows: ['Omniphony for Windows installer']
+    types: [requested]
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  dispatch-current:
+    if: ${{ github.event.workflow_run.head_sha == 'f3550da4920a9b77ac25105c59cc0e1833e6f41f' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch installer from current main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh workflow run windows-installer.yml --ref main --repo "${{ github.repository }}"
+
+      - name: Remove one-shot bridge from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Commit bridge removal
+        shell: bash
+        run: |
+          set -euo pipefail
+          git pull --ff-only origin main
+          git rm .github/workflows/dispatch-current-windows-once.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'ci: remove one-shot Windows dispatch bridge'
+          git push origin HEAD:main
