@@ -39,12 +39,12 @@ inline constexpr std::array<OmniphonySpatialStaticRoleDefinition, 17>
         {AudioObjectType_FrontCenter,
          OMNIPHONY_SPATIAL_STATIC_FRONT_CENTER,
          0.0f, 0.0f, -1.0f},
-        // LFE is a semantic static role but remains non-directional inside
-        // Omniphony. Its descriptor coordinates are intentionally neutral and
-        // are ignored by the realtime static-object renderer.
+        // Keep the provider-facing Windows capability coordinate stable. The
+        // Omniphony realtime renderer still treats LFE as non-directional and
+        // ignores descriptor position for this semantic role.
         {AudioObjectType_LowFrequency,
          OMNIPHONY_SPATIAL_STATIC_LOW_FREQUENCY,
-         0.0f, 0.0f, 0.0f},
+         0.0f, 0.0f, -1.0f},
         {AudioObjectType_SideLeft,
          OMNIPHONY_SPATIAL_STATIC_SIDE_LEFT,
          -1.0f, 0.0f, 0.0f},
