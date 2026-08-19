@@ -5,14 +5,20 @@ if(NOT WIN32)
     message(FATAL_ERROR "The Omniphony Spatial Provider Probe is Windows-only.")
 endif()
 
+set(OMNIPHONY_REALTIME_INCLUDE
+    "${CMAKE_CURRENT_LIST_DIR}/../../realtime_ffi/include"
+)
+
 add_library(OmniphonySpatialProbe SHARED
     OmniphonySpatialProbe.cpp
     OmniphonySpatialStaticStream.cpp
+    OmniphonySpatialRealtimeBridge.cpp
     OmniphonySpatialProbe.def
 )
 target_compile_features(OmniphonySpatialProbe PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonySpatialProbe PRIVATE UNICODE _UNICODE)
 target_compile_options(OmniphonySpatialProbe PRIVATE /W4 /WX /permissive-)
+target_include_directories(OmniphonySpatialProbe PRIVATE "${OMNIPHONY_REALTIME_INCLUDE}")
 target_link_libraries(OmniphonySpatialProbe PRIVATE ole32 uuid)
 set_target_properties(OmniphonySpatialProbe PROPERTIES
     PREFIX ""
@@ -43,3 +49,15 @@ target_compile_features(OmniphonySpatialStaticStreamSmoke PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonySpatialStaticStreamSmoke PRIVATE UNICODE _UNICODE)
 target_compile_options(OmniphonySpatialStaticStreamSmoke PRIVATE /W4 /WX /permissive-)
 target_link_libraries(OmniphonySpatialStaticStreamSmoke PRIVATE ole32 uuid)
+
+add_executable(OmniphonySpatialRealtimeBridgeSmoke
+    OmniphonySpatialRealtimeBridgeSmoke.cpp
+    OmniphonySpatialRealtimeBridge.cpp
+)
+target_compile_features(OmniphonySpatialRealtimeBridgeSmoke PRIVATE cxx_std_17)
+target_compile_definitions(OmniphonySpatialRealtimeBridgeSmoke PRIVATE UNICODE _UNICODE)
+target_compile_options(OmniphonySpatialRealtimeBridgeSmoke PRIVATE /W4 /WX /permissive-)
+target_include_directories(
+    OmniphonySpatialRealtimeBridgeSmoke
+    PRIVATE "${OMNIPHONY_REALTIME_INCLUDE}"
+)
