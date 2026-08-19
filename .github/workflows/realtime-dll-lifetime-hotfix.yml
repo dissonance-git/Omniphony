@@ -1,0 +1,170 @@
+name: Apply realtime DLL lifetime hotfix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/realtime-dll-lifetime-hotfix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-main:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply exact lifecycle patch and remove carrier
+        shell: bash
+        run: |
+          set -euo pipefail
+          git pull --ff-only origin main
+
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one match, found {count}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          lib = 'omniphony-renderer/realtime_ffi/src/lib.rs'
+          replace_once(
+              lib,
+              'mod height_preference;\nmod native_bed;',
+              'mod height_preference;\nmod module_lifetime;\nmod native_bed;',
+          )
+          replace_once(
+              lib,
+              'impl AsyncCurrent {\n    fn new(sample_rate_hz: u32) -> Result<Self, String> {\n        let capacity_samples =',
+              'impl AsyncCurrent {\n    fn new(sample_rate_hz: u32) -> Result<Self, String> {\n        if !module_lifetime::pin_for_process_lifetime() {\n            return Err(\n                "could not pin realtime module for detached Current worker lifetime".to_string(),\n            );\n        }\n\n        let capacity_samples =',
+          )
+
+          native = 'omniphony-renderer/realtime_ffi/src/native_bed_ffi.rs'
+          replace_once(
+              native,
+              'impl AsyncNativeBed {\n    fn new(sample_rate_hz: u32, channels: usize, channel_mask: u32) -> Result<Self, String> {\n        let fallback_layout =',
+              'impl AsyncNativeBed {\n    fn new(sample_rate_hz: u32, channels: usize, channel_mask: u32) -> Result<Self, String> {\n        if !crate::module_lifetime::pin_for_process_lifetime() {\n            return Err(\n                "could not pin realtime module for detached native-bed worker lifetime"\n                    .to_string(),\n            );\n        }\n\n        let fallback_layout =',
+          )
+
+          module = Path('omniphony-renderer/realtime_ffi/src/module_lifetime.rs')
+          if module.exists():
+              raise SystemExit(f'{module}: already exists unexpectedly')
+          module.write_text(r'''//! Process-lifetime module ownership for detached realtime workers.
+//!
+//! Stereo Current and authored native-bed teardown intentionally request worker
+//! stop without joining. A worker may therefore finish initialization or an
+//! in-flight render after its processor object has been destroyed. On Windows,
+//! the code and Rust allocator backing that worker must remain mapped until the
+//! host process exits.
+
+#[cfg(windows)]
+mod windows {
+    use core::ffi::c_void;
+    use std::ptr;
+    use std::sync::OnceLock;
+
+    const GET_MODULE_HANDLE_EX_FLAG_PIN: u32 = 0x0000_0001;
+    const GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS: u32 = 0x0000_0004;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetModuleHandleExW(
+            flags: u32,
+            module_name_or_address: *const u16,
+            module: *mut *mut c_void,
+        ) -> i32;
+    }
+
+    static PIN_RESULT: OnceLock<bool> = OnceLock::new();
+
+    pub(super) fn pin() -> bool {
+        *PIN_RESULT.get_or_init(|| {
+            let mut module = ptr::null_mut();
+            // FROM_ADDRESS identifies the exact loaded cdylib rather than
+            // relying on a basename/path lookup. The ABI export is a stable
+            // address inside omniphony_realtime.dll.
+            let address = crate::omniphony_realtime_abi_major as *const () as *const u16;
+            let ok = unsafe {
+                GetModuleHandleExW(
+                    GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                    address,
+                    &mut module,
+                )
+            };
+            ok != 0 && !module.is_null()
+        })
+    }
+}
+
+/// Ensure detached realtime worker code remains resident for the host process.
+#[cfg(windows)]
+pub(crate) fn pin_for_process_lifetime() -> bool {
+    windows::pin()
+}
+
+#[cfg(not(windows))]
+pub(crate) fn pin_for_process_lifetime() -> bool {
+    true
+}
+''', encoding='utf-8')
+
+          smoke = 'omniphony-renderer/windows_installer/endpoint_apo/OmniphonyRealtimeSmoke.cpp'
+          replace_once(
+              smoke,
+              '''    if (result == 0) {
+        std::wcout << L"REALTIME_DLL_OK\\tABI=" << abiMajor() << L"." << abiMinor()
+                   << L"\\tIDENTITY_BIT_EXACT=1\\tCURRENT_INIT=1\\tCURRENT_LATENCY_FRAMES=1920"
+                   << L"\\tSPATIAL_STATIC_INIT=1"
+                   << std::endl;
+    }
+
+    FreeLibrary(module);
+    return result;
+}''',
+              '''    const uint32_t reportedAbiMajor = abiMajor();
+    const uint32_t reportedAbiMinor = abiMinor();
+    if (result == 0) {
+        std::wcout << L"REALTIME_DLL_OK\\tABI=" << reportedAbiMajor << L"." << reportedAbiMinor
+                   << L"\\tIDENTITY_BIT_EXACT=1\\tCURRENT_INIT=1\\tCURRENT_LATENCY_FRAMES=1920"
+                   << L"\\tSPATIAL_STATIC_INIT=1"
+                   << std::endl;
+    }
+
+    FreeLibrary(module);
+    module = nullptr;
+
+    if (result == 0) {
+        if (GetModuleHandleW(L"omniphony_realtime.dll") == nullptr) {
+            std::wcerr << L"REALTIME_DLL_PIN_FAILED" << std::endl;
+            result = 17;
+        } else {
+            std::wcout << L"REALTIME_DLL_PIN_OK\\tPROCESS_LIFETIME=1" << std::endl;
+        }
+    }
+    return result;
+}''',
+          )
+          PY
+
+          git rm .github/workflows/realtime-dll-lifetime-hotfix.yml
+          git diff --check
+          git status --short
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add omniphony-renderer/realtime_ffi/src/lib.rs \
+                  omniphony-renderer/realtime_ffi/src/native_bed_ffi.rs \
+                  omniphony-renderer/realtime_ffi/src/module_lifetime.rs \
+                  omniphony-renderer/windows_installer/endpoint_apo/OmniphonyRealtimeSmoke.cpp
+          git commit -m 'windows: pin realtime dll for detached workers'
+          git pull --rebase origin main
+          git push origin HEAD:main
