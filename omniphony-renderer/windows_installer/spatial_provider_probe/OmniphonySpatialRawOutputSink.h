@@ -18,6 +18,11 @@
 // IAudioRenderClient, but this class intentionally exposes no Start() method.
 // It exists to prove format/period/render-client/event ownership before the
 // public Spatial Audio provider is allowed to accept application audio.
+//
+// requestedPeriodFrames == 0 means "use the endpoint's reported default shared
+// engine period". Omniphony's 480-frame spatial render quantum is deliberately
+// not imposed on the physical endpoint; a preallocated clock-domain queue owns
+// that block-size adaptation instead.
 class OmniphonySpatialRawOutputSink final {
 public:
     OmniphonySpatialRawOutputSink() = default;
@@ -28,7 +33,7 @@ public:
 
     HRESULT Open(
         const wchar_t* physicalEndpointId,
-        std::uint32_t requestedPeriodFrames = 480) noexcept;
+        std::uint32_t requestedPeriodFrames = 0) noexcept;
 
     void Close() noexcept;
 
