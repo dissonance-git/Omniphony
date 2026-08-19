@@ -14,37 +14,10 @@
 #include <new>
 #include <vector>
 
+#include "OmniphonySpatialRoles.h"
 #include "OmniphonySpatialStaticStream.h"
 
 namespace {
-
-constexpr std::uint32_t Bits(AudioObjectType type) noexcept {
-    return static_cast<std::uint32_t>(type);
-}
-
-constexpr AudioObjectType kSupportedStaticMask = static_cast<AudioObjectType>(
-    Bits(AudioObjectType_FrontLeft) |
-    Bits(AudioObjectType_FrontRight) |
-    Bits(AudioObjectType_FrontCenter) |
-    Bits(AudioObjectType_LowFrequency) |
-    Bits(AudioObjectType_SideLeft) |
-    Bits(AudioObjectType_SideRight) |
-    Bits(AudioObjectType_BackLeft) |
-    Bits(AudioObjectType_BackRight) |
-    Bits(AudioObjectType_BackCenter) |
-    Bits(AudioObjectType_TopFrontLeft) |
-    Bits(AudioObjectType_TopFrontRight) |
-    Bits(AudioObjectType_TopBackLeft) |
-    Bits(AudioObjectType_TopBackRight) |
-    Bits(AudioObjectType_BottomFrontLeft) |
-    Bits(AudioObjectType_BottomFrontRight) |
-    Bits(AudioObjectType_BottomBackLeft) |
-    Bits(AudioObjectType_BottomBackRight));
-
-bool IsSingleObjectType(AudioObjectType type) noexcept {
-    const auto bits = Bits(type);
-    return bits != 0 && (bits & (bits - 1)) == 0;
-}
 
 struct StaticStreamState;
 class StaticProbeObject;
@@ -54,6 +27,7 @@ struct StaticStreamState {
     bool destroyed = false;
     bool running = false;
     bool inUpdate = false;
+    bool transportInFlight = false;
     std::uint64_t generation = 0;
     AudioObjectType staticMask = AudioObjectType_None;
     UINT32 frameCount = 0;
@@ -117,16 +91,18 @@ public:
         if (state_->destroyed) {
             return SPTLAUDCLNT_E_DESTROYED;
         }
-        if (!active_) {
-            return SPTLAUDCLNT_E_RESOURCES_INVALIDATED;
-        }
-        if (!state_->inUpdate) {
+        if (!state_->inUpdate || state_->transportInFlight) {
             return SPTLAUDCLNT_E_OUT_OF_ORDER;
         }
 
         std::lock_guard<std::mutex> objectLock(mutex_);
+        if (!active_) {
+            return SPTLAUDCLNT_E_RESOURCES_INVALIDATED;
+        }
         std::fill(staging_.begin(), staging_.end(), 0.0f);
         lastBufferGeneration_ = state_->generation;
+        endOfStreamPending_ = false;
+        endOfStreamFrameCount_ = 0;
         *buffer = reinterpret_cast<BYTE*>(staging_.data());
         *bufferLength = static_cast<UINT32>(staging_.size() * sizeof(float));
         return S_OK;
@@ -137,10 +113,7 @@ public:
         if (state_->destroyed) {
             return SPTLAUDCLNT_E_DESTROYED;
         }
-        if (!active_) {
-            return SPTLAUDCLNT_E_RESOURCES_INVALIDATED;
-        }
-        if (!state_->inUpdate) {
+        if (!state_->inUpdate || state_->transportInFlight) {
             return SPTLAUDCLNT_E_OUT_OF_ORDER;
         }
         if (frameCount > state_->frameCount) {
@@ -148,6 +121,9 @@ public:
         }
 
         std::lock_guard<std::mutex> objectLock(mutex_);
+        if (!active_) {
+            return SPTLAUDCLNT_E_RESOURCES_INVALIDATED;
+        }
         endOfStreamPending_ = true;
         endOfStreamFrameCount_ = frameCount;
         return S_OK;
@@ -180,17 +156,14 @@ public:
         if (state_->destroyed) {
             return SPTLAUDCLNT_E_DESTROYED;
         }
-        {
-            std::lock_guard<std::mutex> objectLock(mutex_);
-            if (!active_) {
-                return SPTLAUDCLNT_E_RESOURCES_INVALIDATED;
-            }
-        }
-        if (!state_->inUpdate) {
+        if (!state_->inUpdate || state_->transportInFlight) {
             return SPTLAUDCLNT_E_OUT_OF_ORDER;
         }
-        // This P3 stream activates static roles only. Their positions are fixed
-        // by AudioObjectType / ISpatialAudioClient::GetStaticObjectPosition.
+        std::lock_guard<std::mutex> objectLock(mutex_);
+        if (!active_) {
+            return SPTLAUDCLNT_E_RESOURCES_INVALIDATED;
+        }
+        // Static object positions are authoritative AudioObjectType geometry.
         return SPTLAUDCLNT_E_PROPERTY_NOT_SUPPORTED;
     }
 
@@ -202,7 +175,7 @@ public:
         if (state_->destroyed) {
             return SPTLAUDCLNT_E_DESTROYED;
         }
-        if (!state_->inUpdate) {
+        if (!state_->inUpdate || state_->transportInFlight) {
             return SPTLAUDCLNT_E_OUT_OF_ORDER;
         }
         std::lock_guard<std::mutex> objectLock(mutex_);
@@ -213,13 +186,36 @@ public:
         return S_OK;
     }
 
-    void CommitPass(std::uint64_t generation) noexcept {
+    // Copy exactly one completed Windows update pass into the immutable planar
+    // stream slot. Destination is already zeroed by the stream.
+    //
+    // Skipping GetBuffer implicitly ends the object. SetEndOfStream(N) keeps only
+    // the first N frames from the final buffer and zeroes the remainder because
+    // the fixed realtime topology always submits a complete quantum.
+    void SnapshotPass(
+        std::uint64_t generation,
+        float* destination,
+        UINT32 frameCount) noexcept {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!active_) {
             return;
         }
-        // Windows implicitly ends an object if GetBuffer is skipped for a pass.
-        if (lastBufferGeneration_ != generation || endOfStreamPending_) {
+        if (lastBufferGeneration_ != generation) {
+            active_ = false;
+            return;
+        }
+
+        UINT32 validFrames = frameCount;
+        if (endOfStreamPending_) {
+            validFrames = std::min(frameCount, endOfStreamFrameCount_);
+        }
+        const UINT32 available = static_cast<UINT32>(staging_.size());
+        validFrames = std::min(validFrames, available);
+        for (UINT32 frame = 0; frame < validFrames; ++frame) {
+            destination[frame] = staging_[frame] * volume_;
+        }
+
+        if (endOfStreamPending_) {
             active_ = false;
         }
     }
@@ -251,10 +247,25 @@ private:
 
 class StaticProbeStream final : public ISpatialAudioObjectRenderStream {
 public:
-    StaticProbeStream(AudioObjectType staticMask, UINT32 frameCount)
-        : state_(std::make_shared<StaticStreamState>()) {
+    StaticProbeStream(
+        AudioObjectType staticMask,
+        UINT32 frameCount,
+        std::shared_ptr<OmniphonySpatialStaticQuantumTransport> transport)
+        : state_(std::make_shared<StaticStreamState>()),
+          transport_(std::move(transport)) {
         state_->staticMask = staticMask;
         state_->frameCount = frameCount;
+
+        const auto roleCount = OmniphonyStaticRoleCount(staticMask);
+        roleOrder_.reserve(roleCount);
+        for (const auto& role : kOmniphonySpatialStaticRoles) {
+            if ((OmniphonySpatialObjectBits(staticMask) &
+                 OmniphonySpatialObjectBits(role.audio_object_type)) != 0) {
+                roleOrder_.push_back(role.audio_object_type);
+            }
+        }
+        planar_.assign(roleCount * static_cast<std::size_t>(frameCount), 0.0f);
+        stereo_.assign(static_cast<std::size_t>(frameCount) * 2, 0.0f);
     }
 
     ~StaticProbeStream() {
@@ -262,6 +273,7 @@ public:
         state_->destroyed = true;
         state_->running = false;
         state_->inUpdate = false;
+        state_->transportInFlight = false;
         for (auto* object : state_->objects) {
             if (object) {
                 object->Revoke();
@@ -324,6 +336,9 @@ public:
         if (state_->running) {
             return SPTLAUDCLNT_E_STREAM_NOT_STOPPED;
         }
+        if (state_->inUpdate || state_->transportInFlight) {
+            return SPTLAUDCLNT_E_OUT_OF_ORDER;
+        }
         state_->running = true;
         return S_OK;
     }
@@ -333,8 +348,10 @@ public:
         if (state_->destroyed) {
             return SPTLAUDCLNT_E_DESTROYED;
         }
+        if (state_->inUpdate || state_->transportInFlight) {
+            return SPTLAUDCLNT_E_OUT_OF_ORDER;
+        }
         state_->running = false;
-        state_->inUpdate = false;
         return S_OK;
     }
 
@@ -346,8 +363,12 @@ public:
         if (state_->running) {
             return SPTLAUDCLNT_E_STREAM_NOT_STOPPED;
         }
+        if (state_->inUpdate || state_->transportInFlight) {
+            return SPTLAUDCLNT_E_OUT_OF_ORDER;
+        }
         state_->generation = 0;
-        state_->inUpdate = false;
+        std::fill(planar_.begin(), planar_.end(), 0.0f);
+        std::fill(stereo_.begin(), stereo_.end(), 0.0f);
         for (auto* object : state_->objects) {
             if (object) {
                 object->Revoke();
@@ -369,7 +390,7 @@ public:
         if (!state_->running) {
             return AUDCLNT_E_SERVICE_NOT_RUNNING;
         }
-        if (state_->inUpdate) {
+        if (state_->inUpdate || state_->transportInFlight) {
             return SPTLAUDCLNT_E_OUT_OF_ORDER;
         }
         state_->inUpdate = true;
@@ -380,21 +401,60 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE EndUpdatingAudioObjects() override {
-        std::lock_guard<std::mutex> lock(state_->mutex);
-        if (state_->destroyed) {
-            return SPTLAUDCLNT_E_DESTROYED;
-        }
-        if (!state_->inUpdate) {
-            return SPTLAUDCLNT_E_OUT_OF_ORDER;
-        }
-        const auto generation = state_->generation;
-        for (auto* object : state_->objects) {
-            if (object) {
-                object->CommitPass(generation);
+        std::shared_ptr<OmniphonySpatialStaticQuantumTransport> transport;
+        UINT32 frameCount = 0;
+
+        {
+            std::lock_guard<std::mutex> lock(state_->mutex);
+            if (state_->destroyed) {
+                return SPTLAUDCLNT_E_DESTROYED;
+            }
+            if (!state_->inUpdate || state_->transportInFlight) {
+                return SPTLAUDCLNT_E_OUT_OF_ORDER;
+            }
+
+            const auto generation = state_->generation;
+            frameCount = state_->frameCount;
+            std::fill(planar_.begin(), planar_.end(), 0.0f);
+
+            for (auto* object : state_->objects) {
+                if (!object) {
+                    continue;
+                }
+                const auto slot = OmniphonyStaticRoleSlot(
+                    state_->staticMask,
+                    object->Type());
+                if (slot == static_cast<std::size_t>(-1) || slot >= roleOrder_.size()) {
+                    continue;
+                }
+                object->SnapshotPass(
+                    generation,
+                    planar_.data() + slot * frameCount,
+                    frameCount);
+            }
+
+            state_->inUpdate = false;
+            transport = transport_;
+            if (transport) {
+                state_->transportInFlight = true;
             }
         }
-        state_->inUpdate = false;
-        return S_OK;
+
+        if (!transport) {
+            return S_OK;
+        }
+
+        std::fill(stereo_.begin(), stereo_.end(), 0.0f);
+        const HRESULT transportResult = transport->Process(
+            planar_.data(),
+            stereo_.data(),
+            frameCount);
+
+        {
+            std::lock_guard<std::mutex> lock(state_->mutex);
+            state_->transportInFlight = false;
+        }
+        return transportResult;
     }
 
     HRESULT STDMETHODCALLTYPE ActivateSpatialAudioObject(
@@ -412,10 +472,12 @@ public:
         if (type == AudioObjectType_Dynamic) {
             return SPTLAUDCLNT_E_NO_MORE_OBJECTS;
         }
-        if (!IsSingleObjectType(type)) {
+        if (!OmniphonyIsSingleStaticObjectType(type) ||
+            !FindOmniphonySpatialStaticRole(type)) {
             return E_INVALIDARG;
         }
-        if ((Bits(state_->staticMask) & Bits(type)) != Bits(type)) {
+        if ((OmniphonySpatialObjectBits(state_->staticMask) &
+             OmniphonySpatialObjectBits(type)) != OmniphonySpatialObjectBits(type)) {
             return SPTLAUDCLNT_E_STATIC_OBJECT_NOT_AVAILABLE;
         }
         for (auto* existing : state_->objects) {
@@ -424,21 +486,25 @@ public:
             }
         }
 
-        // Constructor registration also takes the state mutex. The topology and
-        // frame count are immutable, so capture what is needed then unlock.
         const UINT32 frameCount = state_->frameCount;
         lock.unlock();
-        auto* created = new (std::nothrow) StaticProbeObject(state_, type, frameCount);
-        if (!created) {
+        try {
+            auto* created = new StaticProbeObject(state_, type, frameCount);
+            *object = static_cast<ISpatialAudioObject*>(created);
+            return S_OK;
+        }
+        catch (const std::bad_alloc&) {
             return E_OUTOFMEMORY;
         }
-        *object = static_cast<ISpatialAudioObject*>(created);
-        return S_OK;
     }
 
 private:
     std::atomic<ULONG> references_{1};
     std::shared_ptr<StaticStreamState> state_;
+    std::shared_ptr<OmniphonySpatialStaticQuantumTransport> transport_;
+    std::vector<AudioObjectType> roleOrder_;
+    std::vector<float> planar_;
+    std::vector<float> stereo_;
 };
 
 bool ValidActivationParams(const SpatialAudioObjectRenderStreamActivationParams& params) noexcept {
@@ -455,15 +521,14 @@ bool ValidActivationParams(const SpatialAudioObjectRenderStreamActivationParams&
     if (params.MinDynamicObjectCount != 0 || params.MaxDynamicObjectCount != 0) {
         return false;
     }
-    const auto requestedMask = Bits(params.StaticObjectTypeMask);
-    return requestedMask != 0 &&
-           (requestedMask & ~Bits(kSupportedStaticMask)) == 0;
+    const auto requestedMask = OmniphonySpatialObjectBits(params.StaticObjectTypeMask);
+    const auto supportedMask = OmniphonySpatialObjectBits(OmniphonyCanonicalStaticMask());
+    return requestedMask != 0 && (requestedMask & ~supportedMask) == 0;
 }
 
-} // namespace
-
-HRESULT CreateOmniphonyStaticProbeStream(
+HRESULT CreateValidatedStream(
     const SpatialAudioObjectRenderStreamActivationParams& params,
+    std::shared_ptr<OmniphonySpatialStaticQuantumTransport> transport,
     ISpatialAudioObjectRenderStream** stream) {
     if (!stream) {
         return E_POINTER;
@@ -473,17 +538,38 @@ HRESULT CreateOmniphonyStaticProbeStream(
         return AUDCLNT_E_UNSUPPORTED_FORMAT;
     }
 
-    // The public capability layer currently advertises a 480-frame quantum.
-    // The real provider will replace this fixed cadence with the RAW endpoint
-    // transport's event-driven cadence before the stream is wired live.
-    auto* created = new (std::nothrow) StaticProbeStream(
-        params.StaticObjectTypeMask,
-        480);
-    if (!created) {
+    try {
+        auto* created = new StaticProbeStream(
+            params.StaticObjectTypeMask,
+            480,
+            std::move(transport));
+        *stream = static_cast<ISpatialAudioObjectRenderStream*>(created);
+        return S_OK;
+    }
+    catch (const std::bad_alloc&) {
         return E_OUTOFMEMORY;
     }
-    *stream = static_cast<ISpatialAudioObjectRenderStream*>(created);
-    return S_OK;
+}
+
+} // namespace
+
+HRESULT CreateOmniphonyStaticProbeStream(
+    const SpatialAudioObjectRenderStreamActivationParams& params,
+    ISpatialAudioObjectRenderStream** stream) {
+    return CreateValidatedStream(params, nullptr, stream);
+}
+
+HRESULT CreateOmniphonyStaticProbeStreamWithTransport(
+    const SpatialAudioObjectRenderStreamActivationParams& params,
+    std::shared_ptr<OmniphonySpatialStaticQuantumTransport> transport,
+    ISpatialAudioObjectRenderStream** stream) {
+    if (!transport) {
+        if (stream) {
+            *stream = nullptr;
+        }
+        return E_INVALIDARG;
+    }
+    return CreateValidatedStream(params, std::move(transport), stream);
 }
 
 HRESULT CreateOmniphonyStaticProbeStreamFromActivation(
