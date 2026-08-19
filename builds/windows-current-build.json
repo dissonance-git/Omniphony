@@ -1,12 +1,10 @@
 {
   "Schema": "omniphony.windows.current-build.v1",
-  "RunId": 32197877708,
-  "Status": "published",
-  "Conclusion": "success",
-  "HeadSha": "8d0e0447cba45a977265c93fe1e915c4016498f8",
-  "ArtifactName": "omniphony-windows-setup-8d0e0447cba45a977265c93fe1e915c4016498f8",
+  "RunId": 32208156140,
+  "Status": "in_progress",
+  "Conclusion": "",
+  "HeadSha": "a5de5ccee119069289f4195c841c0d7b820bad2a",
+  "ArtifactName": "omniphony-windows-setup-a5de5ccee119069289f4195c841c0d7b820bad2a",
   "ReleaseTag": "windows-current",
-  "AssetName": "OmniphonySetup.exe",
-  "ExeSha256": "79345c0ae9ef283ea878e5102f6015b0c8ba1548de51d351c79f1e281cbf6542",
-  "DirectUrl": "https://github.com/dissonance-git/Omniphony-Headphones/releases/download/windows-current/OmniphonySetup.exe"
+  "AssetName": "OmniphonySetup.exe"
 }
