@@ -12,6 +12,7 @@
 #include <cstdint>
 
 #include "omniphony_realtime.h"
+#include "OmniphonySpatialStaticStream.h"
 
 // Thin dynamic-loader boundary between the experimental Windows Spatial Sound
 // provider and the existing omniphony_realtime.dll static-object ABI.
@@ -65,3 +66,16 @@ private:
     ProcessedBlocksFn processedBlocks_ = nullptr;
     ProcessFn process_ = nullptr;
 };
+
+// Registry-free end-to-end source factory for the internal provider path.
+// It derives the immutable descriptor order from StaticObjectTypeMask, opens
+// omniphony_realtime.dll before stream processing begins, and connects each
+// completed COM quantum to the existing static-object Current worker.
+//
+// This does not open the public provider gate and does not own final endpoint
+// playback. It exists so COM lifecycle -> Current can be proven independently
+// before Windows is allowed to route application audio into Omniphony.
+HRESULT CreateOmniphonyStaticProbeStreamWithRealtimeBridge(
+    const SpatialAudioObjectRenderStreamActivationParams& params,
+    const wchar_t* realtimeDllPath,
+    ISpatialAudioObjectRenderStream** stream);
