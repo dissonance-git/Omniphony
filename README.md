@@ -215,6 +215,8 @@ headphones
 
 Raw Windows Spatial Audio object ingress is not yet claimed as complete. A supported system boundary must first be demonstrated for receiving another application's static and dynamic spatial representation before Windows Sonic, Dolby, DTS, or another renderer performs the final headphone render.
 
+The Windows provider experiment now contains a standards-shaped `ISpatialAudioClient` capability object plus an internal static-only `ISpatialAudioObjectRenderStream` lifecycle. The internal stream accepts Microsoft's documented `VT_BLOB` activation shape and validates the object format, requested static mask, interface ID, and zero dynamic-object capacity. It remains deliberately hidden behind `SPTLAUDCLNT_E_STREAM_IS_NOT_AVAILABLE` until static-object buffers have a real downstream transport into the existing Omniphony realtime renderer. This prevents an unfinished provider from accepting spatial application audio and silently dropping it.
+
 Omniphony does not treat already-binaural stereo as raw objects, and it does not reconstruct object metadata from a final binaural mix and call that native spatial ingress.
 
 ## What is implemented
@@ -232,6 +234,8 @@ Omniphony does not treat already-binaural stereo as raw objects, and it does not
 | Authored 7.1.4 processing | **Implemented and regression-tested** in the stream APO/native-bed path |
 | Endpoint continuity / rollback | **Implemented:** persistent endpoint identity, recovery, and stereo rollback floor |
 | Headless Windows installer | **Implemented:** one installer, no virtual cable or resident audio host |
+| Spatial provider capability probe | **Implemented in isolation:** `ISpatialAudioClient`, 17-role mask, object format, deterministic registration/snapshot tooling; real Windows enumeration/selection proof pending |
+| Static spatial stream lifecycle | **Implemented behind a closed provider gate:** static object lifecycle + documented `VT_BLOB` activation marshalling; downstream Current transport pending |
 | Raw Windows Spatial Audio object ingress | **In progress:** static 8.1.4.4 + dynamic XYZ before third-party headphone rendering |
 | Signed DriverStore deployment | **Optional future deployment route** |
 
@@ -292,7 +296,8 @@ Engineering gates cover:
 - Windows APO registration and manifest contracts;
 - endpoint continuity and rollback;
 - shared-client multichannel initialization;
-- exact two-channel physical output.
+- exact two-channel physical output;
+- spatial-provider capability and registry-free static-stream lifecycle contracts.
 
 Human listening remains the final gate for externalization, front/back discrimination, elevation, source body, envelopment, radial depth, center solidity, room naturalness, fatigue, groove, and bass integrity.
 
@@ -313,6 +318,8 @@ Normal use has:
 
 The current unsigned user-mode APO deployment uses Windows' unprotected AudioDG compatibility mode and records previous machine state for rollback and uninstall.
 
+The future spatial-provider portion of setup must follow the same transaction law: stage and verify binaries before registry mutation, record prior provider state, register only Omniphony-owned keys, expose/select Omniphony only after end-to-end stream transport is proven, and restore prior state on failure or uninstall. The installer must never leave Windows selected on a provider that can accept a stream but cannot render it.
+
 A componentized signed DriverStore route remains available as a separate deployment research track without changing the renderer architecture.
 
 ## Repository map
@@ -329,6 +336,9 @@ omniphony-renderer/realtime_ffi/
 
 omniphony-renderer/windows_installer/endpoint_apo/
   Windows stream / endpoint APOs, installer, tray, and diagnostics
+
+omniphony-renderer/windows_installer/spatial_provider_probe/
+  bounded Windows Spatial Sound provider, static-stream, registration, and evidence experiments
 
 layouts/
   canonical and internal rendering geometry
@@ -348,7 +358,7 @@ cargo test -p source_ffi --lib --tests
 cargo test -p realtime_ffi
 ```
 
-Focused CI additionally validates source-aware spatial behavior, the realtime Windows path, APO lifecycle contracts, endpoint tooling, and installer packaging.
+Focused CI additionally validates source-aware spatial behavior, the realtime Windows path, APO lifecycle contracts, endpoint tooling, spatial-provider contracts, and installer packaging.
 
 ## Definition of success
 
