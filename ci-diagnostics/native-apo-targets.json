@@ -1,7 +1,7 @@
 {
   "schema": "omniphony.windows.native-apo-diagnostic.v1",
-  "head_sha": "510480cc1842a07b9a245dbeeba61695a784d910",
-  "run_id": "32213832178",
+  "head_sha": "ccb70b0244c542658ac27d591923606fc649012f",
+  "run_id": "32279465571",
   "overall": "success",
   "powershell_support_syntax": {
     "label": "powershell-support-syntax",
@@ -28,8 +28,8 @@
       "-- Check for working CXX compiler: C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe - skipped",
       "-- Detecting CXX compile features",
       "-- Detecting CXX compile features - done",
-      "-- Configuring done (12.5s)",
-      "-- Generating done (0.1s)",
+      "-- Configuring done (11.3s)",
+      "-- Generating done (0.0s)",
       "-- Build files have been written to: D:/a/Omniphony-Headphones/Omniphony-Headphones/build/apo"
     ]
   },
@@ -44,7 +44,7 @@
         "",
         "Run Build Command(s): \"C:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe\" OmniphonyAPO.vcxproj /p:Configuration=Release /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n",
         "MSBuild version 17.14.51+25f168cee for .NET Framework",
-        "Build started 8/19/2026 3:56:44 AM.",
+        "Build started 8/19/2026 5:05:37 PM.",
         "",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonyAPO.vcxproj\" on node 1 (default targets).",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonyAPO.vcxproj\" (1) is building \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\ZERO_CHECK.vcxproj\" (2) on node 1 (default targets).",
@@ -93,7 +93,7 @@
         "    1 Warning(s)",
         "    0 Error(s)",
         "",
-        "Time Elapsed 00:00:06.17",
+        "Time Elapsed 00:00:08.41",
         ""
       ]
     },
@@ -106,7 +106,7 @@
         "",
         "Run Build Command(s): \"C:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe\" OmniphonyStreamAPO.vcxproj /p:Configuration=Release /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n",
         "MSBuild version 17.14.51+25f168cee for .NET Framework",
-        "Build started 8/19/2026 3:56:51 AM.",
+        "Build started 8/19/2026 5:05:46 PM.",
         "",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonyStreamAPO.vcxproj\" on node 1 (default targets).",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonyStreamAPO.vcxproj\" (1) is building \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\ZERO_CHECK.vcxproj\" (2) on node 1 (default targets).",
@@ -152,7 +152,7 @@
         "    1 Warning(s)",
         "    0 Error(s)",
         "",
-        "Time Elapsed 00:00:01.62",
+        "Time Elapsed 00:00:01.43",
         ""
       ]
     },
@@ -165,7 +165,7 @@
         "",
         "Run Build Command(s): \"C:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe\" OmniphonyApoCtl.vcxproj /p:Configuration=Release /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n",
         "MSBuild version 17.14.51+25f168cee for .NET Framework",
-        "Build started 8/19/2026 3:56:52 AM.",
+        "Build started 8/19/2026 5:05:47 PM.",
         "",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonyApoCtl.vcxproj\" on node 1 (default targets).",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonyApoCtl.vcxproj\" (1) is building \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\ZERO_CHECK.vcxproj\" (2) on node 1 (default targets).",
@@ -204,7 +204,7 @@
         "    0 Warning(s)",
         "    0 Error(s)",
         "",
-        "Time Elapsed 00:00:03.74",
+        "Time Elapsed 00:00:04.69",
         ""
       ]
     },
@@ -217,7 +217,7 @@
         "",
         "Run Build Command(s): \"C:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe\" OmniphonyApoSmoke.vcxproj /p:Configuration=Release /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n",
         "MSBuild version 17.14.51+25f168cee for .NET Framework",
-        "Build started 8/19/2026 3:56:56 AM.",
+        "Build started 8/19/2026 5:05:52 PM.",
         "",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonyApoSmoke.vcxproj\" on node 1 (default targets).",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonyApoSmoke.vcxproj\" (1) is building \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\ZERO_CHECK.vcxproj\" (2) on node 1 (default targets).",
@@ -256,7 +256,7 @@
         "    0 Warning(s)",
         "    0 Error(s)",
         "",
-        "Time Elapsed 00:00:02.14",
+        "Time Elapsed 00:00:01.92",
         ""
       ]
     },
@@ -269,7 +269,7 @@
         "",
         "Run Build Command(s): \"C:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe\" OmniphonyStreamApoSmoke.vcxproj /p:Configuration=Release /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n",
         "MSBuild version 17.14.51+25f168cee for .NET Framework",
-        "Build started 8/19/2026 3:56:59 AM.",
+        "Build started 8/19/2026 5:05:54 PM.",
         "",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonyStreamApoSmoke.vcxproj\" on node 1 (default targets).",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonyStreamApoSmoke.vcxproj\" (1) is building \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\ZERO_CHECK.vcxproj\" (2) on node 1 (default targets).",
@@ -308,7 +308,7 @@
         "    0 Warning(s)",
         "    0 Error(s)",
         "",
-        "Time Elapsed 00:00:02.09",
+        "Time Elapsed 00:00:01.56",
         ""
       ]
     },
@@ -321,7 +321,7 @@
         "",
         "Run Build Command(s): \"C:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe\" OmniphonyRealtimeSmoke.vcxproj /p:Configuration=Release /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n",
         "MSBuild version 17.14.51+25f168cee for .NET Framework",
-        "Build started 8/19/2026 3:57:01 AM.",
+        "Build started 8/19/2026 5:05:56 PM.",
         "",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonyRealtimeSmoke.vcxproj\" on node 1 (default targets).",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonyRealtimeSmoke.vcxproj\" (1) is building \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\ZERO_CHECK.vcxproj\" (2) on node 1 (default targets).",
@@ -360,7 +360,7 @@
         "    0 Warning(s)",
         "    0 Error(s)",
         "",
-        "Time Elapsed 00:00:01.68",
+        "Time Elapsed 00:00:01.26",
         ""
       ]
     },
@@ -373,7 +373,7 @@
         "",
         "Run Build Command(s): \"C:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe\" OmniphonyMixProbe.vcxproj /p:Configuration=Release /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n",
         "MSBuild version 17.14.51+25f168cee for .NET Framework",
-        "Build started 8/19/2026 3:57:03 AM.",
+        "Build started 8/19/2026 5:05:57 PM.",
         "",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonyMixProbe.vcxproj\" on node 1 (default targets).",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonyMixProbe.vcxproj\" (1) is building \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\ZERO_CHECK.vcxproj\" (2) on node 1 (default targets).",
@@ -412,7 +412,7 @@
         "    0 Warning(s)",
         "    0 Error(s)",
         "",
-        "Time Elapsed 00:00:02.37",
+        "Time Elapsed 00:00:01.90",
         ""
       ]
     },
@@ -425,7 +425,7 @@
         "",
         "Run Build Command(s): \"C:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe\" OmniphonyProductionProbe.vcxproj /p:Configuration=Release /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n",
         "MSBuild version 17.14.51+25f168cee for .NET Framework",
-        "Build started 8/19/2026 3:57:05 AM.",
+        "Build started 8/19/2026 5:05:59 PM.",
         "",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonyProductionProbe.vcxproj\" on node 1 (default targets).",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonyProductionProbe.vcxproj\" (1) is building \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\ZERO_CHECK.vcxproj\" (2) on node 1 (default targets).",
@@ -464,7 +464,7 @@
         "    0 Warning(s)",
         "    0 Error(s)",
         "",
-        "Time Elapsed 00:00:01.82",
+        "Time Elapsed 00:00:01.75",
         ""
       ]
     },
@@ -477,7 +477,7 @@
         "",
         "Run Build Command(s): \"C:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe\" OmniphonySpatialProbe.vcxproj /p:Configuration=Release /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n",
         "MSBuild version 17.14.51+25f168cee for .NET Framework",
-        "Build started 8/19/2026 3:57:07 AM.",
+        "Build started 8/19/2026 5:06:01 PM.",
         "",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonySpatialProbe.vcxproj\" on node 1 (default targets).",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonySpatialProbe.vcxproj\" (1) is building \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\ZERO_CHECK.vcxproj\" (2) on node 1 (default targets).",
@@ -516,7 +516,7 @@
         "    0 Warning(s)",
         "    0 Error(s)",
         "",
-        "Time Elapsed 00:00:01.87",
+        "Time Elapsed 00:00:01.47",
         ""
       ]
     },
@@ -529,7 +529,7 @@
         "",
         "Run Build Command(s): \"C:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe\" OmniphonySpatialProviderProbe.vcxproj /p:Configuration=Release /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n",
         "MSBuild version 17.14.51+25f168cee for .NET Framework",
-        "Build started 8/19/2026 3:57:09 AM.",
+        "Build started 8/19/2026 5:06:03 PM.",
         "",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonySpatialProviderProbe.vcxproj\" on node 1 (default targets).",
         "Project \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\OmniphonySpatialProviderProbe.vcxproj\" (1) is building \"D:\\a\\Omniphony-Headphones\\Omniphony-Headphones\\build\\apo\\ZERO_CHECK.vcxproj\" (2) on node 1 (default targets).",
@@ -568,7 +568,7 @@
         "    0 Warning(s)",
         "    0 Error(s)",
         "",
-        "Time Elapsed 00:00:02.01",
+        "Time Elapsed 00:00:01.86",
         ""
       ]
     }
@@ -588,6 +588,10 @@
       "encoder.status=unavailable",
       "encoder.error=2:The system cannot find the file specified.",
       "spatial_endpoint.path=HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\SpatialAudioEndpoint",
+      "spatial_endpoint.snapshot.read_only=1",
+      "spatial_endpoint.snapshot.max_depth=8",
+      "spatial_endpoint.snapshot.max_value_bytes=4096",
+      "spatial_endpoint.snapshot.encoding=registry_bytes_hex",
       "spatial_endpoint.status=unavailable",
       "spatial_endpoint.error=2:The system cannot find the file specified."
     ]
