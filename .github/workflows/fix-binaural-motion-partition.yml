@@ -1,20 +1,18 @@
 name: Integrate useful upstream renderer mechanisms
 
 on:
-  issues:
-    types: [opened]
+  schedule:
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
-  issues: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   integrate:
-    if: github.event_name == 'workflow_dispatch' || github.event.issue.title == '[internal] upstream renderer sync'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -22,7 +20,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check whether integration already landed
+        id: guard
+        shell: bash
+        run: |
+          if test -f omniphony-renderer/orender_engine/src/channel_objects.rs; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'skip=false' >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Apply upstream shared channel-object stage
+        if: steps.guard.outputs.skip != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -47,9 +56,11 @@ jobs:
           fi
 
       - name: Finish renderer-owned host geometry
+        if: steps.guard.outputs.skip != 'true'
         run: python3 .github/ci/upstream_renderer_sync.py
 
       - name: Verify and publish source integration
+        if: steps.guard.outputs.skip != 'true'
         shell: bash
         run: |
           set -euo pipefail
