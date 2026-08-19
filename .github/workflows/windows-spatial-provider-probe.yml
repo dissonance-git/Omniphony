@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build-probe:
-    name: Build inert provider-registration probe
+    name: Build spatial provider capability probe
     runs-on: windows-2022
     timeout-minutes: 15
 
@@ -36,14 +36,16 @@ jobs:
           cmake --build $build --config Release --parallel
           if ($LASTEXITCODE -ne 0) { throw "Spatial provider probe build failed: $LASTEXITCODE" }
 
-      - name: Validate read-only probe contract
+      - name: Validate capability-only COM provider
         shell: pwsh
         run: |
           $release = "$env:GITHUB_WORKSPACE\build\spatial-provider-probe\Release"
           $ctl = Join-Path $release 'OmniphonySpatialProbeCtl.exe'
           $dll = Join-Path $release 'OmniphonySpatialProbe.dll'
+          $smoke = Join-Path $release 'OmniphonySpatialProbeSmoke.exe'
           if (-not (Test-Path $ctl)) { throw "Missing probe control executable: $ctl" }
-          if (-not (Test-Path $dll)) { throw "Missing inert probe COM DLL: $dll" }
+          if (-not (Test-Path $dll)) { throw "Missing probe COM DLL: $dll" }
+          if (-not (Test-Path $smoke)) { throw "Missing probe capability smoke: $smoke" }
 
           $contract = & $ctl contract
           if ($LASTEXITCODE -ne 0) { throw "Probe contract failed: $LASTEXITCODE" }
@@ -54,6 +56,18 @@ jobs:
           if ($text -notmatch 'NO_AUDIO_PROCESSING\s+1') { throw 'Probe safety contract missing' }
           if ($text -notmatch 'NO_MMDEVICES_WRITES\s+1') { throw 'MMDevices safety contract missing' }
           if ($text -notmatch 'NO_DEFAULT_ENDPOINT_CHANGE\s+1') { throw 'Default-endpoint safety contract missing' }
+
+          $capability = & $smoke $dll
+          if ($LASTEXITCODE -ne 0) { throw "ISpatialAudioClient capability smoke failed: $LASTEXITCODE" }
+          $capability | Write-Host
+          $capText = $capability -join "`n"
+          if ($capText -notmatch 'SPATIAL_PROVIDER_COM_OK\s+1') { throw 'COM capability marker missing' }
+          if ($capText -notmatch 'SPATIAL_PROVIDER_INTERFACE\s+ISpatialAudioClient') { throw 'ISpatialAudioClient marker missing' }
+          if ($capText -notmatch 'SPATIAL_PROVIDER_STATIC_8_1_4_4_OK\s+1') { throw '8.1.4.4 static capability marker missing' }
+          if ($capText -notmatch 'SPATIAL_PROVIDER_OBJECT_FORMAT\s+FLOAT32_48000_MONO') { throw 'object format marker missing' }
+          if ($capText -notmatch 'SPATIAL_PROVIDER_MAX_DYNAMIC_OBJECTS\s+0') { throw 'dynamic-capacity boundary drifted' }
+          if ($capText -notmatch 'SPATIAL_PROVIDER_STREAM_AVAILABLE\s+0') { throw 'stream boundary drifted' }
+          if ($capText -notmatch 'SPATIAL_PROVIDER_CAPABILITY_SMOKE_OK\s+1') { throw 'capability smoke marker missing' }
 
           # Read-only enumeration may legitimately find no third-party providers
           # on a clean GitHub-hosted runner. It must not crash or require elevation.
@@ -68,6 +82,7 @@ jobs:
           New-Item -ItemType Directory -Force $payload | Out-Null
           Copy-Item (Join-Path $release 'OmniphonySpatialProbeCtl.exe') $payload -Force
           Copy-Item (Join-Path $release 'OmniphonySpatialProbe.dll') $payload -Force
+          Copy-Item (Join-Path $release 'OmniphonySpatialProbeSmoke.exe') $payload -Force
           Copy-Item "$env:GITHUB_WORKSPACE\omniphony-renderer\windows_installer\spatial_provider_probe\README.md" $payload -Force
           Get-ChildItem $payload -File | Select-Object Name, Length
 
