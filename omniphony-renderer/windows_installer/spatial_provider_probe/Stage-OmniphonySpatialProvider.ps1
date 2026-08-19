@@ -115,7 +115,9 @@ $files = @(
     @{ Source = (Get-RequiredFile $packageRootResolved 'OmniphonySpatialProbeSmoke.exe'); Name = 'OmniphonySpatialProbeSmoke.exe' },
     @{ Source = (Get-RequiredFile $packageRootResolved 'OmniphonySpatialStaticStreamSmoke.exe'); Name = 'OmniphonySpatialStaticStreamSmoke.exe' },
     @{ Source = (Get-RequiredFile $packageRootResolved 'OmniphonySpatialRealtimeBridgeSmoke.exe'); Name = 'OmniphonySpatialRealtimeBridgeSmoke.exe' },
+    @{ Source = (Get-RequiredFile $packageRootResolved 'OmniphonySpatialStereoQueueSmoke.exe'); Name = 'OmniphonySpatialStereoQueueSmoke.exe' },
     @{ Source = (Get-RequiredFile $packageRootResolved 'OmniphonySpatialRawOutputProbe.exe'); Name = 'OmniphonySpatialRawOutputProbe.exe' },
+    @{ Source = (Get-RequiredFile $packageRootResolved 'OmniphonySpatialRawOutputSinkProbe.exe'); Name = 'OmniphonySpatialRawOutputSinkProbe.exe' },
     @{ Source = (Get-RequiredFile $packageRootResolved 'CaptureSpatialProviderState.ps1'); Name = 'CaptureSpatialProviderState.ps1' }
 )
 
@@ -181,6 +183,7 @@ else {
         Invoke-NativeChecked -Path (Join-Path $stagingRoot 'OmniphonySpatialProbeSmoke.exe') -Arguments @((Join-Path $stagingRoot 'OmniphonySpatialProbe.dll')) -Label 'Spatial provider capability smoke'
         Invoke-NativeChecked -Path (Join-Path $stagingRoot 'OmniphonySpatialStaticStreamSmoke.exe') -Label 'Spatial static stream lifecycle smoke'
         Invoke-NativeChecked -Path (Join-Path $stagingRoot 'OmniphonySpatialRealtimeBridgeSmoke.exe') -Arguments @((Join-Path $stagingRoot 'omniphony_realtime.dll')) -Label 'Spatial realtime bridge smoke'
+        Invoke-NativeChecked -Path (Join-Path $stagingRoot 'OmniphonySpatialStereoQueueSmoke.exe') -Label 'Spatial stereo clock-domain queue smoke'
 
         Move-Item -LiteralPath $stagingRoot -Destination $generationRoot
         Write-Host "SPATIAL_PROVIDER_GENERATION_STAGED $generationRoot"
@@ -204,6 +207,7 @@ foreach ($file in $files) {
 Invoke-NativeChecked -Path (Join-Path $generationRoot 'OmniphonySpatialProbeSmoke.exe') -Arguments @((Join-Path $generationRoot 'OmniphonySpatialProbe.dll')) -Label 'Final-path provider capability smoke'
 Invoke-NativeChecked -Path (Join-Path $generationRoot 'OmniphonySpatialStaticStreamSmoke.exe') -Label 'Final-path spatial static stream lifecycle smoke'
 Invoke-NativeChecked -Path (Join-Path $generationRoot 'OmniphonySpatialRealtimeBridgeSmoke.exe') -Arguments @((Join-Path $generationRoot 'omniphony_realtime.dll')) -Label 'Final-path realtime bridge smoke'
+Invoke-NativeChecked -Path (Join-Path $generationRoot 'OmniphonySpatialStereoQueueSmoke.exe') -Label 'Final-path stereo clock-domain queue smoke'
 
 $fileHashes = [ordered]@{}
 foreach ($file in ($files | Sort-Object Name)) {
@@ -221,13 +225,16 @@ $manifest = [ordered]@{
     provider_sha256 = $providerHash
     realtime_dll = (Join-Path $generationRoot 'omniphony_realtime.dll')
     realtime_sha256 = $runtimeHash
+    stereo_queue_smoke = (Join-Path $generationRoot 'OmniphonySpatialStereoQueueSmoke.exe')
     raw_output_probe = (Join-Path $generationRoot 'OmniphonySpatialRawOutputProbe.exe')
+    raw_output_sink_probe = (Join-Path $generationRoot 'OmniphonySpatialRawOutputSinkProbe.exe')
     file_sha256 = $fileHashes
     staged_utc = [DateTime]::UtcNow.ToString('o')
     os_64_bit = [Environment]::Is64BitOperatingSystem
     process_64_bit = [Environment]::Is64BitProcess
     exact_file_set_verified = $true
     final_path_smokes_verified = $true
+    clock_domain_queue_verified = $true
     registry_mutated = $false
     provider_selected = $false
 }
@@ -248,6 +255,8 @@ Write-Host "SPATIAL_PROVIDER_STAGE_OK GENERATION=$generation PACKAGE_SHA256=$pac
 Write-Host "SPATIAL_PROVIDER_STAGE_MANIFEST $manifestPath"
 Write-Host 'SPATIAL_PROVIDER_EXACT_FILE_SET_VERIFIED 1'
 Write-Host 'SPATIAL_PROVIDER_FINAL_PATH_SMOKES_VERIFIED 1'
+Write-Host 'SPATIAL_PROVIDER_CLOCK_DOMAIN_QUEUE_VERIFIED 1'
 Write-Host 'SPATIAL_PROVIDER_RAW_OUTPUT_PREFLIGHT_STAGED 1'
+Write-Host 'SPATIAL_PROVIDER_RAW_OUTPUT_SINK_PROBE_STAGED 1'
 Write-Host 'SPATIAL_PROVIDER_REGISTRY_MUTATED 0'
 Write-Host 'SPATIAL_PROVIDER_SELECTED 0'
