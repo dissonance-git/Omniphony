@@ -10,6 +10,8 @@
 #include <cstring>
 #include <new>
 
+#include "OmniphonySpatialRoles.h"
+
 namespace {
 
 constexpr GUID kProbeClsid = {
@@ -17,29 +19,6 @@ constexpr GUID kProbeClsid = {
 
 constexpr UINT32 kObjectSampleRate = 48'000;
 constexpr UINT32 kObjectFramesPerBuffer = 480;
-
-constexpr std::uint32_t Bits(AudioObjectType type) noexcept {
-    return static_cast<std::uint32_t>(type);
-}
-
-constexpr AudioObjectType kCanonicalStaticMask = static_cast<AudioObjectType>(
-    Bits(AudioObjectType_FrontLeft) |
-    Bits(AudioObjectType_FrontRight) |
-    Bits(AudioObjectType_FrontCenter) |
-    Bits(AudioObjectType_LowFrequency) |
-    Bits(AudioObjectType_SideLeft) |
-    Bits(AudioObjectType_SideRight) |
-    Bits(AudioObjectType_BackLeft) |
-    Bits(AudioObjectType_BackRight) |
-    Bits(AudioObjectType_TopFrontLeft) |
-    Bits(AudioObjectType_TopFrontRight) |
-    Bits(AudioObjectType_TopBackLeft) |
-    Bits(AudioObjectType_TopBackRight) |
-    Bits(AudioObjectType_BottomFrontLeft) |
-    Bits(AudioObjectType_BottomFrontRight) |
-    Bits(AudioObjectType_BottomBackLeft) |
-    Bits(AudioObjectType_BottomBackRight) |
-    Bits(AudioObjectType_BackCenter));
 
 volatile LONG g_liveReferences = 0;
 
@@ -68,46 +47,14 @@ HRESULT StaticPosition(AudioObjectType type, float* x, float* y, float* z) noexc
     if (!x || !y || !z) {
         return E_POINTER;
     }
-
-    constexpr float diagonal = 0.70710678f;
-    switch (type) {
-    case AudioObjectType_FrontLeft:
-        *x = -diagonal; *y = 0.0f; *z = -diagonal; return S_OK;
-    case AudioObjectType_FrontRight:
-        *x = diagonal; *y = 0.0f; *z = -diagonal; return S_OK;
-    case AudioObjectType_FrontCenter:
-        *x = 0.0f; *y = 0.0f; *z = -1.0f; return S_OK;
-    case AudioObjectType_LowFrequency:
-        *x = 0.0f; *y = 0.0f; *z = -1.0f; return S_OK;
-    case AudioObjectType_SideLeft:
-        *x = -1.0f; *y = 0.0f; *z = 0.0f; return S_OK;
-    case AudioObjectType_SideRight:
-        *x = 1.0f; *y = 0.0f; *z = 0.0f; return S_OK;
-    case AudioObjectType_BackLeft:
-        *x = -diagonal; *y = 0.0f; *z = diagonal; return S_OK;
-    case AudioObjectType_BackRight:
-        *x = diagonal; *y = 0.0f; *z = diagonal; return S_OK;
-    case AudioObjectType_BackCenter:
-        *x = 0.0f; *y = 0.0f; *z = 1.0f; return S_OK;
-    case AudioObjectType_TopFrontLeft:
-        *x = -0.5f; *y = diagonal; *z = -0.5f; return S_OK;
-    case AudioObjectType_TopFrontRight:
-        *x = 0.5f; *y = diagonal; *z = -0.5f; return S_OK;
-    case AudioObjectType_TopBackLeft:
-        *x = -0.5f; *y = diagonal; *z = 0.5f; return S_OK;
-    case AudioObjectType_TopBackRight:
-        *x = 0.5f; *y = diagonal; *z = 0.5f; return S_OK;
-    case AudioObjectType_BottomFrontLeft:
-        *x = -0.5f; *y = -diagonal; *z = -0.5f; return S_OK;
-    case AudioObjectType_BottomFrontRight:
-        *x = 0.5f; *y = -diagonal; *z = -0.5f; return S_OK;
-    case AudioObjectType_BottomBackLeft:
-        *x = -0.5f; *y = -diagonal; *z = 0.5f; return S_OK;
-    case AudioObjectType_BottomBackRight:
-        *x = 0.5f; *y = -diagonal; *z = 0.5f; return S_OK;
-    default:
+    const auto* role = FindOmniphonySpatialStaticRole(type);
+    if (!role) {
         return E_INVALIDARG;
     }
+    *x = role->x_right_m;
+    *y = role->y_up_m;
+    *z = role->z_back_m;
+    return S_OK;
 }
 
 class ProbeFormatEnumerator final : public IAudioFormatEnumerator {
@@ -224,7 +171,7 @@ public:
         if (!mask) {
             return E_POINTER;
         }
-        *mask = kCanonicalStaticMask;
+        *mask = OmniphonyCanonicalStaticMask();
         return S_OK;
     }
 
@@ -232,8 +179,9 @@ public:
         if (!value) {
             return E_POINTER;
         }
-        // This probe does not yet implement a render stream, so claiming dynamic
-        // object capacity here would be false capability advertising.
+        // Static transport is being built first. Dynamic XYZ capacity remains
+        // zero until identity, position updates, lifetime, and realtime transport
+        // exist as a separate truthful contract.
         *value = 0;
         return S_OK;
     }
@@ -271,7 +219,9 @@ public:
     HRESULT STDMETHODCALLTYPE IsSpatialAudioStreamAvailable(
         REFIID,
         const PROPVARIANT*) override {
-        // Capability probing is implemented before stream activation on purpose.
+        // Internal COM -> Current transport now exists in source, but the final
+        // Windows output/cadence boundary is not yet proven. Keep the provider
+        // closed so an application can never submit audio to a silent sink.
         return SPTLAUDCLNT_E_STREAM_IS_NOT_AVAILABLE;
     }
 
