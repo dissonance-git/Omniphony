@@ -1,4 +1,4 @@
-name: Fix direct-binaural motion partitioning
+name: Integrate useful upstream renderer mechanisms
 
 on:
   push:
@@ -10,107 +10,188 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
-  fix-and-validate:
+  integrate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Install pinned Rust toolchain
-        run: |
-          rustup toolchain install 1.88.0 --profile minimal --component rustfmt
-          rustup override set 1.88.0
-        working-directory: omniphony-renderer
-
-      - name: Apply callback-invariant motion fix
-        run: python3 .github/ci/fix_binaural_motion_partition.py
-
-      - name: Format touched Rust files
-        run: |
-          rustfmt --edition 2024 \
-            omniphony-renderer/renderer/src/spatial_renderer/mod.rs \
-            omniphony-renderer/renderer/src/spatial_renderer/construction.rs \
-            omniphony-renderer/renderer/src/binaural/mod.rs \
-            omniphony-renderer/dsp_fixtures/src/binaural_block_size.rs
-
-      - name: Verify patch scope
-        run: |
-          git diff --check
-          git diff --stat
-          test "$(git diff --name-only | wc -l)" -eq 4
-          git diff --name-only | sort > /tmp/changed.txt
-          cat > /tmp/expected.txt <<'EOF'
-          omniphony-renderer/dsp_fixtures/src/binaural_block_size.rs
-          omniphony-renderer/renderer/src/binaural/mod.rs
-          omniphony-renderer/renderer/src/spatial_renderer/construction.rs
-          omniphony-renderer/renderer/src/spatial_renderer/mod.rs
-          EOF
-          sort -o /tmp/expected.txt /tmp/expected.txt
-          diff -u /tmp/expected.txt /tmp/changed.txt
-
-      - name: Run callback-partition contracts
-        id: focused
+      - name: Apply upstream shared channel-object stage
         shell: bash
         run: |
-          set +e
-          cargo test -p dsp_fixtures binaural_block_size:: -- --nocapture 2>&1 | tee /tmp/binaural-motion.log
-          status=${PIPESTATUS[0]}
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit 0
-        working-directory: omniphony-renderer
-
-      - name: Record focused failure breadcrumb
-        if: steps.focused.outputs.status != '0'
-        run: |
-          {
-            echo "BINAURAL_MOTION_PARTITION_FAILURE"
-            echo "head=${GITHUB_SHA}"
-            echo
-            tail -n 320 /tmp/binaural-motion.log
-          } > .github/ci/binaural-motion-partition-failure.txt
+          set -euo pipefail
           git config user.name "omniphony-ci"
           git config user.email "actions@users.noreply.github.com"
-          git add .github/ci/binaural-motion-partition-failure.txt
-          git commit -m "ci: record binaural motion partition failure"
-          git push origin HEAD:main
+          git fetch --no-tags https://github.com/mgth/Omniphony.git ec9a8e3aa5890dae4469a381bf69fce1e7c6ff5a
+          if ! git cherry-pick --no-commit FETCH_HEAD; then
+            {
+              echo "UPSTREAM_CHANNEL_OBJECT_CHERRY_PICK_FAILED"
+              echo "head=${GITHUB_SHA}"
+              echo
+              git status --short
+              echo
+              git diff --name-only --diff-filter=U
+            } > /tmp/upstream-sync-failure.txt
+            git cherry-pick --abort || true
+            cp /tmp/upstream-sync-failure.txt ci-diagnostics/upstream-renderer-sync-failure.txt
+            git add ci-diagnostics/upstream-renderer-sync-failure.txt
+            git commit -m "ci: record upstream renderer sync conflict"
+            git push origin HEAD:main
+            exit 1
+          fi
 
-      - name: Stop after focused failure
-        if: steps.focused.outputs.status != '0'
-        run: exit 1
-
-      - name: Test convolver continuity
-        run: cargo test -p renderer binaural::convolver::tests:: -- --nocapture
-        working-directory: omniphony-renderer
-
-      - name: Test renderer core
-        run: >-
-          cargo test -p renderer --
-          --skip binaural::tests::hrir_source_switch_lands_asynchronously_without_blocking_render
-        working-directory: omniphony-renderer
-
-      - name: Test full DSP fixture suite
-        run: cargo test -p dsp_fixtures
-        working-directory: omniphony-renderer
-
-      - name: Test native Current realtime ABI
-        run: cargo test -p realtime_ffi
-        working-directory: omniphony-renderer
-
-      - name: Compile release performance gates
-        run: cargo check --release -p renderer --features perf-gate --tests
-        working-directory: omniphony-renderer
-
-      - name: Publish validated fix
+      - name: Finish renderer-owned host geometry
+        shell: python
         run: |
-          git config user.name "omniphony-ci"
-          git config user.email "actions@users.noreply.github.com"
+          from pathlib import Path
+
+          def read(path):
+              return Path(path).read_text(encoding="utf-8")
+
+          def write(path, text):
+              Path(path).write_text(text, encoding="utf-8")
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected 1 match, found {count}")
+              return text.replace(old, new, 1)
+
+          state_path = "omniphony-renderer/src/cli/decode/state.rs"
+          state = read(state_path)
+          state = replace_once(
+              state,
+              "    pub audio_writer: Option<AudioWriter>,\n    pub bootstrap_frames_seen: u32,",
+              "    pub audio_writer: Option<AudioWriter>,\n    /// Channel width the current writer was constructed for. A live switch\n    /// between speaker-array and binaural output must rebuild the sink rather\n    /// than feed frames whose geometry no longer matches it.\n    pub audio_writer_channels: Option<usize>,\n    pub bootstrap_frames_seen: u32,",
+              "OutputState writer width field",
+          )
+          state = replace_once(
+              state,
+              "            audio_writer: None,\n            bootstrap_frames_seen: 0,",
+              "            audio_writer: None,\n            audio_writer_channels: None,\n            bootstrap_frames_seen: 0,",
+              "OutputState writer width default",
+          )
+          state = replace_once(
+              state,
+              "        self.output_init_failed = false;\n        self.audio_writer.take()",
+              "        self.output_init_failed = false;\n        self.audio_writer_channels = None;\n        self.audio_writer.take()",
+              "OutputState invalidate width",
+          )
+          write(state_path, state)
+
+          lifecycle_path = "omniphony-renderer/src/cli/decode/writer_lifecycle.rs"
+          lifecycle = read(lifecycle_path)
+          needle = "                        self.output.audio_writer = Some(writer);"
+          count = lifecycle.count(needle)
+          if count != 3:
+              raise SystemExit(f"writer lifecycle: expected 3 writer installs, found {count}")
+          lifecycle = lifecycle.replace(
+              needle,
+              needle + "\n                        self.output.audio_writer_channels = Some(channel_count);",
+          )
+          write(lifecycle_path, lifecycle)
+
+          handler_path = "omniphony-renderer/src/cli/decode/handler.rs"
+          handler = read(handler_path)
+          handler = replace_once(
+              handler,
+              "        let effective_channel_count = if ctx.bed_conform && self.spatial.has_objects {",
+              "        let frame_has_objects = self.spatial.has_objects\n            && !matches!(source, DecodedSource::Live);\n        let effective_channel_count = if ctx.bed_conform && frame_has_objects {",
+              "source-aware effective width",
+          )
+          handler = replace_once(
+              handler,
+              "            // When VBAP is active, output channel count is the number of speakers\n            renderer.num_speakers()",
+              "            // Size the host from the renderer's active output geometry.\n            // Binaural mode emits stereo even when the internal speaker layout is wider.\n            renderer.output_channel_count()",
+              "renderer-owned output width",
+          )
+          marker = "\n        OutputRuntimeCoordinator::new(\n"
+          if handler.count(marker) != 1:
+              raise SystemExit(f"writer width rebuild insertion: expected 1 marker, found {handler.count(marker)}")
+          width_guard = """
+        // A live output-mode change can alter the renderer width underneath an
+        // already-open sink. Retire that writer before the next frame so the
+        // transport geometry can never disagree with the completed render.
+        if self
+            .output
+            .audio_writer_channels
+            .is_some_and(|built| built != effective_channel_count)
+        {
+            log::info!(
+                "Output width changed ({} -> {} channels): rebuilding the audio writer",
+                self.output.audio_writer_channels.unwrap_or(0),
+                effective_channel_count,
+            );
+            if let Some(mut writer) = self.output.invalidate_writer() {
+                let _ = writer.flush();
+            }
+            self.reset_direct_trigger_wiring();
+            self.output.reset_realtime_output_tracking();
+        }
+"""
+          handler = handler.replace(marker, "\n" + width_guard + marker, 1)
+          handler = replace_once(
+              handler,
+              "        );\n        self.reset_spatial_state_for_segment();\n        Ok(())\n    }",
+              "        );\n        self.output.audio_writer_channels = Some(effective_channel_count);\n        self.reset_spatial_state_for_segment();\n        Ok(())\n    }",
+              "restart writer width tracking",
+          )
+          write(handler_path, handler)
+
+          sample_path = "omniphony-renderer/src/cli/decode/sample_write.rs"
+          sample = read(sample_path)
+          cursor = 0
+          rewritten = 0
+          while True:
+              start = sample.find("                    let rendered = renderer.render_frame(", cursor)
+              if start < 0:
+                  break
+              end = sample.find("                    return Ok(());", start)
+              if end < 0:
+                  raise SystemExit("post-render block has no return marker")
+              end += len("                    return Ok(());")
+              block = sample[start:end]
+              if "let num_speakers = renderer.num_speakers();" not in block:
+                  cursor = end
+                  continue
+              block = block.replace(
+                  "let num_speakers = renderer.num_speakers();",
+                  "let output_channels = rendered.n_channels;",
+                  1,
+              )
+              block = block.replace("num_speakers", "output_channels")
+              sample = sample[:start] + block + sample[end:]
+              cursor = start + len(block)
+              rewritten += 1
+          if rewritten != 2:
+              raise SystemExit(f"rendered-frame width rewrite: expected 2 blocks, found {rewritten}")
+          write(sample_path, sample)
+
+      - name: Verify and publish source integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          test -f omniphony-renderer/orender_engine/src/channel_objects.rs
+          grep -q 'ChannelObjectStages' omniphony-renderer/orender_engine/src/channel_objects.rs
+          grep -q 'channel_objects: orender_engine::channel_objects::ChannelObjectStages' omniphony-renderer/src/cli/decode/state.rs
+          grep -q 'renderer.output_channel_count()' omniphony-renderer/src/cli/decode/handler.rs
+          grep -q 'let output_channels = rendered.n_channels;' omniphony-renderer/src/cli/decode/sample_write.rs
+          git rm -f .github/workflows/upstream-renderer-good-sync.yml || true
           git add \
-            omniphony-renderer/renderer/src/spatial_renderer/mod.rs \
-            omniphony-renderer/renderer/src/spatial_renderer/construction.rs \
-            omniphony-renderer/renderer/src/binaural/mod.rs \
-            omniphony-renderer/dsp_fixtures/src/binaural_block_size.rs
-          git commit -m "fix(binaural): make moving HRTFs callback-partition invariant"
+            omniphony-renderer/orender_engine/src/channel_objects.rs \
+            omniphony-renderer/orender_engine/src/engine.rs \
+            omniphony-renderer/orender_engine/src/lib.rs \
+            omniphony-renderer/src/cli/decode/state.rs \
+            omniphony-renderer/src/cli/decode/sample_write.rs \
+            omniphony-renderer/src/cli/decode/handler.rs \
+            omniphony-renderer/src/cli/decode/writer_lifecycle.rs \
+            .github/workflows/upstream-renderer-good-sync.yml
+          git commit -m "renderer: unify channel object staging across hosts"
           git push origin HEAD:main
