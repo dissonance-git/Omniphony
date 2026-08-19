@@ -46,10 +46,29 @@ function Show-TrayMessage([string]$Text) {
 function Restart-WindowsAudioService {
     try {
         $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-        $restartCommand = "Restart-Service -Name 'Audiosrv' -Force -ErrorAction Stop"
+        $restartCommand = @'
+$ErrorActionPreference = 'Stop'
+$timeout = [TimeSpan]::FromSeconds(15)
+
+$audio = Get-Service -Name 'Audiosrv' -ErrorAction Stop
+if ($audio.Status -ne 'Stopped') {
+    Stop-Service -Name 'Audiosrv' -Force -ErrorAction Stop
+    (Get-Service -Name 'Audiosrv' -ErrorAction Stop).WaitForStatus('Stopped', $timeout)
+}
+
+$builder = Get-Service -Name 'AudioEndpointBuilder' -ErrorAction Stop
+if ($builder.Status -ne 'Running') {
+    Start-Service -Name 'AudioEndpointBuilder' -ErrorAction Stop
+    (Get-Service -Name 'AudioEndpointBuilder' -ErrorAction Stop).WaitForStatus('Running', $timeout)
+}
+
+Start-Service -Name 'Audiosrv' -ErrorAction Stop
+(Get-Service -Name 'Audiosrv' -ErrorAction Stop).WaitForStatus('Running', $timeout)
+'@
+        $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($restartCommand))
         $process = Start-Process -FilePath $powershell `
             -Verb RunAs `
-            -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', $restartCommand) `
+            -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encodedCommand) `
             -Wait `
             -PassThru
         if ($process.ExitCode -ne 0) {
