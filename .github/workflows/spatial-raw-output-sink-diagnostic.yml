@@ -1,0 +1,82 @@
+name: Spatial RAW output sink diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/spatial-raw-output-sink-diagnostic.yml'
+      - 'omniphony-renderer/windows_installer/spatial_provider_probe/OmniphonySpatialRawOutputSink*'
+      - 'omniphony-renderer/windows_installer/spatial_provider_probe/CMakeLists.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  compile-contract:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup VS2022 MSBuild
+        uses: microsoft/setup-msbuild@v2
+        with:
+          vs-version: '[17.0,18.0)'
+
+      - name: Verify inert RAW lifecycle contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:GITHUB_WORKSPACE 'omniphony-renderer\windows_installer\spatial_provider_probe'
+          $header = Get-Content (Join-Path $root 'OmniphonySpatialRawOutputSink.h') -Raw
+          $source = Get-Content (Join-Path $root 'OmniphonySpatialRawOutputSink.cpp') -Raw
+
+          foreach ($needle in @(
+            'AUDCLNT_STREAMOPTIONS_RAW',
+            'AUDCLNT_STREAMFLAGS_EVENTCALLBACK',
+            'InitializeSharedAudioStream',
+            'IAudioRenderClient',
+            'SetEventHandle'
+          )) {
+            if (-not $source.Contains($needle)) {
+              throw "Missing RAW sink contract token: $needle"
+            }
+          }
+
+          if ($source -match '(?m)->Start\s*\(' -or $header -match '(?m)\bStart\s*\(') {
+            throw 'Inert RAW output sink must not expose or call Start().'
+          }
+          if (-not $header.Contains('IsStarted() const noexcept { return false; }')) {
+            throw 'Inert RAW output sink must report an explicit unstarted state.'
+          }
+          Write-Host 'SPATIAL_RAW_OUTPUT_SINK_INERT_CONTRACT_OK 1'
+
+      - name: Configure spatial provider targets
+        shell: pwsh
+        run: |
+          cmake `
+            -S "$env:GITHUB_WORKSPACE\omniphony-renderer\windows_installer\spatial_provider_probe" `
+            -B "$env:GITHUB_WORKSPACE\build\spatial-provider" `
+            -A x64
+          if ($LASTEXITCODE -ne 0) { throw "CMake configure failed: $LASTEXITCODE" }
+
+      - name: Build inert RAW output sink probe
+        shell: pwsh
+        run: |
+          cmake --build "$env:GITHUB_WORKSPACE\build\spatial-provider" `
+            --config Release `
+            --target OmniphonySpatialRawOutputSinkProbe `
+            --verbose
+          if ($LASTEXITCODE -ne 0) { throw "RAW sink probe build failed: $LASTEXITCODE" }
+
+      - name: Verify probe binary
+        shell: pwsh
+        run: |
+          $probe = "$env:GITHUB_WORKSPACE\build\spatial-provider\Release\OmniphonySpatialRawOutputSinkProbe.exe"
+          if (-not (Test-Path -LiteralPath $probe)) {
+            throw "RAW sink probe binary missing: $probe"
+          }
+          Write-Host "SPATIAL_RAW_OUTPUT_SINK_PROBE_BUILT 1"
+          Write-Host "SPATIAL_RAW_OUTPUT_SINK_PROBE_STARTED 0"
