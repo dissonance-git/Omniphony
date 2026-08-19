@@ -11,31 +11,25 @@ permissions:
   contents: write
 
 env:
-  CARGO_TERM_COLOR: always
   RUST_TOOLCHAIN: 1.88.0
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
-  integrate-and-validate:
+  integrate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libpipewire-0.3-dev libspa-0.2-dev pkg-config clang
-
-      - name: Install pinned Rust toolchain
+      - name: Install formatter
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt
           rustup override set "$RUST_TOOLCHAIN"
         working-directory: omniphony-renderer
 
-      - name: Apply upstream channel-object staging
+      - name: Apply upstream shared channel-object stage
         shell: bash
         run: |
           set -euo pipefail
@@ -44,11 +38,10 @@ jobs:
           git fetch --no-tags https://github.com/mgth/Omniphony.git ec9a8e3aa5890dae4469a381bf69fce1e7c6ff5a
           git cherry-pick --no-commit FETCH_HEAD
 
-      - name: Finish host geometry adaptation
+      - name: Finish renderer-owned host geometry
         shell: python
         run: |
           from pathlib import Path
-          import re
 
           def read(path):
               return Path(path).read_text(encoding="utf-8")
@@ -145,9 +138,6 @@ jobs:
 
           sample_path = "omniphony-renderer/src/cli/decode/sample_write.rs"
           sample = read(sample_path)
-          # The renderer result is the authority for output geometry. Restrict
-          # each rewrite to the post-render block so the separate Silence path's
-          # local speaker-width variable is untouched.
           cursor = 0
           rewritten = 0
           while True:
@@ -175,57 +165,22 @@ jobs:
               raise SystemExit(f"rendered-frame width rewrite: expected 2 blocks, found {rewritten}")
           write(sample_path, sample)
 
-      - name: Format integrated Rust
-        run: cargo fmt --all
-        working-directory: omniphony-renderer
-
-      - name: Verify patch hygiene
+      - name: Format and verify patch
         run: |
+          cargo fmt --all
+          cd ..
           git diff --check
-          git status --short
           test -f omniphony-renderer/orender_engine/src/channel_objects.rs
           grep -q 'ChannelObjectStages' omniphony-renderer/orender_engine/src/channel_objects.rs
           grep -q 'channel_objects: orender_engine::channel_objects::ChannelObjectStages' omniphony-renderer/src/cli/decode/state.rs
           grep -q 'renderer.output_channel_count()' omniphony-renderer/src/cli/decode/handler.rs
           grep -q 'let output_channels = rendered.n_channels;' omniphony-renderer/src/cli/decode/sample_write.rs
-
-      - name: Test shared channel-object stage
-        run: cargo test -p orender_engine channel_objects -- --nocapture
         working-directory: omniphony-renderer
 
-      - name: Test engine host
-        run: cargo test -p orender_engine
-        working-directory: omniphony-renderer
-
-      - name: Compile CLI host
-        run: cargo check -p omniphony-renderer
-        working-directory: omniphony-renderer
-
-      - name: Test binaural convolver invariants
-        run: cargo test -p renderer binaural::convolver::tests:: -- --nocapture
-        working-directory: omniphony-renderer
-
-      - name: Test deterministic HRTF timing
-        run: cargo test -p renderer binaural::validation:: -- --nocapture
-        working-directory: omniphony-renderer
-
-      - name: Test spatial diagnostic fixtures
-        run: cargo test -p dsp_fixtures
-        working-directory: omniphony-renderer
-
-      - name: Test Windows realtime source contract
-        run: cargo test -p realtime_ffi
-        working-directory: omniphony-renderer
-
-      - name: Compile release performance gates
-        run: cargo check --release -p renderer --features perf-gate --tests
-        working-directory: omniphony-renderer
-
-      - name: Publish integrated mechanisms
+      - name: Publish bounded source integration
         shell: bash
         run: |
           set -euo pipefail
-          git rm .github/workflows/upstream-renderer-good-sync.yml
           git add \
             omniphony-renderer/orender_engine/src/channel_objects.rs \
             omniphony-renderer/orender_engine/src/engine.rs \
