@@ -10,7 +10,7 @@ on:
       - 'omniphony-renderer/windows_installer/spatial_provider_probe/CMakeLists.txt'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   compile-contract:
@@ -26,6 +26,8 @@ jobs:
           vs-version: '[17.0,18.0)'
 
       - name: Verify inert RAW lifecycle contract
+        id: contract
+        continue-on-error: true
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -54,6 +56,8 @@ jobs:
           Write-Host 'SPATIAL_RAW_OUTPUT_SINK_INERT_CONTRACT_OK 1'
 
       - name: Configure spatial provider targets
+        id: configure
+        continue-on-error: true
         shell: pwsh
         run: |
           cmake `
@@ -63,6 +67,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "CMake configure failed: $LASTEXITCODE" }
 
       - name: Build inert RAW output sink probe
+        id: build
+        if: steps.configure.outcome == 'success'
+        continue-on-error: true
         shell: pwsh
         run: |
           cmake --build "$env:GITHUB_WORKSPACE\build\spatial-provider" `
@@ -72,6 +79,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "RAW sink probe build failed: $LASTEXITCODE" }
 
       - name: Verify probe binary
+        id: binary
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
         shell: pwsh
         run: |
           $probe = "$env:GITHUB_WORKSPACE\build\spatial-provider\Release\OmniphonySpatialRawOutputSinkProbe.exe"
@@ -80,3 +90,66 @@ jobs:
           }
           Write-Host "SPATIAL_RAW_OUTPUT_SINK_PROBE_BUILT 1"
           Write-Host "SPATIAL_RAW_OUTPUT_SINK_PROBE_STARTED 0"
+
+      - name: Write diagnostic record
+        if: always()
+        shell: pwsh
+        run: |
+          $diagnostics = Join-Path $env:GITHUB_WORKSPACE 'ci-diagnostics'
+          New-Item -ItemType Directory -Force $diagnostics | Out-Null
+          $contract = '${{ steps.contract.outcome }}'
+          $configure = '${{ steps.configure.outcome }}'
+          $build = '${{ steps.build.outcome }}'
+          $binary = '${{ steps.binary.outcome }}'
+          if (-not $build) { $build = 'skipped' }
+          if (-not $binary) { $binary = 'skipped' }
+          $overall = if (
+            $contract -eq 'success' -and
+            $configure -eq 'success' -and
+            $build -eq 'success' -and
+            $binary -eq 'success'
+          ) { 'success' } else { 'failure' }
+          [ordered]@{
+            schema = 'omniphony.windows.spatial-raw-output-sink-diagnostic.v1'
+            head_sha = $env:GITHUB_SHA
+            run_id = $env:GITHUB_RUN_ID
+            overall = $overall
+            contract = $contract
+            configure = $configure
+            build = $build
+            binary = $binary
+            stream_started = $false
+          } | ConvertTo-Json | Set-Content -Encoding utf8 `
+            (Join-Path $diagnostics 'spatial-raw-output-sink.json')
+
+      - name: Publish diagnostic record
+        if: always()
+        shell: pwsh
+        run: |
+          Set-Location $env:GITHUB_WORKSPACE
+          $record = 'ci-diagnostics/spatial-raw-output-sink.json'
+          if (-not (Test-Path $record)) {
+            throw 'Spatial RAW output sink diagnostic record was not produced.'
+          }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- $record
+          if (git diff --cached --quiet) {
+            Write-Host 'Spatial RAW output sink diagnostic record is unchanged.'
+            exit 0
+          }
+          git commit -m 'build(windows): record spatial raw output sink diagnostic'
+          if ($LASTEXITCODE -ne 0) { throw "Diagnostic commit failed: $LASTEXITCODE" }
+          git pull --rebase origin main
+          if ($LASTEXITCODE -ne 0) { throw "Diagnostic rebase failed: $LASTEXITCODE" }
+          git push origin HEAD:main
+          if ($LASTEXITCODE -ne 0) { throw "Diagnostic push failed: $LASTEXITCODE" }
+
+      - name: Enforce diagnostic result
+        if: always()
+        shell: pwsh
+        run: |
+          $record = Get-Content "$env:GITHUB_WORKSPACE\ci-diagnostics\spatial-raw-output-sink.json" -Raw | ConvertFrom-Json
+          if ($record.overall -ne 'success') {
+            throw "Spatial RAW output sink diagnostic failed: contract=$($record.contract) configure=$($record.configure) build=$($record.build) binary=$($record.binary)"
+          }
