@@ -41,26 +41,55 @@ function Get-RequiredFile {
     return (Resolve-Path -LiteralPath $path).Path
 }
 
+function Get-Sha256 {
+    param([string]$Path)
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
 function Assert-Hash {
     param([string]$Path, [string]$Expected)
-    $actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "Spatial-provider immutable generation is incomplete: $Path"
+    }
+    $actual = Get-Sha256 $Path
     if ($actual -ne $Expected) {
         throw "Spatial-provider staged file hash mismatch: $Path expected=$Expected actual=$actual"
     }
 }
 
 $packageRootResolved = (Resolve-Path -LiteralPath $PackageRoot).Path
-$providerSource = Get-RequiredFile $packageRootResolved 'OmniphonySpatialProbe.dll'
-$runtimeSource = Get-RequiredFile $packageRootResolved 'omniphony_realtime.dll'
-$ctlSource = Get-RequiredFile $packageRootResolved 'OmniphonySpatialProbeCtl.exe'
-$providerSmokeSource = Get-RequiredFile $packageRootResolved 'OmniphonySpatialProbeSmoke.exe'
-$streamSmokeSource = Get-RequiredFile $packageRootResolved 'OmniphonySpatialStaticStreamSmoke.exe'
-$bridgeSmokeSource = Get-RequiredFile $packageRootResolved 'OmniphonySpatialRealtimeBridgeSmoke.exe'
-$captureSource = Get-RequiredFile $packageRootResolved 'CaptureSpatialProviderState.ps1'
+$AppRoot = [System.IO.Path]::GetFullPath($AppRoot)
 
-$providerHash = (Get-FileHash -LiteralPath $providerSource -Algorithm SHA256).Hash.ToLowerInvariant()
-$runtimeHash = (Get-FileHash -LiteralPath $runtimeSource -Algorithm SHA256).Hash.ToLowerInvariant()
-$generation = '{0}-{1}' -f $providerHash.Substring(0, 12), $runtimeHash.Substring(0, 12)
+$files = @(
+    @{ Source = (Get-RequiredFile $packageRootResolved 'OmniphonySpatialProbe.dll'); Name = 'OmniphonySpatialProbe.dll' },
+    @{ Source = (Get-RequiredFile $packageRootResolved 'omniphony_realtime.dll'); Name = 'omniphony_realtime.dll' },
+    @{ Source = (Get-RequiredFile $packageRootResolved 'OmniphonySpatialProbeCtl.exe'); Name = 'OmniphonySpatialProbeCtl.exe' },
+    @{ Source = (Get-RequiredFile $packageRootResolved 'OmniphonySpatialProbeSmoke.exe'); Name = 'OmniphonySpatialProbeSmoke.exe' },
+    @{ Source = (Get-RequiredFile $packageRootResolved 'OmniphonySpatialStaticStreamSmoke.exe'); Name = 'OmniphonySpatialStaticStreamSmoke.exe' },
+    @{ Source = (Get-RequiredFile $packageRootResolved 'OmniphonySpatialRealtimeBridgeSmoke.exe'); Name = 'OmniphonySpatialRealtimeBridgeSmoke.exe' },
+    @{ Source = (Get-RequiredFile $packageRootResolved 'CaptureSpatialProviderState.ps1'); Name = 'CaptureSpatialProviderState.ps1' }
+)
+
+foreach ($file in $files) {
+    $file.Hash = Get-Sha256 $file.Source
+}
+
+$identity = ($files | Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Hash)" }) -join "`n"
+$identityBytes = [System.Text.Encoding]::UTF8.GetBytes($identity)
+$sha256 = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $packageDigestBytes = $sha256.ComputeHash($identityBytes)
+}
+finally {
+    $sha256.Dispose()
+}
+$packageDigest = [System.BitConverter]::ToString($packageDigestBytes).Replace('-', '').ToLowerInvariant()
+$generation = $packageDigest.Substring(0, 24)
+
+$providerEntry = $files | Where-Object { $_.Name -eq 'OmniphonySpatialProbe.dll' } | Select-Object -First 1
+$runtimeEntry = $files | Where-Object { $_.Name -eq 'omniphony_realtime.dll' } | Select-Object -First 1
+$providerHash = $providerEntry.Hash
+$runtimeHash = $runtimeEntry.Hash
 
 $spatialRoot = Join-Path $AppRoot 'SpatialProvider'
 $generationsRoot = Join-Path $spatialRoot 'generations'
@@ -70,19 +99,10 @@ $manifestPath = Join-Path $spatialRoot 'staged-generation.json'
 
 New-Item -ItemType Directory -Force -Path $generationsRoot | Out-Null
 
-$files = @(
-    @{ Source = $providerSource; Name = 'OmniphonySpatialProbe.dll' },
-    @{ Source = $runtimeSource; Name = 'omniphony_realtime.dll' },
-    @{ Source = $ctlSource; Name = 'OmniphonySpatialProbeCtl.exe' },
-    @{ Source = $providerSmokeSource; Name = 'OmniphonySpatialProbeSmoke.exe' },
-    @{ Source = $streamSmokeSource; Name = 'OmniphonySpatialStaticStreamSmoke.exe' },
-    @{ Source = $bridgeSmokeSource; Name = 'OmniphonySpatialRealtimeBridgeSmoke.exe' },
-    @{ Source = $captureSource; Name = 'CaptureSpatialProviderState.ps1' }
-)
-
 if (Test-Path -LiteralPath $generationRoot -PathType Container) {
-    Assert-Hash (Join-Path $generationRoot 'OmniphonySpatialProbe.dll') $providerHash
-    Assert-Hash (Join-Path $generationRoot 'omniphony_realtime.dll') $runtimeHash
+    foreach ($file in $files) {
+        Assert-Hash (Join-Path $generationRoot $file.Name) $file.Hash
+    }
     Write-Host "SPATIAL_PROVIDER_GENERATION_REUSED $generationRoot"
 }
 else {
@@ -95,23 +115,13 @@ else {
         foreach ($file in $files) {
             Copy-Item -LiteralPath $file.Source -Destination (Join-Path $stagingRoot $file.Name) -Force
         }
+        foreach ($file in $files) {
+            Assert-Hash (Join-Path $stagingRoot $file.Name) $file.Hash
+        }
 
-        Assert-Hash (Join-Path $stagingRoot 'OmniphonySpatialProbe.dll') $providerHash
-        Assert-Hash (Join-Path $stagingRoot 'omniphony_realtime.dll') $runtimeHash
-
-        Invoke-NativeChecked \
-            -Path (Join-Path $stagingRoot 'OmniphonySpatialProbeSmoke.exe') \
-            -Arguments @((Join-Path $stagingRoot 'OmniphonySpatialProbe.dll')) \
-            -Label 'Spatial provider capability smoke'
-
-        Invoke-NativeChecked \
-            -Path (Join-Path $stagingRoot 'OmniphonySpatialStaticStreamSmoke.exe') \
-            -Label 'Spatial static stream lifecycle smoke'
-
-        Invoke-NativeChecked \
-            -Path (Join-Path $stagingRoot 'OmniphonySpatialRealtimeBridgeSmoke.exe') \
-            -Arguments @((Join-Path $stagingRoot 'omniphony_realtime.dll')) \
-            -Label 'Spatial realtime bridge smoke'
+        Invoke-NativeChecked -Path (Join-Path $stagingRoot 'OmniphonySpatialProbeSmoke.exe') -Arguments @((Join-Path $stagingRoot 'OmniphonySpatialProbe.dll')) -Label 'Spatial provider capability smoke'
+        Invoke-NativeChecked -Path (Join-Path $stagingRoot 'OmniphonySpatialStaticStreamSmoke.exe') -Label 'Spatial static stream lifecycle smoke'
+        Invoke-NativeChecked -Path (Join-Path $stagingRoot 'OmniphonySpatialRealtimeBridgeSmoke.exe') -Arguments @((Join-Path $stagingRoot 'omniphony_realtime.dll')) -Label 'Spatial realtime bridge smoke'
 
         Move-Item -LiteralPath $stagingRoot -Destination $generationRoot
         Write-Host "SPATIAL_PROVIDER_GENERATION_STAGED $generationRoot"
@@ -124,28 +134,28 @@ else {
     }
 }
 
-# Re-run the two package-coupling smokes from the immutable final path. This
-# catches path-sensitive loading mistakes before a later transaction is allowed
-# to point Windows at this generation.
-Invoke-NativeChecked \
-    -Path (Join-Path $generationRoot 'OmniphonySpatialProbeSmoke.exe') \
-    -Arguments @((Join-Path $generationRoot 'OmniphonySpatialProbe.dll')) \
-    -Label 'Final-path provider capability smoke'
+# Re-run package-coupling smokes from the immutable final path. This catches
+# path-sensitive loading mistakes before a later transaction is allowed to
+# point Windows at this generation.
+Invoke-NativeChecked -Path (Join-Path $generationRoot 'OmniphonySpatialProbeSmoke.exe') -Arguments @((Join-Path $generationRoot 'OmniphonySpatialProbe.dll')) -Label 'Final-path provider capability smoke'
+Invoke-NativeChecked -Path (Join-Path $generationRoot 'OmniphonySpatialRealtimeBridgeSmoke.exe') -Arguments @((Join-Path $generationRoot 'omniphony_realtime.dll')) -Label 'Final-path realtime bridge smoke'
 
-Invoke-NativeChecked \
-    -Path (Join-Path $generationRoot 'OmniphonySpatialRealtimeBridgeSmoke.exe') \
-    -Arguments @((Join-Path $generationRoot 'omniphony_realtime.dll')) \
-    -Label 'Final-path realtime bridge smoke'
+$fileHashes = [ordered]@{}
+foreach ($file in ($files | Sort-Object Name)) {
+    $fileHashes[$file.Name] = $file.Hash
+}
 
 $manifest = [ordered]@{
     schema = 'omniphony.windows.spatial-provider-stage.v1'
     state = 'staged-not-registered'
     generation = $generation
+    package_sha256 = $packageDigest
     generation_root = $generationRoot
     provider_dll = (Join-Path $generationRoot 'OmniphonySpatialProbe.dll')
     provider_sha256 = $providerHash
     realtime_dll = (Join-Path $generationRoot 'omniphony_realtime.dll')
     realtime_sha256 = $runtimeHash
+    file_sha256 = $fileHashes
     staged_utc = [DateTime]::UtcNow.ToString('o')
     registry_mutated = $false
     provider_selected = $false
@@ -153,10 +163,10 @@ $manifest = [ordered]@{
 
 New-Item -ItemType Directory -Force -Path $spatialRoot | Out-Null
 $tempManifest = "$manifestPath.tmp-$PID"
-$manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $tempManifest -Encoding UTF8
+$manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $tempManifest -Encoding UTF8
 Move-Item -LiteralPath $tempManifest -Destination $manifestPath -Force
 
-Write-Host "SPATIAL_PROVIDER_STAGE_OK GENERATION=$generation"
+Write-Host "SPATIAL_PROVIDER_STAGE_OK GENERATION=$generation PACKAGE_SHA256=$packageDigest"
 Write-Host "SPATIAL_PROVIDER_STAGE_MANIFEST $manifestPath"
 Write-Host 'SPATIAL_PROVIDER_REGISTRY_MUTATED 0'
 Write-Host 'SPATIAL_PROVIDER_SELECTED 0'
