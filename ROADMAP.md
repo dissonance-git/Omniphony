@@ -99,7 +99,7 @@ No synthetic lower speakers or back-center channels may be promoted to `AUTHORED
 
 ## Phase 2: Windows Spatial Sound provider seam
 
-**State: immediate frontier. Capability, internal static stream, COM-shaped static quantum transport into Current, C++ realtime bridge, read-only RAW endpoint preflight, and hardened immutable package staging are implemented in source behind a closed public provider gate. Real Windows enumeration/selection and the final output/cadence boundary remain pending.**
+**State: immediate frontier. Capability, internal static stream, COM-shaped static quantum transport into Current, C++ realtime bridge, RAW-mode APO single-render bypass, read-only RAW endpoint preflight, and hardened immutable package staging are implemented in source behind a closed public provider gate. Real Windows enumeration/selection and an event-driven final output/cadence boundary remain pending.**
 
 This is the critical platform milestone.
 
@@ -124,7 +124,9 @@ canonical static scene + dynamic object layer
         ↓
 Omniphony binaural renderer
         ↓
-headphones
+RAW stereo egress with Omniphony APOs transparent
+        ↓
+physical headphone endpoint
 ```
 
 ### P0: endpoint capability
@@ -140,6 +142,10 @@ Already implemented as read-only probing:
 This proves endpoint capabilities only. It does not prove that Omniphony can become the selected provider.
 
 A separate read-only `IAudioClient3` RAW output probe now inspects the intended physical endpoint without initializing or starting a render stream. It records endpoint identity, stereo float32 / 48 kHz support, shared-engine period constraints, and whether the current 480-frame quantum is legal. This is preflight evidence for the future output transaction, not output proof.
+
+The installed APO side now has an explicit RAW contract as well. Both the endpoint and stream APO capture the Windows audio processing mode at initialization. In `AUDIO_SIGNALPROCESSINGMODE_RAW`, they do not load Current. The endpoint APO becomes an identity effect, while the stream APO also suppresses its normal 7.1 preferred-input expansion and accepts only an identity stereo float32 pair. A dedicated smoke encodes bit transparency, silent-buffer transparency, zero Omniphony latency, no `omniphony_realtime.dll` load, and 7.1 rejection in RAW mode.
+
+This is the source-level condition required before a future provider may place already-rendered binaural stereo back onto the physical endpoint without double-rendering it.
 
 ### P1: provider enumeration
 
@@ -193,6 +199,14 @@ The public provider is therefore still intentionally closed. `IsSpatialAudioStre
 
 A useful open-source prior exists in `ThreeDeeJay/MSSOAL`, which implements a COM object shaped as `ISpatialAudioClient` plus `ISpatialAudioObjectRenderStream` and `ISpatialAudioObject`. Its registration tool independently identified the same `Spatial\Encoder` surface using Process Monitor observations. MSSOAL describes its provider work as a proof of concept rather than a working product, so it remains a mechanism quarry rather than Windows proof.
 
+Its stream implementation is still useful for one architecture warning: it documents a move away from an independent render-thread clock toward synchronous object-buffer submission because the earlier two-clock design accumulated drift and stutter. A separate SciSpace pass over low-latency audio scheduling and clock-skew work points in the same direction: keep the callback-facing path bounded, decouple heavyweight DSP from the time-critical callback, and avoid independent free-running producer/consumer clocks unless explicit drift compensation exists.
+
+For Omniphony, that makes the intended output law:
+
+> **The physical endpoint render cadence should become the single downstream clock owner, rather than adding another free-running provider render clock.**
+
+This remains an engineering hypothesis until the Windows output path is implemented and measured on the real machine.
+
 Treat MSSOAL as a mechanism quarry, not proof:
 
 - reuse interface shape and lifecycle ideas where correct;
@@ -207,8 +221,10 @@ internal static COM lifecycle exists
 ≠ static-object realtime ABI reaches Current in isolation
 ≠ C++ bridge drives that ABI in isolation
 ≠ COM-shaped update quanta reach Current in isolation
+≠ RAW-mode Omniphony APOs are source-level transparent
 ≠ immutable package generation stages successfully
 ≠ RAW endpoint capability preflight succeeds
+≠ event-driven RAW output lifecycle opens safely
 ≠ Windows enumerates Omniphony
 ≠ Windows activates its COM provider
 ≠ rendered stereo reaches the real endpoint with correct cadence
@@ -219,7 +235,7 @@ Each transition needs separate evidence.
 
 ### P3: static object stream
 
-**Implementation state:** registry-free COM lifecycle, activation marshalling, immutable static-role quantum assembly, object volume/EOS handling, realtime bridge transport, and Current worker handoff exist in source. Final endpoint output/cadence and real Windows provider proof remain pending.
+**Implementation state:** registry-free COM lifecycle, activation marshalling, immutable static-role quantum assembly, object volume/EOS handling, realtime bridge transport, Current worker handoff, and RAW-mode double-render prevention exist in source. Final endpoint output/cadence and real Windows provider proof remain pending.**
 
 The internal COM stream already models:
 
@@ -252,9 +268,10 @@ The source-side static path now additionally guarantees:
 3. completed COM update quanta are assembled into planar PCM in that exact order;
 4. inactive or ended static roles become silence rather than mutating topology;
 5. per-object volume and partial end-of-stream semantics are applied before handoff;
-6. DLL discovery and renderer construction happen before update processing, not inside the OS-facing update call.
+6. DLL discovery and renderer construction happen before update processing, not inside the OS-facing update call;
+7. once Current has produced binaural stereo, Windows RAW processing mode leaves the Omniphony endpoint and stream APOs transparent rather than invoking Current again.
 
-The remaining engineering frontier is the real Windows output/cadence mechanism that consumes returned stereo without creating a second renderer or double-render path. The read-only RAW output probe narrows this question by exposing the endpoint's supported format and period constraints without altering the graph. Only after the output owner is implemented and physically verified should public stream availability open.
+The next engineering primitive is deliberately inert: an event-driven RAW output sink bound to the exact physical endpoint that can initialize the shared stream, obtain `IAudioRenderClient`, bind an event handle, validate the actual buffer/period contract, and then remain **unstarted**. Only after that lifecycle is stable should the provider use the endpoint event as its downstream cadence and begin moving returned stereo into the render buffer.
 
 All of this must follow the existing Windows realtime law: no filesystem I/O, device discovery, allocation-heavy renderer graph, or research work on the OS-facing update path.
 
@@ -354,7 +371,9 @@ Required activation order once end-to-end provider transport is ready:
 ```text
 stage immutable generation                         source primitive exists
 → verify exact file set + hashes + final smokes   source primitive exists
-→ run read-only RAW endpoint preflight            probe exists; transaction wiring pending
+→ verify installed APO RAW bypass contract        source smoke exists
+→ run read-only RAW endpoint preflight            source primitive exists
+→ open event-driven RAW output lifecycle          next source primitive; do not start
 → capture prior provider and selection state
 → switch only Omniphony-owned registration to the new generation
 → verify COM activation and capability contract
@@ -491,7 +510,7 @@ Practitioner evidence from QuadraphonicQuad is useful here because it exposes co
 
 ## Phase 8: Already-binaural detection and double-render prevention
 
-**State: required before automatic mixed-source policy**
+**State: required before automatic mixed-source policy; provider RAW egress now has a separate explicit bypass contract**
 
 A two-channel signal is not automatically ordinary stereo. If another spatial renderer has already produced binaural output, Omniphony must not apply a second HRTF field blindly.
 
@@ -508,6 +527,8 @@ or explicitly validated non-spatial correction only
 
 Automated switching requires a trustworthy signal. Channel count alone is insufficient.
 
+The provider path is not heuristic: when Omniphony itself has just produced the final binaural stereo, RAW processing mode is an explicit provenance-bearing egress contract and both Omniphony APOs are required to remain transparent.
+
 ---
 
 ## Phase 9: Windows product hardening
@@ -521,6 +542,7 @@ Spatial-provider installation safety begins during Phase 2 rather than waiting u
 - underrun and latency hardening;
 - object-capacity changes;
 - static/dynamic object lifecycle abuse tests;
+- RAW-mode APO bypass regression and bit-transparency checks;
 - application compatibility matrix;
 - clean coexistence with non-spatial applications;
 - safe provider selection, rollback, upgrade, repair, and uninstall;
@@ -604,15 +626,21 @@ C++ realtime DLL bridge                          source implemented
         ↓
 COM-shaped quantum → bridge → Current            source implemented
         ↓
+RAW-mode Omniphony APO single-render bypass      source implemented
+        ↓
 immutable provider generation staging            source implemented
         ↓
 RAW physical-output capability preflight         source implemented
+        ↓
+event-driven RAW output sink lifecycle           next: initialize, bind event, do not start
         ↓
 prove Omniphony Spatial Sound provider enumeration
         ↓
 prove provider COM activation on real Windows
         ↓
-implement + prove rendered-stereo output/cadence boundary
+make physical endpoint cadence the output clock owner
+        ↓
+prove rendered stereo reaches the real endpoint once
         ↓
 open public stream activation gate
         ↓
@@ -635,7 +663,11 @@ personalization + optional head tracking
 product hardening and public release
 ```
 
-The next decisive end-to-end milestone remains intentionally concrete:
+The next decisive source milestone is now intentionally smaller than end-to-end activation:
+
+> **Open the exact physical endpoint as an event-driven RAW stereo sink, prove its negotiated period/buffer/render-client contract, keep it unstarted, and make no provider-selection mutation.**
+
+The next decisive end-to-end milestone remains:
 
 > **A source is authored above the listener, reaches Omniphony as an actual Windows spatial object rather than an inference, crosses the existing static-object Current worker path, and Omniphony alone delivers the final headphone render to the real endpoint.**
 
@@ -652,6 +684,16 @@ The next decisive end-to-end milestone remains intentionally concrete:
 - `ISpatialAudioClient::ActivateSpatialAudioStream`: https://learn.microsoft.com/windows/win32/api/spatialaudioclient/nf-spatialaudioclient-ispatialaudioclient-activatespatialaudiostream
 - `SpatialAudioObjectRenderStreamActivationParams`: https://learn.microsoft.com/windows/win32/api/spatialaudioclient/ns-spatialaudioclient-spatialaudioobjectrenderstreamactivationparams
 - `AudioObjectType`: https://learn.microsoft.com/windows/win32/api/spatialaudioclient/ne-spatialaudioclient-audioobjecttype
+- Microsoft Windows Audio Session WASAPI renderer sample: https://github.com/microsoft/Windows-universal-samples/tree/main/Samples/WindowsAudioSession
+- Microsoft SysVAD SwapAPO sample, including RAW-mode SFX bypass: https://github.com/microsoft/Windows-driver-samples/tree/main/audio/sysvad/APO/SwapAPO
+
+### Realtime scheduling / clocking research quarry
+
+- *ANIRA: An Architecture for Neural Network Inference in Real-Time Audio Applications* (2024/2025): decouples heavyweight inference from the audio callback and manages bounded latency.
+- Yonghao Wang, *Low Latency Audio Processing* (2018 dissertation): analyzes buffering and OS scheduling as core latency/predictability constraints.
+- Stefan Werner, *An algorithm for audio skew compensation in low latency environments* (ICMC 2005): demonstrates that independently clocked audio paths require explicit skew compensation.
+
+These sources support bounded callback work and single-clock design pressure. They do not by themselves prove the undocumented Windows provider/output seam.
 
 ### Open-source implementation quarry
 
