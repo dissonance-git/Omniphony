@@ -10,6 +10,7 @@ mod native_bed;
 mod native_bed_ffi;
 mod noire_x_profile;
 mod windows_object_scene;
+mod windows_static_ffi;
 pub mod windows_spatial_contract;
 
 use height_preference::HeightPreference;
@@ -26,7 +27,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 const ABI_MAJOR: u32 = 0;
-const ABI_MINOR: u32 = 3;
+const ABI_MINOR: u32 = 4;
 const MODE_IDENTITY: u32 = 0;
 const MODE_CURRENT: u32 = 1;
 const PROCESS_BLOCK_MS: usize = 20;
