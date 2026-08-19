@@ -36,6 +36,13 @@ struct AsyncNativeBed {
 
 impl AsyncNativeBed {
     fn new(sample_rate_hz: u32, channels: usize, channel_mask: u32) -> Result<Self, String> {
+        if !crate::module_lifetime::pin_for_process_lifetime() {
+            return Err(
+                "could not pin realtime module for detached native-bed worker lifetime"
+                    .to_string(),
+            );
+        }
+
         let fallback_layout = NativeBedLayout::new(channels, channel_mask)?;
         let input_capacity = (sample_rate_hz as usize)
             .saturating_mul(channels)

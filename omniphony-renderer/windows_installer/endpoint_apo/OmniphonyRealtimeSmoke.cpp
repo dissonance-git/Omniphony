@@ -181,13 +181,25 @@ int wmain(int argc, wchar_t** argv) {
         }
     }
 
+    const uint32_t reportedAbiMajor = abiMajor();
+    const uint32_t reportedAbiMinor = abiMinor();
     if (result == 0) {
-        std::wcout << L"REALTIME_DLL_OK\tABI=" << abiMajor() << L"." << abiMinor()
+        std::wcout << L"REALTIME_DLL_OK\tABI=" << reportedAbiMajor << L"." << reportedAbiMinor
                    << L"\tIDENTITY_BIT_EXACT=1\tCURRENT_INIT=1\tCURRENT_LATENCY_FRAMES=1920"
                    << L"\tSPATIAL_STATIC_INIT=1"
                    << std::endl;
     }
 
     FreeLibrary(module);
+    module = nullptr;
+
+    if (result == 0) {
+        if (GetModuleHandleW(L"omniphony_realtime.dll") == nullptr) {
+            std::wcerr << L"REALTIME_DLL_PIN_FAILED" << std::endl;
+            result = 17;
+        } else {
+            std::wcout << L"REALTIME_DLL_PIN_OK\tPROCESS_LIFETIME=1" << std::endl;
+        }
+    }
     return result;
 }

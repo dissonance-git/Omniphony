@@ -6,6 +6,7 @@
 //! allocating renderer never runs on the audio callback thread.
 
 mod height_preference;
+mod module_lifetime;
 mod native_bed;
 mod native_bed_ffi;
 mod noire_x_profile;
@@ -341,6 +342,12 @@ struct AsyncCurrent {
 
 impl AsyncCurrent {
     fn new(sample_rate_hz: u32) -> Result<Self, String> {
+        if !module_lifetime::pin_for_process_lifetime() {
+            return Err(
+                "could not pin realtime module for detached Current worker lifetime".to_string(),
+            );
+        }
+
         let capacity_samples = (sample_rate_hz as usize)
             .saturating_mul(2)
             .saturating_mul(RING_SECONDS);
