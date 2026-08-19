@@ -194,7 +194,13 @@ int wmain(int argc, wchar_t** argv) {
     module = nullptr;
 
     if (result == 0) {
-        if (GetModuleHandleW(L"omniphony_realtime.dll") == nullptr) {
+        HMODULE resident = nullptr;
+        const BOOL residentByAddress = GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(abiMajor),
+            &resident);
+        if (!residentByAddress || resident == nullptr) {
             std::wcerr << L"REALTIME_DLL_PIN_FAILED" << std::endl;
             result = 17;
         } else {
