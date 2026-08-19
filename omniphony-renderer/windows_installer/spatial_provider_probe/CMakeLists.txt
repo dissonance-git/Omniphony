@@ -25,3 +25,11 @@ target_compile_features(OmniphonySpatialProbeCtl PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonySpatialProbeCtl PRIVATE UNICODE _UNICODE)
 target_compile_options(OmniphonySpatialProbeCtl PRIVATE /W4 /WX /permissive-)
 target_link_libraries(OmniphonySpatialProbeCtl PRIVATE ole32 uuid advapi32)
+
+add_executable(OmniphonySpatialProbeSmoke
+    OmniphonySpatialProbeSmoke.cpp
+)
+target_compile_features(OmniphonySpatialProbeSmoke PRIVATE cxx_std_17)
+target_compile_definitions(OmniphonySpatialProbeSmoke PRIVATE UNICODE _UNICODE)
+target_compile_options(OmniphonySpatialProbeSmoke PRIVATE /W4 /WX /permissive-)
+target_link_libraries(OmniphonySpatialProbeSmoke PRIVATE ole32 uuid)
