@@ -57,6 +57,54 @@ function Assert-Hash {
     }
 }
 
+function Assert-ExactFileSet {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string[]]$ExpectedNames
+    )
+
+    if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
+        throw "Spatial-provider generation directory is missing: $Root"
+    }
+
+    $expected = @($ExpectedNames | Sort-Object)
+    $actualItems = @(Get-ChildItem -LiteralPath $Root -Force)
+    $directories = @($actualItems | Where-Object { $_.PSIsContainer })
+    if ($directories.Count -ne 0) {
+        $names = ($directories | ForEach-Object { $_.Name }) -join ', '
+        throw "Spatial-provider immutable generation contains unexpected directories: $names"
+    }
+
+    $actual = @($actualItems | ForEach-Object { $_.Name } | Sort-Object)
+    $diff = @(Compare-Object -ReferenceObject $expected -DifferenceObject $actual)
+    if ($diff.Count -ne 0) {
+        $detail = ($diff | ForEach-Object { "$($_.SideIndicator)$($_.InputObject)" }) -join ', '
+        throw "Spatial-provider immutable generation file set mismatch: $Root [$detail]"
+    }
+}
+
+function Test-PathWithin {
+    param(
+        [Parameter(Mandatory = $true)][string]$Child,
+        [Parameter(Mandatory = $true)][string]$Parent
+    )
+
+    $childFull = [System.IO.Path]::GetFullPath($Child).TrimEnd('\')
+    $parentFull = [System.IO.Path]::GetFullPath($Parent).TrimEnd('\')
+    if ($childFull.Equals($parentFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $true
+    }
+    return $childFull.StartsWith($parentFull + '\', [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+    throw 'Spatial-provider staging must run from a 64-bit PowerShell process on 64-bit Windows to avoid Program Files and future registry-view redirection.'
+}
+
+if (-not (Test-Path -LiteralPath $PackageRoot -PathType Container)) {
+    throw "Spatial-provider package root is missing or is not a directory: $PackageRoot"
+}
+
 $packageRootResolved = (Resolve-Path -LiteralPath $PackageRoot).Path
 $AppRoot = [System.IO.Path]::GetFullPath($AppRoot)
 
@@ -90,6 +138,7 @@ $providerEntry = $files | Where-Object { $_.Name -eq 'OmniphonySpatialProbe.dll'
 $runtimeEntry = $files | Where-Object { $_.Name -eq 'omniphony_realtime.dll' } | Select-Object -First 1
 $providerHash = $providerEntry.Hash
 $runtimeHash = $runtimeEntry.Hash
+$expectedNames = @($files | ForEach-Object { $_.Name })
 
 $spatialRoot = Join-Path $AppRoot 'SpatialProvider'
 $generationsRoot = Join-Path $spatialRoot 'generations'
@@ -97,9 +146,17 @@ $generationRoot = Join-Path $generationsRoot $generation
 $stagingRoot = Join-Path $generationsRoot ('.{0}.staging-{1}' -f $generation, $PID)
 $manifestPath = Join-Path $spatialRoot 'staged-generation.json'
 
+if (Test-PathWithin -Child $packageRootResolved -Parent $spatialRoot) {
+    throw "Spatial-provider package root must not be inside the managed SpatialProvider tree: $packageRootResolved"
+}
+if (Test-PathWithin -Child $generationRoot -Parent $packageRootResolved) {
+    throw "Spatial-provider managed generation must not be created inside the source package root: $generationRoot"
+}
+
 New-Item -ItemType Directory -Force -Path $generationsRoot | Out-Null
 
 if (Test-Path -LiteralPath $generationRoot -PathType Container) {
+    Assert-ExactFileSet -Root $generationRoot -ExpectedNames $expectedNames
     foreach ($file in $files) {
         Assert-Hash (Join-Path $generationRoot $file.Name) $file.Hash
     }
@@ -115,6 +172,7 @@ else {
         foreach ($file in $files) {
             Copy-Item -LiteralPath $file.Source -Destination (Join-Path $stagingRoot $file.Name) -Force
         }
+        Assert-ExactFileSet -Root $stagingRoot -ExpectedNames $expectedNames
         foreach ($file in $files) {
             Assert-Hash (Join-Path $stagingRoot $file.Name) $file.Hash
         }
@@ -134,10 +192,16 @@ else {
     }
 }
 
-# Re-run package-coupling smokes from the immutable final path. This catches
-# path-sensitive loading mistakes before a later transaction is allowed to
-# point Windows at this generation.
+# Re-verify the immutable directory after promotion/reuse and re-run all
+# package-coupling smokes from the final path. This catches extra-file drift,
+# hash drift, and path-sensitive loading mistakes before a later transaction is
+# allowed to point Windows at this generation.
+Assert-ExactFileSet -Root $generationRoot -ExpectedNames $expectedNames
+foreach ($file in $files) {
+    Assert-Hash (Join-Path $generationRoot $file.Name) $file.Hash
+}
 Invoke-NativeChecked -Path (Join-Path $generationRoot 'OmniphonySpatialProbeSmoke.exe') -Arguments @((Join-Path $generationRoot 'OmniphonySpatialProbe.dll')) -Label 'Final-path provider capability smoke'
+Invoke-NativeChecked -Path (Join-Path $generationRoot 'OmniphonySpatialStaticStreamSmoke.exe') -Label 'Final-path spatial static stream lifecycle smoke'
 Invoke-NativeChecked -Path (Join-Path $generationRoot 'OmniphonySpatialRealtimeBridgeSmoke.exe') -Arguments @((Join-Path $generationRoot 'omniphony_realtime.dll')) -Label 'Final-path realtime bridge smoke'
 
 $fileHashes = [ordered]@{}
@@ -150,6 +214,7 @@ $manifest = [ordered]@{
     state = 'staged-not-registered'
     generation = $generation
     package_sha256 = $packageDigest
+    app_root = $AppRoot
     generation_root = $generationRoot
     provider_dll = (Join-Path $generationRoot 'OmniphonySpatialProbe.dll')
     provider_sha256 = $providerHash
@@ -157,16 +222,29 @@ $manifest = [ordered]@{
     realtime_sha256 = $runtimeHash
     file_sha256 = $fileHashes
     staged_utc = [DateTime]::UtcNow.ToString('o')
+    os_64_bit = [Environment]::Is64BitOperatingSystem
+    process_64_bit = [Environment]::Is64BitProcess
+    exact_file_set_verified = $true
+    final_path_smokes_verified = $true
     registry_mutated = $false
     provider_selected = $false
 }
 
 New-Item -ItemType Directory -Force -Path $spatialRoot | Out-Null
 $tempManifest = "$manifestPath.tmp-$PID"
-$manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $tempManifest -Encoding UTF8
-Move-Item -LiteralPath $tempManifest -Destination $manifestPath -Force
+try {
+    $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $tempManifest -Encoding UTF8
+    Move-Item -LiteralPath $tempManifest -Destination $manifestPath -Force
+}
+finally {
+    if (Test-Path -LiteralPath $tempManifest -PathType Leaf) {
+        Remove-Item -LiteralPath $tempManifest -Force -ErrorAction SilentlyContinue
+    }
+}
 
 Write-Host "SPATIAL_PROVIDER_STAGE_OK GENERATION=$generation PACKAGE_SHA256=$packageDigest"
 Write-Host "SPATIAL_PROVIDER_STAGE_MANIFEST $manifestPath"
+Write-Host 'SPATIAL_PROVIDER_EXACT_FILE_SET_VERIFIED 1'
+Write-Host 'SPATIAL_PROVIDER_FINAL_PATH_SMOKES_VERIFIED 1'
 Write-Host 'SPATIAL_PROVIDER_REGISTRY_MUTATED 0'
 Write-Host 'SPATIAL_PROVIDER_SELECTED 0'
