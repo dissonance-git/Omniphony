@@ -44,7 +44,7 @@ HRESULT OmniphonySpatialRawOutputSink::Open(
     std::uint32_t requestedPeriodFrames) noexcept {
     Close();
 
-    if (!physicalEndpointId || !physicalEndpointId[0] || requestedPeriodFrames == 0) {
+    if (!physicalEndpointId || !physicalEndpointId[0]) {
         return E_INVALIDARG;
     }
 
@@ -119,12 +119,16 @@ HRESULT OmniphonySpatialRawOutputSink::Open(
     if (FAILED(hr)) {
         return hr;
     }
+
+    const UINT32 selectedPeriod = requestedPeriodFrames == 0
+        ? defaultPeriod
+        : requestedPeriodFrames;
     if (!IsLegalPeriod(
-            requestedPeriodFrames,
+            selectedPeriod,
             fundamentalPeriod,
             minimumPeriod,
             maximumPeriod)) {
-        return E_INVALIDARG;
+        return requestedPeriodFrames == 0 ? E_UNEXPECTED : E_INVALIDARG;
     }
 
     HANDLE sampleReadyEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -134,7 +138,7 @@ HRESULT OmniphonySpatialRawOutputSink::Open(
 
     hr = client->InitializeSharedAudioStream(
         AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-        requestedPeriodFrames,
+        selectedPeriod,
         &desired,
         nullptr);
     if (FAILED(hr)) {
@@ -168,7 +172,7 @@ HRESULT OmniphonySpatialRawOutputSink::Open(
     renderClient_ = renderClient;
     sampleReadyEvent_ = sampleReadyEvent;
     bufferFrames_ = bufferFrames;
-    periodFrames_ = requestedPeriodFrames;
+    periodFrames_ = selectedPeriod;
     sampleRateHz_ = desired.nSamplesPerSec;
     return S_OK;
 }
