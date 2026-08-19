@@ -3,7 +3,7 @@ name: Dispatch current Windows installer once
 on:
   workflow_run:
     workflows: ['Omniphony for Windows installer']
-    types: [requested]
+    types: [completed]
 
 permissions:
   actions: write
