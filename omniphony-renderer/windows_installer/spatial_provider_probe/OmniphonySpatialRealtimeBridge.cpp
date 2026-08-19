@@ -3,8 +3,12 @@
 #include <windows.h>
 
 #include <cstring>
+#include <memory>
+#include <new>
+#include <vector>
 
 #include "OmniphonySpatialRealtimeBridge.h"
+#include "OmniphonySpatialRoles.h"
 
 namespace {
 
@@ -40,6 +44,57 @@ HRESULT LastErrorOrFail() noexcept {
     return error == ERROR_SUCCESS ? E_FAIL : HRESULT_FROM_WIN32(error);
 }
 
+class RealtimeQuantumTransport final : public OmniphonySpatialStaticQuantumTransport {
+public:
+    HRESULT Open(
+        const wchar_t* realtimeDllPath,
+        const SpatialAudioObjectRenderStreamActivationParams& params) {
+        if (!params.ObjectFormat) {
+            return AUDCLNT_E_UNSUPPORTED_FORMAT;
+        }
+
+        std::vector<OmniphonySpatialStaticObjectDescriptor> descriptors;
+        try {
+            descriptors.reserve(OmniphonyStaticRoleCount(params.StaticObjectTypeMask));
+            for (const auto& role : kOmniphonySpatialStaticRoles) {
+                if ((OmniphonySpatialObjectBits(params.StaticObjectTypeMask) &
+                     OmniphonySpatialObjectBits(role.audio_object_type)) == 0) {
+                    continue;
+                }
+                descriptors.push_back({
+                    role.omniphony_role,
+                    role.x_right_m,
+                    role.y_up_m,
+                    role.z_back_m,
+                });
+            }
+        }
+        catch (const std::bad_alloc&) {
+            return E_OUTOFMEMORY;
+        }
+
+        if (descriptors.empty()) {
+            return AUDCLNT_E_UNSUPPORTED_FORMAT;
+        }
+        return bridge_.Open(
+            realtimeDllPath,
+            params.ObjectFormat->nSamplesPerSec,
+            480,
+            descriptors.data(),
+            static_cast<std::uint32_t>(descriptors.size()));
+    }
+
+    HRESULT Process(
+        const float* inputPlanar,
+        float* outputStereo,
+        std::size_t frames) noexcept override {
+        return bridge_.Process(inputPlanar, outputStereo, frames);
+    }
+
+private:
+    OmniphonySpatialRealtimeBridge bridge_;
+};
+
 } // namespace
 
 OmniphonySpatialRealtimeBridge::~OmniphonySpatialRealtimeBridge() {
@@ -59,7 +114,7 @@ HRESULT OmniphonySpatialRealtimeBridge::Open(
         framesPerQuantum == 0 ||
         !descriptors ||
         objectCount == 0 ||
-        objectCount > 17) {
+        objectCount > kOmniphonySpatialStaticRoles.size()) {
         return E_INVALIDARG;
     }
 
@@ -143,4 +198,35 @@ HRESULT OmniphonySpatialRealtimeBridge::Process(
 
     const std::int32_t result = process_(processor_, inputPlanar, outputStereo, frames);
     return result == 0 ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+}
+
+HRESULT CreateOmniphonyStaticProbeStreamWithRealtimeBridge(
+    const SpatialAudioObjectRenderStreamActivationParams& params,
+    const wchar_t* realtimeDllPath,
+    ISpatialAudioObjectRenderStream** stream) {
+    if (!stream) {
+        return E_POINTER;
+    }
+    *stream = nullptr;
+    if (!IsAbsoluteWindowsPath(realtimeDllPath)) {
+        return E_INVALIDARG;
+    }
+
+    std::shared_ptr<RealtimeQuantumTransport> transport;
+    try {
+        transport = std::make_shared<RealtimeQuantumTransport>();
+    }
+    catch (const std::bad_alloc&) {
+        return E_OUTOFMEMORY;
+    }
+
+    const HRESULT openResult = transport->Open(realtimeDllPath, params);
+    if (FAILED(openResult)) {
+        return openResult;
+    }
+
+    return CreateOmniphonyStaticProbeStreamWithTransport(
+        params,
+        std::move(transport),
+        stream);
 }
