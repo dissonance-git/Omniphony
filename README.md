@@ -233,7 +233,22 @@ COM-shaped static object quantum
 → binaural stereo
 ```
 
-The remaining Windows-provider boundary is narrower: establish the real endpoint output/cadence owner for the returned stereo, then prove provider enumeration/selection and the complete application-to-headphones path on a physical Windows system. Until that output path is proven, the public provider continues to return `SPTLAUDCLNT_E_STREAM_IS_NOT_AVAILABLE`, preventing an unfinished provider from accepting spatial application audio and silently dropping it.
+### Single-render RAW egress contract
+
+The returned binaural stereo must not pass through Omniphony's normal APO rendering path again. Windows RAW processing mode is therefore the provider-egress escape hatch, not another renderer mode.
+
+Both Omniphony APOs now inspect the Windows audio processing mode supplied at initialization. When that mode is `AUDIO_SIGNALPROCESSINGMODE_RAW`:
+
+- the endpoint APO does not load or invoke `omniphony_realtime.dll`;
+- the stream APO does not request a 7.1 upstream format or reduce channels;
+- the stream APO accepts only an identity stereo float32 pair;
+- valid stereo PCM is copied bit-for-bit when an out-of-place copy is needed;
+- silent buffers remain silent;
+- reported Omniphony processing latency is zero.
+
+A dedicated raw-APO smoke encodes those invariants and also rejects 7.1 negotiation in RAW mode. This closes a source-level double-render hole before a provider output stream is allowed to exist. It does **not** yet prove that a real Windows RAW stream reaches the physical endpoint correctly.
+
+The remaining Windows-provider boundary is narrower: establish an event-driven physical-endpoint output/cadence owner for the returned stereo, then prove provider enumeration/selection and the complete application-to-headphones path on a physical Windows system. Until that output path is proven, the public provider continues to return `SPTLAUDCLNT_E_STREAM_IS_NOT_AVAILABLE`, preventing an unfinished provider from accepting spatial application audio and silently dropping it.
 
 Omniphony does not treat already-binaural stereo as raw objects, and it does not reconstruct object metadata from a final binaural mix and call that native spatial ingress.
 
@@ -257,9 +272,10 @@ Omniphony does not treat already-binaural stereo as raw objects, and it does not
 | Static object → Current realtime path | **Implemented behind the gate:** fixed static-object ABI, dedicated worker, authored positions, safety lane, existing source-aware Current renderer |
 | Provider C++ → realtime ABI bridge | **Implemented but not publicly activated:** absolute-path DLL loading, ABI validation, processor lifetime |
 | COM quantum → Current composition | **Implemented registry-free behind the gate:** immutable role order, per-object volume/EOS snapshotting, composed COM-to-Current smoke |
+| RAW APO single-render bypass | **Implemented in source:** endpoint and stream APOs become zero-latency transparent stereo paths in Windows RAW processing mode; raw bypass smoke added |
 | RAW physical-output capability probe | **Implemented in source:** read-only endpoint identity, RAW client properties, stereo float support, engine-period diagnostics; stream initialization intentionally absent |
 | Provider package staging | **Implemented as an inert future-install primitive:** immutable content-addressed generations, exact file-set verification, full-package hashes, final-path smokes, 64-bit host guard, staged RAW-output preflight, no registry or selection writes |
-| Public Windows Spatial Audio object ingress | **In progress:** final output/cadence path + real-machine provider/application proof remain before activation |
+| Public Windows Spatial Audio object ingress | **In progress:** event-driven final output/cadence path + real-machine provider/application proof remain before activation |
 | Dynamic XYZ object ingress | **Future after static end-to-end proof** |
 | Signed DriverStore deployment | **Optional future deployment route** |
 
@@ -296,6 +312,8 @@ The static Spatial Audio ABI follows the same law. Its fixed stream topology is 
 
 The internal COM-shaped static stream now preserves that same topology for its lifetime. At `EndUpdatingAudioObjects`, it snapshots active static-role buffers into the fixed planar order, applies object volume and partial end-of-stream semantics, and hands the quantum to a pre-opened transport. No DLL discovery or renderer construction happens on the update call.
 
+RAW egress is deliberately different from the normal source-rendering paths: it is an identity transport for stereo that Current has already rendered. In RAW processing mode neither Omniphony APO is allowed to create a renderer worker, infer geometry, change the channel topology, or add renderer latency.
+
 The runtime includes:
 
 - preallocated callback-facing rings;
@@ -329,6 +347,7 @@ Engineering gates cover:
 - spatial-provider capability and registry-free static-stream lifecycle contracts;
 - static-object realtime ABI loading and worker handoff;
 - composed COM-shaped static stream → realtime bridge → Current transport;
+- RAW-mode endpoint/stream APO bit transparency, zero latency, no Current load, and no 7.1 expansion;
 - read-only RAW physical-output format/period preflight;
 - content-addressed provider package staging without registry mutation.
 
@@ -352,6 +371,8 @@ Normal use has:
 The current unsigned user-mode APO deployment uses Windows' unprotected AudioDG compatibility mode and records previous machine state for rollback and uninstall.
 
 The future spatial-provider portion of setup is being shaped around immutable, content-addressed generations under the Omniphony install root. A candidate generation is copied to a temporary directory, the exact package file set and every SHA-256 are verified, capability/static-stream/realtime-bridge smokes run before and after the final-path move, and a manifest records the exact generation. Staging refuses a 32-bit PowerShell host on 64-bit Windows so later Program Files and registry-view behavior cannot silently diverge. The staged generation also carries the read-only RAW physical-output probe so a future activation transaction can validate the real endpoint's stereo format and engine-period constraints before it mutates provider state. This staging primitive performs **no provider registration and no provider selection**.
+
+The RAW APO bypass contract now guarantees at source level that a future provider egress stream has a path through the installed Omniphony effects graph that does not invoke Current again. The next deployment primitive is an event-driven RAW output sink that can be opened against the exact physical endpoint, validate its engine period and render-client contract, and remain unstarted until the provider transaction has passed every preflight.
 
 That gives later provider activation a safer transaction model: never overwrite an in-use COM DLL, never mutate a previously verified generation, keep the previous generation intact for rollback, switch registration only after the new generation has passed its own final-path checks and endpoint preflight, and restore prior provider state if activation verification fails. Omniphony must never leave Windows selected on a provider that can accept a stream but cannot render it.
 
@@ -378,7 +399,6 @@ omniphony-renderer/windows_installer/spatial_provider_probe/
 
 layouts/
   canonical and internal rendering geometry
-
 docs/
   source authority, Windows ingress, spatial scene, and validation contracts
 ```
