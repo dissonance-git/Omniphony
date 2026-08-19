@@ -99,7 +99,7 @@ No synthetic lower speakers or back-center channels may be promoted to `AUTHORED
 
 ## Phase 2: Windows Spatial Sound provider seam
 
-**State: immediate frontier. Capability, internal static stream, static object to Current transport, C++ realtime bridge, and inert immutable package staging are implemented in source behind a closed public provider gate. Real Windows enumeration/selection, COM quantum wiring, and final output/cadence remain pending.**
+**State: immediate frontier. Capability, internal static stream, COM-shaped static quantum transport into Current, C++ realtime bridge, read-only RAW endpoint preflight, and hardened immutable package staging are implemented in source behind a closed public provider gate. Real Windows enumeration/selection and the final output/cadence boundary remain pending.**
 
 This is the critical platform milestone.
 
@@ -139,6 +139,8 @@ Already implemented as read-only probing:
 
 This proves endpoint capabilities only. It does not prove that Omniphony can become the selected provider.
 
+A separate read-only `IAudioClient3` RAW output probe now inspects the intended physical endpoint without initializing or starting a render stream. It records endpoint identity, stereo float32 / 48 kHz support, shared-engine period constraints, and whether the current 480-frame quantum is legal. This is preflight evidence for the future output transaction, not output proof.
+
 ### P1: provider enumeration
 
 The repository contains a bounded provider-registration probe under:
@@ -171,19 +173,23 @@ The repository also contains an internal static-only `ISpatialAudioObjectRenderS
 - requested static mask;
 - zero dynamic-object capacity.
 
-Behind that COM-shaped stream, `omniphony_realtime.dll` already exposes a fixed-topology static-object ABI. The Windows-facing side copies planar mono object quanta through preallocated rings while a dedicated worker owns `WindowsStaticObjectPipeline` and the existing source-aware Current renderer. Directional Windows positions remain authored geometry; LFE remains non-directional.
+Behind that COM-shaped stream, `omniphony_realtime.dll` exposes a fixed-topology static-object ABI. The Windows-facing side copies planar mono object quanta through preallocated rings while a dedicated worker owns `WindowsStaticObjectPipeline` and the existing source-aware Current renderer. Directional Windows positions remain authored geometry; LFE remains non-directional.
 
-A C++ bridge now dynamically loads that ABI from an explicit absolute DLL path, verifies the realtime ABI before processor creation, keeps the processor alive only while its supplying module remains loaded, and exposes a registry-free smoke target for the path:
+The C++ bridge dynamically loads that ABI from an explicit absolute DLL path, verifies the realtime ABI before processor creation, keeps the processor alive only while its supplying module remains loaded, and now composes directly with the internal COM-shaped stream. Each completed update quantum is snapshotted into the immutable role order, with object volume and partial end-of-stream semantics applied before transport:
 
 ```text
-static object PCM
+COM-shaped static object quantum
+→ immutable static role order
+→ C++ realtime bridge
 → omniphony_realtime.dll
 → WindowsStaticObjectPipeline
 → existing source-aware Current renderer
 → binaural stereo
 ```
 
-The public provider is still intentionally closed. `IsSpatialAudioStreamAvailable` and `ActivateSpatialAudioStream` continue to return `SPTLAUDCLNT_E_STREAM_IS_NOT_AVAILABLE` because the COM stream has not yet been wired into the realtime bridge and the provider still lacks the proven Windows output/cadence boundary that owns the resulting binaural stereo. The provider must not accept application audio until it can carry that audio all the way to the headphones.
+The composed path is registry-free and remains behind the public gate. It proves source-side wiring in isolation; it does not prove that Windows will enumerate/select the provider or that returned stereo reaches the physical endpoint.
+
+The public provider is therefore still intentionally closed. `IsSpatialAudioStreamAvailable` and `ActivateSpatialAudioStream` continue to return `SPTLAUDCLNT_E_STREAM_IS_NOT_AVAILABLE` because the provider still lacks the proven Windows output/cadence boundary that owns the resulting binaural stereo. The provider must not accept application audio until it can carry that audio all the way to the headphones.
 
 A useful open-source prior exists in `ThreeDeeJay/MSSOAL`, which implements a COM object shaped as `ISpatialAudioClient` plus `ISpatialAudioObjectRenderStream` and `ISpatialAudioObject`. Its registration tool independently identified the same `Spatial\Encoder` surface using Process Monitor observations. MSSOAL describes its provider work as a proof of concept rather than a working product, so it remains a mechanism quarry rather than Windows proof.
 
@@ -200,10 +206,11 @@ Gate:
 internal static COM lifecycle exists
 ≠ static-object realtime ABI reaches Current in isolation
 ≠ C++ bridge drives that ABI in isolation
+≠ COM-shaped update quanta reach Current in isolation
 ≠ immutable package generation stages successfully
+≠ RAW endpoint capability preflight succeeds
 ≠ Windows enumerates Omniphony
 ≠ Windows activates its COM provider
-≠ COM update quanta reach the realtime bridge
 ≠ rendered stereo reaches the real endpoint with correct cadence
 ≠ applications feed objects through the complete path
 ```
@@ -212,7 +219,7 @@ Each transition needs separate evidence.
 
 ### P3: static object stream
 
-**Implementation state:** registry-free COM lifecycle, activation marshalling, static-object to Current worker transport, and the C++ realtime loader bridge exist in source. COM-quantum wiring and final endpoint output remain pending.
+**Implementation state:** registry-free COM lifecycle, activation marshalling, immutable static-role quantum assembly, object volume/EOS handling, realtime bridge transport, and Current worker handoff exist in source. Final endpoint output/cadence and real Windows provider proof remain pending.
 
 The internal COM stream already models:
 
@@ -238,15 +245,16 @@ The realtime side already provides:
 - stereo binaural output;
 - processed-block and latency observability.
 
-The next engineering steps are deliberately narrower than “build a renderer”:
+The source-side static path now additionally guarantees:
 
-1. derive one fixed descriptor order from the activation static mask;
-2. preserve that topology for the stream lifetime;
-3. at each completed update quantum, assemble planar PCM in that exact order and hand it to the existing C++ realtime bridge;
-4. preserve inactive or ended static roles as silence rather than changing the immutable topology;
-5. apply object volume and partial end-of-stream semantics before handoff;
-6. establish the real Windows output/cadence mechanism that consumes returned stereo without creating a second renderer or double-render path;
-7. only then open public stream availability.
+1. one descriptor order is derived from the activation static mask before processing;
+2. that topology remains fixed for the stream lifetime;
+3. completed COM update quanta are assembled into planar PCM in that exact order;
+4. inactive or ended static roles become silence rather than mutating topology;
+5. per-object volume and partial end-of-stream semantics are applied before handoff;
+6. DLL discovery and renderer construction happen before update processing, not inside the OS-facing update call.
+
+The remaining engineering frontier is the real Windows output/cadence mechanism that consumes returned stereo without creating a second renderer or double-render path. The read-only RAW output probe narrows this question by exposing the endpoint's supported format and period constraints without altering the graph. Only after the output owner is implemented and physically verified should public stream availability open.
 
 All of this must follow the existing Windows realtime law: no filesystem I/O, device discovery, allocation-heavy renderer graph, or research work on the OS-facing update path.
 
@@ -316,15 +324,20 @@ Spatial-provider deployment must join the existing installer as a transaction ra
 
 The staging half of that future transaction now exists as an inert primitive. `Stage-OmniphonySpatialProvider.ps1` creates immutable content-addressed generations beneath the Omniphony install root. Generation identity is derived from the complete sorted package hash set, not only the provider/runtime DLLs.
 
-For a new candidate the staging primitive is designed to:
+For a new candidate the staging primitive now:
 
-- copy the whole package into a temporary generation directory;
-- SHA-256 verify every copied file;
-- run provider capability, static-stream, and realtime-bridge smokes from the temporary candidate;
-- move the verified candidate into its final immutable generation path;
-- re-run path-sensitive smokes from the final path;
-- atomically write a `staged-generation.json` manifest with the full package digest and per-file hashes;
-- record explicitly that provider registration and selection were not mutated.
+- requires a 64-bit PowerShell host on 64-bit Windows so Program Files and future registry views cannot silently redirect;
+- rejects unsafe source/managed-tree path nesting;
+- copies the exact package into a temporary generation directory;
+- verifies that the immutable generation contains exactly the expected files and no unexpected subdirectories;
+- SHA-256 verifies every copied file;
+- runs provider capability, static-stream, and realtime-bridge smokes from the temporary candidate;
+- moves the verified candidate into its final immutable generation path;
+- re-verifies the exact file set and hashes from the final path;
+- re-runs provider capability, static-stream, and realtime-bridge smokes from the final path;
+- stages the read-only `OmniphonySpatialRawOutputProbe.exe` for later physical-endpoint preflight;
+- atomically writes a `staged-generation.json` manifest with the full package digest, per-file hashes, architecture state, and verification state;
+- records explicitly that provider registration and selection were not mutated.
 
 An existing generation is verified rather than modified.
 
@@ -339,9 +352,10 @@ This generation model is intentional:
 Required activation order once end-to-end provider transport is ready:
 
 ```text
-stage immutable generation                       source primitive exists
-→ verify every staged file + final-path smokes  designed into staging primitive
-→ record prior provider and selection state
+stage immutable generation                         source primitive exists
+→ verify exact file set + hashes + final smokes   source primitive exists
+→ run read-only RAW endpoint preflight            probe exists; transaction wiring pending
+→ capture prior provider and selection state
 → switch only Omniphony-owned registration to the new generation
 → verify COM activation and capability contract
 → verify public stream activation and output path
@@ -586,17 +600,19 @@ static stream lifecycle + activation marshalling source implemented
         ↓
 static object → Current realtime worker          source implemented
         ↓
-C++ realtime DLL bridge + registry-free smoke    source implemented
+C++ realtime DLL bridge                          source implemented
+        ↓
+COM-shaped quantum → bridge → Current            source implemented
         ↓
 immutable provider generation staging            source implemented
+        ↓
+RAW physical-output capability preflight         source implemented
         ↓
 prove Omniphony Spatial Sound provider enumeration
         ↓
 prove provider COM activation on real Windows
         ↓
-wire COM static-object quanta into realtime bridge
-        ↓
-prove rendered-stereo output/cadence boundary
+implement + prove rendered-stereo output/cadence boundary
         ↓
 open public stream activation gate
         ↓
