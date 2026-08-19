@@ -86,16 +86,15 @@ bool OmniphonySpatialStereoQueue::TryWrite(
     const std::uint64_t write = writeFrame_.load(std::memory_order_relaxed);
     const std::uint64_t read = readFrame_.load(std::memory_order_acquire);
     const std::uint64_t used = write - read;
-    const std::uint64_t free = static_cast<std::uint64_t>(capacityFrames_) - used;
-    if (static_cast<std::uint64_t>(frames) > free) {
+    const std::uint64_t capacity = static_cast<std::uint64_t>(capacityFrames_);
+    if (used > capacity || static_cast<std::uint64_t>(frames) > capacity - used) {
         droppedFrames_.fetch_add(
             static_cast<std::uint64_t>(frames),
             std::memory_order_relaxed);
         return false;
     }
 
-    const std::size_t start = static_cast<std::size_t>(
-        write % static_cast<std::uint64_t>(capacityFrames_));
+    const std::size_t start = static_cast<std::size_t>(write % capacity);
     const std::size_t first = std::min(frames, capacityFrames_ - start);
     CopyStereoFrames(
         storage_.data() + start * kStereoChannels,
@@ -125,13 +124,13 @@ std::size_t OmniphonySpatialStereoQueue::Read(
 
     const std::uint64_t read = readFrame_.load(std::memory_order_relaxed);
     const std::uint64_t write = writeFrame_.load(std::memory_order_acquire);
-    const std::uint64_t queued = write - read;
+    const std::uint64_t capacity = static_cast<std::uint64_t>(capacityFrames_);
+    const std::uint64_t queued = std::min<std::uint64_t>(write - read, capacity);
     const std::size_t available = static_cast<std::size_t>(
         std::min<std::uint64_t>(queued, static_cast<std::uint64_t>(frames)));
 
     if (available != 0) {
-        const std::size_t start = static_cast<std::size_t>(
-            read % static_cast<std::uint64_t>(capacityFrames_));
+        const std::size_t start = static_cast<std::size_t>(read % capacity);
         const std::size_t first = std::min(available, capacityFrames_ - start);
         CopyStereoFrames(
             stereoInterleaved,
