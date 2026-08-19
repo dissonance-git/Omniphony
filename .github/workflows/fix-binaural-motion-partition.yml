@@ -1,76 +1,116 @@
-name: Integrate useful upstream renderer mechanisms
+name: Fix direct-binaural motion partitioning
 
 on:
-  schedule:
-    - cron: '28 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-binaural-motion-partition.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-
 jobs:
-  integrate:
+  fix-and-validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Check whether integration already landed
-        id: guard
-        shell: bash
+      - name: Install pinned Rust toolchain
         run: |
-          if test -f omniphony-renderer/orender_engine/src/channel_objects.rs; then
-            echo 'skip=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'skip=false' >> "$GITHUB_OUTPUT"
-          fi
+          rustup toolchain install 1.88.0 --profile minimal --component rustfmt
+          rustup override set 1.88.0
+        working-directory: omniphony-renderer
 
-      - name: Apply upstream shared channel-object stage
-        if: steps.guard.outputs.skip != 'true'
+      - name: Apply callback-invariant motion fix
+        run: python3 .github/ci/fix_binaural_motion_partition.py
+
+      - name: Format touched Rust files
+        run: |
+          rustfmt --edition 2024 \
+            omniphony-renderer/renderer/src/spatial_renderer/mod.rs \
+            omniphony-renderer/renderer/src/spatial_renderer/construction.rs \
+            omniphony-renderer/renderer/src/binaural/mod.rs \
+            omniphony-renderer/dsp_fixtures/src/binaural_block_size.rs
+
+      - name: Verify patch scope
+        run: |
+          git diff --check
+          git diff --stat
+          test "$(git diff --name-only | wc -l)" -eq 4
+          git diff --name-only | sort > /tmp/changed.txt
+          cat > /tmp/expected.txt <<'EOF'
+          omniphony-renderer/dsp_fixtures/src/binaural_block_size.rs
+          omniphony-renderer/renderer/src/binaural/mod.rs
+          omniphony-renderer/renderer/src/spatial_renderer/construction.rs
+          omniphony-renderer/renderer/src/spatial_renderer/mod.rs
+          EOF
+          sort -o /tmp/expected.txt /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/changed.txt
+
+      - name: Run callback-partition contracts
+        id: focused
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
+          cargo test -p dsp_fixtures binaural_block_size:: -- --nocapture 2>&1 | tee /tmp/binaural-motion.log
+          status=${PIPESTATUS[0]}
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+        working-directory: omniphony-renderer
+
+      - name: Record focused failure breadcrumb
+        if: steps.focused.outputs.status != '0'
+        run: |
+          {
+            echo "BINAURAL_MOTION_PARTITION_FAILURE"
+            echo "head=${GITHUB_SHA}"
+            echo
+            tail -n 320 /tmp/binaural-motion.log
+          } > .github/ci/binaural-motion-partition-failure.txt
           git config user.name "omniphony-ci"
           git config user.email "actions@users.noreply.github.com"
-          git fetch --no-tags https://github.com/mgth/Omniphony.git ec9a8e3aa5890dae4469a381bf69fce1e7c6ff5a
-          if ! git cherry-pick --no-commit FETCH_HEAD; then
-            {
-              echo "UPSTREAM_CHANNEL_OBJECT_CHERRY_PICK_FAILED"
-              echo "head=${GITHUB_SHA}"
-              echo
-              git status --short
-              echo
-              git diff --name-only --diff-filter=U
-            } > /tmp/upstream-sync-failure.txt
-            git cherry-pick --abort || true
-            cp /tmp/upstream-sync-failure.txt ci-diagnostics/upstream-renderer-sync-failure.txt
-            git add ci-diagnostics/upstream-renderer-sync-failure.txt
-            git commit -m "ci: record upstream renderer sync conflict"
-            git push origin HEAD:main
-            exit 1
-          fi
+          git add .github/ci/binaural-motion-partition-failure.txt
+          git commit -m "ci: record binaural motion partition failure"
+          git push origin HEAD:main
 
-      - name: Finish renderer-owned host geometry
-        if: steps.guard.outputs.skip != 'true'
-        run: python3 .github/ci/upstream_renderer_sync.py
+      - name: Stop after focused failure
+        if: steps.focused.outputs.status != '0'
+        run: exit 1
 
-      - name: Verify and publish source integration
-        if: steps.guard.outputs.skip != 'true'
-        shell: bash
+      - name: Test convolver continuity
+        run: cargo test -p renderer binaural::convolver::tests:: -- --nocapture
+        working-directory: omniphony-renderer
+
+      - name: Test renderer core
+        run: >-
+          cargo test -p renderer --
+          --skip binaural::tests::hrir_source_switch_lands_asynchronously_without_blocking_render
+        working-directory: omniphony-renderer
+
+      - name: Test full DSP fixture suite
+        run: cargo test -p dsp_fixtures
+        working-directory: omniphony-renderer
+
+      - name: Test native Current realtime ABI
+        run: cargo test -p realtime_ffi
+        working-directory: omniphony-renderer
+
+      - name: Compile release performance gates
+        run: cargo check --release -p renderer --features perf-gate --tests
+        working-directory: omniphony-renderer
+
+      - name: Publish validated fix
         run: |
-          set -euo pipefail
-          git diff --check
-          test -f omniphony-renderer/orender_engine/src/channel_objects.rs
-          grep -q 'ChannelObjectStages' omniphony-renderer/orender_engine/src/channel_objects.rs
-          grep -q 'channel_objects: orender_engine::channel_objects::ChannelObjectStages' omniphony-renderer/src/cli/decode/state.rs
-          grep -q 'renderer.output_channel_count()' omniphony-renderer/src/cli/decode/handler.rs
-          grep -q 'let output_channels = rendered.n_channels;' omniphony-renderer/src/cli/decode/sample_write.rs
-          git rm -f .github/workflows/upstream-renderer-good-sync.yml .github/ci/upstream_renderer_sync.py || true
-          git add -A
-          git commit -m "renderer: unify channel object staging across hosts"
+          git config user.name "omniphony-ci"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            omniphony-renderer/renderer/src/spatial_renderer/mod.rs \
+            omniphony-renderer/renderer/src/spatial_renderer/construction.rs \
+            omniphony-renderer/renderer/src/binaural/mod.rs \
+            omniphony-renderer/dsp_fixtures/src/binaural_block_size.rs
+          git commit -m "fix(binaural): make moving HRTFs callback-partition invariant"
           git push origin HEAD:main
