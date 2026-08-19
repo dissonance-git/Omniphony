@@ -67,3 +67,15 @@ target_include_directories(
     PRIVATE "${OMNIPHONY_REALTIME_INCLUDE}"
 )
 target_link_libraries(OmniphonySpatialRealtimeBridgeSmoke PRIVATE ole32 uuid)
+
+# Read-only physical-endpoint preflight. This deliberately never initializes a
+# render stream: it only proves endpoint identity, RAW client properties,
+# stereo float support, and shared-engine period constraints before a future
+# installer transaction is allowed to activate/select the spatial provider.
+add_executable(OmniphonySpatialRawOutputProbe
+    OmniphonySpatialRawOutputProbe.cpp
+)
+target_compile_features(OmniphonySpatialRawOutputProbe PRIVATE cxx_std_17)
+target_compile_definitions(OmniphonySpatialRawOutputProbe PRIVATE UNICODE _UNICODE)
+target_compile_options(OmniphonySpatialRawOutputProbe PRIVATE /W4 /WX /permissive-)
+target_link_libraries(OmniphonySpatialRawOutputProbe PRIVATE ole32 uuid)
