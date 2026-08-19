@@ -1,20 +1,20 @@
 name: Integrate useful upstream renderer mechanisms
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/fix-binaural-motion-partition.yml'
+  issues:
+    types: [opened]
   workflow_dispatch:
 
 permissions:
   contents: write
+  issues: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   integrate:
+    if: github.event_name == 'workflow_dispatch' || github.event.issue.title == '[internal] upstream renderer sync'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -47,131 +47,7 @@ jobs:
           fi
 
       - name: Finish renderer-owned host geometry
-        shell: python
-        run: |
-          from pathlib import Path
-
-          def read(path):
-              return Path(path).read_text(encoding="utf-8")
-
-          def write(path, text):
-              Path(path).write_text(text, encoding="utf-8")
-
-          def replace_once(text, old, new, label):
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"{label}: expected 1 match, found {count}")
-              return text.replace(old, new, 1)
-
-          state_path = "omniphony-renderer/src/cli/decode/state.rs"
-          state = read(state_path)
-          state = replace_once(
-              state,
-              "    pub audio_writer: Option<AudioWriter>,\n    pub bootstrap_frames_seen: u32,",
-              "    pub audio_writer: Option<AudioWriter>,\n    /// Channel width the current writer was constructed for. A live switch\n    /// between speaker-array and binaural output must rebuild the sink rather\n    /// than feed frames whose geometry no longer matches it.\n    pub audio_writer_channels: Option<usize>,\n    pub bootstrap_frames_seen: u32,",
-              "OutputState writer width field",
-          )
-          state = replace_once(
-              state,
-              "            audio_writer: None,\n            bootstrap_frames_seen: 0,",
-              "            audio_writer: None,\n            audio_writer_channels: None,\n            bootstrap_frames_seen: 0,",
-              "OutputState writer width default",
-          )
-          state = replace_once(
-              state,
-              "        self.output_init_failed = false;\n        self.audio_writer.take()",
-              "        self.output_init_failed = false;\n        self.audio_writer_channels = None;\n        self.audio_writer.take()",
-              "OutputState invalidate width",
-          )
-          write(state_path, state)
-
-          lifecycle_path = "omniphony-renderer/src/cli/decode/writer_lifecycle.rs"
-          lifecycle = read(lifecycle_path)
-          needle = "                        self.output.audio_writer = Some(writer);"
-          count = lifecycle.count(needle)
-          if count != 3:
-              raise SystemExit(f"writer lifecycle: expected 3 writer installs, found {count}")
-          lifecycle = lifecycle.replace(
-              needle,
-              needle + "\n                        self.output.audio_writer_channels = Some(channel_count);",
-          )
-          write(lifecycle_path, lifecycle)
-
-          handler_path = "omniphony-renderer/src/cli/decode/handler.rs"
-          handler = read(handler_path)
-          handler = replace_once(
-              handler,
-              "        let effective_channel_count = if ctx.bed_conform && self.spatial.has_objects {",
-              "        let frame_has_objects = self.spatial.has_objects\n            && !matches!(source, DecodedSource::Live);\n        let effective_channel_count = if ctx.bed_conform && frame_has_objects {",
-              "source-aware effective width",
-          )
-          handler = replace_once(
-              handler,
-              "            // When VBAP is active, output channel count is the number of speakers\n            renderer.num_speakers()",
-              "            // Size the host from the renderer's active output geometry.\n            // Binaural mode emits stereo even when the internal speaker layout is wider.\n            renderer.output_channel_count()",
-              "renderer-owned output width",
-          )
-          marker = "\n        OutputRuntimeCoordinator::new(\n"
-          if handler.count(marker) != 1:
-              raise SystemExit(f"writer width rebuild insertion: expected 1 marker, found {handler.count(marker)}")
-          width_guard = """
-        // A live output-mode change can alter the renderer width underneath an
-        // already-open sink. Retire that writer before the next frame so the
-        // transport geometry can never disagree with the completed render.
-        if self
-            .output
-            .audio_writer_channels
-            .is_some_and(|built| built != effective_channel_count)
-        {
-            log::info!(
-                "Output width changed ({} -> {} channels): rebuilding the audio writer",
-                self.output.audio_writer_channels.unwrap_or(0),
-                effective_channel_count,
-            );
-            if let Some(mut writer) = self.output.invalidate_writer() {
-                let _ = writer.flush();
-            }
-            self.reset_direct_trigger_wiring();
-            self.output.reset_realtime_output_tracking();
-        }
-"""
-          handler = handler.replace(marker, "\n" + width_guard + marker, 1)
-          handler = replace_once(
-              handler,
-              "        );\n        self.reset_spatial_state_for_segment();\n        Ok(())\n    }",
-              "        );\n        self.output.audio_writer_channels = Some(effective_channel_count);\n        self.reset_spatial_state_for_segment();\n        Ok(())\n    }",
-              "restart writer width tracking",
-          )
-          write(handler_path, handler)
-
-          sample_path = "omniphony-renderer/src/cli/decode/sample_write.rs"
-          sample = read(sample_path)
-          cursor = 0
-          rewritten = 0
-          while True:
-              start = sample.find("                    let rendered = renderer.render_frame(", cursor)
-              if start < 0:
-                  break
-              end = sample.find("                    return Ok(());", start)
-              if end < 0:
-                  raise SystemExit("post-render block has no return marker")
-              end += len("                    return Ok(());")
-              block = sample[start:end]
-              if "let num_speakers = renderer.num_speakers();" not in block:
-                  cursor = end
-                  continue
-              block = block.replace(
-                  "let num_speakers = renderer.num_speakers();",
-                  "let output_channels = rendered.n_channels;",
-                  1,
-              )
-              block = block.replace("num_speakers", "output_channels")
-              sample = sample[:start] + block + sample[end:]
-              cursor = start + len(block)
-              rewritten += 1
-          if rewritten != 2:
-              raise SystemExit(f"rendered-frame width rewrite: expected 2 blocks, found {rewritten}")
-          write(sample_path, sample)
+        run: python3 .github/ci/upstream_renderer_sync.py
 
       - name: Verify and publish source integration
         shell: bash
@@ -183,17 +59,7 @@ jobs:
           grep -q 'channel_objects: orender_engine::channel_objects::ChannelObjectStages' omniphony-renderer/src/cli/decode/state.rs
           grep -q 'renderer.output_channel_count()' omniphony-renderer/src/cli/decode/handler.rs
           grep -q 'let output_channels = rendered.n_channels;' omniphony-renderer/src/cli/decode/sample_write.rs
-          git rm -f .github/workflows/upstream-renderer-good-sync.yml || true
-          git add \
-            omniphony-renderer/orender_engine/src/channel_objects.rs \
-            omniphony-renderer/orender_engine/src/engine.rs \
-            omniphony-renderer/orender_engine/src/lib.rs \
-            omniphony-renderer/src/cli/decode/state.rs \
-            omniphony-renderer/src/cli/decode/sample_write.rs \
-            omniphony-renderer/src/cli/decode/handler.rs \
-            omniphony-renderer/src/cli/decode/writer_lifecycle.rs \
-            .github/workflows/upstream-renderer-good-sync.yml
+          git rm -f .github/workflows/upstream-renderer-good-sync.yml .github/ci/upstream_renderer_sync.py || true
+          git add -A
           git commit -m "renderer: unify channel object staging across hosts"
           git push origin HEAD:main
-
-# trigger via Git data API
