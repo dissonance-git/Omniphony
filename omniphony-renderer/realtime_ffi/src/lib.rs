@@ -9,6 +9,8 @@ mod height_preference;
 mod native_bed;
 mod native_bed_ffi;
 mod noire_x_profile;
+mod windows_object_scene;
+pub mod windows_spatial_contract;
 
 use height_preference::HeightPreference;
 use noire_x_profile::NoireXPersonalEq;
