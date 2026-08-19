@@ -7,6 +7,7 @@ endif()
 
 add_library(OmniphonySpatialProbe SHARED
     OmniphonySpatialProbe.cpp
+    OmniphonySpatialStaticStream.cpp
     OmniphonySpatialProbe.def
 )
 target_compile_features(OmniphonySpatialProbe PRIVATE cxx_std_17)
@@ -33,3 +34,12 @@ target_compile_features(OmniphonySpatialProbeSmoke PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonySpatialProbeSmoke PRIVATE UNICODE _UNICODE)
 target_compile_options(OmniphonySpatialProbeSmoke PRIVATE /W4 /WX /permissive-)
 target_link_libraries(OmniphonySpatialProbeSmoke PRIVATE ole32 uuid)
+
+add_executable(OmniphonySpatialStaticStreamSmoke
+    OmniphonySpatialStaticStreamSmoke.cpp
+    OmniphonySpatialStaticStream.cpp
+)
+target_compile_features(OmniphonySpatialStaticStreamSmoke PRIVATE cxx_std_17)
+target_compile_definitions(OmniphonySpatialStaticStreamSmoke PRIVATE UNICODE _UNICODE)
+target_compile_options(OmniphonySpatialStaticStreamSmoke PRIVATE /W4 /WX /permissive-)
+target_link_libraries(OmniphonySpatialStaticStreamSmoke PRIVATE ole32 uuid)
