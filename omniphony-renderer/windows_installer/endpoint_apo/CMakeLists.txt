@@ -98,3 +98,14 @@ target_compile_features(OmniphonySpatialProviderProbe PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonySpatialProviderProbe PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_options(OmniphonySpatialProviderProbe PRIVATE /W4 /WX /permissive-)
 target_link_libraries(OmniphonySpatialProviderProbe PRIVATE ole32 uuid advapi32)
+
+# Provider-egress gate. This never starts playback. It asks whether the active
+# physical endpoint advertises RAW processing and whether a shared stereo
+# IAudioClient2 can be initialized with AUDCLNT_STREAMOPTIONS_RAW. A future
+# spatial provider uses this seam to bypass the normal Omniphony stream SFX and
+# prevent a second binaural render.
+add_executable(OmniphonyRawProbe OmniphonyRawProbe.cpp)
+target_compile_features(OmniphonyRawProbe PRIVATE cxx_std_17)
+target_compile_definitions(OmniphonyRawProbe PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_compile_options(OmniphonyRawProbe PRIVATE /W4 /WX /permissive-)
+target_link_libraries(OmniphonyRawProbe PRIVATE ole32 uuid propsys)
