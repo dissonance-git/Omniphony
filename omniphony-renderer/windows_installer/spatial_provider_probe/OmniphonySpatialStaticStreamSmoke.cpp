@@ -30,6 +30,14 @@ WAVEFORMATEX ObjectFormat() {
     return format;
 }
 
+PROPVARIANT ActivationBlob(SpatialAudioObjectRenderStreamActivationParams& params) {
+    PROPVARIANT activation{};
+    activation.vt = VT_BLOB;
+    activation.blob.cbSize = sizeof(params);
+    activation.blob.pBlobData = reinterpret_cast<BYTE*>(&params);
+    return activation;
+}
+
 } // namespace
 
 int wmain() {
@@ -45,11 +53,49 @@ int wmain() {
     params.EventHandle = nullptr;
     params.NotifyObject = nullptr;
 
-    ISpatialAudioObjectRenderStream* stream = nullptr;
-    HRESULT hr = CreateOmniphonyStaticProbeStream(params, &stream);
-    if (FAILED(hr) || !stream) {
-        return Fail(L"CreateOmniphonyStaticProbeStream", hr);
+    auto activation = ActivationBlob(params);
+
+    void* rejected = reinterpret_cast<void*>(1);
+    auto malformed = activation;
+    --malformed.blob.cbSize;
+    HRESULT hr = CreateOmniphonyStaticProbeStreamFromActivation(
+        &malformed,
+        __uuidof(ISpatialAudioObjectRenderStream),
+        &rejected);
+    if (hr != E_INVALIDARG || rejected != nullptr) {
+        return Fail(L"activation-blob-size", hr);
     }
+
+    rejected = reinterpret_cast<void*>(1);
+    hr = CreateOmniphonyStaticProbeStreamFromActivation(
+        &activation,
+        __uuidof(ISpatialAudioClient),
+        &rejected);
+    if (hr != E_NOINTERFACE || rejected != nullptr) {
+        return Fail(L"activation-iid", hr);
+    }
+
+    auto dynamicParams = params;
+    dynamicParams.MaxDynamicObjectCount = 1;
+    auto dynamicActivation = ActivationBlob(dynamicParams);
+    rejected = reinterpret_cast<void*>(1);
+    hr = CreateOmniphonyStaticProbeStreamFromActivation(
+        &dynamicActivation,
+        __uuidof(ISpatialAudioObjectRenderStream),
+        &rejected);
+    if (hr != AUDCLNT_E_UNSUPPORTED_FORMAT || rejected != nullptr) {
+        return Fail(L"activation-dynamic-capacity", hr);
+    }
+
+    void* activated = nullptr;
+    hr = CreateOmniphonyStaticProbeStreamFromActivation(
+        &activation,
+        __uuidof(ISpatialAudioObjectRenderStream),
+        &activated);
+    if (FAILED(hr) || !activated) {
+        return Fail(L"CreateOmniphonyStaticProbeStreamFromActivation", hr);
+    }
+    auto* stream = static_cast<ISpatialAudioObjectRenderStream*>(activated);
 
     UINT32 dynamicCount = 99;
     hr = stream->GetAvailableDynamicObjectCount(&dynamicCount);
@@ -207,6 +253,7 @@ int wmain() {
     stream->Release();
 
     std::wcout << L"SPATIAL_STATIC_STREAM_COM_OK 1\n";
+    std::wcout << L"SPATIAL_STATIC_STREAM_ACTIVATION_BLOB_OK 1\n";
     std::wcout << L"SPATIAL_STATIC_STREAM_DYNAMIC_CAPACITY 0\n";
     std::wcout << L"SPATIAL_STATIC_STREAM_QUANTUM_FRAMES 480\n";
     std::wcout << L"SPATIAL_STATIC_STREAM_IMPLICIT_EOS_OK 1\n";
