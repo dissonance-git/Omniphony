@@ -7,7 +7,6 @@ $programData = if ([string]::IsNullOrWhiteSpace($env:ProgramData)) { 'C:\Program
 $stateRoot = Join-Path $programData 'Omniphony'
 $eqPresetPath = Join-Path $stateRoot 'eq-preset.txt'
 $legacyEqPath = Join-Path $stateRoot 'personal-eq.txt'
-$rightCompPath = Join-Path $stateRoot 'right-ear-comp.txt'
 $stopPath = Join-Path $stateRoot 'tray.stop'
 
 New-Item -ItemType Directory -Force -Path $stateRoot | Out-Null
@@ -31,7 +30,6 @@ function Get-EqPreset {
     } catch { }
 
     if ($text -in @('0', 'off', 'false', 'disabled', 'none')) { return 'off' }
-    # Every historical enabled spelling migrates to the single supported tuned EQ.
     return 'on'
 }
 
@@ -39,19 +37,28 @@ function Set-EqPreset([string]$Preset) {
     [IO.File]::WriteAllText($eqPresetPath, "$Preset`r`n", [Text.Encoding]::ASCII)
 }
 
-function Get-BoolSetting([string]$Path, [bool]$Default) {
-    if (-not (Test-Path -LiteralPath $Path)) { return $Default }
-    try {
-        $value = ([IO.File]::ReadAllText($Path)).Trim().ToLowerInvariant()
-        return $value -notin @('0', 'off', 'false', 'disabled')
-    } catch {
-        return $Default
-    }
+function Show-TrayMessage([string]$Text) {
+    $notify.BalloonTipTitle = 'Omniphony'
+    $notify.BalloonTipText = $Text
+    $notify.ShowBalloonTip(2500)
 }
 
-function Set-BoolSetting([string]$Path, [bool]$Enabled) {
-    $text = if ($Enabled) { "1`r`n" } else { "0`r`n" }
-    [IO.File]::WriteAllText($Path, $text, [Text.Encoding]::ASCII)
+function Restart-WindowsAudioService {
+    try {
+        $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $restartCommand = "Restart-Service -Name 'Audiosrv' -Force -ErrorAction Stop"
+        $process = Start-Process -FilePath $powershell `
+            -Verb RunAs `
+            -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', $restartCommand) `
+            -Wait `
+            -PassThru
+        if ($process.ExitCode -ne 0) {
+            throw "Windows Audio restart exited with code $($process.ExitCode)."
+        }
+        Show-TrayMessage 'Windows Audio service restarted.'
+    } catch {
+        Show-TrayMessage "Could not restart Windows Audio: $($_.Exception.Message)"
+    }
 }
 
 $notify = New-Object System.Windows.Forms.NotifyIcon
@@ -60,23 +67,18 @@ $notify.Visible = $true
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $statusItem = New-Object System.Windows.Forms.ToolStripMenuItem
-$statusItem.Text = 'Omniphony Current renderer'
+$statusItem.Text = 'Omniphony'
 $statusItem.Enabled = $false
 [void]$menu.Items.Add($statusItem)
 
-$offItem = New-Object System.Windows.Forms.ToolStripMenuItem
-$offItem.Text = 'EQ: Off (Current baseline)'
-[void]$menu.Items.Add($offItem)
-
-$onItem = New-Object System.Windows.Forms.ToolStripMenuItem
-$onItem.Text = 'EQ: On (tuned)'
-[void]$menu.Items.Add($onItem)
+$eqItem = New-Object System.Windows.Forms.ToolStripMenuItem
+[void]$menu.Items.Add($eqItem)
 
 [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
 
-$rightCompItem = New-Object System.Windows.Forms.ToolStripMenuItem
-$rightCompItem.Text = 'Right-ear compensation'
-[void]$menu.Items.Add($rightCompItem)
+$restartAudioItem = New-Object System.Windows.Forms.ToolStripMenuItem
+$restartAudioItem.Text = 'Restart Windows Audio Service'
+[void]$menu.Items.Add($restartAudioItem)
 
 [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
 
@@ -87,41 +89,24 @@ $notify.ContextMenuStrip = $menu
 
 function Update-TrayState {
     $preset = Get-EqPreset
-    $rightComp = Get-BoolSetting $rightCompPath $true
-
-    $offItem.Checked = $preset -eq 'off'
-    $onItem.Checked = $preset -eq 'on'
-    $rightCompItem.Checked = $rightComp
-
-    $presetLabel = if ($preset -eq 'off') { 'Off' } else { 'On' }
-    $rightLabel = if ($rightComp) { 'R+' } else { 'R0' }
-    $notify.Text = "Omniphony Current | EQ: $presetLabel | $rightLabel"
+    $enabled = $preset -eq 'on'
+    $eqItem.Checked = $enabled
+    $eqItem.Text = if ($enabled) { 'EQ: On' } else { 'EQ: Off' }
+    $notify.Text = if ($enabled) { 'Omniphony | EQ: On' } else { 'Omniphony | EQ: Off' }
 }
 
-function Select-EqPreset([string]$Preset) {
+function Toggle-Eq {
     try {
-        Set-EqPreset $Preset
+        $next = if ((Get-EqPreset) -eq 'on') { 'off' } else { 'on' }
+        Set-EqPreset $next
         Update-TrayState
     } catch {
-        $notify.BalloonTipTitle = 'Omniphony'
-        $notify.BalloonTipText = "Could not change the EQ setting: $($_.Exception.Message)"
-        $notify.ShowBalloonTip(2500)
+        Show-TrayMessage "Could not change the EQ setting: $($_.Exception.Message)"
     }
 }
 
-$offItem.Add_Click({ Select-EqPreset 'off' })
-$onItem.Add_Click({ Select-EqPreset 'on' })
-
-$rightCompItem.Add_Click({
-    try {
-        Set-BoolSetting $rightCompPath (-not (Get-BoolSetting $rightCompPath $true))
-        Update-TrayState
-    } catch {
-        $notify.BalloonTipTitle = 'Omniphony'
-        $notify.BalloonTipText = "Could not change right-ear compensation: $($_.Exception.Message)"
-        $notify.ShowBalloonTip(2500)
-    }
-})
+$eqItem.Add_Click({ Toggle-Eq })
+$restartAudioItem.Add_Click({ Restart-WindowsAudioService })
 
 $exitItem.Add_Click({
     $notify.Visible = $false
