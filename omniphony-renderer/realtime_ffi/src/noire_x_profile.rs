@@ -1,9 +1,8 @@
 //! Dan Clark Noire X / primary-listener output calibration for the Windows path.
 //!
-//! Keep two concepts separate:
-//!
-//! 1. one optional Omniphony headphone / renderer EQ, exposed simply as On/Off;
-//! 2. listener-specific right-ear compensation, independently bypassable.
+//! The shared Omniphony headphone / renderer EQ is exposed simply as On/Off.
+//! Listener-specific right-ear compensation is part of the fixed personal
+//! calibration and remains active regardless of the shared EQ setting.
 //!
 //! The retired DTS-era curve remains only as listening-history evidence. Its
 //! broad upper-mid / treble suppression taught an important constraint: reduce
@@ -25,7 +24,6 @@ const RIGHT_DELAY_MS: f64 = 0.02;
 const SETTING_POLL_MS: u64 = 500;
 const EQ_PRESET_FILE_NAME: &str = "eq-preset.txt";
 const LEGACY_EQ_FILE_NAME: &str = "personal-eq.txt";
-const RIGHT_COMP_FILE_NAME: &str = "right-ear-comp.txt";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum EqPreset {
@@ -62,19 +60,39 @@ struct FilterSpec {
 
 impl FilterSpec {
     const fn high_pass(frequency_hz: f64, q: f64) -> Self {
-        Self { kind: FilterKind::HighPass, frequency_hz, gain_db: 0.0, q }
+        Self {
+            kind: FilterKind::HighPass,
+            frequency_hz,
+            gain_db: 0.0,
+            q,
+        }
     }
 
     const fn peaking(frequency_hz: f64, gain_db: f64, q: f64) -> Self {
-        Self { kind: FilterKind::Peaking, frequency_hz, gain_db, q }
+        Self {
+            kind: FilterKind::Peaking,
+            frequency_hz,
+            gain_db,
+            q,
+        }
     }
 
     const fn low_shelf(frequency_hz: f64, gain_db: f64, q: f64) -> Self {
-        Self { kind: FilterKind::LowShelf, frequency_hz, gain_db, q }
+        Self {
+            kind: FilterKind::LowShelf,
+            frequency_hz,
+            gain_db,
+            q,
+        }
     }
 
     const fn high_shelf(frequency_hz: f64, gain_db: f64, q: f64) -> Self {
-        Self { kind: FilterKind::HighShelf, frequency_hz, gain_db, q }
+        Self {
+            kind: FilterKind::HighShelf,
+            frequency_hz,
+            gain_db,
+            q,
+        }
     }
 }
 
@@ -98,9 +116,8 @@ const TUNED_SHARED_FILTERS: [FilterSpec; 12] = [
     FilterSpec::high_shelf(10_000.0, 0.50, 0.70),
 ];
 
-// Listener-specific right-ear compensation. Keep independent from the shared
-// headphone curve so EQ Off remains a useful tonal control without erasing the
-// separately auditioned asymmetry compensation.
+// Listener-specific right-ear compensation. This is intentionally permanent:
+// EQ Off is a tonal A/B control, not a way to erase the listener calibration.
 const RIGHT_FILTERS: [FilterSpec; 3] = [
     FilterSpec::peaking(180.0, -0.3, 0.9),
     FilterSpec::peaking(3_000.0, -1.1, 1.0),
@@ -198,7 +215,8 @@ impl Biquad {
     fn process(&mut self, input: f32) -> f32 {
         let x = if input.is_finite() { input as f64 } else { 0.0 };
         let y = self.b0 * x + self.b1 * self.x1 + self.b2 * self.x2
-            - self.a1 * self.y1 - self.a2 * self.y2;
+            - self.a1 * self.y1
+            - self.a2 * self.y2;
         self.x2 = self.x1;
         self.x1 = x;
         self.y2 = self.y1;
@@ -215,7 +233,10 @@ struct SampleDelay {
 impl SampleDelay {
     fn new(sample_rate_hz: u32, delay_ms: f64) -> Self {
         let count = ((sample_rate_hz as f64 * delay_ms / 1000.0) + 0.5).floor() as usize;
-        Self { samples: vec![0.0; count], offset: 0 }
+        Self {
+            samples: vec![0.0; count],
+            offset: 0,
+        }
     }
 
     fn process(&mut self, input: f32) -> f32 {
@@ -232,16 +253,16 @@ impl SampleDelay {
     }
 
     #[cfg(test)]
-    fn len(&self) -> usize { self.samples.len() }
+    fn len(&self) -> usize {
+        self.samples.len()
+    }
 }
 
 pub(crate) struct NoireXPersonalEq {
     sample_rate_hz: u32,
     preset: EqPreset,
-    right_comp_enabled: bool,
     eq_setting_path: PathBuf,
     legacy_eq_setting_path: PathBuf,
-    right_comp_setting_path: PathBuf,
     last_setting_check: Instant,
     global_gain: f32,
     shared: Vec<[Biquad; 2]>,
@@ -255,17 +276,13 @@ impl NoireXPersonalEq {
         let root = omniphony_state_root();
         let eq_setting_path = root.join(EQ_PRESET_FILE_NAME);
         let legacy_eq_setting_path = root.join(LEGACY_EQ_FILE_NAME);
-        let right_comp_setting_path = root.join(RIGHT_COMP_FILE_NAME);
         let preset = read_eq_preset(&eq_setting_path, &legacy_eq_setting_path);
-        let right_comp_enabled = read_bool_setting(&right_comp_setting_path, true);
         let (global_gain, shared) = build_eq_preset(preset, sample_rate_hz);
         Self {
             sample_rate_hz,
             preset,
-            right_comp_enabled,
             eq_setting_path,
             legacy_eq_setting_path,
-            right_comp_setting_path,
             last_setting_check: Instant::now(),
             global_gain,
             shared,
@@ -282,25 +299,18 @@ impl NoireXPersonalEq {
         self.last_setting_check = Instant::now();
 
         let preset = read_eq_preset(&self.eq_setting_path, &self.legacy_eq_setting_path);
-        let right_comp_enabled = read_bool_setting(&self.right_comp_setting_path, true);
-        if preset == self.preset && right_comp_enabled == self.right_comp_enabled {
+        if preset == self.preset {
             return;
         }
 
         self.preset = preset;
-        self.right_comp_enabled = right_comp_enabled;
         let (global_gain, shared) = build_eq_preset(self.preset, self.sample_rate_hz);
         self.global_gain = global_gain;
         self.shared = shared;
-        self.right_only = build_right_filters(self.sample_rate_hz);
-        self.right_delay = SampleDelay::new(self.sample_rate_hz, RIGHT_DELAY_MS);
     }
 
     pub(crate) fn process_interleaved(&mut self, samples: &mut [f32]) {
         self.refresh_settings();
-        if self.preset == EqPreset::Off && !self.right_comp_enabled {
-            return;
-        }
 
         for frame in samples.chunks_exact_mut(2) {
             let mut left = finite_or_zero(frame[0]);
@@ -315,13 +325,11 @@ impl NoireXPersonalEq {
                 }
             }
 
-            if self.right_comp_enabled {
-                right *= self.right_gain;
-                for filter in &mut self.right_only {
-                    right = filter.process(right);
-                }
-                right = self.right_delay.process(right);
+            right *= self.right_gain;
+            for filter in &mut self.right_only {
+                right = filter.process(right);
             }
+            right = self.right_delay.process(right);
 
             frame[0] = finite_or_zero(left);
             frame[1] = finite_or_zero(right);
@@ -336,7 +344,12 @@ fn build_eq_preset(preset: EqPreset, sample_rate_hz: u32) -> (f32, Vec<[Biquad; 
     };
     let filters = specs
         .iter()
-        .map(|&spec| [Biquad::new(spec, sample_rate_hz), Biquad::new(spec, sample_rate_hz)])
+        .map(|&spec| {
+            [
+                Biquad::new(spec, sample_rate_hz),
+                Biquad::new(spec, sample_rate_hz),
+            ]
+        })
         .collect();
     (db_to_gain(preamp_db), filters)
 }
@@ -365,12 +378,6 @@ fn read_eq_preset(path: &Path, legacy_path: &Path) -> EqPreset {
     EqPreset::On
 }
 
-fn read_bool_setting(path: &Path, default: bool) -> bool {
-    fs::read_to_string(path)
-        .map(|text| !matches!(text.trim().to_ascii_lowercase().as_str(), "0" | "off" | "false" | "disabled"))
-        .unwrap_or(default)
-}
-
 fn db_to_gain(db: f64) -> f32 {
     10.0f64.powf(db / 20.0) as f32
 }
@@ -397,14 +404,21 @@ mod tests {
     #[test]
     fn tuned_profile_spends_gain_in_deep_sub_and_preserves_air() {
         assert!(TUNED_SHARED_FILTERS.iter().any(|spec| {
-            spec.kind == FilterKind::LowShelf && spec.frequency_hz <= 35.0 && spec.gain_db >= 3.5
+            spec.kind == FilterKind::LowShelf
+                && spec.frequency_hz <= 35.0
+                && spec.gain_db >= 3.5
         }));
         assert!(TUNED_SHARED_FILTERS.iter().any(|spec| {
-            spec.kind == FilterKind::HighShelf && spec.frequency_hz >= 9_000.0 && spec.gain_db > 0.0
+            spec.kind == FilterKind::HighShelf
+                && spec.frequency_hz >= 9_000.0
+                && spec.gain_db > 0.0
         }));
-        assert!(TUNED_SHARED_FILTERS.iter().filter(|spec| {
-            (3_500.0..=8_000.0).contains(&spec.frequency_hz) && spec.gain_db < 0.0
-        }).all(|spec| spec.gain_db >= -1.0));
+        assert!(TUNED_SHARED_FILTERS
+            .iter()
+            .filter(|spec| {
+                (3_500.0..=8_000.0).contains(&spec.frequency_hz) && spec.gain_db < 0.0
+            })
+            .all(|spec| spec.gain_db >= -1.0));
     }
 
     #[test]
@@ -420,10 +434,9 @@ mod tests {
     }
 
     #[test]
-    fn right_compensation_is_independent_of_headphone_preset() {
+    fn right_compensation_remains_active_when_headphone_eq_is_off() {
         let mut profile = NoireXPersonalEq::new(48_000);
         profile.preset = EqPreset::Off;
-        profile.right_comp_enabled = true;
         profile.global_gain = 1.0;
         profile.shared.clear();
         profile.right_only = build_right_filters(48_000);
@@ -446,7 +459,8 @@ mod tests {
         let mut out_energy = 0.0f64;
         let frames = sample_rate as usize;
         for frame in 0..frames {
-            let sample = (2.0 * PI * frequency * frame as f64 / sample_rate as f64).sin() as f32 * 0.1;
+            let sample =
+                (2.0 * PI * frequency * frame as f64 / sample_rate as f64).sin() as f32 * 0.1;
             let output = filter.process(sample);
             if frame >= frames / 2 {
                 in_energy += (sample as f64).powi(2);
@@ -462,7 +476,6 @@ mod tests {
     fn hot_tuned_profile_processing_remains_finite() {
         let mut profile = NoireXPersonalEq::new(48_000);
         profile.preset = EqPreset::On;
-        profile.right_comp_enabled = true;
         let (gain, shared) = build_eq_preset(EqPreset::On, 48_000);
         profile.global_gain = gain;
         profile.shared = shared;
