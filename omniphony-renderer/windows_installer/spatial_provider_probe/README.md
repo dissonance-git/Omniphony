@@ -66,7 +66,13 @@ The same `Spatial\Encoder` surface has also been independently explored by the o
 
 ## Run the experiment
 
-Extract `OmniphonySpatialProbeCtl.exe` and `OmniphonySpatialProbe.dll` into the same directory and leave them there while the probe is registered.
+Extract these files into the same directory and leave them there while the probe is registered:
+
+```text
+OmniphonySpatialProbeCtl.exe
+OmniphonySpatialProbe.dll
+CaptureSpatialProviderState.ps1
+```
 
 First capture the current state from a normal terminal:
 
@@ -74,6 +80,7 @@ First capture the current state from a normal terminal:
 .\OmniphonySpatialProbeCtl.exe contract
 .\OmniphonySpatialProbeCtl.exe list
 .\OmniphonySpatialProbeCtl.exe status
+.\CaptureSpatialProviderState.ps1 > before-registration.txt
 ```
 
 `status` returns exit code 3 before registration by design.
@@ -86,6 +93,12 @@ Then open **PowerShell as Administrator** in that directory and run:
 ```
 
 The registration command verifies that the COM DLL can be activated through the newly written CLSID before leaving the registry state in place.
+
+Return to a normal, non-elevated terminal and capture the registered state:
+
+```powershell
+.\CaptureSpatialProviderState.ps1 > registered.txt
+```
 
 Now close and reopen Windows Settings and inspect the current physical output under:
 
@@ -101,7 +114,7 @@ Settings
 
 This falsifies the current `Spatial\Encoder` enumeration hypothesis on that Windows build.
 
-Preserve the `list`, `status`, and `diagnose` output. The next step is read-only Process Monitor / registry-delta observation around a known provider rather than progressively broader registry writes.
+Preserve `before-registration.txt`, `registered.txt`, and the `list`, `status`, and `diagnose` output. The next step is read-only Process Monitor / registry-delta observation around a known provider rather than progressively broader registry writes.
 
 ### Result B — `Omniphony` appears but cannot be selected
 
@@ -117,6 +130,44 @@ Record this separately. It would show that provider selection can precede stream
 
 Do not leave the probe selected for normal listening because this build cannot activate a render stream.
 
+## Deterministic provider-selection snapshots
+
+`CaptureSpatialProviderState.ps1` closes the P1/P2 observation gap without introducing another audio path. It is read-only and records:
+
+- Windows product/version/build context;
+- the current `Spatial\Encoder` provider inventory;
+- the exact 64-bit registry values beneath the bounded `Spatial\Encoder` tree;
+- the bounded per-device state beneath `SpatialAudioEndpoint`;
+- value type, byte count, truncation state, and normalized value data;
+- explicit markers that the collector performs no `MMDevices` writes.
+
+The registry walk is sorted and bounded by default to depth 8 and 4096 bytes per value so two captures can be compared as ordinary line-oriented evidence instead of screenshots or memory.
+
+For P2, capture each state **before** changing it again:
+
+```powershell
+# Windows Sonic selected in the normal Windows UI
+.\CaptureSpatialProviderState.ps1 > sonic.txt
+
+# Dolby Atmos for Headphones selected in the normal Windows UI
+.\CaptureSpatialProviderState.ps1 > dolby.txt
+
+# DTS Headphone:X selected in the normal Windows UI
+.\CaptureSpatialProviderState.ps1 > dts.txt
+
+# Omniphony selected, only if Windows actually allows it
+.\CaptureSpatialProviderState.ps1 > omniphony.txt
+```
+
+Then inspect exact line deltas, for example:
+
+```powershell
+Compare-Object (Get-Content .\sonic.txt) (Get-Content .\dolby.txt)
+Compare-Object (Get-Content .\dolby.txt) (Get-Content .\dts.txt)
+```
+
+A useful P2 result is a small repeatable delta that tracks the provider selected through the normal Windows UI. Unrelated registry churn is not provider-selection evidence. The snapshot tool does not itself select a provider, edit endpoint state, or prove object delivery.
+
 ## Clean removal
 
 From an elevated terminal:
@@ -128,12 +179,19 @@ From an elevated terminal:
 
 After `unregister`, `status` should again return exit code 3 and report both owned keys absent.
 
+A final normal-terminal capture can prove the owned registration disappeared without relying on memory:
+
+```powershell
+.\CaptureSpatialProviderState.ps1 > after-unregister.txt
+```
+
 ## Evidence states
 
 Keep these claims separate:
 
 ```text
 build succeeds
+≠ read-only provider/endpoint snapshot succeeds
 ≠ registry registration succeeds
 ≠ COM IUnknown activation succeeds
 ≠ ISpatialAudioClient capability query succeeds
@@ -145,7 +203,7 @@ build succeeds
 ≠ Omniphony renders them correctly
 ```
 
-The current probe is complete when enumeration and capability negotiation have real-machine results.
+The current probe is complete when enumeration and capability negotiation have real-machine results. The snapshot machinery makes those results reproducible; it does not promote them to a later evidence state.
 
 ## Primary platform references
 
