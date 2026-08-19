@@ -11,13 +11,14 @@ extern "C" {
 #endif
 
 #define OMNIPHONY_REALTIME_ABI_MAJOR 0
-#define OMNIPHONY_REALTIME_ABI_MINOR 3
+#define OMNIPHONY_REALTIME_ABI_MINOR 4
 
 #define OMNIPHONY_REALTIME_MODE_IDENTITY 0u
 #define OMNIPHONY_REALTIME_MODE_CURRENT 1u
 
 typedef struct OmniphonyRealtimeProcessor OmniphonyRealtimeProcessor;
 typedef struct OmniphonyNativeBedProcessor OmniphonyNativeBedProcessor;
+typedef struct OmniphonySpatialStaticProcessor OmniphonySpatialStaticProcessor;
 
 typedef struct OmniphonyRealtimeConfig {
     uint32_t sample_rate_hz;
@@ -29,6 +30,43 @@ typedef struct OmniphonyNativeBedConfig {
     uint32_t channels;
     uint32_t channel_mask;
 } OmniphonyNativeBedConfig;
+
+/*
+ * Canonical Omniphony static-scene role indices. These are semantic roles,
+ * not WAVEFORMATEXTENSIBLE channel bits and not AudioObjectType bit values.
+ */
+#define OMNIPHONY_SPATIAL_STATIC_FRONT_LEFT          0u
+#define OMNIPHONY_SPATIAL_STATIC_FRONT_RIGHT         1u
+#define OMNIPHONY_SPATIAL_STATIC_FRONT_CENTER        2u
+#define OMNIPHONY_SPATIAL_STATIC_LOW_FREQUENCY       3u
+#define OMNIPHONY_SPATIAL_STATIC_SIDE_LEFT            4u
+#define OMNIPHONY_SPATIAL_STATIC_SIDE_RIGHT           5u
+#define OMNIPHONY_SPATIAL_STATIC_BACK_LEFT            6u
+#define OMNIPHONY_SPATIAL_STATIC_BACK_RIGHT           7u
+#define OMNIPHONY_SPATIAL_STATIC_BACK_CENTER          8u
+#define OMNIPHONY_SPATIAL_STATIC_TOP_FRONT_LEFT       9u
+#define OMNIPHONY_SPATIAL_STATIC_TOP_FRONT_RIGHT     10u
+#define OMNIPHONY_SPATIAL_STATIC_TOP_BACK_LEFT       11u
+#define OMNIPHONY_SPATIAL_STATIC_TOP_BACK_RIGHT      12u
+#define OMNIPHONY_SPATIAL_STATIC_BOTTOM_FRONT_LEFT   13u
+#define OMNIPHONY_SPATIAL_STATIC_BOTTOM_FRONT_RIGHT  14u
+#define OMNIPHONY_SPATIAL_STATIC_BOTTOM_BACK_LEFT    15u
+#define OMNIPHONY_SPATIAL_STATIC_BOTTOM_BACK_RIGHT   16u
+
+typedef struct OmniphonySpatialStaticObjectDescriptor {
+    uint32_t role;
+    /* Windows listener-relative coordinates in metres: +X right, +Y up, +Z behind. */
+    float x_right_m;
+    float y_up_m;
+    float z_back_m;
+} OmniphonySpatialStaticObjectDescriptor;
+
+typedef struct OmniphonySpatialStaticConfig {
+    uint32_t sample_rate_hz;
+    uint32_t frames_per_quantum;
+    uint32_t object_count;
+    const OmniphonySpatialStaticObjectDescriptor *objects;
+} OmniphonySpatialStaticConfig;
 
 uint32_t omniphony_realtime_abi_major(void);
 uint32_t omniphony_realtime_abi_minor(void);
@@ -112,6 +150,46 @@ uint32_t omniphony_native_bed_channels(
     const OmniphonyNativeBedProcessor *processor);
 uint32_t omniphony_native_bed_channel_mask(
     const OmniphonyNativeBedProcessor *processor);
+
+/*
+ * Fixed-topology Windows Spatial Audio static-object path.
+ *
+ * Creation receives the static role set and the exact listener-relative Windows
+ * positions for that stream. The role set is immutable for the processor's
+ * lifetime. Directional coordinates are authoritative source geometry; LFE is
+ * explicitly non-directional and its position fields are ignored.
+ *
+ * The process input is planar mono float32 in descriptor order:
+ *
+ *   object0[frames] | object1[frames] | ...
+ *
+ * Output is interleaved stereo float32. Input/output must not alias. The host
+ * callback only performs bounded PCM movement and safety fold-down; the source
+ * renderer runs on a dedicated worker thread.
+ *
+ * ABI 0.4 covers STATIC Spatial Audio objects only. Dynamic-object position and
+ * lifetime updates are a separate later ABI so a fixed static stream does not
+ * smuggle unstable dynamic slot semantics into this contract.
+ */
+OmniphonySpatialStaticProcessor *omniphony_spatial_static_create(
+    const OmniphonySpatialStaticConfig *config);
+void omniphony_spatial_static_destroy(
+    OmniphonySpatialStaticProcessor *processor);
+size_t omniphony_spatial_static_latency_frames(
+    const OmniphonySpatialStaticProcessor *processor);
+uint64_t omniphony_spatial_static_processed_blocks(
+    const OmniphonySpatialStaticProcessor *processor);
+int32_t omniphony_spatial_static_process_f32(
+    OmniphonySpatialStaticProcessor *processor,
+    const float *input_planar,
+    float *output_stereo,
+    size_t frames);
+uint32_t omniphony_spatial_static_sample_rate_hz(
+    const OmniphonySpatialStaticProcessor *processor);
+uint32_t omniphony_spatial_static_frames_per_quantum(
+    const OmniphonySpatialStaticProcessor *processor);
+uint32_t omniphony_spatial_static_object_count(
+    const OmniphonySpatialStaticProcessor *processor);
 
 #ifdef __cplusplus
 }
