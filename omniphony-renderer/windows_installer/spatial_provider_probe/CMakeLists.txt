@@ -93,3 +93,15 @@ target_compile_features(OmniphonySpatialRawOutputSinkProbe PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonySpatialRawOutputSinkProbe PRIVATE UNICODE _UNICODE)
 target_compile_options(OmniphonySpatialRawOutputSinkProbe PRIVATE /W4 /WX /permissive-)
 target_link_libraries(OmniphonySpatialRawOutputSinkProbe PRIVATE ole32 uuid)
+
+# Pure clock-domain adapter smoke. The Current worker keeps its fixed 480-frame
+# producer quantum while the eventual endpoint consumer may request any legal
+# shared-engine period. The queue is preallocated and SPSC so neither side has
+# to block or allocate after startup.
+add_executable(OmniphonySpatialStereoQueueSmoke
+    OmniphonySpatialStereoQueueSmoke.cpp
+    OmniphonySpatialStereoQueue.cpp
+)
+target_compile_features(OmniphonySpatialStereoQueueSmoke PRIVATE cxx_std_17)
+target_compile_definitions(OmniphonySpatialStereoQueueSmoke PRIVATE UNICODE _UNICODE)
+target_compile_options(OmniphonySpatialStereoQueueSmoke PRIVATE /W4 /WX /permissive-)
