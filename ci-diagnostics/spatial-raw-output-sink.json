@@ -1,7 +1,7 @@
 {
   "schema": "omniphony.windows.spatial-raw-output-sink-diagnostic.v1",
-  "head_sha": "1fc73297c20da98565e2d7bbf669c33ff2a500ed",
-  "run_id": "32313360203",
+  "head_sha": "845623b8e79eb8a6e6fc3a05240288ef1bdb793c",
+  "run_id": "32315312796",
   "overall": "success",
   "contract": "success",
   "configure": "success",
