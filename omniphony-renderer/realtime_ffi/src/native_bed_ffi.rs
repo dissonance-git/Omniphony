@@ -8,8 +8,8 @@
 use crate::native_bed::{NativeBedLayout, NativeBedPipeline};
 use crate::{AudioRing, OUTPUT_CEILING, PROCESS_BLOCK_MS, RING_SECONDS, StereoDelay};
 use std::ptr;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, mpsc::sync_channel};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -25,6 +25,7 @@ struct AsyncNativeBed {
     output: Arc<AudioRing>,
     stop: Arc<AtomicBool>,
     failed: Arc<AtomicBool>,
+    ready: Arc<AtomicBool>,
     processed_blocks: Arc<AtomicU64>,
     worker: Option<JoinHandle<()>>,
     fallback_layout: NativeBedLayout,
@@ -46,13 +47,14 @@ impl AsyncNativeBed {
         let output = Arc::new(AudioRing::new(output_capacity));
         let stop = Arc::new(AtomicBool::new(false));
         let failed = Arc::new(AtomicBool::new(false));
+        let ready = Arc::new(AtomicBool::new(false));
         let processed_blocks = Arc::new(AtomicU64::new(0));
-        let (init_tx, init_rx) = sync_channel::<Result<(), String>>(1);
 
         let input_worker = Arc::clone(&input);
         let output_worker = Arc::clone(&output);
         let stop_worker = Arc::clone(&stop);
         let failed_worker = Arc::clone(&failed);
+        let ready_worker = Arc::clone(&ready);
         let blocks_worker = Arc::clone(&processed_blocks);
         let process_frames = ((sample_rate_hz as usize) * PROCESS_BLOCK_MS / 1000).max(64);
         let process_samples = process_frames.saturating_mul(channels);
@@ -62,11 +64,10 @@ impl AsyncNativeBed {
             .spawn(move || {
                 let mut pipeline = match NativeBedPipeline::new(sample_rate_hz, channels, channel_mask) {
                     Ok(pipeline) => {
-                        let _ = init_tx.send(Ok(()));
+                        ready_worker.store(true, Ordering::Release);
                         pipeline
                     }
-                    Err(error) => {
-                        let _ = init_tx.send(Err(error));
+                    Err(_) => {
                         failed_worker.store(true, Ordering::Release);
                         return;
                     }
@@ -105,30 +106,19 @@ impl AsyncNativeBed {
             })
             .map_err(|error| error.to_string())?;
 
-        match init_rx.recv_timeout(Duration::from_secs(30)) {
-            Ok(Ok(())) => Ok(Self {
-                input,
-                output,
-                stop,
-                failed,
-                processed_blocks,
-                worker: Some(worker),
-                fallback_layout,
-                fallback_delay: StereoDelay::new(sample_rate_hz),
-                missed_native_frames: 0,
-                channels,
-            }),
-            Ok(Err(error)) => {
-                stop.store(true, Ordering::Release);
-                let _ = worker.join();
-                Err(error)
-            }
-            Err(error) => {
-                stop.store(true, Ordering::Release);
-                let _ = worker.join();
-                Err(format!("native bed initialization timed out: {error}"))
-            }
-        }
+        Ok(Self {
+            input,
+            output,
+            stop,
+            failed,
+            ready,
+            processed_blocks,
+            worker: Some(worker),
+            fallback_layout,
+            fallback_delay: StereoDelay::new(sample_rate_hz),
+            missed_native_frames: 0,
+            channels,
+        })
     }
 
     fn latency_frames(&self) -> usize {
@@ -140,7 +130,8 @@ impl AsyncNativeBed {
             return -10;
         };
 
-        let mut use_native = !self.failed.load(Ordering::Acquire);
+        let mut use_native = self.ready.load(Ordering::Acquire)
+            && !self.failed.load(Ordering::Acquire);
         if use_native && !unsafe { self.input.push_ptr(input, input_samples) } {
             self.failed.store(true, Ordering::Release);
             use_native = false;
@@ -196,9 +187,11 @@ impl AsyncNativeBed {
 impl Drop for AsyncNativeBed {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
+        // Device invalidation must never make AudioDG graph teardown wait for a
+        // renderer worker that may still be initializing or finishing a block.
+        // Dropping JoinHandle detaches safely; the worker owns only Arc state
+        // and observes `stop` once any in-flight initialization/work returns.
+        let _ = self.worker.take();
     }
 }
 
