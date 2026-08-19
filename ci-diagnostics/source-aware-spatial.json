@@ -1,7 +1,7 @@
 {
   "schema": "omniphony.ci.source-aware-spatial.v1",
-  "head_sha": "3869c32d276bfaac77df98ebcfd2f433f10116b3",
-  "run_id": 32210212356,
+  "head_sha": "fef4de0ed5b45ef1c7d64335ec400a533724c6e8",
+  "run_id": 32213171743,
   "steps": {
     "rust": "success",
     "compile_source_shell": "success",
