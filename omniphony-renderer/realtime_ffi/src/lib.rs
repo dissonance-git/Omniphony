@@ -21,7 +21,7 @@ use renderer::music_foundation::MusicFoundationProcessor;
 use std::cell::UnsafeCell;
 use std::collections::VecDeque;
 use std::ptr;
-use std::sync::{Arc, mpsc::sync_channel};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -332,6 +332,7 @@ struct AsyncCurrent {
     output: Arc<AudioRing>,
     stop: Arc<AtomicBool>,
     failed: Arc<AtomicBool>,
+    ready: Arc<AtomicBool>,
     processed_blocks: Arc<AtomicU64>,
     worker: Option<JoinHandle<()>>,
     dry_delay: StereoDelay,
@@ -347,13 +348,14 @@ impl AsyncCurrent {
         let output = Arc::new(AudioRing::new(capacity_samples));
         let stop = Arc::new(AtomicBool::new(false));
         let failed = Arc::new(AtomicBool::new(false));
+        let ready = Arc::new(AtomicBool::new(false));
         let processed_blocks = Arc::new(AtomicU64::new(0));
-        let (init_tx, init_rx) = sync_channel::<Result<(), String>>(1);
 
         let input_worker = Arc::clone(&input);
         let output_worker = Arc::clone(&output);
         let stop_worker = Arc::clone(&stop);
         let failed_worker = Arc::clone(&failed);
+        let ready_worker = Arc::clone(&ready);
         let blocks_worker = Arc::clone(&processed_blocks);
         let process_frames = ((sample_rate_hz as usize) * PROCESS_BLOCK_MS / 1000).max(64);
         let process_samples = process_frames * 2;
@@ -363,11 +365,10 @@ impl AsyncCurrent {
             .spawn(move || {
                 let mut pipeline = match CurrentPipeline::new(sample_rate_hz) {
                     Ok(pipeline) => {
-                        let _ = init_tx.send(Ok(()));
+                        ready_worker.store(true, Ordering::Release);
                         pipeline
                     }
-                    Err(error) => {
-                        let _ = init_tx.send(Err(error));
+                    Err(_) => {
                         failed_worker.store(true, Ordering::Release);
                         return;
                     }
@@ -408,28 +409,17 @@ impl AsyncCurrent {
             })
             .map_err(|error| error.to_string())?;
 
-        match init_rx.recv_timeout(Duration::from_secs(30)) {
-            Ok(Ok(())) => Ok(Self {
-                input,
-                output,
-                stop,
-                failed,
-                processed_blocks,
-                worker: Some(worker),
-                dry_delay: StereoDelay::new(sample_rate_hz),
-                missed_current_frames: 0,
-            }),
-            Ok(Err(error)) => {
-                stop.store(true, Ordering::Release);
-                let _ = worker.join();
-                Err(error)
-            }
-            Err(error) => {
-                stop.store(true, Ordering::Release);
-                let _ = worker.join();
-                Err(format!("Current model initialization timed out: {error}"))
-            }
-        }
+        Ok(Self {
+            input,
+            output,
+            stop,
+            failed,
+            ready,
+            processed_blocks,
+            worker: Some(worker),
+            dry_delay: StereoDelay::new(sample_rate_hz),
+            missed_current_frames: 0,
+        })
     }
 
     fn latency_frames(&self) -> usize {
@@ -446,7 +436,8 @@ impl AsyncCurrent {
             return -10;
         }
 
-        let mut use_current = !self.failed.load(Ordering::Acquire);
+        let mut use_current = self.ready.load(Ordering::Acquire)
+            && !self.failed.load(Ordering::Acquire);
         if use_current {
             if !unsafe { self.input.push_ptr(input, samples) } {
                 self.failed.store(true, Ordering::Release);
@@ -510,9 +501,11 @@ impl AsyncCurrent {
 impl Drop for AsyncCurrent {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
+        // A device/graph teardown must never wait for expensive renderer
+        // initialization or an in-flight worker block to finish. Dropping the
+        // JoinHandle detaches safely; the worker owns only Arc state and exits
+        // after observing `stop` when any in-flight work returns.
+        let _ = self.worker.take();
     }
 }
 
