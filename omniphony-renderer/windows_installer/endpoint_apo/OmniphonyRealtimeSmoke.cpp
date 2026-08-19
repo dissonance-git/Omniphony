@@ -3,6 +3,7 @@
 #include "omniphony_realtime.h"
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -17,9 +18,25 @@ using ProcessFn = int32_t (*)(OmniphonyRealtimeProcessor*, const float*, float*,
 using BlocksFn = uint64_t (*)(const OmniphonyRealtimeProcessor*);
 using LatencyFramesFn = size_t (*)(const OmniphonyRealtimeProcessor*);
 
+using SpatialStaticCreateFn = OmniphonySpatialStaticProcessor* (*)(const OmniphonySpatialStaticConfig*);
+using SpatialStaticDestroyFn = void (*)(OmniphonySpatialStaticProcessor*);
+using SpatialStaticProcessFn = int32_t (*)(OmniphonySpatialStaticProcessor*, const float*, float*, size_t);
+using SpatialStaticBlocksFn = uint64_t (*)(const OmniphonySpatialStaticProcessor*);
+using SpatialStaticLatencyFn = size_t (*)(const OmniphonySpatialStaticProcessor*);
+using SpatialStaticU32Fn = uint32_t (*)(const OmniphonySpatialStaticProcessor*);
+
 template <typename T>
 T Resolve(HMODULE module, const char* name) {
     return reinterpret_cast<T>(GetProcAddress(module, name));
+}
+
+bool AllFinite(const float* samples, size_t count) {
+    for (size_t i = 0; i < count; ++i) {
+        if (!std::isfinite(samples[i])) {
+            return false;
+        }
+    }
+    return true;
 }
 } // namespace
 
@@ -45,8 +62,19 @@ int wmain(int argc, wchar_t** argv) {
     const auto blocks = Resolve<BlocksFn>(module, "omniphony_realtime_processed_blocks");
     const auto latencyFrames = Resolve<LatencyFramesFn>(module, "omniphony_realtime_latency_frames");
 
+    const auto spatialCreate = Resolve<SpatialStaticCreateFn>(module, "omniphony_spatial_static_create");
+    const auto spatialDestroy = Resolve<SpatialStaticDestroyFn>(module, "omniphony_spatial_static_destroy");
+    const auto spatialProcess = Resolve<SpatialStaticProcessFn>(module, "omniphony_spatial_static_process_f32");
+    const auto spatialBlocks = Resolve<SpatialStaticBlocksFn>(module, "omniphony_spatial_static_processed_blocks");
+    const auto spatialLatency = Resolve<SpatialStaticLatencyFn>(module, "omniphony_spatial_static_latency_frames");
+    const auto spatialRate = Resolve<SpatialStaticU32Fn>(module, "omniphony_spatial_static_sample_rate_hz");
+    const auto spatialQuantum = Resolve<SpatialStaticU32Fn>(module, "omniphony_spatial_static_frames_per_quantum");
+    const auto spatialCount = Resolve<SpatialStaticU32Fn>(module, "omniphony_spatial_static_object_count");
+
     if (!abiMajor || !abiMinor || !create || !destroy || !setMode || !mode ||
-        !process || !blocks || !latencyFrames) {
+        !process || !blocks || !latencyFrames || !spatialCreate || !spatialDestroy ||
+        !spatialProcess || !spatialBlocks || !spatialLatency || !spatialRate ||
+        !spatialQuantum || !spatialCount) {
         std::wcerr << L"REALTIME_EXPORTS_MISSING" << std::endl;
         FreeLibrary(module);
         return 4;
@@ -90,14 +118,76 @@ int wmain(int argc, wchar_t** argv) {
             std::wcerr << L"REALTIME_CURRENT_LATENCY_FAILED\tFRAMES="
                        << latencyFrames(processor) << std::endl;
             result = 11;
+        }
+    }
+    destroy(processor);
+
+    if (result == 0) {
+        constexpr size_t kQuantum = 480;
+        const OmniphonySpatialStaticObjectDescriptor descriptor{
+            OMNIPHONY_SPATIAL_STATIC_TOP_FRONT_LEFT,
+            -0.5f,
+            0.70710678f,
+            -0.5f};
+        const OmniphonySpatialStaticConfig spatialConfig{
+            48000u,
+            static_cast<uint32_t>(kQuantum),
+            1u,
+            &descriptor};
+
+        OmniphonySpatialStaticProcessor* spatial = spatialCreate(&spatialConfig);
+        if (!spatial) {
+            std::wcerr << L"SPATIAL_STATIC_CREATE_FAILED" << std::endl;
+            result = 12;
+        } else if (spatialRate(spatial) != 48000u ||
+                   spatialQuantum(spatial) != kQuantum ||
+                   spatialCount(spatial) != 1u ||
+                   spatialLatency(spatial) != 1920u) {
+            std::wcerr << L"SPATIAL_STATIC_CONTRACT_FAILED" << std::endl;
+            result = 13;
         } else {
-            std::wcout << L"REALTIME_DLL_OK\tABI=" << abiMajor() << L"." << abiMinor()
-                       << L"\tIDENTITY_BIT_EXACT=1\tCURRENT_INIT=1\tCURRENT_LATENCY_FRAMES=1920"
-                       << std::endl;
+            std::array<float, kQuantum> input = {};
+            std::array<float, kQuantum * 2> output = {};
+            input.fill(0.05f);
+
+            for (int quantum = 0; quantum < 8 && result == 0; ++quantum) {
+                output.fill(0.0f);
+                if (spatialProcess(spatial, input.data(), output.data(), kQuantum) != 0) {
+                    std::wcerr << L"SPATIAL_STATIC_PROCESS_FAILED\tQUANTUM=" << quantum << std::endl;
+                    result = 14;
+                    break;
+                }
+                if (!AllFinite(output.data(), output.size())) {
+                    std::wcerr << L"SPATIAL_STATIC_NONFINITE_OUTPUT\tQUANTUM=" << quantum << std::endl;
+                    result = 15;
+                    break;
+                }
+                Sleep(15);
+            }
+
+            if (result == 0 && spatialBlocks(spatial) == 0u) {
+                std::wcerr << L"SPATIAL_STATIC_WORKER_DID_NOT_RUN" << std::endl;
+                result = 16;
+            }
+            if (result == 0) {
+                std::wcout << L"SPATIAL_STATIC_ABI_OK\tOBJECTS=1\tROLE=TFL"
+                           << L"\tRATE=48000\tQUANTUM=480\tLATENCY_FRAMES=1920"
+                           << L"\tWORKER_BLOCKS=" << spatialBlocks(spatial)
+                           << std::endl;
+            }
+        }
+        if (spatial) {
+            spatialDestroy(spatial);
         }
     }
 
-    destroy(processor);
+    if (result == 0) {
+        std::wcout << L"REALTIME_DLL_OK\tABI=" << abiMajor() << L"." << abiMinor()
+                   << L"\tIDENTITY_BIT_EXACT=1\tCURRENT_INIT=1\tCURRENT_LATENCY_FRAMES=1920"
+                   << L"\tSPATIAL_STATIC_INIT=1"
+                   << std::endl;
+    }
+
     FreeLibrary(module);
     return result;
 }
