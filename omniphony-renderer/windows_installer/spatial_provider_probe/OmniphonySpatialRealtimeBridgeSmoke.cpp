@@ -1,6 +1,8 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <mmreg.h>
+#include <spatialaudioclient.h>
 
 #include <algorithm>
 #include <cmath>
@@ -9,6 +11,7 @@
 #include <vector>
 
 #include "OmniphonySpatialRealtimeBridge.h"
+#include "OmniphonySpatialRoles.h"
 
 namespace {
 
@@ -23,6 +26,120 @@ bool AllFinite(const std::vector<float>& samples) {
     return std::all_of(samples.begin(), samples.end(), [](float sample) {
         return std::isfinite(sample);
     });
+}
+
+WAVEFORMATEX ObjectFormat() {
+    WAVEFORMATEX format{};
+    format.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
+    format.nChannels = 1;
+    format.nSamplesPerSec = 48'000;
+    format.wBitsPerSample = 32;
+    format.nBlockAlign = sizeof(float);
+    format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
+    return format;
+}
+
+HRESULT ExerciseComToCurrent(const wchar_t* realtimeDllPath) {
+    auto format = ObjectFormat();
+    SpatialAudioObjectRenderStreamActivationParams params{};
+    params.ObjectFormat = &format;
+    params.StaticObjectTypeMask = static_cast<AudioObjectType>(
+        OmniphonySpatialObjectBits(AudioObjectType_FrontLeft) |
+        OmniphonySpatialObjectBits(AudioObjectType_TopFrontLeft));
+    params.MinDynamicObjectCount = 0;
+    params.MaxDynamicObjectCount = 0;
+    params.Category = AudioCategory_GameEffects;
+    params.EventHandle = nullptr;
+    params.NotifyObject = nullptr;
+
+    ISpatialAudioObjectRenderStream* stream = nullptr;
+    HRESULT hr = CreateOmniphonyStaticProbeStreamWithRealtimeBridge(
+        params,
+        realtimeDllPath,
+        &stream);
+    if (FAILED(hr) || !stream) {
+        return FAILED(hr) ? hr : E_FAIL;
+    }
+
+    ISpatialAudioObject* front = nullptr;
+    ISpatialAudioObject* top = nullptr;
+    hr = stream->ActivateSpatialAudioObject(AudioObjectType_FrontLeft, &front);
+    if (FAILED(hr) || !front) {
+        stream->Release();
+        return FAILED(hr) ? hr : E_FAIL;
+    }
+    hr = stream->ActivateSpatialAudioObject(AudioObjectType_TopFrontLeft, &top);
+    if (FAILED(hr) || !top) {
+        front->Release();
+        stream->Release();
+        return FAILED(hr) ? hr : E_FAIL;
+    }
+
+    hr = stream->Start();
+    if (FAILED(hr)) {
+        top->Release();
+        front->Release();
+        stream->Release();
+        return hr;
+    }
+
+    for (std::uint32_t quantum = 0; quantum < 16; ++quantum) {
+        UINT32 available = 0;
+        UINT32 frames = 0;
+        hr = stream->BeginUpdatingAudioObjects(&available, &frames);
+        if (FAILED(hr) || available != 0 || frames != 480) {
+            if (SUCCEEDED(hr)) {
+                hr = E_FAIL;
+            }
+            break;
+        }
+
+        BYTE* frontBytes = nullptr;
+        UINT32 frontLength = 0;
+        hr = front->GetBuffer(&frontBytes, &frontLength);
+        if (FAILED(hr) || !frontBytes || frontLength != frames * sizeof(float)) {
+            if (SUCCEEDED(hr)) {
+                hr = E_FAIL;
+            }
+            break;
+        }
+
+        BYTE* topBytes = nullptr;
+        UINT32 topLength = 0;
+        hr = top->GetBuffer(&topBytes, &topLength);
+        if (FAILED(hr) || !topBytes || topLength != frames * sizeof(float)) {
+            if (SUCCEEDED(hr)) {
+                hr = E_FAIL;
+            }
+            break;
+        }
+
+        auto* frontSamples = reinterpret_cast<float*>(frontBytes);
+        auto* topSamples = reinterpret_cast<float*>(topBytes);
+        for (UINT32 frame = 0; frame < frames; ++frame) {
+            const auto phase = (quantum * frames + frame) % 64;
+            frontSamples[frame] = phase < 32 ? 0.05f : -0.05f;
+            topSamples[frame] = phase < 16 ? 0.04f : -0.04f;
+        }
+
+        hr = stream->EndUpdatingAudioObjects();
+        if (FAILED(hr)) {
+            break;
+        }
+
+        // Registry-free smoke only. Give Current's dedicated worker time to
+        // consume the quantum without imposing a production scheduling model.
+        Sleep(10);
+    }
+
+    if (SUCCEEDED(hr)) {
+        hr = stream->Stop();
+    }
+
+    top->Release();
+    front->Release();
+    stream->Release();
+    return hr;
 }
 
 } // namespace
@@ -40,14 +157,14 @@ int wmain(int argc, wchar_t** argv) {
     const OmniphonySpatialStaticObjectDescriptor descriptors[objectCount] = {
         {
             OMNIPHONY_SPATIAL_STATIC_FRONT_LEFT,
-            -0.70710678f,
+            -kOmniphonySpatialDiagonal,
             0.0f,
-            -0.70710678f,
+            -kOmniphonySpatialDiagonal,
         },
         {
             OMNIPHONY_SPATIAL_STATIC_TOP_FRONT_LEFT,
             -0.5f,
-            0.70710678f,
+            kOmniphonySpatialDiagonal,
             -0.5f,
         },
     };
@@ -71,8 +188,7 @@ int wmain(int argc, wchar_t** argv) {
     std::vector<float> stereo(static_cast<std::size_t>(frames) * 2);
     float peak = 0.0f;
 
-    // Run enough 10 ms quanta to cover the worker/fallback delay and prove the
-    // dynamically loaded static-object ABI is consuming complete planar blocks.
+    // First prove the narrow dynamic-loader ABI boundary directly.
     for (std::uint32_t quantum = 0; quantum < 16; ++quantum) {
         for (std::uint32_t frame = 0; frame < frames; ++frame) {
             const std::uint32_t phase = (quantum * frames + frame) % 64;
@@ -91,10 +207,6 @@ int wmain(int argc, wchar_t** argv) {
         for (float sample : stereo) {
             peak = std::max(peak, std::abs(sample));
         }
-
-        // This is a registry-free diagnostic executable, not an audio callback.
-        // Yielding here gives the dedicated Current worker deterministic room to
-        // consume the submitted quantum without turning the ABI into a busy loop.
         Sleep(10);
     }
 
@@ -105,13 +217,27 @@ int wmain(int argc, wchar_t** argv) {
         return Fail(L"nonzero-output", E_FAIL);
     }
 
+    const auto directLatency = bridge.LatencyFrames();
+    const auto directBlocks = bridge.ProcessedBlocks();
+    bridge.Close();
+
+    // Then prove the composed registry-free path using the COM-shaped static
+    // stream itself. This still does not register/select Omniphony in Windows
+    // and it intentionally does not claim final endpoint playback.
+    hr = ExerciseComToCurrent(argv[1]);
+    if (FAILED(hr)) {
+        return Fail(L"COM-to-Current", hr);
+    }
+
     std::wcout << L"SPATIAL_REALTIME_BRIDGE_OK 1\n";
     std::wcout << L"SPATIAL_REALTIME_BRIDGE_OBJECTS " << objectCount << L"\n";
     std::wcout << L"SPATIAL_REALTIME_BRIDGE_FRAMES " << frames << L"\n";
     std::wcout << L"SPATIAL_REALTIME_BRIDGE_LATENCY_FRAMES "
-               << bridge.LatencyFrames() << L"\n";
+               << directLatency << L"\n";
     std::wcout << L"SPATIAL_REALTIME_BRIDGE_PROCESSED_BLOCKS "
-               << bridge.ProcessedBlocks() << L"\n";
+               << directBlocks << L"\n";
     std::wcout << L"SPATIAL_REALTIME_BRIDGE_OUTPUT_PEAK " << peak << L"\n";
+    std::wcout << L"SPATIAL_COM_TO_CURRENT_OK 1\n";
+    std::wcout << L"SPATIAL_FINAL_ENDPOINT_PROVEN 0\n";
     return 0;
 }
