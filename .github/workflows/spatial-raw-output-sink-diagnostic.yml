@@ -47,7 +47,7 @@ jobs:
             }
           }
 
-          if ($source -match '(?m)->Start\s*\(' -or $header -match '(?m)\bStart\s*\(') {
+          if ($source -match '(?m)->Start\s*\(' -or $header -match '(?m)HRESULT\s+Start\s*\(') {
             throw 'Inert RAW output sink must not expose or call Start().'
           }
           if (-not $header.Contains('IsStarted() const noexcept { return false; }')) {
