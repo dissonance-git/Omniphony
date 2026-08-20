@@ -1,0 +1,24 @@
+name: Retire stale foobar mirror
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/retire-foobar-mirror.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  retire:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove obsolete Omniphony foobar release and tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view foobar-current --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete foobar-current --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+          else
+            echo 'foobar-current release already absent'
+          fi
