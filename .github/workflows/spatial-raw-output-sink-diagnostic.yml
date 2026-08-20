@@ -9,6 +9,7 @@ on:
       - 'omniphony-renderer/windows_installer/spatial_provider_probe/OmniphonySpatialRawOutputSink*'
       - 'omniphony-renderer/windows_installer/spatial_provider_probe/OmniphonySpatialRawOutputPump*'
       - 'omniphony-renderer/windows_installer/spatial_provider_probe/OmniphonySpatialStereoQueue*'
+      - 'omniphony-renderer/windows_installer/spatial_provider_probe/OmniphonySpatialClosedGateEgressProbe.cpp'
       - 'omniphony-renderer/windows_installer/spatial_provider_probe/CMakeLists.txt'
 
 permissions:
@@ -39,6 +40,7 @@ jobs:
           $pumpHeader = Get-Content (Join-Path $root 'OmniphonySpatialRawOutputPump.h') -Raw
           $pumpSource = Get-Content (Join-Path $root 'OmniphonySpatialRawOutputPump.cpp') -Raw
           $queueHeader = Get-Content (Join-Path $root 'OmniphonySpatialStereoQueue.h') -Raw
+          $physicalProbe = Get-Content (Join-Path $root 'OmniphonySpatialClosedGateEgressProbe.cpp') -Raw
 
           foreach ($needle in @(
             'AUDCLNT_STREAMOPTIONS_RAW',
@@ -76,9 +78,22 @@ jobs:
               throw "Missing endpoint-event drain contract token: $needle"
             }
           }
+          foreach ($needle in @(
+            'CreateOmniphonyStaticProbeStreamWithRealtimeBridgeAndQueue',
+            'OmniphonySpatialRawOutputPump',
+            'AvSetMmThreadCharacteristicsW',
+            'SPATIAL_CLOSED_GATE_EGRESS_PROVIDER_REGISTERED 0',
+            'SPATIAL_CLOSED_GATE_EGRESS_PROVIDER_SELECTED 0',
+            'SPATIAL_CLOSED_GATE_EGRESS_PUBLIC_PROVIDER_GATE_OPENED 0'
+          )) {
+            if (-not $physicalProbe.Contains($needle)) {
+              throw "Missing finite physical egress diagnostic safety token: $needle"
+            }
+          }
           Write-Host 'SPATIAL_RAW_OUTPUT_SINK_INERT_PUBLIC_CONTRACT_OK 1'
           Write-Host 'SPATIAL_RAW_OUTPUT_CLOCK_DOMAIN_CONTRACT_OK 1'
           Write-Host 'SPATIAL_RAW_OUTPUT_PUMP_SOURCE_CONTRACT_OK 1'
+          Write-Host 'SPATIAL_CLOSED_GATE_EGRESS_SOURCE_CONTRACT_OK 1'
 
       - name: Configure spatial provider targets
         id: configure
@@ -99,7 +114,7 @@ jobs:
         run: |
           cmake --build "$env:GITHUB_WORKSPACE\build\spatial-provider" `
             --config Release `
-            --target OmniphonySpatialRawOutputSinkProbe OmniphonySpatialStereoQueueSmoke OmniphonySpatialRawOutputPumpSmoke `
+            --target OmniphonySpatialRawOutputSinkProbe OmniphonySpatialStereoQueueSmoke OmniphonySpatialRawOutputPumpSmoke OmniphonySpatialClosedGateEgressProbe `
             --verbose
           if ($LASTEXITCODE -ne 0) { throw "Spatial egress probe build failed: $LASTEXITCODE" }
 
@@ -147,18 +162,23 @@ jobs:
             }
           }
 
-      - name: Verify sink probe binary
+      - name: Verify manual physical probe binaries without running them
         id: binary
         if: steps.build.outcome == 'success'
         continue-on-error: true
         shell: pwsh
         run: |
-          $probe = "$env:GITHUB_WORKSPACE\build\spatial-provider\Release\OmniphonySpatialRawOutputSinkProbe.exe"
-          if (-not (Test-Path -LiteralPath $probe)) {
-            throw "RAW sink probe binary missing: $probe"
+          $sinkProbe = "$env:GITHUB_WORKSPACE\build\spatial-provider\Release\OmniphonySpatialRawOutputSinkProbe.exe"
+          $egressProbe = "$env:GITHUB_WORKSPACE\build\spatial-provider\Release\OmniphonySpatialClosedGateEgressProbe.exe"
+          foreach ($probe in @($sinkProbe, $egressProbe)) {
+            if (-not (Test-Path -LiteralPath $probe)) {
+              throw "Expected spatial output diagnostic binary missing: $probe"
+            }
           }
-          Write-Host "SPATIAL_RAW_OUTPUT_SINK_PROBE_BUILT 1"
-          Write-Host "SPATIAL_RAW_OUTPUT_SINK_PROBE_STARTED 0"
+          Write-Host 'SPATIAL_RAW_OUTPUT_SINK_PROBE_BUILT 1'
+          Write-Host 'SPATIAL_RAW_OUTPUT_SINK_PROBE_STARTED 0'
+          Write-Host 'SPATIAL_CLOSED_GATE_EGRESS_PROBE_BUILT 1'
+          Write-Host 'SPATIAL_CLOSED_GATE_EGRESS_PROBE_RUN_IN_CI 0'
 
       - name: Write diagnostic record
         if: always()
@@ -185,7 +205,7 @@ jobs:
             $binary -eq 'success'
           ) { 'success' } else { 'failure' }
           [ordered]@{
-            schema = 'omniphony.windows.spatial-raw-output-sink-diagnostic.v3'
+            schema = 'omniphony.windows.spatial-raw-output-sink-diagnostic.v4'
             head_sha = $env:GITHUB_SHA
             run_id = $env:GITHUB_RUN_ID
             overall = $overall
@@ -198,6 +218,8 @@ jobs:
             endpoint_period_owned_by_sink = $true
             renderer_quantum_frames = 480
             active_pump_compiled = ($build -eq 'success')
+            closed_gate_egress_probe_compiled = ($build -eq 'success')
+            closed_gate_egress_probe_run_in_ci = $false
             physical_endpoint_opened = $false
             stream_started = $false
             public_provider_gate_opened = $false
