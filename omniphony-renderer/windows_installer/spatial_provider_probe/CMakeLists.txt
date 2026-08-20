@@ -120,3 +120,24 @@ target_compile_features(OmniphonySpatialRawOutputPumpSmoke PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonySpatialRawOutputPumpSmoke PRIVATE UNICODE _UNICODE)
 target_compile_options(OmniphonySpatialRawOutputPumpSmoke PRIVATE /W4 /WX /permissive-)
 target_link_libraries(OmniphonySpatialRawOutputPumpSmoke PRIVATE ole32 uuid)
+
+# Manual physical egress diagnostic. CI compiles this target but must never run
+# it because it requires an explicit real endpoint and intentionally produces a
+# short low-level audible test signal. It still does no provider registration or
+# provider selection and cannot open the public Spatial Audio stream gate.
+add_executable(OmniphonySpatialClosedGateEgressProbe
+    OmniphonySpatialClosedGateEgressProbe.cpp
+    OmniphonySpatialRawOutputPump.cpp
+    OmniphonySpatialRawOutputSink.cpp
+    OmniphonySpatialRealtimeBridge.cpp
+    OmniphonySpatialStaticStream.cpp
+    OmniphonySpatialStereoQueue.cpp
+)
+target_compile_features(OmniphonySpatialClosedGateEgressProbe PRIVATE cxx_std_17)
+target_compile_definitions(OmniphonySpatialClosedGateEgressProbe PRIVATE UNICODE _UNICODE)
+target_compile_options(OmniphonySpatialClosedGateEgressProbe PRIVATE /W4 /WX /permissive-)
+target_include_directories(
+    OmniphonySpatialClosedGateEgressProbe
+    PRIVATE "${OMNIPHONY_REALTIME_INCLUDE}"
+)
+target_link_libraries(OmniphonySpatialClosedGateEgressProbe PRIVATE ole32 uuid avrt)
