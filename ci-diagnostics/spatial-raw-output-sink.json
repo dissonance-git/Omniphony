@@ -1,14 +1,18 @@
 {
-  "schema": "omniphony.windows.spatial-raw-output-sink-diagnostic.v2",
-  "head_sha": "6f0ca2343d64fe4d7488a0451f307651986c4608",
-  "run_id": "32316195905",
-  "overall": "failure",
-  "contract": "failure",
+  "schema": "omniphony.windows.spatial-raw-output-sink-diagnostic.v3",
+  "head_sha": "391e52eb7ad74ceaf37f131d0d6d657644d3c136",
+  "run_id": "32316375268",
+  "overall": "success",
+  "contract": "success",
   "configure": "success",
   "build": "success",
   "queue_smoke": "success",
+  "pump_smoke": "success",
   "binary": "success",
   "endpoint_period_owned_by_sink": true,
   "renderer_quantum_frames": 480,
-  "stream_started": false
+  "active_pump_compiled": true,
+  "physical_endpoint_opened": false,
+  "stream_started": false,
+  "public_provider_gate_opened": false
 }
