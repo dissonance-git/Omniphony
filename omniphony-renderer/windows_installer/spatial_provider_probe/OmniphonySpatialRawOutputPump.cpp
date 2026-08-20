@@ -137,10 +137,13 @@ HRESULT OmniphonySpatialRawOutputPump::DrainOnce() noexcept {
         return result;
     }
     if (!data) {
-        // GetBuffer succeeded but did not provide storage. Release zero frames is
-        // not a valid completion for a nonzero request, so fail closed and let
-        // the owner tear down/re-preflight the endpoint.
-        return E_UNEXPECTED;
+        // Keep WASAPI's GetBuffer/ReleaseBuffer pairing intact even on an
+        // impossible-looking successful null buffer. Mark it silent and fail
+        // closed so the owner tears down/re-preflights the endpoint.
+        const HRESULT releaseResult = sink_.renderClient_->ReleaseBuffer(
+            writable,
+            AUDCLNT_BUFFERFLAGS_SILENT);
+        return FAILED(releaseResult) ? releaseResult : E_UNEXPECTED;
     }
 
     const std::size_t realFrames = stereoQueue_->Read(
