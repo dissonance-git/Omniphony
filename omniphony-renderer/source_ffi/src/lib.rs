@@ -278,6 +278,7 @@ fn render_segment(
             source_buf,
             Some(gain_preapplied_buf),
             Some(extent_retention),
+            None,
             absolute_sample,
             effective_ramp_frames,
             render_scratch,
