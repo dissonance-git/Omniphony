@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cwchar>
 #include <iostream>
 #include <memory>
 #include <system_error>
