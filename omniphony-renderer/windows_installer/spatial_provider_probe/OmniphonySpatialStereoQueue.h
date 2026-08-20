@@ -46,8 +46,8 @@ public:
 private:
     std::vector<float> storage_;
     std::size_t capacityFrames_ = 0;
-    alignas(64) std::atomic<std::uint64_t> writeFrame_{0};
-    alignas(64) std::atomic<std::uint64_t> readFrame_{0};
+    std::atomic<std::uint64_t> writeFrame_{0};
+    std::atomic<std::uint64_t> readFrame_{0};
     std::atomic<std::uint64_t> droppedFrames_{0};
     std::atomic<std::uint64_t> underrunFrames_{0};
 };
