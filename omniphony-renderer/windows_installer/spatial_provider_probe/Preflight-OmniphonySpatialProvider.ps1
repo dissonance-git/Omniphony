@@ -202,6 +202,7 @@ $realtimeBridge = Invoke-NativeCaptured `
     -Arguments @($realtimeDll) `
     -Label 'Final-path realtime bridge smoke'
 Assert-Marker -Result $realtimeBridge -Marker 'SPATIAL_COM_TO_CURRENT_OK 1' -Label 'Final-path realtime bridge smoke'
+Assert-Marker -Result $realtimeBridge -Marker 'SPATIAL_COM_TO_STEREO_QUEUE_OK 1' -Label 'Final-path realtime bridge smoke'
 Assert-Marker -Result $realtimeBridge -Marker 'SPATIAL_FINAL_ENDPOINT_PROVEN 0' -Label 'Final-path realtime bridge smoke'
 
 $queueSmoke = Invoke-NativeCaptured `
@@ -263,6 +264,7 @@ $report = [ordered]@{
     final_path_static_stream_smoke_verified = $true
     final_path_realtime_bridge_smoke_verified = $true
     com_to_current_verified_registry_free = $true
+    current_stereo_to_queue_verified_registry_free = $true
     clock_domain_queue_verified = $true
     renderer_quantum_frames = 480
     desired_stereo_output_supported = $true
@@ -300,6 +302,7 @@ Write-Host "SPATIAL_PROVIDER_PREFLIGHT_OK GENERATION=$($manifest.generation)"
 Write-Host "SPATIAL_PROVIDER_PREFLIGHT_ENDPOINT $PhysicalEndpointId"
 Write-Host "SPATIAL_PROVIDER_PREFLIGHT_REPORT $reportFullPath"
 Write-Host 'SPATIAL_PROVIDER_PREFLIGHT_COM_TO_CURRENT 1'
+Write-Host 'SPATIAL_PROVIDER_PREFLIGHT_CURRENT_TO_STEREO_QUEUE 1'
 Write-Host 'SPATIAL_PROVIDER_PREFLIGHT_CLOCK_DOMAIN_QUEUE 1'
 Write-Host "SPATIAL_PROVIDER_PREFLIGHT_RENDER_QUANTUM_FRAMES 480"
 Write-Host "SPATIAL_PROVIDER_PREFLIGHT_ENDPOINT_PERIOD_FRAMES $endpointPeriodFrames"
