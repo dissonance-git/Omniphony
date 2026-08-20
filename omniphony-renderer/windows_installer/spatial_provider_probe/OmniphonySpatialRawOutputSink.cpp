@@ -174,10 +174,19 @@ HRESULT OmniphonySpatialRawOutputSink::Open(
     bufferFrames_ = bufferFrames;
     periodFrames_ = selectedPeriod;
     sampleRateHz_ = desired.nSamplesPerSec;
+    started_ = false;
     return S_OK;
 }
 
 void OmniphonySpatialRawOutputSink::Close() noexcept {
+    // The public sink has no Start() operation, but the separate closed-gate
+    // pump may have started its client. Destruction/repair must still fail
+    // closed if the caller forgets the explicit pump Stop().
+    if (audioClient_ && started_) {
+        (void)audioClient_->Stop();
+    }
+    started_ = false;
+
     renderClient_.Reset();
     audioClient_.Reset();
     if (sampleReadyEvent_) {
