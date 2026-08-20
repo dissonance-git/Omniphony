@@ -9,7 +9,7 @@ on:
       - 'omniphony-renderer/windows_installer/endpoint_apo/**'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   native-targets:
@@ -165,28 +165,14 @@ jobs:
           $record | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 "$diagnostics\native-apo-targets.json"
           "overall=$overall" >> $env:GITHUB_OUTPUT
 
-      - name: Publish diagnostic record
+      - name: Upload native APO diagnostic record
         if: always()
-        shell: pwsh
-        run: |
-          Set-Location $env:GITHUB_WORKSPACE
-          $record = 'ci-diagnostics/native-apo-targets.json'
-          if (-not (Test-Path $record)) {
-            throw 'Native APO diagnostic record was not produced.'
-          }
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- $record
-          if (git diff --cached --quiet) {
-            Write-Host 'Native APO diagnostic record is unchanged.'
-            exit 0
-          }
-          git commit -m 'build(windows): record native APO target diagnostics'
-          if ($LASTEXITCODE -ne 0) { throw "Diagnostic commit failed: $LASTEXITCODE" }
-          git pull --rebase origin main
-          if ($LASTEXITCODE -ne 0) { throw "Diagnostic rebase failed: $LASTEXITCODE" }
-          git push origin HEAD:main
-          if ($LASTEXITCODE -ne 0) { throw "Diagnostic push failed: $LASTEXITCODE" }
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-apo-diagnostic-${{ github.sha }}
+          path: ci-diagnostics/native-apo-targets.json
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Enforce native target result
         if: always()
