@@ -1,10 +1,10 @@
 {
   "Schema": "omniphony.windows.current-build.v1",
-  "RunId": 32315993185,
+  "RunId": 32316058797,
   "Status": "in_progress",
   "Conclusion": "",
-  "HeadSha": "780e734032cec6072bef925263889d0a7010158a",
-  "ArtifactName": "omniphony-windows-setup-780e734032cec6072bef925263889d0a7010158a",
+  "HeadSha": "b8044ff3aeed454cb1cebaf80d867c0bd0f5f819",
+  "ArtifactName": "omniphony-windows-setup-b8044ff3aeed454cb1cebaf80d867c0bd0f5f819",
   "ReleaseTag": "windows-current",
   "AssetName": "OmniphonySetup.exe"
 }
