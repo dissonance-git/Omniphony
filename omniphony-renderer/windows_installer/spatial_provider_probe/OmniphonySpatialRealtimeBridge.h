@@ -10,9 +10,12 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 
 #include "omniphony_realtime.h"
 #include "OmniphonySpatialStaticStream.h"
+
+class OmniphonySpatialStereoQueue;
 
 // Thin dynamic-loader boundary between the experimental Windows Spatial Sound
 // provider and the existing omniphony_realtime.dll static-object ABI.
@@ -67,8 +70,8 @@ private:
     ProcessFn process_ = nullptr;
 };
 
-// Registry-free end-to-end source factory for the internal provider path.
-// It derives the immutable descriptor order from StaticObjectTypeMask, opens
+// Registry-free source factory for the internal provider path. It derives the
+// immutable descriptor order from StaticObjectTypeMask, opens
 // omniphony_realtime.dll before stream processing begins, and connects each
 // completed COM quantum to the existing static-object Current worker.
 //
@@ -78,4 +81,15 @@ private:
 HRESULT CreateOmniphonyStaticProbeStreamWithRealtimeBridge(
     const SpatialAudioObjectRenderStreamActivationParams& params,
     const wchar_t* realtimeDllPath,
+    ISpatialAudioObjectRenderStream** stream);
+
+// Same closed-gate transport with a pre-opened stereo clock-domain queue on
+// the output side. After Current produces one complete stereo quantum, the
+// transport submits it to the queue as one non-blocking block. The queue must
+// already be opened on the control path. Overflow is surfaced as a transport
+// failure rather than blocking or overwriting unread endpoint audio.
+HRESULT CreateOmniphonyStaticProbeStreamWithRealtimeBridgeAndQueue(
+    const SpatialAudioObjectRenderStreamActivationParams& params,
+    const wchar_t* realtimeDllPath,
+    std::shared_ptr<OmniphonySpatialStereoQueue> stereoQueue,
     ISpatialAudioObjectRenderStream** stream);
