@@ -1,0 +1,32 @@
+name: Verify stale foobar mirror is absent
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/verify-foobar-mirror-retired.yml'
+
+permissions:
+  contents: write
+  statuses: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure obsolete release and tag are absent
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view foobar-current --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete foobar-current --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+          fi
+          if gh release view foobar-current --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'foobar-current still exists' >&2
+            exit 1
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=success \
+            -f context=foobar-mirror-retired \
+            -f description='foobar-current release/tag absent' >/dev/null
