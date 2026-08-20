@@ -84,9 +84,8 @@ target_link_libraries(OmniphonySpatialRawOutputProbe PRIVATE ole32 uuid)
 
 # Provider-egress control-path primitive. It opens the exact physical endpoint
 # as a shared event-driven RAW stereo stream, obtains IAudioRenderClient, and
-# binds the endpoint event. It intentionally exposes no Start() operation, so
-# this target can prove the lifecycle without creating an active playback clock
-# or mutating provider selection.
+# binds the endpoint event. It intentionally exposes no public Start() operation,
+# so install preflight can prove the lifecycle without creating playback.
 add_executable(OmniphonySpatialRawOutputSinkProbe
     OmniphonySpatialRawOutputSinkProbe.cpp
     OmniphonySpatialRawOutputSink.cpp
@@ -107,3 +106,17 @@ add_executable(OmniphonySpatialStereoQueueSmoke
 target_compile_features(OmniphonySpatialStereoQueueSmoke PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonySpatialStereoQueueSmoke PRIVATE UNICODE _UNICODE)
 target_compile_options(OmniphonySpatialStereoQueueSmoke PRIVATE /W4 /WX /permissive-)
+
+# Compile/link and fail-closed lifecycle smoke for the active endpoint-event
+# pump. The smoke never opens a physical endpoint, starts IAudioClient, or opens
+# the public provider gate. Physical output remains a separate evidence step.
+add_executable(OmniphonySpatialRawOutputPumpSmoke
+    OmniphonySpatialRawOutputPumpSmoke.cpp
+    OmniphonySpatialRawOutputPump.cpp
+    OmniphonySpatialRawOutputSink.cpp
+    OmniphonySpatialStereoQueue.cpp
+)
+target_compile_features(OmniphonySpatialRawOutputPumpSmoke PRIVATE cxx_std_17)
+target_compile_definitions(OmniphonySpatialRawOutputPumpSmoke PRIVATE UNICODE _UNICODE)
+target_compile_options(OmniphonySpatialRawOutputPumpSmoke PRIVATE /W4 /WX /permissive-)
+target_link_libraries(OmniphonySpatialRawOutputPumpSmoke PRIVATE ole32 uuid)
