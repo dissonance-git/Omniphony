@@ -5,10 +5,12 @@
 #include <cstring>
 #include <memory>
 #include <new>
+#include <utility>
 #include <vector>
 
 #include "OmniphonySpatialRealtimeBridge.h"
 #include "OmniphonySpatialRoles.h"
+#include "OmniphonySpatialStereoQueue.h"
 
 namespace {
 
@@ -48,9 +50,13 @@ class RealtimeQuantumTransport final : public OmniphonySpatialStaticQuantumTrans
 public:
     HRESULT Open(
         const wchar_t* realtimeDllPath,
-        const SpatialAudioObjectRenderStreamActivationParams& params) {
+        const SpatialAudioObjectRenderStreamActivationParams& params,
+        std::shared_ptr<OmniphonySpatialStereoQueue> stereoQueue = {}) {
         if (!params.ObjectFormat) {
             return AUDCLNT_E_UNSUPPORTED_FORMAT;
+        }
+        if (stereoQueue && !stereoQueue->IsOpen()) {
+            return E_INVALIDARG;
         }
 
         std::vector<OmniphonySpatialStaticObjectDescriptor> descriptors;
@@ -76,24 +82,77 @@ public:
         if (descriptors.empty()) {
             return AUDCLNT_E_UNSUPPORTED_FORMAT;
         }
-        return bridge_.Open(
+
+        const HRESULT result = bridge_.Open(
             realtimeDllPath,
             params.ObjectFormat->nSamplesPerSec,
             480,
             descriptors.data(),
             static_cast<std::uint32_t>(descriptors.size()));
+        if (FAILED(result)) {
+            return result;
+        }
+
+        stereoQueue_ = std::move(stereoQueue);
+        return S_OK;
     }
 
     HRESULT Process(
         const float* inputPlanar,
         float* outputStereo,
         std::size_t frames) noexcept override {
-        return bridge_.Process(inputPlanar, outputStereo, frames);
+        const HRESULT result = bridge_.Process(inputPlanar, outputStereo, frames);
+        if (FAILED(result)) {
+            return result;
+        }
+        if (stereoQueue_ && !stereoQueue_->TryWrite(outputStereo, frames)) {
+            return HRESULT_FROM_WIN32(ERROR_BUFFER_OVERFLOW);
+        }
+        return S_OK;
     }
 
 private:
     OmniphonySpatialRealtimeBridge bridge_;
+    std::shared_ptr<OmniphonySpatialStereoQueue> stereoQueue_;
 };
+
+HRESULT CreateTransportStream(
+    const SpatialAudioObjectRenderStreamActivationParams& params,
+    const wchar_t* realtimeDllPath,
+    std::shared_ptr<OmniphonySpatialStereoQueue> stereoQueue,
+    ISpatialAudioObjectRenderStream** stream) {
+    if (!stream) {
+        return E_POINTER;
+    }
+    *stream = nullptr;
+    if (!IsAbsoluteWindowsPath(realtimeDllPath)) {
+        return E_INVALIDARG;
+    }
+    if (stereoQueue && !stereoQueue->IsOpen()) {
+        return E_INVALIDARG;
+    }
+
+    std::shared_ptr<RealtimeQuantumTransport> transport;
+    try {
+        transport = std::make_shared<RealtimeQuantumTransport>();
+    }
+    catch (const std::bad_alloc&) {
+        return E_OUTOFMEMORY;
+    }
+
+    const HRESULT openResult = transport->Open(
+        realtimeDllPath,
+        params,
+        std::move(stereoQueue));
+    if (FAILED(openResult)) {
+        return openResult;
+    }
+
+    return CreateOmniphonyStaticProbeStreamWithTransport(
+        params,
+        std::move(transport),
+        stream);
+}
 
 } // namespace
 
@@ -204,29 +263,20 @@ HRESULT CreateOmniphonyStaticProbeStreamWithRealtimeBridge(
     const SpatialAudioObjectRenderStreamActivationParams& params,
     const wchar_t* realtimeDllPath,
     ISpatialAudioObjectRenderStream** stream) {
-    if (!stream) {
+    return CreateTransportStream(params, realtimeDllPath, {}, stream);
+}
+
+HRESULT CreateOmniphonyStaticProbeStreamWithRealtimeBridgeAndQueue(
+    const SpatialAudioObjectRenderStreamActivationParams& params,
+    const wchar_t* realtimeDllPath,
+    std::shared_ptr<OmniphonySpatialStereoQueue> stereoQueue,
+    ISpatialAudioObjectRenderStream** stream) {
+    if (!stereoQueue) {
         return E_POINTER;
     }
-    *stream = nullptr;
-    if (!IsAbsoluteWindowsPath(realtimeDllPath)) {
-        return E_INVALIDARG;
-    }
-
-    std::shared_ptr<RealtimeQuantumTransport> transport;
-    try {
-        transport = std::make_shared<RealtimeQuantumTransport>();
-    }
-    catch (const std::bad_alloc&) {
-        return E_OUTOFMEMORY;
-    }
-
-    const HRESULT openResult = transport->Open(realtimeDllPath, params);
-    if (FAILED(openResult)) {
-        return openResult;
-    }
-
-    return CreateOmniphonyStaticProbeStreamWithTransport(
+    return CreateTransportStream(
         params,
-        std::move(transport),
+        realtimeDllPath,
+        std::move(stereoQueue),
         stream);
 }
