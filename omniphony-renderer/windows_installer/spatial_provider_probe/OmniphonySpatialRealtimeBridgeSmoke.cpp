@@ -8,10 +8,12 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <memory>
 #include <vector>
 
 #include "OmniphonySpatialRealtimeBridge.h"
 #include "OmniphonySpatialRoles.h"
+#include "OmniphonySpatialStereoQueue.h"
 
 namespace {
 
@@ -39,7 +41,7 @@ WAVEFORMATEX ObjectFormat() {
     return format;
 }
 
-HRESULT ExerciseComToCurrent(const wchar_t* realtimeDllPath) {
+HRESULT ExerciseComToCurrentQueue(const wchar_t* realtimeDllPath) {
     auto format = ObjectFormat();
     SpatialAudioObjectRenderStreamActivationParams params{};
     params.ObjectFormat = &format;
@@ -52,10 +54,16 @@ HRESULT ExerciseComToCurrent(const wchar_t* realtimeDllPath) {
     params.EventHandle = nullptr;
     params.NotifyObject = nullptr;
 
+    auto queue = std::make_shared<OmniphonySpatialStereoQueue>();
+    if (!queue->Open(1920)) {
+        return E_OUTOFMEMORY;
+    }
+
     ISpatialAudioObjectRenderStream* stream = nullptr;
-    HRESULT hr = CreateOmniphonyStaticProbeStreamWithRealtimeBridge(
+    HRESULT hr = CreateOmniphonyStaticProbeStreamWithRealtimeBridgeAndQueue(
         params,
         realtimeDllPath,
+        queue,
         &stream);
     if (FAILED(hr) || !stream) {
         return FAILED(hr) ? hr : E_FAIL;
@@ -83,6 +91,7 @@ HRESULT ExerciseComToCurrent(const wchar_t* realtimeDllPath) {
         return hr;
     }
 
+    std::vector<float> queuedStereo(480 * 2, 0.0f);
     for (std::uint32_t quantum = 0; quantum < 16; ++quantum) {
         UINT32 available = 0;
         UINT32 frames = 0;
@@ -126,12 +135,27 @@ HRESULT ExerciseComToCurrent(const wchar_t* realtimeDllPath) {
         if (FAILED(hr)) {
             break;
         }
+        if (queue->AvailableFrames() != frames) {
+            hr = E_FAIL;
+            break;
+        }
+
+        std::fill(queuedStereo.begin(), queuedStereo.end(), 0.0f);
+        const std::size_t readFrames = queue->Read(queuedStereo.data(), frames);
+        if (readFrames != frames || !AllFinite(queuedStereo)) {
+            hr = E_FAIL;
+            break;
+        }
 
         // Registry-free smoke only. Give Current's dedicated worker time to
         // consume the quantum without imposing a production scheduling model.
         Sleep(10);
     }
 
+    if (SUCCEEDED(hr) &&
+        (queue->AvailableFrames() != 0 || queue->DroppedFrames() != 0)) {
+        hr = E_FAIL;
+    }
     if (SUCCEEDED(hr)) {
         hr = stream->Stop();
     }
@@ -139,6 +163,7 @@ HRESULT ExerciseComToCurrent(const wchar_t* realtimeDllPath) {
     top->Release();
     front->Release();
     stream->Release();
+    queue->Close();
     return hr;
 }
 
@@ -222,11 +247,11 @@ int wmain(int argc, wchar_t** argv) {
     bridge.Close();
 
     // Then prove the composed registry-free path using the COM-shaped static
-    // stream itself. This still does not register/select Omniphony in Windows
-    // and it intentionally does not claim final endpoint playback.
-    hr = ExerciseComToCurrent(argv[1]);
+    // stream itself and the downstream clock-domain queue. This still does not
+    // register/select Omniphony or touch a physical endpoint.
+    hr = ExerciseComToCurrentQueue(argv[1]);
     if (FAILED(hr)) {
-        return Fail(L"COM-to-Current", hr);
+        return Fail(L"COM-to-Current-queue", hr);
     }
 
     std::wcout << L"SPATIAL_REALTIME_BRIDGE_OK 1\n";
@@ -238,6 +263,7 @@ int wmain(int argc, wchar_t** argv) {
                << directBlocks << L"\n";
     std::wcout << L"SPATIAL_REALTIME_BRIDGE_OUTPUT_PEAK " << peak << L"\n";
     std::wcout << L"SPATIAL_COM_TO_CURRENT_OK 1\n";
+    std::wcout << L"SPATIAL_COM_TO_STEREO_QUEUE_OK 1\n";
     std::wcout << L"SPATIAL_FINAL_ENDPOINT_PROVEN 0\n";
     return 0;
 }
