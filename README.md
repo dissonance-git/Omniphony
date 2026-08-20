@@ -1,6 +1,6 @@
 # Omniphony
 
-Omniphony is a free and open-source spatial audio renderer for headphones.
+Omniphony is an open-source spatial audio renderer for headphones.
 
 Its goal is to occupy the same broad class of system audio role as proprietary headphone spatial renderers such as Dolby Atmos for Headphones, DTS Headphone:X, Windows Sonic, Sony 360-style rendering systems, and Waves Nx, while keeping the renderer, scene model, source-authority rules, DSP, validation, and research inspectable.
 
