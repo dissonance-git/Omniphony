@@ -13,6 +13,7 @@ add_library(OmniphonySpatialProbe SHARED
     OmniphonySpatialProbe.cpp
     OmniphonySpatialStaticStream.cpp
     OmniphonySpatialRealtimeBridge.cpp
+    OmniphonySpatialStereoQueue.cpp
     OmniphonySpatialProbe.def
 )
 target_compile_features(OmniphonySpatialProbe PRIVATE cxx_std_17)
@@ -58,6 +59,7 @@ add_executable(OmniphonySpatialRealtimeBridgeSmoke
     OmniphonySpatialRealtimeBridgeSmoke.cpp
     OmniphonySpatialRealtimeBridge.cpp
     OmniphonySpatialStaticStream.cpp
+    OmniphonySpatialStereoQueue.cpp
 )
 target_compile_features(OmniphonySpatialRealtimeBridgeSmoke PRIVATE cxx_std_17)
 target_compile_definitions(OmniphonySpatialRealtimeBridgeSmoke PRIVATE UNICODE _UNICODE)
@@ -80,11 +82,11 @@ target_compile_definitions(OmniphonySpatialRawOutputProbe PRIVATE UNICODE _UNICO
 target_compile_options(OmniphonySpatialRawOutputProbe PRIVATE /W4 /WX /permissive-)
 target_link_libraries(OmniphonySpatialRawOutputProbe PRIVATE ole32 uuid)
 
-# Next provider-egress primitive. It opens the exact physical endpoint as a
-# shared event-driven RAW stereo stream, obtains IAudioRenderClient, and binds
-# the endpoint event. It intentionally exposes no Start() operation, so this
-# target can prove the lifecycle without creating an active playback clock or
-# mutating provider selection.
+# Provider-egress control-path primitive. It opens the exact physical endpoint
+# as a shared event-driven RAW stereo stream, obtains IAudioRenderClient, and
+# binds the endpoint event. It intentionally exposes no Start() operation, so
+# this target can prove the lifecycle without creating an active playback clock
+# or mutating provider selection.
 add_executable(OmniphonySpatialRawOutputSinkProbe
     OmniphonySpatialRawOutputSinkProbe.cpp
     OmniphonySpatialRawOutputSink.cpp
