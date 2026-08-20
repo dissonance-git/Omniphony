@@ -109,7 +109,7 @@ jobs:
             --arg run_source_ffi "$RUN_SOURCE_FFI_OUTCOME" \
             --arg compile_windows_ingress "$COMPILE_WINDOWS_INGRESS_OUTCOME" \
             --arg run_windows_ingress "$RUN_WINDOWS_INGRESS_OUTCOME" \
-            '{schema:$schema,head_sha:$head_sha,run_id:$run_id,steps:{rust:$rust,compile_source_shell:$compile_shell,run_source_shell:$run_shell,compile_engine:$compile_engine,run_source_shell:$run_shell,run_engine:$run_engine,compile_source_ffi:$compile_source_ffi,run_source_ffi:$run_source_ffi,compile_windows_ingress:$compile_windows_ingress,run_windows_ingress:$run_windows_ingress}}' \
+            '{schema:$schema,head_sha:$head_sha,run_id:$run_id,steps:{rust:$rust,compile_source_shell:$compile_shell,run_source_shell:$run_shell,compile_engine:$compile_engine,run_engine:$run_engine,compile_source_ffi:$compile_source_ffi,run_source_ffi:$run_source_ffi,compile_windows_ingress:$compile_windows_ingress,run_windows_ingress:$run_windows_ingress}}' \
             > ci-diagnostics/source-aware-spatial.json
 
       - name: Upload source-aware diagnostic record
