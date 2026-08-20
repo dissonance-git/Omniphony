@@ -5,6 +5,7 @@
 .DS_Store
 
 build/
+ci-diagnostics/
 target/
 node_modules/
 dist/
